@@ -34,5 +34,6 @@ zip output Payload
 
     def test_semantic_verifier_requires_embedded_startup_hook_contract(self):
         source = (Path(__file__).resolve().parents[1] / 'scripts' / 'package_livecontainer_combined.py').read_text(encoding='utf-8')
+        self.assertIn("LiveContainerShared.framework/LiveContainerShared", source)
         self.assertIn("b'installSideStoreHooks' in bootstrap_code", source)
         self.assertIn("b'EMBEDDED_SIDESTORE_STARTUP_FIX_V1'", source)
