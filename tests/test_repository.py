@@ -30,7 +30,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertTrue(WORKFLOW.is_file())
         self.assertEqual(
             {path.name for path in SCRIPTS.glob("*.py")},
-            REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, 'audit_ipa_signing.py', 'package_livecontainer_combined.py'},
+            REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, 'audit_ipa_signing.py', 'package_livecontainer_combined.py', 'patch_combined_transport.py'},
         )
 
     def test_patch_scripts_parse_and_are_idempotent(self):
