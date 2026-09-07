@@ -94,60 +94,29 @@ jobs:
           test "$resolved" -eq 1
           xcodebuild -project work/EmbeddedSideStore/AltStore.xcodeproj \
             -scheme SideStore -sdk iphoneos -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/embedded-sidestore-derived-data" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build \
             2>&1 | tee artifacts/logs/embedded-sidestore-build.log
 
-      - name: Package unsigned LiveContainer IPA
+      - name: Package and verify combined LiveContainer plus SideStore
         shell: bash
         run: |
           set -euo pipefail
-          APP="$RUNNER_TEMP/livecontainer-derived-data/Build/Products/Release-iphoneos/LiveContainer.app"
-          test -d "$APP"
-          test -f "$APP/LiveContainer"
-          test "$(plutil -extract CFBundleDisplayName raw "$APP/Info.plist")" = "LiveContainer"
-          mkdir -p artifacts/LiveContainer-AutoRefresh/Payload
-          cp -R "$APP" artifacts/LiveContainer-AutoRefresh/Payload/LiveContainer.app
-          (
-            cd artifacts/LiveContainer-AutoRefresh
-            zip -qry ../LiveContainer-AutoRefresh.ipa Payload
-          )
-          unzip -t artifacts/LiveContainer-AutoRefresh.ipa >/tmp/livecontainer-ipa-unzip-test.txt
-          unzip -q artifacts/LiveContainer-AutoRefresh.ipa -d /tmp/livecontainer-ipa-check
-          test -f /tmp/livecontainer-ipa-check/Payload/LiveContainer.app/LiveContainer
-          find /tmp/livecontainer-ipa-check/Payload/LiveContainer.app -type f -size +32k -print0 \
-            | xargs -0 strings >/tmp/livecontainer-strings.txt
-          for marker in \
-            '[AUTO_REFRESH] REGISTER_PASS' \
-            '[AUTO_REFRESH] SCHEDULE_PASS' \
-            '[AUTO_REFRESH] OPERATION_START' \
-            '[AUTO_REFRESH] COMPLETE'; do
-            if grep -Fq "$marker" /tmp/livecontainer-strings.txt; then
-              echo "marker_present=$marker"
-            else
-              echo "marker_not_embedded=$marker"
-            fi
-          done
-          SHA="$(shasum -a 256 artifacts/LiveContainer-AutoRefresh.ipa | awk '{print $1}')"
-          SIZE="$(stat -f '%z' artifacts/LiveContainer-AutoRefresh.ipa)"
-          {
-            echo 'LiveContainer native auto-refresh build'
-            echo "builder_commit=$GITHUB_SHA"
-            echo "livecontainer_ref=$LIVE_CONTAINER_REF"
-            echo "embedded_sidestore_ref=$EMBEDDED_SIDESTORE_REF"
-            echo "ipa_size=$SIZE"
-            echo "ipa_sha256=$SHA"
-            echo 'signing=unsigned-source-build; resign before device installation'
-            echo 'verification=PASS'
-          } | tee artifacts/LiveContainer-AutoRefresh-verification.txt
+          brew install ldid
+          python3 builder/scripts/package_livecontainer_combined.py \
+            --root work/LiveContainer \
+            --host "$RUNNER_TEMP/livecontainer-derived-data/Build/Products/Release-iphoneos/LiveContainer.app" \
+            --side "$RUNNER_TEMP/embedded-sidestore-derived-data/Build/Products/Release-iphoneos/SideStore.app" \
+            --output artifacts/LiveContainer-SideStore-AutoRefresh.ipa \
+            2>&1 | tee artifacts/logs/combined-packaging.log
 
-      - name: Upload LiveContainer IPA
+      - name: Upload combined LiveContainer IPA
         uses: actions/upload-artifact@v4
         with:
-          name: LiveContainer-AutoRefresh-IPA
+          name: LiveContainer-SideStore-AutoRefresh-IPA
           path: |
-            artifacts/LiveContainer-AutoRefresh.ipa
-            artifacts/LiveContainer-AutoRefresh-verification.txt
-            /tmp/livecontainer-ipa-unzip-test.txt
+            artifacts/LiveContainer-SideStore-AutoRefresh.ipa
+            artifacts/LiveContainer-SideStore-AutoRefresh.verification.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
