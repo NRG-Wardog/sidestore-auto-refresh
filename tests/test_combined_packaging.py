@@ -31,3 +31,7 @@ zip output Payload
     def test_adapter_rejects_duplicate_download_anchor(self):
         with self.assertRaises(ValueError):
             adapt('brew install ldid\nbrew install ldid\n')
+
+    def test_semantic_verifier_requires_embedded_startup_fix(self):
+        source = (Path(__file__).resolve().parents[1] / 'scripts' / 'package_livecontainer_combined.py').read_text(encoding='utf-8')
+        self.assertIn("b'EMBEDDED_SIDESTORE_STARTUP_FIX_V1'", source)
