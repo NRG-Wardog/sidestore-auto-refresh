@@ -72,6 +72,8 @@ def verify(path, side_product=None):
         assert b'liveContainerAutoRefreshVerification' in executable, 'Patched embedded operation missing'
         host_code = archive.read(base + '/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI')
         assert b'liveContainerAutoRefresh' in host_code, 'Host automation missing'
+        assert b'lcReturnToHost' in host_code, 'Guest return action missing from host binary'
+        assert b'LCReturnControlPosition' in host_code, 'Movable return control missing'
         bootstrap_code = archive.read(base + '/Frameworks/LiveContainerShared.framework/LiveContainerShared')
         support_code = archive.read(base + '/Frameworks/SideStoreSupport.framework/SideStoreSupport')
         assert b'installSideStoreHooks' in bootstrap_code, 'Embedded SideStore hook invocation missing'
