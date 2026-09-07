@@ -19,6 +19,7 @@ REQUIRED_SCRIPTS = {
 }
 LIVE_CONTAINER_SCRIPT = "patch_livecontainer_autorefresh.py"
 LIVE_CONTAINER_STARTUP_SCRIPT = "patch_embedded_sidestore_startup.py"
+COMBINED_REFRESH_SCRIPT = "patch_combined_refresh_contract.py"
 
 
 class RepositoryTests(unittest.TestCase):
@@ -32,12 +33,13 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(
             {path.name for path in SCRIPTS.glob("*.py")},
             REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
-                                'audit_ipa_signing.py', 'package_livecontainer_combined.py', 'patch_combined_transport.py'},
+                                COMBINED_REFRESH_SCRIPT, 'audit_ipa_signing.py',
+                                'package_livecontainer_combined.py', 'patch_combined_transport.py'},
         )
 
     def test_patch_scripts_parse_and_are_idempotent(self):
         for name in REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
-                                        "patch_combined_transport.py"}:
+                                        COMBINED_REFRESH_SCRIPT, "patch_combined_transport.py"}:
             path = SCRIPTS / name
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         self.assertIn(
@@ -61,6 +63,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertNotIn("build-v29-coredevice-self-refresh.yml", workflow)
         live_workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
         self.assertIn("builder/scripts/" + LIVE_CONTAINER_STARTUP_SCRIPT, live_workflow)
+        self.assertIn("builder/scripts/" + COMBINED_REFRESH_SCRIPT, live_workflow)
 
     def test_upstream_ipsec_anchor_preserves_original_punctuation(self):
         source = (SCRIPTS / "patch_sidestore_integration.py").read_text(encoding="utf-8")
