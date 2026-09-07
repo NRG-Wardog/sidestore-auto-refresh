@@ -295,6 +295,70 @@ class CombinedTransportTests(SourceFixture):
         body = parser[parser.index("public static func validatePairingFile"):]
         self.assertLess(body.index("return .lockdown"), body.index("return .rppairing"))
 
+    def test_cleanup_closures_preserve_return_values(self):
+        patch(self.mux)
+        gateway = self.gateway.read_text(encoding="utf-8")
+        gateway = gateway[gateway.index("// Async FFI Dispatcher Extensions"):]
+        for name in ("fetchUDID", "getLockdownValue", "dumpProfiles", "isDDIMounted",
+                     "startWirelessPair", "triggerWirelessPair", "afcListDirectory",
+                     "afcReadFile", "afcGetFileInfo"):
+            body = function(gateway, name)
+            self.assertIn("defer { if self.batchCount == 0", body)
+            self.assertIn("return try self.sync", body, name)
+        heartbeat = function(gateway, "performHeartbeat")
+        self.assertIn("return newInterval > 0 ? newInterval : 1000", heartbeat)
+        self.assertNotIn("return try self.syncPerformHeartbeat", heartbeat)
+
+    def test_generated_cleanup_closures_executable(self):
+        if not shutil.which("swiftc"):
+            self.skipTest("swiftc unavailable; generated closure typechecking not verified locally")
+        patch(self.mux)
+        gateway = self.gateway.read_text(encoding="utf-8")
+        gateway = gateway[gateway.index("// Async FFI Dispatcher Extensions"):]
+        methods = "\n".join(function(gateway, name) for name in
+                            ("fetchUDID", "isDDIMounted", "afcReadFile", "afcGetFileInfo", "performHeartbeat"))
+        self.compile_run(self.read("Common/FFIDispatcher.swift") + '''
+final class IdeviceGateway: @unchecked Sendable {
+    let ffiQueue = DispatchQueue(label: "test.ffi")
+    var batchCount = 0
+    var releases = 0
+    var fail = false
+    func releaseTransport() { releases += 1 }
+    func syncFetchUDID() throws -> String? {
+        if fail { throw NSError(domain: "test", code: 1) }
+        return "test-device"
+    }
+    func syncIsDDIMounted() throws -> Bool { true }
+    func syncAfcReadFile(bundleId: String, path: String) throws -> Data { Data([1, 2, 3]) }
+    func syncAfcGetFileInfo(bundleId: String, path: String) throws -> (isDirectory: Bool, fileSize: Int64) { (false, 3) }
+    func syncPerformHeartbeat(interval: UInt64, newInterval: UnsafeMutablePointer<UInt64>) throws { newInterval.pointee = 60 }
+''' + methods + '''
+}
+let finished = DispatchSemaphore(value: 0)
+Task.detached {
+    let gateway = IdeviceGateway()
+    let udid = try await gateway.fetchUDID()
+    precondition(udid == "test-device")
+    let mounted = try await gateway.isDDIMounted()
+    precondition(mounted)
+    let bytes = try await gateway.afcReadFile(bundleId: "test", path: "file")
+    precondition(bytes == Data([1, 2, 3]))
+    let info = try await gateway.afcGetFileInfo(bundleId: "test", path: "file")
+    precondition(!info.isDirectory && info.fileSize == 3)
+    let interval = try await gateway.performHeartbeat(interval: 1)
+    precondition(interval == 60 && gateway.releases == 5)
+    gateway.batchCount = 1
+    _ = try await gateway.fetchUDID()
+    precondition(gateway.releases == 5)
+    gateway.batchCount = 0
+    gateway.fail = true
+    do { _ = try await gateway.fetchUDID(); fatalError("Expected failure") }
+    catch { precondition(gateway.releases == 6) }
+    finished.signal()
+}
+precondition(finished.wait(timeout: .now() + 10) == .success)
+''')
+
     def test_pairing_mode_diagnostic_uses_selected_parser_mode(self):
         patch(self.mux)
         text = self.gateway.read_text(encoding="utf-8")
