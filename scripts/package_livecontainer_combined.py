@@ -73,7 +73,9 @@ def verify(path, side_product=None):
         host_code = archive.read(base + '/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI')
         assert b'liveContainerAutoRefresh' in host_code, 'Host automation missing'
         bootstrap_code = archive.read(base + '/LiveContainer')
-        assert b'EMBEDDED_SIDESTORE_STARTUP_FIX_V1' in bootstrap_code, 'Embedded SideStore startup fix missing'
+        support_code = archive.read(base + '/Frameworks/SideStoreSupport.framework/SideStoreSupport')
+        assert b'installSideStoreHooks' in bootstrap_code, 'Embedded SideStore hook invocation missing'
+        assert b'EMBEDDED_SIDESTORE_STARTUP_FIX_V1' in support_code, 'Embedded SideStore startup fix missing'
         for name in ('Intents.intentdefinition', 'ViewApp.intentdefinition', 'Metadata.appintents/extract.actionsdata'):
             assert archive.read(base + '/' + name), name
         metadata = archive.read(base + '/Metadata.appintents/extract.actionsdata')
