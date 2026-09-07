@@ -31,6 +31,7 @@ class CombinedRefreshContractTests(unittest.TestCase):
             result = file.read_text()
             self.assertIn('"expected_ids": installedApps.map', result)
             self.assertIn('"version": 2', result)
+            self.assertIn('"schema": "LiveContainerRefreshManifestV2"', result)
             self.assertIn('defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier', result)
             self.assertNotIn(r"\\(refreshIdentifier)", result)
             patch.patch(root)
