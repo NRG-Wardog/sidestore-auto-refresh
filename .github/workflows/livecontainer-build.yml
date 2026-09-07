@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: livecontainer-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   LIVE_CONTAINER_REF: 12377cf3b91d51739a33f14a302e5f522b238593

@@ -23,7 +23,7 @@ def patch(root: Path) -> None:
         'defaults.set(defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier,\n                     forKey: "liveContainerAutoRefreshHostHandoffRunID")')
     text = replace_once(text,
         'defaults.set(["version": 1, "date": Date(),',
-        '// COMBINED_REFRESH_MANIFEST_V2: omissions are not verified success.\n        defaults.set(["version": 2, "date": Date(),\n            "expected_ids": installedApps.map { $0.bundleIdentifier },')
+        '// COMBINED_REFRESH_MANIFEST_V2: omissions are not verified success.\n        defaults.set(["version": 2, "date": Date(),\n            "schema": "LiveContainerRefreshManifestV2",\n            "expected_ids": installedApps.map { $0.bundleIdentifier },')
     # The existing helper is itself a raw Python string; its diagnostic Swift
     # must interpolate values rather than print backslash-parenthesis literally.
     start = text.index("    private func automaticRefreshDefaults()")
@@ -58,7 +58,7 @@ def verify_ipa(path: Path) -> dict:
         assert len(tasks) == 1 and tasks[0] + ".watchdog" in allowed
         assert tuple(map(int, info.get("MinimumOSVersion", "999").split("."))) <= (15, 0, 0)
         embedded = archive.read(base + "/Frameworks/SideStoreApp.framework/SideStore")
-        assert b"expected_ids" in embedded, "Incomplete-result verification contract not embedded"
+        assert b"LiveContainerRefreshManifestV2" in embedded, "Incomplete-result verification contract not embedded"
         for name in archive.namelist():
             if name.endswith("/"):
                 continue
