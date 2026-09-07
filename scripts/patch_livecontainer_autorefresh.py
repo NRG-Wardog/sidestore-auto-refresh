@@ -195,8 +195,8 @@ enum LiveContainerAutoRefreshScheduler {{
         let guests = DataManager.shared.model.apps + DataManager.shared.model.hiddenApps
         var allValid = true
         for guest in guests {{
-            let path = guest.appInfo.bundlePath()
-            guard let executable = Bundle(path: path)?.executableURL else {{
+            guard let path = guest.appInfo.bundlePath(),
+                  let executable = Bundle(path: path)?.executableURL else {{
                 allValid = false
                 print("[LIVE_CONTAINER_REFRESH] GUEST_SIGNATURE_INVALID bundle_id=\\(guest.appInfo.bundleIdentifier()) reason=executable_missing")
                 continue
@@ -404,16 +404,15 @@ enum LiveContainerAutoRefreshAlarmProvider {
         }
         let alert = AlarmPresentation.Alert(
             title: "Automatic refresh deadline",
-            stopButton: .stopButton,
             secondaryButton: AlarmButton(text: "Refresh Now", textColor: .white, systemImageName: "arrow.clockwise"),
             secondaryButtonBehavior: .custom
         )
-        let attributes = AlarmAttributes(
+        let attributes: AlarmAttributes<LiveContainerRefreshAlarmMetadata> = AlarmAttributes(
             presentation: AlarmPresentation(alert: alert),
             metadata: LiveContainerRefreshAlarmMetadata(),
             tintColor: Color.orange
         )
-        let configuration = AlarmManager.AlarmConfiguration.alarm(
+        let configuration: AlarmManager.AlarmConfiguration<LiveContainerRefreshAlarmMetadata> = AlarmManager.AlarmConfiguration.alarm(
             schedule: .fixed(deadline),
             attributes: attributes,
             stopIntent: nil,
@@ -610,6 +609,13 @@ def patch_host_info(root: Path) -> None:
             )
         else:
             text = replace_once(text, "</dict>\n</plist>", "\t<key>UIBackgroundModes</key>\n\t<array>\n\t\t<string>processing</string>\n\t</array>\n</dict>\n</plist>", "host processing background mode insertion")
+    if "NSAlarmKitUsageDescription" not in text:
+        text = replace_once(
+            text,
+            "</dict>\n</plist>",
+            "\t<key>NSAlarmKitUsageDescription</key>\n\t<string>Protect automatic refresh deadlines.</string>\n</dict>\n</plist>",
+            "AlarmKit usage description",
+        )
     path.write_text(text, encoding="utf-8")
 
 
@@ -698,6 +704,7 @@ def verify(root: Path) -> None:
         (alarm, "secondaryIntent", "AlarmKit user action fallback"),
         (project, "-weak_framework", "AlarmKit weak link"),
         (info, "<string>processing</string>", "host processing mode"),
+        (info, "NSAlarmKitUsageDescription", "AlarmKit usage description"),
     ]
     missing = [label for content, needle, label in required if needle not in content]
     if missing:
