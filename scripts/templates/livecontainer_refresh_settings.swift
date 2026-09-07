@@ -105,7 +105,7 @@ struct LCEmbeddedSideStoreRefreshView: View {
                     HStack(alignment: .top, spacing: 10) {
                         if isSelectingHistory {
                             Image(systemName: selectedHistoryIndexes.contains(index) ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(selectedHistoryIndexes.contains(index) ? .tint : .secondary)
+                                .foregroundColor(selectedHistoryIndexes.contains(index) ? .accentColor : .secondary)
                                 .font(.title3)
                         }
                         VStack(alignment: .leading, spacing: 2) {
