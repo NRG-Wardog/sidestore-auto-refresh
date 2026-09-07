@@ -89,7 +89,7 @@ enum LiveContainerAutoRefreshScheduler {{
     }}
 
     private static func cancelDeadlineAlarm() {{
-        if #available(iOS 26.0, *) {{
+        if #available(iOS 26.1, *) {{
             LiveContainerAutoRefreshAlarmProvider.cancelIfAvailable()
         }}
         defaults.set(false, forKey: alarmScheduledKey)
@@ -346,7 +346,7 @@ enum LiveContainerAutoRefreshScheduler {{
             record(source: "scheduler", result: "bgapprefresh_submit_failed", detail: error.localizedDescription)
             print("[LIVE_CONTAINER_REFRESH] WATCHDOG_SCHEDULE_FAIL error_code=\\((error as NSError).code) error_domain=\\((error as NSError).domain) error=\\(error.localizedDescription)")
         }}
-        if #available(iOS 26.0, *) {{
+        if #available(iOS 26.1, *) {{
             Task {{ await LiveContainerAutoRefreshAlarmProvider.scheduleIfAvailable(deadline: deadline) }}
         }} else {{
             defaults.set("legacy_background", forKey: strategyKey)
@@ -373,10 +373,10 @@ import AlarmKit
 import AppIntents
 import SwiftUI
 
-@available(iOS 26.0, *)
+@available(iOS 26.1, *)
 private struct LiveContainerRefreshAlarmMetadata: AlarmMetadata {}
 
-@available(iOS 26.0, *)
+@available(iOS 26.1, *)
 private struct LiveContainerRefreshAlarmIntent: LiveActivityIntent {
     static var title: LocalizedStringResource { "Refresh LiveContainer now" }
 
@@ -386,7 +386,7 @@ private struct LiveContainerRefreshAlarmIntent: LiveActivityIntent {
     }
 }
 
-@available(iOS 26.0, *)
+@available(iOS 26.1, *)
 enum LiveContainerAutoRefreshAlarmProvider {
     private static let alarmID = UUID(uuidString: "7B0A0E8E-0C90-4E33-9BA9-6DD38D8D5E2E")!
 
@@ -700,7 +700,7 @@ def verify(root: Path) -> None:
         (project, "A17ECAFE2DCA000000000002", "host SwiftUI framework link"),
         (project, "A17ECAFE2DCA000000000003", "host SwiftUI target dependency"),
         (alarm, "#if canImport(AlarmKit)", "AlarmKit compile isolation"),
-        (alarm, "@available(iOS 26.0, *)", "AlarmKit availability isolation"),
+        (alarm, "@available(iOS 26.1, *)", "AlarmKit availability isolation"),
         (alarm, "secondaryIntent", "AlarmKit user action fallback"),
         (project, "-weak_framework", "AlarmKit weak link"),
         (info, "<string>processing</string>", "host processing mode"),
