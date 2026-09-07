@@ -51,11 +51,14 @@ jobs:
           )
           module = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(module)
+          module.patch_background_operation(Path("work/EmbeddedSideStore"))
           module.patch_console_log(Path("work/EmbeddedSideStore"))
           PY
           swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/App/AppDelegate.swift
+          swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift
           swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift
           swiftc -frontend -parse work/LiveContainer/SideStoreSupport/SideStore.swift
+          swiftc -frontend -parse work/EmbeddedSideStore/SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift
           swiftc -frontend -parse work/EmbeddedSideStore/SideStore/Utils/iostreams/ConsoleLog.swift
           plutil -extract BGTaskSchedulerPermittedIdentifiers.0 raw work/LiveContainer/LiveContainer/Info.plist
           xcodebuild -list -project work/LiveContainer/LiveContainer.xcodeproj

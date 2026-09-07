@@ -965,6 +965,7 @@ def patch_background_operation(sidestore: Path) -> None:
     )
     text = path.read_text(encoding="utf-8")
     marker = "[AUTO_REFRESH] AUTH_PREFLIGHT_PASS"
+    verification_marker = "[AUTO_REFRESH] VERIFICATION_MANIFEST_V1"
     if marker not in text:
         text = replace_once(
             text,
@@ -1055,7 +1056,8 @@ def patch_background_operation(sidestore: Path) -> None:
             '''            let group = AppManager.shared.refresh(apps, presentingViewController: nil)
             group.beginInstallationHandler = { [weak self] (installedApp) in
 ''',
-            '''            let group = AppManager.shared.refresh(apps, presentingViewController: nil, recordManualHistory: false)
+            '''            debugLog("[AUTO_REFRESH] SIGNING_STARTED app_count=\\(apps.count)")
+            let group = AppManager.shared.refresh(apps, presentingViewController: nil, recordManualHistory: false)
             self.refreshGroupLock.lock()
             self.activeRefreshGroup = group
             let shouldCancel = self.isCancelled
@@ -1063,6 +1065,10 @@ def patch_background_operation(sidestore: Path) -> None:
             if shouldCancel { group.cancel() }
 
             group.beginInstallationHandler = { [weak self] (installedApp) in
+                debugLog("[AUTO_REFRESH] INSTALLATION_STARTED bundle_id=\\(installedApp.bundleIdentifier)")
+                if installedApp.bundleIdentifier == StoreApp.altstoreAppID {
+                    self?.persistAutomaticHostHandoff()
+                }
 ''',
             "attach cancellable refresh group",
         )
@@ -1078,11 +1084,61 @@ def patch_background_operation(sidestore: Path) -> None:
                 self.refreshGroupLock.lock()
                 self.activeRefreshGroup = nil
                 self.refreshGroupLock.unlock()
+                self.persistAutomaticRefreshVerification(results: results)
                 self.setProgress(100)
                 continuation.resume(returning: results)
             }
 ''',
             "clear refresh group",
+        )
+
+        helper = r'''
+    private func automaticRefreshDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "group.com.SideStore.SideStore") ?? .standard
+    }
+
+    private func persistAutomaticHostHandoff() {
+        let defaults = automaticRefreshDefaults()
+        defaults.set(true, forKey: "liveContainerAutoRefreshHostHandoff")
+        defaults.set(refreshIdentifier, forKey: "liveContainerAutoRefreshHostHandoffRunID")
+        defaults.set(Date(), forKey: "liveContainerAutoRefreshHostHandoffStartedAt")
+        if let host = installedApps.first(where: { $0.bundleIdentifier == StoreApp.altstoreAppID }) {
+            defaults.set(host.expirationDate, forKey: "liveContainerAutoRefreshHostPreviousExpiration")
+        }
+        debugLog("[AUTO_REFRESH] HOST_REFRESH_HANDOFF_STARTED run_id=\\(refreshIdentifier)")
+    }
+
+    private func persistAutomaticRefreshVerification(results: [String: Result<InstalledApp, Error>]) {
+        let defaults = automaticRefreshDefaults()
+        var serialized: [[String: Any]] = []
+        for (bundleIdentifier, result) in results.sorted(by: { $0.key < $1.key }) {
+            switch result {
+            case .success(let app):
+                debugLog("[AUTO_REFRESH] REFRESH_VERIFIED bundle_id=\\(bundleIdentifier) refreshed_date=\\(app.refreshedDate) expiration_date=\\(app.expirationDate)")
+                serialized.append(["bundle_id": bundleIdentifier, "name": app.name,
+                    "success": true, "refreshed_date": app.refreshedDate,
+                    "expiration_date": app.expirationDate])
+            case .failure(let error):
+                let nsError = error as NSError
+                debugLog("[AUTO_REFRESH] REFRESH_FAILED bundle_id=\\(bundleIdentifier) stage=refresh error_code=\\(nsError.code) error_domain=\\(nsError.domain) error=\\(error.localizedDescription)")
+                serialized.append(["bundle_id": bundleIdentifier, "success": false,
+                    "error_code": nsError.code, "error_domain": nsError.domain,
+                    "error": error.localizedDescription])
+            }
+        }
+        defaults.set(["version": 1, "date": Date(),
+            "run_id": defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier,
+            "results": serialized,
+            "host_handoff": defaults.bool(forKey: "liveContainerAutoRefreshHostHandoff")],
+            forKey: "liveContainerAutoRefreshVerification")
+        debugLog("[AUTO_REFRESH] VERIFICATION_MANIFEST_V1 run_id=\\(refreshIdentifier) result_count=\\(serialized.count)")
+    }
+'''
+        text = replace_once(
+            text,
+            "    private func startListeningForRunningApps() {",
+            helper + "\n    private func startListeningForRunningApps() {",
+            "automatic refresh verification helpers",
         )
 
         path.write_text(text, encoding="utf-8")
@@ -1094,6 +1150,9 @@ def patch_background_operation(sidestore: Path) -> None:
         "group?.cancel()",
         "guard !self.isCancelled",
         "AuthManager.shared.isAuthenticated",
+        verification_marker,
+        "persistAutomaticHostHandoff",
+        "persistAutomaticRefreshVerification",
     ]
     missing = [item for item in required if item not in text]
     if missing:
