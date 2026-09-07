@@ -84,8 +84,10 @@ jobs:
           for attempt in 1 2 3; do
             rm -rf "$artifact"
             rm -rf "$HOME/Library/Developer/Xcode/DerivedData"/*/SourcePackages/artifacts/openssl 2>/dev/null || true
+            rm -rf "$RUNNER_TEMP/embedded-sidestore-derived-data/SourcePackages/artifacts/openssl"
             if xcodebuild -resolvePackageDependencies -disablePackageRepositoryCache \
-                -project work/EmbeddedSideStore/AltStore.xcodeproj -scheme SideStore; then
+                -project work/EmbeddedSideStore/AltStore.xcodeproj -scheme SideStore \
+                -derivedDataPath "$RUNNER_TEMP/embedded-sidestore-derived-data"; then
               resolved=1
               break
             fi
