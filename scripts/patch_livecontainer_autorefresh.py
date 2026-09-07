@@ -472,7 +472,7 @@ struct LCEmbeddedSideStoreRefreshView: View {
     var body: some View {
         Form {
             Section("Status") {
-                Text("Auto Refresh: \(enabled ? \"Active\" : \"Inactive\")")
+                Text("Auto Refresh: \(enabled ? "Active" : "Inactive")")
                 let strategy = defaults.string(forKey: "liveContainerAutoRefreshStrategy") ?? "legacy_background"
                 let protection = strategy == "native_full" ? "Enhanced" : (strategy == "legacy_background" ? "Limited" : "Standard")
                 Text("Protection: \(protection)")
