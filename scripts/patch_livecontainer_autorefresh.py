@@ -84,6 +84,41 @@ enum LiveContainerAutoRefreshScheduler {{
     static let coalescingWindow: TimeInterval = 60
     private static let lock = NSLock()
 
+    static func requestNotificationPermission() {{
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) {{ granted, error in
+            if let error {{
+                print("[LIVE_CONTAINER_REFRESH] NOTIFICATION_PERMISSION_FAIL error=\\(error.localizedDescription)")
+            }} else {{
+                print("[LIVE_CONTAINER_REFRESH] NOTIFICATION_PERMISSION granted=\\(granted)")
+            }}
+        }}
+    }}
+
+    private static func notify(title: String, body: String, kind: String) {{
+        UNUserNotificationCenter.current().getNotificationSettings {{ settings in
+            guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {{
+                print("[LIVE_CONTAINER_REFRESH] NOTIFICATION_SKIPPED kind=\\(kind) reason=not_authorized")
+                return
+            }}
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.sound = .default
+            let request = UNNotificationRequest(
+                identifier: "LiveContainerAutoRefresh.\\(kind).\\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+            UNUserNotificationCenter.current().add(request) {{ error in
+                if let error {{
+                    print("[LIVE_CONTAINER_REFRESH] NOTIFICATION_FAIL kind=\\(kind) error=\\(error.localizedDescription)")
+                }} else {{
+                    print("[LIVE_CONTAINER_REFRESH] NOTIFICATION_PASS kind=\\(kind)")
+                }}
+            }}
+        }}
+    }}
+
     private static func diagnosticDate(_ date: Date, timeZone: TimeZone) -> String {{
         let formatter = ISO8601DateFormatter()
         formatter.timeZone = timeZone
@@ -135,6 +170,7 @@ enum LiveContainerAutoRefreshScheduler {{
         defaults.set(Date(), forKey: lastTaskKey)
         defaults.set("REFRESH_IN_PROGRESS", forKey: healthStateKey)
         print("[LIVE_CONTAINER_REFRESH] RUN_BEGIN source=\\(source) run_id=\\(runID.uuidString)")
+        notify(title: "Refresh started", body: "Checking SideStore refresh requirements.", kind: "started")
         return runID
     }}
 
@@ -240,6 +276,7 @@ enum LiveContainerAutoRefreshScheduler {{
                 defaults.set("HOST_REFRESH_AWAITING_RELAUNCH", forKey: healthStateKey)
                 record(source: source, result: "host_handoff_awaiting_relaunch", detail: verification.reason)
                 print("[LIVE_CONTAINER_REFRESH] HOST_REFRESH_AWAITING_RELAUNCH run_id=\\(runID.uuidString)")
+                notify(title: "Host refresh awaiting verification", body: "LiveContainer will verify the replacement after relaunch.", kind: "host_handoff")
                 task?.setTaskCompleted(success: true)
             }} else if verification.verified && verifyGuestSignatures() {{
                 defaults.set(Date().addingTimeInterval(6 * 60 * 60), forKey: earliestEligibleKey)
@@ -250,12 +287,14 @@ enum LiveContainerAutoRefreshScheduler {{
                 defaults.removeObject(forKey: lastErrorKey)
                 record(source: source, result: "verified", detail: verification.reason)
                 print("[LIVE_CONTAINER_REFRESH] REFRESH_RESULT run_id=\\(runID.uuidString) success=true verified=true")
+                notify(title: "Refresh completed", body: "Installed app records were verified.", kind: "verified")
                 cancelDeadlineAlarm()
                 task?.setTaskCompleted(success: true)
             }} else if verification.verified {{
                 defaults.set("GUEST_SIGNATURE_INVALID", forKey: healthStateKey)
                 defaults.set("guest_signature_invalid", forKey: lastErrorKey)
                 record(source: source, result: "guest_signature_invalid", detail: "A LiveContainer guest signature could not be validated.")
+                notify(title: "Guest signature needs attention", body: "A LiveContainer guest could not be verified.", kind: "guest_invalid")
                 task?.setTaskCompleted(success: false)
             }} else {{
                 throw NSError(domain: "LiveContainerRefresh", code: 1001,
@@ -270,6 +309,7 @@ enum LiveContainerAutoRefreshScheduler {{
             defaults.set(error.localizedDescription, forKey: lastErrorKey)
             record(source: source, result: "failure", detail: error.localizedDescription)
             print("[LIVE_CONTAINER_REFRESH] REFRESH_RESULT run_id=\\(runID.uuidString) success=false verified=false error_code=\\((error as NSError).code) error_domain=\\((error as NSError).domain) stage=refresh error=\\(error.localizedDescription)")
+            notify(title: "Refresh failed", body: error.localizedDescription, kind: "failed")
             task?.setTaskCompleted(success: false)
         }}
     }}
@@ -558,6 +598,7 @@ struct LCEmbeddedSideStoreRefreshView: View {
     }
 
     private func notifyManualRefresh() {
+        LiveContainerAutoRefreshScheduler.requestNotificationPermission()
         NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil)
     }
 
@@ -581,10 +622,16 @@ def patch_host_delegate(root: Path) -> None:
     text = path.read_text(encoding="utf-8")
     if "import BackgroundTasks" not in text:
         text = replace_once(text, "import Intents\n", "import Intents\nimport BackgroundTasks\nimport SideStoreSupport\n", "host imports")
+    if "import UserNotifications" not in text:
+        text = replace_once(text, "import BackgroundTasks\n", "import BackgroundTasks\nimport UserNotifications\n", "host notification import")
     if "LiveContainerAutoRefreshScheduler.register()" not in text:
         text = replace_once(text, "        application.shortcutItems = nil\n", "        application.shortcutItems = nil\n        LiveContainerAutoRefreshScheduler.register()\n        LiveContainerAutoRefreshScheduler.schedule()\n        LiveContainerAutoRefreshScheduler.recoverAfterLaunchOrResume()\n        NotificationCenter.default.addObserver(forName: Notification.Name(\"LiveContainerAutoRefreshScheduleChanged\"), object: nil, queue: .main) { _ in\n            LiveContainerAutoRefreshScheduler.schedule()\n        }\n        NotificationCenter.default.addObserver(forName: Notification.Name(\"LiveContainerAutoRefreshRunNow\"), object: nil, queue: .main) { _ in\n            LiveContainerAutoRefreshScheduler.runNow()\n        }\n", "host scheduler startup")
         text = replace_once(text, "    func application(_ application: UIApplication, configurationForConnecting", "    func applicationDidEnterBackground(_ application: UIApplication) {\n        LiveContainerAutoRefreshScheduler.schedule()\n    }\n\n    func applicationWillEnterForeground(_ application: UIApplication) {\n        LiveContainerAutoRefreshScheduler.recoverAfterLaunchOrResume()\n    }\n\n    func application(_ application: UIApplication, configurationForConnecting", "host background reschedule")
         text = replace_once(text, "class SceneDelegate:", HOST_SCHEDULER + "\nclass SceneDelegate:", "host scheduler implementation")
+    if "UNUserNotificationCenter.current().delegate = self" not in text:
+        text = replace_once(text, "        application.shortcutItems = nil\n", "        application.shortcutItems = nil\n        UNUserNotificationCenter.current().delegate = self\n", "notification delegate setup")
+    if "extension AppDelegate: UNUserNotificationCenterDelegate" not in text:
+        text += "\n\n// Allows refresh status notifications while LiveContainer is foregrounded.\nextension AppDelegate: UNUserNotificationCenterDelegate {\n    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {\n        completionHandler([.banner, .sound])\n    }\n}\n"
     path.write_text(text, encoding="utf-8")
 
 
@@ -697,6 +744,12 @@ def verify(root: Path) -> None:
         (delegate, "record(source: source", "coalesced history"),
         (delegate, "liveContainerAutoRefreshHistory", "history persistence"),
         (delegate, "RUN_BEGIN source=", "run diagnostics"),
+        (delegate, "requestNotificationPermission", "notification authorization"),
+        (delegate, "NOTIFICATION_PASS", "notification delivery diagnostics"),
+        (delegate, "Refresh started", "start notification"),
+        (delegate, "Refresh completed", "verified notification"),
+        (delegate, "Refresh failed", "failure notification"),
+        (delegate, "UNUserNotificationCenterDelegate", "foreground notification delegate"),
         (info, TASK_ID, "permitted task identifier"),
         (info, f"{TASK_ID}.watchdog", "permitted watchdog identifier"),
         (project, "A17ECAFE2DCA000000000001", "host framework link"),
