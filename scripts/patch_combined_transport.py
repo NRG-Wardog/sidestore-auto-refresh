@@ -212,6 +212,10 @@ def patch(minimuxer: Path):
                        "IPA_STAGE_START", "file_STAGE_START"):
             text = text.replace('debugLog("[SELF_REFRESH] ' + detail,
                                 'verboseLog("[SELF_REFRESH] ' + detail)
+        # Adding defer makes these multi-statement closures. Preserve their
+        # values explicitly; otherwise Swift infers Void instead of the result.
+        text = text.replace("withFFIDispatch(on: self.ffiQueue) {\n            try self.",
+                            "withFFIDispatch(on: self.ffiQueue) {\n            return try self.")
         # Non-batch operations remain usable, but must not leave a heartbeat alive.
         return text.replace("withFFIDispatch(on: self.ffiQueue) {",
                             "withFFIDispatch(on: self.ffiQueue) {\n            defer { if self.batchCount == 0 { self.releaseTransport() } }")
