@@ -200,6 +200,7 @@ def patch_coredevice_route_selection(minimuxer: Path) -> None:
 def patch_gateway(minimuxer: Path) -> None:
     path = minimuxer / "DeviceGateway" / "idevice" / "IdeviceGateway.swift"
     text = path.read_text(encoding="utf-8")
+    modern = "IdeviceGateway: BaseDeviceGateway, DeviceGatewayAPI" in text
     if MARKER in text:
         verify_gateway(text)
         return
@@ -222,11 +223,16 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
 
     text = replace_once(
         text,
-        r"""    public func setLogging(_ enabled: Bool) {
+        """    public override func setLogging(_ enabled: Bool) {
+        super.setLogging(enabled)
+""" if modern else r"""    public func setLogging(_ enabled: Bool) {
         DeviceGatewayLogging.setLogging(enabled)
         debugLog("[IdeviceGateway] setLogging(\(enabled)) called")
 """,
-        r"""    public func setLogging(_ enabled: Bool) {
+        """    public override func setLogging(_ enabled: Bool) {
+        idevice_set_transport_log_callback(sideStoreTransportLog)
+        super.setLogging(enabled)
+""" if modern else r"""    public func setLogging(_ enabled: Bool) {
         idevice_set_transport_log_callback(sideStoreTransportLog)
         DeviceGatewayLogging.setLogging(enabled)
         debugLog("[IdeviceGateway] setLogging(\(enabled)) called")
@@ -268,7 +274,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
     }
 """,
         "serialize remote pairing endpoint updates",
-    )
+    ) if not modern else text
 
     old_cleanup = """    private func cleanup() {
         debugLog("[IdeviceGateway] cleanup() called")
@@ -339,6 +345,17 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
         }
     }
 """
+    if modern:
+        # State belongs to BaseDeviceGateway; retain its setter side effects.
+        def base_cleanup(source: str) -> str:
+            return (source.replace("isInitialized = false", "setInitialized(false)")
+                    .replace("self.pairingFileData = nil", "setPairingFileData(nil)")
+                    .replace("if isRPPairing {", "if pairingFileType == .rppairing {")
+                    .replace("        isRPPairing = false\n", "")
+                    .replace("pairingFileType = .unknown", "setPairingFileType(.unknown)"))
+
+        old_cleanup = base_cleanup(old_cleanup)
+        new_cleanup = base_cleanup(new_cleanup)
     text = replace_once(text, old_cleanup, new_cleanup, "transport cleanup order")
 
     text = replace_once(
@@ -354,7 +371,18 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
             self.adapter = nil
         }
     }
-""",
+""".replace("private func invalidateConnection", "public override func invalidateConnection" if modern else "private func invalidateConnection"),
+        """    private func onFFIQueue<T>(_ body: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: ffiQueueKey) != nil {
+            return try body()
+        }
+        return try ffiQueue.sync(execute: body)
+    }
+
+    public override func invalidateConnection() {
+        onFFIQueue { releaseTransport() }
+    }
+""" if modern else
         """    private func invalidateConnection() {
         debugLog("[IdeviceGateway] invalidateConnection() called - clearing transport handles")
         releaseTransport()
@@ -402,7 +430,14 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
     }
 """,
         "serialize endpoint invalidation",
-    )
+    ) if not modern else text
+
+    if modern:
+        text = replace_once(text, "    private override init() {\n        try! super.init()",
+                            "    private let ffiQueueKey = DispatchSpecificKey<Bool>()\n\n"
+                            "    private override init() {\n        try! super.init()\n"
+                            "        ffiQueue.setSpecific(key: ffiQueueKey, value: true)",
+                            "queue-aware invalidation initialization")
 
     ensure_coredevice = r'''    private func ensureCoreDeviceConnection() throws {
         if adapter != nil, handshake != nil, coreDeviceProvider != nil,
@@ -481,33 +516,67 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
     }
 
 '''
+    if modern:
+        # Address validation can throw before the provider consumes its pairing.
+        ensure_coredevice = ensure_coredevice.replace(
+            "        var provider: OpaquePointer? = nil",
+            "        var pairingConsumed = false\n"
+            "        defer { if !pairingConsumed { idevice_pairing_file_free(providerPairing) } }\n"
+            "        var provider: OpaquePointer? = nil",
+        ).replace(
+            "                providerError = idevice_tcp_provider_new",
+            "                pairingConsumed = true\n                providerError = idevice_tcp_provider_new",
+        )
+        ensure_coredevice = ensure_coredevice.replace(
+            "port: MinimuxerConstants.lockdowndPort", "port: getPort(for: .lockdown)"
+        ).replace("port=62078", r"port=\(getPort(for: .lockdown))").replace(
+            'TRANSPORT_CREATE_PASS")',
+            'TRANSPORT_CREATE_PASS selected_transport=COREDEVICE_LOCALDEVVPN")',
+        )
+        body_start = ensure_coredevice.index("\n") + 1
+        closing = ensure_coredevice.rindex("    }\n")
+        body = "".join("    " + line if line.strip() else line
+                       for line in ensure_coredevice[body_start:closing].splitlines(keepends=True))
+        ensure_coredevice = (ensure_coredevice[:body_start] + "        do {\n" + body + r'''        } catch {
+            releaseTransport()
+            debugLog("[SIDESTORE_COREDEVICE] selected_transport=FAILED_NO_VALID_TRANSPORT reason=\(error.localizedDescription)")
+            throw error
+        }
+''' + ensure_coredevice[closing:])
     text = replace_once(
         text,
         "    private func ensureRPConnection() throws {",
         ensure_coredevice + """    private func ensureRPConnection() throws {
-        if !isRPPairing {
+        if ROUTE_COREDEVICE {
             try ensureCoreDeviceConnection()
             return
         }
-""",
+""".replace("ROUTE_COREDEVICE", "usesCoreDevice" if modern else "!isRPPairing"),
         "CoreDevice connection method",
     )
 
     text = replace_once(
         text,
-        """        if isRPPairing {
+        """        if PAIRING_CONDITION {
             return try performWithService(connect: connectRP, cleanup: cleanup, serviceName: serviceName, action: action)
         } else {
             return try performWithTcpService(connect: connectLockdown, cleanup: cleanup, serviceName: serviceName, action: action)
         }
-""",
-        """        _ = connectLockdown
+""".replace("PAIRING_CONDITION", "pairingFileType == .rppairing" if modern else "isRPPairing"),
+        """        if pairingFileType == .rppairing || usesCoreDevice {
+            return try performWithService(connect: connectRP, cleanup: cleanup, serviceName: serviceName, action: action)
+        } else {
+            return try performWithTcpService(connect: connectLockdown, cleanup: cleanup, serviceName: serviceName, action: action)
+        }
+""" if modern else """        _ = connectLockdown
         return try performWithService(connect: connectRP, cleanup: cleanup, serviceName: serviceName, action: action)
 """,
         "all services over RSD",
     )
-    text = replace_once(text, "        if isRPPairing {\n            do {", "        if isRPPairing || pairingFileType == .lockdown {\n            do {", "fetch UDID over RSD")
-    text = replace_once(text, "        if isRPPairing {\n            try mountPersonalizedDdiRsd", "        if isRPPairing || pairingFileType == .lockdown {\n            try mountPersonalizedDdiRsd", "DDI over RSD")
+    pairing_condition = "pairingFileType == .rppairing" if modern else "isRPPairing"
+    rsd_condition = "pairingFileType == .rppairing || usesCoreDevice" if modern else "isRPPairing || pairingFileType == .lockdown"
+    text = replace_once(text, f"        if {pairing_condition} {{\n            do {{", f"        if {rsd_condition} {{\n            do {{", "fetch UDID over RSD")
+    text = replace_once(text, f"        if {pairing_condition} {{\n            try mountPersonalizedDdiRsd", f"        if {rsd_condition} {{\n            try mountPersonalizedDdiRsd", "DDI over RSD")
 
     new_stage = r'''    private func syncYeetAppAfc(bundleId: String, ipaBytes: Data) throws {
         debugLog("[SELF_REFRESH] AFC_CONNECT_START bundle_id=\(bundleId)")
@@ -602,9 +671,9 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
 '''
     text = replace_region(
         text,
-        "    private func syncYeetAppAfc(bundleId: String, ipaBytes: Data) throws {",
+        "    private func syncsendIpaAfc(bundleId: String, ipaBytes: Data) throws {" if modern else "    private func syncYeetAppAfc(bundleId: String, ipaBytes: Data) throws {",
         "    private func syncInstallIpa(bundleId: String) throws {",
-        new_stage,
+        new_stage.replace("syncYeetAppAfc", "syncsendIpaAfc") if modern else new_stage,
         "AFC staging implementation",
     )
 
@@ -679,13 +748,103 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
     }
 
 '''
+    if modern:
+        # Raw bundles have a staged signed identity; legacy IPA callers do not.
+        # Neither lookup verifies signing expiry or host relaunch.
+        new_install = new_install.replace(
+            "bundleId: String) throws {\n        debugLog(\"[SELF_REFRESH] POST_INSTALL_BROWSE_START",
+            "bundleId: String, allowLegacyPrefix: Bool = false) throws {\n        debugLog(\"[SELF_REFRESH] POST_INSTALL_BROWSE_START",
+        ).replace(
+            'else if identifier.hasPrefix(', 'else if allowLegacyPrefix && identifier.hasPrefix(',
+        ).replace(
+            'try verifyInstalledBundle(client: client, bundleId: bundleId)',
+            'try verifyInstalledBundle(client: client, bundleId: bundleId, allowLegacyPrefix: true)',
+        ).replace(
+            "        // Free-account signing can rewrite an app ID with the team suffix.\n"
+            "        // Browse all installed apps so verification checks the signed ID too.\n",
+            "        // Exact signed identity for raw bundles; legacy prefix matching for IPA only.\n",
+        ).replace("SIDESTORE_POST_INSTALL_VERIFY_PASS bundle_id=", "SIDESTORE_POST_INSTALL_VERIFY_PASS installed_presence_only=true bundle_id=")
     text = replace_region(
         text,
         "    private func syncInstallIpa(bundleId: String) throws {",
-        "    private func getAppPaths(appId: String) throws -> (container: String, bundlePath: String) {",
+        "    private func syncsendAppBundleAfc(bundleId: String, appURL: URL) throws {" if modern else "    private func getAppPaths(appId: String) throws -> (container: String, bundlePath: String) {",
         new_install,
         "InstallationProxy implementation",
     )
+
+    if modern:
+        text = replace_once(
+            text, "    private let ffiQueueKey = DispatchSpecificKey<Bool>()",
+            "    private var stagedBundleIdentities: [String: (appName: String, signedIdentifier: String)] = [:]\n"
+            "    private let ffiQueueKey = DispatchSpecificKey<Bool>()",
+            "staged signed bundle identities",
+        )
+        text = replace_once(text, "        setInitialized(false)\n        setPairingFileData(nil)",
+                            "        setInitialized(false)\n        setPairingFileData(nil)\n"
+                            "        stagedBundleIdentities.removeAll()",
+                            "clear staged identities on gateway cleanup")
+        text = replace_once(text, "    private func syncsendIpaAfc(bundleId: String, ipaBytes: Data) throws {\n",
+                            "    private func syncsendIpaAfc(bundleId: String, ipaBytes: Data) throws {\n"
+                            "        stagedBundleIdentities.removeValue(forKey: bundleId)\n",
+                            "invalidate bundle identity when staging IPA")
+        text = replace_once(
+            text, "    private func syncsendAppBundleAfc(bundleId: String, appURL: URL) throws {\n",
+            r'''    private func syncsendAppBundleAfc(bundleId: String, appURL: URL) throws {
+        stagedBundleIdentities.removeValue(forKey: bundleId)
+        let infoData = try Data(contentsOf: appURL.appendingPathComponent("Info.plist"))
+        guard let info = try PropertyListSerialization.propertyList(from: infoData, options: [], format: nil) as? [String: Any],
+              let signedIdentifier = info["CFBundleIdentifier"] as? String,
+              !signedIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw IdeviceGatewayError(.serviceError, reason: "Staged app Info.plist has no valid CFBundleIdentifier")
+        }
+''', "read signed identity before bundle staging",
+        )
+        text = replace_once(
+            text, "    private func syncInstallAppBundle(bundleId: String, appName: String) throws {\n",
+            r'''    private func syncInstallAppBundle(bundleId: String, appName: String) throws {
+        guard let stagedIdentity = stagedBundleIdentities[bundleId], stagedIdentity.appName == appName else {
+            throw IdeviceGatewayError(.serviceError, reason: "No successfully staged signed identity for \(bundleId)/\(appName); stage the app bundle before installing")
+        }
+''', "require successfully staged bundle identity",
+        )
+        # Reuse the same checked byte-write/close/stat implementation for every
+        # file, including empty files, without replacing upstream bundle traversal.
+        write_start = new_stage.index("            var fileHandle: OpaquePointer? = nil")
+        write_end = new_stage.index('            debugLog("[SELF_REFRESH] SIDESTORE_STAGE_PASS')
+        write_body = "\n".join(line[4:] if line.startswith("    ") else line
+                               for line in new_stage[write_start:write_end].splitlines())
+        write_body = write_body.replace("ipaBytes", "fileData").replace("IPA", "file")
+        helper = ("    private func writeVerifiedBundleFile(client: OpaquePointer, path: String, fileData: Data) throws {\n"
+                  + write_body + "\n    }\n\n")
+        text = replace_once(text,
+                            "    private func syncsendAppBundleAfc(bundleId: String, appURL: URL) throws {",
+                            helper + "    private func syncsendAppBundleAfc(bundleId: String, appURL: URL) throws {",
+                            "verified bundle file writer")
+        text = replace_region(
+            text,
+            "                    var fileHandle: OpaquePointer? = nil\n                    let openErr = remoteItemPath.withCString",
+            '                }\n            }\n            debugLog("[IdeviceGateway] sendAppBundleAfc() uploaded',
+            "                    let fileData = try Data(contentsOf: fileURL, options: .alwaysMapped)\n"
+            "                    try writeVerifiedBundleFile(client: client, path: remoteItemPath, fileData: fileData)\n",
+            "checked raw bundle staging",
+        )
+        text = replace_once(
+            text,
+            '            debugLog("[IdeviceGateway] sendAppBundleAfc() uploaded',
+            '            stagedBundleIdentities[bundleId] = (appName: appURL.lastPathComponent, signedIdentifier: signedIdentifier)\n'
+            '            debugLog("[SELF_REFRESH] SIDESTORE_STAGE_PASS bundle_id=\\(bundleId) format=app")\n'
+            '            debugLog("[IdeviceGateway] sendAppBundleAfc() uploaded',
+            "bundle staging completion",
+        )
+        text = replace_once(
+            text,
+            '                debugLog("[IdeviceGateway] installAppBundle() installation_proxy_install succeeded")',
+            '                debugLog("[IdeviceGateway] installAppBundle() installation_proxy_install succeeded")\n'
+            '                stagedBundleIdentities.removeValue(forKey: bundleId)\n'
+            '                debugLog("[SELF_REFRESH] SIDESTORE_INSTALL_COMPLETE bundle_id=\\(bundleId) format=app")\n'
+            '                try verifyInstalledBundle(client: client, bundleId: stagedIdentity.signedIdentifier)',
+            "bundle installed presence verification",
+        )
 
     text = replace_once(
         text,
@@ -717,6 +876,9 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
        }
        try performWithEitherService(
 """
+    if modern:
+        new_heartbeat = new_heartbeat.replace("!isRPPairing", "usesCoreDevice").replace(
+            "           try ensureCoreDeviceConnection()\n", "")
     text = replace_once(text, old_heartbeat, new_heartbeat, "avoid duplicate heartbeat client")
 
     text = replace_once(
