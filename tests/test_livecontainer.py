@@ -27,9 +27,20 @@ class LiveContainerPatchTests(unittest.TestCase):
             "LiveContainerAutoRefreshHistoryChanged",
             "reloadHistory()",
             "Refresh SideStore now",
-            "MANUAL_COMPLETE",
+            "RUN_BEGIN source=",
             "BGTaskSchedulerPermittedIdentifiers",
             "SideStoreSupport.framework in Frameworks",
+            "BGAppRefreshTask",
+            "liveContainerAutoRefreshEarliestEligibleAt",
+            "liveContainerAutoRefreshHostHandoff",
+            "LiveContainerAutoRefreshAlarmProvider",
+            "verifyRefreshManifest",
+            "HOST_REFRESH_AWAITING_RELAUNCH",
+            "HOST_REFRESH_VERIFIED",
+            "recoverAfterLaunchOrResume",
+            "native_without_alarmkit",
+            "Protection:",
+            "Enhanced",
         ):
             self.assertIn(marker, source)
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
@@ -62,7 +73,7 @@ class LiveContainerPatchTests(unittest.TestCase):
                 "\t\t\tisa = PBXFrameworksBuildPhase;\n"
                 "\t\t\tbuildActionMask = 2147483647;\n"
                 "\t\t\tfiles = (\n"
-                "\t\t\t);\n"
+                "\t\t\t\t);\n"
                 "};\n"
                 "17554B6A2DA165D8004C6D90 /* Frameworks */ = {\n"
                 "\t\t\tisa = PBXFrameworksBuildPhase;\n"
@@ -82,6 +93,10 @@ class LiveContainerPatchTests(unittest.TestCase):
                 "\t\t\t\t17413FB62D9C0BAE00F3F928 /* LiveContainerSwiftUI */\n"
                 "\t\t\t);\n"
                 "};\n"
+                "\t\t\t\tOTHER_LDFLAGS = (\n"
+                "\t\t\t\t\t\"-e\",\n"
+                "\t\t\t\t\t_LiveContainerMainC,\n"
+                "\t\t\t\t);\n"
             )
             (root / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").write_text(
                 "struct LCSettingsView: View {\n    var body: some View {\n        NavigationView {\n            Form {\n            }\n        }\n    }\n}\n"
@@ -90,6 +105,7 @@ class LiveContainerPatchTests(unittest.TestCase):
             patch.patch_host_delegate(root)
             patch.patch_host_info(root)
             patch.patch_project(root)
+            patch.patch_alarm_provider(root)
             patch.patch_settings(root)
             patch.verify(root)
             first = { path: path.read_text() for path in root.rglob("*") if path.is_file() }
@@ -97,6 +113,7 @@ class LiveContainerPatchTests(unittest.TestCase):
             patch.patch_host_delegate(root)
             patch.patch_host_info(root)
             patch.patch_project(root)
+            patch.patch_alarm_provider(root)
             patch.patch_settings(root)
             self.assertEqual(first, {path: path.read_text() for path in root.rglob("*") if path.is_file()})
 

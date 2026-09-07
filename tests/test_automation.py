@@ -33,6 +33,9 @@ class AutomationTests(unittest.TestCase):
                         source.index("AppManager.shared.backgroundRefresh"))
         self.assertIn("SIDESTORE_REFRESH_ATTEMPT_STARTED", source)
         self.assertIn("SIDESTORE_REFRESH_RESULT", source)
+        self.assertIn("VERIFICATION_MANIFEST_V1", source)
+        self.assertIn("persistAutomaticHostHandoff", source)
+        self.assertIn("persistAutomaticRefreshVerification", source)
         self.assertIn("APP_DIAGNOSTIC", source)
         self.assertIn("history = AutomaticRefreshHistory.load()\n            pendingDate = UserDefaults.standard.object", source)
 
