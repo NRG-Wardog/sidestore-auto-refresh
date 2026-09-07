@@ -51,6 +51,7 @@ jobs:
           )
           module = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(module)
+          module.patch_manual_refresh(Path("work/EmbeddedSideStore"))
           module.patch_background_operation(Path("work/EmbeddedSideStore"))
           module.patch_console_log(Path("work/EmbeddedSideStore"))
           PY
