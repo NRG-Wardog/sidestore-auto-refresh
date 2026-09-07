@@ -11,12 +11,19 @@ TEMPLATE = ROOT / "scripts/templates/livecontainer_refresh_settings.swift"
 HARNESS = r'''
 final class CountingDefaults: UserDefaults {
     var historyWrites = 0
+    private var mutationDepth = 0
     override func set(_ value: Any?, forKey defaultName: String) {
-        if defaultName == "liveContainerAutoRefreshHistory" { historyWrites += 1 }
+        // Apple Foundation can implement removeObject by calling set(nil).
+        // Count the store's outer API mutation once, not Foundation re-entry.
+        if mutationDepth == 0 && defaultName == "liveContainerAutoRefreshHistory" { historyWrites += 1 }
+        mutationDepth += 1
+        defer { mutationDepth -= 1 }
         super.set(value, forKey: defaultName)
     }
     override func removeObject(forKey defaultName: String) {
-        if defaultName == "liveContainerAutoRefreshHistory" { historyWrites += 1 }
+        if mutationDepth == 0 && defaultName == "liveContainerAutoRefreshHistory" { historyWrites += 1 }
+        mutationDepth += 1
+        defer { mutationDepth -= 1 }
         super.removeObject(forKey: defaultName)
     }
 }
@@ -109,9 +116,9 @@ struct HistoryTests {
             for (key, expected) in baseline {
                 precondition(NSDictionary(dictionary: [key: defaults.object(forKey: key)!]).isEqual(to: [key: expected]))
             }
-            precondition(defaults.historyWrites == 2)
+            precondition(defaults.historyWrites == 2, "Expected two outer history mutations, got \(defaults.historyWrites)")
             Store.clear(in: defaults)
-            precondition(defaults.historyWrites == 2)
+            precondition(defaults.historyWrites == 2, "Expected two outer history mutations, got \(defaults.historyWrites)")
             appendSchedulerEvent("after-clear")
             precondition(Store.entries(in: defaults).first?.values["detail"] == "after-clear")
         case "retention_and_reorder":
