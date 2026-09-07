@@ -117,3 +117,15 @@ SideStore.app move. The widget retains its dependencies. Host framework intent
 metadata, including our AlarmKit intent, remains in its original framework.
 The generated JSON contains every bundle's full Info.plist and XML entitlements.
 It reports five registration targets BEFORE reuse, not five newly allocated IDs.
+
+## Validation result for the correction
+
+- Local suite: 14 tests, 12 passed, two skipped (Swift compiler unavailable).
+- Actual pinned upstream script adaptation: passed; former defective IPA rejected.
+- Single CI attempt: https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/34090510504
+- Host compilation succeeded; embedded SideStore dependency resolution failed
+  with OpenSSL cache entry already existing, exit 74. Packaging never executed.
+- Resolver/build derived-data paths have since been aligned locally/source-side.
+  This follow-up is not yet CI verified. No second build dispatched.
+- No corrected combined IPA is available yet. Final artifact structural diff,
+  actual iLoader recognition, and same-account signing remain unverified.
