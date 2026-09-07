@@ -1057,7 +1057,7 @@ def patch_background_operation(sidestore: Path) -> None:
             group.beginInstallationHandler = { [weak self] (installedApp) in
 ''',
             '''            debugLog("[AUTO_REFRESH] SIGNING_STARTED app_count=\\(apps.count)")
-            let group = AppManager.shared.refresh(apps, presentingViewController: nil, recordManualHistory: false)
+            let group = AppManager.shared.refresh(apps, presentingViewController: nil)
             self.refreshGroupLock.lock()
             self.activeRefreshGroup = group
             let shouldCancel = self.isCancelled
@@ -1065,7 +1065,7 @@ def patch_background_operation(sidestore: Path) -> None:
             if shouldCancel { group.cancel() }
 
             group.beginInstallationHandler = { [weak self] (installedApp) in
-                debugLog("[AUTO_REFRESH] INSTALLATION_STARTED bundle_id=\\(installedApp.bundleIdentifier)")
+                self?.debugLog("[AUTO_REFRESH] INSTALLATION_STARTED bundle_id=\\(installedApp.bundleIdentifier)")
                 if installedApp.bundleIdentifier == StoreApp.altstoreAppID {
                     self?.persistAutomaticHostHandoff()
                 }
