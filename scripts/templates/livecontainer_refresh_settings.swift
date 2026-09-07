@@ -3,6 +3,9 @@ import SwiftUI
 struct LCEmbeddedSideStoreRefreshView: View {
     private let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") ?? .standard
     @State private var history: [[String: String]] = []
+    @State private var isSelectingHistory = false
+    @State private var selectedHistoryIndexes: Set<Int> = []
+    @State private var showClearHistoryConfirmation = false
     @AppStorage("liveContainerAutoRefreshEnabled", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var enabled = false
     @AppStorage("liveContainerAutoRefreshFrequency", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var frequency = "interval"
     @AppStorage("liveContainerAutoRefreshWeekday", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var weekday = 2
@@ -73,27 +76,117 @@ struct LCEmbeddedSideStoreRefreshView: View {
                     }
                 }
             }
-            Section("History") {
-                if history.isEmpty { Text("No refreshes recorded").foregroundColor(.secondary) }
-                ForEach(Array(history.prefix(20).enumerated()), id: \.offset) { _, entry in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(entry["source"]?.capitalized ?? "Unknown") - \(entry["result"]?.capitalized ?? "Unknown")")
-                        Text(entry["date"] ?? "").font(.caption).foregroundColor(.secondary)
-                        if let detail = entry["detail"], !detail.isEmpty { Text(detail).font(.caption2).foregroundColor(.secondary) }
+            Section {
+                if !history.isEmpty {
+                    HStack {
+                        Button(isSelectingHistory ? "Done" : "Select") {
+                            withAnimation {
+                                isSelectingHistory.toggle()
+                                if !isSelectingHistory { selectedHistoryIndexes.removeAll() }
+                            }
+                        }
+                        Spacer()
+                        if isSelectingHistory && !selectedHistoryIndexes.isEmpty {
+                            Button("Delete Selected", role: .destructive) {
+                                deleteSelectedHistory()
+                            }
+                        }
+                        Button("Clear All", role: .destructive) {
+                            showClearHistoryConfirmation = true
+                        }
                     }
                 }
+
+                if history.isEmpty {
+                    Text("No refreshes recorded").foregroundColor(.secondary)
+                }
+
+                ForEach(Array(history.prefix(20).enumerated()), id: \.offset) { index, entry in
+                    HStack(alignment: .top, spacing: 10) {
+                        if isSelectingHistory {
+                            Image(systemName: selectedHistoryIndexes.contains(index) ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(selectedHistoryIndexes.contains(index) ? .tint : .secondary)
+                                .font(.title3)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(entry["source"]?.capitalized ?? "Unknown") - \(entry["result"]?.capitalized ?? "Unknown")")
+                            Text(entry["date"] ?? "").font(.caption).foregroundColor(.secondary)
+                            if let detail = entry["detail"], !detail.isEmpty { Text(detail).font(.caption2).foregroundColor(.secondary) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard isSelectingHistory else { return }
+                        if selectedHistoryIndexes.contains(index) {
+                            selectedHistoryIndexes.remove(index)
+                        } else {
+                            selectedHistoryIndexes.insert(index)
+                        }
+                    }
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        if !isSelectingHistory {
+                            Button(role: .destructive) {
+                                deleteHistoryEntry(at: index)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text("History")
             }
         }
         .navigationTitle("SideStore refresh")
         .onAppear { reloadHistory() }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("LiveContainerAutoRefreshHistoryChanged")).receive(on: RunLoop.main)) { _ in reloadHistory() }
+        .confirmationDialog("Clear all refresh history?", isPresented: $showClearHistoryConfirmation, titleVisibility: .visible) {
+            Button("Clear All", role: .destructive) { clearHistory() }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     private func notifyScheduleChanged() {
         NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshScheduleChanged"), object: nil)
     }
+
     private func notifyManualRefresh() {
         NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil)
     }
-    private func reloadHistory() { history = defaults.array(forKey: "liveContainerAutoRefreshHistory") as? [[String: String]] ?? [] }
+
+    private func persistHistory() {
+        defaults.set(history, forKey: "liveContainerAutoRefreshHistory")
+        NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshHistoryChanged"), object: nil)
+    }
+
+    private func deleteHistoryEntry(at index: Int) {
+        guard history.indices.contains(index) else { return }
+        history.remove(at: index)
+        selectedHistoryIndexes.removeAll()
+        persistHistory()
+    }
+
+    private func deleteSelectedHistory() {
+        guard !selectedHistoryIndexes.isEmpty else { return }
+        for index in selectedHistoryIndexes.sorted(by: >) where history.indices.contains(index) {
+            history.remove(at: index)
+        }
+        selectedHistoryIndexes.removeAll()
+        isSelectingHistory = false
+        persistHistory()
+    }
+
+    private func clearHistory() {
+        history.removeAll()
+        selectedHistoryIndexes.removeAll()
+        isSelectingHistory = false
+        defaults.removeObject(forKey: "liveContainerAutoRefreshHistory")
+        NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshHistoryChanged"), object: nil)
+    }
+
+    private func reloadHistory() {
+        history = defaults.array(forKey: "liveContainerAutoRefreshHistory") as? [[String: String]] ?? []
+        selectedHistoryIndexes = selectedHistoryIndexes.filter { history.indices.contains($0) }
+    }
 }
