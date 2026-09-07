@@ -157,7 +157,7 @@ def patch_coredevice_route_selection(minimuxer: Path) -> None:
                 if !isrppairing && !net.isIKEv2IPSecAvailable {
                     if #available(iOS 26.4, *) {
                         debugLog("[minimuxer] minimuxer not ready: no ipsec interface (required for lockdown on iOS 26.4+)")
-                        return .failure(.invalidVPN("utun is present but no ipsec/IKEv2 interface found — LocalDevVPN may not support the lockdown protocol on iOS 26.4+"))
+                        return .failure(.invalidVPN("utun is present but no ipsec/IKEv2 interface found \u2014 LocalDevVPN may not support the lockdown protocol on iOS 26.4+"))
                     }
                 }
 '''

@@ -96,7 +96,7 @@ Verified on real iPhone hardware:
 
 Proof device:
 
-**iPhone 12 — iOS 26.6.1**
+**iPhone 12: iOS 26.6.1**
 
 A verified manual `Refresh All` refreshed Spotify and SideStore over the CoreDevice transport in **18.571 seconds**.
 
