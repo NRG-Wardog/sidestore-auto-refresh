@@ -43,8 +43,9 @@ Prefer to inspect and reproduce the build yourself? See [Build it yourself](#bui
 ### LiveContainer combined variant
 
 **[Download v2.0.0 preview](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.0.0)**
-includes the combined LiveContainer IPA and the unchanged standalone v1.0.2
-asset. See the [release notes](docs/RELEASE_NOTES_v2.0.0.md) before testing.
+contains only the combined LiveContainer IPA. Standalone SideStore remains in
+its separate v1.0.2 release. See the [release notes](docs/RELEASE_NOTES_v2.0.0.md)
+before testing.
 
 The separate LiveContainer + embedded SideStore build uses the pinned upstream
 combined packaging process. Package verification passed, but successful signing

@@ -3,16 +3,13 @@
 **Preview release.** This introduces the combined LiveContainer + embedded
 SideStore variant. Compilation and package verification passed; successful
 signing, installation, host replacement and unattended refresh of this combined
-variant still require on-device validation. Standalone SideStore v1.0.2 remains
-the stable option and is included unchanged as a separate download.
+variant still require on-device validation. This release contains only the
+LiveContainer combined build.
 
 ## Downloads
 
-Choose the build you need. You do not need to install both.
-
 - `LiveContainer-SideStore-AutoRefresh-v2.0.0.ipa`: new combined preview.
-- `SideStore-CoreDevice-AutoRefresh-v1.0.2.ipa`: unchanged standalone release.
-- `SHA256SUMS.txt`: integrity checksums for both IPAs.
+- `SHA256SUMS.txt`: integrity checksum for the combined IPA.
 
 Version v2.0.0 identifies this repository release, not the upstream applications'
 internal version numbers. The combined IPA must be signed with your own account.
@@ -36,14 +33,6 @@ internal version numbers. The combined IPA must be signed with your own account.
   is a warning with a user-operated Refresh Now action, not an automatic executor.
 - Embedded SideStore console-log retention limits to avoid unlimited log growth.
 
-## Standalone SideStore included unchanged
-
-The v1.0.2 asset retains the established LocalDevVPN/CoreDevice transport,
-manual and scheduled refresh controls, local time selection, Manual/Scheduled
-history labels, background result diagnostics and bounded console logs.
-Its existing verification does not establish verification of the new combined
-variant. See the [v1.0.2 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.2).
-
 ## Requirements and limitations
 
 - Free Apple Account / Personal Team, valid pairing file, Developer Mode,
@@ -59,9 +48,8 @@ variant. See the [v1.0.2 release](https://github.com/NRG-Wardog/sidestore-auto-r
 - Do not infer successful refresh from a task launch or an accepted installation
   request. Check actual installation and signing validity after refresh.
 
-Back up important app data before testing. Use your installer to sign the chosen
-IPA. For standalone SideStore updates, install over the existing SideStore rather
-than deleting it. A standalone-to-combined data migration is not provided here.
+Back up important app data before testing. Use your installer to sign the combined
+IPA. A standalone-to-combined data migration is not provided here.
 Keep credentials, pairing files and private signing material out of bug reports.
 
 ## Provenance
@@ -75,13 +63,6 @@ Combined preview:
 - Size: 37,206,711 bytes
 - SHA-256: `9fbbfbacbf8b31927cfde70fe1d799b6af4f1a9c6076819fc2849a00e861f58d`
 
-Standalone SideStore v1.0.2:
-
-- Builder commit: `f33487d473e09620493d2a8d82e8e37c9bdef32b`
-- [Build run 34045788967](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/34045788967)
-- Size: 27,566,058 bytes
-- SHA-256: `120ba06c51d4d235743451b065968dc94f7c7374cacb955827860254e01b5a76`
-
-Both assets are existing build outputs; publishing this release did not rebuild
-or alter either IPA. Local checks: 13 tests passed, two Swift-dependent tests
+The IPA is an existing build output; publishing this release did not rebuild
+or alter it. Local checks: 13 tests passed, two Swift-dependent tests
 skipped, and combined-package semantic verification passed.
