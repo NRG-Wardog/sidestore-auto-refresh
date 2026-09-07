@@ -4,7 +4,7 @@ This repository combines original builder scripts and documentation with build-t
 
 ## Repository-authored material
 
-Unless a file says otherwise, original material authored specifically for this repository — including the builder scripts, tests, and documentation — is distributed under the MIT License in [`LICENSE`](LICENSE).
+Unless a file says otherwise, original material authored specifically for this repository (including the builder scripts, tests, and documentation) is distributed under the MIT License in [`LICENSE`](LICENSE).
 
 ## Upstream projects
 
@@ -12,10 +12,10 @@ The build pipeline checks out pinned revisions of third-party projects at build 
 
 Important upstream components include:
 
-- [SideStore/SideStore](https://github.com/SideStore/SideStore) — upstream SideStore source and SideStore-derived application code; consult the upstream repository for its current license terms.
-- [SideStore/minimuxer](https://github.com/SideStore/minimuxer) — device connectivity and integration code; consult the upstream repository for its license terms.
-- [SideStore/idevice](https://github.com/SideStore/idevice) — CoreDevice/device-service implementation; consult the upstream repository for its license terms.
-- [SideStore/jktcp](https://github.com/SideStore/jktcp) — userspace TCP implementation; consult the upstream repository for its license terms.
+- [SideStore/SideStore](https://github.com/SideStore/SideStore): upstream SideStore source and SideStore-derived application code; consult the upstream repository for its current license terms.
+- [SideStore/minimuxer](https://github.com/SideStore/minimuxer): device connectivity and integration code; consult the upstream repository for its license terms.
+- [SideStore/idevice](https://github.com/SideStore/idevice): CoreDevice/device-service implementation; consult the upstream repository for its license terms.
+- [SideStore/jktcp](https://github.com/SideStore/jktcp): userspace TCP implementation; consult the upstream repository for its license terms.
 
 ## Distributed IPA
 

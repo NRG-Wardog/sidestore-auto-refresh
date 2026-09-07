@@ -3,6 +3,8 @@
 *.a
 escapeos_*
 .audit/
+.artifacts-*/
+.build-failure-*/
 build-results/
 scratch/
 temp_*/

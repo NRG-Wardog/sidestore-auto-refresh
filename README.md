@@ -1,4 +1,4 @@
-# SideStore Auto-Refresh — On-Device, No PC at Runtime
+# SideStore Auto-Refresh: On-Device, No PC at Runtime
 
 [![Build Current SideStore](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-current.yml/badge.svg)](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-current.yml)
 [![Release](https://img.shields.io/github/v/release/NRG-Wardog/sidestore-auto-refresh)](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/latest)
@@ -14,7 +14,7 @@ Additional device/iOS/network compatibility reports are welcome. See [`docs/COMP
 
 ## Download
 
-### Prebuilt IPA — recommended
+### Prebuilt IPA: recommended
 
 **[Download SideStore CoreDevice Auto-Refresh v1.0.2](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.2/SideStore-CoreDevice-AutoRefresh-v1.0.2.ipa)**
 
@@ -39,6 +39,19 @@ The release includes the IPA and the release notes for integrity and build-prove
 > Install the IPA **over your existing SideStore installation**. Do not delete SideStore first; replacing it preserves pairing data, account state, and the local database used by the refresh path.
 
 Prefer to inspect and reproduce the build yourself? See [Build it yourself](#build-it-yourself).
+
+### LiveContainer combined variant
+
+The separate LiveContainer + embedded SideStore build uses the pinned upstream
+combined packaging process. Package verification passed, but successful signing
+and installation of this variant remain unverified. Live signing tests reproduced
+account quota failures for both official and patched IPAs.
+
+The combined package has five App ID registration targets before identifier
+reuse; this is separate from the free account's installed-app limit. Deleting
+App IDs does not necessarily restore registration capacity immediately.
+See the [packaging audit](docs/LIVECONTAINER_PACKAGING_AUDIT.md) and
+[App ID investigation](docs/APP_ID_REUSE_INVESTIGATION.md) for the verified scope.
 
 ## Quick start
 
@@ -446,10 +459,10 @@ Original repository-authored builder scripts, tests, and documentation are MIT-l
 
 Bug reports, device compatibility results, transport diagnostics, documentation improvements, and focused fixes are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request.
 
-If you test the project on another iPhone/iPad, iOS version, or Wi-Fi network family, report the result — successful or failed. That data expands the public compatibility matrix.
+If you test the project on another iPhone/iPad, iOS version, or Wi-Fi network family, report the result (successful or failed). That data expands the public compatibility matrix.
 
 ## Support the project
 
 If this solves the SideStore seven-day refresh problem for you, **star the repository** so other SideStore users can find it.
 
-If you test it on another iPhone/iOS version, open an issue with the result — successful or failed. Real-device compatibility data is more valuable than guesses.
+If you test it on another iPhone/iOS version, open an issue with the result (successful or failed). Real-device compatibility data is more valuable than guesses.

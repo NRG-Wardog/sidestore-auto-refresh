@@ -57,6 +57,20 @@ class RepositoryTests(unittest.TestCase):
         self.assertNotRegex(workflow, r"builder/scripts/patch_v\d+")
         self.assertNotIn("build-v29-coredevice-self-refresh.yml", workflow)
 
+    def test_upstream_ipsec_anchor_preserves_original_punctuation(self):
+        source = (SCRIPTS / "patch_sidestore_integration.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        anchors = [
+            ast.literal_eval(node.value)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "old_ipsec_requirement"
+                    for target in node.targets)
+        ]
+        self.assertEqual(len(anchors), 1)
+        self.assertIn("interface found \u2014 LocalDevVPN", anchors[0])
+        self.assertNotIn(chr(0x2014), source)
+
     def test_no_sensitive_paths_are_reachable(self):
         result = subprocess.run(
             ["git", "rev-list", "--objects", "--all"],
