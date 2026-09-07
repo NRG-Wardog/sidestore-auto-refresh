@@ -44,14 +44,11 @@ Prefer to inspect and reproduce the build yourself? See [Build it yourself](#bui
 
 The separate LiveContainer + embedded SideStore build uses the pinned upstream
 combined packaging process. Package verification passed, but successful signing
-and installation of this variant remain unverified. Live signing tests reproduced
-account quota failures for both official and patched IPAs.
+and installation of this variant remain unverified.
 
 The combined package has five App ID registration targets before identifier
 reuse; this is separate from the free account's installed-app limit. Deleting
 App IDs does not necessarily restore registration capacity immediately.
-See the [packaging audit](docs/LIVECONTAINER_PACKAGING_AUDIT.md) and
-[App ID investigation](docs/APP_ID_REUSE_INVESTIGATION.md) for the verified scope.
 
 ## Quick start
 
