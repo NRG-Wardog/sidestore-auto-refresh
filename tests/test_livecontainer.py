@@ -21,6 +21,8 @@ class LiveContainerPatchTests(unittest.TestCase):
         for marker in (
             "BGTaskScheduler.shared.register",
             "LiveContainerRefreshBridge",
+            "16SideStoreSupport20RefreshAllAppsIntentV",
+            'static let taskIdentifier = "\\(Bundle.main.bundleIdentifier',
             "requiresNetworkConnectivity = true",
             "liveContainerAutoRefreshFrequency",
             "liveContainerAutoRefreshHistory",
@@ -43,6 +45,7 @@ class LiveContainerPatchTests(unittest.TestCase):
             "Enhanced",
         ):
             self.assertIn(marker, source)
+        self.assertNotIn('mangledName: "9SideStore20RefreshAllAppsIntentV"', source)
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
         self.assertIn("module.patch_console_log", workflow)
         self.assertIn("LIVE_REFRESH_LOG_RETENTION_V1", workflow)
