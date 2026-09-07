@@ -38,18 +38,20 @@ public enum LiveContainerRefreshBridge {
     public static func refreshAllApps() async throws {
         try await RefreshHandler.shared.startRefresh(
             identifier: "LiveContainerScheduledRefresh",
-            mangledName: "9SideStore20RefreshAllAppsIntentV"
+            mangledName: "16SideStoreSupport20RefreshAllAppsIntentV"
         )
     }
 }
 '''
 
 
-HOST_SCHEDULER = f'''
+HOST_SCHEDULER = rf'''
 
 enum LiveContainerAutoRefreshScheduler {{
-    static let taskIdentifier = "{TASK_ID}"
-    static let watchdogIdentifier = "{TASK_ID}.watchdog"
+    // The initial signer rewrites the permitted identifiers from the original
+    // host ID. Build the runtime IDs from that signed host ID as well.
+    static let taskIdentifier = "\(Bundle.main.bundleIdentifier ?? \"com.kdt.livecontainer\").sidestore.automatic-refresh"
+    static let watchdogIdentifier = "\(taskIdentifier).watchdog"
     static let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") ?? .standard
     static let enabledKey = "liveContainerAutoRefreshEnabled"
     static let frequencyKey = "liveContainerAutoRefreshFrequency"
@@ -688,6 +690,7 @@ def verify(root: Path) -> None:
         (delegate, "GUEST_SIGNATURE_INVALID", "guest failure state"),
         (support, "public enum LiveContainerRefreshBridge", "public bridge"),
         (support, "RefreshHandler.shared.startRefresh", "embedded SideStore refresh"),
+        (support, "16SideStoreSupport20RefreshAllAppsIntentV", "combined refresh intent type"),
         (settings, "liveContainerAutoRefreshFrequency", "schedule persistence"),
         (settings, "Refresh SideStore now", "manual refresh control"),
         (settings, "LiveContainerAutoRefreshRunNow", "manual refresh notification"),
@@ -709,6 +712,10 @@ def verify(root: Path) -> None:
     missing = [label for content, needle, label in required if needle not in content]
     if missing:
         die("verification failed: " + ", ".join(missing))
+    if 'static let taskIdentifier = "\\(Bundle.main.bundleIdentifier' not in delegate:
+        die("verification failed: signed host task identifier")
+    if "mangledName: \"9SideStore20RefreshAllAppsIntentV\"" in support:
+        die("verification failed: obsolete standalone refresh intent type")
 
 
 def main() -> None:
