@@ -74,6 +74,7 @@ jobs:
           mkdir -p artifacts/logs
           xcodebuild -project work/LiveContainer/LiveContainer.xcodeproj \
             -scheme LiveContainer -sdk iphoneos -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/livecontainer-derived-data" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build \
             2>&1 | tee artifacts/logs/livecontainer-build.log
           rm -rf "$HOME/Library/Caches/org.swift.swiftpm/artifacts/https___github_com_krzyzanowskim_OpenSSL_releases_download_3_6_2000_OpenSSL_xcframework_zip"
@@ -95,6 +96,54 @@ jobs:
             -scheme SideStore -sdk iphoneos -configuration Release \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build \
             2>&1 | tee artifacts/logs/embedded-sidestore-build.log
+
+      - name: Package unsigned LiveContainer IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/livecontainer-derived-data/Build/Products/Release-iphoneos/LiveContainer.app"
+          test -d "$APP"
+          test -f "$APP/LiveContainer"
+          test "$(plutil -extract CFBundleDisplayName raw "$APP/Info.plist")" = "LiveContainer"
+          mkdir -p artifacts/LiveContainer-AutoRefresh/Payload
+          cp -R "$APP" artifacts/LiveContainer-AutoRefresh/Payload/LiveContainer.app
+          (
+            cd artifacts/LiveContainer-AutoRefresh
+            zip -qry ../LiveContainer-AutoRefresh.ipa Payload
+          )
+          unzip -t artifacts/LiveContainer-AutoRefresh.ipa >/tmp/livecontainer-ipa-unzip-test.txt
+          unzip -q artifacts/LiveContainer-AutoRefresh.ipa -d /tmp/livecontainer-ipa-check
+          test -f /tmp/livecontainer-ipa-check/Payload/LiveContainer.app/LiveContainer
+          find /tmp/livecontainer-ipa-check/Payload/LiveContainer.app -type f -size +32k -print0 \
+            | xargs -0 strings >/tmp/livecontainer-strings.txt
+          grep -Fq '[AUTO_REFRESH] REGISTER_PASS' /tmp/livecontainer-strings.txt
+          grep -Fq '[AUTO_REFRESH] SCHEDULE_PASS' /tmp/livecontainer-strings.txt
+          grep -Fq '[AUTO_REFRESH] OPERATION_START' /tmp/livecontainer-strings.txt
+          grep -Fq '[AUTO_REFRESH] COMPLETE' /tmp/livecontainer-strings.txt
+          SHA="$(shasum -a 256 artifacts/LiveContainer-AutoRefresh.ipa | awk '{print $1}')"
+          SIZE="$(stat -f '%z' artifacts/LiveContainer-AutoRefresh.ipa)"
+          {
+            echo 'LiveContainer native auto-refresh build'
+            echo "builder_commit=$GITHUB_SHA"
+            echo "livecontainer_ref=$LIVE_CONTAINER_REF"
+            echo "embedded_sidestore_ref=$EMBEDDED_SIDESTORE_REF"
+            echo "ipa_size=$SIZE"
+            echo "ipa_sha256=$SHA"
+            echo 'signing=unsigned-source-build; resign before device installation'
+            echo 'verification=PASS'
+          } | tee artifacts/LiveContainer-AutoRefresh-verification.txt
+
+      - name: Upload LiveContainer IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiveContainer-AutoRefresh-IPA
+          path: |
+            artifacts/LiveContainer-AutoRefresh.ipa
+            artifacts/LiveContainer-AutoRefresh-verification.txt
+            /tmp/livecontainer-ipa-unzip-test.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
 
       - name: Upload source-build evidence
         if: always()
