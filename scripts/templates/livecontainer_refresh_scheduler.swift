@@ -260,7 +260,7 @@ enum LiveContainerAutoRefreshScheduler {
     private static func execute(source: String, task: BGTask? = nil,
                                 gate: LiveContainerRefreshCompletionGate = LiveContainerRefreshCompletionGate()) async {
         guard !gate.isFinished, !Task.isCancelled else { return }
-        let manual = source == "manual" || source == "alarm_action"
+        let manual = source == "manual" || source == "alarm_action" || source == "vpn_return"
         let now = Date()
         print("[LIVE_CONTAINER_REFRESH] TASK_TRIGGERED source=\(source) at=\(now.timeIntervalSince1970)")
         if source == "bgprocessing" || source == "bgapprefresh" { defaults.set(now, forKey: lastTaskKey) }
@@ -291,6 +291,7 @@ enum LiveContainerAutoRefreshScheduler {
         }
         defer { endRun(runID); schedule() }
         do {
+            try await LiveContainerNetworkPreflight.check(allowForegroundActivation: manual && source != "vpn_return" && task == nil)
             try await performRefresh(runID: runID)
             let verification = verifyRefreshManifest(runID: runID.uuidString)
             if verification.hostHandoff {
@@ -330,7 +331,9 @@ enum LiveContainerAutoRefreshScheduler {
                 defaults.removeObject(forKey: nextRetryKey)
                 defaults.set(true, forKey: retryExhaustedKey)
             }
-            defaults.set("REFRESH_FAILED", forKey: healthStateKey)
+            let networkState = nsError.domain == "LiveContainerRefresh.Network"
+                ? (nsError.code == 1 ? "WIFI_UNAVAILABLE" : "VPN_UNAVAILABLE") : "REFRESH_FAILED"
+            defaults.set(networkState, forKey: healthStateKey)
             defaults.set(error.localizedDescription, forKey: lastErrorKey)
             record(source: source, result: "failure", detail: error.localizedDescription)
             print("[LIVE_CONTAINER_REFRESH] REFRESH_RESULT run_id=\(runID.uuidString) success=false verified=false error_domain=\(nsError.domain) error_code=\(nsError.code) error=\(error.localizedDescription)")
@@ -400,6 +403,10 @@ enum LiveContainerAutoRefreshScheduler {
     static func recoverAfterLaunchOrResume() {
         guard activeRun == nil else { return }
         verifyPendingHostHandoff()
+        if LiveContainerNetworkPreflight.consumePendingReturn() {
+            Task { @MainActor in await execute(source: "vpn_return") }
+            return
+        }
         observeMissedDeadline(now: Date())
         guard defaults.bool(forKey: enabledKey), defaults.object(forKey: earliestEligibleKey) != nil,
               compactWorkIsDue(now: Date()) else { return }

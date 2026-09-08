@@ -149,6 +149,18 @@ class GuestReturnTests(unittest.TestCase):
         for forbidden in ("NSTimer", "dispatch_after", "sleep("):
             self.assertNotIn(forbidden, module.CONTROL)
 
+    def test_direct_control_is_separate_and_honest(self):
+        self.assertIn("Restarts LiveContainer and closes this guest", module.DIRECT_CONTROL)
+        self.assertIn("DIRECT_PROCESS_RESTART_RETURN", module.DIRECT_RUNTIME)
+        self.assertIn("launchToGuestAppWithClassicMode:0", module.DIRECT_RUNTIME)
+        self.assertIn("UIWindowDidBecomeVisibleNotification", module.DIRECT_RUNTIME)
+        self.assertIn("UISceneDidDisconnectNotification", module.DIRECT_RUNTIME)
+        self.assertIn("window.hidden = NO", module.DIRECT_RUNTIME)
+        self.assertNotIn("makeKeyAndVisible", module.DIRECT_RUNTIME)
+        self.assertNotIn("launchToGuestApp", module.METHODS)
+        for forbidden in ("NSTimer", "dispatch_after", "SIGKILL", "terminate", "sleep("):
+            self.assertNotIn(forbidden, module.DIRECT_RUNTIME)
+
     def test_cleanup_finishes_before_exit_callback(self):
         self.assertLess(module.CLEANUP.index("unregisterMultitaskContainer"), module.CLEANUP.index("appSceneVCAppDidExit"))
         self.assertIn("NSThread.isMainThread", module.CLEANUP)

@@ -283,11 +283,82 @@ CLEANUP = r'''
 }
 '''
 
+DIRECT_CONTROL = CONTROL.replace("LCReturnControl", "LCDirectReturnControl").replace(
+    'Minimizes this guest without closing it', 'Restarts LiveContainer and closes this guest'
+)
+
+DIRECT_RUNTIME = r'''
+// LC_DIRECT_RETURN_V1: direct guests share the host process, not the dock registry.
+@interface LCDirectReturnWindow : UIWindow
+@end
+@implementation LCDirectReturnWindow
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *hit = [super hitTest:point withEvent:event];
+    return (hit == self || hit == self.rootViewController.view) ? nil : hit;
+}
+@end
+
+@interface LCDirectReturnPresenter : NSObject
+@property(nonatomic, strong) NSMutableDictionary<NSString *, LCDirectReturnWindow *> *windows;
+@end
+@implementation LCDirectReturnPresenter
+- (instancetype)init {
+    if (!(self = [super init])) return nil;
+    self.windows = [NSMutableDictionary new];
+    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    [center addObserver:self selector:@selector(show:) name:UIWindowDidBecomeVisibleNotification object:nil];
+    [center addObserver:self selector:@selector(show:) name:UISceneDidActivateNotification object:nil];
+    [center addObserver:self selector:@selector(disconnect:) name:UISceneDidDisconnectNotification object:nil];
+    return self;
+}
+- (void)show:(NSNotification *)notification {
+    if (!NSThread.isMainThread) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self show:notification]; });
+        return;
+    }
+    UIWindowScene *scene = nil;
+    if ([notification.object isKindOfClass:UIWindow.class]) {
+        UIWindow *source = notification.object;
+        if ([source isKindOfClass:LCDirectReturnWindow.class] || source.windowLevel != UIWindowLevelNormal) return;
+        scene = source.windowScene;
+    } else if ([notification.object isKindOfClass:UIWindowScene.class]) {
+        scene = notification.object;
+    }
+    if (!scene || ![scene.session.role isEqualToString:UIWindowSceneSessionRoleApplication]) return;
+    NSString *identity = scene.session.persistentIdentifier;
+    if (self.windows[identity]) return;
+    LCDirectReturnWindow *window = [[LCDirectReturnWindow alloc] initWithWindowScene:scene];
+    UIViewController *controller = [UIViewController new];
+    window.rootViewController = controller;
+    window.backgroundColor = UIColor.clearColor;
+    window.windowLevel = UIWindowLevelAlert + 1;
+    LCDirectReturnControl *control = [[LCDirectReturnControl alloc] initWithFrame:window.bounds];
+    controller.view = control;
+    control.action = ^{
+        NSLog(@"[LC_RETURN] RETURN_REQUESTED mode=DIRECT_PROCESS_RESTART_RETURN");
+        // Match the upstream SideStore escape path. Never used by LiveProcess.
+        [LCSharedUtils launchToGuestAppWithClassicMode:0];
+    };
+    self.windows[identity] = window;
+    window.hidden = NO; // Do not steal key-window status from the guest or its keyboard.
+    NSLog(@"[LC_RETURN] MODE_DIRECT mode=DIRECT_PROCESS_RESTART_RETURN pid=%d", getpid());
+}
+- (void)disconnect:(NSNotification *)notification {
+    if ([notification.object isKindOfClass:UIWindowScene.class]) {
+        UIWindowScene *scene = notification.object;
+        [self.windows removeObjectForKey:scene.session.persistentIdentifier];
+    }
+}
+@end
+static LCDirectReturnPresenter *lcDirectReturnPresenter;
+'''
+
 PATHS = (
     "MultitaskSupport/AppSceneViewController.m", "MultitaskSupport/AppSceneViewController.h",
     "MultitaskSupport/MultitaskAppWindow.swift", "MultitaskSupport/MultitaskDockView.swift",
     "SideStoreSupport/SideStoreHooks.m", "LiveContainerSwiftUI/Models/LCAppModel.swift",
     "LiveContainerSwiftUI/Views/LCTabView.swift",
+    "LiveContainer/LCBootstrap.m",
 )
 
 
@@ -306,7 +377,7 @@ def section(text, start, end, replacement, label):
 
 
 def verify(texts):
-    implementation, header, window, dock, hooks, model, tab = (texts[p] for p in PATHS)
+    implementation, header, window, dock, hooks, model, tab, bootstrap = (texts[p] for p in PATHS)
     for text, token in ((implementation, CONTROL), (implementation, METHODS), (implementation, CLEANUP),
                         (window, WINDOW_MANAGER), (dock, DOCK_RESUME), (header, "lcActivateHost"),
                         (hooks, "DIRECT_PROCESS_RESTART_RETURN"), (model, "LC_RETURN_CONTAINER_GUARD"),
@@ -315,12 +386,14 @@ def verify(texts):
             raise ValueError("Incomplete guest-return patch: " + token[:65])
     if "DataManager.shared.model.pidCallback" in window:
         raise ValueError("Global cross-window callback survived")
+    if DIRECT_CONTROL.strip() not in bootstrap or DIRECT_RUNTIME.strip() not in bootstrap:
+        raise ValueError("Incomplete direct guest Return patch")
 
 
 def patch(root):
     root = Path(root)
     texts = {p: (root / p).read_text(encoding="utf-8") for p in PATHS}
-    implementation, header, window, dock, hooks, model, tab = (texts[p] for p in PATHS)
+    implementation, header, window, dock, hooks, model, tab, bootstrap = (texts[p] for p in PATHS)
     if MARKER in implementation:
         verify(texts)
         return
@@ -392,7 +465,9 @@ def patch(root):
     hooks = replace(hooks, "    [LCSharedUtils launchToGuestAppWithClassicMode:0];", '    NSLog(@"[LC_RETURN] MODE_DIRECT mode=DIRECT_PROCESS_RESTART_RETURN");\n    [LCSharedUtils launchToGuestAppWithClassicMode:0];', "direct fallback diagnostic")
     tab = replace(tab, "            shouldToggleMainWindowOpen = true\n", "            shouldToggleMainWindowOpen = true\n            if #available(iOS 16.1, *) {\n                MultitaskWindowManager.mainSceneSession = sceneDelegate.window?.windowScene?.session\n            }\n", "capture real main scene")
     tab = replace(tab, "                    DataManager.shared.model.mainWindowOpened = false", "                    DataManager.shared.model.mainWindowOpened = false\n                    if #available(iOS 16.1, *), MultitaskWindowManager.mainSceneSession?.persistentIdentifier == scene1.session.persistentIdentifier {\n                        MultitaskWindowManager.mainSceneSession = nil\n                    }", "clear disconnected main scene")
-    updated = dict(zip(PATHS, (implementation, header, window, dock, hooks, model, tab)))
+    bootstrap = replace(bootstrap, "extern char **environ;", "#include <math.h>\n" + DIRECT_CONTROL + DIRECT_RUNTIME + "\nextern char **environ;", "direct return presenter")
+    bootstrap = replace(bootstrap, "    // Go!", "    // Install before guest UIApplication/scene creation, never inside LiveProcess.\n    if (!isLiveProcess && !isSideStore) {\n        lcDirectReturnPresenter = [LCDirectReturnPresenter new];\n    }\n    // Go!", "direct launch route")
+    updated = dict(zip(PATHS, (implementation, header, window, dock, hooks, model, tab, bootstrap)))
     verify(updated)
     # Validate every anchor before writing any file, so upstream drift is not a partial patch.
     for relative, text in updated.items():

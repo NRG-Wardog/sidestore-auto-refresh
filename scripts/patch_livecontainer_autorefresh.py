@@ -22,7 +22,7 @@ def template(name: str) -> str:
     return (TEMPLATES / name).read_text(encoding="utf-8")
 
 
-HOST_SCHEDULER = template("livecontainer_refresh_policy.swift") + "\n" + template("livecontainer_refresh_scheduler.swift")
+HOST_SCHEDULER = template("livecontainer_refresh_policy.swift") + "\n" + template("livecontainer_network_preflight.swift") + "\n" + template("livecontainer_refresh_scheduler.swift")
 ALARM_PROVIDER = template("livecontainer_refresh_alarm.swift")
 SETTINGS_VIEW = template("livecontainer_refresh_settings.swift")
 BRIDGE = r'''
