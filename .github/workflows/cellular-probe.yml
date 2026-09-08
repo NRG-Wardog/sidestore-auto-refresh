@@ -67,7 +67,7 @@ jobs:
           xcrun --sdk iphoneos clang -fsyntax-only -arch arm64 -miphoneos-version-min=15.0 \
             -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -fobjc-arc -fmodules \
             -Werror=implicit-function-declaration -Werror=objc-method-access \
-            -I idevice/ffi builder/experiments/cellular/app/main.m
+            -I idevice/ffi builder/experiments/cellular/app/*.m
       - name: Build patched transport for iOS
         run: |
           set -euo pipefail

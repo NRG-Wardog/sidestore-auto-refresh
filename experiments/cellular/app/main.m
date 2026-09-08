@@ -8,14 +8,19 @@
 #include <string.h>
 #include "idevice.h"
 #include "ProbePolicy.h"
+#import "PeerDiscovery.h"
 
 @interface ProbeViewController : UIViewController <UIDocumentPickerDelegate>
-@property(nonatomic, strong) UITextField *peer;
-@property(nonatomic, strong) UISegmentedControl *mode;
+@property(nonatomic, strong) UILabel *peer;
+@property(nonatomic, strong) UILabel *mode;
 @property(nonatomic, strong) UITextView *output;
 @property(nonatomic, strong) UIButton *runButton;
 @property(nonatomic, strong) UIButton *importButton;
 @property(nonatomic) BOOL running;
+@property(nonatomic) BOOL automaticRunPending;
+@property(nonatomic) BOOL awaitingCellular;
+@property(nonatomic) BOOL continuingCellular;
+@property(nonatomic, copy) NSString *peerOverride;
 @property(atomic) BOOL interrupted;
 @property(nonatomic, copy) NSString *runID;
 @property(nonatomic, strong) NSMutableArray<NSString *> *lines;
@@ -24,6 +29,8 @@
 - (UIButton *)button:(NSString *)title icon:(NSString *)icon action:(SEL)action;
 - (BOOL)probeAddress:(struct in_addr)address pairing:(NSData *)pairing;
 - (void)saveReport;
+- (void)run;
+- (void)resumePending;
 @end
 
 static __weak ProbeViewController *currentProbe;
@@ -104,19 +111,22 @@ static void LogInterfaces(ProbeViewController *view) {
     self.lines = [NSMutableArray array];
     self.runID = @"idle";
     self.worker = dispatch_queue_create("cellular.probe.ffi", DISPATCH_QUEUE_SERIAL);
+    self.peerOverride = [NSUserDefaults.standardUserDefaults stringForKey:@"probe.override"];
+    self.awaitingCellular = [NSUserDefaults.standardUserDefaults boolForKey:@"probe.awaitingCellular"];
+    self.automaticRunPending = YES;
     currentProbe = self;
     idevice_set_transport_log_callback(TransportLog);
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAction target:self action:@selector(share)];
-    self.peer = [UITextField new];
-    self.peer.placeholder = @"LocalDevVPN Device / Peer IPv4";
-    self.peer.borderStyle = UITextBorderStyleRoundedRect;
-    self.peer.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
-    self.peer.autocorrectionType = UITextAutocorrectionTypeNo;
-    self.peer.text = [NSUserDefaults.standardUserDefaults stringForKey:@"probe.peer"];
-    self.mode = [[UISegmentedControl alloc] initWithItems:@[@"Wi-Fi baseline", @"Cellular"]];
-    self.mode.selectedSegmentIndex = 0;
+    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"slider.horizontal.3"] style:UIBarButtonItemStylePlain target:self action:@selector(overridePeer)];
+    self.navigationItem.leftBarButtonItem.accessibilityLabel = @"Peer override";
+    self.peer = [UILabel new];
+    self.peer.text = @"VPN peer: Automatic";
+    self.peer.numberOfLines = 2;
+    self.mode = [UILabel new];
+    self.mode.text = @"Network: Automatic";
+    self.mode.numberOfLines = 2;
     self.importButton = [self button:@"Import Pairing" icon:@"doc.badge.plus" action:@selector(importPairing)];
-    self.runButton = [self button:@"Run Read-Only Test" icon:@"play.fill" action:@selector(run)];
+    self.runButton = [self button:@"Run Again" icon:@"arrow.clockwise" action:@selector(start)];
     UIStackView *controls = [[UIStackView alloc] initWithArrangedSubviews:@[self.peer, self.mode, self.importButton, self.runButton]];
     controls.axis = UILayoutConstraintAxisVertical;
     controls.spacing = 12;
@@ -141,9 +151,46 @@ static void LogInterfaces(ProbeViewController *view) {
         [self.output.bottomAnchor constraintEqualToAnchor:self.view.keyboardLayoutGuide.topAnchor]
     ]];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(backgrounded) name:UIApplicationDidEnterBackgroundNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(resumePending) name:UIApplicationDidBecomeActiveNotification object:nil];
     [self record:[NSString stringWithFormat:@"READY build=%@ os=%@ pairing_imported=%d",
         [NSBundle.mainBundle objectForInfoDictionaryKey:@"ProbeBuilderCommit"] ?: @"local",
         UIDevice.currentDevice.systemVersion, [NSFileManager.defaultManager fileExistsAtPath:PairingURL().path]]];
+}
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self resumePending];
+}
+- (void)resumePending {
+    if (!self.automaticRunPending || self.running || self.presentedViewController || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
+    self.automaticRunPending = NO;
+    self.continuingCellular = self.awaitingCellular;
+    [self run];
+}
+- (void)start {
+    self.continuingCellular = NO;
+    self.automaticRunPending = NO;
+    [self run];
+}
+- (void)overridePeer {
+    if (self.running) return;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Peer override" message:@"Blank = automatic discovery" preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        field.text = self.peerOverride;
+        field.placeholder = @"Device / Peer IPv4";
+        field.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Apply and Test" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSString *ip = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        struct in_addr address;
+        if (ip.length && inet_pton(AF_INET, ip.UTF8String, &address) != 1) {
+            [self record:@"INPUT_FAIL reason=invalid_peer_override"]; return;
+        }
+        self.peerOverride = ip;
+        [NSUserDefaults.standardUserDefaults setObject:ip ?: @"" forKey:@"probe.override"];
+        [self start];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 - (UIButton *)button:(NSString *)title icon:(NSString *)icon action:(SEL)action {
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -168,6 +215,7 @@ static void LogInterfaces(ProbeViewController *view) {
     [self.output scrollRangeToVisible:NSMakeRange(self.output.text.length, 0)];
 }
 - (void)backgrounded {
+    if (self.awaitingCellular && !self.running) self.automaticRunPending = YES;
     if (self.running) {
         self.interrupted = YES;
         [self record:@"RUN_INTERRUPTED reason=app_backgrounded result_will_be_inconclusive"];
@@ -201,41 +249,80 @@ static void LogInterfaces(ProbeViewController *view) {
         return;
     }
     [self record:@"PAIRING_IMPORT_PASS stored=protected_app_support secrets_logged=false"];
+    self.continuingCellular = NO;
+    [controller dismissViewControllerAnimated:YES completion:^{ [self run]; }];
 }
 - (void)run {
     if (self.running || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
-    NSString *peer = [self.peer.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    struct in_addr address;
-    if (peer.length == 0 || inet_pton(AF_INET, peer.UTF8String, &address) != 1) { [self record:@"INPUT_FAIL reason=peer_must_be_ipv4"]; return; }
     NSData *pairing = [NSData dataWithContentsOfURL:PairingURL()];
-    if (!pairing) { [self record:@"INPUT_FAIL reason=import_pairing_first"]; return; }
+    if (!pairing) { [self importPairing]; return; }
     [self.view endEditing:YES];
     self.running = YES;
     self.interrupted = NO;
     self.runID = NSUUID.UUID.UUIDString;
-    self.runButton.enabled = self.importButton.enabled = self.peer.enabled = self.mode.enabled = NO;
-    BOOL cellular = self.mode.selectedSegmentIndex == 1;
-    [NSUserDefaults.standardUserDefaults setObject:peer forKey:@"probe.peer"];
-    [self record:[NSString stringWithFormat:@"PROBE_BEGIN mode=%@ fresh_transport=true", cellular ? @"cellular" : @"wifi_baseline"]];
+    self.runButton.enabled = self.importButton.enabled = self.navigationItem.leftBarButtonItem.enabled = NO;
+    self.mode.text = @"Network: Detecting";
+    self.peer.text = @"VPN peer: Detecting";
+    NSString *override = self.peerOverride;
+    BOOL continuing = self.continuingCellular;
+    [self record:@"PROBE_BEGIN mode=automatic fresh_transport=true"];
     dispatch_async(self.worker, ^{
         @autoreleasepool {
             int wifi = SamplePath(nw_interface_type_wifi), mobile = SamplePath(nw_interface_type_cellular);
+            int detected = probe_detect_mode(wifi, mobile);
+            BOOL cellular = detected == 2;
             [self record:[NSString stringWithFormat:@"PATH_BEFORE wifi=%d cellular=%d", wifi, mobile]];
+            [self record:[NSString stringWithFormat:@"MODE_DETECTED value=%@", detected == 1 ? @"wifi_baseline" : detected == 2 ? @"cellular" : @"unknown"]];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.mode.text = detected == 1 ? @"Wi-Fi baseline" : detected == 2 ? @"Cellular test" : @"Network unavailable or unknown";
+            });
             LogInterfaces(self);
-            BOOL before = probe_path_allowed(cellular, wifi, mobile);
+            BOOL waiting = continuing && detected == 1;
+            BOOL before = detected != 0 && probe_path_allowed(cellular, wifi, mobile);
             BOOL browse = NO;
-            if (!before || self.interrupted) [self record:@"PREFLIGHT_FAIL reason=path_mismatch_unknown_or_interrupted no_coredevice=true"];
-            else browse = [self probeAddress:address pairing:pairing];
+            if (waiting) {
+                [self record:@"WAITING_FOR_CELLULAR no_coredevice=true"];
+                dispatch_async(dispatch_get_main_queue(), ^{ self.peer.text = @"VPN peer: Not probed while waiting"; });
+            } else if (!before || self.interrupted) {
+                [self record:@"PREFLIGHT_FAIL reason=path_mismatch_unknown_or_interrupted no_coredevice=true"];
+                dispatch_async(dispatch_get_main_queue(), ^{ self.peer.text = @"VPN peer: Not probed (network unavailable)"; });
+            }
+            else {
+                NSString *reason = @"explicit_override";
+                NSArray<NSString *> *candidates = override.length ? @[override] : ProbePeerCandidates(&reason);
+                [self record:[NSString stringWithFormat:@"PEER_DISCOVERY candidates=%lu source=%@", (unsigned long)candidates.count, reason]];
+                NSMutableArray<NSString *> *reachable = [NSMutableArray array];
+                for (NSUInteger i = 0; i < candidates.count && !self.interrupted; i++) {
+                    int error = 0;
+                    [self record:[NSString stringWithFormat:@"PEER_TCP_BEGIN candidate=%lu", (unsigned long)i]];
+                    BOOL connected = ProbeTCPPeer(candidates[i], &error);
+                    [self record:[NSString stringWithFormat:@"PEER_TCP_RETURN candidate=%lu connected=%d errno=%d", (unsigned long)i, connected, error]];
+                    if (connected) [reachable addObject:candidates[i]];
+                }
+                if (reachable.count == 1 && !self.interrupted) {
+                    NSString *selected = reachable.firstObject;
+                    dispatch_async(dispatch_get_main_queue(), ^{ self.peer.text = [@"VPN peer: " stringByAppendingString:selected]; });
+                    [self record:@"PEER_SELECTED tcp_verified=true provider_identity=unverified"];
+                    struct in_addr address;
+                    if (inet_pton(AF_INET, selected.UTF8String, &address) == 1) browse = [self probeAddress:address pairing:pairing];
+                } else {
+                    [self record:[NSString stringWithFormat:@"PEER_DISCOVERY_FAIL reason=%@ no_coredevice=true", reachable.count > 1 ? @"multiple_reachable_peers_use_override" : @"no_reachable_peer"]];
+                    dispatch_async(dispatch_get_main_queue(), ^{ self.peer.text = @"VPN peer unavailable or ambiguous"; });
+                }
+            }
             int afterWifi = SamplePath(nw_interface_type_wifi), afterMobile = SamplePath(nw_interface_type_cellular);
             [self record:[NSString stringWithFormat:@"PATH_AFTER wifi=%d cellular=%d", afterWifi, afterMobile]];
             BOOL after = probe_path_allowed(cellular, afterWifi, afterMobile);
             dispatch_async(dispatch_get_main_queue(), ^{
                 BOOL valid = probe_result_valid(browse, before, after, self.interrupted);
                 [self record:[NSString stringWithFormat:@"PROBE_COMPLETE browse=%d path_snapshots_match=%d interrupted=%d result=%@ refresh_performed=false",
-                    browse, before && after, self.interrupted, valid ? @"READ_ONLY_PASS" : @"FAILED_OR_INCONCLUSIVE"]];
+                    browse, before && after, self.interrupted, waiting ? @"WAITING_FOR_CELLULAR" : valid ? @"READ_ONLY_PASS" : @"FAILED_OR_INCONCLUSIVE"]];
                 [self record:@"SCOPE snapshots_only_not_continuous_route_proof; no_signing_or_installation_tested"];
+                if (!waiting) self.awaitingCellular = valid && !cellular;
+                [NSUserDefaults.standardUserDefaults setBool:self.awaitingCellular forKey:@"probe.awaitingCellular"];
+                self.mode.text = self.awaitingCellular ? @"Baseline passed. Waiting for cellular-only connection." : valid ? @"Read-only test passed" : @"Test failed or inconclusive - see report";
                 self.running = NO;
-                self.runButton.enabled = self.importButton.enabled = self.peer.enabled = self.mode.enabled = YES;
+                self.runButton.enabled = self.importButton.enabled = self.navigationItem.leftBarButtonItem.enabled = YES;
                 [self saveReport];
             });
         }

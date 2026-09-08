@@ -14,15 +14,35 @@ Only the latest bounded report is saved in Documents. There is no Apple login.
 ## Test
 
 1. Sign/install `CellularProbe.ipa` as a separate app. Do not replace LiveContainer.
-2. Import the valid pairing record, enter LocalDevVPN's Device / Peer IPv4.
-3. With Wi-Fi and official LocalDevVPN on, run **Wi-Fi baseline** once.
+2. Open it and choose the valid pairing record in the file picker once.
+   Import is followed automatically by network detection, peer discovery and a
+   read-only test. Later launches reuse the protected pairing file.
+3. With Wi-Fi and official LocalDevVPN on, the first test is a Wi-Fi baseline.
 4. Disable Wi-Fi in Settings (not merely disconnect in Control Center), enable
    cellular and keep official LocalDevVPN on. Reopen this diagnostic app.
-5. Select **Cellular**, run once, keep the app foreground, and share the report.
+5. After a successful baseline, returning with cellular-only connectivity starts
+   the pending cellular test automatically. Keep the app foreground and share
+   the report. **Run Again** explicitly starts a fresh test on the current path.
 6. Repeat without USB attached once the first test completes.
 
 No VPN Super, external relay, PC runtime service or automatic network toggle is
 used. An `ipsec` interface flag alone does not identify a VPN provider.
+
+Peer discovery follows the pinned minimuxer interface/route approach: active
+IPv4 `utun`, route gateway, host destination, then point-to-point peer. Unlike
+the upstream selection filter, this diagnostic does not discard an IPv4 tunnel
+merely because it also has an IPv6 address. It rejects local/default/multicast
+addresses, never guesses adjacent addresses, and never enumerates LAN subnets.
+The native route parser bounds-checks every message and sockaddr. At most eight
+discovered candidates receive one two-second TCP probe each. Exactly one must
+answer; zero or multiple responders produce an explicit failure. The slider
+button exposes an optional explicit peer override for ambiguous configurations.
+TCP reachability does not identify the VPN provider or prove protocol success.
+
+The app cannot toggle iOS Wi-Fi or read another app's private pairing storage.
+It does not embed credentials, change VPN settings, or repeatedly retry on a
+timer. Automatic continuation uses app lifecycle events and a single pending
+cellular-test flag, not background polling.
 
 The call named `tunnel_create_usb` is an upstream name: here it receives a TCP
 provider addressed to the entered peer on port 62078, not a USB provider.

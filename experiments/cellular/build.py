@@ -28,7 +28,8 @@ def verify(ipa):
         code = archive.read('Payload/CellularProbe.app/CellularProbe')
         magic, cpu, _, kind = struct.unpack_from('<IIII', code)
         assert magic == 0xfeedfacf and cpu == 0x100000c and kind == 2, 'Expected arm64 Mach-O executable'
-        for marker in (b'PROBE_BEGIN', b'COREDEVICE_RSD_BEGIN', b'BROWSE_BEGIN', b'RESOURCES_RELEASED', b'PATH_BEFORE', b'PATH_AFTER'):
+        for marker in (b'PROBE_BEGIN', b'COREDEVICE_RSD_BEGIN', b'BROWSE_BEGIN', b'RESOURCES_RELEASED', b'PATH_BEFORE', b'PATH_AFTER',
+                       b'PEER_DISCOVERY', b'MODE_DETECTED', b'WAITING_FOR_CELLULAR'):
             assert marker in code, marker
         return {'builder_commit': info['ProbeBuilderCommit'], 'app_bundles': 1,
                 'extensions': 0, 'embedded_sidestore': False, 'device_test': 'NOT_RUN',
@@ -47,7 +48,7 @@ def build(idevice, output, commit, native_log):
     command = ['xcrun', '--sdk', 'iphoneos', 'clang', '-arch', 'arm64', '-miphoneos-version-min=15.0',
                '-isysroot', sdk, '-fobjc-arc', '-fmodules', '-O2', '-Wall',
                '-Werror=implicit-function-declaration', '-Werror=objc-method-access',
-               '-I' + str(idevice / 'ffi'), str(ROOT / 'app/main.m'),
+               '-I' + str(idevice / 'ffi'), *map(str, sorted((ROOT / 'app').glob('*.m'))),
                str(idevice / 'target/aarch64-apple-ios/release/libidevice_ffi.a')]
     for framework in ('UIKit', 'Foundation', 'Network', 'UniformTypeIdentifiers'):
         command += ['-framework', framework]

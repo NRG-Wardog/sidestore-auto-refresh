@@ -62,11 +62,37 @@ class StandaloneProbeTests(unittest.TestCase):
         self.assertIn('snapshots_only_not_continuous_route_proof', SOURCE)
         self.assertIn('refresh_performed=false', SOURCE)
 
+    def test_automatic_flow_and_resume_are_event_driven(self):
+        self.assertNotIn('selectedSegmentIndex', SOURCE)
+        self.assertNotIn('probe.peer', SOURCE)
+        self.assertIn('probe_detect_mode(wifi, mobile)', SOURCE)
+        self.assertIn('if (!pairing) { [self importPairing]; return; }', SOURCE)
+        self.assertIn('completion:^{ [self run]; }', SOURCE)
+        self.assertIn('UIApplicationDidBecomeActiveNotification', SOURCE)
+        self.assertIn('!self.automaticRunPending || self.running', SOURCE)
+        self.assertIn('self.automaticRunPending = NO;', SOURCE)
+        self.assertIn('self.awaitingCellular = valid && !cellular', SOURCE)
+        self.assertIn('WAITING_FOR_CELLULAR no_coredevice=true', SOURCE)
+        self.assertIn('reachable.count == 1 && !self.interrupted', SOURCE)
+
+    def test_discovery_is_bounded_and_never_guesses_a_peer(self):
+        discovery = (APP / 'PeerDiscovery.m').read_text()
+        self.assertIn('"utun", 4', discovery)
+        self.assertIn('[locals containsObject:candidate]', discovery)
+        self.assertIn('result.count > 8', discovery)
+        self.assertIn('.tv_sec = 2', discovery)
+        self.assertIn('SO_ERROR', discovery)
+        self.assertIn('close(fd)', discovery)
+        self.assertIn('probe_route_peers', discovery)
+        for address in ('10.0.0.241', '192.168.50.241'):
+            self.assertNotIn(address, SOURCE + discovery)
+
     def test_package_contract_rejects_combined_and_invalid_binary(self):
         info = plistlib.loads((APP / 'Info.plist').read_bytes())
         info['ProbeBuilderCommit'] = 'a' * 40
         code = struct.pack('<IIII', 0xfeedfacf, 0x100000c, 0, 2)
         code += b' PROBE_BEGIN COREDEVICE_RSD_BEGIN BROWSE_BEGIN RESOURCES_RELEASED PATH_BEFORE PATH_AFTER '
+        code += b' PEER_DISCOVERY MODE_DETECTED WAITING_FOR_CELLULAR '
         with tempfile.TemporaryDirectory() as folder:
             ipa = Path(folder) / 'probe.ipa'
             def package(extra=False, binary=code):
