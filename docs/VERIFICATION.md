@@ -2,14 +2,37 @@
 
 ## Scope
 
-The current build targets an iPhone 12 running iOS 26.6.1 with a Free Apple
+This report distinguishes standalone SideStore evidence from the combined
+LiveContainer + embedded SideStore release. Proof from one variant must not be
+assumed to cover the other.
+
+The test setup uses an iPhone 12 running iOS 26.6.1 with a Free Apple
 Account, Developer Mode, official App Store LocalDevVPN, Wi-Fi, and a valid
 Lockdown pairing file.
 
 The PC is used only for building, initial installation, diagnostics, and log
 capture. It is not part of the intended refresh runtime.
 
-## Proven
+## Combined v2.0.0 release
+
+- Published builder: `f20e14e43b4048c5b5791e7d4b0bb6e32930c10a`.
+- [Build 34238644076](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/34238644076):
+  76 tests, 2 skipped; both Release builds and package/transport checks passed.
+- Downloaded IPA independently passed combined semantic/runtime package checks.
+- Size: 37,389,675 bytes.
+- SHA-256: `1c29648ee99abd67cd6244d0405f2ab9df0beca92adb4c35bed5c133eb7d974e`.
+- Earlier device tests observed embedded UI startup, Return-control interaction,
+  and transfer of matching refresh verification results. A newly installed host
+  provisioning profile was independently observed.
+- These observations do not alone prove executable replacement, same-PID guest
+  preservation, or unattended combined refresh.
+- The final automatic windowed/fullscreen control visibility change has passed
+  source/build checks but awaits device confirmation.
+
+See [release notes](RELEASE_NOTES_v2.0.0.md) for the complete changes and limitations.
+The original release tag was retained; use the explicit builder SHA for this IPA.
+
+## Standalone SideStore: proven
 
 - Lockdown reaches CoreDeviceProxy on the LocalDevVPN same-subnet route.
 - CoreDeviceProxy service TLS is enabled.
@@ -24,7 +47,7 @@ capture. It is not part of the intended refresh runtime.
 - Full unattended scheduled refresh with the PC disconnected is verified on the
   current proof device.
 
-## Final PC-free proof
+## Standalone final PC-free proof
 
 The final proof condition is a scheduled iOS background task running while the
 PC and USB are disconnected, then reaching the refresh operation and completing
@@ -53,7 +76,7 @@ Do not upload pairing files, certificates, private keys, full private device
 logs, unnecessary device identifiers, or signed IPAs containing personal signing
 material.
 
-## Current release IPA
+## Standalone v1.0.2 IPA
 
 The public **v1.0.2** IPA is **27,566,058 bytes** with SHA-256:
 
