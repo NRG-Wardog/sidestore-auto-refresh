@@ -1,68 +1,116 @@
 # LiveContainer + SideStore Auto-Refresh v2.0.0
 
-**Preview release.** This introduces the combined LiveContainer + embedded
-SideStore variant. Compilation and package verification passed; successful
-signing, installation, host replacement and unattended refresh of this combined
-variant still require on-device validation. This release contains only the
-LiveContainer combined build.
+Stable release of LiveContainer with patched embedded SideStore, native refresh
+automation, LocalDevVPN/CoreDevice transport, and guest Return controls.
+Updated September 8, 2026 with build `f20e14e`.
 
-## Downloads
+This release contains only the combined LiveContainer build, not standalone
+SideStore v1.0.2. Release numbering does not replace upstream app version numbers.
 
-- `LiveContainer-SideStore-AutoRefresh-v2.0.0.ipa`: new combined preview.
-- `SHA256SUMS.txt`: integrity checksum for the combined IPA.
+## Download and installation
 
-Version v2.0.0 identifies this repository release, not the upstream applications'
-internal version numbers. The combined IPA must be signed with your own account.
+- `LiveContainer-SideStore-AutoRefresh-v2.0.0.ipa`
+- `SHA256SUMS.txt`
+- `RELEASE_NOTES_v2.0.0.md`
 
-## Included in the combined preview
+Sign with your own Apple account using a compatible installer. Update over the
+existing same-team, same-identifier installation; do not delete LiveContainer
+first. Back up important guest data. Standalone SideStore-to-combined data
+migration is not provided.
 
-- LiveContainer with patched embedded SideStore, its dependencies and widget.
-- Preserved LiveProcess, ShareExtension and LaunchAppExtension bundles.
-- Upstream combined packaging, including executable conversion, entitlement
-  preparation, app-group metadata, URL schemes and intent metadata.
-- Six-hour, daily and weekly scheduling controls with local clock selection.
-- Native background processing, a lightweight background-refresh watchdog and
-  launch/resume recovery paths; Personal Automation is not required setup.
-- Target-deadline scheduling with an initial one-hour lead time. iOS still
-  controls execution and may delay or omit a background task.
-- Shared run coalescing, compact due-state checks, persisted retry timing and
-  refresh history.
-- Host-handoff and post-relaunch verification logic, plus guest-signature checks.
-  These are implemented paths, not proof of successful host or guest refresh.
-- Optional AlarmKit deadline protection on iOS 26.1+ when authorized. The alarm
-  is a warning with a user-operated Refresh Now action, not an automatic executor.
-- Embedded SideStore console-log retention limits to avoid unlimited log growth.
+## Combined application and transport
+
+- Upstream combined packaging: converted SideStoreApp.framework, nested
+  dependencies, relocated widget, app groups, URL schemes, and intent metadata.
+- Preserves LiveProcess, ShareExtension, LaunchAppExtension, and the combined widget.
+- Ports the LocalDevVPN/CoreDevice path into embedded SideStore: pairing selection,
+  service TLS, contiguous CDTunnel handshake, RSD, AFC/install routing, and
+  transport dependency fixes.
+- Explicit transport-selection/readiness diagnostics. The CoreDevice path does
+  not require VPN Super or an additional IKEv2/IPSec VPN.
+- Existing upstream transport modes remain available where supported.
+
+## Embedded SideStore startup and authentication
+
+- Corrects startup hooks and host bundle/profile identity handling.
+- Prevents database retries from attaching the same persistent store twice and
+  masking the original startup error.
+- Accepts upstream reusable authentication paths instead of requiring saved email.
+- Shared-Keychain credential handling and migration, with non-secret
+  presence/status diagnostics for UI and refresh-process access.
+- Navigation back from embedded SideStore to LiveContainer.
+
+## Refresh automation and status
+
+- Six-hour, daily, and weekly schedules with local clock selection.
+- Native background processing, lightweight watchdog, and launch/resume recovery;
+  Shortcuts Personal Automation is not required setup.
+- Deadline-oriented scheduling, initially with a one-hour lead time, compact due
+  checks, run coalescing, persisted retry backoff, and expiration monitoring.
+- Optional AlarmKit safety alerts on iOS 26.1+ when available and authorized, with
+  local-notification fallback. Alarm actions require user interaction.
+- Host-handoff/post-relaunch verification and guest-signature health paths.
+- Wi-Fi preflight before expensive transport work; foreground LocalDevVPN enable
+  handoff with readiness rechecking rather than assuming activation succeeded.
+- Background VPN failures use explicit status and bounded retry, not app launching.
+- Reactive readiness/status UI and preserved backoff across initial scheduling.
+- Manual/scheduled history, lifecycle notifications, stable selection/deletion,
+  and bounded embedded console-log retention.
+- Correlated run IDs and verification results across the existing XPC bridge.
+  Missing, mismatched, and empty results now have distinct explanations.
+
+## Guest Return controls and multitasking
+
+- Movable control with safe-area/keyboard-aware placement and saved position.
+- Long-press collapse to an edge tab; tap to restore. Collapse does not change the
+  global Guest Controls preference.
+- Floating control automatically hides in windowed multitasking and is available
+  in fullscreen/maximized guests, subject to the global preference.
+- Corrected virtual-window input layering and control cleanup.
+- LiveProcess Return uses upstream minimize/host-activation without intentionally
+  terminating the guest; reopening prefers its retained instance.
+- Per-window launch ownership, container identity checks, and stale-instance
+  cleanup prevent cross-guest callbacks and duplicate launches.
+- Direct host-process guests use restart-return, not preserved resume.
+  iOS can still suspend or terminate retained LiveProcess guests.
 
 ## Requirements and limitations
 
-- Free Apple Account / Personal Team, valid pairing file, Developer Mode,
-  Wi-Fi and official unmodified App Store LocalDevVPN for the intended transport.
-- The combined package has five App ID registration targets before exact-ID
-  reuse. Sufficient Apple registration quota is required for initial signing;
-  this is separate from the three-installed-app limit.
-- Removing apps or App IDs does not guarantee immediately available quota.
-- No deployment targets were raised by this release. Launch compatibility across
-  older supported iOS versions still needs real-device testing.
-- Background execution, deadline protection, expiration recovery and host
-  self-replacement are not guaranteed by this preview.
-- Do not infer successful refresh from a task launch or an accepted installation
-  request. Check actual installation and signing validity after refresh.
+- Free Apple Account / Personal Team, pairing file, Developer Mode, Wi-Fi, and
+  official unmodified App Store LocalDevVPN with a compatible local route.
+- The intended refresh runtime does not require a PC, USB, external relay, paid
+  developer membership, or custom VPN extension. Initial signing/install requires
+  a compatible setup and sufficient account quota.
+- Five App ID registration targets before exact-ID reuse, separate from the
+  installed-app limit. Uninstalling apps does not immediately release quota.
+- Cellular-only refresh is not supported.
+- Deployment targets are unchanged; optional newer APIs are availability-guarded.
+  Older-device compatibility still needs testing on those devices.
+- iOS may delay or omit background tasks. A deadline, submitted request, task
+  launch, or installation handoff is not proof of completed refresh.
+- Host self-replacement and unattended combined refresh are not universally proven.
+  Check actual signing validity, not just a successful UI or handoff message.
 
-Back up important app data before testing. Use your installer to sign the combined
-IPA. A standalone-to-combined data migration is not provided here.
-Keep credentials, pairing files and private signing material out of bug reports.
+## Verification and provenance
 
-## Provenance
+- Builder: `f20e14e43b4048c5b5791e7d4b0bb6e32930c10a`
+- [Successful build 34238644076](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/34238644076)
+- LiveContainer: `12377cf3b91d51739a33f14a302e5f522b238593`
+- Embedded SideStore: `10ffa01ecdfe4203a7ad5d7f41c0d5de03bd8abb`
+- CI: 76 tests, 2 skipped; both Release builds passed.
+- Combined semantic/runtime package and embedded transport checks passed.
+  The downloaded IPA was independently rechecked locally.
+- Size: 37,389,675 bytes.
+- SHA-256: `1c29648ee99abd67cd6244d0405f2ab9df0beca92adb4c35bed5c133eb7d974e`
 
-Combined preview:
+Earlier device testing confirmed embedded UI operation, Return-control interaction,
+and transfer of refresh verification results, with a newly installed provisioning
+profile observed. The final windowed/fullscreen visibility change passed
+source/build checks but has not yet been confirmed on-device. Package checks
+do not establish same-PID resume or complete host replacement.
 
-- Builder commit: `85f024438c6412d9a14f11d9fe4a79134bfe39c3`
-- [Successful build run 34091379185](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/34091379185)
-- LiveContainer revision: `12377cf3b91d51739a33f14a302e5f522b238593`
-- Embedded SideStore revision: `10ffa01ecdfe4203a7ad5d7f41c0d5de03bd8abb`
-- Size: 37,206,711 bytes
-- SHA-256: `9fbbfbacbf8b31927cfde70fe1d799b6af4f1a9c6076819fc2849a00e861f58d`
+This replaces the earlier preview asset without rebuilding the IPA. The existing
+release tag is retained; the explicit builder commit above identifies the source
+for the updated binary.
 
-The IPA is an existing build output; publishing this release did not rebuild
-or alter it. Local checks: 13 tests passed, two Swift-dependent tests
-skipped, and combined-package semantic verification passed.
+Keep credentials, pairing records, and private signing material out of reports.
