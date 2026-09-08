@@ -23,6 +23,31 @@ FILES = ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",
 
 
 class AutomationTests(unittest.TestCase):
+    def test_auth_preflight_accepts_upstream_credential_paths(self):
+        source = (ROOT / "scripts/patch_background_automation.py").read_text(encoding="utf-8")
+        self.assertNotIn("guard AuthManager.shared.isAuthenticated else", source)
+        expressions = {}
+        for name in ("hasPasswordCredentials", "hasTokenCredentials", "hasReusableSession"):
+            expressions[name] = source.split("let " + name + " = ", 1)[1].splitlines()[0]
+        keys = ("auth.currentAppleID", "auth.hasStoredPassword", "auth.adsid",
+                "auth.hasStoredXcodeToken", "auth.session", "auth.team",
+                "CertificateManager.shared.activeCertificate")
+        def accepted(*present):
+            for expression in expressions.values():
+                expression = expression.replace(" != nil", "")
+                for key in keys:
+                    expression = expression.replace(key, str(key in present))
+                if eval(expression.replace("&&", " and "), {"__builtins__": {}}):
+                    return True
+            return False
+        self.assertTrue(accepted("auth.adsid", "auth.hasStoredXcodeToken"))
+        self.assertTrue(accepted("auth.currentAppleID", "auth.hasStoredPassword"))
+        self.assertTrue(accepted("auth.session", "auth.team", "CertificateManager.shared.activeCertificate"))
+        self.assertFalse(accepted())
+        self.assertFalse(accepted("auth.currentAppleID"))
+        self.assertFalse(accepted("auth.hasStoredXcodeToken"))
+        self.assertFalse(accepted("auth.session", "auth.team"))
+
     def test_scheduled_refresh_selection_contract(self):
         source = (ROOT / "scripts/patch_background_automation.py").read_text(encoding="utf-8")
         self.assertIn("InstalledApp.fetchAppsForBackgroundRefresh(in: context)", source)

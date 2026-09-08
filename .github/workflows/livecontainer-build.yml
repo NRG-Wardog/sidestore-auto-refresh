@@ -98,6 +98,10 @@ jobs:
             python3 builder/scripts/patch_livecontainer_autorefresh.py work/LiveContainer
             python3 builder/scripts/patch_embedded_sidestore_startup.py work/LiveContainer work/EmbeddedSideStore
             python3 builder/scripts/patch_embedded_sidestore_startup.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_guest_return.py work/LiveContainer
+            python3 builder/scripts/patch_guest_return.py work/LiveContainer
+            swiftc -frontend -parse work/LiveContainer/MultitaskSupport/MultitaskAppWindow.swift
+            swiftc -frontend -parse work/LiveContainer/MultitaskSupport/MultitaskDockView.swift
             python3 - <<'PY'
           import importlib.util
           from pathlib import Path

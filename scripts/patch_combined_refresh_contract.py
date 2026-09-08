@@ -59,6 +59,8 @@ def verify_ipa(path: Path) -> dict:
         assert tuple(map(int, info.get("MinimumOSVersion", "999").split("."))) <= (15, 0, 0)
         embedded = archive.read(base + "/Frameworks/SideStoreApp.framework/SideStore")
         assert b"LiveContainerRefreshManifestV2" in embedded, "Incomplete-result verification contract not embedded"
+        assert b"[LC_KEYCHAIN] SHARED_GROUP_SELECTED" in embedded, "Shared Keychain route missing from embedded executable"
+        assert b"LCSharedKeychainReadyV1" in embedded, "Legacy Keychain migration contract missing"
         for name in archive.namelist():
             if name.endswith("/"):
                 continue
@@ -85,7 +87,7 @@ def verify_ipa(path: Path) -> dict:
                 offset += size
             images.append({"image": name, "alarmkit": alarm or "absent"})
     assert images, "No arm64 images were inspected"
-    result = {"runtime_contract": 2, "configuration": "passed", "alarmkit_linkage": images,
+    result = {"runtime_contract": 2, "shared_keychain_contract": 1, "configuration": "passed", "alarmkit_linkage": images,
               "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
               "device_runtime": "NOT TESTED; requires signed on-device validation"}
     output = path.with_suffix(".runtime-verification.json")
@@ -100,5 +102,9 @@ if __name__ == "__main__":
         print("SHA256=" + result["sha256"])
     elif len(sys.argv) == 2:
         patch(Path(sys.argv[1]))
+        # This CLI is invoked twice by the combined workflow, after the upstream
+        # background-operation patch. Standalone SideStore is not changed.
+        from patch_embedded_keychain import patch as patch_shared_keychain
+        patch_shared_keychain(Path(sys.argv[1]))
     else:
         raise SystemExit("usage: patch_combined_refresh_contract.py <embedded-root> | --verify-ipa <file.ipa>")

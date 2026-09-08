@@ -12,11 +12,12 @@ official LocalDevVPN -> Lockdown -> CoreDeviceProxy -> CDTunnel -> RSD
 
 The highest-value contribution is **real-device compatibility testing** across additional iPhone/iPad models, iOS versions, and Wi-Fi network ranges.
 
-The current proof device has completed manual CoreDevice refresh and a full PC-free scheduled refresh. Community testing should now focus on how broadly that result reproduces.
+The standalone SideStore proof device has completed manual CoreDevice refresh and a full PC-free scheduled refresh. Combined LiveContainer results are tracked separately; do not infer combined host replacement or unattended refresh from the standalone proof.
 
 Useful reports include:
 
 - iPhone/iPad model
+- Standalone or combined variant and installed build/version
 - iOS version
 - Wi-Fi IPv4 network family (`10.x`, `192.168.x`, `172.16-31.x`, or other; exact addresses are not required)
 - whether official LocalDevVPN remained connected
@@ -56,7 +57,7 @@ Be precise about proof level:
 - Neither marker alone proves that iOS executed the task.
 - A real scheduled run is established by `TRIGGER`, operation markers, and a successful completion/result.
 
-The current proof device has satisfied the full PC-free scheduled-refresh condition documented in [`docs/VERIFICATION.md`](docs/VERIFICATION.md). New compatibility claims should include equivalent non-sensitive evidence where practical.
+The standalone proof device has satisfied the PC-free scheduled-refresh condition documented in [`docs/VERIFICATION.md`](docs/VERIFICATION.md). New variant or compatibility claims need their own equivalent non-sensitive evidence.
 
 ## Security and privacy
 

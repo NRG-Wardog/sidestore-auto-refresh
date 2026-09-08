@@ -5,6 +5,8 @@ extension LiveContainerAutoRefreshScheduler {
         LiveContainerRefreshBridge.calls = 0
         LiveContainerRefreshBridge.fails = false
         LiveContainerRefreshBridge.incomplete = false
+        LiveContainerNetworkPreflight.error = nil
+        LiveContainerNetworkPreflight.checks = 0
         BGTaskScheduler.shared.requests = []
         UNUserNotificationCenter.shared.requests = []
     }
@@ -15,6 +17,18 @@ extension LiveContainerAutoRefreshScheduler {
         defaults.set(Date().addingTimeInterval(3600), forKey: earliestEligibleKey)
         await execute(source: "bgprocessing", task: noOp)
         precondition(LiveContainerRefreshBridge.calls == 0 && noOp.completions == [true])
+        precondition(LiveContainerNetworkPreflight.checks == 0)
+
+        for (code, state) in [(1, "WIFI_UNAVAILABLE"), (2, "VPN_UNAVAILABLE")] {
+            clearTestState()
+            defaults.set(true, forKey: enabledKey)
+            LiveContainerNetworkPreflight.error = NSError(domain: "LiveContainerRefresh.Network", code: code)
+            let blocked = BGTask()
+            await execute(source: "bgprocessing", task: blocked)
+            precondition(LiveContainerRefreshBridge.calls == 0 && blocked.completions == [false])
+            precondition(defaults.string(forKey: healthStateKey) == state)
+            precondition(defaults.object(forKey: nextRetryKey) is Date)
+        }
 
         clearTestState()
         let disabled = BGTask()

@@ -73,6 +73,8 @@ struct LCEmbeddedSideStoreRefreshView: View {
     @State private var isSelectingHistory = false
     @State private var selectedHistoryIDs: Set<String> = []
     @State private var showClearHistoryConfirmation = false
+    @AppStorage("liveContainerAutoRefreshLastError", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var lastError = ""
+    @AppStorage("liveContainerAutoRefreshHealthState", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var healthState = "UNKNOWN"
     @AppStorage("liveContainerAutoRefreshEnabled", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var enabled = false
     @AppStorage("liveContainerAutoRefreshFrequency", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var frequency = "interval"
     @AppStorage("liveContainerAutoRefreshWeekday", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var weekday = 2
@@ -96,10 +98,11 @@ struct LCEmbeddedSideStoreRefreshView: View {
                 let protection = strategy == "native_full" ? "Enhanced" :
                     (strategy == "native_without_alarmkit" ? "Standard" : "Limited")
                 Text("Protection: \(protection)")
+                Text("Refresh: \(healthState.replacingOccurrences(of: "_", with: " ").capitalized)")
                 Text("Background execution remains best-effort. A scheduled request is not a completed refresh.")
                     .font(.caption).foregroundColor(.secondary)
-                if let error = defaults.string(forKey: "liveContainerAutoRefreshLastError"), !error.isEmpty {
-                    Text(error).font(.caption).foregroundColor(.red)
+                if !lastError.isEmpty {
+                    Text(lastError).font(.caption).foregroundColor(.red)
                 }
             }
             Section {

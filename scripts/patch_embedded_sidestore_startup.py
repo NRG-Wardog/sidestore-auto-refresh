@@ -174,8 +174,42 @@ def patch_database(path: Path) -> None:
 
 def patch(live_root: Path, sidestore_root: Path) -> None:
     patch_hooks(live_root / "SideStoreSupport" / "SideStoreHooks.m")
+    patch_return_button(live_root / "SideStoreSupport" / "SideStoreHooks.m")
+    patch_auth_storage(sidestore_root / "SideStore" / "Core" / "Auth" / "AuthManager.swift")
     patch_bootstrap(live_root / "LiveContainer" / "LCBootstrap.m")
     patch_database(sidestore_root / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift")
+
+
+def patch_return_button(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    if "SS_RETURN_BUTTON_V1" in text:
+        return
+    text = replace_once(text,
+        "    NSMutableArray* oldToolBarItems = [self.navigationItem.leftBarButtonItems mutableCopy];",
+        '    // SS_RETURN_BUTTON_V1: messaging a nil array silently drops the button.\n'
+        '    escapeItem.accessibilityLabel = @"Return to LiveContainer";\n'
+        '    NSMutableArray* oldToolBarItems = [self.navigationItem.leftBarButtonItems mutableCopy] ?: [NSMutableArray array];',
+        "return button array")
+    path.write_text(text, encoding="utf-8")
+
+
+def patch_auth_storage(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    if "AUTH_STORAGE_READBACK_V1" in text:
+        return
+    for key, label in (("appleIDEmailAddress", "AppleID email"),
+                       ("appleIDPassword", "AppleID password"),
+                       ("appleIDAdsid", "AppleID account ID"),
+                       ("appleIDXcodeToken", "AppleID token")):
+        text = replace_once(text, f"        set {{ Keychain.shared.{key} = newValue }}",
+            f'''        set {{
+            Keychain.shared.{key} = newValue
+            // AUTH_STORAGE_READBACK_V1: report persistence, never the credential.
+            let matches = Keychain.shared.{key} == newValue
+            let status = matches ? (newValue == nil ? "REMOVED" : "SAVED") : "SAVE_FAILED"
+            debugLog("[\\(status)] {label} readback_matches=\\(matches) process_id=\\(ProcessInfo.processInfo.processIdentifier)")
+        }}''', f"{label} storage diagnostics")
+    path.write_text(text, encoding="utf-8")
 
 
 if __name__ == "__main__":

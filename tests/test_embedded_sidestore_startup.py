@@ -32,6 +32,7 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
         self.live = root / "LiveContainer"
         self.side = root / "SideStore"
         for source, target in (
+            (side / "SideStore/Core/Auth/AuthManager.swift", self.side / "SideStore/Core/Auth/AuthManager.swift"),
             (live / "SideStoreSupport" / "SideStoreHooks.m", self.live / "SideStoreSupport" / "SideStoreHooks.m"),
             (live / "LiveContainer" / "LCBootstrap.m", self.live / "LiveContainer" / "LCBootstrap.m"),
             (side / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift",
@@ -56,6 +57,15 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
         self.assertIn("PrivClass(Source) == nil", hooks)
         self.assertIn("hooks_deferred", hooks)
         self.assertIn("static dispatch_once_t onceToken", hooks)
+        self.assertIn('?: [NSMutableArray array]', hooks)
+        self.assertIn('Return to LiveContainer', hooks)
+        auth = self.text(self.side / "SideStore/Core/Auth/AuthManager.swift")
+        self.assertEqual(auth.count("let matches = Keychain.shared."), 4)
+        self.assertEqual(auth.count('"SAVE_FAILED"'), 4)
+        self.assertNotIn('debugLog("[SAVED]', auth)
+        for line in auth.splitlines():
+            if 'debugLog(' in line and 'readback_matches=' in line:
+                self.assertNotIn('newValue', line)
 
         bootstrap = self.text(self.live / "LiveContainer" / "LCBootstrap.m")
         self.assertIn(MARKER, bootstrap)

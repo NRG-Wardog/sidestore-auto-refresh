@@ -72,8 +72,16 @@ def verify(path, side_product=None):
         assert b'liveContainerAutoRefreshVerification' in executable, 'Patched embedded operation missing'
         host_code = archive.read(base + '/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI')
         assert b'liveContainerAutoRefresh' in host_code, 'Host automation missing'
+        assert b'lcReturnToHost' in host_code, 'Guest return action missing from host binary'
+        assert b'LCReturnControlPosition' in host_code, 'Movable return control missing'
+        assert b'virtual_window_chrome' in host_code, 'Multitasking Return input-layer fix missing'
         bootstrap_code = archive.read(base + '/Frameworks/LiveContainerShared.framework/LiveContainerShared')
         support_code = archive.read(base + '/Frameworks/SideStoreSupport.framework/SideStoreSupport')
+        for code in (host_code, bootstrap_code):
+            assert b'CONTROL_COLLAPSED' in code and b'CONTROL_RESTORED' in code, 'Restorable Return control missing'
+        assert b'finishRefresh:runID:verification:' in support_code, 'XPC result receiver missing'
+        assert b'refreshAllAppsWithIdentifier:mangledTypeName:refreshRunID:' in support_code, 'XPC run identity missing'
+        assert b'RESULT_RECEIVED' in support_code, 'Host result persistence missing'
         assert b'installSideStoreHooks' in bootstrap_code, 'Embedded SideStore hook invocation missing'
         assert b'EMBEDDED_SIDESTORE_STARTUP_FIX_V1' in support_code, 'Embedded SideStore startup fix missing'
         for name in ('Intents.intentdefinition', 'ViewApp.intentdefinition', 'Metadata.appintents/extract.actionsdata'):

@@ -1,6 +1,15 @@
 // Test doubles for the OS APIs. These verify our Swift types and coordinator
 // behavior, NOT iOS delivery, transport, signing, or physical-device execution.
 import Foundation
+@MainActor enum LiveContainerNetworkPreflight {
+    static var error: Error?
+    static var checks = 0
+    static func check(allowForegroundActivation: Bool) async throws {
+        checks += 1
+        if let error { throw error }
+    }
+    static func consumePendingReturn() -> Bool { false }
+}
 class BGTask {
     var expirationHandler: (() -> Void)?
     var completions: [Bool] = []
