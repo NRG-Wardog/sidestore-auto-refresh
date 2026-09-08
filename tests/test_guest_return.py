@@ -150,6 +150,9 @@ class GuestReturnTests(unittest.TestCase):
             self.assertNotIn(forbidden, module.CONTROL)
 
     def test_direct_control_is_separate_and_honest(self):
+        self.assertIn('Hide Return Button', module.CONTROL)
+        self.assertIn('boolForKey:@"LCHideReturnControl"', module.CONTROL)
+        self.assertIn('LCHideReturnControl', module.DIRECT_CONTROL)
         self.assertIn("Restarts LiveContainer and closes this guest", module.DIRECT_CONTROL)
         self.assertIn("DIRECT_PROCESS_RESTART_RETURN", module.DIRECT_RUNTIME)
         self.assertIn("launchToGuestAppWithClassicMode:0", module.DIRECT_RUNTIME)

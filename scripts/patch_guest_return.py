@@ -40,6 +40,14 @@ CONTROL = GEOMETRY + r'''
     [self.button setImage:[UIImage systemImageNamed:@"arrow.uturn.backward.circle.fill"] forState:UIControlStateNormal];
     self.button.accessibilityLabel = @"Return to LiveContainer";
     self.button.accessibilityHint = @"Minimizes this guest without closing it";
+    __weak typeof(self) weakControl = self;
+    self.button.menu = [UIMenu menuWithTitle:@"" children:@[
+        [UIAction actionWithTitle:@"Hide Return Button" image:[UIImage systemImageNamed:@"eye.slash"] identifier:nil handler:^(__kindof UIAction *action) {
+            [NSUserDefaults.lcUserDefaults setBool:YES forKey:@"LCHideReturnControl"];
+            [weakControl setNeedsLayout];
+            NSLog(@"[LC_RETURN] CONTROL_HIDDEN");
+        }]
+    ]];
     [self.button addTarget:self action:@selector(tapped) forControlEvents:UIControlEventTouchUpInside];
     [self.button addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(drag:)]];
     [self addSubview:self.button];
@@ -72,7 +80,7 @@ CONTROL = GEOMETRY + r'''
     [super layoutSubviews];
     CGRect rect = [self availableRect];
     // A 44-point target must not be placed outside a tiny resized window.
-    self.button.hidden = CGRectIsNull(rect) || rect.size.width < 44 || rect.size.height < 44;
+    self.button.hidden = [NSUserDefaults.lcUserDefaults boolForKey:@"LCHideReturnControl"] || CGRectIsNull(rect) || rect.size.width < 44 || rect.size.height < 44;
     if (self.button.hidden) return;
     self.button.bounds = CGRectMake(0, 0, 44, 44);
     self.button.center = CGPointMake(LCReturnAxisCenter(rect.origin.x, rect.size.width, self.position.x),
@@ -359,6 +367,7 @@ PATHS = (
     "SideStoreSupport/SideStoreHooks.m", "LiveContainerSwiftUI/Models/LCAppModel.swift",
     "LiveContainerSwiftUI/Views/LCTabView.swift",
     "LiveContainer/LCBootstrap.m",
+    "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
 )
 
 
@@ -377,7 +386,7 @@ def section(text, start, end, replacement, label):
 
 
 def verify(texts):
-    implementation, header, window, dock, hooks, model, tab, bootstrap = (texts[p] for p in PATHS)
+    implementation, header, window, dock, hooks, model, tab, bootstrap, settings = (texts[p] for p in PATHS)
     for text, token in ((implementation, CONTROL), (implementation, METHODS), (implementation, CLEANUP),
                         (window, WINDOW_MANAGER), (dock, DOCK_RESUME), (header, "lcActivateHost"),
                         (hooks, "DIRECT_PROCESS_RESTART_RETURN"), (model, "LC_RETURN_CONTAINER_GUARD"),
@@ -388,12 +397,14 @@ def verify(texts):
         raise ValueError("Global cross-window callback survived")
     if DIRECT_CONTROL.strip() not in bootstrap or DIRECT_RUNTIME.strip() not in bootstrap:
         raise ValueError("Incomplete direct guest Return patch")
+    if 'Toggle("Show Return Button"' not in settings:
+        raise ValueError("Return visibility setting missing")
 
 
 def patch(root):
     root = Path(root)
     texts = {p: (root / p).read_text(encoding="utf-8") for p in PATHS}
-    implementation, header, window, dock, hooks, model, tab, bootstrap = (texts[p] for p in PATHS)
+    implementation, header, window, dock, hooks, model, tab, bootstrap, settings = (texts[p] for p in PATHS)
     if MARKER in implementation:
         verify(texts)
         return
@@ -467,7 +478,12 @@ def patch(root):
     tab = replace(tab, "                    DataManager.shared.model.mainWindowOpened = false", "                    DataManager.shared.model.mainWindowOpened = false\n                    if #available(iOS 16.1, *), MultitaskWindowManager.mainSceneSession?.persistentIdentifier == scene1.session.persistentIdentifier {\n                        MultitaskWindowManager.mainSceneSession = nil\n                    }", "clear disconnected main scene")
     bootstrap = replace(bootstrap, "extern char **environ;", "#include <math.h>\n" + DIRECT_CONTROL + DIRECT_RUNTIME + "\nextern char **environ;", "direct return presenter")
     bootstrap = replace(bootstrap, "    // Go!", "    // Install before guest UIApplication/scene creation, never inside LiveProcess.\n    if (!isLiveProcess && !isSideStore) {\n        lcDirectReturnPresenter = [LCDirectReturnPresenter new];\n    }\n    // Go!", "direct launch route")
-    updated = dict(zip(PATHS, (implementation, header, window, dock, hooks, model, tab, bootstrap)))
+    settings = replace(settings, "    @State var errorShow = false", '    @AppStorage("LCHideReturnControl", store: UserDefaults.lcUserDefaults) private var hideReturnControl = false\n    @State var errorShow = false', "visibility preference")
+    settings = replace(settings, "            Form {", '''            Form {
+                Section("Guest Controls") {
+                    Toggle("Show Return Button", isOn: Binding(get: { !hideReturnControl }, set: { hideReturnControl = !$0 }))
+                }''', "restore return control")
+    updated = dict(zip(PATHS, (implementation, header, window, dock, hooks, model, tab, bootstrap, settings)))
     verify(updated)
     # Validate every anchor before writing any file, so upstream drift is not a partial patch.
     for relative, text in updated.items():
