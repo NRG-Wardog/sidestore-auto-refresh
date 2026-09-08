@@ -227,6 +227,7 @@ int main(void) {
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source / name, dest)
             module.patch(root)
+            self.assertIn('store: UserDefaults.lcUserDefaults()', (root / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text())
             first = {name: (root/name).read_bytes() for name in module.PATHS}
             module.patch(root)
             self.assertEqual(first, {name: (root/name).read_bytes() for name in module.PATHS})
