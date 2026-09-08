@@ -1,0 +1,94 @@
+name: Standalone cellular diagnostic app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [investigate/cellular-coredevice]
+    paths:
+      - experiments/cellular/app/**
+      - experiments/cellular/build.py
+      - .github/workflows/cellular-probe.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cellular-probe-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IDEVICE_REF: ebd7dadfc55d1c4facee3d11ecf5b28e20548b57
+  JKTCP_REF: e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020
+  CARGO_TERM_COLOR: never
+
+jobs:
+  diagnostic-only:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: builder
+      - uses: actions/checkout@v4
+        with:
+          repository: SideStore/idevice
+          ref: ${{ env.IDEVICE_REF }}
+          path: idevice
+          submodules: recursive
+      - uses: actions/checkout@v4
+        with:
+          repository: SideStore/jktcp
+          ref: ${{ env.JKTCP_REF }}
+          path: jktcp
+      - uses: maxim-lobanov/setup-xcode@v1.6.0
+        with:
+          xcode-version: "26.4"
+      - name: Verify pins and standalone source tests
+        run: |
+          set -euo pipefail
+          test "$(git -C idevice rev-parse HEAD)" = "$IDEVICE_REF"
+          test "$(git -C jktcp rev-parse HEAD)" = "$JKTCP_REF"
+          python3 -m unittest discover -s builder/tests -p test_cellular_probe.py -v
+      - name: Install Rust build tools
+        run: |
+          set -euo pipefail
+          cargo install --locked bindgen-cli --version 0.72.1
+          rustup target add aarch64-apple-ios
+      - name: Apply existing validated transport patches and test
+        run: |
+          set -euo pipefail
+          python3 builder/scripts/patch_jktcp_reliability.py jktcp
+          python3 builder/scripts/patch_coredevice_idevice.py idevice jktcp
+          python3 builder/scripts/patch_jktcp_reliability.py jktcp
+          python3 builder/scripts/patch_coredevice_idevice.py idevice jktcp
+          cargo test --manifest-path jktcp/Cargo.toml --lib -- --skip tests::local_tcp --skip tests::handle_speed
+          cargo check --manifest-path idevice/ffi/Cargo.toml --features obfuscate
+      - name: Typecheck UIKit app before iOS Rust compilation
+        run: |
+          set -euo pipefail
+          xcrun --sdk iphoneos clang -fsyntax-only -arch arm64 -miphoneos-version-min=15.0 \
+            -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -fobjc-arc -fmodules \
+            -Werror=implicit-function-declaration -Werror=objc-method-access \
+            -I idevice/ffi builder/experiments/cellular/app/main.m
+      - name: Build patched transport for iOS
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)" \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
+            cargo rustc --release --target aarch64-apple-ios --features obfuscate \
+              --manifest-path idevice/ffi/Cargo.toml -- --print native-static-libs 2>&1 | tee artifacts/rust-build.log
+      - name: Compile and verify ONLY standalone diagnostic IPA
+        run: |
+          set -euo pipefail
+          python3 builder/experiments/cellular/build.py --idevice idevice --output artifacts \
+            --commit "$GITHUB_SHA" --native-log artifacts/rust-build.log
+      - name: Upload standalone diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: CellularProbe-IPA
+          path: |
+            artifacts/CellularProbe.ipa
+            artifacts/CellularProbe.verification.json
+          if-no-files-found: error
+          retention-days: 7

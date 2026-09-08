@@ -1,0 +1,12 @@
+#ifndef PROBE_POLICY_H
+#define PROBE_POLICY_H
+#include <stdbool.h>
+
+// -1 means that Network.framework did not provide a conclusive snapshot.
+static inline bool probe_path_allowed(bool cellular, int wifi, int mobile) {
+    return cellular ? wifi == 0 && mobile == 1 : wifi == 1;
+}
+static inline bool probe_result_valid(bool browse, bool before, bool after, bool interrupted) {
+    return browse && before && after && !interrupted;
+}
+#endif
