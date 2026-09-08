@@ -132,15 +132,27 @@ CONTROL = GEOMETRY + r'''
 METHODS = r'''
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
+    if (self.isAppTerminationCleanUpCalled) {
+        [self.lcReturnControl removeFromSuperview];
+        return;
+    }
     if (!self.lcReturnControl) {
         self.lcReturnControl = [[LCReturnControl alloc] initWithFrame:self.view.bounds];
         __weak typeof(self) weakSelf = self;
         self.lcReturnControl.action = ^{ [weakSelf lcReturnToHost]; };
-        [self.view addSubview:self.lcReturnControl];
     }
-    self.lcReturnControl.frame = self.view.bounds;
+    // Virtual-window chrome overlays the guest controller. Keep the control
+    // above those input views, not inside the remotely hosted content layer.
+    UIView *overlayHost = [self.delegate isKindOfClass:DecoratedAppSceneViewController.class]
+        ? [(DecoratedAppSceneViewController *)self.delegate view] : self.view;
+    if (self.lcReturnControl.superview != overlayHost) {
+        [self.lcReturnControl removeFromSuperview];
+        [overlayHost addSubview:self.lcReturnControl];
+        NSLog(@"[LC_RETURN] CONTROL_ATTACHED layer=%@", overlayHost == self.view ? @"native" : @"virtual_window_chrome");
+    }
+    self.lcReturnControl.frame = [self.view convertRect:self.view.bounds toView:overlayHost];
     self.lcReturnControl.hidden = !self.isAppRunning;
-    [self.view bringSubviewToFront:self.lcReturnControl];
+    [overlayHost bringSubviewToFront:self.lcReturnControl];
 }
 - (void)lcReturnToHost {
     NSLog(@"[LC_RETURN] RETURN_REQUESTED pid=%d", self.pid);
@@ -288,6 +300,7 @@ CLEANUP = r'''
     if (_isAppTerminationCleanUpCalled) return;
     _isAppTerminationCleanUpCalled = true;
     self.lcReturnControl.hidden = YES;
+    [self.lcReturnControl removeFromSuperview];
     if (self.sceneID) {
         [[PrivClass(FBSceneManager) sharedInstance] destroyScene:self.sceneID withTransitionContext:nil];
     }

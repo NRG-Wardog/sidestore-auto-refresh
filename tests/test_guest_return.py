@@ -136,6 +136,17 @@ SWIFT_TESTS = r'''
 '''
 
 class GuestReturnTests(unittest.TestCase):
+    def test_virtual_control_is_above_chrome_and_native_stays_local(self):
+        self.assertIn('[(DecoratedAppSceneViewController *)self.delegate view] : self.view', module.METHODS)
+        self.assertIn('[overlayHost addSubview:self.lcReturnControl]', module.METHODS)
+        self.assertIn('[overlayHost bringSubviewToFront:self.lcReturnControl]', module.METHODS)
+        self.assertIn('convertRect:self.view.bounds toView:overlayHost', module.METHODS)
+        self.assertIn('self.lcReturnControl.superview != overlayHost', module.METHODS)
+        self.assertIn('self.lcReturnControl.hidden = !self.isAppRunning', module.METHODS)
+        self.assertNotIn('[self.view addSubview:self.lcReturnControl]', module.METHODS)
+        self.assertLess(module.METHODS.index('if (self.isAppTerminationCleanUpCalled)'), module.METHODS.index('[overlayHost addSubview:'))
+        self.assertIn('[self.lcReturnControl removeFromSuperview]', module.CLEANUP)
+
     def test_preservation_has_no_termination_or_new_session(self):
         self.assertIn("minimizeWindow", module.METHODS)
         self.assertIn("self.lcActivateHost()", module.METHODS)

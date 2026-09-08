@@ -74,6 +74,7 @@ def verify(path, side_product=None):
         assert b'liveContainerAutoRefresh' in host_code, 'Host automation missing'
         assert b'lcReturnToHost' in host_code, 'Guest return action missing from host binary'
         assert b'LCReturnControlPosition' in host_code, 'Movable return control missing'
+        assert b'virtual_window_chrome' in host_code, 'Multitasking Return input-layer fix missing'
         bootstrap_code = archive.read(base + '/Frameworks/LiveContainerShared.framework/LiveContainerShared')
         support_code = archive.read(base + '/Frameworks/SideStoreSupport.framework/SideStoreSupport')
         for code in (host_code, bootstrap_code):
