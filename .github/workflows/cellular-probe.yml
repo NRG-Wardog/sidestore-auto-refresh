@@ -59,8 +59,6 @@ jobs:
           set -euo pipefail
           python3 builder/scripts/patch_jktcp_reliability.py jktcp
           python3 builder/scripts/patch_coredevice_idevice.py idevice jktcp
-          python3 builder/scripts/patch_jktcp_reliability.py jktcp
-          python3 builder/scripts/patch_coredevice_idevice.py idevice jktcp
           cargo test --manifest-path jktcp/Cargo.toml --lib -- --skip tests::local_tcp --skip tests::handle_speed
           cargo check --manifest-path idevice/ffi/Cargo.toml --features obfuscate
       - name: Typecheck UIKit app before iOS Rust compilation

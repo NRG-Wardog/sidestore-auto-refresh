@@ -24,6 +24,8 @@ class StandaloneProbeTests(unittest.TestCase):
             self.assertNotIn(forbidden, workflow)
         self.assertIn('fsyntax-only', workflow)
         self.assertLess(workflow.index('fsyntax-only'), workflow.index('cargo rustc'))
+        self.assertEqual(workflow.count('python3 builder/scripts/patch_jktcp_reliability.py jktcp'), 1)
+        self.assertEqual(workflow.count('python3 builder/scripts/patch_coredevice_idevice.py idevice jktcp'), 1)
         self.assertNotIn('cellular_diagnostic', (ROOT / '.github/workflows/livecontainer-build.yml').read_text())
 
     def test_no_signing_install_or_usb_path(self):
