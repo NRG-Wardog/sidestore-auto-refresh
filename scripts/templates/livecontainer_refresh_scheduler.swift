@@ -162,10 +162,17 @@ enum LiveContainerAutoRefreshScheduler {
 
     private static func verifyRefreshManifest(runID: String) -> (verified: Bool, hostHandoff: Bool, reason: String) {
         let pending = defaults.bool(forKey: hostHandoffKey)
-        guard let manifest = defaults.dictionary(forKey: verificationKey),
-              manifest["run_id"] as? String == runID,
-              let results = manifest["results"] as? [[String: Any]], !results.isEmpty else {
-            return (false, pending, "verification_manifest_missing_or_wrong_run")
+        guard let manifest = defaults.dictionary(forKey: verificationKey) else {
+            print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=manifest_missing run_id=\(runID)")
+            return (false, pending, "SideStore returned without sharing installation results with LiveContainer. Refresh is unconfirmed. Open embedded SideStore and check its refresh history before retrying.")
+        }
+        guard manifest["run_id"] as? String == runID else {
+            print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=run_mismatch expected_run=\(runID) actual_run=\(manifest["run_id"] as? String ?? "missing")")
+            return (false, pending, "LiveContainer received results for a different refresh attempt. This attempt could not be verified. Check embedded SideStore history and retry once the previous refresh finishes.")
+        }
+        guard let results = manifest["results"] as? [[String: Any]], !results.isEmpty else {
+            print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=results_empty run_id=\(runID)")
+            return (false, pending, "SideStore returned no app installation results. No successful refresh was confirmed. Open embedded SideStore to check eligible apps and its refresh history.")
         }
         guard let expected = manifest["expected_ids"] as? [String], !expected.isEmpty,
               Set(results.compactMap { $0["bundle_id"] as? String }) == Set(expected) else {

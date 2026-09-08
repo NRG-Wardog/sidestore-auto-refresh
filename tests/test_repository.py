@@ -35,12 +35,12 @@ class RepositoryTests(unittest.TestCase):
             {path.name for path in SCRIPTS.glob("*.py")},
             REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
                                 COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, 'audit_ipa_signing.py', 'patch_guest_return.py',
-                                'package_livecontainer_combined.py', 'patch_combined_transport.py'},
+                                'package_livecontainer_combined.py', 'patch_combined_transport.py', 'patch_refresh_result_bridge.py'},
         )
 
     def test_patch_scripts_parse_and_are_idempotent(self):
         for name in REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
-                                        COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_combined_transport.py"}:
+                                        COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_combined_transport.py", "patch_refresh_result_bridge.py"}:
             path = SCRIPTS / name
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         self.assertIn(

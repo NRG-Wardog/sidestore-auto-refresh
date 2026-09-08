@@ -22,6 +22,8 @@ CONTROL = GEOMETRY + r'''
 @property(nonatomic, copy) void (^action)(void);
 @property(nonatomic) CGPoint position;
 @property(nonatomic) CGRect keyboardFrame;
+@property(nonatomic) BOOL collapsed;
+@property(nonatomic, copy) NSString *expandedHint;
 @end
 @implementation LCReturnControl
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -40,12 +42,14 @@ CONTROL = GEOMETRY + r'''
     [self.button setImage:[UIImage systemImageNamed:@"arrow.uturn.backward.circle.fill"] forState:UIControlStateNormal];
     self.button.accessibilityLabel = @"Return to LiveContainer";
     self.button.accessibilityHint = @"Minimizes this guest without closing it";
+    self.expandedHint = self.button.accessibilityHint;
     __weak typeof(self) weakControl = self;
     self.button.menu = [UIMenu menuWithTitle:@"" children:@[
-        [UIAction actionWithTitle:@"Hide Return Button" image:[UIImage systemImageNamed:@"eye.slash"] identifier:nil handler:^(__kindof UIAction *action) {
-            [NSUserDefaults.lcUserDefaults setBool:YES forKey:@"LCHideReturnControl"];
+        [UIAction actionWithTitle:@"Collapse Return Button" image:[UIImage systemImageNamed:@"sidebar.right"] identifier:nil handler:^(__kindof UIAction *action) {
+            weakControl.collapsed = YES;
+            weakControl.position = CGPointMake(weakControl.position.x < 0.5 ? 0 : 1, weakControl.position.y);
             [weakControl setNeedsLayout];
-            NSLog(@"[LC_RETURN] CONTROL_HIDDEN");
+            NSLog(@"[LC_RETURN] CONTROL_COLLAPSED");
         }]
     ]];
     [self.button addTarget:self action:@selector(tapped) forControlEvents:UIControlEventTouchUpInside];
@@ -82,6 +86,10 @@ CONTROL = GEOMETRY + r'''
     // A 44-point target must not be placed outside a tiny resized window.
     self.button.hidden = [NSUserDefaults.lcUserDefaults boolForKey:@"LCHideReturnControl"] || CGRectIsNull(rect) || rect.size.width < 44 || rect.size.height < 44;
     if (self.button.hidden) return;
+    self.button.accessibilityLabel = self.collapsed ? @"Show Return to LiveContainer" : @"Return to LiveContainer";
+    self.button.accessibilityHint = self.collapsed ? @"Restores the Return button" : self.expandedHint;
+    self.button.backgroundColor = self.collapsed ? UIColor.clearColor : UIColor.secondarySystemBackgroundColor;
+    [self.button setImage:[UIImage systemImageNamed:self.collapsed ? (self.position.x < 0.5 ? @"chevron.compact.right" : @"chevron.compact.left") : @"arrow.uturn.backward.circle.fill"] forState:UIControlStateNormal];
     self.button.bounds = CGRectMake(0, 0, 44, 44);
     self.button.center = CGPointMake(LCReturnAxisCenter(rect.origin.x, rect.size.width, self.position.x),
                                     LCReturnAxisCenter(rect.origin.y, rect.size.height, self.position.y));
@@ -100,6 +108,7 @@ CONTROL = GEOMETRY + r'''
     double spanY = LCReturnAxisCenter(rect.origin.y, rect.size.height, 1) - minY;
     self.position = CGPointMake(spanX > 0 ? MIN(1, MAX(0, (center.x + delta.x - minX) / spanX)) : 0.5,
                                 spanY > 0 ? MIN(1, MAX(0, (center.y + delta.y - minY) / spanY)) : 0.5);
+    if (self.collapsed) self.position = CGPointMake(self.position.x < 0.5 ? 0 : 1, self.position.y);
     [gesture setTranslation:CGPointZero inView:self];
     [self setNeedsLayout];
     [self layoutIfNeeded];
@@ -108,7 +117,15 @@ CONTROL = GEOMETRY + r'''
         NSLog(@"[LC_RETURN] CONTROL_MOVED");
     }
 }
-- (void)tapped { if (self.action) self.action(); }
+- (void)tapped {
+    if (self.collapsed) {
+        self.collapsed = NO;
+        [self setNeedsLayout];
+        NSLog(@"[LC_RETURN] CONTROL_RESTORED");
+        return;
+    }
+    if (self.action) self.action();
+}
 @end
 '''
 

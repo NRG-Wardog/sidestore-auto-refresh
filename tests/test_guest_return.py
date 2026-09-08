@@ -150,7 +150,7 @@ class GuestReturnTests(unittest.TestCase):
             self.assertNotIn(forbidden, module.CONTROL)
 
     def test_direct_control_is_separate_and_honest(self):
-        self.assertIn('Hide Return Button', module.CONTROL)
+        self.assertIn('Collapse Return Button', module.CONTROL)
         self.assertIn('boolForKey:@"LCHideReturnControl"', module.CONTROL)
         self.assertIn('LCHideReturnControl', module.DIRECT_CONTROL)
         self.assertIn("Restarts LiveContainer and closes this guest", module.DIRECT_CONTROL)
@@ -163,6 +163,16 @@ class GuestReturnTests(unittest.TestCase):
         self.assertNotIn("launchToGuestApp", module.METHODS)
         for forbidden in ("NSTimer", "dispatch_after", "SIGKILL", "terminate", "sleep("):
             self.assertNotIn(forbidden, module.DIRECT_RUNTIME)
+
+    def test_collapse_does_not_disable_global_preference_or_return(self):
+        for control in (module.CONTROL, module.DIRECT_CONTROL):
+            self.assertNotIn('setBool:YES forKey:@"LCHideReturnControl"', control)
+            self.assertIn('weakControl.collapsed = YES', control)
+            self.assertIn('self.collapsed = NO', control)
+            self.assertIn('CONTROL_RESTORED', control)
+            self.assertIn('chevron.compact.right', control)
+            tapped = control[control.index('- (void)tapped'):]
+            self.assertLess(tapped.index('return;'), tapped.index('self.action()'))
 
     def test_cleanup_finishes_before_exit_callback(self):
         self.assertLess(module.CLEANUP.index("unregisterMultitaskContainer"), module.CLEANUP.index("appSceneVCAppDidExit"))

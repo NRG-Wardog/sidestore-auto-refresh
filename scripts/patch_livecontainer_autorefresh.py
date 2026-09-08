@@ -226,6 +226,9 @@ def verify(root: Path) -> None:
         for relative in ("LiveContainerSwiftUI/App/AppDelegate.swift", "LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift",
                          "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift", "SideStoreSupport/SideStore.swift"):
             subprocess.run([compiler, "-frontend", "-parse", str(root / relative)], check=True)
+        client = root / "SideStoreSupport/SideStoreClient.swift"
+        if client.exists():
+            subprocess.run([compiler, "-frontend", "-parse", str(client)], check=True)
 
 
 def main() -> None:
@@ -240,6 +243,8 @@ def main() -> None:
     patch_project(root)
     patch_alarm_provider(root)
     patch_settings(root)
+    from patch_refresh_result_bridge import patch as patch_result_bridge
+    patch_result_bridge(root)
     verify(root)
     print("LiveContainer host auto-refresh patch applied and verified")
 
