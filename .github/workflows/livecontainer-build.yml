@@ -2,6 +2,11 @@ name: LiveContainer embedded SideStore build
 
 on:
   workflow_dispatch:
+    inputs:
+      cellular_diagnostic:
+        description: Include the foreground read-only cellular probe (investigation branch only)
+        type: boolean
+        default: false
   push:
     branches: [fix/combined-refresh-build-and-runtime]
 
@@ -198,6 +203,16 @@ jobs:
           while IFS= read -r -d '' source; do swiftc -frontend -parse "$source"; done < <(find "$MUX" -type f -name '*.swift' -not -path '*/.build/*' -print0)
           swift package --package-path "$MUX/DeviceGateway" dump-package >"$RUNNER_TEMP/combined-gateway-package.json"
 
+      - name: Apply opt-in cellular diagnostic
+        if: inputs.cellular_diagnostic && github.ref == 'refs/heads/investigate/cellular-coredevice'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 builder/experiments/cellular/patch.py work/EmbeddedSideStore
+          python3 builder/experiments/cellular/patch.py work/EmbeddedSideStore
+          swiftc -frontend -parse work/EmbeddedSideStore/SideStore/Views/Settings/Diagnostics/ExperimentalFeaturesView.swift
+          swiftc -frontend -parse work/EmbeddedSideStore/Dependencies/minimuxer/DeviceGateway/idevice/IdeviceGateway.swift
+
       - name: Build host and embedded SideStore source targets
         shell: bash
         run: |
@@ -258,6 +273,19 @@ jobs:
               assert marker.encode() in executable, f'Embedded transport marker missing: {marker}'
           Path('artifacts/logs/embedded-transport-verification.txt').write_text(
               f'executable={embedded}\n' + '\n'.join(markers) + '\nverification=PASS\n')
+          PY
+
+      - name: Verify opt-in diagnostic executable
+        if: inputs.cellular_diagnostic && github.ref == 'refs/heads/investigate/cellular-coredevice'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('artifacts/LiveContainer-SideStore-AutoRefresh.ipa') as archive:
+              code = archive.read('Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore')
+              for marker in (b'Test Cellular Transport (Read Only)', b'COREDEVICE_CONNECT_START fresh=true', b'BROWSE_PASS count=', b'RESOURCES_RELEASED'):
+                  assert marker in code, marker
+          print('Cellular diagnostic present; on-device cellular behavior NOT VERIFIED')
           PY
 
       - name: Upload combined LiveContainer IPA
