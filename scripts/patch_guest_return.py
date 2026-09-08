@@ -478,7 +478,7 @@ def patch(root):
     tab = replace(tab, "                    DataManager.shared.model.mainWindowOpened = false", "                    DataManager.shared.model.mainWindowOpened = false\n                    if #available(iOS 16.1, *), MultitaskWindowManager.mainSceneSession?.persistentIdentifier == scene1.session.persistentIdentifier {\n                        MultitaskWindowManager.mainSceneSession = nil\n                    }", "clear disconnected main scene")
     bootstrap = replace(bootstrap, "extern char **environ;", "#include <math.h>\n" + DIRECT_CONTROL + DIRECT_RUNTIME + "\nextern char **environ;", "direct return presenter")
     bootstrap = replace(bootstrap, "    // Go!", "    // Install before guest UIApplication/scene creation, never inside LiveProcess.\n    if (!isLiveProcess && !isSideStore) {\n        lcDirectReturnPresenter = [LCDirectReturnPresenter new];\n    }\n    // Go!", "direct launch route")
-    settings = replace(settings, "    @State var errorShow = false", '    @AppStorage("LCHideReturnControl", store: UserDefaults.lcUserDefaults()) private var hideReturnControl = false\n    @State var errorShow = false', "visibility preference")
+    settings = replace(settings, "    @State var errorShow = false", '    @AppStorage("LCHideReturnControl", store: UserDefaults.lc()) private var hideReturnControl = false\n    @State var errorShow = false', "visibility preference")
     settings = replace(settings, "            Form {", '''            Form {
                 Section("Guest Controls") {
                     Toggle("Show Return Button", isOn: Binding(get: { !hideReturnControl }, set: { hideReturnControl = !$0 }))
