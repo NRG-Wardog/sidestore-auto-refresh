@@ -142,10 +142,16 @@ class GuestReturnTests(unittest.TestCase):
         self.assertIn('[overlayHost bringSubviewToFront:self.lcReturnControl]', module.METHODS)
         self.assertIn('convertRect:self.view.bounds toView:overlayHost', module.METHODS)
         self.assertIn('self.lcReturnControl.superview != overlayHost', module.METHODS)
-        self.assertIn('self.lcReturnControl.hidden = !self.isAppRunning', module.METHODS)
+        self.assertIn('self.lcReturnControl.hidden = LCReturnShouldHide(self.isAppRunning, decorated, maximized)', module.METHODS)
         self.assertNotIn('[self.view addSubview:self.lcReturnControl]', module.METHODS)
         self.assertLess(module.METHODS.index('if (self.isAppTerminationCleanUpCalled)'), module.METHODS.index('[overlayHost addSubview:'))
         self.assertIn('[self.lcReturnControl removeFromSuperview]', module.CLEANUP)
+
+    def test_windowed_visibility_does_not_change_global_preference(self):
+        self.assertIn('[(DecoratedAppSceneViewController *)self.delegate isMaximized]', module.METHODS)
+        self.assertIn('return !running || (decorated && !maximized)', module.GEOMETRY)
+        self.assertNotIn('setBool:', module.METHODS)
+        self.assertNotIn('LCHideReturnControl', module.METHODS)
 
     def test_preservation_has_no_termination_or_new_session(self):
         self.assertIn("minimizeWindow", module.METHODS)
@@ -204,6 +210,14 @@ class GuestReturnTests(unittest.TestCase):
         if not compiler: self.skipTest("C compiler unavailable")
         source = "#include <math.h>\n#include <assert.h>\n" + module.GEOMETRY + r'''
 int main(void) {
+    for (int running = 0; running <= 1; running++) {
+        for (int decorated = 0; decorated <= 1; decorated++) {
+            for (int maximized = 0; maximized <= 1; maximized++) {
+                assert(LCReturnShouldHide(running, decorated, maximized) ==
+                       (!running || (decorated && !maximized)));
+            }
+        }
+    }
     for (int size = 44; size <= 2000; size += 7) {
         for (int p = -2; p <= 3; p++) {
             double center = LCReturnAxisCenter(9, size, p);
@@ -248,6 +262,9 @@ int main(void) {
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source / name, dest)
             module.patch(root)
+            decorated = (root / "MultitaskSupport/DecoratedAppSceneViewController.m").read_text()
+            for state in ("YES", "NO"):
+                self.assertIn(f"self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];", decorated)
             # The Objective-C lcUserDefaults factory is imported into Swift as lc().
             self.assertIn('store: UserDefaults.lc()', (root / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text())
             first = {name: (root/name).read_bytes() for name in module.PATHS}

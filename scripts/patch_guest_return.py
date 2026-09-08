@@ -13,6 +13,9 @@ static double LCReturnAxisCenter(double origin, double length, double position) 
     double inset = fmin(30.0, length / 2.0);
     return origin + inset + position * fmax(0.0, length - 2.0 * inset);
 }
+static int LCReturnShouldHide(int running, int decorated, int maximized) {
+    return !running || (decorated && !maximized);
+}
 '''
 
 CONTROL = GEOMETRY + r'''
@@ -151,7 +154,9 @@ METHODS = r'''
         NSLog(@"[LC_RETURN] CONTROL_ATTACHED layer=%@", overlayHost == self.view ? @"native" : @"virtual_window_chrome");
     }
     self.lcReturnControl.frame = [self.view convertRect:self.view.bounds toView:overlayHost];
-    self.lcReturnControl.hidden = !self.isAppRunning;
+    BOOL decorated = [self.delegate isKindOfClass:DecoratedAppSceneViewController.class];
+    BOOL maximized = decorated && [(DecoratedAppSceneViewController *)self.delegate isMaximized];
+    self.lcReturnControl.hidden = LCReturnShouldHide(self.isAppRunning, decorated, maximized);
     [overlayHost bringSubviewToFront:self.lcReturnControl];
 }
 - (void)lcReturnToHost {
@@ -398,6 +403,7 @@ PATHS = (
     "LiveContainerSwiftUI/Views/LCTabView.swift",
     "LiveContainer/LCBootstrap.m",
     "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
+    "MultitaskSupport/DecoratedAppSceneViewController.m",
 )
 
 
@@ -416,7 +422,7 @@ def section(text, start, end, replacement, label):
 
 
 def verify(texts):
-    implementation, header, window, dock, hooks, model, tab, bootstrap, settings = (texts[p] for p in PATHS)
+    implementation, header, window, dock, hooks, model, tab, bootstrap, settings, decorated = (texts[p] for p in PATHS)
     for text, token in ((implementation, CONTROL), (implementation, METHODS), (implementation, CLEANUP),
                         (window, WINDOW_MANAGER), (dock, DOCK_RESUME), (header, "lcActivateHost"),
                         (hooks, "DIRECT_PROCESS_RESTART_RETURN"), (model, "LC_RETURN_CONTAINER_GUARD"),
@@ -429,12 +435,15 @@ def verify(texts):
         raise ValueError("Incomplete direct guest Return patch")
     if 'Toggle("Show Return Button"' not in settings:
         raise ValueError("Return visibility setting missing")
+    for state in ("YES", "NO"):
+        if f"self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];" not in decorated:
+            raise ValueError("Return visibility transition missing: " + state)
 
 
 def patch(root):
     root = Path(root)
     texts = {p: (root / p).read_text(encoding="utf-8") for p in PATHS}
-    implementation, header, window, dock, hooks, model, tab, bootstrap, settings = (texts[p] for p in PATHS)
+    implementation, header, window, dock, hooks, model, tab, bootstrap, settings, decorated = (texts[p] for p in PATHS)
     if MARKER in implementation:
         verify(texts)
         return
@@ -513,7 +522,11 @@ def patch(root):
                 Section("Guest Controls") {
                     Toggle("Show Return Button", isOn: Binding(get: { !hideReturnControl }, set: { hideReturnControl = !$0 }))
                 }''', "restore return control")
-    updated = dict(zip(PATHS, (implementation, header, window, dock, hooks, model, tab, bootstrap, settings)))
+    for state in ("YES", "NO"):
+        decorated = replace(decorated, f"self.isMaximized = {state};",
+                            f"self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];",
+                            "Return visibility on maximize/restore " + state)
+    updated = dict(zip(PATHS, (implementation, header, window, dock, hooks, model, tab, bootstrap, settings, decorated)))
     verify(updated)
     # Validate every anchor before writing any file, so upstream drift is not a partial patch.
     for relative, text in updated.items():
