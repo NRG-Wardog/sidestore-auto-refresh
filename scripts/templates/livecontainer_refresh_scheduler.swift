@@ -162,10 +162,17 @@ enum LiveContainerAutoRefreshScheduler {
 
     private static func verifyRefreshManifest(runID: String) -> (verified: Bool, hostHandoff: Bool, reason: String) {
         let pending = defaults.bool(forKey: hostHandoffKey)
-        guard let manifest = defaults.dictionary(forKey: verificationKey),
-              manifest["run_id"] as? String == runID,
-              let results = manifest["results"] as? [[String: Any]], !results.isEmpty else {
-            return (false, pending, "verification_manifest_missing_or_wrong_run")
+        guard let manifest = defaults.dictionary(forKey: verificationKey) else {
+            print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=manifest_missing run_id=\(runID)")
+            return (false, pending, "SideStore returned without sharing installation results with LiveContainer. Refresh is unconfirmed. Open embedded SideStore and check its refresh history before retrying.")
+        }
+        guard manifest["run_id"] as? String == runID else {
+            print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=run_mismatch expected_run=\(runID) actual_run=\(manifest["run_id"] as? String ?? "missing")")
+            return (false, pending, "LiveContainer received results for a different refresh attempt. This attempt could not be verified. Check embedded SideStore history and retry once the previous refresh finishes.")
+        }
+        guard let results = manifest["results"] as? [[String: Any]], !results.isEmpty else {
+            print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=results_empty run_id=\(runID)")
+            return (false, pending, "SideStore returned no app installation results. No successful refresh was confirmed. Open embedded SideStore to check eligible apps and its refresh history.")
         }
         guard let expected = manifest["expected_ids"] as? [String], !expected.isEmpty,
               Set(results.compactMap { $0["bundle_id"] as? String }) == Set(expected) else {
@@ -260,7 +267,7 @@ enum LiveContainerAutoRefreshScheduler {
     private static func execute(source: String, task: BGTask? = nil,
                                 gate: LiveContainerRefreshCompletionGate = LiveContainerRefreshCompletionGate()) async {
         guard !gate.isFinished, !Task.isCancelled else { return }
-        let manual = source == "manual" || source == "alarm_action"
+        let manual = source == "manual" || source == "alarm_action" || source == "vpn_return"
         let now = Date()
         print("[LIVE_CONTAINER_REFRESH] TASK_TRIGGERED source=\(source) at=\(now.timeIntervalSince1970)")
         if source == "bgprocessing" || source == "bgapprefresh" { defaults.set(now, forKey: lastTaskKey) }
@@ -291,6 +298,7 @@ enum LiveContainerAutoRefreshScheduler {
         }
         defer { endRun(runID); schedule() }
         do {
+            try await LiveContainerNetworkPreflight.check(allowForegroundActivation: manual && source != "vpn_return" && task == nil)
             try await performRefresh(runID: runID)
             let verification = verifyRefreshManifest(runID: runID.uuidString)
             if verification.hostHandoff {
@@ -330,7 +338,9 @@ enum LiveContainerAutoRefreshScheduler {
                 defaults.removeObject(forKey: nextRetryKey)
                 defaults.set(true, forKey: retryExhaustedKey)
             }
-            defaults.set("REFRESH_FAILED", forKey: healthStateKey)
+            let networkState = nsError.domain == "LiveContainerRefresh.Network"
+                ? (nsError.code == 1 ? "WIFI_UNAVAILABLE" : "VPN_UNAVAILABLE") : "REFRESH_FAILED"
+            defaults.set(networkState, forKey: healthStateKey)
             defaults.set(error.localizedDescription, forKey: lastErrorKey)
             record(source: source, result: "failure", detail: error.localizedDescription)
             print("[LIVE_CONTAINER_REFRESH] REFRESH_RESULT run_id=\(runID.uuidString) success=false verified=false error_domain=\(nsError.domain) error_code=\(nsError.code) error=\(error.localizedDescription)")
@@ -400,6 +410,10 @@ enum LiveContainerAutoRefreshScheduler {
     static func recoverAfterLaunchOrResume() {
         guard activeRun == nil else { return }
         verifyPendingHostHandoff()
+        if LiveContainerNetworkPreflight.consumePendingReturn() {
+            Task { @MainActor in await execute(source: "vpn_return") }
+            return
+        }
         observeMissedDeadline(now: Date())
         guard defaults.bool(forKey: enabledKey), defaults.object(forKey: earliestEligibleKey) != nil,
               compactWorkIsDue(now: Date()) else { return }
@@ -452,11 +466,15 @@ enum LiveContainerAutoRefreshScheduler {
         var deadline = defaults.object(forKey: deadlineKey) as? Date
         if deadline == nil || deadline == (defaults.object(forKey: satisfiedDeadlineKey) as? Date) ||
             (defaults.bool(forKey: retryExhaustedKey) && (deadline ?? now) < now) {
+            let advancingExistingWindow = deadline != nil
             deadline = nextDate(after: now)
             defaults.set(deadline, forKey: deadlineKey)
-            defaults.removeObject(forKey: nextRetryKey)
-            defaults.set(false, forKey: retryExhaustedKey)
-            defaults.set(0, forKey: retryCountKey)
+            // Initial schedule creation must not erase a just-recorded failure/backoff.
+            if advancingExistingWindow {
+                defaults.removeObject(forKey: nextRetryKey)
+                defaults.set(false, forKey: retryExhaustedKey)
+                defaults.set(0, forKey: retryCountKey)
+            }
         }
         guard let deadline else { return }
         scheduleDeadlineWarning(deadline) // Pre-scheduled; does not require a future app wake.

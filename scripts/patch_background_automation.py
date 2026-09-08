@@ -1019,13 +1019,20 @@ def patch_background_operation(sidestore: Path) -> None:
             throw error
         }
 
-        guard AuthManager.shared.isAuthenticated else {
+        // Match AuthenticationOperation's cached-session and silentSignIn paths.
+        // This checks available authentication material, not server validity.
+        let auth = AuthManager.shared
+        let hasPasswordCredentials = auth.currentAppleID != nil && auth.hasStoredPassword
+        let hasTokenCredentials = auth.adsid != nil && auth.hasStoredXcodeToken
+        let hasReusableSession = auth.session != nil && auth.team != nil && CertificateManager.shared.activeCertificate != nil
+        debugLog("[AUTO_REFRESH] AUTH_CREDENTIAL_VISIBILITY password_path=\\(hasPasswordCredentials) token_path=\\(hasTokenCredentials) session_path=\\(hasReusableSession)")
+        guard hasPasswordCredentials || hasTokenCredentials || hasReusableSession else {
             let error = NSError(
                 domain: "com.SideStore.Authentication",
                 code: 1004,
-                userInfo: [NSLocalizedDescriptionKey: "Open SideStore and sign in before automatic refresh can run."]
+                userInfo: [NSLocalizedDescriptionKey: "The refresh process cannot access saved sign-in credentials or a reusable session. Open embedded SideStore to check your account."]
             )
-            debugLog("[AUTO_REFRESH] AUTH_PREFLIGHT_FAIL authenticated=false")
+            debugLog("[AUTO_REFRESH] AUTH_PREFLIGHT_FAIL reason=no_accessible_authentication_path")
             self.scheduleFinishedRefreshingNotification(for: .failure(error), delay: 0)
             throw error
         }
@@ -1149,7 +1156,7 @@ def patch_background_operation(sidestore: Path) -> None:
         "activeRefreshGroup",
         "group?.cancel()",
         "guard !self.isCancelled",
-        "AuthManager.shared.isAuthenticated",
+        "guard hasPasswordCredentials || hasTokenCredentials || hasReusableSession else",
         verification_marker,
         "persistAutomaticHostHandoff",
         "persistAutomaticRefreshVerification",
