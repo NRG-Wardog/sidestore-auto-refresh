@@ -459,11 +459,15 @@ enum LiveContainerAutoRefreshScheduler {
         var deadline = defaults.object(forKey: deadlineKey) as? Date
         if deadline == nil || deadline == (defaults.object(forKey: satisfiedDeadlineKey) as? Date) ||
             (defaults.bool(forKey: retryExhaustedKey) && (deadline ?? now) < now) {
+            let advancingExistingWindow = deadline != nil
             deadline = nextDate(after: now)
             defaults.set(deadline, forKey: deadlineKey)
-            defaults.removeObject(forKey: nextRetryKey)
-            defaults.set(false, forKey: retryExhaustedKey)
-            defaults.set(0, forKey: retryCountKey)
+            // Initial schedule creation must not erase a just-recorded failure/backoff.
+            if advancingExistingWindow {
+                defaults.removeObject(forKey: nextRetryKey)
+                defaults.set(false, forKey: retryExhaustedKey)
+                defaults.set(0, forKey: retryCountKey)
+            }
         }
         guard let deadline else { return }
         scheduleDeadlineWarning(deadline) // Pre-scheduled; does not require a future app wake.
