@@ -1,5 +1,6 @@
 """Pinned-source/bootstrap checks; native checks skip explicitly without tools."""
 import importlib.util
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -58,6 +59,39 @@ class EmbeddedBootstrapTests(SourceFixture):
 
 
 class BootstrapPolicyTests(unittest.TestCase):
+    def test_pairing_error_feature_gates(self):
+        validation = bootstrap.template("lockdown_validation.rs")
+        classifier = validation[:validation.index("/// Read-only")]
+        self.assertIn('#[cfg(feature = "pair")]\n        IdeviceError::UserDeniedPairing', classifier)
+        compiler = shutil.which("rustc")
+        if compiler is None:
+            self.skipTest("rustc unavailable; feature-gated Rust execution not verified locally")
+        source = '''enum IdeviceError {
+    InvalidHostID,
+    #[cfg(feature = "pair")]
+    UserDeniedPairing,
+    Other,
+}
+''' + classifier + '''
+fn main() {
+    assert_eq!(cellular_pairing_error_status(&IdeviceError::InvalidHostID), 2);
+    assert_eq!(cellular_pairing_error_status(&IdeviceError::Other), 3);
+    #[cfg(feature = "pair")]
+    assert_eq!(cellular_pairing_error_status(&IdeviceError::UserDeniedPairing), 2);
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main.rs"
+            main.write_text(source, encoding="utf-8")
+            for features in ([], ["--cfg", 'feature="pair"']):
+                executable = root / ("policy.exe" if os.name == "nt" else "policy")
+                result = subprocess.run([compiler, str(main), *features, "-o", str(executable)],
+                                        capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_executable_state_policy(self):
         compiler = shutil.which("swiftc")
         if compiler is None:

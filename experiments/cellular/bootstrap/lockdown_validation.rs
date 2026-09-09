@@ -1,3 +1,12 @@
+// The production feature set validates existing records without enabling Pair.
+fn cellular_pairing_error_status(error: &IdeviceError) -> i32 {
+    match error {
+        IdeviceError::InvalidHostID => 2,
+        #[cfg(feature = "pair")]
+        IdeviceError::UserDeniedPairing => 2,
+        _ => 3,
+    }
+}
 
 /// Read-only authenticated validation for the embedded diagnostic.
 /// The provider is BORROWED on every return path. No secret values leave Rust.
@@ -22,11 +31,7 @@ pub unsafe extern "C" fn cellular_lockdown_validate(
             let pairing = provider_ref.get_pairing_file().await.map_err(|e| (1, e.code()))?;
             let mut client = LockdownClient::connect(provider_ref).await.map_err(|e| (1, e.code()))?;
             client.start_session(&pairing).await.map_err(|e| {
-                let status = match &e {
-                    IdeviceError::InvalidHostID | IdeviceError::UserDeniedPairing => 2,
-                    _ => 3,
-                };
-                (status, e.code())
+                (cellular_pairing_error_status(&e), e.code())
             })?;
             let actual = client.get_value(Some("UniqueDeviceID"), None).await
                 .map_err(|e| (1, e.code()))?;
