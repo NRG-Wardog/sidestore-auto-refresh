@@ -15,6 +15,37 @@ Two variants are available: **standalone SideStore** and **LiveContainer with th
 > [!NOTE]
 > This is not an official SideStore or LiveContainer release. For stock behavior and upstream support, use the official [SideStore](https://github.com/SideStore/SideStore) and [LiveContainer](https://github.com/LiveContainer/LiveContainer) projects.
 
+## What is this?
+
+This project is a modified SideStore / LiveContainer build that makes same-device refresh easier to operate and easier to verify.
+
+In practical terms, it adds:
+
+- manual refresh directly on the iPhone
+- six-hour, daily, and weekly refresh schedules
+- preferred refresh time controls
+- persistent refresh history
+- bounded retry and recovery logic
+- explicit refresh verification
+- a same-device **LocalDevVPN + CoreDevice** transport path
+- a combined LiveContainer build with the modified SideStore already embedded
+
+The goal is simple: after the initial installation and pairing setup, normal refresh should happen on the iPhone without leaving a PC connected.
+
+## Preview
+
+The screenshots below show the actual refresh interface currently included in the repository.
+
+<table>
+<tr>
+<td align="center"><img src="docs/screenshots/settings-refreshing-apps.png" width="230" alt="SideStore Refreshing Apps settings"><br><strong>Refreshing Apps</strong></td>
+<td align="center"><img src="docs/screenshots/refresh-schedule-main.png" width="230" alt="SideStore Refresh Schedule"><br><strong>Refresh Schedule</strong></td>
+<td align="center"><img src="docs/screenshots/refresh-history.png" width="230" alt="SideStore refresh history"><br><strong>Refresh History</strong></td>
+</tr>
+</table>
+
+These screenshots are from the **standalone SideStore UI**. The combined v2 build uses LiveContainer as the host and includes the modified SideStore inside it. Combined-specific screenshots will be added separately when available rather than substituting unrelated upstream images.
+
 ## Quick navigation
 
 - [Choose a build](#which-version-should-i-download)
@@ -440,18 +471,13 @@ Long-press the Return button to collapse it to an edge tab. Tap the tab to resto
 
 iOS may still suspend or terminate guest processes because of crashes, memory pressure, or system lifecycle policy.
 
-## Screenshots
+## More screenshots
 
-The screenshots currently stored in this repository show the **standalone SideStore interface**. They are useful for the refresh controls but do not represent the combined LiveContainer UI. Combined screenshots are intentionally not substituted with unrelated upstream images.
+These additional screenshots also show the standalone SideStore refresh UI.
 
 <table>
 <tr>
-<td align="center"><img src="docs/screenshots/settings-refreshing-apps.png" width="220" alt="SideStore Refreshing Apps settings"><br><strong>Refreshing Apps</strong></td>
-<td align="center"><img src="docs/screenshots/refresh-schedule-main.png" width="220" alt="SideStore Refresh Schedule"><br><strong>Refresh Schedule</strong></td>
 <td align="center"><img src="docs/screenshots/refresh-schedule-options.png" width="220" alt="Six-hour, daily, and weekly refresh schedule options"><br><strong>Schedule Options</strong></td>
-</tr>
-<tr>
-<td align="center"><img src="docs/screenshots/refresh-history.png" width="220" alt="SideStore refresh history"><br><strong>Refresh History</strong></td>
 <td align="center"><img src="docs/screenshots/refresh-preferred-time-picker.png" width="220" alt="SideStore preferred refresh time picker"><br><strong>Preferred Time</strong></td>
 <td align="center"><img src="docs/screenshots/refresh-skipped.jpeg" width="220" alt="Skipped SideStore refresh"><br><strong>Skipped Refresh</strong></td>
 </tr>
