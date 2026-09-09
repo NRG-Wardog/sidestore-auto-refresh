@@ -39,11 +39,11 @@ Before starting, make sure you have:
 
 After setup, the normal refresh flow is designed to work without keeping the computer connected.
 
-# First-time setup: LiveContainer + SideStore
+## First-time setup: LiveContainer + SideStore
 
 Follow these steps in order. Do not enable scheduled refresh until the manual refresh test succeeds.
 
-## 1. Install the combined IPA
+### 1. Install the combined IPA
 
 Download the latest combined build:
 
@@ -53,7 +53,7 @@ Sign and install it with your own Apple Account using a compatible installer.
 
 You are installing one combined IPA. **Do not install a separate copy of SideStore or LiveContainer for this setup.**
 
-## 2. Trust the sideloaded app
+### 2. Trust the sideloaded app
 
 If iOS shows **Untrusted Developer** or refuses to open the app:
 
@@ -63,7 +63,7 @@ Under **Developer App**, select the Apple Account used to sign the IPA and tap *
 
 The Developer App entry normally appears only after a sideloaded app has been installed.
 
-## 3. Enable Developer Mode
+### 3. Enable Developer Mode
 
 Go to:
 
@@ -71,13 +71,13 @@ Go to:
 
 Turn Developer Mode on. iOS may restart the device and ask you to confirm after the reboot.
 
-## 4. Install LocalDevVPN
+### 4. Install LocalDevVPN
 
 Install the official, unmodified **LocalDevVPN** from the App Store.
 
 LocalDevVPN creates the local route SideStore uses to communicate with the same iPhone. You do not need VPN Super or an additional IKEv2/IPSec tunnel for the current CoreDevice path.
 
-## 5. Find your Wi-Fi network range
+### 5. Find your Wi-Fi network range
 
 The LocalDevVPN addresses must match the subnet of the Wi-Fi network the iPhone is currently using.
 
@@ -116,7 +116,7 @@ Do not use:
 - an address already used by another device
 - an address outside the current Wi-Fi subnet
 
-## 6. Configure LocalDevVPN
+### 6. Configure LocalDevVPN
 
 Open:
 
@@ -139,7 +139,7 @@ The two addresses have different jobs:
 
 If you later move to a Wi-Fi network with a different subnet, update these addresses before refreshing again.
 
-## 7. Create and place the pairing file
+### 7. Create and place the pairing file
 
 A pairing file is the trust record that allows SideStore to authenticate with your own iPhone.
 
@@ -152,13 +152,13 @@ If your installer supports placing the pairing file directly into SideStore or t
 
 If pairing fails, generate or place the file again for the same device before changing any LocalDevVPN settings.
 
-## 8. Open LiveContainer and SideStore
+### 8. Open LiveContainer and SideStore
 
 Open **LiveContainer**, then open the embedded **SideStore** and sign in with the Apple Account you use for SideStore.
 
 If iOS asks for Local Network, notification, or other required permissions during setup, allow them before continuing.
 
-## 9. Test manual refresh first
+### 9. Test manual refresh first
 
 Before enabling automation, verify that the basic setup works.
 
@@ -172,7 +172,7 @@ Keep Wi-Fi and LocalDevVPN available while the test runs.
 
 If host replacement closes or relaunches LiveContainer, reopen it and allow the verification step to finish. A refresh is successful only after the new result is verified.
 
-## 10. Enable Background App Refresh
+### 10. Enable Background App Refresh
 
 Go to:
 
@@ -182,7 +182,7 @@ Make sure Background App Refresh is enabled for the relevant app.
 
 Also allow notifications if you want deadline warnings and refresh alerts.
 
-## 11. Enable automatic refresh
+### 11. Enable automatic refresh
 
 In LiveContainer's refresh settings, enable automation and choose a schedule.
 
