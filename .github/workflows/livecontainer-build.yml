@@ -2,6 +2,11 @@ name: LiveContainer embedded SideStore build
 
 on:
   workflow_dispatch:
+    inputs:
+      cellular_bootstrap:
+        description: Experimental embedded cellular setup (investigation branch only)
+        type: boolean
+        default: false
   push:
     branches: [fix/combined-refresh-build-and-runtime]
 
@@ -13,6 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  CELLULAR_BOOTSTRAP: ${{ inputs.cellular_bootstrap || false }}
   LIVE_CONTAINER_REF: 12377cf3b91d51739a33f14a302e5f522b238593
   EMBEDDED_SIDESTORE_REF: 10ffa01ecdfe4203a7ad5d7f41c0d5de03bd8abb
   MINIMUXER_REF: d57586ff506199ecfa8b78048930da821e5237de
@@ -24,6 +30,11 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 60
     steps:
+      - name: Guard experimental bootstrap isolation
+        if: inputs.cellular_bootstrap
+        shell: bash
+        run: test "$GITHUB_REF" = refs/heads/investigate/cellular-coredevice
+
       - uses: actions/checkout@v4
         with:
           path: builder
@@ -137,6 +148,10 @@ jobs:
           set -euo pipefail
           python3 builder/scripts/patch_jktcp_reliability.py jktcp
           python3 builder/scripts/patch_coredevice_idevice.py idevice jktcp
+          if [ "$CELLULAR_BOOTSTRAP" = true ]; then
+            python3 builder/experiments/cellular/patch_bootstrap.py --idevice idevice
+            python3 builder/experiments/cellular/patch_bootstrap.py --idevice idevice
+          fi
           ! grep -R -E 'rppairing_connect_quic|create_quic_listener|quinn::' \
             idevice/ffi/src/tunnel_provider.rs idevice/idevice/src/tunnel.rs
           grep -Fq 'packet.extend_from_slice(CDTUNNEL_MAGIC)' idevice/idevice/src/tunnel.rs
@@ -194,6 +209,12 @@ jobs:
           python3 -c 'import hashlib, pathlib, sys; root = pathlib.Path(sys.argv[1]); print([(str(p.relative_to(root)), hashlib.sha256(p.read_bytes()).hexdigest()) for p in sorted(root.rglob("*.swift"))])' "$MUX" >"$RUNNER_TEMP/combined-swift-second.txt"
           cmp "$RUNNER_TEMP/combined-transport-first.diff" "$RUNNER_TEMP/combined-transport-second.diff"
           cmp "$RUNNER_TEMP/combined-swift-first.txt" "$RUNNER_TEMP/combined-swift-second.txt"
+          if [ "$CELLULAR_BOOTSTRAP" = true ]; then
+            python3 builder/experiments/cellular/patch_bootstrap.py --sidestore work/EmbeddedSideStore
+            python3 builder/experiments/cellular/patch_bootstrap.py --sidestore work/EmbeddedSideStore
+            grep -Fq 'cellular_lockdown_validate' "$MUX/DeviceGateway/LocalBinary/IDevice.xcframework/ios-arm64/Headers/idevice.h"
+            swiftc -frontend -parse work/EmbeddedSideStore/SideStore/Views/Settings/Diagnostics/ExperimentalFeaturesView.swift
+          fi
           git -C "$MUX" diff --check
           while IFS= read -r -d '' source; do swiftc -frontend -parse "$source"; done < <(find "$MUX" -type f -name '*.swift' -not -path '*/.build/*' -print0)
           swift package --package-path "$MUX/DeviceGateway" dump-package >"$RUNNER_TEMP/combined-gateway-package.json"

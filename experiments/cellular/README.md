@@ -1,5 +1,11 @@
 # Standalone Cellular Probe
 
+**Historical experiment.** The replacement bootstrap is an opt-in embedded
+SideStore Diagnostics module described in [BOOTSTRAP.md](BOOTSTRAP.md). Do not
+use PC-side pairing injection as a supported setup flow. The standalone report
+does not establish a cellular comparison without a successful matching Wi-Fi
+baseline. The embedded replacement is not yet device-validated.
+
 This is a separate read-only iOS application, not LiveContainer or embedded
 SideStore. Its dedicated workflow builds one app bundle and zero extensions.
 It reuses the pinned idevice/jktcp revisions and the existing validated transport
