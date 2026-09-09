@@ -72,9 +72,11 @@ struct LCEmbeddedSideStoreRefreshView: View {
     @State private var history: [LiveContainerRefreshHistoryEntry] = []
     @State private var isSelectingHistory = false
     @State private var selectedHistoryIDs: Set<String> = []
+    @State private var guestDiagnosticAffectedIDs: [String] = []
     @State private var showClearHistoryConfirmation = false
     @AppStorage("liveContainerAutoRefreshLastError", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var lastError = ""
     @AppStorage("liveContainerAutoRefreshHealthState", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var healthState = "UNKNOWN"
+    @AppStorage("liveContainerAutoRefreshGuestDiagnosticWarning", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var guestDiagnosticWarning = false
     @AppStorage("liveContainerAutoRefreshEnabled", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var enabled = false
     @AppStorage("liveContainerAutoRefreshFrequency", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var frequency = "interval"
     @AppStorage("liveContainerAutoRefreshWeekday", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var weekday = 2
@@ -103,6 +105,17 @@ struct LCEmbeddedSideStoreRefreshView: View {
                     .font(.caption).foregroundColor(.secondary)
                 if !lastError.isEmpty {
                     Text(lastError).font(.caption).foregroundColor(.red)
+                }
+            }
+            if guestDiagnosticWarning && !guestDiagnosticAffectedIDs.isEmpty {
+                Section("Guest diagnostics") {
+                    let guestCount = guestDiagnosticAffectedIDs.count
+                    let guestNoun = guestCount == 1 ? "" : "s"
+                    Text("\(guestCount) guest\(guestNoun) returned an unexpected signature diagnostic. This does not change the verified refresh result. Open these guests to check whether they launch.")
+                        .font(.caption).foregroundColor(.orange)
+                    ForEach(guestDiagnosticAffectedIDs, id: \.self) { bundleID in
+                        Text(bundleID).font(.caption)
+                    }
                 }
             }
             Section {
@@ -149,8 +162,12 @@ struct LCEmbeddedSideStoreRefreshView: View {
             historySection
         }
         .navigationTitle("SideStore refresh")
-        .onAppear { reloadHistory() }
+        .onAppear {
+            reloadHistory()
+            reloadGuestDiagnostics()
+        }
         .onReceive(NotificationCenter.default.publisher(for: LiveContainerRefreshHistoryStore.didChange).receive(on: RunLoop.main)) { _ in reloadHistory() }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("LiveContainerAutoRefreshGuestDiagnosticsChanged")).receive(on: RunLoop.main)) { _ in reloadGuestDiagnostics() }
         .confirmationDialog("Clear all refresh history?", isPresented: $showClearHistoryConfirmation, titleVisibility: .visible) {
             Button("Clear All", role: .destructive) { clearHistory() }
             Button("Cancel", role: .cancel) {}
@@ -276,5 +293,9 @@ struct LCEmbeddedSideStoreRefreshView: View {
         history = LiveContainerRefreshHistoryStore.entries(in: defaults)
         selectedHistoryIDs.formIntersection(Set(history.map(\.id)))
         if history.isEmpty { isSelectingHistory = false }
+    }
+
+    private func reloadGuestDiagnostics() {
+        guestDiagnosticAffectedIDs = defaults.stringArray(forKey: "liveContainerAutoRefreshGuestDiagnosticAffectedIDs") ?? []
     }
 }

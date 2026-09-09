@@ -35,6 +35,10 @@ enum LiveContainerAutoRefreshScheduler {
     static let warnedDeadlineKey = "liveContainerAutoRefreshWarnedDeadline"
     static let configurationKey = "liveContainerAutoRefreshConfiguration"
     static let retryExhaustedKey = "liveContainerAutoRefreshRetryExhausted"
+    static let guestDiagnosticsKey = "liveContainerAutoRefreshGuestDiagnostics"
+    static let guestDiagnosticWarningKey = "liveContainerAutoRefreshGuestDiagnosticWarning"
+    static let guestDiagnosticAffectedIDsKey = "liveContainerAutoRefreshGuestDiagnosticAffectedIDs"
+    static let guestDiagnosticsDidChange = Notification.Name("LiveContainerAutoRefreshGuestDiagnosticsChanged")
     static let warningIdentifier = "LiveContainerAutoRefresh.deadline"
     static let leadTime: TimeInterval = 60 * 60 // Provisional policy, not a timing guarantee.
     static let coalescingWindow: TimeInterval = 60
@@ -251,17 +255,88 @@ enum LiveContainerAutoRefreshScheduler {
         }
     }
 
-    private static func verifyGuestSignatures() -> Bool {
-        // Guests are not standalone InstalledApps and are never re-signed here.
-        let guests = DataManager.shared.model.apps + DataManager.shared.model.hiddenApps
-        for guest in guests {
-            guard let path = guest.appInfo.bundlePath(), let executable = Bundle(path: path)?.executableURL,
-                  executable.path.withCString({ checkCodeSignature($0) }) else {
-                print("[LIVE_CONTAINER_REFRESH] GUEST_SIGNATURE_INVALID bundle_id=\(guest.appInfo.bundleIdentifier())")
-                return false
-            }
+    struct GuestDiagnostic: Equatable {
+        let bundleID: String
+        let category: String
+        let executableFound: Bool
+        let readable: Bool
+        let checkResult: Bool?
+        let reason: String
+
+        var affected: Bool {
+            !executableFound || !readable || checkResult != true
         }
-        return true
+
+        var persisted: [String: String] {
+            [
+                "bundle_id": bundleID,
+                "category": category,
+                "executable_found": executableFound ? "true" : "false",
+                "readable": readable ? "true" : "false",
+                "check_result": checkResult.map { $0 ? "pass" : "fail" } ?? "not_checked",
+                "reason": reason
+            ]
+        }
+    }
+
+    struct GuestDiagnosticInput {
+        let bundleID: String
+        let category: String
+        let bundlePath: String?
+    }
+
+    static func collectGuestDiagnostics() -> [GuestDiagnostic] {
+        let normal = DataManager.shared.model.apps.map {
+            GuestDiagnosticInput(bundleID: $0.appInfo.bundleIdentifier(), category: "normal",
+                                 bundlePath: $0.appInfo.bundlePath())
+        }
+        let hidden = DataManager.shared.model.hiddenApps.map {
+            GuestDiagnosticInput(bundleID: $0.appInfo.bundleIdentifier(), category: "hidden",
+                                 bundlePath: $0.appInfo.bundlePath())
+        }
+        return (normal + hidden).map(diagnoseGuest)
+    }
+
+    static func diagnoseGuest(_ input: GuestDiagnosticInput) -> GuestDiagnostic {
+        guard let bundlePath = input.bundlePath,
+              let executable = Bundle(path: bundlePath)?.executableURL else {
+            return GuestDiagnostic(bundleID: input.bundleID, category: input.category,
+                                    executableFound: false, readable: false, checkResult: nil,
+                                    reason: "missing_executable")
+        }
+
+        let executableFound = FileManager.default.fileExists(atPath: executable.path)
+        let readable = executableFound && FileManager.default.isReadableFile(atPath: executable.path)
+        guard readable else {
+            return GuestDiagnostic(bundleID: input.bundleID, category: input.category,
+                                    executableFound: executableFound, readable: false, checkResult: nil,
+                                    reason: executableFound ? "unreadable" : "missing_executable")
+        }
+
+        let checkResult = executable.path.withCString { checkCodeSignature($0) }
+        return GuestDiagnostic(bundleID: input.bundleID, category: input.category,
+                                executableFound: true, readable: true, checkResult: checkResult,
+                                reason: checkResult ? "signature_check_passed" : "signature_check_false")
+    }
+
+    private static func persistGuestDiagnostics(_ diagnostics: [GuestDiagnostic]) {
+        let affectedIDs = diagnostics.reduce(into: [String]()) { ids, diagnostic in
+            guard diagnostic.affected, !ids.contains(diagnostic.bundleID) else { return }
+            ids.append(diagnostic.bundleID)
+        }
+        defaults.set(diagnostics.map(\.persisted), forKey: guestDiagnosticsKey)
+        defaults.set(!affectedIDs.isEmpty, forKey: guestDiagnosticWarningKey)
+        defaults.set(affectedIDs, forKey: guestDiagnosticAffectedIDsKey)
+        NotificationCenter.default.post(name: guestDiagnosticsDidChange, object: nil)
+        for diagnostic in diagnostics {
+            let checkResult = diagnostic.checkResult.map { $0 ? "pass" : "fail" } ?? "not_checked"
+            print("[LIVE_CONTAINER_REFRESH] GUEST_SIGNATURE_CHECK bundle_id=\(diagnostic.bundleID) category=\(diagnostic.category) executable_found=\(diagnostic.executableFound) readable=\(diagnostic.readable) check_result=\(checkResult) reason=\(diagnostic.reason)")
+        }
+        let passed = diagnostics.filter { $0.checkResult == true }.count
+        let failed = diagnostics.filter { $0.checkResult == false }.count
+        let notChecked = diagnostics.count - passed - failed
+        print("[LIVE_CONTAINER_REFRESH] GUEST_SIGNATURE_SUMMARY total=\(diagnostics.count) passed=\(passed) failed=\(failed) not_checked=\(notChecked) affected=\(affectedIDs.count) warning=\(!affectedIDs.isEmpty)")
+        print("[LIVE_CONTAINER_REFRESH] GUEST_DIAGNOSTICS warning=\(!affectedIDs.isEmpty) affected_count=\(affectedIDs.count)")
     }
 
     private static func execute(source: String, task: BGTask? = nil,
@@ -309,19 +384,13 @@ enum LiveContainerAutoRefreshScheduler {
                 // Completion of this handler is not a claim of refresh success.
                 task?.setTaskCompleted(success: false)
             } else if verification.verified {
-                let guestsValid = verifyGuestSignatures()
                 try Task.checkCancellation()
                 guard gate.claim() else { return }
-                if guestsValid {
-                    markVerified(source: source, detail: "All requested installed-app results were confirmed.")
-                    print("[LIVE_CONTAINER_REFRESH] REFRESH_RESULT run_id=\(runID.uuidString) success=true verified=true")
-                    task?.setTaskCompleted(success: true)
-                } else {
-                    defaults.set("GUEST_SIGNATURE_INVALID", forKey: healthStateKey)
-                    record(source: source, result: "guest_signature_invalid", detail: "A guest could not be verified. Host refresh does not re-sign every guest.")
-                    notify(title: "Guest signature needs attention", body: "Open the affected guest in LiveContainer to check its signing status.", kind: "guest_invalid")
-                    task?.setTaskCompleted(success: false)
-                }
+                markVerified(source: source, detail: "All requested installed-app results were confirmed.")
+                print("[LIVE_CONTAINER_REFRESH] REFRESH_RESULT run_id=\(runID.uuidString) success=true verified=true")
+                task?.setTaskCompleted(success: true)
+                let guestDiagnostics = collectGuestDiagnostics()
+                persistGuestDiagnostics(guestDiagnostics)
             } else {
                 throw NSError(domain: "LiveContainerRefresh.Verification", code: 1001,
                     userInfo: [NSLocalizedDescriptionKey: verification.reason])

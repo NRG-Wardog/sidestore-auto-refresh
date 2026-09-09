@@ -28,6 +28,33 @@ class LiveContainerRuntimeTests(unittest.TestCase):
             self.assertIn("error_code=42", result.stdout)
             self.assertNotIn(r"\(runID", result.stdout)
 
+    def test_issue13_harness_contains_cases_and_fixture_controls(self):
+        harness = (ROOT / "tests/fixtures/livecontainer_scheduler_harness.swift").read_text()
+        stubs = (ROOT / "tests/fixtures/livecontainer_scheduler_stubs.swift").read_text()
+        scheduler = (ROOT / "scripts/templates/livecontainer_refresh_scheduler.swift").read_text()
+        settings = (ROOT / "scripts/templates/livecontainer_refresh_settings.swift").read_text()
+        for case in "ABCDEF":
+            self.assertIn("Case " + case, harness)
+        for marker in ("guestDiagnosticsStoreKey", "guestWarningStoreKey", "lastErrorKey", "lastSuccessfulKey",
+                       "FakeGuestSignatureProbe.calls", "FakeManifestMode.missing", "hostHandoffKey"):
+            self.assertIn(marker, harness)
+        for marker in ("invalidPaths", "bundlePath()", "enum FakeManifestMode { case valid, missing, mismatch, incomplete, failed }",
+                       "hostHandoff", "firstCompletionProbeCalls"):
+            self.assertIn(marker, stubs)
+        for marker in ("missingExecutable", "unreadableExecutable", "setAttributes", "firstCompletionProbeCalls == 0",
+                       "preserves the previous advisory diagnostics", "Completed manual calls are not coalesced"):
+            self.assertIn(marker, harness)
+        for marker in ("collectGuestDiagnostics()", "persistGuestDiagnostics", "guestDiagnosticsKey",
+                       "guestDiagnosticWarningKey", "guestDiagnosticAffectedIDsKey"):
+            self.assertIn(marker, scheduler)
+        self.assertNotIn("GUEST_SIGNATURE_INVALID", scheduler)
+        self.assertIn("liveContainerAutoRefreshGuestDiagnosticWarning", settings)
+        self.assertIn("liveContainerAutoRefreshGuestDiagnosticAffectedIDs", settings)
+        self.assertNotIn('\\"', scheduler)
+        self.assertNotIn('\\"', settings)
+        self.assertIn("GUEST_SIGNATURE_SUMMARY total=", scheduler)
+        self.assertIn("passed=\\(passed) failed=\\(failed) not_checked=\\(notChecked)", scheduler)
+
     def test_installed_profile_identity_and_expiration(self):
         compiler = shutil.which("swiftc")
         if not compiler:
