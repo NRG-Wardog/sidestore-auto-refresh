@@ -34,7 +34,7 @@ The goal is simple: after the initial installation and pairing setup, normal ref
 
 ## Preview
 
-The screenshots below show the actual refresh interface currently included in the repository.
+The screenshots below show the actual refresh interface currently included in the repository.(These screenshots are from version 1.0.2.)
 
 <table>
 <tr>
