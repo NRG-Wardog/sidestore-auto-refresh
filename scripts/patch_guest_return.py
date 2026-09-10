@@ -2,7 +2,7 @@
 from pathlib import Path
 import sys
 
-MARKER = "LC_GUEST_RETURN_V2"
+MARKER = "LC_GUEST_RETURN_V3"
 
 # Shared by the real control and executable geometry regression tests.
 GEOMETRY = r'''
@@ -19,7 +19,17 @@ static int LCReturnShouldHide(int running, int decorated, int maximized) {
 '''
 
 CONTROL = GEOMETRY + r'''
-// LC_GUEST_RETURN_V2: the control owns no guest process or scene.
+// LC_GUEST_RETURN_V3: the control owns no guest process or scene.
+static UIColor *LCGuestReturnColor(NSString *key, NSUInteger fallbackRGB) {
+    id saved = [NSUserDefaults.lcUserDefaults objectForKey:key];
+    double value = [saved isKindOfClass:NSNumber.class] ? [saved doubleValue] : fallbackRGB;
+    if (!isfinite(value) || value < 0 || value > 0xFFFFFF || floor(value) != value) value = fallbackRGB;
+    NSUInteger rgb = (NSUInteger)value;
+    return [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0
+                           green:((rgb >> 8) & 0xFF) / 255.0
+                            blue:(rgb & 0xFF) / 255.0 alpha:1.0];
+}
+
 @interface LCReturnControl : UIView
 @property(nonatomic, strong) UIButton *button;
 @property(nonatomic, copy) void (^action)(void);
@@ -27,6 +37,7 @@ CONTROL = GEOMETRY + r'''
 @property(nonatomic) CGRect keyboardFrame;
 @property(nonatomic) BOOL collapsed;
 @property(nonatomic, copy) NSString *expandedHint;
+- (void)collapse;
 @end
 @implementation LCReturnControl
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -39,6 +50,7 @@ CONTROL = GEOMETRY + r'''
         double x = [saved[0] doubleValue], y = [saved[1] doubleValue];
         if (isfinite(x) && isfinite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1) self.position = CGPointMake(x, y);
     }
+    if ([NSUserDefaults.lcUserDefaults boolForKey:@"LCGuestReturnStartsCollapsed"]) [self collapse];
     self.button = [UIButton buttonWithType:UIButtonTypeSystem];
     self.button.backgroundColor = UIColor.secondarySystemBackgroundColor;
     self.button.layer.cornerRadius = 22;
@@ -49,10 +61,7 @@ CONTROL = GEOMETRY + r'''
     __weak typeof(self) weakControl = self;
     self.button.menu = [UIMenu menuWithTitle:@"" children:@[
         [UIAction actionWithTitle:@"Collapse Return Button" image:[UIImage systemImageNamed:@"sidebar.right"] identifier:nil handler:^(__kindof UIAction *action) {
-            weakControl.collapsed = YES;
-            weakControl.position = CGPointMake(weakControl.position.x < 0.5 ? 0 : 1, weakControl.position.y);
-            [weakControl setNeedsLayout];
-            NSLog(@"[LC_RETURN] CONTROL_COLLAPSED");
+            [weakControl collapse];
         }]
     ]];
     [self.button addTarget:self action:@selector(tapped) forControlEvents:UIControlEventTouchUpInside];
@@ -60,10 +69,27 @@ CONTROL = GEOMETRY + r'''
     [self addSubview:self.button];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboard:) name:UIKeyboardWillChangeFrameNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboard:) name:UIKeyboardWillHideNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesChanged:) name:NSUserDefaultsDidChangeNotification object:NSUserDefaults.lcUserDefaults];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesChanged:) name:UIApplicationDidBecomeActiveNotification object:nil];
     NSLog(@"[LC_RETURN] CONTROL_SHOWN");
     return self;
 }
 - (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+- (void)collapse {
+    self.collapsed = YES;
+    self.position = CGPointMake(self.position.x < 0.5 ? 0 : 1, self.position.y);
+    [self setNeedsLayout];
+    NSLog(@"[LC_RETURN] CONTROL_COLLAPSED");
+}
+- (void)preferencesChanged:(NSNotification *)note {
+    if (!NSThread.isMainThread) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [self preferencesChanged:note]; });
+        return;
+    }
+    // Appearance can change while a guest is retained. Never reset a user's
+    // expanded/collapsed state during layout, keyboard changes, or activation.
+    [self setNeedsLayout];
+}
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hit = [super hitTest:point withEvent:event];
     return hit == self ? nil : hit;
@@ -91,7 +117,11 @@ CONTROL = GEOMETRY + r'''
     if (self.button.hidden) return;
     self.button.accessibilityLabel = self.collapsed ? @"Show Return to LiveContainer" : @"Return to LiveContainer";
     self.button.accessibilityHint = self.collapsed ? @"Restores the Return button" : self.expandedHint;
-    self.button.backgroundColor = self.collapsed ? UIColor.clearColor : UIColor.secondarySystemBackgroundColor;
+    BOOL customColors = [NSUserDefaults.lcUserDefaults boolForKey:@"LCGuestReturnCustomColors"];
+    // nil restores the inherited system tint when custom colors are disabled.
+    self.button.tintColor = customColors ? LCGuestReturnColor(@"LCGuestReturnTintRGB", 0x007AFF) : nil;
+    UIColor *background = customColors ? LCGuestReturnColor(@"LCGuestReturnBackgroundRGB", 0xF2F2F7) : UIColor.secondarySystemBackgroundColor;
+    self.button.backgroundColor = self.collapsed ? UIColor.clearColor : background;
     [self.button setImage:[UIImage systemImageNamed:self.collapsed ? (self.position.x < 0.5 ? @"chevron.compact.right" : @"chevron.compact.left") : @"arrow.uturn.backward.circle.fill"] forState:UIControlStateNormal];
     self.button.bounds = CGRectMake(0, 0, 44, 44);
     self.button.center = CGPointMake(LCReturnAxisCenter(rect.origin.x, rect.size.width, self.position.x),
@@ -127,9 +157,55 @@ CONTROL = GEOMETRY + r'''
         NSLog(@"[LC_RETURN] CONTROL_RESTORED");
         return;
     }
-    if (self.action) self.action();
+    if (self.action) {
+        // A retained guest should reopen as a tab when Start Collapsed is on.
+        if ([NSUserDefaults.lcUserDefaults boolForKey:@"LCGuestReturnStartsCollapsed"]) [self collapse];
+        self.action();
+    }
 }
 @end
+'''
+
+SETTINGS_PROPERTIES = '''    @AppStorage("LCHideReturnControl", store: UserDefaults.lc()) private var hideReturnControl = false
+    @AppStorage("LCGuestReturnStartsCollapsed", store: UserDefaults.lc()) private var returnStartsCollapsed = false
+    @AppStorage("LCGuestReturnCustomColors", store: UserDefaults.lc()) private var returnCustomColors = false
+    @AppStorage("LCGuestReturnTintRGB", store: UserDefaults.lc()) private var returnTintRGB = 0x007AFF
+    @AppStorage("LCGuestReturnBackgroundRGB", store: UserDefaults.lc()) private var returnBackgroundRGB = 0xF2F2F7
+'''
+
+SETTINGS_SECTION = '''                Section {
+                    Toggle("Show Return Button", isOn: Binding(get: { !hideReturnControl }, set: { hideReturnControl = !$0 }))
+                    Group {
+                        Toggle("Start Collapsed", isOn: $returnStartsCollapsed)
+                        Toggle("Use Custom Colors", isOn: $returnCustomColors)
+                        if returnCustomColors {
+                            ColorPicker("Icon Color", selection: returnColorBinding($returnTintRGB), supportsOpacity: false)
+                            ColorPicker("Button Background", selection: returnColorBinding($returnBackgroundRGB), supportsOpacity: false)
+                        }
+                    }
+                    .disabled(hideReturnControl)
+                } header: {
+                    Text("Guest Controls")
+                } footer: {
+                    Text("Start Collapsed shows an edge tab when a guest opens and after using Return. Tap the tab to expand, then tap Return to go back. Long-press Return to collapse it again. Icon Color also applies to the tab; its background stays transparent. Turn off Use Custom Colors to restore system colors.")
+                }'''
+
+SETTINGS_HELPERS = '''    private func returnColorBinding(_ rgb: Binding<Int>) -> Binding<Color> {
+        Binding(get: {
+            let value = rgb.wrappedValue
+            return Color(.sRGB, red: Double((value >> 16) & 0xFF) / 255,
+                         green: Double((value >> 8) & 0xFF) / 255,
+                         blue: Double(value & 0xFF) / 255, opacity: 1)
+        }, set: { color in
+            var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+            guard UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return }
+            func channel(_ value: CGFloat) -> Int {
+                Int((min(1, max(0, value)) * 255).rounded())
+            }
+            rgb.wrappedValue = (channel(red) << 16) | (channel(green) << 8) | channel(blue)
+        })
+    }
+
 '''
 
 METHODS = r'''
@@ -433,8 +509,9 @@ def verify(texts):
         raise ValueError("Global cross-window callback survived")
     if DIRECT_CONTROL.strip() not in bootstrap or DIRECT_RUNTIME.strip() not in bootstrap:
         raise ValueError("Incomplete direct guest Return patch")
-    if 'Toggle("Show Return Button"' not in settings:
-        raise ValueError("Return visibility setting missing")
+    for block in (SETTINGS_PROPERTIES, SETTINGS_SECTION, SETTINGS_HELPERS):
+        if block.strip() not in settings:
+            raise ValueError("Incomplete guest Return settings: " + block[:65])
     for state in ("YES", "NO"):
         if f"self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];" not in decorated:
             raise ValueError("Return visibility transition missing: " + state)
@@ -447,8 +524,8 @@ def patch(root):
     if MARKER in implementation:
         verify(texts)
         return
-    if "LC_GUEST_RETURN_V1" in implementation:
-        raise ValueError("Reapply the return patch to clean pinned sources, not a V1-patched tree")
+    if any(marker in implementation for marker in ("LC_GUEST_RETURN_V1", "LC_GUEST_RETURN_V2")):
+        raise ValueError("Reapply the return patch to clean pinned sources, not an older patched tree")
 
     implementation = replace(implementation, '#import "UIKitPrivate+MultitaskSupport.h"',
                              '#import "UIKitPrivate+MultitaskSupport.h"\n#include <math.h>\n' + CONTROL, "control")
@@ -517,11 +594,9 @@ def patch(root):
     tab = replace(tab, "                    DataManager.shared.model.mainWindowOpened = false", "                    DataManager.shared.model.mainWindowOpened = false\n                    if #available(iOS 16.1, *), MultitaskWindowManager.mainSceneSession?.persistentIdentifier == scene1.session.persistentIdentifier {\n                        MultitaskWindowManager.mainSceneSession = nil\n                    }", "clear disconnected main scene")
     bootstrap = replace(bootstrap, "extern char **environ;", "#include <math.h>\n" + DIRECT_CONTROL + DIRECT_RUNTIME + "\nextern char **environ;", "direct return presenter")
     bootstrap = replace(bootstrap, "    // Go!", "    // Install before guest UIApplication/scene creation, never inside LiveProcess.\n    if (!isLiveProcess && !isSideStore) {\n        lcDirectReturnPresenter = [LCDirectReturnPresenter new];\n    }\n    // Go!", "direct launch route")
-    settings = replace(settings, "    @State var errorShow = false", '    @AppStorage("LCHideReturnControl", store: UserDefaults.lc()) private var hideReturnControl = false\n    @State var errorShow = false', "visibility preference")
-    settings = replace(settings, "            Form {", '''            Form {
-                Section("Guest Controls") {
-                    Toggle("Show Return Button", isOn: Binding(get: { !hideReturnControl }, set: { hideReturnControl = !$0 }))
-                }''', "restore return control")
+    settings = replace(settings, "    @State var errorShow = false", SETTINGS_PROPERTIES + "    @State var errorShow = false", "Return preferences")
+    settings = replace(settings, "    var body: some View {", SETTINGS_HELPERS + "    var body: some View {", "Return color bindings")
+    settings = replace(settings, "            Form {", "            Form {\n" + SETTINGS_SECTION, "Return settings")
     for state in ("YES", "NO"):
         decorated = replace(decorated, f"self.isMaximized = {state};",
                             f"self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];",
