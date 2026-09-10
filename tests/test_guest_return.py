@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -184,12 +185,61 @@ class GuestReturnTests(unittest.TestCase):
     def test_collapse_does_not_disable_global_preference_or_return(self):
         for control in (module.CONTROL, module.DIRECT_CONTROL):
             self.assertNotIn('setBool:YES forKey:@"LCHideReturnControl"', control)
-            self.assertIn('weakControl.collapsed = YES', control)
+            self.assertIn('[weakControl collapse]', control)
+            self.assertIn('self.collapsed = YES', control)
             self.assertIn('self.collapsed = NO', control)
             self.assertIn('CONTROL_RESTORED', control)
             self.assertIn('chevron.compact.right', control)
             tapped = control[control.index('- (void)tapped'):]
             self.assertLess(tapped.index('return;'), tapped.index('self.action()'))
+
+    def test_start_collapsed_is_shared_and_does_not_reset_on_layout(self):
+        for control in (module.CONTROL, module.DIRECT_CONTROL):
+            init = control[control.index('- (instancetype)initWithFrame:'):control.index('- (void)dealloc')]
+            self.assertIn('boolForKey:@"LCGuestReturnStartsCollapsed"]) [self collapse]', init)
+            self.assertLess(init.index('isfinite(x)'), init.index('[self collapse]'))
+            for start, end in (('- (void)layoutSubviews', '- (void)keyboard:'),
+                               ('- (void)preferencesChanged:', '- (UIView *)hitTest:')):
+                self.assertNotIn('[self collapse]', control[control.index(start):control.index(end)])
+            self.assertIn('name:NSUserDefaultsDidChangeNotification object:NSUserDefaults.lcUserDefaults', control)
+            self.assertIn('name:UIApplicationDidBecomeActiveNotification', control)
+        self.assertIn('private var returnStartsCollapsed = false', module.SETTINGS_PROPERTIES)
+        self.assertIn('private var returnCustomColors = false', module.SETTINGS_PROPERTIES)
+        for key in ('LCGuestReturnStartsCollapsed', 'LCGuestReturnCustomColors',
+                    'LCGuestReturnTintRGB', 'LCGuestReturnBackgroundRGB'):
+            self.assertIn(f'@AppStorage("{key}", store: UserDefaults.lc())', module.SETTINGS_PROPERTIES)
+            self.assertIn(f'@"{key}"', module.CONTROL)
+            self.assertIn(f'@"{key}"', module.DIRECT_CONTROL)
+
+    def test_appearance_keeps_tab_transparent_and_system_colors_available(self):
+        for control in (module.CONTROL, module.DIRECT_CONTROL):
+            layout = control[control.index('- (void)layoutSubviews'):control.index('- (void)keyboard:')]
+            self.assertIn('self.collapsed ? UIColor.clearColor : background', layout)
+            self.assertIn('LCGuestReturnColor(@"LCGuestReturnTintRGB", 0x007AFF) : nil', layout)
+            self.assertIn('LCGuestReturnColor(@"LCGuestReturnBackgroundRGB", 0xF2F2F7) : UIColor.secondarySystemBackgroundColor', layout)
+        self.assertIn('private var returnTintRGB = 0x007AFF', module.SETTINGS_PROPERTIES)
+        self.assertIn('private var returnBackgroundRGB = 0xF2F2F7', module.SETTINGS_PROPERTIES)
+
+    def test_control_actions_and_color_decoding_execute(self):
+        compiler = shutil.which('clang')
+        if sys.platform != 'darwin' or not compiler:
+            self.skipTest('Objective-C Foundation runtime requires macOS')
+        harness = (ROOT / 'tests/fixtures/guest_return_control_harness.m').read_text()
+        color = module.CONTROL.split('static UIColor *LCGuestReturnColor', 1)[1].split('@interface LCReturnControl', 1)[0]
+        collapse = module.CONTROL.split('- (void)collapse {', 1)[1].split('- (void)preferencesChanged:', 1)[0]
+        tapped = module.CONTROL.split('- (void)tapped {', 1)[1].split('@end', 1)[0]
+        source = harness.replace('// COLOR_DECODER', 'static UIColor *LCGuestReturnColor' + color)
+        source = source.replace('// COLLAPSE_METHOD', '- (void)collapse {' + collapse)
+        source = source.replace('// TAPPED_METHOD', '- (void)tapped {' + tapped)
+        with tempfile.TemporaryDirectory() as directory:
+            src, exe = Path(directory)/'Control.m', Path(directory)/'control'
+            src.write_text(source)
+            build = subprocess.run([compiler, '-fobjc-arc', '-fblocks', '-framework', 'Foundation',
+                                    str(src), '-o', str(exe)], capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([str(exe)], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn('RETURN_CONTROL_TESTS_PASSED', run.stdout)
 
     def test_cleanup_finishes_before_exit_callback(self):
         self.assertLess(module.CLEANUP.index("unregisterMultitaskContainer"), module.CLEANUP.index("appSceneVCAppDidExit"))
@@ -270,6 +320,15 @@ int main(void) {
             first = {name: (root/name).read_bytes() for name in module.PATHS}
             module.patch(root)
             self.assertEqual(first, {name: (root/name).read_bytes() for name in module.PATHS})
+            # An already patched tree must not silently accept stale settings.
+            settings_path = root / 'LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift'
+            settings_bytes = settings_path.read_bytes()
+            settings_path.write_text(settings_path.read_text().replace('LCGuestReturnTintRGB', 'WrongTintKey'))
+            before = {name: (root/name).read_bytes() for name in module.PATHS}
+            with self.assertRaisesRegex(ValueError, 'guest Return settings'):
+                module.patch(root)
+            self.assertEqual(before, {name: (root/name).read_bytes() for name in module.PATHS})
+            settings_path.write_bytes(settings_bytes)
             compiler = shutil.which("swiftc")
             if compiler:
                 for name in module.PATHS:
