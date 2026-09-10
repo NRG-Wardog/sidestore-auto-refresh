@@ -469,6 +469,13 @@ For deeper investigation, see [Verification](docs/VERIFICATION.md), [Compatibili
 
 Long-press the Return button to collapse it to an edge tab. Tap the tab to restore it. Its position is saved and clamped after resizing.
 
+Source builds after v2.0.1 add these options in **LiveContainer Settings > Guest Controls**:
+
+- **Start Collapsed:** new guests open with an edge tab. Tap once to expand, then tap Return to go back. Using Return collapses the control again, including when reopening a retained guest. The option is off by default.
+- **Use Custom Colors:** choose the **Icon Color** and **Button Background**. The icon color also applies to the collapsed tab; the tab background stays transparent. Turn this option off to restore system colors. Color choices are saved for later use.
+
+These preferences apply to both fullscreen LiveProcess and direct host-process guests. **Show Return Button** still controls visibility, and windowed multitasking still uses the normal window controls.
+
 iOS may still suspend or terminate guest processes because of crashes, memory pressure, or system lifecycle policy.
 
 ## More screenshots
