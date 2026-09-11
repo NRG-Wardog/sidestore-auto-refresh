@@ -2,6 +2,7 @@
 """Adapt SideStore 0.7.0 resign flow to this project's self-refresh verification marker."""
 
 from pathlib import Path
+import re
 import sys
 
 MARKER = "SIDESTORE_SIGN_PASS"
@@ -20,11 +21,11 @@ def patch(root: Path) -> None:
     if MARKER in text:
         return
 
-    old = '''        let resignedAppURL = try await self.resignAppBundle(at: appBundleURL, team: team, certificate: certificate, profiles: Array(profiles.values))
-        guard let resignedAppBundle = ALTApplication(fileURL: resignedAppURL) else { throw OperationError.invalidApp }
-
-        self.debugLog("[ResignAppOperation] Resigned app \\(self.context.bundleIdentifier) to \\(resignedAppBundle.bundleIdentifier).")
-'''
+    old = re.compile(
+        r'        let resignedAppURL = try await self\.resignAppBundle\(at: appBundleURL, team: team, certificate: certificate, profiles: Array\(profiles\.values\)\)\n'
+        r'        guard let resignedAppBundle = ALTApplication\(fileURL: resignedAppURL\) else \{ throw OperationError\.invalidApp \}\n'
+        r'\s*        self\.debugLog\("\[ResignAppOperation\] Resigned app \\(self\.context\.bundleIdentifier\) to \\(resignedAppBundle\.bundleIdentifier\)\."\)\n'
+    )
     new = '''        let resignedAppURL = try await self.resignAppBundle(at: appBundleURL, team: team, certificate: certificate, profiles: Array(profiles.values))
         guard let resignedAppBundle = ALTApplication(fileURL: resignedAppURL) else { throw OperationError.invalidApp }
         #if !targetEnvironment(simulator)
@@ -36,7 +37,10 @@ def patch(root: Path) -> None:
         }
         self.debugLog("[ResignAppOperation] Resigned app \\(self.context.bundleIdentifier) to \\(resignedAppBundle.bundleIdentifier).")
 '''
-    text = replace_once(text, old, new, "SideStore 0.7.0 resign flow")
+    count = len(old.findall(text))
+    if count != 1:
+        raise SystemExit(f"SideStore 0.7.0 resign flow: expected one anchor, found {count}")
+    text = old.sub(new, text, count=1)
     path.write_text(text, encoding="utf-8")
 
     final = path.read_text(encoding="utf-8")
