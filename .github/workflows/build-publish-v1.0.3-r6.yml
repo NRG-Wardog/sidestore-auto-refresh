@@ -166,19 +166,27 @@ jobs:
           PY
 
           cat >/tmp/pairing-main.swift <<'SWIFT'
-          import Foundation
-          let lockdownKeys = ["WiFiMACAddress", "SystemBUID", "RootPrivateKey", "HostPrivateKey", "HostID", "RootCertificate", "UDID", "EscrowBag", "HostCertificate", "DeviceCertificate"]
+            import Foundation
+            enum MinimuxerConstants {
+                static let remotePairingPort: UInt16 = 49151
+                static let lockdowndPort: UInt16 = 62078
+            }
+            let lockdownKeys = ["WiFiMACAddress", "SystemBUID", "RootPrivateKey", "HostPrivateKey", "HostID", "RootCertificate", "UDID", "EscrowBag", "HostCertificate", "DeviceCertificate"]
           let remoteKeys = ["private_key", "public_key", "identifier"]
           func record(_ keys: [String]) -> [String: any Sendable] {
               var value: [String: any Sendable] = [:]
               for key in keys { value[key] = "present" }
               return value
           }
-          precondition(try PairingFileParser.validatePairingFile(from: record(lockdownKeys)) == .lockdown)
-          precondition(try PairingFileParser.validatePairingFile(from: record(remoteKeys)) == .rppairing)
-          precondition(try PairingFileParser.validatePairingFile(from: record(lockdownKeys + remoteKeys)) == .lockdown)
-          print("SideStore 0.7.0 pairing policy PASS")
-          SWIFT
+            @main struct PairingPolicyCheck {
+                static func main() throws {
+                    precondition(try PairingFileParser.validatePairingFile(from: record(lockdownKeys)) == .lockdown)
+                    precondition(try PairingFileParser.validatePairingFile(from: record(remoteKeys)) == .rppairing)
+                    precondition(try PairingFileParser.validatePairingFile(from: record(lockdownKeys + remoteKeys)) == .lockdown)
+                    print("SideStore 0.7.0 pairing policy PASS")
+                }
+            }
+            SWIFT
           swiftc "$PROTOCOL" "$PAIRING" /tmp/pairing-main.swift -o /tmp/pairing-policy-test
           /tmp/pairing-policy-test
 
