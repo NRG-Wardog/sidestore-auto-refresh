@@ -61,7 +61,6 @@ jobs:
           test "$(git -C idevice rev-parse HEAD)" = "$IDEVICE_REF"
           test "$(git -C jktcp rev-parse HEAD)" = "$JKTCP_REF"
           python3 -m py_compile \
-            builder/scripts/adapt_sidestore_070_pairing.py \
             builder/scripts/patch_jktcp_reliability.py \
             builder/scripts/patch_coredevice_idevice.py \
             builder/scripts/patch_sidestore_integration.py \
@@ -125,7 +124,53 @@ jobs:
           mkdir -p "$MUX/DeviceGateway/LocalBinary"
           rm -rf "$MUX/DeviceGateway/LocalBinary/IDevice.xcframework"
           cp -R idevice/swift/IDevice.xcframework "$MUX/DeviceGateway/LocalBinary/IDevice.xcframework"
-          python3 builder/scripts/adapt_sidestore_070_pairing.py "$MUX"
+          python3 - "$MUX" <<'PY'
+          from pathlib import Path
+          import sys
+          root = Path(sys.argv[1])
+          marker = "Composite records must use Lockdown/CoreDevice"
+          pairing_file = root / "Common" / "PairingFile.swift"
+          protocol_file = root / "Common" / "PairingProtocol.swift"
+          text = pairing_file.read_text(encoding="utf-8")
+          if marker not in text:
+              old = '''        let missingRP = RPPairingFile.missingKeys(in: plist)
+        if missingRP.isEmpty {
+            return .rppairing
+        }
+
+        let missingLockdown = LockdownPairingFile.missingKeys(in: plist)
+        if missingLockdown.isEmpty {
+            return .lockdown
+        }
+'''
+              new = '''        let missingLockdown = LockdownPairingFile.missingKeys(in: plist)
+        // Composite records must use Lockdown/CoreDevice; RemotePairing TCP is not
+        // viable for same-device operation on current iOS releases.
+        if missingLockdown.isEmpty {
+            return .lockdown
+        }
+
+        let missingRP = RPPairingFile.missingKeys(in: plist)
+        if missingRP.isEmpty {
+            return .rppairing
+        }
+'''
+              if text.count(old) != 1:
+                  raise SystemExit(f"SideStore 0.7.0 pairing parser anchor mismatch: {text.count(old)}")
+              pairing_file.write_text(text.replace(old, new, 1), encoding="utf-8")
+          protocol = protocol_file.read_text(encoding="utf-8")
+          if marker not in protocol:
+              anchor = "import Foundation\n"
+              if protocol.count(anchor) != 1:
+                  raise SystemExit("PairingProtocol.swift import anchor mismatch")
+              protocol_file.write_text(protocol.replace(anchor, anchor + "\n// Composite records must use Lockdown/CoreDevice; parser policy lives in PairingFile.swift.\n", 1), encoding="utf-8")
+          final = pairing_file.read_text(encoding="utf-8")
+          lockdown = final.index("let missingLockdown = LockdownPairingFile.missingKeys(in: plist)")
+          remote = final.index("let missingRP = RPPairingFile.missingKeys(in: plist)", lockdown)
+          if lockdown >= remote:
+              raise SystemExit("Lockdown-first composite pairing policy was not established")
+          print("SideStore 0.7.0 pairing parser adapted")
+          PY
           python3 builder/scripts/patch_sidestore_integration.py "$MUX" "$SIDE"
           python3 builder/scripts/patch_background_automation.py "$SIDE"
           python3 builder/scripts/patch_local_idevice_package.py "$MUX"
