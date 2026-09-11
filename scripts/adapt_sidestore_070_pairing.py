@@ -6,6 +6,7 @@ import sys
 
 PAIRING_MARKER = "Composite records must use Lockdown/CoreDevice"
 UTUN_MARKER = "[SIDESTORE_COREDEVICE] LOCALVPN_UTUN_ACCEPTED"
+PAIRING_MODE_MARKER = "[SIDESTORE_COREDEVICE] PAIRING_MODE_SELECTED"
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
@@ -88,10 +89,30 @@ def patch_localvpn_readiness(root: Path) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def patch_pairing_mode_logging(root: Path) -> None:
+    path = root / "DeviceGateway" / "idevice" / "IdeviceGateway.swift"
+    text = path.read_text(encoding="utf-8")
+    if PAIRING_MODE_MARKER in text:
+        return
+
+    old = '''            parsedPairingFile = try PairingFileParser.parse(content: pairingFileContent)
+            setPairingFileData(parsedPairingFile.rawData)
+            setPairingFileType(parsedPairingFile.mode)
+'''
+    new = '''            parsedPairingFile = try PairingFileParser.parse(content: pairingFileContent)
+            setPairingFileData(parsedPairingFile.rawData)
+            setPairingFileType(parsedPairingFile.mode)
+            debugLog("[SIDESTORE_COREDEVICE] PAIRING_MODE_SELECTED mode=\\(parsedPairingFile.mode)")
+'''
+    text = replace_once(text, old, new, "SideStore 0.7.0 pairing mode logging")
+    path.write_text(text, encoding="utf-8")
+
+
 def main(root: Path) -> None:
     patch_pairing(root)
     patch_localvpn_readiness(root)
-    print("SideStore 0.7.0 adapted: Lockdown-first pairing and CoreDevice LocalDevVPN readiness")
+    patch_pairing_mode_logging(root)
+    print("SideStore 0.7.0 adapted: Lockdown-first pairing, CoreDevice LocalDevVPN readiness, and pairing diagnostics")
 
 
 if __name__ == "__main__":
