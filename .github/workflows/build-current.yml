@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SIDESTORE_REF: 394bb4eb331cb4afc23517af2fc847ec103af57f
-  MINIMUXER_REF: e0de126ec6773c02afe7d965def86ddffd79cbeb
+  SIDESTORE_REF: c6f28864dc99ed03ad35f2ca58967247036b7b53
+  MINIMUXER_REF: 9f038e5223a8cacf9d15beae7da6969d617ae1e8
   IDEVICE_REF: ebd7dadfc55d1c4facee3d11ecf5b28e20548b57
   JKTCP_REF: e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020
 
@@ -70,6 +70,8 @@ jobs:
       - name: Run repository checks
         env:
           SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/SideStore
+          SIDESTORE_070_TEST_SOURCE: ${{ github.workspace }}/work/SideStore
+          REQUIRE_SWIFT_070_CHECKS: '1'
         run: |
           set -euo pipefail
           python3 -m unittest discover -s builder/tests -v
@@ -141,8 +143,6 @@ jobs:
           grep -Fq 'tunnel_create_usb' ffi/idevice.h
           grep -Fq 'tunnel_heartbeat_is_active' ffi/idevice.h
           grep -Fq 'idevice_set_transport_log_callback' ffi/idevice.h
-          # Apple nm cannot read LLVM metadata in some Rust compiler_builtins
-          # members, but it still emits symbols from the FFI members we need.
           xcrun nm -arch arm64 -g target/aarch64-apple-ios/release/libidevice_ffi.a \
             >/tmp/current-idevice-symbols.txt 2>/tmp/current-nm-reader-warnings.txt || true
           grep -E '[[:space:]][Tt][[:space:]]_lockdown_diag_rust_log$' \
@@ -165,6 +165,8 @@ jobs:
           rm -rf "$MUX/DeviceGateway/LocalBinary/IDevice.xcframework"
           cp -R idevice/swift/IDevice.xcframework "$MUX/DeviceGateway/LocalBinary/IDevice.xcframework"
 
+          python3 builder/scripts/adapt_sidestore_070_pairing.py "$MUX"
+          python3 builder/scripts/adapt_sidestore_070_signing.py "$SIDE"
           python3 builder/scripts/patch_sidestore_integration.py "$MUX" "$SIDE"
           python3 builder/scripts/patch_background_automation.py "$SIDE"
           python3 builder/scripts/patch_local_idevice_package.py "$MUX"
@@ -195,44 +197,9 @@ jobs:
           grep -Fq '[SIDESTORE_COREDEVICE] ENDPOINT_SELECT' "$NETWORK_OBSERVER"
           grep -Fq '[SIDESTORE_COREDEVICE] LOCALVPN_UTUN_ACCEPTED' "$MINIMUXER_IMPL"
           ! grep -Fq 'no ipsec interface (required for lockdown on iOS 26.4+)' "$MINIMUXER_IMPL"
-          python3 - "$PAIRING_PROTOCOL" <<'PY'
-          from pathlib import Path
-          import sys
-
-          text = Path(sys.argv[1]).read_text(encoding="utf-8")
-          lockdown = text.index('let requiredLockdownKeys = [')
-          remote_pairing = text.index('let requiredRPKeys = [')
-          assert lockdown < remote_pairing, "composite pairing records do not prefer Lockdown"
-          PY
-          cat >/tmp/main.swift <<'SWIFT'
-          import Foundation
-
-          let lockdownKeys = [
-              "WiFiMACAddress", "SystemBUID", "RootPrivateKey", "HostPrivateKey",
-              "HostID", "RootCertificate", "UDID", "EscrowBag",
-              "HostCertificate", "DeviceCertificate",
-          ]
-          let remotePairingKeys = ["private_key", "public_key", "identifier"]
-
-          func record(_ keys: [String]) -> [String: any Sendable] {
-              var result: [String: any Sendable] = [:]
-              for key in keys {
-                  result[key] = "present"
-              }
-              return result
-          }
-
-          let lockdownMode = try PairingProtocol.validatePairingFile(from: record(lockdownKeys))
-          let remotePairingMode = try PairingProtocol.validatePairingFile(from: record(remotePairingKeys))
-          let compositeMode = try PairingProtocol.validatePairingFile(
-              from: record(lockdownKeys + remotePairingKeys)
-          )
-          precondition(lockdownMode == .lockdown)
-          precondition(remotePairingMode == .rppairing)
-          precondition(compositeMode == .lockdown)
-          print("pairing protocol selection tests passed")
-          SWIFT
-          swiftc "$PAIRING_PROTOCOL" /tmp/main.swift -o /tmp/current-pairing-selection-test
+          swiftc "$MUX/Common/MinimuxerConstants.swift" "$PAIRING_PROTOCOL" \
+            "$MUX/Common/PairingFile.swift" builder/tests/standalone_pairing_policy.swift \
+            -o /tmp/current-pairing-selection-test
           /tmp/current-pairing-selection-test
           grep -Fq 'CoreDevice heartbeat is maintained by Rust; poll its state without spinning.' \
             "$MUX/Sources/Services/HeartbeatService.swift"
