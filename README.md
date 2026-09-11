@@ -19,7 +19,7 @@ Two variants are available: **standalone SideStore** and **LiveContainer with th
 
 This project is a modified SideStore / LiveContainer build that makes same-device refresh easier to operate and easier to verify.
 
-In practical terms, it adds:
+It adds:
 
 - manual refresh directly on the iPhone
 - six-hour, daily, and weekly refresh schedules
@@ -29,12 +29,31 @@ In practical terms, it adds:
 - explicit refresh verification
 - a same-device **LocalDevVPN + CoreDevice** transport path
 - a combined LiveContainer build with the modified SideStore already embedded
+- guest Return controls in the combined build
+- **Start Collapsed** and **custom Return button colors** in combined v2.1.0
 
 The goal is simple: after the initial installation and pairing setup, normal refresh should happen on the iPhone without leaving a PC connected.
 
 ## Preview
 
-The screenshots below show the actual refresh interface currently included in the repository.(These screenshots are from version 1.0.2.)
+### Combined v2.1.0
+
+These are actual screenshots from **LiveContainer + embedded SideStore v2.1.0**.
+
+<table>
+<tr>
+<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.46.jpeg" width="220" alt="Combined v2.1.0 refresh status"><br><strong>Refresh Status</strong></td>
+<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.45%20(1).jpeg" width="220" alt="Combined v2.1.0 refresh schedule"><br><strong>Refresh Schedule</strong></td>
+<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.45.jpeg" width="220" alt="Combined v2.1.0 refresh history"><br><strong>Refresh History</strong></td>
+<td align="center"><img src="docs/screenshots/WhatsApp%20Image%202026-09-10%20at%2016.31.46%20(1).jpeg" width="220" alt="Combined v2.1.0 guest controls"><br><strong>Guest Controls</strong></td>
+</tr>
+</table>
+
+The Guest Controls screen in v2.1.0 includes **Show Return Button**, **Start Collapsed**, **Use Custom Colors**, **Icon Color**, and **Button Background**.
+
+### Standalone v1.0.2
+
+These screenshots show the standalone SideStore v1.0.2 interface.
 
 <table>
 <tr>
@@ -43,8 +62,6 @@ The screenshots below show the actual refresh interface currently included in th
 <td align="center"><img src="docs/screenshots/refresh-history.png" width="230" alt="SideStore refresh history"><br><strong>Refresh History</strong></td>
 </tr>
 </table>
-
-These screenshots are from the **standalone SideStore UI**. The combined v2 build uses LiveContainer as the host and includes the modified SideStore inside it. Combined-specific screenshots will be added separately when available rather than substituting unrelated upstream images.
 
 ## Quick navigation
 
@@ -61,14 +78,28 @@ These screenshots are from the **standalone SideStore UI**. The combined v2 buil
 
 | What you want | Use | Download |
 | --- | --- | --- |
-| LiveContainer with the modified SideStore built in | **Combined v2.0.1** | **[Download combined IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.0.1/LiveContainer-SideStore-AutoRefresh-v2.0.1.ipa)** |
+| LiveContainer with the modified SideStore built in | **Combined v2.1.0** | **[Download combined IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.1.0/LiveContainer-SideStore-AutoRefresh-v2.1.0.ipa)** |
 | SideStore only, with normal separately installed sideloaded apps | **Standalone v1.0.2** | **[Download standalone IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.2/SideStore-CoreDevice-AutoRefresh-v1.0.2.ipa)** |
 
-If you want LiveContainer, install **v2.0.1**. SideStore is already embedded inside it, so do not install a separate SideStore copy for the same combined setup.
+If you want LiveContainer, install **v2.1.0**. SideStore is already embedded inside it, so do not install a separate SideStore copy for the same combined setup.
 
-**Combined:** [v2.0.1 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.0.1) | [SHA256SUMS](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.0.1/SHA256SUMS.txt)
+**Combined:** [v2.1.0 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.0) | [SHA256SUMS](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.1.0/SHA256SUMS.txt)
 
 **Standalone:** [v1.0.2 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.2) | [release notes](docs/RELEASE_NOTES_v1.0.2.md)
+
+## What's new in v2.1.0?
+
+Combined v2.1.0 keeps the existing v2 refresh stack and adds new Guest Return appearance controls:
+
+- **Start Collapsed:** guests can open with the Return control already collapsed to an edge tab.
+- **Use Custom Colors:** enables saved custom colors for the Return control.
+- **Icon Color:** changes the Return icon and the collapsed tab icon.
+- **Button Background:** changes the expanded Return button background.
+- Guest-control appearance preferences persist across launches.
+- Manual long-press collapse and tap-to-expand behavior remain available.
+- The collapsed tab stays transparent while using the selected icon color.
+
+The release still includes manual refresh, scheduled refresh, refresh history, verification, LocalDevVPN/CoreDevice transport, and the embedded SideStore integration.
 
 ## How this project differs from the original projects
 
@@ -85,8 +116,8 @@ The purpose of this repository is to add a specific refresh transport, schedulin
 | Scheduling | Upstream SideStore already has background refresh behavior | Explicit **six-hour, daily, and weekly** schedules, preferred time controls, persistent history, bounded retry, and deadline protection |
 | Verification | Normal upstream refresh state and results | Run-correlated verification so task launch or handoff is not treated as refresh success by itself |
 | Combined LiveContainer build | Upstream already offers LiveContainer + SideStore | Embeds this repository's modified SideStore and adds host-level refresh coordination, result bridging, startup/authentication fixes, and shared-Keychain handling |
-| Guest navigation | Upstream LiveContainer provides its normal guest controls | Adds project-specific **Return** controls for the supported LiveProcess flows |
-| Guest signature diagnostics | Upstream behavior differs | v2.0.1 keeps guest signature checks advisory so an unrelated false guest check cannot overwrite a verified successful refresh |
+| Guest navigation | Upstream LiveContainer provides its normal guest controls | Adds project-specific Return controls, collapse behavior, startup-collapsed mode, and custom colors |
+| Guest signature diagnostics | Upstream behavior differs | Keeps guest signature checks advisory so an unrelated guest check cannot overwrite a verified successful refresh |
 | Provenance | Upstream releases are built by their own projects | Published binaries here are tied to documented builder commits, CI runs, checksums, and verification evidence |
 
 ### What this project does not change
@@ -120,6 +151,8 @@ Choose v1 or v2
 For beginners, the recommended example installer is **[iLoader](https://github.com/nab138/iloader/releases/latest)**.
 
 Official project: [github.com/nab138/iloader](https://github.com/nab138/iloader)
+
+Use **iLoader 2.3.1 or newer** for current SideStore / LiveContainer installation flows.
 
 It is a good fit because it can:
 
@@ -159,9 +192,9 @@ These steps apply to **both standalone v1 and combined v2**. Complete this secti
 
 Choose exactly one build for the setup you want:
 
-**Combined LiveContainer + SideStore v2.0.1**
+**Combined LiveContainer + SideStore v2.1.0**
 
-[Download `LiveContainer-SideStore-AutoRefresh-v2.0.1.ipa`](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.0.1/LiveContainer-SideStore-AutoRefresh-v2.0.1.ipa)
+[Download `LiveContainer-SideStore-AutoRefresh-v2.1.0.ipa`](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.1.0/LiveContainer-SideStore-AutoRefresh-v2.1.0.ipa)
 
 **Standalone SideStore v1.0.2**
 
@@ -197,8 +230,6 @@ If the installed app will not open or iOS shows **Untrusted Developer**:
 `Settings -> General -> VPN & Device Management`
 
 Under **Developer App**, select the Apple Account used to sign the IPA, then tap **Trust**.
-
-The Developer App entry normally appears only after a sideloaded app has been installed.
 
 ### 5. Enable Developer Mode
 
@@ -256,14 +287,6 @@ Subnet Mask: 255.255.255.0
 
 That example is the `192.168.1.x/24` subnet.
 
-On Windows, you can also run:
-
-```powershell
-ipconfig
-```
-
-and inspect the active Wi-Fi adapter.
-
 > [!WARNING]
 > If your subnet mask is not `255.255.255.0` and you are not sure which addresses belong to the subnet, do not guess. Check your router configuration or ask for help with the exact IP address and subnet mask.
 
@@ -277,8 +300,6 @@ Example only for `192.168.1.x/24`:
 Tunnel IP: 192.168.1.240/32
 Device IP: 192.168.1.241/32
 ```
-
-The `.240` and `.241` values are examples, not guaranteed free addresses.
 
 Do not use:
 
@@ -303,13 +324,6 @@ Then:
 6. Connect LocalDevVPN.
 7. Open **Session Details** and confirm the custom addresses were retained.
 
-The roles are simple:
-
-- **Tunnel IP** is the LocalDevVPN side of the local virtual route.
-- **Device IP** is the local peer address SideStore targets.
-
-These are virtual route endpoints. They are not extra physical devices on your network.
-
 > [!IMPORTANT]
 > If you move to a Wi-Fi network with a different subnet, update the Tunnel IP and Device IP before refreshing again.
 
@@ -323,17 +337,15 @@ Make sure Background App Refresh is enabled globally and for the relevant instal
 
 Allow notifications if you want refresh status and deadline warnings.
 
-The shared setup is now complete. Continue with the section for the build you installed.
-
 ## Combined setup (v2)
 
-Use this section only for **LiveContainer + SideStore v2.0.1**.
+Use this section only for **LiveContainer + SideStore v2.1.0**.
 
 ### 1. Open LiveContainer and embedded SideStore
 
 Open **LiveContainer**, then open the embedded **SideStore**.
 
-Sign into SideStore with the Apple Account you use for SideStore. If iOS asks for Local Network, notifications, or another permission required by the setup, allow it before continuing.
+Sign into SideStore with the Apple Account you use for SideStore.
 
 ### 2. Run one manual refresh first
 
@@ -428,7 +440,7 @@ Do not install the standalone IPA over LiveContainer. Standalone-to-combined dat
 | Manual refresh fails | Confirm Wi-Fi, LocalDevVPN, pairing, SideStore sign-in, and the recorded refresh result/history |
 | Scheduled refresh was missed | Confirm manual refresh works and Background App Refresh is enabled. The selected time is not an exact wake time |
 | Not enough App IDs | Free Apple Accounts have registration limits. Do not repeatedly delete/reinstall builds. Wait for registrations to expire or reuse matching identifiers where supported |
-| Guest signature warning on v2.0.1 | The warning is separate from verified refresh status. Open the named guest and report whether it actually launches |
+| Guest signature warning | The warning is separate from verified refresh status. Open the named guest and report whether it actually launches |
 | Cellular-only refresh fails | Cellular-only transport is experimental and is not supported by the stable release |
 
 For deeper investigation, see [Verification](docs/VERIFICATION.md), [Compatibility](docs/COMPATIBILITY.md), and [Issue #1](https://github.com/NRG-Wardog/sidestore-auto-refresh/issues/1).
@@ -456,7 +468,9 @@ For deeper investigation, see [Verification](docs/VERIFICATION.md), [Compatibili
 - embedded SideStore startup and authentication fixes
 - shared-Keychain migration and host identity handling
 - Guest Return controls
-- v2.0.1 guest-signature fix so advisory guest checks do not overwrite a verified successful refresh
+- advisory guest-signature checks do not overwrite a verified successful refresh
+- **v2.1.0:** Start Collapsed
+- **v2.1.0:** custom Return icon and background colors
 
 ## Guest Return behavior
 
@@ -469,18 +483,16 @@ For deeper investigation, see [Verification](docs/VERIFICATION.md), [Compatibili
 
 Long-press the Return button to collapse it to an edge tab. Tap the tab to restore it. Its position is saved and clamped after resizing.
 
-Source builds after v2.0.1 add these options in **LiveContainer Settings > Guest Controls**:
+v2.1.0 adds these options in **LiveContainer Settings > Guest Controls**:
 
 - **Start Collapsed:** new guests open with an edge tab. Tap once to expand, then tap Return to go back. Using Return collapses the control again, including when reopening a retained guest. The option is off by default.
 - **Use Custom Colors:** choose the **Icon Color** and **Button Background**. The icon color also applies to the collapsed tab; the tab background stays transparent. Turn this option off to restore system colors. Color choices are saved for later use.
 
 These preferences apply to both fullscreen LiveProcess and direct host-process guests. **Show Return Button** still controls visibility, and windowed multitasking still uses the normal window controls.
 
-iOS may still suspend or terminate guest processes because of crashes, memory pressure, or system lifecycle policy.
-
 ## More screenshots
 
-These additional screenshots also show the standalone SideStore refresh UI.
+These additional screenshots show the standalone SideStore refresh UI.
 
 <table>
 <tr>
@@ -511,20 +523,21 @@ The stable CoreDevice path preserves service TLS, contiguous CDTunnel writes, he
 | --- | --- |
 | Standalone manual CoreDevice refresh | Verified on iPhone 12 / iOS 26.6.1 |
 | Standalone scheduled refresh with PC disconnected | Recorded proof is available in the verification report |
-| Combined v2.0.1 build and packaging | Release builds and package/runtime checks passed |
-| v2.0.1 guest-signature regression fix | 77 repository tests: 75 passed, 2 skipped; affected-device confirmation is still being expanded |
+| Combined v2.1.0 build and packaging | Combined CI run completed successfully |
+| v2.1.0 Guest Controls | Start Collapsed and custom colors are included in the published combined build |
 | Background scheduling | Best effort. iOS controls task launch timing |
 | Cellular-only refresh | Experimental, not supported in the stable release |
 | Guest process retention | Best effort. iOS may suspend or terminate a guest |
 
 A build completing, a background task starting, or a host handoff occurring is not automatically treated as proof that the signing lifetime was refreshed. See [docs/VERIFICATION.md](docs/VERIFICATION.md) for the exact proof model.
 
-### v2.0.1 provenance
+### v2.1.0 provenance
 
-- Builder/tag commit: `348af2d3f4e411f7c02cc225aac20ac4fcc8983a`
-- CI run: [34313715646](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/34313715646)
-- SHA-256: `486d8c55810e421d6fa7fda0897832e92d3d3045c52d4ec070e14d80fd92c25e`
-- Release: [LiveContainer + SideStore Auto-Refresh v2.0.1](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.0.1)
+- Builder/tag commit: `2372c3e96132cb06394dafdd9ff74aeca416dd1c`
+- Combined CI run: [34497164738](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/34497164738)
+- IPA: `LiveContainer-SideStore-AutoRefresh-v2.1.0.ipa`
+- SHA-256: `6493e1e8c525a3b1ea343973bf199e30069f1c837f1a6175f3befa05d7a0eb50`
+- Release: [LiveContainer + SideStore Auto-Refresh v2.1.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.0)
 
 ### v1.0.2 provenance
 
