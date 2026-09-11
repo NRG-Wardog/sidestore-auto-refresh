@@ -45,6 +45,16 @@ def resolve_sidestore_source() -> Path | None:
     return None
 
 
+def copy_source(src: Path, dst: Path) -> None:
+    shutil.copytree(
+        src,
+        dst,
+        symlinks=True,
+        ignore_dangling_symlinks=True,
+        ignore=shutil.ignore_patterns(".git", ".build", "build", "*.xcframework", "*.ipa"),
+    )
+
+
 class AppLayoutPatchTests(unittest.TestCase):
     def setUp(self):
         self.assertTrue(PATCH_SCRIPT.is_file(), f"Missing patch script at {PATCH_SCRIPT}")
@@ -56,7 +66,7 @@ class AppLayoutPatchTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "LiveContainer"
-            shutil.copytree(lc_source, target)
+            copy_source(lc_source, target)
 
             # First application
             proc1 = subprocess.run(
@@ -85,7 +95,7 @@ class AppLayoutPatchTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "SideStore"
-            shutil.copytree(sidestore_source, target)
+            copy_source(sidestore_source, target)
 
             # First application
             proc1 = subprocess.run(
@@ -114,7 +124,7 @@ class AppLayoutPatchTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "LiveContainer"
-            shutil.copytree(lc_source, target)
+            copy_source(lc_source, target)
 
             settings_path = target / "LiveContainerSwiftUI" / "Views" / "Settings" / "LCSettingsView.swift"
             settings_text = settings_path.read_text(encoding="utf-8")
@@ -136,7 +146,7 @@ class AppLayoutPatchTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "SideStore"
-            shutil.copytree(sidestore_source, target)
+            copy_source(sidestore_source, target)
 
             defaults_path = target / "AltStore" / "Core" / "Extensions" / "UserDefaults+AltStore.swift"
             defaults_text = defaults_path.read_text(encoding="utf-8")
@@ -199,8 +209,8 @@ class AppLayoutPatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             lc = Path(td) / "LiveContainer"
             ss = Path(td) / "SideStore"
-            shutil.copytree(lc_source, lc)
-            shutil.copytree(sidestore_source, ss)
+            copy_source(lc_source, lc)
+            copy_source(sidestore_source, ss)
 
             proc = subprocess.run(
                 [sys.executable, str(PATCH_SCRIPT), str(lc), str(ss)],
