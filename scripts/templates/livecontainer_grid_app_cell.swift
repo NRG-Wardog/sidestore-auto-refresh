@@ -84,13 +84,10 @@ struct LCGridAppCell: View {
             }
         }
 
-        if !appModel.uiIsShared, appModel.uiSelectedContainer != nil {
+        if !appModel.uiIsShared, let folderName = appModel.uiSelectedContainer?.folderName,
+           let url = URL(string: "shareddocuments://\(LCPath.dataPath.path)/\(folderName)") {
             Button {
-                if let dataFolder = appModel.uiSelectedContainer?.dataUUID {
-                    let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                    let folderURL = documentsURL.appendingPathComponent("Data").appendingPathComponent(dataFolder)
-                    delegate.openNavigationView(view: AnyView(LCDataManagementView(currentUrl: folderURL, isEditing: false)))
-                }
+                UIApplication.shared.open(url)
             } label: {
                 Label("lc.appBanner.openDataFolder".loc, systemImage: "folder")
             }
@@ -112,7 +109,13 @@ struct LCGridAppCell: View {
 
         Menu {
             Button {
-                UIPasteboard.general.string = appModel.launchUrlStr
+                if let relativeBundlePath = appModel.appInfo.relativeBundlePath {
+                    if let folderName = appModel.uiSelectedContainer?.folderName {
+                        UIPasteboard.general.string = "livecontainer://livecontainer-launch?bundle-name=\(relativeBundlePath)&container-folder-name=\(folderName)"
+                    } else {
+                        UIPasteboard.general.string = "livecontainer://livecontainer-launch?bundle-name=\(relativeBundlePath)"
+                    }
+                }
             } label: {
                 Label("lc.appBanner.copyLaunchUrl".loc, systemImage: "link")
             }
@@ -131,7 +134,7 @@ struct LCGridAppCell: View {
         }
 
         Button {
-            delegate.openNavigationView(view: AnyView(LCAppSettingsView(appModel: appModel, delegate: delegate)))
+            delegate.openNavigationView(view: AnyView(LCAppSettingsView(model: appModel)))
         } label: {
             Label("lc.tabView.settings".loc, systemImage: "gear")
         }
