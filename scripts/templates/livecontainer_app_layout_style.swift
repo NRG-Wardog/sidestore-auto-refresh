@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 
 public enum AppLayoutStyle: String, CaseIterable, Identifiable, Codable {
     case list = "list"

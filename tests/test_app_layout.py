@@ -1,4 +1,4 @@
-﻿"""Tests for Issue #17: App Layout Architecture.
+"""Tests for Issue #17: App Layout Architecture.
 
 Verifies:
 - Idempotence on LiveContainer and SideStore
@@ -9,17 +9,40 @@ Verifies:
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 PATCH_SCRIPT = ROOT / "scripts" / "patch_app_layout.py"
 
-UPSTREAM_LC = ROOT / ".audit" / "upstream" / "LiveContainer"
-UPSTREAM_SIDESTORE = ROOT / ".audit" / "upstream" / "SideStore"
+
+def resolve_lc_source() -> Path | None:
+    for candidate in [
+        os.getenv("LIVE_CONTAINER_TEST_SOURCE"),
+        ROOT / ".audit" / "upstream" / "LiveContainer",
+        ROOT.parent / "LiveContainer",
+    ]:
+        if candidate and Path(candidate).is_dir() and (Path(candidate) / "LiveContainerSwiftUI").is_dir():
+            return Path(candidate)
+    return None
+
+
+def resolve_sidestore_source() -> Path | None:
+    for candidate in [
+        os.getenv("SIDESTORE_TEST_SOURCE"),
+        os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE"),
+        ROOT / ".audit" / "upstream" / "SideStore",
+        ROOT.parent / "SideStore-source-timepicker",
+        ROOT.parent / "EmbeddedSideStore",
+    ]:
+        if candidate and Path(candidate).is_dir() and (Path(candidate) / "AltStore").is_dir():
+            return Path(candidate)
+    return None
 
 
 class AppLayoutPatchTests(unittest.TestCase):
@@ -27,16 +50,17 @@ class AppLayoutPatchTests(unittest.TestCase):
         self.assertTrue(PATCH_SCRIPT.is_file(), f"Missing patch script at {PATCH_SCRIPT}")
 
     def test_livecontainer_patch_idempotence(self):
-        if not UPSTREAM_LC.is_dir():
-            self.skipTest(f"LiveContainer test source not found at {UPSTREAM_LC}")
+        lc_source = resolve_lc_source()
+        if not lc_source:
+            self.skipTest("LiveContainer test source not available")
 
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "LiveContainer"
-            shutil.copytree(UPSTREAM_LC, target)
+            shutil.copytree(lc_source, target)
 
             # First application
             proc1 = subprocess.run(
-                ["py", "-3.12", str(PATCH_SCRIPT), str(target)],
+                [sys.executable, str(PATCH_SCRIPT), str(target)],
                 capture_output=True,
                 text=True,
             )
@@ -45,7 +69,7 @@ class AppLayoutPatchTests(unittest.TestCase):
 
             # Second application (idempotence)
             proc2 = subprocess.run(
-                ["py", "-3.12", str(PATCH_SCRIPT), str(target)],
+                [sys.executable, str(PATCH_SCRIPT), str(target)],
                 capture_output=True,
                 text=True,
             )
@@ -55,16 +79,17 @@ class AppLayoutPatchTests(unittest.TestCase):
             self.assertEqual(first_state, second_state, "LiveContainer patch is not idempotent")
 
     def test_sidestore_patch_idempotence(self):
-        if not UPSTREAM_SIDESTORE.is_dir():
-            self.skipTest(f"SideStore test source not found at {UPSTREAM_SIDESTORE}")
+        sidestore_source = resolve_sidestore_source()
+        if not sidestore_source:
+            self.skipTest("SideStore test source not available")
 
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "SideStore"
-            shutil.copytree(UPSTREAM_SIDESTORE, target)
+            shutil.copytree(sidestore_source, target)
 
             # First application
             proc1 = subprocess.run(
-                ["py", "-3.12", str(PATCH_SCRIPT), str(target)],
+                [sys.executable, str(PATCH_SCRIPT), str(target)],
                 capture_output=True,
                 text=True,
             )
@@ -73,7 +98,7 @@ class AppLayoutPatchTests(unittest.TestCase):
 
             # Second application (idempotence)
             proc2 = subprocess.run(
-                ["py", "-3.12", str(PATCH_SCRIPT), str(target)],
+                [sys.executable, str(PATCH_SCRIPT), str(target)],
                 capture_output=True,
                 text=True,
             )
@@ -83,12 +108,13 @@ class AppLayoutPatchTests(unittest.TestCase):
             self.assertEqual(first_state, second_state, "SideStore patch is not idempotent")
 
     def test_livecontainer_fail_closed_on_drifted_anchor(self):
-        if not UPSTREAM_LC.is_dir():
+        lc_source = resolve_lc_source()
+        if not lc_source:
             self.skipTest("LiveContainer source unavailable")
 
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "LiveContainer"
-            shutil.copytree(UPSTREAM_LC, target)
+            shutil.copytree(lc_source, target)
 
             settings_path = target / "LiveContainerSwiftUI" / "Views" / "Settings" / "LCSettingsView.swift"
             settings_text = settings_path.read_text(encoding="utf-8")
@@ -96,7 +122,7 @@ class AppLayoutPatchTests(unittest.TestCase):
             settings_path.write_text(settings_text.replace("darkModeIcon", "driftedIcon"), encoding="utf-8")
 
             proc = subprocess.run(
-                ["py", "-3.12", str(PATCH_SCRIPT), str(target)],
+                [sys.executable, str(PATCH_SCRIPT), str(target)],
                 capture_output=True,
                 text=True,
             )
@@ -104,12 +130,13 @@ class AppLayoutPatchTests(unittest.TestCase):
             self.assertIn("LCSettingsView properties", proc.stderr)
 
     def test_sidestore_fail_closed_on_drifted_anchor(self):
-        if not UPSTREAM_SIDESTORE.is_dir():
+        sidestore_source = resolve_sidestore_source()
+        if not sidestore_source:
             self.skipTest("SideStore source unavailable")
 
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "SideStore"
-            shutil.copytree(UPSTREAM_SIDESTORE, target)
+            shutil.copytree(sidestore_source, target)
 
             defaults_path = target / "AltStore" / "Core" / "Extensions" / "UserDefaults+AltStore.swift"
             defaults_text = defaults_path.read_text(encoding="utf-8")
@@ -117,7 +144,7 @@ class AppLayoutPatchTests(unittest.TestCase):
             defaults_path.write_text(defaults_text.replace("useOnDeviceAnisette", "driftedAnisette"), encoding="utf-8")
 
             proc = subprocess.run(
-                ["py", "-3.12", str(PATCH_SCRIPT), str(target)],
+                [sys.executable, str(PATCH_SCRIPT), str(target)],
                 capture_output=True,
                 text=True,
             )
@@ -150,23 +177,33 @@ class AppLayoutPatchTests(unittest.TestCase):
         self.assertIn(".accessibilityElement(children: .combine)", grid_cell_template)
         self.assertIn(".accessibilityLabel(appModel.displayName)", grid_cell_template)
 
-        # In SideStore AppBannerView, accessibilityView retains accessibilityLabel regardless of titleLabel.isHidden
-        banner_view = (UPSTREAM_SIDESTORE / "AltStore" / "Components" / "AppBannerView.swift").read_text(encoding="utf-8")
-        self.assertIn("self.accessibilityLabel = values.name", banner_view)
-        self.assertIn("self.accessibilityView?.accessibilityLabel", banner_view)
+        # In SideStore AppBannerView, applyLayoutStyle must only toggle titleLabel.isHidden
+        patch_script = (ROOT / "scripts" / "patch_app_layout.py").read_text(encoding="utf-8")
+        self.assertIn("self.titleLabel?.isHidden = !showLabels", patch_script)
+
+        # If a real SideStore checkout is present, verify accessibilityLabel exists on AppBannerView
+        sidestore_source = resolve_sidestore_source()
+        if sidestore_source:
+            banner_file = sidestore_source / "AltStore" / "Components" / "AppBannerView.swift"
+            if banner_file.is_file():
+                banner_view = banner_file.read_text(encoding="utf-8")
+                self.assertIn("self.accessibilityLabel = values.name", banner_view)
+                self.assertIn("self.accessibilityView?.accessibilityLabel", banner_view)
 
     def test_safety_boundary_presentation_only(self):
-        if not UPSTREAM_LC.is_dir() or not UPSTREAM_SIDESTORE.is_dir():
-            self.skipTest("Upstream sources unavailable")
+        lc_source = resolve_lc_source()
+        sidestore_source = resolve_sidestore_source()
+        if not lc_source or not sidestore_source:
+            self.skipTest("Upstream test sources unavailable for safety boundary verification")
 
         with tempfile.TemporaryDirectory() as td:
             lc = Path(td) / "LiveContainer"
             ss = Path(td) / "SideStore"
-            shutil.copytree(UPSTREAM_LC, lc)
-            shutil.copytree(UPSTREAM_SIDESTORE, ss)
+            shutil.copytree(lc_source, lc)
+            shutil.copytree(sidestore_source, ss)
 
             proc = subprocess.run(
-                ["py", "-3.12", str(PATCH_SCRIPT), str(lc), str(ss)],
+                [sys.executable, str(PATCH_SCRIPT), str(lc), str(ss)],
                 capture_output=True,
                 text=True,
             )
@@ -186,7 +223,7 @@ class AppLayoutPatchTests(unittest.TestCase):
             ]
 
             for forbidden in forbidden_patterns:
-                for target, upstream in [(lc, UPSTREAM_LC), (ss, UPSTREAM_SIDESTORE)]:
+                for target, upstream in [(lc, lc_source), (ss, sidestore_source)]:
                     for fpath in target.rglob(f"*{forbidden}*"):
                         if fpath.is_file():
                             rel = fpath.relative_to(target)
