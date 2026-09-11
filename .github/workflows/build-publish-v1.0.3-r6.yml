@@ -8,6 +8,7 @@ on:
       - '.github/workflows/build-publish-v1.0.3-r6.yml'
       - 'tests/test_repository.py'
       - 'scripts/patch_sidestore_integration.py'
+      - 'scripts/adapt_sidestore_070_signing.py'
 
 permissions:
   contents: write
