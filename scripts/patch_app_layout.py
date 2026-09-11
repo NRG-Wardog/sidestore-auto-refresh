@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Build-time deterministic semantic patch for App Layout architecture (Issue #17).
 
 Provides List (default), Grid, and Compact List layout options with
