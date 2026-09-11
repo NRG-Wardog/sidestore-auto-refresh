@@ -434,11 +434,11 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
 
     if modern:
         text = replace_once(text, "    private override init() {\n        try! super.init()",
+                            "    private var usesCoreDevice: Bool { pairingFileType == .lockdown }\n"
                             "    private let ffiQueueKey = DispatchSpecificKey<Bool>()\n\n"
                             "    private override init() {\n        try! super.init()\n"
                             "        ffiQueue.setSpecific(key: ffiQueueKey, value: true)",
                             "queue-aware invalidation initialization")
-
     ensure_coredevice = r'''    private func ensureCoreDeviceConnection() throws {
         if adapter != nil, handshake != nil, coreDeviceProvider != nil,
            tunnel_heartbeat_is_active() {
@@ -1062,12 +1062,14 @@ def patch_relaunch_verification(sidestore: Path) -> None:
     )
     text = replace_once(
         text,
-        """                    if let _ = InstalledApp.deserialize(from: jsonData, format: .json, context: context) {
-                        if context.hasChanges {
+        """                            debugLog("[AppDelegate] reconcileSelfReinstallation: Database successfully updated and saved.")
+                        }
+                    } else {
 """,
-        """                    if let _ = InstalledApp.deserialize(from: jsonData, format: .json, context: context) {
+        """                            debugLog("[AppDelegate] reconcileSelfReinstallation: Database successfully updated and saved.")
+                        }
                         didReconcile = true
-                        if context.hasChanges {
+                    } else {
 """,
         "reconcile success state",
     )

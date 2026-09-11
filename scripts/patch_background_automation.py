@@ -405,11 +405,47 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+DATABASE_SOURCE = "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift"
+
+
+def database_start_block(sidestore: Path) -> str:
+    database = (sidestore / DATABASE_SOURCE).read_text(encoding="utf-8")
+    if "public func start() async throws\n" in database:
+        return r'''            Task { @MainActor in
+                do
+                {
+                    try await DatabaseManager.shared.start()
+                    beginRefresh()
+                }
+                catch
+                {
+                    debugLog("[AUTO_REFRESH] DATABASE_START_FAIL error=\(error.localizedDescription)")
+                    state.finish(success: false, detail: error.localizedDescription)
+                }
+            }'''
+    if "public func start(completionHandler: @escaping (Error?) -> Void)\n" in database:
+        return r'''            DatabaseManager.shared.start { error in
+                if let error
+                {
+                    debugLog("[AUTO_REFRESH] DATABASE_START_FAIL error=\(error.localizedDescription)")
+                    state.finish(success: false, detail: error.localizedDescription)
+                }
+                else
+                {
+                    beginRefresh()
+                }
+            }'''
+    die("Unsupported DatabaseManager.start API; update the background startup adapter")
+
+
 def patch_app_delegate(sidestore: Path) -> None:
     path = sidestore / "AltStore" / "AppDelegate.swift"
     text = path.read_text(encoding="utf-8")
+    database_start = database_start_block(sidestore)
     if MARKER in text:
         verify_app_delegate(text)
+        if database_start not in text:
+            die("AppDelegate database startup is outdated; use the pinned clean checkout")
         return
 
     text = replace_once(
@@ -830,17 +866,7 @@ private final class AutomaticRefreshTaskState: @unchecked Sendable
         }}
         else
         {{
-            DatabaseManager.shared.start {{ error in
-                if let error
-                {{
-                    debugLog("[AUTO_REFRESH] DATABASE_START_FAIL error=\\(error.localizedDescription)")
-                    state.finish(success: false, detail: error.localizedDescription)
-                }}
-                else
-                {{
-                    beginRefresh()
-                }}
-            }}
+{database_start}
         }}
     }}
     #endif
@@ -1019,7 +1045,7 @@ def patch_background_operation(sidestore: Path) -> None:
             throw error
         }
 
-        // Match AuthenticationOperation's cached-session and silentSignIn paths.
+        // Match the upstream cached-session and silent sign-in credential paths.
         // This checks available authentication material, not server validity.
         let auth = AuthManager.shared
         let hasPasswordCredentials = auth.currentAppleID != nil && auth.hasStoredPassword
@@ -1030,7 +1056,7 @@ def patch_background_operation(sidestore: Path) -> None:
             let error = NSError(
                 domain: "com.SideStore.Authentication",
                 code: 1004,
-                userInfo: [NSLocalizedDescriptionKey: "The refresh process cannot access saved sign-in credentials or a reusable session. Open embedded SideStore to check your account."]
+                userInfo: [NSLocalizedDescriptionKey: "The refresh process cannot access saved sign-in credentials or a reusable session. Open SideStore to check your account."]
             )
             debugLog("[AUTO_REFRESH] AUTH_PREFLIGHT_FAIL reason=no_accessible_authentication_path")
             self.scheduleFinishedRefreshingNotification(for: .failure(error), delay: 0)
@@ -1112,7 +1138,7 @@ def patch_background_operation(sidestore: Path) -> None:
         if let host = installedApps.first(where: { $0.bundleIdentifier == StoreApp.altstoreAppID }) {
             defaults.set(host.expirationDate, forKey: "liveContainerAutoRefreshHostPreviousExpiration")
         }
-        debugLog("[AUTO_REFRESH] HOST_REFRESH_HANDOFF_STARTED run_id=\\(refreshIdentifier)")
+        debugLog("[AUTO_REFRESH] HOST_REFRESH_HANDOFF_STARTED run_id=\(refreshIdentifier)")
     }
 
     private func persistAutomaticRefreshVerification(results: [String: Result<InstalledApp, Error>]) {
@@ -1121,13 +1147,13 @@ def patch_background_operation(sidestore: Path) -> None:
         for (bundleIdentifier, result) in results.sorted(by: { $0.key < $1.key }) {
             switch result {
             case .success(let app):
-                debugLog("[AUTO_REFRESH] REFRESH_VERIFIED bundle_id=\\(bundleIdentifier) refreshed_date=\\(app.refreshedDate) expiration_date=\\(app.expirationDate)")
+                debugLog("[AUTO_REFRESH] REFRESH_VERIFIED bundle_id=\(bundleIdentifier) refreshed_date=\(app.refreshedDate) expiration_date=\(app.expirationDate)")
                 serialized.append(["bundle_id": bundleIdentifier, "name": app.name,
                     "success": true, "refreshed_date": app.refreshedDate,
                     "expiration_date": app.expirationDate])
             case .failure(let error):
                 let nsError = error as NSError
-                debugLog("[AUTO_REFRESH] REFRESH_FAILED bundle_id=\\(bundleIdentifier) stage=refresh error_code=\\(nsError.code) error_domain=\\(nsError.domain) error=\\(error.localizedDescription)")
+                debugLog("[AUTO_REFRESH] REFRESH_FAILED bundle_id=\(bundleIdentifier) stage=refresh error_code=\(nsError.code) error_domain=\(nsError.domain) error=\(error.localizedDescription)")
                 serialized.append(["bundle_id": bundleIdentifier, "success": false,
                     "error_code": nsError.code, "error_domain": nsError.domain,
                     "error": error.localizedDescription])
@@ -1138,7 +1164,7 @@ def patch_background_operation(sidestore: Path) -> None:
             "results": serialized,
             "host_handoff": defaults.bool(forKey: "liveContainerAutoRefreshHostHandoff")],
             forKey: "liveContainerAutoRefreshVerification")
-        debugLog("[AUTO_REFRESH] VERIFICATION_MANIFEST_V1 run_id=\\(refreshIdentifier) result_count=\\(serialized.count)")
+        debugLog("[AUTO_REFRESH] VERIFICATION_MANIFEST_V1 run_id=\(refreshIdentifier) result_count=\(serialized.count)")
     }
 '''
         text = replace_once(

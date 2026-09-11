@@ -204,8 +204,8 @@ def patch(minimuxer: Path):
                             r'''            setPairingFileType(parsedPairingFile.mode)
             debugLog("[SIDESTORE_COREDEVICE] PAIRING_MODE_SELECTED mode=\(parsedPairingFile.mode)")''',
                             "pairing selection diagnostic")
-        text = replace_once(text, "    private var coreDeviceProvider:",
-                            GATEWAY_STATE + "\n    private var coreDeviceProvider:", "batch state")
+        text = replace_once(text, "    private var usesCoreDevice: Bool { pairingFileType == .lockdown }",
+                            GATEWAY_STATE.rstrip(), "batch state")
         for detail in ("AFC_WRITE_BEGIN", "AFC_WRITE_RETURN", "AFC_FILE_OPEN_START",
                        "AFC_FILE_OPEN_PASS", "AFC_FILE_CLOSE_START", "AFC_FILE_CLOSE_PASS",
                        "STAGED_FILE_SIZE=", "STAGED_FILE_SIZE_MATCH=", "STAGING_WRITE_LOOP_DONE",
