@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SIDESTORE_REF: 394bb4eb331cb4afc23517af2fc847ec103af57f
-  MINIMUXER_REF: e0de126ec6773c02afe7d965def86ddffd79cbeb
+  SIDESTORE_REF: c6f28864dc99ed03ad35f2ca58967247036b7b53
+  MINIMUXER_REF: 9f038e5223a8cacf9d15beae7da6969d617ae1e8
   IDEVICE_REF: ebd7dadfc55d1c4facee3d11ecf5b28e20548b57
   JKTCP_REF: e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020
 
@@ -141,8 +141,6 @@ jobs:
           grep -Fq 'tunnel_create_usb' ffi/idevice.h
           grep -Fq 'tunnel_heartbeat_is_active' ffi/idevice.h
           grep -Fq 'idevice_set_transport_log_callback' ffi/idevice.h
-          # Apple nm cannot read LLVM metadata in some Rust compiler_builtins
-          # members, but it still emits symbols from the FFI members we need.
           xcrun nm -arch arm64 -g target/aarch64-apple-ios/release/libidevice_ffi.a \
             >/tmp/current-idevice-symbols.txt 2>/tmp/current-nm-reader-warnings.txt || true
           grep -E '[[:space:]][Tt][[:space:]]_lockdown_diag_rust_log$' \
