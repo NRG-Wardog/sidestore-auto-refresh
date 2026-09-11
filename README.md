@@ -1,7 +1,7 @@
 # LiveContainer + SideStore Auto-Refresh
 
 [![Combined Build](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/livecontainer-build.yml/badge.svg)](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/livecontainer-build.yml)
-[![Standalone Build](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-current.yml/badge.svg)](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-current.yml)
+[![Standalone Build](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-publish-v1.0.3-r6.yml/badge.svg?branch=release%2Fv1.0.3)](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-publish-v1.0.3-r6.yml)
 [![Release](https://img.shields.io/github/v/release/NRG-Wardog/sidestore-auto-refresh)](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -51,9 +51,9 @@ These are actual screenshots from **LiveContainer + embedded SideStore v2.1.0**.
 
 The Guest Controls screen in v2.1.0 includes **Show Return Button**, **Start Collapsed**, **Use Custom Colors**, **Icon Color**, and **Button Background**.
 
-### Standalone v1.0.2
+### Standalone preview (v1.0.2 screenshots)
 
-These screenshots show the standalone SideStore v1.0.2 interface.
+These screenshots show the earlier standalone SideStore v1.0.2 interface. The current standalone download is v1.0.3, based on SideStore 0.7.0 nightly.
 
 <table>
 <tr>
@@ -79,13 +79,24 @@ These screenshots show the standalone SideStore v1.0.2 interface.
 | What you want | Use | Download |
 | --- | --- | --- |
 | LiveContainer with the modified SideStore built in | **Combined v2.1.0** | **[Download combined IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.1.0/LiveContainer-SideStore-AutoRefresh-v2.1.0.ipa)** |
-| SideStore only, with normal separately installed sideloaded apps | **Standalone v1.0.2** | **[Download standalone IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.2/SideStore-CoreDevice-AutoRefresh-v1.0.2.ipa)** |
+| SideStore only, with normal separately installed sideloaded apps | **Standalone v1.0.3** | **[Download standalone IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.3/SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa)** |
 
 If you want LiveContainer, install **v2.1.0**. SideStore is already embedded inside it, so do not install a separate SideStore copy for the same combined setup.
 
 **Combined:** [v2.1.0 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.0) | [SHA256SUMS](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.1.0/SHA256SUMS.txt)
 
-**Standalone:** [v1.0.2 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.2) | [release notes](docs/RELEASE_NOTES_v1.0.2.md)
+**Standalone:** [v1.0.3 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.3) | [SHA256SUMS](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.3/SHA256SUMS.txt) | [release notes](docs/RELEASE_NOTES_v1.0.3.md)
+
+## What's new in standalone v1.0.3?
+
+Standalone v1.0.3 updates the app to **SideStore 0.7.0 nightly**, including the newer **SideSign authentication path**.
+
+- Preserves LocalDevVPN → Lockdown/CoreDevice → RSD transport, manual refresh, scheduled refresh, history, retries, and verification.
+- Composite pairing records prefer Lockdown/CoreDevice, and this path works with LocalDevVPN without an additional IKEv2/IPsec interface.
+- Adapts signing instrumentation and background database startup to the SideStore 0.7 APIs.
+- Records self-refresh reconciliation success only after the database update succeeds.
+
+The IPA build, automated checks, and published-download verification passed. Device testing of this exact v1.0.3 build is still pending; earlier standalone device evidence is listed separately below. See the [release notes](docs/RELEASE_NOTES_v1.0.3.md) for exact source revisions and validation.
 
 ## What's new in v2.1.0?
 
@@ -196,9 +207,9 @@ Choose exactly one build for the setup you want:
 
 [Download `LiveContainer-SideStore-AutoRefresh-v2.1.0.ipa`](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.1.0/LiveContainer-SideStore-AutoRefresh-v2.1.0.ipa)
 
-**Standalone SideStore v1.0.2**
+**Standalone SideStore v1.0.3**
 
-[Download `SideStore-CoreDevice-AutoRefresh-v1.0.2.ipa`](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.2/SideStore-CoreDevice-AutoRefresh-v1.0.2.ipa)
+[Download `SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa`](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.3/SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa)
 
 ### 2. Install iLoader and connect the device
 
@@ -375,7 +386,7 @@ The selected time is a **target deadline**, not an exact alarm. iOS controls whe
 
 ## Standalone setup (v1)
 
-Use this section only for **SideStore v1.0.2**.
+Use this section for **standalone SideStore v1.0.3**.
 
 ### 1. Open SideStore
 
@@ -521,8 +532,10 @@ The stable CoreDevice path preserves service TLS, contiguous CDTunnel writes, he
 
 | Scope | Current evidence |
 | --- | --- |
-| Standalone manual CoreDevice refresh | Verified on iPhone 12 / iOS 26.6.1 |
-| Standalone scheduled refresh with PC disconnected | Recorded proof is available in the verification report |
+| Standalone v1.0.3 build and packaging | CI passed; published IPA checksum, arm64 executable, background-task configuration, and 13 feature markers independently verified |
+| Standalone v1.0.3 device refresh | Device testing of this exact build is pending |
+| Earlier standalone manual CoreDevice refresh | Verified on iPhone 12 / iOS 26.6.1; this predates v1.0.3 |
+| Earlier standalone scheduled refresh with PC disconnected | Recorded proof predates v1.0.3 and is available in the verification report |
 | Combined v2.1.0 build and packaging | Combined CI run completed successfully |
 | v2.1.0 Guest Controls | Start Collapsed and custom colors are included in the published combined build |
 | Background scheduling | Best effort. iOS controls task launch timing |
@@ -539,11 +552,15 @@ A build completing, a background task starting, or a host handoff occurring is n
 - SHA-256: `6493e1e8c525a3b1ea343973bf199e30069f1c837f1a6175f3befa05d7a0eb50`
 - Release: [LiveContainer + SideStore Auto-Refresh v2.1.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.0)
 
-### v1.0.2 provenance
+### v1.0.3 provenance
 
-- IPA: `SideStore-CoreDevice-AutoRefresh-v1.0.2.ipa`
-- SHA-256: `120ba06c51d4d235743451b065968dc94f7c7374cacb955827860254e01b5a76`
-- Release: [SideStore CoreDevice Auto-Refresh v1.0.2](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.2)
+- Builder/tag commit: `07d52be7a49f6795b82f081ded2ec94eb44d50df`
+- Standalone CI run: [34613911507](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/34613911507)
+- Upstream app version: SideStore `0.7.0`, build `0700`
+- IPA: `SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa`
+- SHA-256: `ab35772fe3209618c7bec302e315faea0a35b7ae280edfb9b5390d2aa62c8940`
+- Release: [SideStore CoreDevice Auto-Refresh v1.0.3](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.3)
+- Pinned sources and validation: [v1.0.3 release notes](docs/RELEASE_NOTES_v1.0.3.md)
 
 ## Build it yourself
 

@@ -1,0 +1,125 @@
+name: Prepare and publish standalone v1.0.3
+
+on:
+  push:
+    branches: [release/v1.0.3]
+    paths:
+      - '.github/workflows/prepare-v1.0.3.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  prepare-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: release/v1.0.3
+          fetch-depth: 0
+
+      - name: Update standalone SideStore pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/build-current.yml')
+          text = p.read_text()
+          old_ss = 'SIDESTORE_REF: 394bb4eb331cb4afc23517af2fc847ec103af57f'
+          old_mux = 'MINIMUXER_REF: e0de126ec6773c02afe7d965def86ddffd79cbeb'
+          new_ss = 'SIDESTORE_REF: c6f28864dc99ed03ad35f2ca58967247036b7b53'
+          new_mux = 'MINIMUXER_REF: 9f038e5223a8cacf9d15beae7da6969d617ae1e8'
+          if old_ss not in text or old_mux not in text:
+              raise SystemExit('Expected old standalone pins were not found')
+          p.write_text(text.replace(old_ss, new_ss).replace(old_mux, new_mux))
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/build-current.yml
+          git commit -m 'Update standalone SideStore to 0.7.0 nightly'
+          git push origin HEAD:release/v1.0.3
+          echo "SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Dispatch standalone build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run build-current.yml --repo "$GITHUB_REPOSITORY" --ref release/v1.0.3
+          sleep 5
+          run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-current.yml --branch release/v1.0.3 --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId')"
+          test -n "$run_id"
+          echo "BUILD_RUN_ID=$run_id" >> "$GITHUB_ENV"
+          echo "Build run: $run_id"
+
+      - name: Wait for verified build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run watch "$BUILD_RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
+
+      - name: Download build artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifact
+          gh run download "$BUILD_RUN_ID" --repo "$GITHUB_REPOSITORY" -n SideStore-v30-background-automation -D release-artifact
+          test -f release-artifact/SideStore.ipa
+          cp release-artifact/SideStore.ipa SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa
+          sha256sum SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa > SHA256SUMS.txt
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > RELEASE_NOTES_v1.0.3.md <<EOF
+          # SideStore CoreDevice Auto-Refresh v1.0.3
+
+          Standalone SideStore update based on the current SideStore 0.7.0 nightly code.
+
+          ## What's new
+
+          - Updated upstream SideStore to \`c6f28864dc99ed03ad35f2ca58967247036b7b53\` (0.7.0 nightly, 2026-09-11).
+          - Includes the newer SideStore/SideSign authentication path containing the upstream GSA 5XX mitigation.
+          - Retains this project's LocalDevVPN + CoreDevice same-device transport patches.
+          - Retains manual refresh, six-hour/daily/weekly background scheduling, refresh verification, history, and diagnostics.
+
+          ## Important
+
+          Cellular-only refresh remains experimental and is not part of this stable release.
+
+          Install this IPA over the existing matching standalone SideStore installation. Do not delete SideStore first if you want to preserve existing app data and setup.
+
+          ## Provenance
+
+          - Builder commit: \`$SOURCE_COMMIT\`
+          - SideStore upstream: \`c6f28864dc99ed03ad35f2ca58967247036b7b53\`
+          - minimuxer upstream: \`9f038e5223a8cacf9d15beae7da6969d617ae1e8\`
+          - Build run: \`$BUILD_RUN_ID\`
+
+          The attached \`SHA256SUMS.txt\` contains the checksum of the published IPA.
+          EOF
+
+      - name: Publish v1.0.3 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v1.0.3 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'v1.0.3 already exists'
+            exit 1
+          fi
+          gh release create v1.0.3 \
+            SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa \
+            SHA256SUMS.txt \
+            RELEASE_NOTES_v1.0.3.md \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_COMMIT" \
+            --title 'SideStore CoreDevice Auto-Refresh v1.0.3' \
+            --notes-file RELEASE_NOTES_v1.0.3.md

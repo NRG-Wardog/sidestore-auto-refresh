@@ -1,0 +1,245 @@
+name: Build and publish standalone v1.0.3
+
+on:
+  push:
+    branches: [release/v1.0.3]
+    paths:
+      - '.github/workflows/build-publish-v1.0.3.yml'
+
+permissions:
+  contents: write
+
+env:
+  SIDESTORE_REF: c6f28864dc99ed03ad35f2ca58967247036b7b53
+  MINIMUXER_REF: 9f038e5223a8cacf9d15beae7da6969d617ae1e8
+  IDEVICE_REF: ebd7dadfc55d1c4facee3d11ecf5b28e20548b57
+  JKTCP_REF: e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020
+
+jobs:
+  build-and-publish:
+    runs-on: macos-26
+    timeout-minutes: 75
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v4
+        with:
+          path: builder
+          fetch-depth: 1
+
+      - name: Checkout SideStore 0.7.0 nightly
+        uses: actions/checkout@v4
+        with:
+          repository: SideStore/SideStore
+          ref: ${{ env.SIDESTORE_REF }}
+          path: work/SideStore
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Checkout idevice
+        uses: actions/checkout@v4
+        with:
+          repository: SideStore/idevice
+          ref: ${{ env.IDEVICE_REF }}
+          path: idevice
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Checkout jktcp
+        uses: actions/checkout@v4
+        with:
+          repository: SideStore/jktcp
+          ref: ${{ env.JKTCP_REF }}
+          path: jktcp
+          fetch-depth: 1
+
+      - name: Verify source revisions and repository tests
+        shell: bash
+        env:
+          SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/SideStore
+        run: |
+          set -euo pipefail
+          test "$(git -C work/SideStore rev-parse HEAD)" = "$SIDESTORE_REF"
+          test "$(git -C work/SideStore/Dependencies/minimuxer rev-parse HEAD)" = "$MINIMUXER_REF"
+          test "$(git -C idevice rev-parse HEAD)" = "$IDEVICE_REF"
+          test "$(git -C jktcp rev-parse HEAD)" = "$JKTCP_REF"
+          python3 -m unittest discover -s builder/tests -v
+
+      - name: Select Xcode 26.4
+        uses: maxim-lobanov/setup-xcode@v1.6.0
+        with:
+          xcode-version: '26.4'
+
+      - name: Install build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ldid >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install ldid; fi
+          if ! command -v bindgen >/dev/null 2>&1; then cargo install --locked bindgen-cli --version 0.72.1; fi
+          rustup target add aarch64-apple-ios
+
+      - name: Patch and test CoreDevice transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 builder/scripts/patch_jktcp_reliability.py jktcp
+          python3 builder/scripts/patch_coredevice_idevice.py idevice jktcp
+          cargo fmt --manifest-path jktcp/Cargo.toml
+          cargo fmt --manifest-path idevice/ffi/Cargo.toml
+          git -C jktcp diff --check
+          git -C idevice diff --check
+          cargo test --manifest-path jktcp/Cargo.toml --lib -- --skip tests::local_tcp --skip tests::handle_speed
+          cargo check --manifest-path idevice/ffi/Cargo.toml --features obfuscate
+
+      - name: Build idevice for iOS
+        shell: bash
+        working-directory: idevice
+        run: |
+          set -euo pipefail
+          BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)" \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
+            cargo build --release --target aarch64-apple-ios --features obfuscate --manifest-path ffi/Cargo.toml
+          test -f target/aarch64-apple-ios/release/libidevice_ffi.a
+          rm -rf swift/IDevice.xcframework
+          cp ffi/idevice.h swift/include/idevice.h
+          xcodebuild -create-xcframework \
+            -library target/aarch64-apple-ios/release/libidevice_ffi.a \
+            -headers swift/include \
+            -output swift/IDevice.xcframework
+
+      - name: Patch SideStore and verify patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          SIDE=work/SideStore
+          MUX="$SIDE/Dependencies/minimuxer"
+          mkdir -p "$MUX/DeviceGateway/LocalBinary"
+          rm -rf "$MUX/DeviceGateway/LocalBinary/IDevice.xcframework"
+          cp -R idevice/swift/IDevice.xcframework "$MUX/DeviceGateway/LocalBinary/IDevice.xcframework"
+          python3 builder/scripts/patch_sidestore_integration.py "$MUX" "$SIDE"
+          python3 builder/scripts/patch_background_automation.py "$SIDE"
+          python3 builder/scripts/patch_local_idevice_package.py "$MUX"
+          git -C "$MUX" diff --check
+          swiftc -frontend -parse "$MUX/DeviceGateway/idevice/IdeviceGateway.swift"
+          swiftc -frontend -parse "$MUX/Common/PairingProtocol.swift"
+          swiftc -frontend -parse "$MUX/Sources/Services/NetworkObserverService.swift"
+          swiftc -frontend -parse "$MUX/Sources/MinimuxerImpl.swift"
+          swiftc -frontend -parse "$SIDE/SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift"
+          swiftc -frontend -parse "$SIDE/SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
+          swiftc -frontend -parse "$SIDE/AltStore/AppDelegate.swift"
+          swiftc -frontend -parse "$SIDE/AltStore/SceneDelegate.swift"
+          grep -Fq '[SIDESTORE_COREDEVICE] PAIRING_MODE_SELECTED' "$MUX/DeviceGateway/idevice/IdeviceGateway.swift"
+          grep -Fq '[SIDESTORE_COREDEVICE] ENDPOINT_SELECT' "$MUX/Sources/Services/NetworkObserverService.swift"
+          grep -Fq '[SIDESTORE_COREDEVICE] LOCALVPN_UTUN_ACCEPTED' "$MUX/Sources/MinimuxerImpl.swift"
+          grep -Fq '[AUTO_REFRESH] AUTH_PREFLIGHT_PASS' "$SIDE/SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
+
+      - name: Resolve Swift packages
+        shell: bash
+        working-directory: work/SideStore
+        run: |
+          set -euo pipefail
+          ok=0
+          for attempt in 1 2 3; do
+            if xcodebuild -resolvePackageDependencies -disablePackageRepositoryCache -project AltStore.xcodeproj -scheme SideStore; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ok" -eq 1
+
+      - name: Build standalone SideStore IPA
+        shell: bash
+        working-directory: work/SideStore
+        run: |
+          set -euo pipefail
+          mkdir -p build/logs
+          plutil -replace CFBundleDisplayName -string SideStore AltStore/Info.plist || plutil -insert CFBundleDisplayName -string SideStore AltStore/Info.plist
+          NSUnbufferedIO=YES make -B build 2>&1 | tee build/logs/build.log
+          make fakesign 2>&1 | tee -a build/logs/build.log
+          make ipa 2>&1 | tee -a build/logs/build.log
+          test -f SideStore.ipa
+
+      - name: Verify and prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          IPA=work/SideStore/SideStore.ipa
+          unzip -t "$IPA" >/tmp/v103-unzip.txt
+          rm -rf /tmp/v103-ipa
+          mkdir -p /tmp/v103-ipa
+          unzip -q "$IPA" -d /tmp/v103-ipa
+          find /tmp/v103-ipa/Payload/SideStore.app -type f -size +32k -print0 | xargs -0 strings >/tmp/v103-strings.txt
+          for marker in \
+            '[SIDESTORE_COREDEVICE] PAIRING_MODE_SELECTED' \
+            '[SIDESTORE_COREDEVICE] TRANSPORT_CREATE_PASS' \
+            '[SIDESTORE_COREDEVICE] ENDPOINT_SELECT' \
+            '[SIDESTORE_COREDEVICE] LOCALVPN_UTUN_ACCEPTED' \
+            '[SELF_REFRESH] SELF_REFRESH_COMPLETE' \
+            '[AUTO_REFRESH] REGISTER_PASS' \
+            '[AUTO_REFRESH] COMPLETE' \
+            '[AUTO_REFRESH] AUTH_PREFLIGHT_PASS'; do
+            grep -Fq "$marker" /tmp/v103-strings.txt
+          done
+          cp "$IPA" SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa
+          shasum -a 256 SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa | awk '{print $1 "  SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa"}' > SHA256SUMS.txt
+          cat > RELEASE_NOTES_v1.0.3.md <<EOF
+          # SideStore CoreDevice Auto-Refresh v1.0.3
+
+          Standalone SideStore update based on SideStore 0.7.0 nightly.
+
+          ## What's new
+
+          - Updated upstream SideStore to \`c6f28864dc99ed03ad35f2ca58967247036b7b53\` (0.7.0 nightly, 2026-09-11).
+          - Includes the newer SideStore/SideSign authentication path with the upstream GSA 5XX mitigation.
+          - Retains this project's LocalDevVPN + CoreDevice same-device transport patches.
+          - Retains manual refresh, six-hour/daily/weekly scheduling, refresh history, verification, retry handling, and diagnostics.
+
+          ## Installation
+
+          Sign the IPA with your Apple Account using a compatible installer and install it over the existing matching standalone SideStore installation.
+
+          Do not delete SideStore first if you want to preserve existing app data and setup.
+
+          ## Provenance
+
+          - Builder commit: \`$GITHUB_SHA\`
+          - SideStore upstream: \`$SIDESTORE_REF\`
+          - minimuxer upstream: \`$MINIMUXER_REF\`
+          - idevice: \`$IDEVICE_REF\`
+          - jktcp: \`$JKTCP_REF\`
+
+          Cellular-only refresh remains experimental and is not part of this stable release.
+          EOF
+
+      - name: Publish v1.0.3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v1.0.3 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Release v1.0.3 already exists; refusing to overwrite.'
+            exit 1
+          fi
+          gh release create v1.0.3 \
+            SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa \
+            SHA256SUMS.txt \
+            RELEASE_NOTES_v1.0.3.md \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title 'SideStore CoreDevice Auto-Refresh v1.0.3' \
+            --notes-file RELEASE_NOTES_v1.0.3.md
+
+      - name: Upload build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SideStore-v1.0.3-build-evidence
+          path: |
+            work/SideStore/build/logs
+            /tmp/v103-unzip.txt
+            /tmp/v103-strings.txt
+            SHA256SUMS.txt
+            RELEASE_NOTES_v1.0.3.md
+          if-no-files-found: ignore
+          retention-days: 7

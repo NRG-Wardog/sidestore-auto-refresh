@@ -11,6 +11,8 @@ permissions:
 
 jobs:
   dispatch:
+    # The v1.0.3 workflow owns its preflight, build and publication.
+    if: github.ref_name != 'release/v1.0.3'
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch current SideStore build for this release branch

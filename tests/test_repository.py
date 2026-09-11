@@ -16,11 +16,47 @@ REQUIRED_SCRIPTS = {
     "patch_sidestore_integration.py",
     "patch_background_automation.py",
     "patch_local_idevice_package.py",
+    "adapt_sidestore_070_pairing.py",
+    "adapt_sidestore_070_signing.py",
 }
 LIVE_CONTAINER_SCRIPT = "patch_livecontainer_autorefresh.py"
 LIVE_CONTAINER_STARTUP_SCRIPT = "patch_embedded_sidestore_startup.py"
 COMBINED_REFRESH_SCRIPT = "patch_combined_refresh_contract.py"
 EMBEDDED_KEYCHAIN_SCRIPT = "patch_embedded_keychain.py"
+
+_SENSITIVE_ARTIFACT_SUFFIXES = {".p12", ".pfx", ".der", ".pem", ".key"}
+_SENSITIVE_NAMES = re.compile(
+    r"(?i)(pairingfile|rppairing|client_(cert|key)|lockdowndirectdiag|"
+    r"(?:^|[/_.-])pairing(?:[/_.-]|$))"
+)
+_PUBLIC_SOURCE_DIRS = {"scripts", "tests", "docs"}
+_PUBLIC_SOURCE_SUFFIXES = {
+    ".c", ".cpp", ".h", ".hpp", ".js", ".md", ".rst", ".py", ".rs", ".swift", ".ts", ".tsx"
+}
+
+
+def _is_sensitive_reachable_path(path: str) -> bool:
+    """Classify Git path output without treating source identifiers as secrets."""
+    normalized = path.replace("\\", "/").strip("/")
+    if not normalized:
+        return False
+    parts = normalized.split("/")
+    basename = parts[-1].lower()
+    suffix = Path(basename).suffix
+
+    # These formats are private signing/pairing material wherever they occur.
+    if suffix in _SENSITIVE_ARTIFACT_SUFFIXES:
+        return True
+    # Source identifiers may mention pairing. Serialized data (including JSON
+    # and plist) and private material never inherit the source exemption.
+    if _SENSITIVE_NAMES.search(normalized):
+        is_public_source = (
+            len(parts) > 1
+            and parts[0].lower() in _PUBLIC_SOURCE_DIRS
+            and suffix in _PUBLIC_SOURCE_SUFFIXES
+        )
+        return not is_public_source
+    return False
 
 
 class RepositoryTests(unittest.TestCase):
@@ -85,17 +121,36 @@ class RepositoryTests(unittest.TestCase):
         self.assertNotIn(chr(0x2014), source)
 
     def test_no_sensitive_paths_are_reachable(self):
+        # Retain the audit of every reachable ref, including deleted files in
+        # history. A clone containing private investigation refs must fail.
         result = subprocess.run(
-            ["git", "rev-list", "--objects", "--all"],
+            ["git", "-c", "core.quotePath=false", "rev-list", "--objects", "--all"],
             cwd=ROOT,
             check=True,
             capture_output=True,
             text=True,
         )
-        self.assertNotRegex(
-            result.stdout,
-            r"(?i)(pairingFile|rppairing|client\.p12|client_(cert|key)|LockdownDirectDiag|\.der$)",
+        reachable_paths = [parts[1] for line in result.stdout.splitlines()
+                           if len(parts := line.split(maxsplit=1)) == 2]
+        self.assertFalse(
+            [path for path in reachable_paths if _is_sensitive_reachable_path(path)],
+            "reachable repository contains sensitive artifact paths",
         )
+
+    def test_sensitive_path_classifier_preserves_security_boundary(self):
+        self.assertFalse(_is_sensitive_reachable_path("scripts/adapt_sidestore_070_pairing.py"))
+        self.assertFalse(_is_sensitive_reachable_path("tests/PairingFile.swift"))
+        self.assertTrue(_is_sensitive_reachable_path("PairingFile"))
+        self.assertTrue(_is_sensitive_reachable_path("private/client_cert.pem"))
+        self.assertTrue(_is_sensitive_reachable_path("scripts/client.p12"))
+        self.assertTrue(_is_sensitive_reachable_path("diagnostics/LockdownDirectDiag.log"))
+        self.assertTrue(_is_sensitive_reachable_path("docs/export.der"))
+        for path in ("scripts/pairingFile.json", "tests/rppairing.plist",
+                     "data/device.pairing", "backups/pairingFile.plist.old",
+                     "exports/client_key.backup", "LockdownDirectDiag/output.log",
+                     "docs/CLIENT.P12", "scripts/key.pem", "data/phone.pfx"):
+            with self.subTest(path=path):
+                self.assertTrue(_is_sensitive_reachable_path(path))
 
     def test_public_docs_do_not_expose_known_private_network_details(self):
         """Generic RFC1918 examples are allowed; known diagnostic addresses are not."""
