@@ -1062,12 +1062,14 @@ def patch_relaunch_verification(sidestore: Path) -> None:
     )
     text = replace_once(
         text,
-        """                    if let _ = InstalledApp.deserialize(from: jsonData, format: .json, context: context) {
-                        if context.hasChanges {
+        """                            debugLog("[AppDelegate] reconcileSelfReinstallation: Database successfully updated and saved.")
+                        }
+                    } else {
 """,
-        """                    if let _ = InstalledApp.deserialize(from: jsonData, format: .json, context: context) {
+        """                            debugLog("[AppDelegate] reconcileSelfReinstallation: Database successfully updated and saved.")
+                        }
                         didReconcile = true
-                        if context.hasChanges {
+                    } else {
 """,
         "reconcile success state",
     )

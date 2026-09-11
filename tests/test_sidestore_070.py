@@ -50,6 +50,57 @@ class SigningAdapterTests(unittest.TestCase):
 
 
 class StandaloneMigrationTests(unittest.TestCase):
+    def check_reconciliation(self, root, swiftc):
+        delegate = (root / "AltStore/AppDelegate.swift").read_text(encoding="utf-8")
+        start = delegate.index("            var didSave = false")
+        end = delegate.index("            if didSave {", start)
+        block = delegate[start:end]
+        self.assertLess(block.index("try context.save()"), block.index("didReconcile = true"))
+        if not swiftc:
+            return
+        harness = r'''
+import Foundation
+func debugLog(_ message: String) {}
+enum SaveError: Error { case failed }
+final class Context {
+    let hasChanges: Bool
+    let valid: Bool
+    let saveFails: Bool
+    init(changes: Bool, valid: Bool, saveFails: Bool) {
+        self.hasChanges = changes
+        self.valid = valid
+        self.saveFails = saveFails
+    }
+    func performAndWait(_ action: () -> Void) { action() }
+    func save() throws { if saveFails { throw SaveError.failed } }
+}
+struct InstalledApp {
+    enum Format { case json }
+    static func deserialize(from: Data, format: Format, context: Context) -> InstalledApp? {
+        context.valid ? InstalledApp() : nil
+    }
+}
+func reconcile(changes: Bool, valid: Bool = true, saveFails: Bool = false) -> Bool {
+    let context = Context(changes: changes, valid: valid, saveFails: saveFails)
+    let jsonData = Data()
+RECONCILE_BLOCK
+    return didReconcile
+}
+precondition(reconcile(changes: true))
+precondition(reconcile(changes: false))
+precondition(!reconcile(changes: true, valid: false))
+precondition(!reconcile(changes: true, saveFails: true))
+print("Self-refresh reconciliation behavior PASS")
+'''.replace("RECONCILE_BLOCK", block)
+        path = root / "reconciliation-check.swift"
+        path.write_text(harness, encoding="utf-8")
+        binary = root / "reconciliation-check"
+        result = subprocess.run([swiftc, str(path), "-o", str(binary)],
+                                capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_full_patch_chain_on_pinned_source(self):
         source = os.environ.get("SIDESTORE_070_TEST_SOURCE")
         if not source:
@@ -103,6 +154,7 @@ class StandaloneMigrationTests(unittest.TestCase):
             swiftc = shutil.which("swiftc")
             if os.environ.get("REQUIRE_SWIFT_070_CHECKS") == "1":
                 self.assertIsNotNone(swiftc, "CI must execute Swift validation")
+            self.check_reconciliation(root, swiftc)
             if swiftc:
                 binary = root / "pairing-policy-test"
                 result = subprocess.run([swiftc, str(mux / "Common/MinimuxerConstants.swift"),

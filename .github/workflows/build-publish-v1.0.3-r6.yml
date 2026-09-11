@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: builder
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Checkout SideStore 0.7.0 nightly
         uses: actions/checkout@v4
@@ -250,6 +250,10 @@ jobs:
             '[SELF_REFRESH] SELF_REFRESH_COMPLETE' \
             '[AUTO_REFRESH] REGISTER_PASS' \
             '[AUTO_REFRESH] COMPLETE' \
+            '[AUTO_REFRESH] DATABASE_START_FAIL' \
+            '[AUTO_REFRESH] REFRESH_VERIFIED' \
+            '[AUTO_REFRESH] VERIFICATION_MANIFEST_V1' \
+            '[AUTO_REFRESH] SIDESTORE_REFRESH_RECOVERY' \
             '[AUTO_REFRESH] AUTH_PREFLIGHT_PASS'; do
             grep -Fq "$marker" /tmp/v103-strings.txt
           done

@@ -405,11 +405,47 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+DATABASE_SOURCE = "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift"
+
+
+def database_start_block(sidestore: Path) -> str:
+    database = (sidestore / DATABASE_SOURCE).read_text(encoding="utf-8")
+    if "public func start() async throws\n" in database:
+        return r'''            Task { @MainActor in
+                do
+                {
+                    try await DatabaseManager.shared.start()
+                    beginRefresh()
+                }
+                catch
+                {
+                    debugLog("[AUTO_REFRESH] DATABASE_START_FAIL error=\(error.localizedDescription)")
+                    state.finish(success: false, detail: error.localizedDescription)
+                }
+            }'''
+    if "public func start(completionHandler: @escaping (Error?) -> Void)\n" in database:
+        return r'''            DatabaseManager.shared.start { error in
+                if let error
+                {
+                    debugLog("[AUTO_REFRESH] DATABASE_START_FAIL error=\(error.localizedDescription)")
+                    state.finish(success: false, detail: error.localizedDescription)
+                }
+                else
+                {
+                    beginRefresh()
+                }
+            }'''
+    die("Unsupported DatabaseManager.start API; update the background startup adapter")
+
+
 def patch_app_delegate(sidestore: Path) -> None:
     path = sidestore / "AltStore" / "AppDelegate.swift"
     text = path.read_text(encoding="utf-8")
+    database_start = database_start_block(sidestore)
     if MARKER in text:
         verify_app_delegate(text)
+        if database_start not in text:
+            die("AppDelegate database startup is outdated; use the pinned clean checkout")
         return
 
     text = replace_once(
@@ -830,17 +866,7 @@ private final class AutomaticRefreshTaskState: @unchecked Sendable
         }}
         else
         {{
-            DatabaseManager.shared.start {{ error in
-                if let error
-                {{
-                    debugLog("[AUTO_REFRESH] DATABASE_START_FAIL error=\\(error.localizedDescription)")
-                    state.finish(success: false, detail: error.localizedDescription)
-                }}
-                else
-                {{
-                    beginRefresh()
-                }}
-            }}
+{database_start}
         }}
     }}
     #endif
@@ -1019,7 +1045,7 @@ def patch_background_operation(sidestore: Path) -> None:
             throw error
         }
 
-        // Match AuthenticationOperation's cached-session and silentSignIn paths.
+        // Match the upstream cached-session and silent sign-in credential paths.
         // This checks available authentication material, not server validity.
         let auth = AuthManager.shared
         let hasPasswordCredentials = auth.currentAppleID != nil && auth.hasStoredPassword
