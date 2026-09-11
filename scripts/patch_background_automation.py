@@ -1030,7 +1030,7 @@ def patch_background_operation(sidestore: Path) -> None:
             let error = NSError(
                 domain: "com.SideStore.Authentication",
                 code: 1004,
-                userInfo: [NSLocalizedDescriptionKey: "The refresh process cannot access saved sign-in credentials or a reusable session. Open embedded SideStore to check your account."]
+                userInfo: [NSLocalizedDescriptionKey: "The refresh process cannot access saved sign-in credentials or a reusable session. Open SideStore to check your account."]
             )
             debugLog("[AUTO_REFRESH] AUTH_PREFLIGHT_FAIL reason=no_accessible_authentication_path")
             self.scheduleFinishedRefreshingNotification(for: .failure(error), delay: 0)
@@ -1112,7 +1112,7 @@ def patch_background_operation(sidestore: Path) -> None:
         if let host = installedApps.first(where: { $0.bundleIdentifier == StoreApp.altstoreAppID }) {
             defaults.set(host.expirationDate, forKey: "liveContainerAutoRefreshHostPreviousExpiration")
         }
-        debugLog("[AUTO_REFRESH] HOST_REFRESH_HANDOFF_STARTED run_id=\\(refreshIdentifier)")
+        debugLog("[AUTO_REFRESH] HOST_REFRESH_HANDOFF_STARTED run_id=\(refreshIdentifier)")
     }
 
     private func persistAutomaticRefreshVerification(results: [String: Result<InstalledApp, Error>]) {
@@ -1121,13 +1121,13 @@ def patch_background_operation(sidestore: Path) -> None:
         for (bundleIdentifier, result) in results.sorted(by: { $0.key < $1.key }) {
             switch result {
             case .success(let app):
-                debugLog("[AUTO_REFRESH] REFRESH_VERIFIED bundle_id=\\(bundleIdentifier) refreshed_date=\\(app.refreshedDate) expiration_date=\\(app.expirationDate)")
+                debugLog("[AUTO_REFRESH] REFRESH_VERIFIED bundle_id=\(bundleIdentifier) refreshed_date=\(app.refreshedDate) expiration_date=\(app.expirationDate)")
                 serialized.append(["bundle_id": bundleIdentifier, "name": app.name,
                     "success": true, "refreshed_date": app.refreshedDate,
                     "expiration_date": app.expirationDate])
             case .failure(let error):
                 let nsError = error as NSError
-                debugLog("[AUTO_REFRESH] REFRESH_FAILED bundle_id=\\(bundleIdentifier) stage=refresh error_code=\\(nsError.code) error_domain=\\(nsError.domain) error=\\(error.localizedDescription)")
+                debugLog("[AUTO_REFRESH] REFRESH_FAILED bundle_id=\(bundleIdentifier) stage=refresh error_code=\(nsError.code) error_domain=\(nsError.domain) error=\(error.localizedDescription)")
                 serialized.append(["bundle_id": bundleIdentifier, "success": false,
                     "error_code": nsError.code, "error_domain": nsError.domain,
                     "error": error.localizedDescription])
@@ -1138,7 +1138,7 @@ def patch_background_operation(sidestore: Path) -> None:
             "results": serialized,
             "host_handoff": defaults.bool(forKey: "liveContainerAutoRefreshHostHandoff")],
             forKey: "liveContainerAutoRefreshVerification")
-        debugLog("[AUTO_REFRESH] VERIFICATION_MANIFEST_V1 run_id=\\(refreshIdentifier) result_count=\\(serialized.count)")
+        debugLog("[AUTO_REFRESH] VERIFICATION_MANIFEST_V1 run_id=\(refreshIdentifier) result_count=\(serialized.count)")
     }
 '''
         text = replace_once(

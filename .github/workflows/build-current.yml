@@ -70,6 +70,8 @@ jobs:
       - name: Run repository checks
         env:
           SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/SideStore
+          SIDESTORE_070_TEST_SOURCE: ${{ github.workspace }}/work/SideStore
+          REQUIRE_SWIFT_070_CHECKS: '1'
         run: |
           set -euo pipefail
           python3 -m unittest discover -s builder/tests -v
@@ -163,6 +165,8 @@ jobs:
           rm -rf "$MUX/DeviceGateway/LocalBinary/IDevice.xcframework"
           cp -R idevice/swift/IDevice.xcframework "$MUX/DeviceGateway/LocalBinary/IDevice.xcframework"
 
+          python3 builder/scripts/adapt_sidestore_070_pairing.py "$MUX"
+          python3 builder/scripts/adapt_sidestore_070_signing.py "$SIDE"
           python3 builder/scripts/patch_sidestore_integration.py "$MUX" "$SIDE"
           python3 builder/scripts/patch_background_automation.py "$SIDE"
           python3 builder/scripts/patch_local_idevice_package.py "$MUX"
@@ -193,44 +197,9 @@ jobs:
           grep -Fq '[SIDESTORE_COREDEVICE] ENDPOINT_SELECT' "$NETWORK_OBSERVER"
           grep -Fq '[SIDESTORE_COREDEVICE] LOCALVPN_UTUN_ACCEPTED' "$MINIMUXER_IMPL"
           ! grep -Fq 'no ipsec interface (required for lockdown on iOS 26.4+)' "$MINIMUXER_IMPL"
-          python3 - "$PAIRING_PROTOCOL" <<'PY'
-          from pathlib import Path
-          import sys
-
-          text = Path(sys.argv[1]).read_text(encoding="utf-8")
-          lockdown = text.index('let requiredLockdownKeys = [')
-          remote_pairing = text.index('let requiredRPKeys = [')
-          assert lockdown < remote_pairing, "composite pairing records do not prefer Lockdown"
-          PY
-          cat >/tmp/main.swift <<'SWIFT'
-          import Foundation
-
-          let lockdownKeys = [
-              "WiFiMACAddress", "SystemBUID", "RootPrivateKey", "HostPrivateKey",
-              "HostID", "RootCertificate", "UDID", "EscrowBag",
-              "HostCertificate", "DeviceCertificate",
-          ]
-          let remotePairingKeys = ["private_key", "public_key", "identifier"]
-
-          func record(_ keys: [String]) -> [String: any Sendable] {
-              var result: [String: any Sendable] = [:]
-              for key in keys {
-                  result[key] = "present"
-              }
-              return result
-          }
-
-          let lockdownMode = try PairingProtocol.validatePairingFile(from: record(lockdownKeys))
-          let remotePairingMode = try PairingProtocol.validatePairingFile(from: record(remotePairingKeys))
-          let compositeMode = try PairingProtocol.validatePairingFile(
-              from: record(lockdownKeys + remotePairingKeys)
-          )
-          precondition(lockdownMode == .lockdown)
-          precondition(remotePairingMode == .rppairing)
-          precondition(compositeMode == .lockdown)
-          print("pairing protocol selection tests passed")
-          SWIFT
-          swiftc "$PAIRING_PROTOCOL" /tmp/main.swift -o /tmp/current-pairing-selection-test
+          swiftc "$MUX/Common/MinimuxerConstants.swift" "$PAIRING_PROTOCOL" \
+            "$MUX/Common/PairingFile.swift" builder/tests/standalone_pairing_policy.swift \
+            -o /tmp/current-pairing-selection-test
           /tmp/current-pairing-selection-test
           grep -Fq 'CoreDevice heartbeat is maintained by Rust; poll its state without spinning.' \
             "$MUX/Sources/Services/HeartbeatService.swift"

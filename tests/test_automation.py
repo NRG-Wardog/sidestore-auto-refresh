@@ -14,7 +14,6 @@ automation = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(automation)
 SWIFTC = os.environ.get("SWIFTC") or shutil.which("swiftc")
 SOURCE = Path(os.environ.get("SIDESTORE_TEST_SOURCE", ROOT.parent / "SideStore-source-timepicker"))
-REF = "394bb4eb331cb4afc23517af2fc847ec103af57f"
 FILES = ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",
          "AltStore/Managing Apps/AppManager.swift",
          "AltStore/Info.plist", "AltStore/Settings/SettingsViewController.swift",
@@ -182,13 +181,12 @@ print("Schedule date tests passed")
             subprocess.run([SWIFTC, str(path), "-o", str(binary)], check=True, capture_output=True, text=True)
             subprocess.run([str(binary)], check=True, capture_output=True, text=True)
 
-    @unittest.skipUnless((SOURCE / ".git").exists(), "Pinned SideStore checkout required")
+    @unittest.skipUnless((SOURCE / FILES[0]).is_file(), "Pinned SideStore checkout required")
     def test_patch_application_and_idempotence(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for name in FILES:
-                contents = subprocess.run(["git", "-C", str(SOURCE), "show", f"{REF}:{name}"],
-                                         check=True, capture_output=True).stdout
+                contents = (SOURCE / name).read_bytes()
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(contents)

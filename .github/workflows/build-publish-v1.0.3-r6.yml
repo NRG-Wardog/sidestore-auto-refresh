@@ -1,23 +1,29 @@
 name: Build and publish standalone v1.0.3 r6
-# Retry after restoring the repository safety tests without weakening their checks.
 
 on:
+  workflow_dispatch:
   push:
     branches: [release/v1.0.3]
     paths:
       - '.github/workflows/build-publish-v1.0.3-r6.yml'
-      - 'tests/test_repository.py'
-      - 'scripts/patch_sidestore_integration.py'
-      - 'scripts/adapt_sidestore_070_signing.py'
+      - 'tests/**'
+      - 'scripts/**'
 
 permissions:
   contents: write
 
+concurrency:
+  group: standalone-v1.0.3-publish
+  cancel-in-progress: false
+
 env:
   SIDESTORE_REF: c6f28864dc99ed03ad35f2ca58967247036b7b53
   MINIMUXER_REF: 9f038e5223a8cacf9d15beae7da6969d617ae1e8
+  SIDESIGN_REF: 8385fab56e7bd5aea8110e1b85ab069a71e45ce0
   IDEVICE_REF: ebd7dadfc55d1c4facee3d11ecf5b28e20548b57
   JKTCP_REF: e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020
+  LIVE_CONTAINER_TEST_REF: 12377cf3b91d51739a33f14a302e5f522b238593
+  EMBEDDED_SIDESTORE_TEST_REF: 10ffa01ecdfe4203a7ad5d7f41c0d5de03bd8abb
 
 jobs:
   build-and-publish:
@@ -56,14 +62,44 @@ jobs:
           path: jktcp
           fetch-depth: 1
 
+      - name: Select Xcode 26.4
+        uses: maxim-lobanov/setup-xcode@v1.6.0
+        with:
+          xcode-version: '26.4'
+
+      - name: Checkout combined regression fixtures
+        uses: actions/checkout@v4
+        with:
+          repository: LiveContainer/SideStore
+          ref: ${{ env.EMBEDDED_SIDESTORE_TEST_REF }}
+          path: work/EmbeddedSideStore
+          submodules: recursive
+
+      - name: Checkout host regression fixtures
+        uses: actions/checkout@v4
+        with:
+          repository: LiveContainer/LiveContainer
+          ref: ${{ env.LIVE_CONTAINER_TEST_REF }}
+          path: work/LiveContainer
+          submodules: recursive
+
       - name: Verify revisions and scripts
+        env:
+          SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/SideStore
+          SIDESTORE_070_TEST_SOURCE: ${{ github.workspace }}/work/SideStore
+          EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore
+          LIVE_CONTAINER_TEST_SOURCE: ${{ github.workspace }}/work/LiveContainer
+          REQUIRE_SWIFT_070_CHECKS: '1'
         shell: bash
         run: |
           set -euo pipefail
           test "$(git -C work/SideStore rev-parse HEAD)" = "$SIDESTORE_REF"
           test "$(git -C work/SideStore/Dependencies/minimuxer rev-parse HEAD)" = "$MINIMUXER_REF"
+          test "$(git -C work/SideStore/Dependencies/SideSign rev-parse HEAD)" = "$SIDESIGN_REF"
           test "$(git -C idevice rev-parse HEAD)" = "$IDEVICE_REF"
           test "$(git -C jktcp rev-parse HEAD)" = "$JKTCP_REF"
+          test "$(git -C work/LiveContainer rev-parse HEAD)" = "$LIVE_CONTAINER_TEST_REF"
+          test "$(git -C work/EmbeddedSideStore rev-parse HEAD)" = "$EMBEDDED_SIDESTORE_TEST_REF"
           python3 -m py_compile \
             builder/scripts/adapt_sidestore_070_pairing.py \
             builder/scripts/adapt_sidestore_070_signing.py \
@@ -72,12 +108,8 @@ jobs:
             builder/scripts/patch_sidestore_integration.py \
             builder/scripts/patch_background_automation.py \
             builder/scripts/patch_local_idevice_package.py
-          python3 -m unittest discover -s builder/tests -v
-
-      - name: Select Xcode 26.4
-        uses: maxim-lobanov/setup-xcode@v1.6.0
-        with:
-          xcode-version: '26.4'
+          mkdir -p evidence
+          python3 -m unittest discover -s builder/tests -v 2>&1 | tee evidence/repository-tests.log
 
       - name: Install build tools
         shell: bash
@@ -167,30 +199,11 @@ jobs:
           assert lockdown < remote
           PY
 
-          cat >/tmp/pairing-main.swift <<'SWIFT'
-            import Foundation
-            enum MinimuxerConstants {
-                static let remotePairingPort: UInt16 = 49151
-                static let lockdowndPort: UInt16 = 62078
-            }
-            let lockdownKeys = ["WiFiMACAddress", "SystemBUID", "RootPrivateKey", "HostPrivateKey", "HostID", "RootCertificate", "UDID", "EscrowBag", "HostCertificate", "DeviceCertificate"]
-          let remoteKeys = ["private_key", "public_key", "identifier"]
-          func record(_ keys: [String]) -> [String: any Sendable] {
-              var value: [String: any Sendable] = [:]
-              for key in keys { value[key] = "present" }
-              return value
-          }
-            @main struct PairingPolicyCheck {
-                static func main() throws {
-                    precondition(try PairingFileParser.validatePairingFile(from: record(lockdownKeys)) == .lockdown)
-                    precondition(try PairingFileParser.validatePairingFile(from: record(remoteKeys)) == .rppairing)
-                    precondition(try PairingFileParser.validatePairingFile(from: record(lockdownKeys + remoteKeys)) == .lockdown)
-                    print("SideStore 0.7.0 pairing policy PASS")
-                }
-            }
-            SWIFT
-          swiftc "$PROTOCOL" "$PAIRING" /tmp/pairing-main.swift -o /tmp/pairing-policy-test
+          swiftc "$MUX/Common/MinimuxerConstants.swift" "$PROTOCOL" "$PAIRING" \
+            builder/tests/standalone_pairing_policy.swift -o /tmp/pairing-policy-test
           /tmp/pairing-policy-test
+          git -C "$SIDE/Dependencies/SideSign" diff --exit-code
+          git -C "$SIDE" diff --exit-code -- SideStore/Core/Auth
 
       - name: Resolve Swift packages
         shell: bash
@@ -248,6 +261,11 @@ jobs:
           Standalone SideStore update based on SideStore 0.7.0 nightly.
 
           - SideStore upstream: \`$SIDESTORE_REF\`
+          - minimuxer: \`$MINIMUXER_REF\`
+          - SideSign: \`$SIDESIGN_REF\`
+          - idevice: \`$IDEVICE_REF\`
+          - jktcp: \`$JKTCP_REF\`
+          - Builder: \`$GITHUB_SHA\`
           - Includes the newer upstream authentication path used by SideStore 0.7.0.
           - Retains LocalDevVPN + Lockdown/CoreDevice transport.
           - Retains manual and scheduled auto-refresh, history, verification, retries, and diagnostics.
@@ -282,6 +300,7 @@ jobs:
         with:
           name: SideStore-v1.0.3-r6-build-evidence
           path: |
+            evidence
             work/SideStore/build/logs
             /tmp/v103-unzip.txt
             /tmp/v103-strings.txt

@@ -18,6 +18,8 @@ def patch(root: Path) -> None:
     path = root / "SideStore" / "Core" / "Operations" / "PipelineOperations" / "ResignAppOperation.swift"
     text = path.read_text(encoding="utf-8")
     if MARKER in text:
+        if text.count(MARKER) != 1 or "guard resignedAppBundle.provisioningProfile != nil" not in text:
+            raise SystemExit("SideStore signing marker exists without complete verification")
         return
 
     # SideStore 0.7.0 now keeps the URL returned by resignAppBundle().  Patch

@@ -24,12 +24,14 @@ LIVE_CONTAINER_STARTUP_SCRIPT = "patch_embedded_sidestore_startup.py"
 COMBINED_REFRESH_SCRIPT = "patch_combined_refresh_contract.py"
 EMBEDDED_KEYCHAIN_SCRIPT = "patch_embedded_keychain.py"
 
-_SENSITIVE_ARTIFACT_SUFFIXES = {".p12", ".der"}
-_SENSITIVE_BASENAMES = {"client_cert", "client_key", "lockdowndirectdiag"}
-_PAIRING_ARTIFACT_BASENAMES = {"pairingfile", "rppairing"}
+_SENSITIVE_ARTIFACT_SUFFIXES = {".p12", ".pfx", ".der", ".pem", ".key"}
+_SENSITIVE_NAMES = re.compile(
+    r"(?i)(pairingfile|rppairing|client_(cert|key)|lockdowndirectdiag|"
+    r"(?:^|[/_.-])pairing(?:[/_.-]|$))"
+)
 _PUBLIC_SOURCE_DIRS = {"scripts", "tests", "docs"}
 _PUBLIC_SOURCE_SUFFIXES = {
-    ".c", ".cpp", ".h", ".hpp", ".js", ".json", ".md", ".py", ".rs", ".swift", ".ts", ".tsx", ".yml", ".yaml"
+    ".c", ".cpp", ".h", ".hpp", ".js", ".md", ".rst", ".py", ".rs", ".swift", ".ts", ".tsx"
 }
 
 
@@ -40,18 +42,14 @@ def _is_sensitive_reachable_path(path: str) -> bool:
         return False
     parts = normalized.split("/")
     basename = parts[-1].lower()
-    stem = Path(basename).stem
     suffix = Path(basename).suffix
 
     # These formats are private signing/pairing material wherever they occur.
     if suffix in _SENSITIVE_ARTIFACT_SUFFIXES:
         return True
-    if stem in _SENSITIVE_BASENAMES:
-        return True
-
-    # PairingFile.swift and similarly named adapters are public source. A bare
-    # pairing artifact, or one outside the public source tree, remains blocked.
-    if stem in _PAIRING_ARTIFACT_BASENAMES:
+    # Source identifiers may mention pairing. Serialized data (including JSON
+    # and plist) and private material never inherit the source exemption.
+    if _SENSITIVE_NAMES.search(normalized):
         is_public_source = (
             len(parts) > 1
             and parts[0].lower() in _PUBLIC_SOURCE_DIRS
@@ -97,8 +95,7 @@ class RepositoryTests(unittest.TestCase):
     def test_workflow_references_current_scripts(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         references = set(re.findall(r"builder/scripts/([A-Za-z0-9_.-]+\.py)", workflow))
-        excluded_from_current = {"adapt_sidestore_070_pairing.py", "adapt_sidestore_070_signing.py"}
-        self.assertTrue({name for name in REQUIRED_SCRIPTS if name not in excluded_from_current}.issubset(references))
+        self.assertTrue(REQUIRED_SCRIPTS.issubset(references))
         self.assertNotRegex(workflow, r"builder/scripts/patch_v\d+")
         self.assertNotIn("build-v29-coredevice-self-refresh.yml", workflow)
         live_workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
@@ -124,12 +121,10 @@ class RepositoryTests(unittest.TestCase):
         self.assertNotIn(chr(0x2014), source)
 
     def test_no_sensitive_paths_are_reachable(self):
-        # Audit the history reachable from the ref being built.  ``--all`` also
-        # traverses unrelated investigation branches and tags, which can
-        # legitimately contain private diagnostic fixtures that are not part
-        # of this release.
+        # Retain the audit of every reachable ref, including deleted files in
+        # history. A clone containing private investigation refs must fail.
         result = subprocess.run(
-            ["git", "rev-list", "HEAD", "--objects"],
+            ["git", "-c", "core.quotePath=false", "rev-list", "--objects", "--all"],
             cwd=ROOT,
             check=True,
             capture_output=True,
@@ -150,6 +145,12 @@ class RepositoryTests(unittest.TestCase):
         self.assertTrue(_is_sensitive_reachable_path("scripts/client.p12"))
         self.assertTrue(_is_sensitive_reachable_path("diagnostics/LockdownDirectDiag.log"))
         self.assertTrue(_is_sensitive_reachable_path("docs/export.der"))
+        for path in ("scripts/pairingFile.json", "tests/rppairing.plist",
+                     "data/device.pairing", "backups/pairingFile.plist.old",
+                     "exports/client_key.backup", "LockdownDirectDiag/output.log",
+                     "docs/CLIENT.P12", "scripts/key.pem", "data/phone.pfx"):
+            with self.subTest(path=path):
+                self.assertTrue(_is_sensitive_reachable_path(path))
 
     def test_public_docs_do_not_expose_known_private_network_details(self):
         """Generic RFC1918 examples are allowed; known diagnostic addresses are not."""
