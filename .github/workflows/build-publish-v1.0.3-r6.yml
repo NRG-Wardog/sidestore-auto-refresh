@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/build-publish-v1.0.3-r6.yml'
       - 'tests/test_repository.py'
+      - 'scripts/patch_sidestore_integration.py'
 
 permissions:
   contents: write
