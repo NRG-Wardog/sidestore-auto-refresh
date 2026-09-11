@@ -16,6 +16,7 @@ REQUIRED_SCRIPTS = {
     "patch_sidestore_integration.py",
     "patch_background_automation.py",
     "patch_local_idevice_package.py",
+    "adapt_sidestore_070_pairing.py",
 }
 LIVE_CONTAINER_SCRIPT = "patch_livecontainer_autorefresh.py"
 LIVE_CONTAINER_STARTUP_SCRIPT = "patch_embedded_sidestore_startup.py"
@@ -59,7 +60,7 @@ class RepositoryTests(unittest.TestCase):
     def test_workflow_references_current_scripts(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         references = set(re.findall(r"builder/scripts/([A-Za-z0-9_.-]+\.py)", workflow))
-        self.assertTrue(REQUIRED_SCRIPTS.issubset(references))
+        self.assertTrue({name for name in REQUIRED_SCRIPTS if name != "adapt_sidestore_070_pairing.py"}.issubset(references))
         self.assertNotRegex(workflow, r"builder/scripts/patch_v\d+")
         self.assertNotIn("build-v29-coredevice-self-refresh.yml", workflow)
         live_workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
