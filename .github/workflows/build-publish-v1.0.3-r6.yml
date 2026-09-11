@@ -1,5 +1,5 @@
 name: Build and publish standalone v1.0.3 r6
-# Retry after registering the SideStore 0.7.0 signing adapter in repository tests.
+# Retry after restoring the repository safety tests without weakening their checks.
 
 on:
   push:
