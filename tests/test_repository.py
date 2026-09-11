@@ -24,6 +24,7 @@ LIVE_CONTAINER_STARTUP_SCRIPT = "patch_embedded_sidestore_startup.py"
 COMBINED_REFRESH_SCRIPT = "patch_combined_refresh_contract.py"
 EMBEDDED_KEYCHAIN_SCRIPT = "patch_embedded_keychain.py"
 APP_LAYOUT_SCRIPT = "patch_app_layout.py"
+CI_MONITOR_SCRIPT = "monitor_ci_build.py"
 
 _SENSITIVE_ARTIFACT_SUFFIXES = {".p12", ".pfx", ".der", ".pem", ".key"}
 _SENSITIVE_NAMES = re.compile(
@@ -73,7 +74,7 @@ class RepositoryTests(unittest.TestCase):
             REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
                                 COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, 'audit_ipa_signing.py', 'patch_guest_return.py',
                                 'package_livecontainer_combined.py', 'patch_combined_transport.py', 'patch_refresh_result_bridge.py',
-                                APP_LAYOUT_SCRIPT},
+                                APP_LAYOUT_SCRIPT, CI_MONITOR_SCRIPT},
         )
 
     def test_patch_scripts_parse_and_are_idempotent(self):
