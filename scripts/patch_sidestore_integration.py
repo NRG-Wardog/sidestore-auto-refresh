@@ -438,15 +438,9 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
                             "    private override init() {\n        try! super.init()\n"
                             "        ffiQueue.setSpecific(key: ffiQueueKey, value: true)",
                             "queue-aware invalidation initialization")
-        text = replace_once(
-            text,
-            "    private func ensureCoreDeviceConnection() throws {",
-            "    private var usesCoreDevice: Bool { pairingFileType == .lockdown }\n\n"
-            "    private func ensureCoreDeviceConnection() throws {",
-            "CoreDevice mode selector",
-        )
+    ensure_coredevice = r'''    private var usesCoreDevice: Bool { pairingFileType == .lockdown }
 
-    ensure_coredevice = r'''    private func ensureCoreDeviceConnection() throws {
+    private func ensureCoreDeviceConnection() throws {
         if adapter != nil, handshake != nil, coreDeviceProvider != nil,
            tunnel_heartbeat_is_active() {
             verboseLog("[SIDESTORE_COREDEVICE] TRANSPORT_REUSE")
