@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
-"""Adapt SideStore 0.7.0 minimuxer pairing parser to the project's Lockdown-first policy."""
+"""Adapt SideStore 0.7.0 minimuxer layout to this project's Lockdown/CoreDevice policy."""
 
 from pathlib import Path
 import sys
 
-MARKER = "Composite records must use Lockdown/CoreDevice"
+PAIRING_MARKER = "Composite records must use Lockdown/CoreDevice"
+UTUN_MARKER = "[SIDESTORE_COREDEVICE] LOCALVPN_UTUN_ACCEPTED"
 
 
-def main(root: Path) -> None:
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected one anchor, found {count}")
+    return text.replace(old, new, 1)
+
+
+def patch_pairing(root: Path) -> None:
     pairing_file = root / "Common" / "PairingFile.swift"
     protocol_file = root / "Common" / "PairingProtocol.swift"
 
     text = pairing_file.read_text(encoding="utf-8")
-    if MARKER not in text:
+    if PAIRING_MARKER not in text:
         old = '''        let missingRP = RPPairingFile.missingKeys(in: plist)
         if missingRP.isEmpty {
             return .rppairing
@@ -35,20 +43,17 @@ def main(root: Path) -> None:
             return .rppairing
         }
 '''
-        if text.count(old) != 1:
-            raise SystemExit(f"SideStore 0.7.0 pairing parser anchor mismatch: found {text.count(old)}")
-        text = text.replace(old, new, 1)
+        text = replace_once(text, old, new, "SideStore 0.7.0 pairing parser")
         pairing_file.write_text(text, encoding="utf-8")
 
     protocol = protocol_file.read_text(encoding="utf-8")
-    if MARKER not in protocol:
+    if PAIRING_MARKER not in protocol:
         anchor = "import Foundation\n"
-        if protocol.count(anchor) != 1:
-            raise SystemExit("PairingProtocol.swift import anchor mismatch")
-        protocol = protocol.replace(
+        protocol = replace_once(
+            protocol,
             anchor,
             anchor + "\n// Composite records must use Lockdown/CoreDevice; parser policy lives in PairingFile.swift.\n",
-            1,
+            "PairingProtocol.swift import",
         )
         protocol_file.write_text(protocol, encoding="utf-8")
 
@@ -57,7 +62,36 @@ def main(root: Path) -> None:
     remote = final.index("let missingRP = RPPairingFile.missingKeys(in: plist)", lockdown)
     if lockdown >= remote:
         raise SystemExit("Lockdown-first composite pairing policy was not established")
-    print("SideStore 0.7.0 pairing parser adapted: Lockdown preferred for composite records")
+
+
+def patch_localvpn_readiness(root: Path) -> None:
+    path = root / "Sources" / "MinimuxerImpl.swift"
+    text = path.read_text(encoding="utf-8")
+    if UTUN_MARKER in text:
+        return
+
+    old = '''                // check iKEv2 too if in lockdown mode and ios >= 26.4
+                if self.gateway.pairingFileType != .rppairing && !net.isIKEv2IPSecAvailable {
+                    if #available(iOS 26.4, *) {
+                        debugLog("[minimuxer] minimuxer not ready: no ipsec interface (required for lockdown on iOS 26.4+)")
+                        return .failure(.invalidVPN("utun is present but no ipsec/IKEv2 interface found — LocalDevVPN may not support the lockdown protocol on iOS 26.4+"))
+                    }
+                }
+'''
+    new = '''                // The CoreDevice Lockdown path uses the LocalDevVPN utun directly.
+                // An additional IKEv2/IPsec interface is not required by this build.
+                if self.gateway.pairingFileType != .rppairing {
+                    verboseLog("[SIDESTORE_COREDEVICE] LOCALVPN_UTUN_ACCEPTED transport=lockdown-coredevice")
+                }
+'''
+    text = replace_once(text, old, new, "SideStore 0.7.0 LocalDevVPN readiness")
+    path.write_text(text, encoding="utf-8")
+
+
+def main(root: Path) -> None:
+    patch_pairing(root)
+    patch_localvpn_readiness(root)
+    print("SideStore 0.7.0 adapted: Lockdown-first pairing and CoreDevice LocalDevVPN readiness")
 
 
 if __name__ == "__main__":
