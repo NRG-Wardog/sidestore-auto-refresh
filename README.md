@@ -552,7 +552,7 @@ The implementation contract is:
 - Persist `appLayoutStyle` and `showAppLabels` through SideStore's existing preferences/UserDefaults mechanism. Do not add a new database for UI preferences.
 - Extend the existing **Interface -> App Layout** setting instead of creating a second layout control. Show **Show app labels** only when Grid is selected.
 - Keep the current list/card renderer as the List path. Do not rewrite working list behavior simply to share code.
-- Implement Grid with SwiftUI `LazyVGrid`. Grid cells are icon-first, use consistent adaptive spacing, and optionally render the app name below the icon.
+- Implement Grid as an icon-first adaptive grid, with an optional app name below each icon.
 - Implement Compact List with the same app data and actions as List, but with reduced icon size, row height, and vertical padding.
 - Route all three renderers through the same existing app model and action handlers. Layout-specific views must not duplicate signing, refresh, activation, installation, or context-menu business logic.
 - Hiding Grid labels is visual only. The app name must remain available as an accessibility label.

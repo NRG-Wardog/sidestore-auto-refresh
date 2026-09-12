@@ -182,10 +182,17 @@ class AppLayoutPatchTests(unittest.TestCase):
         self.assertIn('showAppLabels = newValue', patch_script)
 
     def test_accessibility_label_preserved_when_labels_hidden(self):
-        # In LCGridAppCell, accessibilityLabel must combine children and expose appModel.displayName
+        # The UIKit grid control exposes the app name even when visual labels are hidden.
         grid_cell_template = (ROOT / "scripts" / "templates" / "livecontainer_grid_app_cell.swift").read_text(encoding="utf-8")
-        self.assertIn(".accessibilityElement(children: .combine)", grid_cell_template)
-        self.assertIn(".accessibilityLabel(appModel.displayName)", grid_cell_template)
+        self.assertIn("accessibilityLabel = model.displayName", grid_cell_template)
+        self.assertIn("titleLabel.isHidden = !showLabels", grid_cell_template)
+
+        # The grid is visual only: launch and every context-menu action come from
+        # the established banner controller, including its confirmation and errors.
+        self.assertIn("actionRouter.performPrimaryAction()", grid_cell_template)
+        self.assertIn("actionRouter.makeContextMenu()", grid_cell_template)
+        self.assertNotIn("delegate.removeApp", grid_cell_template)
+        self.assertNotIn("appModel.runApp", grid_cell_template)
 
         # In SideStore AppBannerView, applyLayoutStyle must only toggle titleLabel.isHidden
         patch_script = (ROOT / "scripts" / "patch_app_layout.py").read_text(encoding="utf-8")
