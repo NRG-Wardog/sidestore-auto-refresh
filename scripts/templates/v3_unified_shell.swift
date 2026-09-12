@@ -125,7 +125,7 @@ private struct V3AppsView: View {
                         NavigationLink(destination: V3SideStoreAppDetail(app: app)) {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(app.name)
-                                Text("\(app.version) · \(app.isActive ? \"Active\" : \"Inactive\")")
+                                Text(app.version + " · " + (app.isActive ? "Active" : "Inactive"))
                                     .font(.caption).foregroundColor(.secondary)
                             }
                         }
