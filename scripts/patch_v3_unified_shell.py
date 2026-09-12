@@ -96,10 +96,20 @@ def patch_embedded_status(root: Path) -> None:
                 // Credentials, certificates, tokens, and database objects never leave SideStore.
                 if let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") {
                     let account = DatabaseManager.shared.activeAccount()?.appleID ?? "Not signed in"
-                    let installedAppCount = InstalledApp.all(in: DatabaseManager.shared.viewContext).count
+                    let installedApps = InstalledApp.all(in: DatabaseManager.shared.viewContext)
+                    let appRows: [[String: Any]] = installedApps.prefix(100).map { app in
+                        ["bundleID": app.bundleIdentifier,
+                         "name": app.name,
+                         "version": app.version,
+                         "isActive": app.isActive,
+                         "expirationDate": app.expirationDate,
+                         "hasUpdate": app.hasUpdate,
+                         "certificateStatus": app.certificateStatusRaw ?? "valid"]
+                    }
                     defaults.set(["account": account,
                                   "signing": DatabaseManager.shared.activeTeam() == nil ? "No active team" : "Ready",
-                                  "installedAppCount": installedAppCount,
+                                  "installedAppCount": installedApps.count,
+                                  "installedApps": appRows,
                                   "updatedAt": Date()], forKey: "v3SideStoreStatusSnapshot")
                 }
 '''
