@@ -53,7 +53,7 @@ The Guest Controls screen in v2.1.0 includes **Show Return Button**, **Start Col
 
 ### Standalone preview (v1.0.2 screenshots)
 
-These screenshots show the earlier standalone SideStore v1.0.2 interface. The current standalone download is v1.0.3, based on SideStore 0.7.0 nightly.
+These screenshots show the earlier standalone SideStore v1.0.2 interface. The current standalone download is v1.0.4, based on SideStore 0.7.0 nightly.
 
 <table>
 <tr>
@@ -78,14 +78,24 @@ These screenshots show the earlier standalone SideStore v1.0.2 interface. The cu
 
 | What you want | Use | Download |
 | --- | --- | --- |
-| LiveContainer with the modified SideStore built in | **Combined v2.1.0** | **[Download combined IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.1.0/LiveContainer-SideStore-AutoRefresh-v2.1.0.ipa)** |
-| SideStore only, with normal separately installed sideloaded apps | **Standalone v1.0.3** | **[Download standalone IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.3/SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa)** |
+| LiveContainer with the modified SideStore built in | **Combined v2.1.1** | **[Download combined IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.1.1/LiveContainer-SideStore-AutoRefresh.ipa)** |
+| SideStore only, with normal separately installed sideloaded apps | **Standalone v1.0.4** | **[Download standalone IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.4/SideStore.ipa)** |
 
-If you want LiveContainer, install **v2.1.0**. SideStore is already embedded inside it, so do not install a separate SideStore copy for the same combined setup.
+If you want LiveContainer, install **v2.1.1**. SideStore is already embedded inside it, so do not install a separate SideStore copy for the same combined setup.
 
-**Combined:** [v2.1.0 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.0) | [SHA256SUMS](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.1.0/SHA256SUMS.txt)
+**Combined:** [v2.1.1 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.1)
 
-**Standalone:** [v1.0.3 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.3) | [SHA256SUMS](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.3/SHA256SUMS.txt) | [release notes](docs/RELEASE_NOTES_v1.0.3.md)
+**Standalone:** [v1.0.4 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.4)
+
+## What's new in v1.0.4 and v2.1.1?
+
+Issue 17 adds saved app layout choices under **Interface**:
+
+- **List** keeps the detailed card layout.
+- **Grid** shows an icon-first app grid. You can hide visual labels while keeping each app name available to VoiceOver.
+- **Compact List** uses shorter rows for denser browsing.
+
+The selected layout and label preference persist across launches. Changing either setting refreshes the Apps screen immediately. Grid actions continue to use the existing launch, multitasking, context-menu, confirmation, and error-handling paths.
 
 ## What's new in standalone v1.0.3?
 
@@ -203,13 +213,13 @@ These steps apply to **both standalone v1 and combined v2**. Complete this secti
 
 Choose exactly one build for the setup you want:
 
-**Combined LiveContainer + SideStore v2.1.0**
+**Combined LiveContainer + SideStore v2.1.1**
 
-[Download `LiveContainer-SideStore-AutoRefresh-v2.1.0.ipa`](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.1.0/LiveContainer-SideStore-AutoRefresh-v2.1.0.ipa)
+[Download `LiveContainer-SideStore-AutoRefresh.ipa`](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.1.1/LiveContainer-SideStore-AutoRefresh.ipa)
 
-**Standalone SideStore v1.0.3**
+**Standalone SideStore v1.0.4**
 
-[Download `SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa`](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.3/SideStore-CoreDevice-AutoRefresh-v1.0.3.ipa)
+[Download `SideStore.ipa`](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.4/SideStore.ipa)
 
 ### 2. Install iLoader and connect the device
 
@@ -350,7 +360,7 @@ Allow notifications if you want refresh status and deadline warnings.
 
 ## Combined setup (v2)
 
-Use this section only for **LiveContainer + SideStore v2.1.0**.
+Use this section only for **LiveContainer + SideStore v2.1.1**.
 
 ### 1. Open LiveContainer and embedded SideStore
 
@@ -386,7 +396,7 @@ The selected time is a **target deadline**, not an exact alarm. iOS controls whe
 
 ## Standalone setup (v1)
 
-Use this section for **standalone SideStore v1.0.3**.
+Use this section for **standalone SideStore v1.0.4**.
 
 ### 1. Open SideStore
 
@@ -532,11 +542,11 @@ The stable CoreDevice path preserves service TLS, contiguous CDTunnel writes, he
 
 | Scope | Current evidence |
 | --- | --- |
-| Standalone v1.0.3 build and packaging | CI passed; published IPA checksum, arm64 executable, background-task configuration, and 13 feature markers independently verified |
+| Standalone v1.0.4 build and packaging | CI passed; published IPA checksum, arm64 executable, background-task configuration, and layout patch parsing verified |
 | Standalone v1.0.3 device refresh | Device testing of this exact build is pending |
 | Earlier standalone manual CoreDevice refresh | Verified on iPhone 12 / iOS 26.6.1; this predates v1.0.3 |
 | Earlier standalone scheduled refresh with PC disconnected | Recorded proof predates v1.0.3 and is available in the verification report |
-| Combined v2.1.0 build and packaging | Combined CI run completed successfully |
+| Combined v2.1.1 build and packaging | Combined CI run completed successfully, including the LiveContainer grid implementation |
 | v2.1.0 Guest Controls | Start Collapsed and custom colors are included in the published combined build |
 | Background scheduling | Best effort. iOS controls task launch timing |
 | Cellular-only refresh | Experimental, not supported in the stable release |
@@ -544,13 +554,21 @@ The stable CoreDevice path preserves service TLS, contiguous CDTunnel writes, he
 
 A build completing, a background task starting, or a host handoff occurring is not automatically treated as proof that the signing lifetime was refreshed. See [docs/VERIFICATION.md](docs/VERIFICATION.md) for the exact proof model.
 
-### v2.1.0 provenance
+### v2.1.1 provenance
 
-- Builder/tag commit: `2372c3e96132cb06394dafdd9ff74aeca416dd1c`
-- Combined CI run: [34497164738](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/34497164738)
-- IPA: `LiveContainer-SideStore-AutoRefresh-v2.1.0.ipa`
-- SHA-256: `6493e1e8c525a3b1ea343973bf199e30069f1c837f1a6175f3befa05d7a0eb50`
-- Release: [LiveContainer + SideStore Auto-Refresh v2.1.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.0)
+- Builder/tag commit: `3d4a7c49f9c202159397c25106149a3bad2b2902`
+- Combined CI run: [34689847917](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/34689847917)
+- IPA: `LiveContainer-SideStore-AutoRefresh.ipa`
+- SHA-256: `94a95f1b51066db0552c65ac5e4f3cf67efc3baa293adc2eca077228adabb583`
+- Release: [LiveContainer + SideStore Auto-Refresh v2.1.1](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.1)
+
+### v1.0.4 provenance
+
+- Builder/tag commit: `3d4a7c49f9c202159397c25106149a3bad2b2902`
+- Standalone CI run: [34689425130](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/34689425130)
+- IPA: `SideStore.ipa`
+- SHA-256: `f9641f559e922ea4de5099d9857438a7970e216f40536cf7fece8f21a1ee3692`
+- Release: [SideStore CoreDevice Auto-Refresh v1.0.4](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.4)
 
 ### v1.0.3 provenance
 
