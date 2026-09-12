@@ -102,10 +102,13 @@ jobs:
             python3 builder/scripts/patch_guest_return.py work/LiveContainer
             python3 builder/scripts/patch_app_layout.py work/LiveContainer
             python3 builder/scripts/patch_app_layout.py work/LiveContainer
+            python3 builder/scripts/patch_v3_unified_shell.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_v3_unified_shell.py work/LiveContainer work/EmbeddedSideStore
             swiftc -frontend -parse work/LiveContainer/MultitaskSupport/MultitaskAppWindow.swift
             swiftc -frontend -parse work/LiveContainer/MultitaskSupport/MultitaskDockView.swift
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Models/AppLayoutStyle.swift
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift
+            swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift
             python3 - <<'PY'
           import importlib.util
           from pathlib import Path
@@ -123,6 +126,7 @@ jobs:
             swiftc -frontend -parse work/LiveContainer/SideStoreSupport/SideStore.swift
             swiftc -frontend -parse work/EmbeddedSideStore/SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift
             swiftc -frontend -parse work/EmbeddedSideStore/SideStore/Utils/iostreams/ConsoleLog.swift
+            swiftc -frontend -parse work/EmbeddedSideStore/AltStore/AppDelegate.swift
             swiftc -frontend -parse work/EmbeddedSideStore/AltStore/Core/Model/DatabaseManager/DatabaseManager.swift
             plutil -lint work/LiveContainer/LiveContainer/Info.plist
             plutil -extract BGTaskSchedulerPermittedIdentifiers.0 raw work/LiveContainer/LiveContainer/Info.plist
