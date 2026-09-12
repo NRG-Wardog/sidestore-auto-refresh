@@ -72,6 +72,8 @@ def verify(path, side_product=None):
         assert b'liveContainerAutoRefreshVerification' in executable, 'Patched embedded operation missing'
         host_code = archive.read(base + '/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI')
         assert b'liveContainerAutoRefresh' in host_code, 'Host automation missing'
+        assert b'V3_UNIFIED_SHELL_V1' in host_code, 'Unified v3 host shell missing'
+        assert b'v3SideStoreStatusSnapshot' in executable, 'Bounded SideStore status publisher missing'
         assert b'lcReturnToHost' in host_code, 'Guest return action missing from host binary'
         assert b'LCReturnControlPosition' in host_code, 'Movable return control missing'
         assert b'virtual_window_chrome' in host_code, 'Multitasking Return input-layer fix missing'

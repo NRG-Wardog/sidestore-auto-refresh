@@ -9,6 +9,12 @@ An independent, open-source build based on **SideStore** and **LiveContainer**, 
 
 Two variants are available: **standalone SideStore** and **LiveContainer with this modified SideStore embedded**. A computer is needed for the initial install and pairing setup. After that, the stable refresh path is designed to run on the iPhone without keeping the computer connected.
 
+## v3 unified combined application
+
+The combined build is being migrated to a single LiveContainer + SideStore experience. v3 makes the host own normal navigation with **Home, Apps, Sources, Refresh, and Settings**, while SideStore remains the authoritative owner of signing, authentication, app installation, sources, certificates, and its database.
+
+The migration does not alter the LocalDevVPN, Lockdown, CoreDevice, or RSD refresh transport. Its design, ownership rules, migration stages, and validation requirements are documented in [the v3 architecture document](docs/V3_UNIFIED_ARCHITECTURE.md).
+
 > [!IMPORTANT]
 > The current stable refresh path requires **Wi-Fi + the official App Store LocalDevVPN**. Cellular-only refresh is experimental and is not part of the stable release.
 
