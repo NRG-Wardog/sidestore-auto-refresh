@@ -94,13 +94,13 @@ private struct V3HomeView: View {
                 Section("Status") {
                     Label("\(sharedModel.apps.count) LiveContainer guests", systemImage: "rectangle.stack.fill")
                     Label("\(status.installedAppCount) sideloaded apps", systemImage: "app.badge")
-                    LabeledContent("Signing", value: status.signing)
-                    LabeledContent("Account", value: status.account)
+                    v3StatusRow("Signing", status.signing)
+                    v3StatusRow("Account", status.account)
                 }
                 Section("Refresh") {
-                    LabeledContent("State", value: refreshState.replacingOccurrences(of: "_", with: " ").capitalized)
+                    v3StatusRow("State", refreshState.replacingOccurrences(of: "_", with: " ").capitalized)
                     if let lastRefresh {
-                        LabeledContent("Last verified run", value: lastRefresh.formatted(date: .abbreviated, time: .shortened))
+                        v3StatusRow("Last verified run", lastRefresh.formatted(date: .abbreviated, time: .shortened))
                     }
                     Button("Refresh now") { sharedModel.selectedTab = .refresh }
                 }
@@ -113,6 +113,14 @@ private struct V3HomeView: View {
             .navigationTitle("Home")
         }
         .navigationViewStyle(StackNavigationViewStyle())
+    }
+
+    private func v3StatusRow(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(value).foregroundColor(.secondary).multilineTextAlignment(.trailing)
+        }
     }
 }
 // V3_UNIFIED_SHELL_V1_END
