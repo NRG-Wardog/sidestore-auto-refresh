@@ -23,6 +23,7 @@ LIVE_CONTAINER_SCRIPT = "patch_livecontainer_autorefresh.py"
 LIVE_CONTAINER_STARTUP_SCRIPT = "patch_embedded_sidestore_startup.py"
 COMBINED_REFRESH_SCRIPT = "patch_combined_refresh_contract.py"
 EMBEDDED_KEYCHAIN_SCRIPT = "patch_embedded_keychain.py"
+APP_LAYOUT_SCRIPT = "patch_app_layout.py"
 
 _SENSITIVE_ARTIFACT_SUFFIXES = {".p12", ".pfx", ".der", ".pem", ".key"}
 _SENSITIVE_NAMES = re.compile(
@@ -71,12 +72,13 @@ class RepositoryTests(unittest.TestCase):
             {path.name for path in SCRIPTS.glob("*.py")},
             REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
                                 COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, 'audit_ipa_signing.py', 'patch_guest_return.py',
-                                'package_livecontainer_combined.py', 'patch_combined_transport.py', 'patch_refresh_result_bridge.py'},
+                                'package_livecontainer_combined.py', 'patch_combined_transport.py', 'patch_refresh_result_bridge.py',
+                                APP_LAYOUT_SCRIPT},
         )
 
     def test_patch_scripts_parse_and_are_idempotent(self):
         for name in REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
-                                        COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_combined_transport.py", "patch_refresh_result_bridge.py"}:
+                                        COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_combined_transport.py", "patch_refresh_result_bridge.py", APP_LAYOUT_SCRIPT}:
             path = SCRIPTS / name
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         self.assertIn(
@@ -101,6 +103,9 @@ class RepositoryTests(unittest.TestCase):
         live_workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
         self.assertIn("builder/scripts/" + LIVE_CONTAINER_STARTUP_SCRIPT, live_workflow)
         self.assertIn("builder/scripts/" + COMBINED_REFRESH_SCRIPT, live_workflow)
+        self.assertIn("builder/scripts/patch_app_layout.py", live_workflow)
+        standalone_workflow = (ROOT / ".github/workflows/build-current.yml").read_text(encoding="utf-8")
+        self.assertIn("builder/scripts/patch_app_layout.py", standalone_workflow)
         contract = (SCRIPTS / COMBINED_REFRESH_SCRIPT).read_text(encoding="utf-8")
         self.assertIn("from patch_embedded_keychain import patch as patch_shared_keychain", contract)
         self.assertIn("patch_shared_keychain(Path(sys.argv[1]))", contract)

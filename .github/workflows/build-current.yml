@@ -65,7 +65,8 @@ jobs:
             builder/scripts/patch_coredevice_idevice.py \
             builder/scripts/patch_sidestore_integration.py \
             builder/scripts/patch_background_automation.py \
-            builder/scripts/patch_local_idevice_package.py
+            builder/scripts/patch_local_idevice_package.py \
+            builder/scripts/patch_app_layout.py
 
       - name: Run repository checks
         env:
@@ -170,6 +171,7 @@ jobs:
           python3 builder/scripts/patch_sidestore_integration.py "$MUX" "$SIDE"
           python3 builder/scripts/patch_background_automation.py "$SIDE"
           python3 builder/scripts/patch_local_idevice_package.py "$MUX"
+          python3 builder/scripts/patch_app_layout.py "$SIDE"
 
           GATEWAY="$MUX/DeviceGateway/idevice/IdeviceGateway.swift"
           PAIRING_PROTOCOL="$MUX/Common/PairingProtocol.swift"
@@ -185,6 +187,10 @@ jobs:
           swiftc -frontend -parse "$SIDE/AltStore/AppDelegate.swift"
           swiftc -frontend -parse "$SIDE/AltStore/SceneDelegate.swift"
           swiftc -frontend -parse "$SIDE/AltStore/Settings/SettingsViewController.swift"
+          swiftc -frontend -parse "$SIDE/AltStore/Core/Extensions/UserDefaults+AltStore.swift"
+          swiftc -frontend -parse "$SIDE/SideStore/Views/Settings/Advanced/UserCustomizations/UserCustomizationsView.swift"
+          swiftc -frontend -parse "$SIDE/AltStore/Components/AppBannerView.swift"
+          swiftc -frontend -parse "$SIDE/AltStore/My Apps/MyAppsViewController.swift"
           plutil -lint "$SIDE/AltStore/Info.plist"
           swift package --package-path "$MUX/DeviceGateway" dump-package >/tmp/current-gateway-package.json
 
