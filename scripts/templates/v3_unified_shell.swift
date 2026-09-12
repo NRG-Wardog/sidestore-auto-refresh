@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 // V3_UNIFIED_SHELL_V1_BEGIN
 // The host owns navigation. SideStore remains the owner of signing, account,
@@ -7,6 +8,7 @@ struct V3UnifiedShell: View {
     @EnvironmentObject private var sharedModel: SharedModel
     @StateObject private var sideStoreStatus = V3SideStoreStatusStore()
     @State private var selectedInitialTab = false
+    private let monitor = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     private let contractMarker = "V3_UNIFIED_SHELL_V1"
 
     var body: some View {
@@ -41,6 +43,9 @@ struct V3UnifiedShell: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             sideStoreStatus.reload()
         }
+        .onReceive(monitor) { _ in
+            sideStoreStatus.reload()
+        }
         .onOpenURL(perform: dispatchURL)
     }
 
@@ -73,6 +78,9 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var installedAppCount = 0
     @Published private(set) var updatedAt: Date?
     @Published private(set) var installedApps: [V3SideStoreApp] = []
+    @Published private(set) var isStale = true
+
+    private let maximumSnapshotAge: TimeInterval = 120
 
     func reload() {
         let snapshot = defaults.dictionary(forKey: "v3SideStoreStatusSnapshot") ?? [:]
@@ -81,6 +89,8 @@ final class V3SideStoreStatusStore: ObservableObject {
         installedAppCount = snapshot["installedAppCount"] as? Int ?? 0
         updatedAt = snapshot["updatedAt"] as? Date
         installedApps = (snapshot["installedApps"] as? [[String: Any]] ?? []).compactMap(V3SideStoreApp.init)
+        let updatedAt = snapshot["updatedAt"] as? Date
+        isStale = updatedAt.map { Date().timeIntervalSince($0) > maximumSnapshotAge } ?? true
     }
 }
 
@@ -153,7 +163,7 @@ private struct V3SideStoreAppDetail: View {
             Section("Status") {
                 Text(app.isActive ? "Active" : "Inactive")
                 Text("Certificate: \(app.certificateStatus.capitalized)")
-                if let expirationDate { Text("Expires \(expirationDate.formatted(date: .abbreviated, time: .omitted))") }
+                if let expirationDate = app.expirationDate { Text("Expires \(expirationDate.formatted(date: .abbreviated, time: .omitted))") }
                 if app.hasUpdate { Text("Update available") }
             }
             Section("Version") { Text(app.version) }
@@ -176,6 +186,7 @@ private struct V3HomeView: View {
                     Label("\(sharedModel.apps.count) LiveContainer guests", systemImage: "rectangle.stack.fill")
                     Label("\(status.installedAppCount) sideloaded apps", systemImage: "app.badge")
                     v3StatusRow("Signing", status.signing)
+                    v3StatusRow("Monitor", status.isStale ? "Waiting for current SideStore status" : "Current")
                     v3StatusRow("Account", status.account)
                 }
                 Section("Refresh") {
