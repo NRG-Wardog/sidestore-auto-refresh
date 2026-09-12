@@ -152,6 +152,20 @@ def patch_livecontainer_banner_view(root: Path) -> None:
         vc_text = replace_once(vc_text, update_anchor, update_replacement, "LCAppBannerViewController update")
         banner_vc_path.write_text(vc_text, encoding="utf-8")
 
+    vc_text = banner_vc_path.read_text(encoding="utf-8")
+    if "func performPrimaryAction()" not in vc_text:
+        primary_anchor = "    @objc private func runButtonTapped() {"
+        primary_replacement = (
+            "    func performPrimaryAction() {\n"
+            "        runButtonTapped()\n"
+            "    }\n\n"
+            "    @objc private func runButtonTapped() {"
+        )
+        vc_text = replace_once(vc_text, primary_anchor, primary_replacement, "LCAppBannerViewController primary action")
+        menu_anchor = "    private func makeContextMenu() -> UIMenu {"
+        vc_text = replace_once(vc_text, menu_anchor, "    func makeContextMenu() -> UIMenu {", "LCAppBannerViewController context menu")
+        banner_vc_path.write_text(vc_text, encoding="utf-8")
+
     # 3. LCAppBanner.swift
     banner_rep_path = root / "LiveContainerSwiftUI" / "Views" / "AppList" / "LCAppBanner" / "LCAppBanner.swift"
     rep_text = banner_rep_path.read_text(encoding="utf-8")
@@ -410,6 +424,8 @@ def patch_sidestore_app_banner(root: Path) -> None:
             "        {\n"
             "            self.iconImageViewHeightConstraint?.constant = 40\n"
             "            self.subtitleLabel?.isHidden = true\n"
+            "            self.button?.isHidden = false\n"
+            "            self.titleLabel?.isHidden = false\n"
             "            self.stackView?.spacing = 6\n"
             "        }\n"
             "        else if style == \"grid\"\n"
@@ -440,6 +456,38 @@ def patch_sidestore_my_apps(root: Path) -> None:
     text = path.read_text(encoding="utf-8")
     if MARKER_SIDESTORE in text:
         return
+
+    observer_anchor = "        NotificationCenter.default.addObserver(self, selector: #selector(MyAppsViewController.didChangeAppIcon(_:)), name: UIApplication.didChangeAppIconNotification, object: nil)"
+    observer_replacement = (
+        observer_anchor + "\n"
+        "        NotificationCenter.default.addObserver(self, selector: #selector(MyAppsViewController.appLayoutPreferencesDidChange(_:)), name: UserDefaults.didChangeNotification, object: UserDefaults.standard)"
+    )
+    text = replace_once(text, observer_anchor, observer_replacement, "MyAppsViewController layout preferences observer")
+
+    deinit_anchor = "    deinit {\n        if !(minimuxerStatusCheckTask?.isCancelled == true) {\n            minimuxerStatusCheckTask?.cancel()\n        }\n    }"
+    deinit_replacement = (
+        "    deinit {\n"
+        "        NotificationCenter.default.removeObserver(self, name: UserDefaults.didChangeNotification, object: UserDefaults.standard)\n"
+        "        if !(minimuxerStatusCheckTask?.isCancelled == true) {\n"
+        "            minimuxerStatusCheckTask?.cancel()\n"
+        "        }\n"
+        "    }"
+    )
+    text = replace_once(text, deinit_anchor, deinit_replacement, "MyAppsViewController layout preferences observer cleanup")
+
+    layout_method_anchor = "    override func viewDidLoad()\n    {"
+    layout_method_replacement = (
+        "    @objc private func appLayoutPreferencesDidChange(_ notification: Notification)\n"
+        "    {\n"
+        "        DispatchQueue.main.async { [weak self] in\n"
+        "            guard let self, self.isViewLoaded else { return }\n"
+        "            self.collectionView.collectionViewLayout.invalidateLayout()\n"
+        "            self.collectionView.reloadData()\n"
+        "        }\n"
+        "    }\n\n"
+        "    override func viewDidLoad()\n    {"
+    )
+    text = replace_once(text, layout_method_anchor, layout_method_replacement, "MyAppsViewController layout preferences handler")
 
     size_anchor = (
         "        case .activeApps, .inactiveApps:\n"
@@ -501,8 +549,10 @@ def verify_livecontainer(root: Path) -> None:
         die("LiveContainer app list marker missing")
     if "layoutStyle" not in banner:
         die("LiveContainer app banner layoutStyle missing")
-    if "accessibilityLabel(appModel.displayName)" not in grid_cell:
+    if "accessibilityLabel = model.displayName" not in grid_cell:
         die("LiveContainer grid cell accessibilityLabel missing")
+    if "actionRouter.performPrimaryAction()" not in grid_cell or "actionRouter.makeContextMenu()" not in grid_cell:
+        die("LiveContainer grid cell does not route actions through LCAppBannerViewController")
     if "case compactList = \"compactList\"" not in model:
         die("LiveContainer AppLayoutStyle compactList case missing")
 
