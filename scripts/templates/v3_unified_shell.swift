@@ -86,7 +86,8 @@ private struct V3HomeView: View {
     @EnvironmentObject private var sharedModel: SharedModel
     @ObservedObject var status: V3SideStoreStatusStore
     @AppStorage("liveContainerAutoRefreshHealthState", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var refreshState = "UNKNOWN"
-    @AppStorage("liveContainerAutoRefreshLastDate", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var lastRefresh: Date?
+    @State private var lastRefresh: Date?
+    private let refreshDefaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") ?? .standard
 
     var body: some View {
         NavigationView {
@@ -111,6 +112,7 @@ private struct V3HomeView: View {
                 }
             }
             .navigationTitle("Home")
+            .onAppear { lastRefresh = refreshDefaults.object(forKey: "liveContainerAutoRefreshLastDate") as? Date }
         }
         .navigationViewStyle(StackNavigationViewStyle())
     }
