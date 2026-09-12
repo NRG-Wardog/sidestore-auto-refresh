@@ -91,7 +91,7 @@ If you want LiveContainer, install **v2.1.0**. SideStore is already embedded ins
 
 Standalone v1.0.3 updates the app to **SideStore 0.7.0 nightly**, including the newer **SideSign authentication path**.
 
-- Preserves LocalDevVPN → Lockdown/CoreDevice → RSD transport, manual refresh, scheduled refresh, history, retries, and verification.
+- Preserves LocalDevVPN -> Lockdown/CoreDevice -> RSD transport, manual refresh, scheduled refresh, history, retries, and verification.
 - Composite pairing records prefer Lockdown/CoreDevice, and this path works with LocalDevVPN without an additional IKEv2/IPsec interface.
 - Adapts signing instrumentation and background database startup to the SideStore 0.7 APIs.
 - Records self-refresh reconciliation success only after the database update succeeds.
@@ -527,6 +527,59 @@ LiveContainer triggers / embedded SideStore
 ```
 
 The stable CoreDevice path preserves service TLS, contiguous CDTunnel writes, heartbeat during transport operations, packet-size and flow-control fixes, and corrected FFI ownership. Experimental cellular work is not part of the current stable product path.
+
+### App Layout architecture (Issue #17)
+
+Issue #17 is intentionally a **presentation-layer feature**. It must not modify the refresh transport, signing, authentication, background scheduling, database reconciliation, or CoreDevice pipeline.
+
+```text
+Interface settings
+    -> persisted AppLayoutPreferences
+        -> App Layout: list | grid | compactList
+        -> Show app labels: true | false
+    -> Apps screen presentation switch
+        -> List renderer
+        -> Grid renderer
+        -> Compact List renderer
+    -> shared app model + shared actions
+        -> open / refresh / activate / deactivate / context menu
+```
+
+The implementation contract is:
+
+- Add a small persisted layout model, for example `AppLayoutStyle: String`, with `list`, `grid`, and `compactList` cases.
+- Keep **List** as the default so existing installs retain today's behavior.
+- Persist `appLayoutStyle` and `showAppLabels` through SideStore's existing preferences/UserDefaults mechanism. Do not add a new database for UI preferences.
+- Extend the existing **Interface -> App Layout** setting instead of creating a second layout control. Show **Show app labels** only when Grid is selected.
+- Keep the current list/card renderer as the List path. Do not rewrite working list behavior simply to share code.
+- Implement Grid as an icon-first adaptive grid, with an optional app name below each icon.
+- Implement Compact List with the same app data and actions as List, but with reduced icon size, row height, and vertical padding.
+- Route all three renderers through the same existing app model and action handlers. Layout-specific views must not duplicate signing, refresh, activation, installation, or context-menu business logic.
+- Hiding Grid labels is visual only. The app name must remain available as an accessibility label.
+- Treat [SideloadLabs/AppNest](https://github.com/SideloadLabs/AppNest) as a visual reference only. Do not vendor or copy its implementation unless its code and license are reviewed separately.
+
+#### Patch strategy
+
+This repository should implement the feature as a deterministic build-time patch, consistent with the rest of the project. The expected implementation is a dedicated semantic patch such as `scripts/patch_app_layout.py` that targets the pinned SideStore source rather than vendoring whole upstream files.
+
+Standalone and combined builds currently consume different SideStore source lines. The UI contract should remain the same, but source-specific anchors/adapters may be used where their view structure differs. Do not upgrade the embedded LiveContainer SideStore to official SideStore 0.7 solely to deliver this UI feature.
+
+The patch must be idempotent and fail closed if upstream anchors move. It should touch only the minimum settings/preferences and Apps-screen presentation surface needed for the feature.
+
+#### Verification gates
+
+Before Issue #17 is considered complete:
+
+1. Repository tests prove the patch is idempotent and rejects changed/ambiguous upstream anchors.
+2. Generated Swift parses successfully and the build completes for every supported target that receives the feature.
+3. List, Grid, Grid without visual labels, and Compact List are all reachable from settings.
+4. Layout and label preferences survive relaunch.
+5. Open, refresh, activation/deactivation, status display, and context-menu actions still use the same underlying handlers in every layout.
+6. Accessibility still exposes the app name when Grid labels are hidden.
+7. No transport, signing, authentication, scheduler, or CoreDevice source is changed by this feature.
+8. Device screenshots/acceptance checks cover all three layouts before release.
+
+This separation keeps Issue #17 low risk: the renderer changes, while the app lifecycle and refresh stack remain the same.
 
 ## Verification status
 
