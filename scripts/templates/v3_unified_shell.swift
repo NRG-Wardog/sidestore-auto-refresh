@@ -15,7 +15,7 @@ struct V3UnifiedShell: View {
                 .tabItem { Label("Home", systemImage: "house.fill") }
                 .tag(LCTabIdentifier.home)
 
-            LCAppListView()
+            V3AppsView(status: sideStoreStatus)
                 .tabItem { Label("Apps", systemImage: "square.stack.3d.up.fill") }
                 .tag(LCTabIdentifier.apps)
 
@@ -72,6 +72,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var signing = "Unknown"
     @Published private(set) var installedAppCount = 0
     @Published private(set) var updatedAt: Date?
+    @Published private(set) var installedApps: [V3SideStoreApp] = []
 
     func reload() {
         let snapshot = defaults.dictionary(forKey: "v3SideStoreStatusSnapshot") ?? [:]
@@ -79,6 +80,85 @@ final class V3SideStoreStatusStore: ObservableObject {
         signing = snapshot["signing"] as? String ?? "Unknown"
         installedAppCount = snapshot["installedAppCount"] as? Int ?? 0
         updatedAt = snapshot["updatedAt"] as? Date
+        installedApps = (snapshot["installedApps"] as? [[String: Any]] ?? []).compactMap(V3SideStoreApp.init)
+    }
+}
+
+struct V3SideStoreApp: Identifiable, Hashable {
+    let bundleID: String
+    let name: String
+    let version: String
+    let isActive: Bool
+    let expirationDate: Date?
+    let hasUpdate: Bool
+    let certificateStatus: String
+    var id: String { "sidestore:" + bundleID }
+
+    init?(_ values: [String: Any]) {
+        guard let bundleID = values["bundleID"] as? String,
+              let name = values["name"] as? String,
+              let version = values["version"] as? String,
+              let isActive = values["isActive"] as? Bool,
+              let hasUpdate = values["hasUpdate"] as? Bool else { return nil }
+        self.bundleID = bundleID
+        self.name = name
+        self.version = version
+        self.isActive = isActive
+        self.expirationDate = values["expirationDate"] as? Date
+        self.hasUpdate = hasUpdate
+        self.certificateStatus = values["certificateStatus"] as? String ?? "valid"
+    }
+}
+
+private struct V3AppsView: View {
+    @EnvironmentObject private var sharedModel: SharedModel
+    @ObservedObject var status: V3SideStoreStatusStore
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section("Sideloaded Apps") {
+                    if status.installedApps.isEmpty {
+                        Text("No sideloaded apps are available yet.").foregroundColor(.secondary)
+                    }
+                    ForEach(status.installedApps) { app in
+                        NavigationLink(destination: V3SideStoreAppDetail(app: app)) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(app.name)
+                                Text("\(app.version) · \(app.isActive ? \"Active\" : \"Inactive\")")
+                                    .font(.caption).foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+                Section("LiveContainer Guests") {
+                    ForEach(sharedModel.apps, id: \.self) { guest in
+                        Button { Task { try? await guest.runApp() } } label: {
+                            Text(guest.appInfo.displayName())
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Apps")
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
+    }
+}
+
+private struct V3SideStoreAppDetail: View {
+    let app: V3SideStoreApp
+
+    var body: some View {
+        List {
+            Section("Status") {
+                Text(app.isActive ? "Active" : "Inactive")
+                Text("Certificate: \(app.certificateStatus.capitalized)")
+                if let expirationDate { Text("Expires \(expirationDate.formatted(date: .abbreviated, time: .omitted))") }
+                if app.hasUpdate { Text("Update available") }
+            }
+            Section("Version") { Text(app.version) }
+        }
+        .navigationTitle(app.name)
     }
 }
 
