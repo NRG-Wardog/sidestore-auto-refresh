@@ -23,9 +23,6 @@ struct LCGridAppCell: UIViewControllerRepresentable {
         controller.update(model: appModel, dynamicColors: dynamicColors, darkModeIcon: darkModeIcon, showLabels: showLabels)
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiViewController: LCGridAppCellViewController, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? 80, height: showLabels ? 106 : 76)
-    }
 }
 
 final class LCGridAppCellViewController: UIViewController, UIContextMenuInteractionDelegate {
