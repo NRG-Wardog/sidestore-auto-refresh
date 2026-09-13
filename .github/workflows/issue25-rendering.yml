@@ -1,0 +1,41 @@
+name: Issue 25 simulator rendering regression
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fix/issue25-rendering-harness]
+
+permissions:
+  contents: read
+
+jobs:
+  rendering:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.4.app
+      - name: Prepare pinned generated layout source
+        run: |
+          git clone --no-checkout https://github.com/LiveContainer/LiveContainer.git layout-source
+          git -C layout-source checkout --detach 12377cf3b91d51739a33f14a302e5f522b238593
+          python3 scripts/patch_app_layout.py layout-source
+          python3 scripts/patch_app_layout.py layout-source
+      - name: Execute defective and corrected real renderers
+        run: python3 scripts/run_issue25_rendering.py --livecontainer layout-source --output layout-evidence
+      - name: Preserve measurements and simulator screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue25-rendering-${{ github.sha }}
+          path: |
+            layout-evidence/**/*.json
+            layout-evidence/**/*.png
+            layout-source/LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift
+            layout-source/LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBanner.swift
+            layout-source/LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerView.swift
+          if-no-files-found: error
+          retention-days: 30
