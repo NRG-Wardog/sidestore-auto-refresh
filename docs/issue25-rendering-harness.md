@@ -38,9 +38,10 @@ IPAs or distribution artifacts.
   a missing icon or a source marker.
 - The corrected generated Grid on phone and tablet simulators, across saved Grid
   cold process launches, preference changes, label visibility, dynamic text,
-  window widths, repeated List/Grid/Compact List changes, collection replacement,
+  window widths and landscape-shaped window bounds, repeated List/Grid/Compact List changes, collection replacement,
   reorder, empty state and repopulation. Detached controllers retained by SwiftUI
-  are reported separately, not counted as visible cells.
+  are reported separately, not counted as visible cells. The landscape-shaped
+  host bounds exercise window reflow, not physical rotation of the simulator.
 - Positive bounds, visible icon fallback, icon and label containment, row overlap,
   identity/order preservation, action-router parenting, tap forwarding, and menu
   forwarding. Symbol alignment rectangles are used when verifying Auto Layout
