@@ -332,6 +332,7 @@ struct RenderingScreen: View, LCAppBannerDelegate {
                 state.apps.reverse()
                 await waitForLayout()
                 measure("live-collection-reorder-replace")
+                capture("reorder-replace-grid")
                 state.apps = []
                 await waitForLayout()
                 check(gridControllers().isEmpty, "empty collection retains stale grid cells")
