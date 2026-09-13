@@ -106,13 +106,14 @@ class RefreshHandler: NSObject {
             Task { @MainActor in
                 guard let self else { ext._kill(9); return }
                 guard self.launchID == id else {
-                    ext._kill(9)
                     if self.retiringRequestPending == id {
+                        ext._kill(9)
                         self.retiringRequestPending = nil
                         if let uuid { self.retiringPID = ext.pid(forRequestIdentifier: uuid) }
                     }
                     return
                 }
+                guard self.launchRequestPending == id else { return }
                 self.launchRequestPending = nil
                 guard error == nil, let uuid else { self.failed(id, stage: .extensionLaunch, underlying: error); return }
                 let pid = ext.pid(forRequestIdentifier: uuid)
