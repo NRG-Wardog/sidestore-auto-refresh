@@ -73,12 +73,16 @@ def verify(path, side_product=None):
         host_code = archive.read(base + '/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI')
         assert b'liveContainerAutoRefresh' in host_code, 'Host automation missing'
         assert b'V3_UNIFIED_SHELL_V1' in host_code, 'Unified v3 host shell missing'
-        assert b'v3SideStoreStatusSnapshot' in executable, 'Bounded SideStore status publisher missing'
+        assert b'V3SideStoreService' in executable, 'SideStore command service missing'
+        assert b'v3SideStoreStatusSnapshot' not in executable, 'Retired status publisher remains'
         assert b'lcReturnToHost' in host_code, 'Guest return action missing from host binary'
         assert b'LCReturnControlPosition' in host_code, 'Movable return control missing'
         assert b'virtual_window_chrome' in host_code, 'Multitasking Return input-layer fix missing'
         bootstrap_code = archive.read(base + '/Frameworks/LiveContainerShared.framework/LiveContainerShared')
         support_code = archive.read(base + '/Frameworks/SideStoreSupport.framework/SideStoreSupport')
+        assert b'v3Execute:reply:' in support_code, 'XPC command endpoint missing'
+        assert b'execute:reply:' in executable, 'SideStore command dispatcher missing'
+        assert b'Import Pairing File' in host_code, 'Unified pairing setup missing'
         for code in (host_code, bootstrap_code):
             assert b'CONTROL_COLLAPSED' in code and b'CONTROL_RESTORED' in code, 'Restorable Return control missing'
         assert b'finishRefresh:runID:verification:' in support_code, 'XPC result receiver missing'

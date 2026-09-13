@@ -58,7 +58,7 @@ def patch(live, side):
 @implementation SideStoreClient
 - (void)v3Execute:(NSData *)request reply:(void (^)(NSData *))reply {
     Class<V3CommandService> service = (Class<V3CommandService>)NSClassFromString(@"V3SideStoreService");
-    if ([service respondsToSelector:@selector(execute:reply:)]) {
+    if (service && [(id)service respondsToSelector:@selector(execute:reply:)]) {
         [service execute:request reply:reply];
     } else {
         reply([NSData data]);
@@ -66,6 +66,9 @@ def patch(live, side):
 }
 '''))
     def host(s):
+        s = replace(s, "class RefreshHandler: NSObject, RefreshServer {", "@MainActor\nclass RefreshHandler: NSObject, RefreshServer {")
+        s = replace(s, "        RefreshHandler.shared.progress = intentProgress",
+                    "        await MainActor.run { RefreshHandler.shared.progress = intentProgress }")
         s = replace(s, "        guard let client = self.client else {", '''        // V3_COMMAND_PATCH_V1: connect without invoking signing or refresh.
         if identifier == "__v3_connect" {
             guard self.client != nil else { throw NSError(domain: "V3SideStoreService", code: 1) }
@@ -118,6 +121,43 @@ def patch(live, side):
                 self.launchContinuation = nil
                 self.client = nil
                 Task { @MainActor in V3ServiceBridge.shared.disconnected() }
+            }''')
+        # NSXPC and NSExtension callbacks arrive on arbitrary queues. Funnel every
+        # continuation, client and PID transition through the main actor.
+        s = replace(s, "            ext.setRequestInterruptionBlock { uuid in",
+                    "            ext.setRequestInterruptionBlock { uuid in\n                Task { @MainActor in")
+        s = replace(s, "            }\n            \n            let launchID = UUID()",
+                    "                }\n            }\n            \n            let launchID = UUID()")
+        callbacks = [
+            ("func updateProgress(_ value: Double)", "updateProgress", "_ value: Double", "value"),
+            ("func finishRefresh(_ error: String?, runID: String, verification: Data?)", "finishRefresh", "_ error: String?, runID: String, verification: Data?", "error, runID: runID, verification: verification"),
+            ("func finish(_ error: String?)", "finish", "_ error: String?", "error"),
+            ("func onConnection(_ connection: NSXPCConnection!)", "onConnection", "_ connection: NSXPCConnection!", "connection"),
+            ("func finishedLaunching()", "finishedLaunching", "", ""),
+            ("func add(_ request: UNNotificationRequest)", "add", "_ request: UNNotificationRequest", "request"),
+            ("func removePendingNotificationRequests(withIdentifiers identifiers: [String])", "removePendingNotificationRequests", "withIdentifiers identifiers: [String]", "withIdentifiers: identifiers"),
+        ]
+        for declaration, name, arguments, call in callbacks:
+            s = replace(s, "    " + declaration + " {",
+                "    nonisolated " + declaration + " {\n"
+                "        Task { @MainActor in self.v3_" + name + "(" + call + ") }\n"
+                "    }\n\n    private func v3_" + name + "(" + arguments + ") {")
+        s = s.replace('            finish(', '            v3_finish(').replace('        finish(error)', '        v3_finish(error)')
+        s = replace(s, "        try await withUnsafeThrowingContinuation { c in\n            self.c = c",
+                    '''        guard self.c == nil, !V3ServiceBridge.shared.isMutating else {
+            throw NSError(domain: "V3SideStoreService", code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "Another SideStore operation is running."])
+        }
+        try await withUnsafeThrowingContinuation { c in
+            self.c = c''')
+        # A connected service can answer status queries while a refresh runs.
+        s = replace(s, "        if c != nil {", '        if c != nil && identifier != "__v3_connect" {')
+        s = replace(s, '        if identifier == "__v3_connect" {',
+                    '''        if identifier == "__v3_connect" {
+            let until = Date().addingTimeInterval(45)
+            while (self.launchContinuation != nil || self.sideStorePid <= 0) && Date() < until {
+                try Task.checkCancellation()
+                try await Task.sleep(nanoseconds: 50_000_000)
             }''')
         return s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_service_bridge.swift").read_text(encoding="utf-8")
     edit(live, "SideStoreSupport/SideStore.swift", host)
