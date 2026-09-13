@@ -6,9 +6,18 @@ into '.lockdown UDID not found'.
 """
 from pathlib import Path
 import re
+import sys
 import unittest
 
-from tests.test_combined_transport import SourceFixture, function, snapshot
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+try:
+    from test_combined_transport import SourceFixture, function, snapshot
+except ImportError:
+    from tests.test_combined_transport import SourceFixture, function, snapshot
+
 from patch_combined_transport import patch
 from patch_sidestore_integration import patch_gateway
 
