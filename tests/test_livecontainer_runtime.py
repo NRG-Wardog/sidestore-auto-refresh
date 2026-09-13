@@ -13,7 +13,7 @@ class LiveContainerRuntimeTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("swiftc unavailable")
-        paths = ["tests/fixtures/livecontainer_scheduler_stubs.swift", "scripts/templates/livecontainer_refresh_policy.swift",
+        paths = ["scripts/templates/combined_failure.swift", "tests/fixtures/livecontainer_scheduler_stubs.swift", "scripts/templates/livecontainer_refresh_policy.swift",
                  "scripts/templates/livecontainer_refresh_scheduler.swift", "tests/fixtures/livecontainer_scheduler_harness.swift"]
         source = "\n".join((ROOT / p).read_text() for p in paths)
         with tempfile.TemporaryDirectory() as directory:
@@ -27,6 +27,7 @@ class LiveContainerRuntimeTests(unittest.TestCase):
             self.assertIn("SCHEDULER_BEHAVIOR_TESTS_PASSED", result.stdout)
             self.assertIn("error_code=42", result.stdout)
             self.assertNotIn(r"\(runID", result.stdout)
+            self.assertNotIn("SECRET_TOKEN", result.stdout)
 
     def test_installed_profile_identity_and_expiration(self):
         compiler = shutil.which("swiftc")
