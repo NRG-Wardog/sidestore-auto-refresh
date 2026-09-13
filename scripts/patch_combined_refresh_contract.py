@@ -5,6 +5,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import tempfile
 
 MARKER = "COMBINED_REFRESH_MANIFEST_V2"
 PIN = "ff25922e5c13ccfafd83bda5092910d848ebd409"
@@ -16,9 +17,17 @@ def replace_once(text: str, old: str, new: str) -> str:
     return text.replace(old, new, 1)
 
 
-def patch(root: Path) -> None:
+def verify_pin(root: Path) -> None:
     if subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip() != PIN:
         raise SystemExit("combined refresh contract requires pinned embedded SideStore")
+
+
+def patch(root: Path) -> None:
+    verify_pin(root)
+    _patch_verified(root)
+
+
+def _patch_verified(root: Path) -> None:
     path = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
     manifest = root / ".combined-refresh-contract.json"
     patch_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
@@ -53,6 +62,34 @@ def patch(root: Path) -> None:
     verify(text)
     path.write_bytes(text.encode("utf-8"))
     manifest.write_text(json.dumps({"pin": PIN, "patch": patch_hash, "output": hashlib.sha256(path.read_bytes()).hexdigest()}, sort_keys=True))
+
+
+def patch_combined_cli(root: Path) -> None:
+    # Validate the real source revision before even staging the existing Keychain patch.
+    verify_pin(root)
+    paths = [Path("AltStore/Core/Components/Keychain.swift"),
+             Path("SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"),
+             Path(".combined-refresh-contract.json")]
+    originals = {relative: (root / relative).read_bytes() for relative in paths if (root / relative).exists()}
+    from patch_embedded_keychain import patch as patch_shared_keychain
+    with tempfile.TemporaryDirectory(prefix="combined-contract-") as directory:
+        staged = Path(directory)
+        for relative, data in originals.items():
+            target = staged / relative; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data)
+        if paths[2] in originals:
+            # Detect drift before another transformer could accidentally conceal it.
+            _patch_verified(staged)
+        # Reuse the authoritative Keychain patch unchanged. It also edits the operation,
+        # so run it before hashing the final contract output. Neither touches live source
+        # until both transformations and Swift parsing have validated successfully.
+        patch_shared_keychain(staged)
+        for relative in paths[:2]:
+            target = staged / relative
+            target.write_bytes(target.read_text(encoding="utf-8").encode("utf-8"))
+        _patch_verified(staged)
+        updates = {relative: (staged / relative).read_bytes() for relative in paths}
+    for relative, data in updates.items():
+        if originals.get(relative) != data: (root / relative).write_bytes(data)
 
 
 def verify(text: str) -> None:
@@ -123,10 +160,8 @@ if __name__ == "__main__":
         print("Combined runtime package verification passed; device runtime NOT TESTED")
         print("SHA256=" + result["sha256"])
     elif len(sys.argv) == 2:
-        patch(Path(sys.argv[1]))
         # This CLI is invoked twice by the combined workflow, after the upstream
         # background-operation patch. Standalone SideStore is not changed.
-        from patch_embedded_keychain import patch as patch_shared_keychain
-        patch_shared_keychain(Path(sys.argv[1]))
+        patch_combined_cli(Path(sys.argv[1]))
     else:
         raise SystemExit("usage: patch_combined_refresh_contract.py <embedded-root> | --verify-ipa <file.ipa>")
