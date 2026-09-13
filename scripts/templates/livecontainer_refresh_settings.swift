@@ -73,6 +73,7 @@ struct LCEmbeddedSideStoreRefreshView: View {
     @State private var isSelectingHistory = false
     @State private var selectedHistoryIDs: Set<String> = []
     @State private var showClearHistoryConfirmation = false
+    @AppStorage("liveContainerAutoRefreshUncertainMutationRunID", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var uncertainMutation = ""
     @AppStorage("liveContainerAutoRefreshLastError", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var lastError = ""
     @AppStorage("liveContainerAutoRefreshHealthState", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var healthState = "UNKNOWN"
     @AppStorage("liveContainerAutoRefreshEnabled", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var enabled = false
@@ -103,6 +104,11 @@ struct LCEmbeddedSideStoreRefreshView: View {
                     .font(.caption).foregroundColor(.secondary)
                 if !lastError.isEmpty {
                     Text(lastError).font(.caption).foregroundColor(.red)
+                    Button("Copy Refresh Diagnostics") { UIPasteboard.general.string = lastError }
+                }
+                if !uncertainMutation.isEmpty {
+                    Text("The previous refresh result is uncertain. Automatic retries are paused. Review app status and expiration before explicitly retrying.")
+                        .font(.caption).foregroundColor(.orange)
                 }
             }
             Section {
