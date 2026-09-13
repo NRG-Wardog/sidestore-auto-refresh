@@ -7,7 +7,7 @@ enum V3WireContract {
     static let responseLimit = 4_194_304
     static let operations: Set<String> = ["snapshot", "catalog", "cancel", "refreshSources", "addSource",
         "removeSource", "signIn", "signOut", "syncAppIDs", "clearCache", "setSetting", "install",
-        "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "jit", "panel", "importPairing", "refreshApp", "backupResult", "installURL"]
+        "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "jit", "panel", "importPairing", "refreshApp", "backupResult", "installURL", "installSharedIPA"]
 
     static func decodeRequest(_ data: Data, now: Date = Date()) -> [String: Any]? {
         guard data.count <= requestLimit,
@@ -25,7 +25,9 @@ enum V3WireContract {
                   CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
         } else if operation == "setSetting" { return nil }
         if let cursor = request["cursor"] {
-            guard operation == "catalog", let value = cursor as? Int, value >= 0, value <= 1_000_000 else { return nil }
+            guard operation == "catalog", let number = cursor as? NSNumber,
+                  CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  let value = cursor as? Int, value >= 0, value <= 1_000_000 else { return nil }
         }
         return request
     }

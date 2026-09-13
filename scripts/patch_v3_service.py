@@ -261,6 +261,37 @@ def patch(live, side):
         "        let storeScheme : String", '''        // Combined certificate import never falls through to a legacy app URL.
         if UserDefaults.sideStoreExist() { return }
         let storeScheme : String'''))
+    def multi_lc(s):
+        s = replace(s, "struct LCMultiLCManagementView : View, InstallAnotherLCButtonDelegate {",
+            "struct LCMultiLCManagementView : View, InstallAnotherLCButtonDelegate {\n    @EnvironmentObject private var v3Status: V3SideStoreStatusStore")
+        start = s.index("                let launchURLStr = packedIpaUrl.absoluteString")
+        end = s.index("\n                return", start)
+        old = s[start:end]
+        if "LCUtils.openSideStore(urlStr: launchURLStr)" not in old:
+            raise SystemExit("v3 multi-instance install route changed")
+        return s[:start] + '                v3Status.stageSharedIPA(packedIpaUrl, title: "Install " + name)' + s[end:]
+    edit(live, "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift", multi_lc)
+    edit(live, "ShareExtension/ShareExtensionViewModel.swift", lambda s: replace(s,
+        '        sharedDefaults?.set("builtinSideStore", forKey: "LCLaunchExtensionBundleID")',
+        '        // V3_COMMAND_PATCH_V1: always open the unified host for installation.\n        sharedDefaults?.removeObject(forKey: "LCLaunchExtensionBundleID")'))
+    edit(live, "LaunchAppExtension/LaunchAppExtension.swift", lambda s: replace(s,
+        '            lcSharedDefaults.set("builtinSideStore", forKey: "LCLaunchExtensionBundleID")',
+        '            // V3_COMMAND_PATCH_V1: the host routes SideStore links through its service.\n            lcSharedDefaults.removeObject(forKey: "LCLaunchExtensionBundleID")'))
+    edit(live, "LiveContainer/LCBootstrap.m", lambda s: replace(s,
+        '    if([lcUserDefaults boolForKey:@"LCOpenSideStore"] || [selectedApp isEqualToString:@"builtinSideStore"]) {',
+        '''    // V3_COMMAND_PATCH_V1: upgrade old startup selection into unified navigation.
+    // The dedicated LiveProcess service still boots SideStore normally.
+    if (!isLiveProcess && sideStoreExist &&
+        ([lcUserDefaults boolForKey:@"LCOpenSideStore"] || [selectedApp isEqualToString:@"builtinSideStore"])) {
+        if (launchUrl.length) [lcUserDefaults setObject:launchUrl forKey:@"V3PendingSideStoreURL"];
+        [lcUserDefaults setBool:NO forKey:@"LCOpenSideStore"];
+        [lcUserDefaults removeObjectForKey:@"selected"];
+        [lcUserDefaults removeObjectForKey:@"selectedContainer"];
+        selectedApp = nil;
+        selectedContainer = nil;
+        launchUrl = nil;
+    }
+    if([lcUserDefaults boolForKey:@"LCOpenSideStore"] || [selectedApp isEqualToString:@"builtinSideStore"]) {'''))
     edit(live, "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift", lambda s: replace(s,
         '        Form {\n            Section("Status") {', '        Form {\n            V3TargetedRefreshSection()\n            Section("Status") {'))
     edit(live, "LiveContainerSwiftUI/App/AppDelegate.swift", lambda s: replace(replace(s,

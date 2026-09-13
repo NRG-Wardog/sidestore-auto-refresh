@@ -186,12 +186,24 @@ final class V3SideStoreService: NSObject {
             case "verboseOperations": UserDefaults.standard.isVerboseOperationsLoggingEnabled = value
             default: throw ServiceError.invalidRequest
             }
-        case "install", "installURL":
+        case "install", "installURL", "installSharedIPA":
             let installTarget: InstallTarget
+            var scopedURL: URL?
+            defer { scopedURL?.stopAccessingSecurityScopedResource() }
             if operation == "install" {
                 let app: StoreApp = try object(target)
                 guard app.latestSupportedVersion != nil else { throw ServiceError.unsupported }
                 installTarget = .app(app)
+            } else if operation == "installSharedIPA" {
+                guard UUID(uuidString: target) != nil, let group = Bundle.main.altstoreAppGroup,
+                      let defaults = UserDefaults(suiteName: group),
+                      let bookmark = defaults.data(forKey: "V3SharedIPA." + target) else { throw ServiceError.invalidRequest }
+                defaults.removeObject(forKey: "V3SharedIPA." + target)
+                var stale = false
+                let url = try URL(resolvingBookmarkData: bookmark, options: .withoutUI, relativeTo: nil, bookmarkDataIsStale: &stale)
+                guard !stale, url.isFileURL, url.pathExtension.lowercased() == "ipa" else { throw ServiceError.invalidRequest }
+                if url.startAccessingSecurityScopedResource() { scopedURL = url }
+                installTarget = .url(url)
             } else {
                 guard let url = URL(string: target), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
                       url.host != nil, url.user == nil, url.password == nil else { throw ServiceError.invalidRequest }
