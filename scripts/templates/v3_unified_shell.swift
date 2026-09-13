@@ -21,7 +21,7 @@ struct V3UnifiedShell: View {
                 .tabItem { Label("Apps", systemImage: "square.stack.3d.up.fill") }
                 .tag(LCTabIdentifier.apps)
 
-            LCSourcesView()
+            V3SourcesView(status: sideStoreStatus)
                 .tabItem { Label("Sources", systemImage: "books.vertical") }
                 .tag(LCTabIdentifier.sources)
 
@@ -78,6 +78,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var installedAppCount = 0
     @Published private(set) var updatedAt: Date?
     @Published private(set) var installedApps: [V3SideStoreApp] = []
+    @Published private(set) var sources: [V3SideStoreSource] = []
     @Published private(set) var isStale = true
 
     private let maximumSnapshotAge: TimeInterval = 120
@@ -89,6 +90,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         installedAppCount = snapshot["installedAppCount"] as? Int ?? 0
         updatedAt = snapshot["updatedAt"] as? Date
         installedApps = (snapshot["installedApps"] as? [[String: Any]] ?? []).compactMap(V3SideStoreApp.init)
+        sources = (snapshot["sources"] as? [[String: Any]] ?? []).compactMap(V3SideStoreSource.init)
         let updatedAt = snapshot["updatedAt"] as? Date
         isStale = updatedAt.map { Date().timeIntervalSince($0) > maximumSnapshotAge } ?? true
     }
@@ -117,6 +119,50 @@ struct V3SideStoreApp: Identifiable, Hashable {
         self.expirationDate = values["expirationDate"] as? Date
         self.hasUpdate = hasUpdate
         self.certificateStatus = values["certificateStatus"] as? String ?? "valid"
+    }
+}
+
+struct V3SideStoreSource: Identifiable, Hashable {
+    let identifier: String
+    let name: String
+    let subtitle: String
+    let url: String
+    let appCount: Int
+    var id: String { "sidestore-source:" + identifier }
+
+    init?(_ values: [String: Any]) {
+        guard let identifier = values["identifier"] as? String,
+              let name = values["name"] as? String,
+              let url = values["url"] as? String,
+              let appCount = values["appCount"] as? Int else { return nil }
+        self.identifier = identifier
+        self.name = name
+        self.subtitle = values["subtitle"] as? String ?? ""
+        self.url = url
+        self.appCount = appCount
+    }
+}
+
+private struct V3SourcesView: View {
+    @ObservedObject var status: V3SideStoreStatusStore
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section("SideStore Sources") {
+                    if status.sources.isEmpty { Text("No SideStore sources are available yet.").foregroundColor(.secondary) }
+                    ForEach(status.sources) { source in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(source.name)
+                            if !source.subtitle.isEmpty { Text(source.subtitle).font(.caption).foregroundColor(.secondary) }
+                            Text("\(source.appCount) apps").font(.caption).foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Sources")
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
     }
 }
 

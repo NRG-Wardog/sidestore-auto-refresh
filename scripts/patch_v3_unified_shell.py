@@ -97,6 +97,15 @@ def patch_embedded_status(root: Path) -> None:
                 if let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") {
                     let account = DatabaseManager.shared.activeAccount()?.appleID ?? "Not signed in"
                     let installedApps = InstalledApp.all(in: DatabaseManager.shared.viewContext)
+                    let sourceRequest = NSFetchRequest<Source>(entityName: "Source")
+                    let sources = (try? DatabaseManager.shared.viewContext.fetch(sourceRequest)) ?? []
+                    let sourceRows: [[String: Any]] = sources.prefix(100).map { source in
+                        ["identifier": source.identifier,
+                         "name": source.name,
+                         "subtitle": source.subtitle ?? "",
+                         "url": source.sourceURL.absoluteString,
+                         "appCount": source.apps.count]
+                    }
                     let appRows: [[String: Any]] = installedApps.prefix(100).map { app in
                         ["bundleID": app.bundleIdentifier,
                          "name": app.name,
@@ -110,6 +119,7 @@ def patch_embedded_status(root: Path) -> None:
                                   "signing": DatabaseManager.shared.activeTeam() == nil ? "No active team" : "Ready",
                                   "installedAppCount": installedApps.count,
                                   "installedApps": appRows,
+                                  "sources": sourceRows,
                                   "updatedAt": Date()], forKey: "v3SideStoreStatusSnapshot")
                 }
 '''
@@ -126,7 +136,7 @@ def verify(live: Path, side: Path) -> None:
     if any(not p.exists() for p in required):
         die("v3 host files are missing")
     shell = required[0].read_text(encoding="utf-8")
-    for token in (MARKER, "V3SideStoreStatusStore", "LCEmbeddedSideStoreRefreshView", "LCTabIdentifier.refresh"):
+    for token in (MARKER, "V3SideStoreStatusStore", "V3SourcesView", "LCEmbeddedSideStoreRefreshView", "LCTabIdentifier.refresh"):
         if token not in shell:
             die(f"v3 shell is missing {token}")
     if "V3UnifiedShell()" not in required[1].read_text(encoding="utf-8"):
