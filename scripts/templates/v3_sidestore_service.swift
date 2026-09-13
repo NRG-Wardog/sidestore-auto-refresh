@@ -9,7 +9,7 @@ final class V3SideStoreService: NSObject {
     static let shared = V3SideStoreService()
     private var tasks: [String: Task<Void, Never>] = [:]
     private var cancellations: [String: () -> Void] = [:]
-    private var completed: [String: Data] = [:]
+    private var completed: [String: (data: Data, deadline: Date)] = [:]
     private var mutationID: String?
     private var finishPanel: (() -> Void)?
     static let presenter = UIViewController()
@@ -20,18 +20,16 @@ final class V3SideStoreService: NSObject {
     }
 
     private func receive(_ data: Data, reply: @escaping (Data) -> Void) {
-        guard data.count <= 16384,
-              let request = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              Set(request.keys).isSubset(of: ["version", "id", "operation", "target", "value", "deadline"]),
-              request["version"] as? Int == 1,
-              let id = request["id"] as? String, UUID(uuidString: id) != nil,
+        guard let request = V3WireContract.decodeRequest(data),
+              let id = request["id"] as? String,
               let operation = request["operation"] as? String,
               let deadline = request["deadline"] as? Date,
               deadline > Date(), deadline.timeIntervalSinceNow <= 610 else {
             reply(encode(["error": "invalidRequest"]))
             return
         }
-        if let previous = completed[id] { reply(previous); return }
+        completed = completed.filter { $0.value.deadline > Date() }
+        if let previous = completed[id] { reply(previous.data); return }
         if operation == "cancel" {
             let target = request["target"] as? String ?? ""
             tasks[target]?.cancel()
@@ -42,7 +40,7 @@ final class V3SideStoreService: NSObject {
         }
         guard tasks[id] == nil else { reply(encode(["id": id, "error": "busy"])); return }
         let mutation = !["snapshot", "catalog"].contains(operation)
-        guard !mutation || mutationID == nil else {
+        guard !mutation || (mutationID == nil && completed.count < 512) else {
             reply(encode(["id": id, "error": "busy"])); return
         }
         if mutation { mutationID = id }
@@ -67,8 +65,7 @@ final class V3SideStoreService: NSObject {
                 else { response["error"] = "operationFailed" }
             }
             let encoded = encode(response)
-            if completed.count >= 128 { completed.removeAll() }
-            completed[id] = encoded
+            if mutation { completed[id] = (encoded, deadline) }
             reply(encoded)
         }
         Task { @MainActor in
