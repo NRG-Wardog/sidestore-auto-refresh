@@ -78,6 +78,22 @@ extension LiveContainerAutoRefreshScheduler {
         precondition(defaults.string(forKey: uncertainMutationKey) == nil)
 
         clearTestState()
+        let oldRun = UUID().uuidString, currentRun = UUID().uuidString
+        defaults.set(currentRun, forKey: uncertainMutationKey)
+        defaults.set("REFRESH_INTERRUPTED", forKey: healthStateKey)
+        precondition(!markVerified(runID: oldRun, source: "relaunch", detail: "old result"))
+        precondition(defaults.string(forKey: uncertainMutationKey) == currentRun)
+        precondition(defaults.string(forKey: healthStateKey) == "REFRESH_INTERRUPTED")
+        precondition(defaults.object(forKey: lastSuccessfulKey) == nil)
+        defaults.set(true, forKey: hostHandoffKey)
+        defaults.set(oldRun, forKey: hostHandoffRunKey)
+        verifyPendingHostHandoff()
+        precondition(defaults.bool(forKey: hostHandoffKey), "stale handoff mutated current state")
+        precondition(defaults.string(forKey: uncertainMutationKey) == currentRun)
+        precondition(markVerified(runID: currentRun, source: "manual", detail: "current authoritative result"))
+        precondition(defaults.string(forKey: uncertainMutationKey) == nil)
+
+        clearTestState()
         activeRun = UUID()
         let coalesced = BGTask()
         await execute(source: "manual", task: coalesced)

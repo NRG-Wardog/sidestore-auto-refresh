@@ -16,6 +16,83 @@ import patch_combined_service_startup as startup
 
 
 class ExecutableStartupTests(unittest.TestCase):
+    def test_actual_refresh_adapter_rejects_incomplete_and_stale_completion(self):
+        compiler = shutil.which("swiftc")
+        if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
+        adapter = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text()
+        method = adapter[adapter.index("    fileprivate func completedRefresh("):adapter.index("    fileprivate func legacyCompletion(")]
+        # Inject only the UserDefaults suite to keep the executable test isolated.
+        method = method.replace('UserDefaults(suiteName: "group.com.SideStore.SideStore")', 'UserDefaults(suiteName: testSuite)')
+        source = (ROOT / "scripts/templates/combined_failure.swift").read_text() + '''
+let testSuite = "CombinedCompletionTest." + UUID().uuidString
+@MainActor final class Probe {
+    var launchID: UUID? = UUID()
+    var refreshRunID: String?
+    var refreshContinuation: Int? = 1
+    var completions: [Result<Void, Error>] = []
+    func finishRefreshContinuation(_ result: Result<Void, Error>) { completions.append(result); refreshContinuation = nil }
+''' + method + r'''
+}
+@main struct Test {
+    @MainActor static func main() throws {
+        let defaults = UserDefaults(suiteName: testSuite)!
+        defer { defaults.removePersistentDomain(forName: testSuite) }
+        let run = UUID().uuidString, newer = UUID().uuidString
+        let key = CombinedVerification.uncertainMutationKey
+        let valid: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2", "run_id": run,
+            "expected_ids": ["a", "b"], "results": [["bundle_id": "a", "success": true], ["bundle_id": "b", "success": true]]]
+        func receive(_ manifest: [String: Any], marker: String? = nil, error: String? = nil) throws -> Probe {
+            let owner = Probe(); owner.refreshRunID = run
+            defaults.set(marker ?? run, forKey: key)
+            defaults.removeObject(forKey: "liveContainerAutoRefreshHostHandoff")
+            let payload = try PropertyListSerialization.data(fromPropertyList: ["liveContainerAutoRefreshVerification": manifest], format: .binary, options: 0)
+            owner.completedRefresh(error, runID: run, verification: payload, id: owner.launchID!)
+            precondition(owner.completions.count == 1)
+            owner.completedRefresh(error, runID: run, verification: payload, id: owner.launchID!)
+            precondition(owner.completions.count == 1, "duplicate completion settled twice")
+            return owner
+        }
+        var invalids: [[String: Any]] = []
+        let invalidEntries: [[[String: Any]]] = [[], [["bundle_id": "a", "success": true]],
+            [["bundle_id": "a", "success": true], ["bundle_id": "a", "success": true]],
+            [["bundle_id": "a", "success": true], ["bundle_id": "other", "success": true]],
+            [["bundle_id": "a", "success": true], ["bundle_id": "b", "success": 1]]]
+        for entries in invalidEntries {
+            var invalid = valid; invalid["results"] = entries; invalids.append(invalid)
+        }
+        var wrongRun = valid; wrongRun["run_id"] = newer; invalids.append(wrongRun)
+        var duplicates = valid; duplicates["expected_ids"] = ["a", "a"]; invalids.append(duplicates)
+        for invalid in invalids {
+            let owner = try receive(invalid)
+            guard case .failure(let error) = owner.completions[0], let failure = error as? CombinedFailure else { preconditionFailure("incomplete manifest accepted") }
+            precondition(failure.stage == .refreshVerification)
+            precondition(defaults.string(forKey: key) == run, "unconfirmed mutation became retryable")
+        }
+        let complete = try receive(valid)
+        guard case .success = complete.completions[0] else { preconditionFailure("complete terminal results rejected") }
+        precondition(defaults.string(forKey: key) == nil)
+        var failed = valid; failed["results"] = [["bundle_id": "a", "success": true], ["bundle_id": "b", "success": false]]
+        _ = try receive(failed)
+        precondition(defaults.string(forKey: key) == nil, "known terminal failure should allow policy evaluation")
+        var handoff = valid; handoff["host_handoff"] = true
+        _ = try receive(handoff)
+        precondition(defaults.string(forKey: key) == run, "host replacement is not yet verified")
+        _ = try receive(valid, marker: newer)
+        precondition(defaults.string(forKey: key) == newer, "old completion erased a newer uncertainty marker")
+        _ = try receive(valid, marker: newer, error: CombinedFailure(operation: "refresh", stage: .signing, id: run).encodedString)
+        precondition(defaults.string(forKey: key) == newer, "old failure erased a newer uncertainty marker")
+        print("actual refresh completeness/correlation PASS")
+    }
+}
+'''
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "main.swift"; exe = Path(temp) / "completion"
+            path.write_text(source)
+            result = subprocess.run([compiler, "-parse-as-library", str(path), "-o", str(exe)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = subprocess.run([str(exe)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_actual_adapter_duplicate_readiness_is_idempotent(self):
         compiler = shutil.which("swiftc")
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
