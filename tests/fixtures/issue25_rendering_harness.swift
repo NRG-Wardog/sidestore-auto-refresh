@@ -245,6 +245,8 @@ struct RenderingScreen: View, LCAppBannerDelegate {
         return violations.isEmpty
     }
     func exerciseActions() {
+        LCAppBannerViewController.primaryActions = []
+        LCAppBannerViewController.contextMenus = []
         let cells = gridControllers()
         for cell in cells {
             (cell.view as? UIControl)?.sendActions(for: .touchUpInside)
@@ -335,6 +337,7 @@ struct RenderingScreen: View, LCAppBannerDelegate {
                 state.apps.reverse()
                 await waitForLayout()
                 measure("live-collection-reorder-replace")
+                exerciseActions()
                 capture("reorder-replace-grid")
                 state.apps = []
                 await waitForLayout()
