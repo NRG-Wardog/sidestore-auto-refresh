@@ -92,6 +92,8 @@ def main():
             generated[name] = hashlib.sha256(data).hexdigest()
     if args.side_source:
         for name in ['AltStore/AppDelegate.swift', 'SideStore/Core/Operations/PipelineExecutor.swift',
+                     'SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift',
+                     '.combined-refresh-contract.json',
                      'Dependencies/minimuxer/DeviceGateway/idevice/IdeviceGateway.swift']:
             data = (args.side_source / name).read_bytes()
             target = args.output / 'embedded-generated' / name
