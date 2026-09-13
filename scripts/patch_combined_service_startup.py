@@ -39,6 +39,8 @@ def patch(live, side, product):
     def template(name):
         return (TEMPLATES / name).read_text(encoding="utf-8")
     def host(text):
+        text = replace(text, 'return .result(dialog: "All apps have been refreshed.")',
+            'return .result(dialog: "Refresh request completed. Check Refresh for verified installation results.")')
         text = text.replace("        RefreshHandler.shared.progress = intentProgress", "        await MainActor.run { RefreshHandler.shared.progress = intentProgress }")
         start = text.index("class RefreshHandler:")
         if text[max(0, start-11):start] == "@MainActor\n": start -= 11
@@ -124,6 +126,10 @@ void LCLaunchServiceExtension(NSExtension *extension, NSExtensionItem *item, voi
 }
 ''')
     def client(text):
+        text = replace(text, '            let data = try PropertyListSerialization.data(fromPropertyList: payload, format: .binary, options: 0)',
+            '            payload = CombinedVerification.sanitized(payload, runID: runID)\n            let data = try PropertyListSerialization.data(fromPropertyList: payload, format: .binary, options: 0)')
+        text = replace(text, '"SideStore could not encode installation results: " + error.localizedDescription',
+            'CombinedFailure.capture(error, operation: "refresh", stage: .refreshVerification, id: runID).encodedString')
         for old in ['reportRefreshResult(error.localizedDescription, server: server)',
                     'reportRefreshResult("SideStore refresh failed. Check account, pairing and operation diagnostics.", server: server)']:
             if old in text:
@@ -146,7 +152,7 @@ extension SideStoreClient {
             // LC_STRUCTURED_FAILURE_V1: preserve step responsibility and the underlying error.
             let stage: String
             switch step {
-            case .resignApp, .fetchProvisioningProfiles: stage = "signing"
+            case .resignApp, .fetchProvisioningProfiles, .verifyCertificate: stage = "signing"
             case .sendApp, .installApp: stage = "installation"
             default: stage = "command"
             }
@@ -204,6 +210,17 @@ def patch_transport(root):
         'throw IdeviceGatewayError(.deviceEndpointIpNotAvailable, reason: "lc_stage=endpointSelection Endpoint unavailable")')
     for fragment in ("CoreDevice tunnel failed:", "Lockdownd RSD connection failed", "Querying UniqueDeviceID failed"):
         text = text.replace(" " + fragment, " lc_native_code=\\(code) " + fragment)
+    text = replace(text, 'lc_stage=cdTunnel lc_native_code=\\(code) CoreDevice tunnel failed:',
+        'lc_stage=\\(lcTransportFailureStage(message)) lc_native_code=\\(code) CoreDevice tunnel failed:')
+    text += '''
+// LC_NATIVE_STAGE_V1: inspect known pinned Rust failure labels locally, never export raw descriptions.
+private func lcTransportFailureStage(_ message: String) -> String {
+    if message.contains("RSD connect") || message.contains("RSD handshake") { return "rsdDiscovery" }
+    if message.contains("heartbeat") { return "heartbeat" }
+    if message.contains("software tunnel") || message.contains("CDTunnel") { return "cdTunnel" }
+    return "coreDevice"
+}
+'''
     # The old wrappers still receive typed errors, not nil, and the FFI code is read before free.
     text += "\n// LC_STRUCTURED_FAILURE_V1\n"
     path.write_bytes(text.encode())

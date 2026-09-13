@@ -54,7 +54,11 @@ def main():
         assert all(info.get(key) == value for key, value in identity.items()), 'packaged identity mismatch'
         for executable in ('SideStoreSupport.framework/SideStoreSupport', 'SideStoreApp.framework/SideStore'):
             data = archive.read('Payload/LiveContainer.app/Frameworks/' + executable)
-            assert b'LCFAILURE1:' in data, 'structured error protocol absent: ' + executable
+            marker = b'LCFAILURE1:' if executable.startswith('SideStoreSupport') else b'LCFailureStage'
+            assert marker in data, 'structured error protocol absent: ' + executable
+            if executable.startswith('SideStoreApp'):
+                assert b'UNIQUE_DEVICE_ID_QUERY_FAIL' in data, 'Issue 24 query diagnostics absent'
+                assert b'lc_stage=uniqueDeviceID' in data, 'Issue 24 structured category absent'
     symbols = {}
     for index, root in enumerate(args.paths):
         for dsym in root.glob('*.dSYM'):

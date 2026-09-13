@@ -1,5 +1,14 @@
 # LiveContainer + SideStore Auto-Refresh
 
+The combined v2 startup/error candidate is isolated on `fix/v2-combined-errors`;
+it does not contain the experimental v3 shell. It includes Issue #24 transport/query
+error propagation, safe first-run service preparation and preserved bookmark errors.
+See [the crash investigation and acceptance limits](docs/COMBINED_STARTUP_CRASH.md).
+Settings > Build Candidate identifies v2 and its full builder SHA. List, Grid and
+Compact List retain `LCAppLayoutStyle`. Candidate releases remain drafts with
+prerelease enabled; each package has its own commit, CI run, SHA-256 and matching
+symbols. Upstream GSA integration is not proof of universal login or HTTP 429 fixes.
+
 [![Combined Build](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/livecontainer-build.yml/badge.svg)](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/livecontainer-build.yml)
 [![Standalone Build](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-publish-v1.0.3-r6.yml/badge.svg?branch=release%2Fv1.0.3)](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/workflows/build-publish-v1.0.3-r6.yml)
 [![Release](https://img.shields.io/github/v/release/NRG-Wardog/sidestore-auto-refresh)](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/latest)

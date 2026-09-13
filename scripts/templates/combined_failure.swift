@@ -1,6 +1,45 @@
 import Foundation
 import CoreFoundation
 
+// LC_REFRESH_METADATA_SANITIZED_V1: never forward arbitrary saved result dictionaries.
+enum CombinedVerification {
+    static func sanitized(_ payload: [String: Any], runID: String) -> [String: Any] {
+        guard let manifest = payload["liveContainerAutoRefreshVerification"] as? [String: Any],
+              manifest["run_id"] as? String == runID,
+              let expected = manifest["expected_ids"] as? [String], expected.count <= 1024,
+              expected.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 512 }),
+              let entries = manifest["results"] as? [[String: Any]], entries.count <= 1024 else { return [:] }
+        var result: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2", "run_id": runID, "expected_ids": expected]
+        if let date = manifest["date"] as? Date { result["date"] = date }
+        if let handoff = manifest["host_handoff"] as? Bool { result["host_handoff"] = handoff }
+        result["results"] = entries.compactMap { entry -> [String: Any]? in
+            guard let identifier = entry["bundle_id"] as? String, expected.contains(identifier),
+                  let success = entry["success"] as? Bool else { return nil }
+            var item: [String: Any] = ["bundle_id": identifier, "success": success]
+            for key in ["refreshed_date", "expiration_date"] { if let value = entry[key] as? Date { item[key] = value } }
+            if !success {
+                let native = NSError(domain: entry["error_domain"] as? String ?? "redacted", code: entry["error_code"] as? Int ?? 0,
+                    userInfo: [NSLocalizedDescriptionKey: entry["error"] as? String ?? ""])
+                let failure = CombinedFailure.capture(native, operation: "refresh", stage: .refreshVerification, id: runID)
+                item["error"] = failure.localizedDescription
+                item["error_code"] = failure.underlyingCode; item["error_domain"] = failure.underlyingDomain
+                item["failure"] = failure.wire
+            }
+            return item
+        }
+        var safe: [String: Any] = ["liveContainerAutoRefreshVerification": result]
+        if payload["liveContainerAutoRefreshHostHandoffRunID"] as? String == runID {
+            safe["liveContainerAutoRefreshHostHandoffRunID"] = runID
+            safe["liveContainerAutoRefreshHostHandoff"] = payload["liveContainerAutoRefreshHostHandoff"] as? Bool ?? false
+            for key in ["liveContainerAutoRefreshHostHandoffStartedAt", "liveContainerAutoRefreshHostPreviousExpiration"] {
+                if let value = payload[key] as? Date { safe[key] = value }
+            }
+        }
+        return safe
+    }
+}
+
+
 // LC_STRUCTURED_FAILURE_V1: fixed vocabulary, no arbitrary userInfo/descriptions on the wire.
 public struct CombinedFailure: Error, LocalizedError {
     public enum Stage: String, CaseIterable {
