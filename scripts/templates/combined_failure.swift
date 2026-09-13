@@ -156,6 +156,7 @@ public struct CombinedFailure: Error, LocalizedError {
         var nativeCode: Int?
         // Only an allowlisted stage is inspected locally. No arbitrary userInfo is serialized.
         for _ in 0..<5 {
+            if cause.domain == "com.SideStore.Authentication" { resolved = .authentication }
             if let name = cause.userInfo["LCFailureStage"] as? String, let found = Stage(rawValue: name) { resolved = found }
             // Upstream gateway/Minimuxer typed errors carry a reason string. Inspect only
             // our fixed machine tokens locally; never forward the reason itself.
