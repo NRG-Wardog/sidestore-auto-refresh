@@ -277,6 +277,25 @@ def patch(live, side):
     edit(live, "LaunchAppExtension/LaunchAppExtension.swift", lambda s: replace(s,
         '            lcSharedDefaults.set("builtinSideStore", forKey: "LCLaunchExtensionBundleID")',
         '            // V3_COMMAND_PATCH_V1: the host routes SideStore links through its service.\n            lcSharedDefaults.removeObject(forKey: "LCLaunchExtensionBundleID")'))
+    def guest_jit(s):
+        s = replace(s, "import LocalAuthentication", "import LocalAuthentication\nimport SideStoreSupport")
+        start = s.index('            onServerMessage?("JIT acquisition will continue in SideStore.")')
+        end = s.index("\n        }\n        return false", start)
+        if 'await UIApplication.shared.open(launchURL)' not in s[start:end]:
+            raise SystemExit("v3 guest JIT route changed")
+        return s[:start] + '''            onServerMessage?("Requesting JIT from the SideStore service.")
+            do {
+                let snapshot = try await V3ServiceBridge.shared.request(operation: "snapshot")
+                guard let apps = snapshot["installedApps"] as? [[String: Any]],
+                      let host = apps.first(where: { $0["isHost"] as? Bool == true }),
+                      let identifier = host["identifier"] as? String else {
+                    onServerMessage?("The host is not in SideStore's library. Check Account and Signing.")
+                    return false
+                }
+                _ = try await V3ServiceBridge.shared.request(operation: "jit", target: identifier)
+                onServerMessage?("SideStore completed the JIT request.")
+            } catch { onServerMessage?(error.localizedDescription) }''' + s[end:]
+    edit(live, "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift", guest_jit)
     edit(live, "LiveContainer/LCBootstrap.m", lambda s: replace(s,
         '    if([lcUserDefaults boolForKey:@"LCOpenSideStore"] || [selectedApp isEqualToString:@"builtinSideStore"]) {',
         '''    // V3_COMMAND_PATCH_V1: upgrade old startup selection into unified navigation.

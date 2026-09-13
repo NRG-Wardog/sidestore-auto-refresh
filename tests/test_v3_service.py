@@ -35,7 +35,7 @@ class ServicePatchTests(unittest.TestCase):
             ["SideStoreSupport/" + name for name in ("XPCServer.h", "XPCClient.m", "SideStore.swift", "SideStoreClient.swift")] +
             ["LiveContainerSwiftUI/" + name for name in ("Views/LCTabView.swift", "Views/AppList/LCAppListView.swift",
              "Views/Settings/LCSettingsView.swift", "Views/Settings/LCMultiLCManagementView.swift",
-             "Utilities/Shared.swift", "App/LiveContainerSwiftUIApp.swift", "App/AppDelegate.swift")] +
+             "Utilities/Shared.swift", "Utilities/LCUtilsExtensions.swift", "App/LiveContainerSwiftUIApp.swift", "App/AppDelegate.swift")] +
             ["MultitaskSupport/AppSceneViewController." + suffix for suffix in ("h", "m")] +
             ["LiveContainer/LCBootstrap.m", "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
             ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift"])
@@ -75,6 +75,9 @@ class ServicePatchTests(unittest.TestCase):
             self.assertNotIn("LCUtils.openSideStore", (roots[0] / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift").read_text())
             self.assertIn(".downloadAlert", (roots[0] / "LiveContainerSwiftUI/Views/LCTabView.swift").read_text())
             self.assertNotIn("LCUtils.openSideStore", (roots[0] / "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift").read_text(encoding="utf-8"))
+            jit = (roots[0] / "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift").read_text(encoding="utf-8")
+            self.assertNotIn('sidestore://enable-jit', jit)
+            self.assertIn('V3ServiceBridge.shared.request(operation: "jit"', jit)
             self.assertIn("!isLiveProcess && sideStoreExist", (roots[0] / "LiveContainer/LCBootstrap.m").read_text(encoding="utf-8"))
             for name in ("ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"):
                 self.assertNotIn('set("builtinSideStore", forKey: "LCLaunchExtensionBundleID")', (roots[0] / name).read_text(encoding="utf-8"))

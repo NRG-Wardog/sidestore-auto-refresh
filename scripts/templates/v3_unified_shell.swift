@@ -87,6 +87,19 @@ struct V3UnifiedTabs: View {
             }
             return
         }
+        if url.scheme?.lowercased() == "sidestore", url.host?.lowercased() == "enable-jit" {
+            let bundle = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "bundle-id" })?.value
+            Task {
+                do {
+                    status.accept(try await V3ServiceBridge.shared.request(operation: "snapshot"))
+                    guard let app = status.installedApps.first(where: {
+                        $0.bundleID == bundle || ($0.isHost && bundle == Bundle.main.bundleIdentifier)
+                    }) else { status.error = "This app is not in SideStore's library."; return }
+                    status.perform("jit", target: app.identifier, title: "Enable JIT for " + app.name)
+                } catch { status.error = error.localizedDescription }
+            }
+            return
+        }
         if url.host?.lowercased() == "source" {
             sharedModel.selectedTab = .sources
             if let source = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "url" })?.value { status.sourceURL = source }
