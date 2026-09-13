@@ -74,6 +74,7 @@ struct BridgeTests {
         client.flush()
         do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("timeout ignored") } catch {}
         precondition(client.cancellations == 2, "expected cancellation plus timeout, received \(client.cancellations)")
+        precondition(handler.stops == 1, "idle read timeout must reconnect the service")
         client.flush()
         let mutation = Task { try await bridge.request(operation: "install") }
         await waitForRequest(client)
@@ -84,6 +85,7 @@ struct BridgeTests {
         client.hold = false
         _ = try await bridge.request(operation: "snapshot")
         let recovery = V3ServiceBridge(readTimeout: 1, commandTimeout: 1, cancellationGrace: 0.02)
+        let stopsBeforeRecovery = handler.stops
         client.hold = true
         let stuck = Task { try await recovery.request(operation: "signIn") }
         await waitForRequest(client)
@@ -91,7 +93,7 @@ struct BridgeTests {
         _ = try? await stuck.value
         precondition(recovery.isMutating, "cancel must retain the gate while native work unwinds")
         let deadline = Date().addingTimeInterval(2)
-        while handler.stops == 0 {
+        while handler.stops == stopsBeforeRecovery {
             precondition(Date() < deadline, "stuck native operation was not retired")
             await Task.yield()
         }
