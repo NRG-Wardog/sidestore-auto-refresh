@@ -2,6 +2,11 @@ name: Issue 25 simulator rendering regression
 
 on:
   workflow_dispatch:
+    inputs:
+      diagnostic_only:
+        description: Inspect corrected phone Grid equations only (not full validation)
+        type: boolean
+        default: false
   push:
     branches: [fix/issue25-rendering-harness]
 
@@ -25,7 +30,14 @@ jobs:
           python3 scripts/patch_app_layout.py layout-source
           python3 scripts/patch_app_layout.py layout-source
       - name: Execute defective and corrected real renderers
-        run: python3 scripts/run_issue25_rendering.py --livecontainer layout-source --output layout-evidence
+        env:
+          DIAGNOSTIC_ONLY: ${{ inputs.diagnostic_only }}
+        run: |
+          if [ "$DIAGNOSTIC_ONLY" = "true" ]; then
+            python3 scripts/run_issue25_rendering.py --livecontainer layout-source --output layout-evidence --diagnostic-only
+          else
+            python3 scripts/run_issue25_rendering.py --livecontainer layout-source --output layout-evidence
+          fi
       - name: Preserve measurements and simulator screenshots
         if: always()
         uses: actions/upload-artifact@v4
