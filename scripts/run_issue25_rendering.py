@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import platform
 import plistlib
+import re
 import shutil
 import subprocess
 import time
@@ -26,8 +27,14 @@ V3_BASELINE = "9d1eed7992694aa0fb9a18742255c21c95b0e697"
 
 def command(*args: str, **kwargs) -> str:
     print("Running: " + " ".join(args), flush=True)
-    result = subprocess.run(list(args), check=False, text=True, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, **kwargs)
+    kwargs.setdefault("timeout", 300)
+    try:
+        result = subprocess.run(list(args), check=False, text=True, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, **kwargs)
+    except subprocess.TimeoutExpired as error:
+        if error.stdout:
+            print(error.stdout.decode(errors="replace") if isinstance(error.stdout, bytes) else error.stdout, flush=True)
+        raise RuntimeError("Rendering harness command exceeded its 300-second bound: " + args[0]) from error
     if result.stdout:
         print(result.stdout, end="", flush=True)
     result.check_returncode()
@@ -56,8 +63,8 @@ def available_devices() -> list[tuple[str, str, str]]:
     return selected
 
 
-def build_app(output: Path, live: Path, baseline: bool) -> tuple[Path, str, dict]:
-    name = "baseline" if baseline else "corrected"
+def build_app(output: Path, live: Path, baseline: bool, fallback: bool = False) -> tuple[Path, str, dict]:
+    name = "baseline" if baseline else ("fallback-contract" if fallback else "corrected")
     build = output / name
     build.mkdir(parents=True, exist_ok=True)
     bundle = build / "Issue25Rendering.app"
@@ -69,6 +76,12 @@ def build_app(output: Path, live: Path, baseline: bool) -> tuple[Path, str, dict
         grid.write_bytes(data)
     else:
         shutil.copyfile(live / "LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift", grid)
+    original_grid_hash = hashlib.sha256(grid.read_bytes()).hexdigest()
+    if fallback:
+        text, count = re.subn(r"    @available\(iOS 16\.0, \*\)\n    func sizeThatFits\([^\n]+\n        uiViewController\.fittingSize\(width: proposal\.width\)\n    }\n", "", grid.read_text())
+        if count != 1:
+            raise RuntimeError("Cannot isolate the iOS15 intrinsic/preferred-size path: Grid sizeThatFits anchor drift")
+        grid.write_text(text)
     relative_sources = [
         "LiveContainerSwiftUI/Models/AppLayoutStyle.swift",
         "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBanner.swift",
@@ -77,6 +90,7 @@ def build_app(output: Path, live: Path, baseline: bool) -> tuple[Path, str, dict
     sources = [live / relative for relative in relative_sources]
     sources += [grid, ROOT / "tests/fixtures/issue25_rendering_dependencies.swift", ROOT / "tests/fixtures/issue25_rendering_harness.swift"]
     hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
+    hashes["original-production-grid"] = original_grid_hash
     sdk = subprocess.check_output(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-path"], text=True).strip()
     architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
     flags = [] if baseline else ["-D", "CORRECTED_GRID", "-D", "CORRECTED_BANNER"]
@@ -149,6 +163,8 @@ def execute(bundle: Path, bundle_id: str, kind: str, device: str, output: Path, 
         args.append("--baseline")
     if cold:
         args.append("--cold")
+    if mode == "fallback-contract":
+        args.append("--fallback")
     command("xcrun", "simctl", "launch", device, bundle_id, *args)
     deadline = time.monotonic() + 180
     while not report_path.exists() and time.monotonic() < deadline:
@@ -177,6 +193,7 @@ def main() -> None:
         raise SystemExit("This executable rendering suite requires macOS with Xcode and iOS simulators")
     builds = {baseline: build_app(output, args.livecontainer.resolve(), baseline) for baseline in (True, False)}
     native_build = build_v3_app(output, args.livecontainer.resolve(), args.v3_source)
+    fallback_build = build_app(output, args.livecontainer.resolve(), False, fallback=True)
     reports = []
     devices = available_devices()
     try:
@@ -194,15 +211,18 @@ def main() -> None:
             bundle, bundle_id, _ = native_build
             for cold in (False, True):
                 reports.append(execute(bundle, bundle_id, kind, device, output, False, cold, mode="v3-native"))
+            bundle, bundle_id, _ = fallback_build
+            for cold in (False, True):
+                reports.append(execute(bundle, bundle_id, kind, device, output, False, cold, mode="fallback-contract"))
             if not booted:
                 command("xcrun", "simctl", "shutdown", device)
     finally:
         metadata = {
             "schemaVersion": 1, "builderCommit": command("git", "-C", str(ROOT), "rev-parse", "HEAD"),
             "ciRun": os.environ.get("GITHUB_RUN_ID"), "baselineBuilderCommit": BASELINE,
-            "sourceSHA256": {"baseline": builds[True][2], "corrected": builds[False][2], "v3-native": native_build[2]},
+            "sourceSHA256": {"baseline": builds[True][2], "corrected": builds[False][2], "v3-native": native_build[2], "fallback-contract": fallback_build[2]},
             "simulatorRuntimes": sorted(set(runtime for _, _, runtime in devices)),
-            "passed": len(reports) == 10 and all(report["passed"] for report in reports),
+            "passed": len(reports) == 14 and all(report["passed"] for report in reports),
             "reportCount": len(reports), "physicalDeviceExecution": False,
         }
         (output / "rendering-verification.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
