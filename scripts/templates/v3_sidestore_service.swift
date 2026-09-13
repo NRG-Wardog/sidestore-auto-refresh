@@ -165,9 +165,9 @@ final class V3SideStoreService: NSObject {
                 let group = AppManager.shared.install(app, presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
                 cancellations[id] = { group.cancel(); group.progress.cancel() }
             }
-        case "update", "activate", "deactivate", "remove", "backup", "restore", "jit":
+        case "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "jit":
             let app: InstalledApp = try object(target)
-            if ["deactivate", "remove"].contains(operation), app.bundleIdentifier == StoreApp.altstoreAppID { throw ServiceError.unsupported }
+            if ["deactivate", "remove", "delete"].contains(operation), app.bundleIdentifier == StoreApp.altstoreAppID { throw ServiceError.unsupported }
             try await callback { done in
                 let finished: (Result<InstalledApp, Error>) -> Void = { result in done(result.map { _ in () }) }
                 switch operation {
@@ -177,6 +177,7 @@ final class V3SideStoreService: NSObject {
                 case "activate": AppManager.shared.activate(app, presentingViewController: Self.presenter, completionHandler: finished)
                 case "deactivate": AppManager.shared.deactivate(app, presentingViewController: Self.presenter, completionHandler: finished)
                 case "remove": AppManager.shared.removeApp(app, presentingViewController: Self.presenter, completionHandler: done)
+                case "delete": AppManager.shared.deleteApp(app, presentingViewController: Self.presenter, completionHandler: finished)
                 case "backup": AppManager.shared.backup(app, presentingViewController: Self.presenter, completionHandler: finished)
                 case "restore": AppManager.shared.restore(app, presentingViewController: Self.presenter, completionHandler: finished)
                 default: AppManager.shared.enableJIT(for: app, completionHandler: done)

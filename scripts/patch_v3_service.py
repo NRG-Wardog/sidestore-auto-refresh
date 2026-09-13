@@ -69,6 +69,65 @@ def patch(live, side):
         s = replace(s, "class RefreshHandler: NSObject, RefreshServer {", "@MainActor\nclass RefreshHandler: NSObject, RefreshServer {")
         s = replace(s, "        RefreshHandler.shared.progress = intentProgress",
                     "        await MainActor.run { RefreshHandler.shared.progress = intentProgress }")
+        s = replace(s, "    func startRefresh(identifier: String, mangledName: String) async throws {", '''
+    var v3RefreshToken: UUID?
+    private var v3StoppingPID: Int32 = 0
+
+    func startRefresh(identifier: String, mangledName: String) async throws {
+        if identifier == "__v3_connect" {
+            return try await v3_startRefresh(identifier: identifier, mangledName: mangledName)
+        }
+        guard v3RefreshToken == nil, !V3ServiceBridge.shared.isMutating else {
+            throw NSError(domain: "V3SideStoreService", code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "Another SideStore operation is running."])
+        }
+        let token = UUID()
+        v3RefreshToken = token
+        defer { if v3RefreshToken == token { v3RefreshToken = nil } }
+        let timeout = Task { @MainActor in
+            do { try await Task.sleep(nanoseconds: 600_000_000_000) } catch { return }
+            self.v3_cancelRefresh(token)
+        }
+        defer { timeout.cancel() }
+        try await withTaskCancellationHandler(operation: {
+            try Task.checkCancellation()
+            try await v3_startRefresh(identifier: identifier, mangledName: mangledName)
+        }, onCancel: {
+            Task { @MainActor in self.v3_cancelRefresh(token) }
+        })
+    }
+
+    private func v3_cancelRefresh(_ token: UUID) {
+        guard v3RefreshToken == token else { return }
+        v3RefreshToken = nil
+        c?.resume(throwing: CancellationError())
+        c = nil
+        launchContinuation?.resume(throwing: CancellationError())
+        launchContinuation = nil
+        v3LaunchID = UUID()
+        v3StoppingPID = sideStorePid
+        ext?._kill(15)
+        client = nil
+        v3Connection?.invalidate()
+        v3Connection = nil
+        sideStorePid = 0
+        V3ServiceBridge.shared.disconnected()
+    }
+
+    private func v3_startRefresh(identifier: String, mangledName: String) async throws {
+        if v3StoppingPID > 0 {
+            let until = Date().addingTimeInterval(3)
+            while getpgid(v3StoppingPID) > 0 && Date() < until {
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            if getpgid(v3StoppingPID) > 0 {
+                ext?._kill(9)
+                throw NSError(domain: "V3SideStoreService", code: 6,
+                    userInfo: [NSLocalizedDescriptionKey: "SideStore is stopping. Reconnect shortly."])
+            }
+            v3StoppingPID = 0
+        }
+''')
         s = replace(s, "        guard let client = self.client else {", '''        // V3_COMMAND_PATCH_V1: connect without invoking signing or refresh.
         if identifier == "__v3_connect" {
             guard self.client != nil else { throw NSError(domain: "V3SideStoreService", code: 1) }
@@ -152,13 +211,14 @@ def patch(live, side):
             self.c = c''')
         # A connected service can answer status queries while a refresh runs.
         s = replace(s, "        if c != nil {", '        if c != nil && identifier != "__v3_connect" {')
-        s = replace(s, '        if identifier == "__v3_connect" {',
+        s = replace(s, '        if identifier == "__v3_connect" {\n            guard self.client != nil',
                     '''        if identifier == "__v3_connect" {
             let until = Date().addingTimeInterval(45)
             while (self.launchContinuation != nil || self.sideStorePid <= 0) && Date() < until {
                 try Task.checkCancellation()
                 try await Task.sleep(nanoseconds: 50_000_000)
-            }''')
+            }
+            guard self.client != nil''')
         return s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_service_bridge.swift").read_text(encoding="utf-8")
     edit(live, "SideStoreSupport/SideStore.swift", host)
     edit(side, "AltStore/AppDelegate.swift", lambda s: s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8"))
@@ -172,6 +232,9 @@ def patch(live, side):
             return
         }'''), '''            UserDefaults.standard.setValue(url.absoluteString, forKey: "launchAppUrlScheme")
             LCUtils.openSideStore(delegate: self)''', '''            sharedModel.selectedTab = .sources'''))
+    edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s:
+         s.replace('ForEach(filteredApps, id: \\.self)', 'ForEach(filteredApps, id: \\.v3Identity)')
+          .replace('ForEach(filteredHiddenApps, id: \\.self)', 'ForEach(filteredHiddenApps, id: \\.v3Identity)'))
     edit(live, "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", lambda s: replace(s,
         "            Form {", "            Form {\n                V3AccountSettings()"))
     # A service-owned blank presenter replaces the legacy tab controller. Auth and

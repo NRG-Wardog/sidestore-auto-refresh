@@ -3,6 +3,10 @@ import Combine
 import SideStoreSupport
 
 // V3_UNIFIED_SHELL_V1_BEGIN
+extension LCAppModel {
+    var v3Identity: String { "guest:" + (appInfo.relativeBundlePath ?? appInfo.bundlePath() ?? "") }
+}
+
 struct V3UnifiedShell: View {
     var body: some View { V3ApplicationRoot(content: V3UnifiedTabs()) }
 }
@@ -208,7 +212,8 @@ struct V3AppActions: View {
             Button("Back Up") { action("backup", "Back up app") }
             Button("Restore Backup") { action("restore", "Restore backup") }
             Button("Enable JIT") { action("jit", "Enable JIT") }
-            Button("Remove", role: .destructive) { action("remove", "Remove " + app.name) }
+            Button("Remove from Library", role: .destructive) { action("remove", "Remove " + app.name + " from library and erase its backups") }
+            if app.isActive { Button("Delete from Device", role: .destructive) { action("delete", "Delete " + app.name + " and erase its data and backups") } }
         }
     }
     private func action(_ operation: String, _ title: String) { status.perform(operation, target: app.identifier, title: title) }
@@ -326,6 +331,9 @@ struct V3AccountSettings: View {
             setting("Disable response caching", "responseCachingDisabled"); setting("Detailed operation logging", "verboseOperations")
             Button("Clear Download Cache") { status.perform("clearCache", title: "Clear download cache") }
         }
+        Section("Guest Runtime") {
+            NavigationLink("Tweaks", destination: LCTweaksView())
+        }
     }
     private func panel(_ title: String, _ key: String) -> some View {
         Button(title) { status.perform("panel", target: key, title: title) }
@@ -384,7 +392,7 @@ struct V3RemoteServiceView: UIViewControllerRepresentable {
         func appSceneVCAppDidExit(_ vc: AppSceneViewController!) { ready.wrappedValue = false }
         func appSceneVC(_ vc: AppSceneViewController!, didInitializeWithError error: Error!) { ready.wrappedValue = error == nil }
         func appSceneVCWillActivateScene(_ vc: AppSceneViewController!) { DispatchQueue.main.async { self.ready.wrappedValue = true } }
-        func appSceneVC(_ vc: AppSceneViewController!, didUpdateFromSettings settings: UIMutableApplicationSceneSettings!, transitionContext context: Any!, lifecycleActionType: UInt32) {}
+        func appSceneVC(_ vc: AppSceneViewController!, didUpdateFrom settings: UIMutableApplicationSceneSettings!, transitionContext context: Any!, lifecycleActionType: UInt32) {}
     }
 }
 
