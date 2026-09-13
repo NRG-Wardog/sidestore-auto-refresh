@@ -94,7 +94,7 @@ def build_app(output: Path, live: Path, baseline: bool, fallback: bool = False) 
     sdk = subprocess.check_output(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-path"], text=True).strip()
     architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
     flags = [] if baseline else ["-D", "CORRECTED_GRID", "-D", "CORRECTED_BANNER"]
-    command("xcrun", "swiftc", "-parse-as-library", "-swift-version", "5", "-sdk", sdk,
+    command("xcrun", "--sdk", "iphonesimulator", "swiftc", "-parse-as-library", "-swift-version", "5", "-sdk", sdk,
             "-target", architecture + "-apple-ios15.0-simulator", "-g", "-Onone", *flags,
             *map(str, sources), "-o", str(bundle / "Issue25Rendering"))
     info = {
@@ -136,7 +136,7 @@ def build_v3_app(output: Path, live: Path, source: Path | None) -> tuple[Path, s
     bundle_id = "org.sidestore.layout.fixture.v3native"
     sdk = subprocess.check_output(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-path"], text=True).strip()
     architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
-    command("xcrun", "swiftc", "-parse-as-library", "-swift-version", "5", "-sdk", sdk,
+    command("xcrun", "--sdk", "iphonesimulator", "swiftc", "-parse-as-library", "-swift-version", "5", "-sdk", sdk,
             "-target", architecture + "-apple-ios15.0-simulator", "-g", "-Onone",
             *map(str, sources), "-o", str(bundle / "Issue25Rendering"))
     info = {"CFBundleExecutable": "Issue25Rendering", "CFBundleIdentifier": bundle_id,
@@ -186,13 +186,16 @@ def main() -> None:
     parser.add_argument("--livecontainer", type=Path, required=True, help="Already patched generated LiveContainer checkout")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--v3-source", type=Path, help="Generated v3 shell source; otherwise current template or immutable v3 baseline is used")
+    parser.add_argument("--skip-v3-native", action="store_true", help="Scope final v2 package evidence to its own renderers")
     args = parser.parse_args()
+    if args.skip_v3_native and args.v3_source:
+        parser.error("--skip-v3-native and --v3-source are mutually exclusive")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     if platform.system() != "Darwin":
         raise SystemExit("This executable rendering suite requires macOS with Xcode and iOS simulators")
     builds = {baseline: build_app(output, args.livecontainer.resolve(), baseline) for baseline in (True, False)}
-    native_build = build_v3_app(output, args.livecontainer.resolve(), args.v3_source)
+    native_build = None if args.skip_v3_native else build_v3_app(output, args.livecontainer.resolve(), args.v3_source)
     fallback_build = build_app(output, args.livecontainer.resolve(), False, fallback=True)
     reports = []
     devices = available_devices()
@@ -208,21 +211,26 @@ def main() -> None:
                 reports.append(execute(bundle, bundle_id, kind, device, output, baseline, False))
                 if not baseline:
                     reports.append(execute(bundle, bundle_id, kind, device, output, False, True))
-            bundle, bundle_id, _ = native_build
-            for cold in (False, True):
-                reports.append(execute(bundle, bundle_id, kind, device, output, False, cold, mode="v3-native"))
+            if native_build:
+                bundle, bundle_id, _ = native_build
+                for cold in (False, True):
+                    reports.append(execute(bundle, bundle_id, kind, device, output, False, cold, mode="v3-native"))
             bundle, bundle_id, _ = fallback_build
             for cold in (False, True):
                 reports.append(execute(bundle, bundle_id, kind, device, output, False, cold, mode="fallback-contract"))
             if not booted:
                 command("xcrun", "simctl", "shutdown", device)
     finally:
+        hashes = {"baseline": builds[True][2], "corrected": builds[False][2], "fallback-contract": fallback_build[2]}
+        if native_build:
+            hashes["v3-native"] = native_build[2]
         metadata = {
             "schemaVersion": 1, "builderCommit": command("git", "-C", str(ROOT), "rev-parse", "HEAD"),
+            "productLine": "v2" if args.skip_v3_native else ("v3" if args.v3_source else "cross-product rendering harness"),
             "ciRun": os.environ.get("GITHUB_RUN_ID"), "baselineBuilderCommit": BASELINE,
-            "sourceSHA256": {"baseline": builds[True][2], "corrected": builds[False][2], "v3-native": native_build[2], "fallback-contract": fallback_build[2]},
+            "sourceSHA256": hashes,
             "simulatorRuntimes": sorted(set(runtime for _, _, runtime in devices)),
-            "passed": len(reports) == 14 and all(report["passed"] for report in reports),
+            "passed": len(reports) == (14 if native_build else 10) and all(report["passed"] for report in reports),
             "reportCount": len(reports), "physicalDeviceExecution": False,
         }
         (output / "rendering-verification.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
