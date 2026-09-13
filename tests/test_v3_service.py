@@ -34,7 +34,7 @@ class ServicePatchTests(unittest.TestCase):
         files = (
             ["SideStoreSupport/" + name for name in ("XPCServer.h", "XPCClient.m", "SideStore.swift", "SideStoreClient.swift")] +
             ["LiveContainerSwiftUI/" + name for name in ("Views/LCTabView.swift", "Views/AppList/LCAppListView.swift",
-             "Views/Settings/LCSettingsView.swift", "Utilities/Shared.swift", "App/LiveContainerSwiftUIApp.swift")] +
+             "Views/Settings/LCSettingsView.swift", "Utilities/Shared.swift", "App/LiveContainerSwiftUIApp.swift", "App/AppDelegate.swift")] +
             ["MultitaskSupport/AppSceneViewController." + suffix for suffix in ("h", "m")],
             ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift"])
         for source, root, pin, names in zip((live_source, side_source), roots, service.PINS, files):
@@ -43,6 +43,8 @@ class ServicePatchTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(subprocess.check_output(["git", "-C", source, "show", pin + ":" + name]))
         refresh.patch_support(roots[0])
+        refresh.patch_host_delegate(roots[0])
+        refresh.patch_settings(roots[0])
         results.patch(roots[0])
         shell.patch(*roots)
         return roots
@@ -101,6 +103,22 @@ class ServicePatchTests(unittest.TestCase):
 
 
 class WireExecutionTests(unittest.TestCase):
+    def test_shipped_bridge_lifecycle(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable")
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            program = directory / "main.swift"
+            program.write_text((ROOT / "tests/fixtures/v3_bridge_harness.swift").read_text() +
+                               (ROOT / "scripts/templates/v3_service_bridge.swift").read_text())
+            executable = directory / "bridge-tests"
+            compiled = subprocess.run([compiler, "-parse-as-library", str(program), "-o", str(executable)], capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3 lifecycle PASS", result.stdout)
+
     def test_shipped_decoder_rejects_secrets_stale_and_malformed_requests(self):
         compiler = shutil.which("swiftc")
         if not compiler:

@@ -237,6 +237,17 @@ def patch(live, side):
           .replace('ForEach(filteredHiddenApps, id: \\.self)', 'ForEach(filteredHiddenApps, id: \\.v3Identity)'))
     edit(live, "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", lambda s: replace(s,
         "            Form {", "            Form {\n                V3AccountSettings()"))
+    edit(live, "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift", lambda s: replace(s,
+        '        Form {\n            Section("Status") {', '        Form {\n            V3TargetedRefreshSection()\n            Section("Status") {'))
+    edit(live, "LiveContainerSwiftUI/App/AppDelegate.swift", lambda s: replace(replace(s,
+        '    private static func record(source: String, result: String, detail: String = "") {',
+        '    static func record(source: String, result: String, detail: String = "") {'),
+        '        // LC_REFRESH_HOST_V2', '''        NotificationCenter.default.addObserver(forName: Notification.Name("V3TargetedRefreshResult"), object: nil, queue: .main) { notification in
+            let result = notification.userInfo?["result"] as? String ?? "unknown"
+            let detail = notification.userInfo?["detail"] as? String ?? ""
+            Task { @MainActor in LiveContainerAutoRefreshScheduler.record(source: "manual_selected_app", result: result, detail: detail) }
+        }
+        // LC_REFRESH_HOST_V2'''))
     # A service-owned blank presenter replaces the legacy tab controller. Auth and
     # operation confirmation controllers render remotely within the host sheet.
     edit(side, "AltStore/SceneDelegate.swift", lambda s: replace(s,

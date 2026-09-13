@@ -1,0 +1,78 @@
+import Foundation
+
+@MainActor
+final class FakeClient {
+    var hold = false
+    var stale = false
+    var oversized = false
+    var replies: [() -> Void] = []
+    var cancellations = 0
+    func v3Execute(_ data: Data, reply: @escaping (Data) -> Void) {
+        let request = try! PropertyListSerialization.propertyList(from: data, format: nil) as! [String: Any]
+        if request["operation"] as? String == "cancel" { cancellations += 1; reply(Data()); return }
+        let result: [String: Any] = ["version": 1, "id": stale ? UUID().uuidString : request["id"]!,
+                                     "ok": true, "result": ["account": "fixture"]]
+        let encoded = oversized ? Data(repeating: 0, count: 4_194_305) :
+            try! PropertyListSerialization.data(fromPropertyList: result, format: .binary, options: 0)
+        if hold { replies.append { reply(encoded) } } else { reply(encoded) }
+    }
+    func flush() { let old = replies; replies = []; old.forEach { $0() } }
+}
+
+@MainActor
+final class RefreshHandler {
+    static let shared = RefreshHandler()
+    var sideStorePid: Int32 = 123
+    var v3RefreshToken: UUID?
+    var client: FakeClient? = FakeClient()
+    var connects = 0
+    func startRefresh(identifier: String, mangledName: String) async throws {
+        precondition(identifier == "__v3_connect" && mangledName.isEmpty)
+        connects += 1
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+}
+
+@main
+struct BridgeTests {
+    @MainActor
+    static func main() async throws {
+        let bridge = V3ServiceBridge(readTimeout: 0.05, commandTimeout: 0.05)
+        let handler = RefreshHandler.shared
+        let client = handler.client!
+        async let a: Void = bridge.connect()
+        async let b: Void = bridge.connect()
+        _ = try await (a, b)
+        precondition(handler.connects == 1, "launch must be coalesced")
+        let value = try await bridge.request(operation: "snapshot")
+        precondition(value["account"] as? String == "fixture")
+        client.stale = true
+        do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("stale reply accepted") } catch {}
+        client.stale = false; client.oversized = true
+        do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("oversized reply accepted") } catch {}
+        client.oversized = false; client.hold = true
+        let cancelled = Task { try await bridge.request(operation: "install") }
+        try await Task.sleep(nanoseconds: 5_000_000)
+        cancelled.cancel()
+        do { _ = try await cancelled.value; preconditionFailure("cancel ignored") } catch is CancellationError {} catch { preconditionFailure("wrong cancellation") }
+        precondition(client.cancellations == 1)
+        client.flush() // Late success cannot resume an already completed continuation.
+        let interrupted = Task { try await bridge.request(operation: "snapshot") }
+        try await Task.sleep(nanoseconds: 5_000_000)
+        bridge.disconnected()
+        do { _ = try await interrupted.value; preconditionFailure("disconnect ignored") } catch {}
+        client.flush()
+        do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("timeout ignored") } catch {}
+        precondition(client.cancellations == 2)
+        client.flush()
+        let mutation = Task { try await bridge.request(operation: "install") }
+        try await Task.sleep(nanoseconds: 5_000_000)
+        do { _ = try await bridge.request(operation: "signOut"); preconditionFailure("concurrent mutation accepted") } catch {}
+        mutation.cancel()
+        _ = try? await mutation.value
+        client.flush()
+        client.hold = false
+        _ = try await bridge.request(operation: "snapshot")
+        print("V3 lifecycle PASS")
+    }
+}

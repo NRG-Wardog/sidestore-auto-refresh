@@ -4,10 +4,18 @@
 public final class V3ServiceBridge {
     public static let shared = V3ServiceBridge()
     private var pending: [String: CheckedContinuation<Data, Error>] = [:]
+    private var timeouts: [String: Task<Void, Never>] = [:]
+    private let readTimeout: TimeInterval
+    private let commandTimeout: TimeInterval
     private var connecting: Task<Void, Error>?
     private var activeMutation: String?
     public var isMutating: Bool { activeMutation != nil }
     public var processID: Int32 { RefreshHandler.shared.sideStorePid }
+
+    init(readTimeout: TimeInterval = 30, commandTimeout: TimeInterval = 600) {
+        self.readTimeout = readTimeout
+        self.commandTimeout = commandTimeout
+    }
 
     public func connect() async throws {
         if let connecting { return try await connecting.value }
@@ -31,7 +39,7 @@ public final class V3ServiceBridge {
             activeMutation = id
         }
         defer { if activeMutation == id { activeMutation = nil } }
-        let timeout: TimeInterval = ["snapshot", "catalog"].contains(operation) ? 30 : 600
+        let timeout = ["snapshot", "catalog"].contains(operation) ? readTimeout : commandTimeout
         var message: [String: Any] = ["version": 1, "id": id, "operation": operation,
                                       "target": target, "deadline": Date().addingTimeInterval(timeout)]
         if let value { message["value"] = value }
@@ -53,8 +61,8 @@ public final class V3ServiceBridge {
                         self.settle(id, .success(response))
                     }
                 }
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                timeouts[id] = Task { @MainActor in
+                    do { try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000)) } catch { return }
                     if self.pending[id] != nil {
                         self.cancelRemote(id)
                         self.settle(id, .failure(self.failure("SideStore timed out. The operation may have completed; reload its status before retrying.")))
@@ -99,6 +107,7 @@ public final class V3ServiceBridge {
     }
 
     private func settle(_ id: String, _ result: Result<Data, Error>) {
+        timeouts.removeValue(forKey: id)?.cancel()
         pending.removeValue(forKey: id)?.resume(with: result)
     }
     private func failure(_ message: String) -> NSError {

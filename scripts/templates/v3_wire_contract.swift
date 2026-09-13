@@ -7,7 +7,7 @@ enum V3WireContract {
     static let responseLimit = 4_194_304
     static let operations: Set<String> = ["snapshot", "catalog", "cancel", "refreshSources", "addSource",
         "removeSource", "signIn", "signOut", "syncAppIDs", "clearCache", "setSetting", "install",
-        "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "jit", "panel", "importPairing"]
+        "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "jit", "panel", "importPairing", "refreshApp"]
 
     static func decodeRequest(_ data: Data, now: Date = Date()) -> [String: Any]? {
         guard data.count <= requestLimit,
