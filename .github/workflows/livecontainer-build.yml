@@ -274,13 +274,9 @@ jobs:
             2>&1 | tee artifacts/logs/runtime-contract-verification.log
           printf 'builder_commit=%s\n' "$GITHUB_SHA" > artifacts/builder-commit.txt
           python3 builder/scripts/combined_build_evidence.py collect --product v3 \
-            --ipa artifacts/LiveContainer-SideStore-AutoRefresh.ipa --output artifacts/debug-evidence \
+            --ipa artifacts/LiveContainer-SideStore-AutoRefresh.ipa --output artifacts/debug-evidence --source work/LiveContainer \
             "$RUNNER_TEMP/livecontainer-derived-data/Build/Products/Release-iphoneos" \
             "$RUNNER_TEMP/embedded-sidestore-derived-data/Build/Products/Release-iphoneos"
-          mkdir -p artifacts/debug-evidence/generated
-          cp work/LiveContainer/SideStoreSupport/SideStore.swift artifacts/debug-evidence/generated/
-          cp work/LiveContainer/SideStoreSupport/SideStoreClient.swift artifacts/debug-evidence/generated/
-          cp work/LiveContainer/SideStoreSupport/XPCServer.m artifacts/debug-evidence/generated/
 
       - name: Verify embedded CoreDevice transport executable
         shell: bash

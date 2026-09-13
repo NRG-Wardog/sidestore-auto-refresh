@@ -29,6 +29,7 @@ def main():
     parser.add_argument('--product', required=True, choices=['v2', 'v3'])
     parser.add_argument('--ipa', type=Path)
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--source', type=Path)
     parser.add_argument('paths', nargs='+', type=Path)
     args = parser.parse_args()
     commit = os.environ['GITHUB_SHA']
@@ -70,10 +71,25 @@ def main():
                     symbols[dwarf.name] = value
     support = binaries['Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework/SideStoreSupport']
     assert support in symbols.values(), 'matching SideStoreSupport dSYM required'
+    generated = {}
+    if args.source:
+        paths = ['SideStoreSupport/SideStore.swift', 'SideStoreSupport/SideStoreClient.swift',
+            'SideStoreSupport/XPCServer.m', 'SideStoreSupport/XPCServer.h', 'LiveContainer/LCBootstrap.m',
+            'LiveContainerSwiftUI/Models/AppLayoutStyle.swift', 'LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift',
+            'LiveContainerSwiftUI/Views/AppList/LCAppListView.swift']
+        paths += ['LiveContainerSwiftUI/Views/AppList/LCAppBanner/' + name for name in
+                  ('LCAppBanner.swift', 'LCAppBannerView.swift', 'LCAppBannerViewController.swift')]
+        paths += ['.lc-app-layout.json', '.combined-service-startup.json']
+        for name in paths:
+            data = (args.source / name).read_bytes()
+            target = args.output / 'generated' / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+            generated[name] = hashlib.sha256(data).hexdigest()
     evidence = dict(identity, schema=1, physical_device_execution=False,
         verification_scope='Static package identity, error protocol, UUID and dSYM matching; not runtime validation',
         ipa=args.ipa.name, sha256=hashlib.sha256(args.ipa.read_bytes()).hexdigest(),
-        framework_uuids=binaries, dsym_uuids=symbols,
+        framework_uuids=binaries, dsym_uuids=symbols, generated_source_sha256=generated,
         dependencies={key: os.environ[key] for key in ('LIVE_CONTAINER_REF', 'EMBEDDED_SIDESTORE_REF', 'MINIMUXER_REF', 'SIDESIGN_REF', 'SIDESIGN_GSA_FIX', 'IDEVICE_REF', 'JKTCP_REF')})
     (args.output / 'candidate-provenance.json').write_text(json.dumps(evidence, indent=2) + '\n')
 
