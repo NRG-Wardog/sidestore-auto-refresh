@@ -78,6 +78,10 @@ class ServicePatchTests(unittest.TestCase):
             jit = (roots[0] / "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift").read_text(encoding="utf-8")
             self.assertNotIn('sidestore://enable-jit', jit)
             self.assertIn('V3ServiceBridge.shared.request(operation: "jit"', jit)
+            scene = (roots[0] / "MultitaskSupport/AppSceneViewController.m").read_text(encoding="utf-8")
+            self.assertEqual(scene.count("UIKitFixesInit();"), 1)
+            self.assertEqual(scene.count("V3InitializeUIKitFixes();"), 2)
+            self.assertIn("dispatch_once(&onceToken, ^{ UIKitFixesInit(); });", scene)
             self.assertIn("!isLiveProcess && sideStoreExist", (roots[0] / "LiveContainer/LCBootstrap.m").read_text(encoding="utf-8"))
             for name in ("ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"):
                 self.assertNotIn('set("builtinSideStore", forKey: "LCLaunchExtensionBundleID")', (roots[0] / name).read_text(encoding="utf-8"))
