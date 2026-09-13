@@ -352,10 +352,11 @@ def patch_livecontainer_compact_geometry(root: Path) -> None:
 
 def patch_livecontainer(root: Path) -> None:
     """Validate all anchors in a staging tree before changing the checkout."""
-    if (root / ".git").exists():
-        revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
-        if revision != LIVE_CONTAINER_REVISION:
-            die(f"LiveContainer revision mismatch: {revision}")
+    if not (root / ".git").exists():
+        die("LiveContainer requires a versioned checkout at the pinned source revision")
+    revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+    if revision != LIVE_CONTAINER_REVISION:
+        die(f"LiveContainer revision mismatch: {revision}")
     manifest_path = root / ".lc-app-layout.json"
     patch_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     template_hashes = {name: hashlib.sha256(template(name).encode()).hexdigest() for name in (
