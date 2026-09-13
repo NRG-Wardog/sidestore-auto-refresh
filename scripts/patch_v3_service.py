@@ -355,6 +355,18 @@ def patch(live, side):
 }
 
 - (void)setUpAppPresenter {''').replace("[center removeObserver:self.extension", "if (self.extension) [center removeObserver:self.extension"))
+    def scene_hooks(s):
+        if s.count("UIKitFixesInit();") != 2:
+            raise SystemExit("v3 guest/service UIKit initialization anchors changed")
+        s = s.replace("UIKitFixesInit();", "V3InitializeUIKitFixes();")
+        return replace(s, "@implementation AppSceneViewController", '''// Both guest and service scenes share one swizzle installation for the host process.
+static void V3InitializeUIKitFixes(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{ UIKitFixesInit(); });
+}
+
+@implementation AppSceneViewController''')
+    edit(live, "MultitaskSupport/AppSceneViewController.m", scene_hooks)
     records = []
     for path, content in changes.items():
         encoded = content.encode("utf-8")
