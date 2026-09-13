@@ -113,6 +113,13 @@ Issue 17 adds saved app layout choices under **Interface**:
 
 The selected layout and label preference persist across launches. Changing either setting refreshes the Apps screen immediately. Grid actions continue to use the existing launch, multitasking, context-menu, confirmation, and error-handling paths.
 
+The combined-build Issue #25 correction supplies a content-derived Grid sizing
+contract, including the iOS 15 intrinsic/preferred-size path, scaled labels and a
+visible missing-icon fallback. Compact List now sizes its icon and content to its
+row. Existing `LCAppLayoutStyle` and `LCShowAppLabels` values are preserved.
+[Layout verification](docs/issue25-layout-verification.md) separates measured
+simulator reproduction and regression evidence from pending physical-device tests.
+
 ## What's new in standalone v1.0.3?
 
 Standalone v1.0.3 updates the app to **SideStore 0.7.0 nightly**, including the newer **SideSign authentication path**.
