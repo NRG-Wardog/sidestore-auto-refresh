@@ -28,7 +28,7 @@ final class CombinedServiceConnection {
         if isReady { return }
         let waiter = UUID()
         try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
                 waiters[waiter] = continuation
                 if attemptID == nil { begin() }
