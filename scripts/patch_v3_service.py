@@ -119,9 +119,9 @@ def patch(live, side):
                 self.client = nil
                 Task { @MainActor in V3ServiceBridge.shared.disconnected() }
             }''')
-        return s + (TEMPLATES / "v3_service_bridge.swift").read_text(encoding="utf-8")
+        return s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_service_bridge.swift").read_text(encoding="utf-8")
     edit(live, "SideStoreSupport/SideStore.swift", host)
-    edit(side, "AltStore/AppDelegate.swift", lambda s: s + (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8"))
+    edit(side, "AltStore/AppDelegate.swift", lambda s: s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8"))
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
         "        NavigationView {\n            ScrollView {", "        NavigationView {\n            ScrollView {\n                V3InstalledAppsSection(query: searchContext.debouncedQuery)"))
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(replace(s,
