@@ -131,6 +131,69 @@ class ServicePatchTests(unittest.TestCase):
 
 
 class WireExecutionTests(unittest.TestCase):
+    def test_shipped_native_callback_settles_once(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable")
+        source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
+        gate = source[source.index("private final class V3ServiceCallbackGate:"):
+                      source.index("// V3_NATIVE_CALLBACK_GATE_END")]
+        callback = source[source.index("    private func callback("):
+                          source.index("    private func snapshot()")]
+        callback = callback.replace("private func callback", "func callback")
+        program = "import Foundation\n" + gate + "\nstruct Adapter {\n" + callback + "}\n" + r'''
+enum Failure: Error { case native }
+@main struct CallbackTests {
+    static func main() async throws {
+        let adapter = Adapter()
+        // Executes the production callback adapter, not a model of the gate.
+        try await adapter.callback { done in
+            done(.success(()))
+            done(.failure(Failure.native))
+            done(.success(()))
+        }
+        do {
+            try await adapter.callback { done in
+                done(.failure(Failure.native))
+                done(.success(()))
+            }
+            preconditionFailure("native failure was lost")
+        } catch Failure.native {}
+        for _ in 0..<100 {
+            try await adapter.callback { done in
+                DispatchQueue.concurrentPerform(iterations: 16) { _ in done(.success(())) }
+            }
+        }
+        // A cancelled task must keep awaiting the native terminal callback. Releasing
+        // the continuation on cancellation would free the service mutation gate early.
+        let nativeFinished = DispatchSemaphore(value: 0)
+        let task = Task {
+            try await adapter.callback { done in
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.03) {
+                    nativeFinished.signal()
+                    done(.success(()))
+                    done(.failure(Failure.native)) // Late callback is ignored.
+                }
+            }
+        }
+        task.cancel()
+        try await task.value
+        precondition(nativeFinished.wait(timeout: .now()) == .success)
+        print("V3 native callback exactly-once PASS")
+    }
+}
+'''
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            swift = directory / "main.swift"
+            swift.write_text(program)
+            executable = directory / "callback-tests"
+            compiled = subprocess.run([compiler, "-parse-as-library", str(swift), "-o", str(executable)], capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3 native callback exactly-once PASS", result.stdout)
+
     def test_shipped_bridge_lifecycle(self):
         compiler = shutil.which("swiftc")
         if not compiler:

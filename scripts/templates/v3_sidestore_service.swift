@@ -3,6 +3,23 @@
 // Compiled only into SideStore. No managed objects or credentials cross XPC.
 import SwiftUI
 
+// V3_NATIVE_CALLBACK_GATE_V1: native completions can arrive on arbitrary queues.
+// Cancellation does not manufacture a native completion or release the mutation gate.
+// The owning service retains it until the real callback returns or the process retires.
+private final class V3ServiceCallbackGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Error>?
+    init(_ continuation: CheckedContinuation<Void, Error>) { self.continuation = continuation }
+    func settle(_ result: Result<Void, Error>) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(with: result)
+    }
+}
+// V3_NATIVE_CALLBACK_GATE_END
+
 @MainActor
 @objc(V3SideStoreService)
 final class V3SideStoreService: NSObject {
@@ -287,7 +304,8 @@ final class V3SideStoreService: NSObject {
 
     private func callback(_ start: (@escaping (Result<Void, Error>) -> Void) -> Void) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            start { result in continuation.resume(with: result) }
+            let gate = V3ServiceCallbackGate(continuation)
+            start { result in gate.settle(result) }
         }
     }
 
