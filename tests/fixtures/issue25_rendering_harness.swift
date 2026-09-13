@@ -94,7 +94,8 @@ struct RenderingScreen: View, LCAppBannerDelegate {
         [Double(bounds.minX), Double(bounds.minY), Double(bounds.width), Double(bounds.height)]
     }
     func gridControllers() -> [LCGridAppCellViewController] {
-        controllers(host).compactMap { $0 as? LCGridAppCellViewController }.sorted {
+        controllers(host).compactMap { $0 as? LCGridAppCellViewController }
+            .filter { $0.view.isDescendant(of: host.view) }.sorted {
             let left = $0.view.convert($0.view.bounds, to: host.view)
             let right = $1.view.convert($1.view.bounds, to: host.view)
             return abs(left.minY - right.minY) > 1 ? left.minY < right.minY : left.minX < right.minX
@@ -140,27 +141,34 @@ struct RenderingScreen: View, LCAppBannerDelegate {
                 if frames[i].intersection(frames[j]).width > 0.5 && frames[i].intersection(frames[j]).height > 0.5 { local.append("cells \(i) and \(j) overlap") }
             }
         }
-        measurements.append(["case": name, "inputCount": state.apps.count, "cellCount": cells.count, "viewport": rect(host.view.bounds), "labels": UserDefaults.standard.object(forKey: "LCShowAppLabels") as? Bool ?? true, "cells": cellEvidence, "violations": local])
+        let retainedButDetached = controllers(host).compactMap { $0 as? LCGridAppCellViewController }.filter { !$0.view.isDescendant(of: host.view) }.count
+        measurements.append(["case": name, "inputCount": state.apps.count, "cellCount": cells.count, "retainedButDetachedControllers": retainedButDetached, "viewport": rect(host.view.bounds), "labels": UserDefaults.standard.object(forKey: "LCShowAppLabels") as? Bool ?? true, "cells": cellEvidence, "violations": local])
         if requireValid { failures += local.map { "\(name): \($0)" } }
         return local.isEmpty
     }
     @discardableResult func verifyList(_ name: String, compact: Bool, requireValid: Bool = true) -> Bool {
         let previousFailures = failures.count
-        let cells = controllers(host).compactMap { $0 as? LCAppBannerViewController }.filter { !($0.parent is LCGridAppCellViewController) }.sorted {
+        let cells = controllers(host).compactMap { $0 as? LCAppBannerViewController }.filter { !($0.parent is LCGridAppCellViewController) && $0.view.isDescendant(of: host.view) }.sorted {
             $0.view.convert($0.view.bounds, to: host.view).minY < $1.view.convert($1.view.bounds, to: host.view).minY
         }
         check(cells.map { $0.view.accessibilityLabel ?? "" } == state.apps.map(\.displayName), "\(name): list identities/order changed")
         check(cells.allSatisfy { $0.view.bounds.width > 0 && abs($0.view.bounds.height - (compact ? 56 : 88)) < 1 }, "\(name): banner representable sizing is incorrect")
+        var iconEvidence: [[String: Any]] = []
         for cell in cells {
             let images = descendants(cell.view).compactMap { $0 as? UIImageView }.filter { visible($0, in: cell.view) && $0.bounds.width >= 40 }
             check(images.count == 1, "\(name): banner is missing its icon view")
             for image in images {
                 check(cell.view.bounds.contains(image.convert(image.bounds, to: cell.view)), "\(name): production banner icon is clipped")
-                check(abs(image.bounds.height - (compact ? 40 : 60)) < 1, "\(name): production banner icon size did not track style")
+                // SF Symbols carry alignment insets: Auto Layout constrains the
+                // alignment rect, so e.g. a 60pt icon can have a 57pt image frame.
+                // Verify the actual constrained geometry, not an arbitrary tolerance.
+                let alignment = image.alignmentRect(forFrame: image.frame)
+                check(abs(alignment.height - (compact ? 40 : 60)) < 0.5, "\(name): production banner icon alignment size did not track style")
+                iconEvidence.append(["bounds": rect(image.bounds), "alignmentRect": rect(alignment), "expectedAlignmentHeight": compact ? 40 : 60])
             }
         }
         let violations = Array(failures.dropFirst(previousFailures))
-        measurements.append(["case": name, "inputCount": state.apps.count, "cellCount": cells.count, "scope": "production LCAppBanner representable and LCAppBannerRootView with controlled action-router dependency; baseline compact omits new applyLayoutStyle to reproduce old 60-point icon geometry", "bounds": cells.map { rect($0.view.convert($0.view.bounds, to: host.view)) }, "violations": violations])
+        measurements.append(["case": name, "inputCount": state.apps.count, "cellCount": cells.count, "scope": "production LCAppBanner representable and LCAppBannerRootView with controlled action-router dependency; baseline compact omits new applyLayoutStyle to reproduce old 60-point icon geometry", "bounds": cells.map { rect($0.view.convert($0.view.bounds, to: host.view)) }, "icons": iconEvidence, "violations": violations])
         if !requireValid { failures.removeSubrange(previousFailures..<failures.count) }
         return violations.isEmpty
     }
