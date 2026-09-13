@@ -7,6 +7,42 @@ body:
       value: |
         Thanks for reporting a problem. Do not upload pairing files, private keys, Apple credentials, signed personal IPAs, or unredacted private device logs.
 
+  - type: dropdown
+    id: product_line
+    attributes:
+      label: Product line
+      description: Select the package you tested, not the upstream version displayed inside LiveContainer or SideStore. Do not guess if unsure.
+      options:
+        - "v1 - Standalone SideStore"
+        - "v2 - Combined LiveContainer + SideStore"
+        - "v3 - Unified LiveContainer + SideStore test build"
+        - "Multiple product lines - identify each below"
+        - "Builder / CI only"
+        - "Not sure - provide the download source below"
+    validations:
+      required: true
+
+  - type: input
+    id: release_version
+    attributes:
+      label: Exact release or build version
+      description: Copy the repository release tag or builder commit. "Latest", "3.8.9", or "SideStore 0.7.0" alone cannot identify this project's package. If unknown, write "Unknown" and provide the download source below.
+      placeholder: "Release tag v2.1.0, or full builder commit for a test build"
+    validations:
+      required: true
+
+  - type: textarea
+    id: build_source
+    attributes:
+      label: Download source and IPA filename
+      description: Paste the release URL or GitHub Actions run URL and the exact IPA filename. For a local build, give the branch and full builder commit. For multiple devices/packages, identify the build used on each. Do not upload the IPA or private signing material.
+      placeholder: |
+        Release or Actions run URL:
+        IPA filename:
+        Builder commit (if known):
+    validations:
+      required: true
+
   - type: input
     id: device
     attributes:
