@@ -175,7 +175,7 @@ extension SideStoreClient {
             }
             let native = error as NSError
             throw NSError(domain: native.domain, code: native.code,
-                userInfo: ["LCFailureStage": stage, NSUnderlyingErrorKey: native,
+                userInfo: ["LCStructuredFailureStageV1": stage, NSUnderlyingErrorKey: native,
                            NSLocalizedDescriptionKey: native.localizedDescription])'''))
     edit(live, "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", lambda s: replace(s,
         "            Form {", '''            Form {
