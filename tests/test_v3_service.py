@@ -124,6 +124,8 @@ class WireExecutionTests(unittest.TestCase):
             directory = Path(name)
             program = directory / "main.swift"
             program.write_text((ROOT / "tests/fixtures/v3_bridge_harness.swift").read_text() +
+                               (ROOT / "scripts/templates/combined_failure.swift").read_text() +
+                               (ROOT / "scripts/templates/combined_service_connection.swift").read_text() +
                                (ROOT / "scripts/templates/v3_service_bridge.swift").read_text())
             executable = directory / "bridge-tests"
             compiled = subprocess.run([compiler, "-parse-as-library", str(program), "-o", str(executable)], capture_output=True, text=True)
