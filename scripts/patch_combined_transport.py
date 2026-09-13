@@ -241,6 +241,74 @@ def patch(minimuxer: Path):
         }
 
 ''', "replace readiness policy with actual transport capability")
+        text = replace_once(
+            text,
+            '            "deviceUDID=\\(deviceUDID ?? "nil") " +',
+            '            "deviceUDID_present=\\(deviceUDID != nil) " +',
+            "prevent raw UDID leakage in status log",
+        )
+        old_run = '''    private func runIdeviceCheckingVPN<T>(_ context: String, fallback: T, action: () async throws -> T) async throws(MinimuxerError) -> T {
+        do {
+            return try await action()
+        } catch let err as DeviceGatewayError {
+            if err.code == .connectionFailed,
+               err.reason.lowercased().contains("broken pipe") || err.reason.lowercased().contains("brokenpipe") {
+                throw MinimuxerError.noVPN("VPN tunnel connection severed \\(context). Cause: \\(err.reason)")
+            }
+            return fallback
+        } catch {
+            return fallback
+        }
+    }'''
+        new_run = '''    private func runIdeviceCheckingVPN<T>(_ context: String, fallback: T, action: () async throws -> T) async throws(MinimuxerError) -> T {
+        do {
+            return try await action()
+        } catch let err as DeviceGatewayError {
+            if err.code == .connectionFailed,
+               err.reason.lowercased().contains("broken pipe") || err.reason.lowercased().contains("brokenpipe") {
+                throw MinimuxerError.noVPN("VPN tunnel connection severed \\(context). Cause: \\(err.reason)")
+            }
+            if context.contains("fetching device UDID") {
+                if err.code == .invalidPairingFile {
+                    throw MinimuxerError.invalidPairing(protocol: self.gateway.pairingFileType, reason: err.reason)
+                }
+                if err.code == .connectionFailed {
+                    if err.reason.lowercased().contains("heartbeat") {
+                        throw MinimuxerError.connect(err.reason)
+                    }
+                    if self.gateway.coreDeviceTransportEnabled || err.reason.contains("CoreDevice") {
+                        throw MinimuxerError.createCoreDevice(err.reason)
+                    }
+                    throw MinimuxerError.noDevice(err.reason)
+                }
+                if err.code == .serviceError {
+                    if err.reason.contains("UniqueDeviceID") {
+                        throw MinimuxerError.getLockdownValue(err.reason)
+                    }
+                    if err.reason.contains("stage=rsd_service") || (err.reason.contains("RSD") && err.reason.contains("service")) {
+                        throw MinimuxerError.noService(err.reason)
+                    }
+                    if err.reason.contains("Lockdown") || err.reason.contains("lockdown") {
+                        throw MinimuxerError.createLockdown(err.reason)
+                    }
+                    throw MinimuxerError.noService(err.reason)
+                }
+                if err.code == .notInitialized {
+                    throw MinimuxerError.notStarted(err.reason)
+                }
+                throw MinimuxerError.noDevice(err.reason)
+            }
+            return fallback
+        } catch let err as MinimuxerError {
+            throw err
+        } catch {
+            if context.contains("fetching device UDID") {
+                throw MinimuxerError.noDevice(error.localizedDescription)
+            }
+            return fallback
+        }
+    }'''
+        text = replace_once(text, old_run, new_run, "structured error propagation in runIdeviceCheckingVPN")
         return replace_once(text, "        // retarget usbmuxd to our fake usbmuxd server (over network)",
                             "        await configureRefreshTransport()\n        // retarget usbmuxd to our fake usbmuxd server (over network)", "configure after pairing load")
     edit(impl, "private func configureRefreshTransport", implementation)
@@ -346,6 +414,21 @@ def patch(minimuxer: Path):
             }''', '''            self.ipsecSatisfied = (self.isRPPairing || minimuxer.gateway.coreDeviceTransportEnabled)
                 ? nil : network.isIKEv2IPSecAvailable''', "consistent reactive IPSec indicator")
     edit(health / "HealthCheckViewModel.swift", "minimuxer.gateway.coreDeviceTransportEnabled", health_requirements)
+    wrapper = sidestore / "SideStore/Core/DeviceApi/MinimuxerWrapper.swift"
+    if wrapper.is_file():
+        def error_mapping(text):
+            old = """        case .pairingNotLoaded(let reason):     return .pairingNotComplete(reason: reason)
+        default:                                return .unknown(failureReason: self.localizedDescription)"""
+            new = """        case .pairingNotLoaded(let reason):     return .pairingNotComplete(reason: reason)
+        case .createCoreDevice(let reason),
+             .createLockdown(let reason),
+             .getLockdownValue(let reason),
+             .connect(let reason),
+             .noService(let reason):
+            return .noDevice(reason: reason)
+        default:                                return .unknown(failureReason: self.localizedDescription)"""
+            return replace_once(text, old, new, "transport and service error mapping")
+        edit(wrapper, "createCoreDevice", error_mapping)
     verify(minimuxer)
 
 
@@ -353,17 +436,25 @@ def verify(root):
     checks = {
         "DeviceGateway/idevice/IdeviceGateway.swift": ["tunnel_create_usb(provider, &adapter, &handshake)",
             "COMBINED_COREDEVICE_BATCH_V1", "usesCoreDevice", "afc_client_connect_rsd",
-            "installation_proxy_connect_rsd", "syncInstallAppBundle", "STAGED_FILE_SIZE_MATCH"],
+            "installation_proxy_connect_rsd", "syncInstallAppBundle", "STAGED_FILE_SIZE_MATCH",
+            "[SIDESTORE_COREDEVICE] FETCH_UDID_START"],
         "Common/PairingFile.swift": ["Composite records must use Lockdown/CoreDevice"],
-        "Sources/MinimuxerImpl.swift": ["configureRefreshTransport", "hasActiveTransportBatch"],
+        "Sources/MinimuxerImpl.swift": ["configureRefreshTransport", "hasActiveTransportBatch",
+                                        "deviceUDID_present="],
     }
     for name, needles in checks.items():
         text = (root / name).read_text(encoding="utf-8")
         for needle in needles:
             if needle not in text:
                 raise SystemExit(f"Incomplete combined transport: {name}: {needle}")
-    if "no ipsec interface (required for lockdown" in (root / "Sources/MinimuxerImpl.swift").read_text(encoding="utf-8"):
+    impl_text = (root / "Sources/MinimuxerImpl.swift").read_text(encoding="utf-8")
+    if "no ipsec interface (required for lockdown" in impl_text:
         raise SystemExit("Obsolete readiness-only IPSec policy remains")
+    if 'deviceUDID=\\(deviceUDID ?? "nil")' in impl_text:
+        raise SystemExit("Raw device UDID logging remains in MinimuxerImpl.swift")
+    wrapper = root.parent.parent / "SideStore/Core/DeviceApi/MinimuxerWrapper.swift"
+    if wrapper.is_file() and "createCoreDevice" not in wrapper.read_text(encoding="utf-8"):
+        raise SystemExit("MinimuxerWrapper missing transport error mapping")
 
 
 if __name__ == "__main__":

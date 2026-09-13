@@ -508,9 +508,15 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
             debugLog("[SIDESTORE_COREDEVICE] TRANSPORT_CREATE_FAIL code=\(code) subcode=\(subCode) error=\(message)")
             throw IdeviceGatewayError(.connectionFailed, reason: "CoreDevice tunnel failed: \(message)")
         }
-        guard adapter != nil, handshake != nil, tunnel_heartbeat_is_active() else {
+        guard adapter != nil, handshake != nil else {
             releaseTransport()
+            debugLog("[SIDESTORE_COREDEVICE] TRANSPORT_CREATE_FAIL reason=incomplete_handles")
             throw IdeviceGatewayError(.connectionFailed, reason: "CoreDevice tunnel returned incomplete handles")
+        }
+        guard tunnel_heartbeat_is_active() else {
+            releaseTransport()
+            debugLog("[SIDESTORE_COREDEVICE] HEARTBEAT_FAIL")
+            throw IdeviceGatewayError(.connectionFailed, reason: "CoreDevice heartbeat is inactive")
         }
         debugLog("[SIDESTORE_COREDEVICE] TRANSPORT_CREATE_PASS")
     }
@@ -575,7 +581,128 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
     )
     pairing_condition = "pairingFileType == .rppairing" if modern else "isRPPairing"
     rsd_condition = "pairingFileType == .rppairing || usesCoreDevice" if modern else "isRPPairing || pairingFileType == .lockdown"
-    text = replace_once(text, f"        if {pairing_condition} {{\n            do {{", f"        if {rsd_condition} {{\n            do {{", "fetch UDID over RSD")
+
+    sync_fetch_start = "    private func syncFetchUDID() throws -> String? {\n"
+    sync_fetch_end = "\n    private func syncGetLockdownValue(key: String) throws -> String? {\n"
+    new_sync_fetch = f"""    private func syncFetchUDID() throws -> String? {{
+        debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_START mode=\\(pairingFileType)")
+        try verifyInitialized()
+        if {rsd_condition} {{
+            do {{
+                verboseLog("[IdeviceGateway] fetchUDID() calling ensureRPConnection()")
+                try ensureRPConnection()
+            }} catch {{
+                debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=transport reason=\\(error.localizedDescription)")
+                throw error
+            }}
+            guard let adapter = adapter, let handshake = handshake else {{
+                debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=transport reason=incomplete_handles")
+                throw IdeviceGatewayError(.connectionFailed, reason: "CoreDevice transport returned incomplete handles")
+            }}
+            var lockdownClient: OpaquePointer? = nil
+            verboseLog("[IdeviceGateway] fetchUDID() connecting lockdownd_connect_rsd")
+            var connectErr = lockdownd_connect_rsd(adapter, handshake, &lockdownClient)
+            if let firstErr = connectErr {{
+                let firstCode = firstErr.pointee.code
+                let firstSubCode = firstErr.pointee.sub_code
+                debugLog("[SIDESTORE_COREDEVICE] LOCKDOWN_CONNECT_FAIL code=\\(firstCode) subcode=\\(firstSubCode) action=retry")
+                idevice_error_free(firstErr)
+                invalidateConnection()
+                
+                do {{
+                    try ensureRPConnection()
+                    guard let freshAdapter = self.adapter, let freshHandshake = self.handshake else {{
+                        debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=transport reason=retry_incomplete_handles")
+                        throw IdeviceGatewayError(.connectionFailed, reason: "CoreDevice transport returned incomplete handles on retry")
+                    }}
+                    connectErr = lockdownd_connect_rsd(freshAdapter, freshHandshake, &lockdownClient)
+                    if let secondErr = connectErr {{
+                        let code = secondErr.pointee.code
+                        let subCode = secondErr.pointee.sub_code
+                        let msg = getErrorMessage(from: secondErr)
+                        idevice_error_free(secondErr)
+                        invalidateConnection()
+                        debugLog("[SIDESTORE_COREDEVICE] LOCKDOWN_CONNECT_FAIL code=\\(code) subcode=\\(subCode)")
+                        debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=rsd_service code=\\(code)")
+                        throw IdeviceGatewayError(.serviceError, reason: "Lockdownd RSD connection failed (code \\(code)): \\(msg)")
+                    }}
+                }} catch {{
+                    debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=rsd_service reason=\\(error.localizedDescription)")
+                    throw error
+                }}
+            }}
+            guard let client = lockdownClient else {{
+                debugLog("[SIDESTORE_COREDEVICE] LOCKDOWN_CONNECT_FAIL reason=nil_client")
+                throw IdeviceGatewayError(.serviceError, reason: "Lockdownd client is nil after connect")
+            }}
+            defer {{ lockdownd_client_free(client) }}
+            
+            var plistVal: plist_t? = nil
+            verboseLog("[IdeviceGateway] fetchUDID() calling lockdownd_get_value for UniqueDeviceID")
+            let valErr = lockdownd_get_value(client, "UniqueDeviceID", nil, &plistVal)
+            if let valErr = valErr {{
+                let code = valErr.pointee.code
+                let subCode = valErr.pointee.sub_code
+                let msg = getErrorMessage(from: valErr)
+                safeFreeError(valErr)
+                debugLog("[SIDESTORE_COREDEVICE] UNIQUE_DEVICE_ID_QUERY_FAIL code=\\(code) subcode=\\(subCode)")
+                throw IdeviceGatewayError(.serviceError, reason: "Querying UniqueDeviceID failed (code \\(code)): \\(msg)")
+            }}
+            guard let plistVal = plistVal else {{
+                debugLog("[SIDESTORE_COREDEVICE] UNIQUE_DEVICE_ID_QUERY_FAIL reason=nil_plist")
+                throw IdeviceGatewayError(.serviceError, reason: "UniqueDeviceID plist value is nil")
+            }}
+            defer {{
+                safeFreePlist(plistVal)
+            }}
+            guard let udid = getRustPlistString(plistVal), !udid.isEmpty else {{
+                debugLog("[SIDESTORE_COREDEVICE] UNIQUE_DEVICE_ID_QUERY_FAIL reason=empty_udid")
+                throw IdeviceGatewayError(.serviceError, reason: "UniqueDeviceID string is empty")
+            }}
+            debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_PASS")
+            return udid
+        }} else {{
+            var conn: OpaquePointer? = nil
+            let err = idevice_usbmuxd_new_default_connection(0, &conn)
+            if let err = err {{
+                let code = err.pointee.code
+                let msg = self.getErrorMessage(from: err)
+                idevice_error_free(err)
+                debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=usbmuxd code=\\(code)")
+                throw IdeviceGatewayError(.connectionFailed, reason: "usbmuxd connection failed (code \\(code)): \\(msg)")
+            }}
+            
+            guard let conn = conn else {{
+                throw IdeviceGatewayError(.connectionFailed, reason: "usbmuxd connection returned nil")
+            }}
+            defer {{ idevice_usbmuxd_connection_free(conn) }}
+            var devices: UnsafeMutablePointer<OpaquePointer?>? = nil
+            var count: Int32 = 0
+            let devErr = idevice_usbmuxd_get_devices(conn, &devices, &count)
+            if let devErr = devErr {{
+                let code = devErr.pointee.code
+                let msg = self.getErrorMessage(from: devErr)
+                idevice_error_free(devErr)
+                debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=usbmuxd_devices code=\\(code)")
+                throw IdeviceGatewayError(.serviceError, reason: "usbmuxd get_devices failed (code \\(code)): \\(msg)")
+            }}
+            
+            var udidResult: String? = nil
+            if count > 0, let devicesPtr = devices, let firstDev = devicesPtr.pointee {{
+                defer {{ idevice_usbmuxd_device_list_free(devices, count) }}
+                if let udidPtr = idevice_usbmuxd_device_get_udid(firstDev) {{
+                    udidResult = String(cString: udidPtr)
+                    idevice_string_free(udidPtr)
+                }}
+            }}
+            guard let udidResult, !udidResult.isEmpty else {{
+                throw IdeviceGatewayError(.noConnection, reason: "No device UDID found on usbmuxd")
+            }}
+            debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_PASS")
+            return udidResult
+        }}
+    }}"""
+    text = replace_region(text, sync_fetch_start, sync_fetch_end, new_sync_fetch + "\n", "structured fetchUDID error propagation")
     text = replace_once(text, f"        if {pairing_condition} {{\n            try mountPersonalizedDdiRsd", f"        if {rsd_condition} {{\n            try mountPersonalizedDdiRsd", "DDI over RSD")
 
     new_stage = r'''    private func syncYeetAppAfc(bundleId: String, ipaBytes: Data) throws {
@@ -990,6 +1117,8 @@ def verify_gateway(text: str) -> None:
         "SIDESTORE_POST_INSTALL_VERIFY_PASS",
         "idevice_plist_array_free(applications, UInt(count))",
         "idevice_plist_array_free(plistArray, UInt(outLen))",
+        "[SIDESTORE_COREDEVICE] FETCH_UDID_START",
+        "[SIDESTORE_COREDEVICE] FETCH_UDID_PASS",
     ]
     missing = [needle for needle in required if needle not in text]
     if missing:
