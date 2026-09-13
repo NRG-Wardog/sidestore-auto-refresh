@@ -92,6 +92,7 @@ final class CombinedServiceConnection {
             throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadInvalidFileNameError)
         }
         let home = URL(fileURLWithPath: value, isDirectory: true).standardizedFileURL
+        guard home.path != "/" else { throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadInvalidFileNameError) }
         var directory: ObjCBool = false
         guard fileManager.fileExists(atPath: home.path, isDirectory: &directory), directory.boolValue else {
             throw NSError(domain: NSCocoaErrorDomain, code: NSFileNoSuchFileError)

@@ -33,7 +33,7 @@ struct V3UnifiedTabs: View {
         .environmentObject(status)
         .accessibilityIdentifier("V3_UNIFIED_SHELL_V1")
         .task {
-            status.reload()
+            status.reload(manual: false)
             if !selectedInitialTab {
                 selectedInitialTab = true
                 if sharedModel.deepLink == nil { sharedModel.selectedTab = .home }
@@ -156,13 +156,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         Task {
             defer { loading = false }
             do {
-                for attempt in 0..<4 {
-                    do { accept(try await V3ServiceBridge.shared.request(operation: "snapshot")); break }
-                    catch {
-                        guard attempt < 3, (error as NSError).domain == "V3SideStoreService.notReady" else { throw error }
-                        try await Task.sleep(nanoseconds: 1_000_000_000)
-                    }
-                }
+                accept(try await V3ServiceBridge.shared.request(operation: "snapshot"))
             } catch { connected = false; requiresConnectionRetry = true; self.error = error.localizedDescription }
         }
     }

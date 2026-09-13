@@ -33,7 +33,7 @@ struct StartupTests {
         while !predicate() { precondition(Date() < until); await Task.yield() }
     }
     @MainActor static func main() async throws {
-        for home in [nil, "", "relative", "/", "/missing-" + UUID().uuidString] as [String?] {
+        for home in [nil, "", "relative", "/", "/tmp/..", "/missing-" + UUID().uuidString] as [String?] {
             do { _ = try CombinedServiceConnection.resolveHost(home); preconditionFailure("bad host accepted") } catch {}
         }
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -101,6 +101,13 @@ struct StartupTests {
             precondition(CombinedFailure.decode(bad, expectedID: id) == nil)
         }
         precondition(!f.events.contains("refresh") && !f.events.contains("signIn"), "connecting invoked a mutation")
+        let unsafe: [String: Any] = ["liveContainerAutoRefreshVerification": ["run_id": id, "expected_ids": ["test.app"],
+            "password": "SECRET", "results": [["bundle_id": "test.app", "success": false, "token": "SECRET",
+                "error_domain": "SECRET", "error_code": 7, "error": "lc_stage=uniqueDeviceID SECRET"]]], "secret": "SECRET"]
+        let safe = CombinedVerification.sanitized(unsafe, runID: id)
+        let encoded = try PropertyListSerialization.data(fromPropertyList: safe, format: .xml, options: 0)
+        precondition(!String(decoding: encoded, as: UTF8.self).contains("SECRET"))
+        precondition(CombinedVerification.sanitized(unsafe, runID: UUID().uuidString).isEmpty)
         print("Combined startup failure, cancellation, concurrency, redaction and reconnect PASS")
     }
 }
