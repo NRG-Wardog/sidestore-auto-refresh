@@ -5,16 +5,19 @@ public final class V3ServiceBridge {
     public static let shared = V3ServiceBridge()
     private var pending: [String: CheckedContinuation<Data, Error>] = [:]
     private var timeouts: [String: Task<Void, Never>] = [:]
+    private var cancellationRecovery: [String: Task<Void, Never>] = [:]
     private let readTimeout: TimeInterval
     private let commandTimeout: TimeInterval
+    private let cancellationGrace: TimeInterval
     private var connecting: Task<Void, Error>?
     private var activeMutation: String?
-    public var isMutating: Bool { activeMutation != nil }
+    public var isMutating: Bool { activeMutation != nil || !cancellationRecovery.isEmpty }
     public var processID: Int32 { RefreshHandler.shared.sideStorePid }
 
-    init(readTimeout: TimeInterval = 30, commandTimeout: TimeInterval = 600) {
+    init(readTimeout: TimeInterval = 30, commandTimeout: TimeInterval = 600, cancellationGrace: TimeInterval = 3) {
         self.readTimeout = readTimeout
         self.commandTimeout = commandTimeout
+        self.cancellationGrace = cancellationGrace
     }
 
     public func connect() async throws {
@@ -31,9 +34,9 @@ public final class V3ServiceBridge {
         try Task.checkCancellation()
         try await connect()
         let id = UUID().uuidString
-        let mutation = !["snapshot", "catalog"].contains(operation)
+        let mutation = !["snapshot", "catalog", "backupResult"].contains(operation)
         if mutation {
-            guard activeMutation == nil, RefreshHandler.shared.v3RefreshToken == nil else {
+            guard !isMutating, RefreshHandler.shared.v3RefreshToken == nil else {
                 throw failure("Another SideStore operation or refresh is running.")
             }
             activeMutation = id
@@ -55,6 +58,7 @@ public final class V3ServiceBridge {
                 }
                 client.v3Execute(data) { response in
                     Task { @MainActor in
+                        self.cancellationRecovery.removeValue(forKey: id)?.cancel()
                         guard response.count <= 4_194_304 else {
                             self.settle(id, .failure(self.failure("SideStore response exceeded the size limit."))); return
                         }
@@ -64,14 +68,15 @@ public final class V3ServiceBridge {
                 timeouts[id] = Task { @MainActor in
                     do { try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000)) } catch { return }
                     if self.pending[id] != nil {
-                        self.cancelRemote(id)
+                        self.cancelRemote(id, mutation: mutation)
                         self.settle(id, .failure(self.failure("SideStore timed out. The operation may have completed; reload its status before retrying.")))
                     }
                 }
             }
         }, onCancel: {
             Task { @MainActor in
-                self.cancelRemote(id)
+                guard self.pending[id] != nil else { return }
+                self.cancelRemote(id, mutation: mutation)
                 self.settle(id, .failure(CancellationError()))
             }
         })
@@ -93,16 +98,28 @@ public final class V3ServiceBridge {
     }
 
     public func disconnected() {
+        for task in cancellationRecovery.values { task.cancel() }
+        cancellationRecovery.removeAll()
         for id in Array(pending.keys) {
             settle(id, .failure(failure("SideStore stopped. Reconnect and reload status before retrying an operation.")))
         }
     }
 
-    private func cancelRemote(_ target: String) {
+    private func cancelRemote(_ target: String, mutation: Bool = false) {
         let value: [String: Any] = ["version": 1, "id": UUID().uuidString, "operation": "cancel",
                                     "target": target, "deadline": Date().addingTimeInterval(30)]
         if let data = try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0) {
             RefreshHandler.shared.client?.v3Execute(data) { _ in }
+        }
+        if mutation {
+            // Keep the host mutation gate held until completion or process retirement.
+            // A native callback that never returns cannot strand the product forever.
+            cancellationRecovery[target] = Task { @MainActor in
+                do { try await Task.sleep(nanoseconds: UInt64(cancellationGrace * 1_000_000_000)) } catch { return }
+                guard cancellationRecovery[target] != nil else { return }
+                RefreshHandler.shared.v3_stopService()
+                disconnected()
+            }
         }
     }
 

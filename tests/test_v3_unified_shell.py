@@ -59,6 +59,17 @@ def fixture(root: Path) -> Tuple[Path, Path]:
 
 
 class V3UnifiedShellTests(unittest.TestCase):
+    def test_navigation_anchor_drift_fails_without_partial_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            live, side = fixture(root)
+            path = live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"
+            path.write_text(path.read_text().replace("SideStore scheduled refresh", "Changed upstream refresh"))
+            before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+            with self.assertRaises(SystemExit):
+                patch.patch(live, side)
+            self.assertEqual(before, {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()})
+
     def test_shell_is_idempotent_and_host_owned(self):
         with tempfile.TemporaryDirectory() as directory:
             live, side = fixture(Path(directory))
