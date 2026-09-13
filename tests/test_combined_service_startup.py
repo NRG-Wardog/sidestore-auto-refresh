@@ -16,6 +16,64 @@ import patch_combined_service_startup as startup
 
 
 class ExecutableStartupTests(unittest.TestCase):
+    def test_actual_native_launch_callback_ignores_settled_old_attempt(self):
+        compiler = shutil.which("swiftc")
+        if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
+        source = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text()
+        body = source[source.index("        LCLaunchServiceExtension(ext, item) {"):source.index("    fileprivate func accepted(")]
+        swift = '''import Foundation
+@MainActor var callbacks: [(UUID?, Error?) -> Void] = []
+@MainActor final class ExtensionStub {
+    var kills = 0
+    func _kill(_ signal: Int) { kills += 1 }
+    func pid(forRequestIdentifier id: UUID) -> Int32 { 17 }
+}
+@MainActor func LCLaunchServiceExtension(_ ext: ExtensionStub, _ item: Int, _ callback: @escaping (UUID?, Error?) -> Void) { callbacks.append(callback) }
+@MainActor final class Owner {
+    let ext = ExtensionStub()
+    var launchID: UUID?
+    var launchRequestPending: UUID?
+    var retiringRequestPending: UUID?
+    var retiringPID: Int32 = 0
+    var sideStorePid: Int32 = 0
+    var signals = 0; var failures = 0
+    var service: Owner { self }
+    enum Signal { case launched }; enum Stage { case extensionLaunch }
+    func signal(_ signal: Signal, attempt: UUID) { signals += 1 }
+    func failed(_ id: UUID, stage: Stage, underlying: Error? = nil) { failures += 1 }
+    func launch(_ id: UUID) {
+        launchID = id; launchRequestPending = id
+        let ext = self.ext; let item = 0
+''' + body + '''
+}
+@main struct Test {
+    @MainActor static func main() async throws {
+        let owner = Owner(); let old = UUID(); owner.launch(old)
+        callbacks[0](UUID(), nil)
+        try await Task.sleep(nanoseconds: 30_000_000)
+        precondition(owner.signals == 1)
+        callbacks[0](nil, NSError(domain: "test", code: 1))
+        try await Task.sleep(nanoseconds: 30_000_000)
+        precondition(owner.failures == 0 && owner.signals == 1)
+        let next = UUID(); owner.launch(next)
+        callbacks[0](UUID(), nil)
+        try await Task.sleep(nanoseconds: 30_000_000)
+        precondition(owner.ext.kills == 0 && owner.launchRequestPending == next)
+        callbacks[1](UUID(), nil)
+        try await Task.sleep(nanoseconds: 30_000_000)
+        precondition(owner.signals == 2 && owner.sideStorePid == 17)
+        print("native duplicate/late launch identity PASS")
+    }
+}
+'''
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "main.swift"; exe = Path(temp) / "native-launch"
+            path.write_text(swift)
+            result = subprocess.run([compiler, "-parse-as-library", str(path), "-o", str(exe)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = subprocess.run([str(exe)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_actual_refresh_adapter_rejects_incomplete_and_stale_completion(self):
         compiler = shutil.which("swiftc")
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
