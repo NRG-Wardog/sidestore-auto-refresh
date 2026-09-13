@@ -93,7 +93,7 @@ struct RenderingScreen: View, LCAppBannerDelegate {
     func rect(_ bounds: CGRect) -> [Double] {
         [Double(bounds.minX), Double(bounds.minY), Double(bounds.width), Double(bounds.height)]
     }
-    func constraintValue(_ item: AnyObject?, attribute: NSLayoutConstraint.Attribute, in root: UIView) -> CGFloat? {
+    func constraintValue(_ item: Any?, attribute: NSLayoutConstraint.Attribute, in root: UIView) -> CGFloat? {
         guard let view = item as? UIView else { return nil }
         let frame: CGRect
         if view === root { frame = root.alignmentRect(forFrame: root.bounds) }
