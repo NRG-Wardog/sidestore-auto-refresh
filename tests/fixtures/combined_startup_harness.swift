@@ -86,6 +86,15 @@ struct StartupTests {
         cancel.connection.signal(.ready, attempt: abandonedID)
         precondition(!cancel.connection.isReady)
         let id = UUID().uuidString
+        for stage in [CombinedFailure.Stage.authentication, .signing, .installation] {
+            let native = NSError(domain: NSCocoaErrorDomain, code: 37,
+                userInfo: ["LCStructuredFailureStageV1": stage.rawValue,
+                    NSLocalizedDescriptionKey: "SECRET", "token": "SECRET"])
+            let failure = CombinedFailure.capture(native, operation: "refresh", stage: .command, id: id)
+            precondition(failure.stage == stage && failure.underlyingCode == 37)
+            precondition(!failure.localizedDescription.contains("SECRET"))
+            precondition(CombinedFailure.fromEncodedString(failure.encodedString, expectedID: id)?.stage == stage)
+        }
         for stage in CombinedFailure.Stage.allCases {
             let native = NSError(domain: "Private.Secret.Domain", code: 7,
                 userInfo: [NSLocalizedDescriptionKey: "lc_stage=\(stage.rawValue) lc_native_code=77 SECRET"])
