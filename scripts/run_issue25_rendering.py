@@ -165,6 +165,8 @@ def execute(bundle: Path, bundle_id: str, kind: str, device: str, output: Path, 
         args.append("--cold")
     if mode == "fallback-contract":
         args.append("--fallback")
+    if mode == "diagnostic":
+        args.append("--diagnostic")
     command("xcrun", "simctl", "launch", device, bundle_id, *args)
     deadline = time.monotonic() + 180
     while not report_path.exists() and time.monotonic() < deadline:
@@ -173,6 +175,7 @@ def execute(bundle: Path, bundle_id: str, kind: str, device: str, output: Path, 
         raise RuntimeError(f"Simulator rendering did not produce {kind}/{phase} evidence within 180 seconds")
     report = json.loads(report_path.read_text())
     destination = output / (mode or ("baseline" if baseline else "corrected"))
+    destination.mkdir(parents=True, exist_ok=True)
     for path in (data_root / "Documents").iterdir():
         if path.name.startswith(kind + "-") and path.suffix in (".png", ".json"):
             shutil.copyfile(path, destination / path.name)
@@ -187,6 +190,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--v3-source", type=Path, help="Generated v3 shell source; otherwise current template or immutable v3 baseline is used")
     parser.add_argument("--skip-v3-native", action="store_true", help="Scope final v2 package evidence to its own renderers")
+    parser.add_argument("--diagnostic-only", action="store_true", help="Inspect corrected phone Grid/labels equations only; NOT full rendering validation")
     args = parser.parse_args()
     if args.skip_v3_native and args.v3_source:
         parser.error("--skip-v3-native and --v3-source are mutually exclusive")
@@ -196,6 +200,24 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     if platform.system() != "Darwin":
         raise SystemExit("This executable rendering suite requires macOS with Xcode and iOS simulators")
+    if args.diagnostic_only:
+        bundle, bundle_id, hashes = build_app(output, args.livecontainer.resolve(), False)
+        kind, device, runtime = available_devices()[0]
+        state = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "--json"], text=True))
+        booted = any(item["udid"] == device and item["state"] == "Booted" for group in state["devices"].values() for item in group)
+        if not booted:
+            command("xcrun", "simctl", "boot", device)
+        command("xcrun", "simctl", "bootstatus", device, "-b")
+        report = execute(bundle, bundle_id, kind, device, output, False, False, mode="diagnostic")
+        metadata = {"schemaVersion": 1, "fullSuiteValidated": False, "diagnosticOnly": True,
+                    "builderCommit": command("git", "-C", str(ROOT), "rev-parse", "HEAD"), "ciRun": os.environ.get("GITHUB_RUN_ID"),
+                    "sourceSHA256": hashes, "runtime": runtime, "passed": report["passed"]}
+        (output / "diagnostic-verification.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+        if not booted:
+            command("xcrun", "simctl", "shutdown", device)
+        if not report["passed"]:
+            raise SystemExit("Diagnostic checker reported violations; this run is not full-suite validation")
+        return
     builds = {baseline: build_app(output, args.livecontainer.resolve(), baseline) for baseline in (True, False)}
     native_build = None if args.skip_v3_native else build_v3_app(output, args.livecontainer.resolve(), args.v3_source)
     fallback_build = build_app(output, args.livecontainer.resolve(), False, fallback=True)
