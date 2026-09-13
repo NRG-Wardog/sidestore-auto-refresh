@@ -46,11 +46,13 @@ struct V3UnifiedTabs: View {
                 } else { dispatchURL(url) }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in status.reload() }
-        .onReceive(monitor) { _ in status.reload() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in status.reload(manual: false) }
+        .onReceive(monitor) { _ in status.reload(manual: false) }
         .onOpenURL(perform: dispatchURL)
         .sheet(item: $status.presentation) { V3OperationSheet(request: $0).environmentObject(status) }
         .alert("SideStore", isPresented: Binding(get: { status.error != nil }, set: { if !$0 { status.error = nil } })) {
+            Button("Copy Diagnostics") { UIPasteboard.general.string = status.error }
+            Button("Retry Connection") { status.reload() }
             Button("OK", role: .cancel) { status.error = nil }
         } message: { Text(status.error ?? "") }
     }
@@ -144,10 +146,12 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published var refreshTarget: String?
     @Published private(set) var loading = false
     @Published private(set) var connected = false
+    @Published private(set) var requiresConnectionRetry = false
     var installedAppCount: Int { installedApps.count }
     var isStale: Bool { !connected || (updatedAt.map { Date().timeIntervalSince($0) > 120 } ?? true) }
-    func reload() {
-        guard !loading, presentation == nil else { return }
+    func reload(manual: Bool = true) {
+        guard !loading, presentation == nil, manual || !requiresConnectionRetry else { return }
+        if manual { requiresConnectionRetry = false }
         loading = true
         Task {
             defer { loading = false }
@@ -159,7 +163,7 @@ final class V3SideStoreStatusStore: ObservableObject {
                         try await Task.sleep(nanoseconds: 1_000_000_000)
                     }
                 }
-            } catch { connected = false; self.error = error.localizedDescription }
+            } catch { connected = false; requiresConnectionRetry = true; self.error = error.localizedDescription }
         }
     }
     func accept(_ snapshot: [String: Any]) {
@@ -482,7 +486,10 @@ struct V3OperationSheet: View {
             VStack {
                 if !started { Text(request.title).padding(); Button("Continue") { start() }.disabled(!ready) }
                 else { ProgressView("Working…").padding() }
-                if !message.isEmpty { Text(message).padding() }
+                if !message.isEmpty {
+                    Text(message).padding().textSelection(.enabled)
+                    Button("Copy Diagnostics") { UIPasteboard.general.string = message }
+                }
                 if #available(iOS 16.0, *), pid > 0 { V3RemoteServiceView(pid: pid, ready: $ready) }
                 else { Text("Interactive SideStore operations require iOS 16 or later.") }
             }.navigationTitle(request.title)

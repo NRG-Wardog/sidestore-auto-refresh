@@ -63,6 +63,27 @@ final class V3SideStoreService: NSObject {
                 if let serviceError = error as? ServiceError { response["error"] = serviceError.rawValue }
                 else if error is CancellationError { response["error"] = "cancelled" }
                 else { response["error"] = "operationFailed" }
+                let stage: CombinedFailure.Stage
+                switch operation {
+                case "snapshot": stage = .serviceReadiness
+                case "signIn", "signOut", "syncAppIDs": stage = .authentication
+                case "install", "installURL", "installSharedIPA", "update", "activate": stage = .installation
+                case "refreshApp": stage = .refreshVerification
+                default: stage = .command
+                }
+                if let serviceError = error as? ServiceError {
+                    let code: CombinedFailure.Code
+                    switch serviceError {
+                    case .notReady: code = .notReady
+                    case .busy: code = .busy
+                    case .unsupported: code = .unsupported
+                    case .notFound: code = .unavailable
+                    case .invalidRequest: code = .invalidConfiguration
+                    }
+                    response["failure"] = CombinedFailure(operation: operation, stage: stage, code: code, id: id).wire
+                } else {
+                    response["failure"] = CombinedFailure.capture(error, operation: operation, stage: stage, id: id).wire
+                }
             }
             let encoded = encode(response)
             if mutation { completed[id] = (encoded, deadline) }

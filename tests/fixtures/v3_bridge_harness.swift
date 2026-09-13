@@ -7,8 +7,10 @@ final class FakeClient {
     var oversized = false
     var replies: [() -> Void] = []
     var cancellations = 0
+    var operations: [String] = []
     func v3Execute(_ data: Data, reply: @escaping (Data) -> Void) {
         let request = try! PropertyListSerialization.propertyList(from: data, format: nil) as! [String: Any]
+        operations.append(request["operation"] as! String)
         if request["operation"] as? String == "cancel" { cancellations += 1; reply(Data()); return }
         let result: [String: Any] = ["version": 1, "id": stale ? UUID().uuidString : request["id"]!,
                                      "ok": true, "result": ["account": "fixture"]]
@@ -28,11 +30,20 @@ final class RefreshHandler {
     var connects = 0
     var stops = 0
     func v3_stopService() { stops += 1 }
-    func startRefresh(identifier: String, mangledName: String) async throws {
-        precondition(identifier == "__v3_connect" && mangledName.isEmpty)
-        connects += 1
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
+    lazy var connection = CombinedServiceConnection(dependencies: .init(
+        resolveHost: { URL(fileURLWithPath: "/fixture") },
+        prepareStorage: { $0.appendingPathComponent("Documents/SideStore") },
+        createBookmark: { _ in Data([1]) },
+        discoverExtension: {},
+        launch: { [unowned self] id, _ in
+            self.connects += 1
+            Task { @MainActor in
+                self.connection.signal(.launched, attempt: id)
+                self.connection.signal(.connected, attempt: id)
+                self.connection.signal(.ready, attempt: id)
+            }
+        }, retire: { _ in }))
+    func ensureServiceConnected() async throws { try await connection.ensureConnected() }
 }
 
 @main
@@ -56,6 +67,10 @@ struct BridgeTests {
         precondition(handler.connects == 1, "launch must be coalesced")
         let value = try await bridge.request(operation: "snapshot")
         precondition(value["account"] as? String == "fixture")
+        precondition(client.operations == ["snapshot"], "cold launch/status triggered a mutation")
+        _ = try await bridge.request(operation: "signIn")
+        _ = try await bridge.request(operation: "refreshApp", target: "fixture-app")
+        precondition(client.operations == ["snapshot", "signIn", "refreshApp"], "explicit account/refresh integration order changed")
         client.stale = true
         do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("stale reply accepted") } catch {}
         client.stale = false; client.oversized = true

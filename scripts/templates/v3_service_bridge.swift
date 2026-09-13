@@ -9,7 +9,6 @@ public final class V3ServiceBridge {
     private let readTimeout: TimeInterval
     private let commandTimeout: TimeInterval
     private let cancellationGrace: TimeInterval
-    private var connecting: Task<Void, Error>?
     private var activeMutation: String?
     public var isMutating: Bool { activeMutation != nil || !cancellationRecovery.isEmpty }
     public var processID: Int32 { RefreshHandler.shared.sideStorePid }
@@ -21,13 +20,7 @@ public final class V3ServiceBridge {
     }
 
     public func connect() async throws {
-        if let connecting { return try await connecting.value }
-        let task = Task { @MainActor in
-            try await RefreshHandler.shared.startRefresh(identifier: "__v3_connect", mangledName: "")
-        }
-        connecting = task
-        defer { connecting = nil }
-        try await task.value
+        try await RefreshHandler.shared.ensureServiceConnected()
     }
 
     public func request(operation: String, target: String = "", value: Bool? = nil, cursor: Int? = nil) async throws -> [String: Any] {
@@ -37,7 +30,7 @@ public final class V3ServiceBridge {
         let mutation = !["snapshot", "catalog", "backupResult"].contains(operation)
         if mutation {
             guard !isMutating, RefreshHandler.shared.v3RefreshToken == nil else {
-                throw failure("Another SideStore operation or refresh is running.")
+                throw CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
             }
             activeMutation = id
         }
@@ -48,20 +41,20 @@ public final class V3ServiceBridge {
         if let value { message["value"] = value }
         if let cursor { message["cursor"] = cursor }
         let data = try PropertyListSerialization.data(fromPropertyList: message, format: .binary, options: 0)
-        guard data.count <= 16384 else { throw failure("Request is too large.") }
+        guard data.count <= 16384 else { throw CombinedFailure(operation: operation, stage: .command, code: .invalidConfiguration, id: id) }
         let response: Data = try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
                 if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
                 pending[id] = continuation
                 guard let client = RefreshHandler.shared.client else {
-                    settle(id, .failure(failure("SideStore disconnected. Reconnect and try again.")))
+                    settle(id, .failure(CombinedFailure(operation: operation, stage: .xpcConnection, code: .interrupted, id: id)))
                     return
                 }
                 client.v3Execute(data) { response in
                     Task { @MainActor in
                         self.cancellationRecovery.removeValue(forKey: id)?.cancel()
                         guard response.count <= 4_194_304 else {
-                            self.settle(id, .failure(self.failure("SideStore response exceeded the size limit."))); return
+                            self.settle(id, .failure(CombinedFailure(operation: operation, stage: .command, code: .invalidResponse, id: id))); return
                         }
                         self.settle(id, .success(response))
                     }
@@ -70,7 +63,7 @@ public final class V3ServiceBridge {
                     do { try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000)) } catch { return }
                     if self.pending[id] != nil {
                         self.cancelRemote(id, mutation: mutation)
-                        self.settle(id, .failure(self.failure("SideStore timed out. The operation may have completed; reload its status before retrying.")))
+                        self.settle(id, .failure(CombinedFailure(operation: operation, stage: .command, code: .timedOut, id: id)))
                         if !mutation, !self.isMutating, RefreshHandler.shared.v3RefreshToken == nil {
                             // An idle service that cannot answer a read needs a fresh process.
                             // Never retire it for a read while signing/install/refresh is active.
@@ -88,19 +81,15 @@ public final class V3ServiceBridge {
             }
         })
         guard let decoded = try PropertyListSerialization.propertyList(from: response, format: nil) as? [String: Any],
-              decoded["id"] as? String == id else { throw failure("SideStore returned an invalid or stale response.") }
+              decoded["id"] as? String == id else { throw CombinedFailure(operation: operation, stage: .command, code: .staleResult, id: id) }
+        if let envelope = decoded["failure"] as? [String: Any],
+           let failure = CombinedFailure.decode(envelope, expectedID: id) { throw failure }
         if let code = decoded["error"] as? String {
-            let messages = ["notReady": "SideStore is starting. Please retry shortly.",
-                            "busy": "Another SideStore operation is running.",
-                            "cancelled": "Operation cancelled. Reload status before retrying.",
-                            "notFound": "This item no longer exists. Reload the library.",
-                            "unsupported": "This action is not supported for this item.",
-                            "operationFailed": "SideStore could not complete this operation. Check account, pairing and LocalDevVPN, then try again."]
-            throw NSError(domain: "V3SideStoreService." + code, code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: messages[code] ?? "SideStore rejected the request."])
+            throw CombinedFailure(operation: operation, stage: code == "notReady" ? .serviceReadiness : .command,
+                code: CombinedFailure.Code(rawValue: code) ?? .failed, id: id)
         }
         guard decoded["version"] as? Int == 1, decoded["ok"] as? Bool == true,
-              let result = decoded["result"] as? [String: Any] else { throw failure("Invalid SideStore service response.") }
+              let result = decoded["result"] as? [String: Any] else { throw CombinedFailure(operation: operation, stage: .command, code: .invalidResponse, id: id) }
         return result
     }
 
@@ -108,7 +97,7 @@ public final class V3ServiceBridge {
         for task in cancellationRecovery.values { task.cancel() }
         cancellationRecovery.removeAll()
         for id in Array(pending.keys) {
-            settle(id, .failure(failure("SideStore stopped. Reconnect and reload status before retrying an operation.")))
+            settle(id, .failure(CombinedFailure(operation: "command", stage: .xpcConnection, code: .interrupted, id: id)))
         }
     }
 
@@ -133,8 +122,5 @@ public final class V3ServiceBridge {
     private func settle(_ id: String, _ result: Result<Data, Error>) {
         timeouts.removeValue(forKey: id)?.cancel()
         pending.removeValue(forKey: id)?.resume(with: result)
-    }
-    private func failure(_ message: String) -> NSError {
-        NSError(domain: "V3SideStoreService", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
 }
