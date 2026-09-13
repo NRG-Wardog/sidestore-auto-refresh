@@ -85,7 +85,10 @@ struct BridgeTests {
         let interrupted = Task { try await bridge.request(operation: "snapshot") }
         await waitForRequest(client)
         bridge.disconnected()
-        do { _ = try await interrupted.value; preconditionFailure("disconnect ignored") } catch {}
+        do { _ = try await interrupted.value; preconditionFailure("disconnect ignored") }
+        catch let error as CombinedFailure {
+            precondition(error.operation == "status" && error.stage == .xpcConnection && error.code == .interrupted)
+        }
         client.flush()
         do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("timeout ignored") } catch {}
         precondition(client.cancellations == 2, "expected cancellation plus timeout, received \(client.cancellations)")
@@ -99,6 +102,20 @@ struct BridgeTests {
         client.flush()
         client.hold = false
         _ = try await bridge.request(operation: "snapshot")
+        // Every boundary must retain the operation, including concurrent reads and a mutation.
+        client.hold = true
+        let installDisconnect = Task { try await bridge.request(operation: "install") }
+        await waitForRequest(client)
+        let catalogDisconnect = Task { try await bridge.request(operation: "catalog") }
+        while client.replies.count < 2 { await Task.yield() }
+        bridge.disconnected()
+        for (task, operation) in [(installDisconnect, "install"), (catalogDisconnect, "catalog")] {
+            do { _ = try await task.value; preconditionFailure("disconnect ignored") }
+            catch let error as CombinedFailure {
+                precondition(error.operation == operation && error.stage == .xpcConnection)
+            }
+        }
+        client.flush()
         let recovery = V3ServiceBridge(readTimeout: 1, commandTimeout: 1, cancellationGrace: 0.02)
         let stopsBeforeRecovery = handler.stops
         client.hold = true

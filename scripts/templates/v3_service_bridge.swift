@@ -4,6 +4,7 @@
 public final class V3ServiceBridge {
     public static let shared = V3ServiceBridge()
     private var pending: [String: CheckedContinuation<Data, Error>] = [:]
+    private var pendingOperations: [String: String] = [:]
     private var timeouts: [String: Task<Void, Never>] = [:]
     private var cancellationRecovery: [String: Task<Void, Never>] = [:]
     private let readTimeout: TimeInterval
@@ -46,6 +47,7 @@ public final class V3ServiceBridge {
             try await withCheckedThrowingContinuation { continuation in
                 if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
                 pending[id] = continuation
+                pendingOperations[id] = operation
                 guard let client = RefreshHandler.shared.client else {
                     settle(id, .failure(CombinedFailure(operation: operation, stage: .xpcConnection, code: .interrupted, id: id)))
                     return
@@ -97,7 +99,7 @@ public final class V3ServiceBridge {
         for task in cancellationRecovery.values { task.cancel() }
         cancellationRecovery.removeAll()
         for id in Array(pending.keys) {
-            settle(id, .failure(CombinedFailure(operation: "command", stage: .xpcConnection, code: .interrupted, id: id)))
+            settle(id, .failure(CombinedFailure(operation: pendingOperations[id] ?? "command", stage: .xpcConnection, code: .interrupted, id: id)))
         }
     }
 
@@ -121,6 +123,7 @@ public final class V3ServiceBridge {
 
     private func settle(_ id: String, _ result: Result<Data, Error>) {
         timeouts.removeValue(forKey: id)?.cancel()
+        pendingOperations.removeValue(forKey: id)
         pending.removeValue(forKey: id)?.resume(with: result)
     }
 }
