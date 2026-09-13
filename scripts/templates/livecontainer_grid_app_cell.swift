@@ -100,6 +100,8 @@ private final class LCGridAppCellView: UIControl {
     private let iconImageView = UIImageView()
     private let titleLabel = UILabel()
     private let lockView = UIImageView(image: UIImage(systemName: "lock.fill"))
+    private lazy var titleTopConstraint = titleLabel.topAnchor.constraint(equalTo: iconImageView.bottomAnchor, constant: Self.labelSpacing)
+    private lazy var hiddenTitleHeightConstraint = titleLabel.heightAnchor.constraint(equalToConstant: 0)
 
     override var intrinsicContentSize: CGSize {
         let labelHeight = titleLabel.isHidden ? 0 : Self.labelSpacing + ceil(titleLabel.font.lineHeight * 2)
@@ -146,7 +148,7 @@ private final class LCGridAppCellView: UIControl {
             lockView.heightAnchor.constraint(equalToConstant: 18),
             lockView.trailingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 4),
             lockView.topAnchor.constraint(equalTo: iconImageView.topAnchor, constant: -4),
-            titleLabel.topAnchor.constraint(equalTo: iconImageView.bottomAnchor, constant: Self.labelSpacing),
+            titleTopConstraint,
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
             titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
             titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -Self.bottomInset)
@@ -159,6 +161,8 @@ private final class LCGridAppCellView: UIControl {
         iconImageView.image = model.appInfo.iconIsDarkIcon(darkModeIcon) ?? UIImage(systemName: "app.fill")
         titleLabel.text = model.displayName
         titleLabel.isHidden = !showLabels
+        titleTopConstraint.constant = showLabels ? Self.labelSpacing : 0
+        hiddenTitleHeightConstraint.isActive = !showLabels
         lockView.isHidden = !model.appInfo.isLocked
         accessibilityLabel = model.displayName
         updateMetrics()
