@@ -150,11 +150,20 @@ extension SideStoreClient {
     edit(side, "SideStore/Core/Operations/PipelineExecutor.swift", lambda s: replace(s,
         "            result = error\n            throw error", '''            result = error
             // LC_STRUCTURED_FAILURE_V1: preserve step responsibility and the underlying error.
-            let stage: String
+            var stage: String
             switch step {
             case .resignApp, .fetchProvisioningProfiles, .verifyCertificate: stage = "signing"
             case .sendApp, .installApp: stage = "installation"
             default: stage = "command"
+            }
+            if let operationError = error as? OperationError, operationError == .notAuthenticated { stage = "authentication" }
+            if let portalError = error as? DeveloperPortalError {
+                switch portalError {
+                case .incorrectCredentials, .appSpecificPasswordRequired, .requiresTwoFactorAuthentication,
+                     .incorrectVerificationCode, .authenticationHandshakeFailed, .invalidAnisetteData,
+                     .tooManyAttempts, .accountRepairRequired, .invalid2FAResponse: stage = "authentication"
+                default: break
+                }
             }
             let native = error as NSError
             throw NSError(domain: native.domain, code: native.code,
