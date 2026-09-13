@@ -5,6 +5,8 @@ public final class V3ServiceBridge {
     public static let shared = V3ServiceBridge()
     private var pending: [String: CheckedContinuation<Data, Error>] = [:]
     private var connecting: Task<Void, Error>?
+    private var activeMutation: String?
+    public var isMutating: Bool { activeMutation != nil }
     public var processID: Int32 { RefreshHandler.shared.sideStorePid }
 
     public func connect() async throws {
@@ -21,6 +23,14 @@ public final class V3ServiceBridge {
         try Task.checkCancellation()
         try await connect()
         let id = UUID().uuidString
+        let mutation = !["snapshot", "catalog"].contains(operation)
+        if mutation {
+            guard activeMutation == nil, RefreshHandler.shared.c == nil else {
+                throw failure("Another SideStore operation or refresh is running.")
+            }
+            activeMutation = id
+        }
+        defer { if activeMutation == id { activeMutation = nil } }
         let timeout: TimeInterval = ["snapshot", "catalog"].contains(operation) ? 30 : 600
         var message: [String: Any] = ["version": 1, "id": id, "operation": operation,
                                       "target": target, "deadline": Date().addingTimeInterval(timeout)]

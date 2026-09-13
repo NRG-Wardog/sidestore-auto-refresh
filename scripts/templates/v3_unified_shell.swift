@@ -406,7 +406,10 @@ private struct V3HomeView: View {
                 }
                 Section("Refresh") {
                     Text(refreshState.replacingOccurrences(of: "_", with: " ").capitalized)
-                    if let date = defaults?.object(forKey: "liveContainerAutoRefreshLastDate") as? Date { Text("Last verified run: " + date.formatted(date: .abbreviated, time: .shortened)) }
+                    if let date = defaults?.object(forKey: "liveContainerAutoRefreshLastSuccessfulRefresh") as? Date { Text("Last verified run: " + date.formatted(date: .abbreviated, time: .shortened)) }
+                    if let date = defaults?.object(forKey: "liveContainerAutoRefreshTargetDeadline") as? Date { Text("Refresh deadline: " + date.formatted(date: .abbreviated, time: .shortened)) }
+                    if let error = defaults?.string(forKey: "liveContainerAutoRefreshLastError"), !error.isEmpty { Text(error).font(.caption).foregroundColor(.red) }
+                    Text(MultitaskManager.isMultitasking() ? "LiveProcess guests are running" : "No LiveProcess guests are running").font(.caption)
                     Text("Refresh requires Wi-Fi and LocalDevVPN.").font(.caption)
                     Button("Refresh and Schedule") { sharedModel.selectedTab = .refresh }
                 }
