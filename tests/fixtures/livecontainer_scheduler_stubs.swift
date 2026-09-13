@@ -65,6 +65,10 @@ enum LiveContainerRefreshBridge {
     static var fails = false
     static var incomplete = false
     static var uncertain = false
+    static var resultFailure: CombinedFailure.Stage?
+    static var resultRetryable: Bool?
+    static var staleFailure = false
+    static var malformedFailure = false
     static func refreshAllApps() async throws {
         calls += 1
         if uncertain {
@@ -73,6 +77,16 @@ enum LiveContainerRefreshBridge {
         }
         if fails { throw NSError(domain: "test.refresh", code: 42, userInfo: [NSLocalizedDescriptionKey: "transport failed"]) }
         let defaults = LiveContainerAutoRefreshScheduler.defaults
+        if let stage = resultFailure {
+            let run = defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID")!
+            var wire = CombinedFailure(operation: "refresh", stage: stage, id: staleFailure ? UUID().uuidString : run,
+                underlying: NSError(domain: "DeviceGatewayError", code: 77), retryable: resultRetryable).wire
+            if malformedFailure { wire["stage"] = "SECRET_TOKEN" }
+            defaults.set(["run_id": run, "expected_ids": ["spotify"], "results": [
+                ["bundle_id": "spotify", "success": false, "failure": wire, "error": "SECRET_TOKEN private-server-response"] as [String: Any]]],
+                forKey: "liveContainerAutoRefreshVerification")
+            return
+        }
         defaults.set(["run_id": defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? "",
                       "expected_ids": incomplete ? ["spotify", "other"] : ["spotify"],
                       "results": [["bundle_id": "spotify", "success": true]]],

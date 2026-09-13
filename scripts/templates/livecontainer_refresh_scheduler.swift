@@ -162,28 +162,39 @@ enum LiveContainerAutoRefreshScheduler {
         print("[LIVE_CONTAINER_REFRESH] REFRESH_PIPELINE_RETURNED run_id=\(runID.uuidString)")
     }
 
-    private static func verifyRefreshManifest(runID: String) -> (verified: Bool, hostHandoff: Bool, reason: String) {
+    private static func verifyRefreshManifest(runID: String) -> (verified: Bool, hostHandoff: Bool, reason: String, failure: CombinedFailure?) {
         let pending = defaults.bool(forKey: hostHandoffKey)
         guard let manifest = defaults.dictionary(forKey: verificationKey) else {
             print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=manifest_missing run_id=\(runID)")
-            return (false, pending, "SideStore returned without sharing installation results with LiveContainer. Refresh is unconfirmed. Review Refresh history, app expiration, and account status before an explicit retry.")
+            return (false, pending, "SideStore returned without sharing installation results with LiveContainer. Refresh is unconfirmed. Review Refresh history, app expiration, and account status before an explicit retry.", nil)
         }
         guard manifest["run_id"] as? String == runID else {
-            print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=run_mismatch expected_run=\(runID) actual_run=\(manifest["run_id"] as? String ?? "missing")")
-            return (false, pending, "LiveContainer received results for a different refresh attempt. This attempt could not be verified. Review Refresh history and app expiration; explicitly retry only after the previous attempt finishes.")
+            print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=run_mismatch expected_run=\(runID)")
+            return (false, pending, "LiveContainer received results for a different refresh attempt. This attempt could not be verified. Review Refresh history and app expiration; explicitly retry only after the previous attempt finishes.", nil)
         }
         guard let results = manifest["results"] as? [[String: Any]], !results.isEmpty else {
             print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=results_empty run_id=\(runID)")
-            return (false, pending, "SideStore returned no app installation results. No successful refresh was confirmed. Review eligible apps, account status, and Refresh history before an explicit retry.")
+            return (false, pending, "SideStore returned no app installation results. No successful refresh was confirmed. Review eligible apps, account status, and Refresh history before an explicit retry.", nil)
         }
         guard let expected = manifest["expected_ids"] as? [String], !expected.isEmpty,
               Set(results.compactMap { $0["bundle_id"] as? String }) == Set(expected) else {
-            return (false, pending, "verification_manifest_incomplete")
+            return (false, pending, "verification_manifest_incomplete", nil)
         }
-        if results.contains(where: { ($0["success"] as? Bool) != true }) {
-            return (false, pending, "verification_manifest_contains_failure")
+        let failedResults = results.filter { ($0["success"] as? Bool) != true }
+        if !failedResults.isEmpty {
+            // Persisted raw error text is not a safe diagnostic boundary. Decode only
+            // the bounded, allowlisted, current-run envelope; never display its fallback text.
+            let failures = failedResults.compactMap { entry in
+                (entry["failure"] as? [String: Any]).flatMap { CombinedFailure.decode($0, expectedID: runID) }
+            }
+            // A later app's concrete user-action failure must not be hidden by an earlier
+            // retryable/unknown failure when the scheduler considers retrying the batch.
+            let failure = failures.first { $0.retryable == false || $0.stage == .authentication || $0.code == .cancelled }
+                ?? failures.first
+                ?? CombinedFailure(operation: "refresh", stage: .refreshVerification, code: .missingResult, id: runID)
+            return (false, pending, String(failure.localizedDescription.prefix(2048)), failure)
         }
-        return pending ? (false, true, "host_handoff_awaiting_relaunch") : (true, false, "verified_installed_app_records")
+        return pending ? (false, true, "host_handoff_awaiting_relaunch", nil) : (true, false, "verified_installed_app_records", nil)
     }
 
     @discardableResult
@@ -337,6 +348,7 @@ enum LiveContainerAutoRefreshScheduler {
                     task?.setTaskCompleted(success: false)
                 }
             } else {
+                if let failure = verification.failure { throw failure }
                 throw NSError(domain: "LiveContainerRefresh.Verification", code: 1001,
                     userInfo: [NSLocalizedDescriptionKey: verification.reason])
             }
@@ -345,7 +357,12 @@ enum LiveContainerAutoRefreshScheduler {
             let nsError = error as NSError
             let count = defaults.integer(forKey: retryCountKey) + 1
             defaults.set(count, forKey: retryCountKey)
+            let structured = error as? CombinedFailure
+            // This is a conservative scheduling policy, not a claim that an unknown
+            // authentication retryability has become false in the authoritative error.
+            let requiresExplicitRetry = structured?.retryable == false || structured?.stage == .authentication || structured?.code == .cancelled
             if defaults.string(forKey: uncertainMutationKey) == nil,
+               !requiresExplicitRetry,
                !(error is CancellationError), !LiveContainerRefreshPolicy.isUserActionFailure(nsError),
                let delay = LiveContainerRefreshPolicy.retryDelay(failureCount: count) {
                 defaults.set(Date().addingTimeInterval(delay), forKey: nextRetryKey)
