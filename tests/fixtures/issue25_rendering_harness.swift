@@ -1,0 +1,289 @@
+import SwiftUI
+import UIKit
+
+@MainActor final class RenderingState: ObservableObject {
+    @Published var apps = (0..<6).map(LCAppModel.init)
+    @Published var textSize: ContentSizeCategory = .large
+}
+
+struct RenderingScreen: View, LCAppBannerDelegate {
+    @ObservedObject var state: RenderingState
+    @AppStorage("LCAppLayoutStyle") var style: AppLayoutStyle = .list
+    @AppStorage("LCShowAppLabels") var labels = true
+    private let columns = [GridItem(.adaptive(minimum: 76, maximum: 100), spacing: 16, alignment: .top)]
+    var body: some View {
+        ScrollView {
+            if state.apps.isEmpty {
+                Text("No fixture apps").accessibilityIdentifier("fixture-empty")
+            } else {
+                collection.padding()
+            }
+        }
+        .environment(\.sizeCategory, state.textSize)
+    }
+    @ViewBuilder private var collection: some View {
+        switch style {
+        case .grid:
+            LazyVGrid(columns: columns, spacing: 16) {
+                ForEach(state.apps, id: \.self) { app in
+                    LCGridAppCell(appModel: app, delegate: self, showLabels: labels)
+                }
+            }
+        case .list, .compactList:
+            LazyVStack(spacing: style == .compactList ? 8 : 8) {
+                ForEach(state.apps, id: \.self) { app in
+                    LCAppBanner(appModel: app, delegate: self, layoutStyle: style)
+                }
+            }
+        }
+    }
+    func removeApp(app: LCAppModel) {}
+    func installMdm(data: Data) {}
+    func openNavigationView(view: AnyView) {}
+    func promptForGeneratedIconStyle() async -> GeneratedIconStyle? { nil }
+}
+
+@MainActor final class RenderingRunner {
+    let window: UIWindow
+    let parent = UIViewController()
+    let state = RenderingState()
+    var host: UIHostingController<RenderingScreen>!
+    var measurements: [[String: Any]] = []
+    var failures: [String] = []
+    let baseline: Bool
+    let cold: Bool
+    let suite: String
+    init(window: UIWindow) {
+        self.window = window
+        baseline = ProcessInfo.processInfo.arguments.contains("--baseline")
+        cold = ProcessInfo.processInfo.arguments.contains("--cold")
+        suite = ProcessInfo.processInfo.arguments.contains("--tablet") ? "tablet" : "phone"
+    }
+    func check(_ value: Bool, _ message: String) { if !value { failures.append(message) } }
+    func waitForLayout() async {
+        for _ in 0..<4 {
+            parent.view.setNeedsLayout()
+            parent.view.layoutIfNeeded()
+            host.view.setNeedsLayout()
+            host.view.layoutIfNeeded()
+            try? await Task.sleep(nanoseconds: 70_000_000)
+        }
+    }
+    func resize(_ width: CGFloat, category: ContentSizeCategory = .large) async {
+        host.view.frame = CGRect(x: 0, y: 0, width: min(width, window.bounds.width), height: window.bounds.height)
+        parent.setOverrideTraitCollection(UITraitCollection(horizontalSizeClass: width < 600 ? .compact : .regular), forChild: host)
+        state.textSize = category
+        await waitForLayout()
+    }
+    func controllers(_ parent: UIViewController) -> [UIViewController] {
+        [parent] + parent.children.flatMap(controllers)
+    }
+    func descendants(_ parent: UIView) -> [UIView] {
+        [parent] + parent.subviews.flatMap(descendants)
+    }
+    func visible(_ view: UIView, in root: UIView) -> Bool {
+        var current: UIView? = view
+        while let candidate = current {
+            if candidate.isHidden || candidate.alpha <= 0.01 { return false }
+            if candidate === root { return true }
+            current = candidate.superview
+        }
+        return false
+    }
+    func rect(_ bounds: CGRect) -> [Double] {
+        [Double(bounds.minX), Double(bounds.minY), Double(bounds.width), Double(bounds.height)]
+    }
+    func gridControllers() -> [LCGridAppCellViewController] {
+        controllers(host).compactMap { $0 as? LCGridAppCellViewController }.sorted {
+            let left = $0.view.convert($0.view.bounds, to: host.view)
+            let right = $1.view.convert($1.view.bounds, to: host.view)
+            return abs(left.minY - right.minY) > 1 ? left.minY < right.minY : left.minX < right.minX
+        }
+    }
+    @discardableResult func measure(_ name: String, requireValid: Bool = true) -> Bool {
+        let cells = gridControllers()
+        let names = cells.compactMap { $0.view.accessibilityLabel }
+        let expected = state.apps.map(\.displayName)
+        var local: [String] = []
+        if names != expected { local.append("identities/order differ: input=\(expected.count), cells=\(names.count)") }
+        let frames = cells.map { $0.view.convert($0.view.bounds, to: host.view) }
+        var cellEvidence: [[String: Any]] = []
+        for (index, cell) in cells.enumerated() {
+            let root = cell.view!
+            let frame = frames[index]
+            if frame.width <= 0 || frame.height <= 0 { local.append("cell \(index) has non-positive bounds") }
+            if !frame.intersects(host.view.bounds) || root.isHidden || root.alpha <= 0.01 { local.append("cell \(index) is invisible") }
+            let images = descendants(root).compactMap { $0 as? UIImageView }.filter { visible($0, in: root) && $0.bounds.width >= 40 }
+            var imageEvidence: [[String: Any]] = []
+            for image in images {
+                let imageFrame = image.convert(image.bounds, to: root)
+                if !root.bounds.insetBy(dx: -0.5, dy: -0.5).contains(imageFrame) { local.append("cell \(index) does not contain its icon") }
+                if image.image == nil || image.image?.size.width == 0 { local.append("cell \(index) has no visible icon/fallback") }
+                imageEvidence.append(["bounds": rect(imageFrame), "hasImage": image.image != nil, "imageWidth": Double(image.image?.size.width ?? 0)])
+            }
+            if images.isEmpty { local.append("cell \(index) has no icon view") }
+            let title = root.subviews.compactMap { $0 as? UILabel }.first { $0.text == root.accessibilityLabel }
+            let labelsEnabled = UserDefaults.standard.object(forKey: "LCShowAppLabels") as? Bool ?? true
+            if let title {
+                if title.isHidden == labelsEnabled { local.append("cell \(index) label preference not applied") }
+                if labelsEnabled {
+                    let labelBounds = title.convert(title.bounds, to: root)
+                    if title.bounds.height <= 0 || !root.bounds.insetBy(dx: -0.5, dy: -0.5).contains(labelBounds) { local.append("cell \(index) title clipped by cell bounds") }
+                }
+            } else if labelsEnabled { local.append("cell \(index) lacks visual label") }
+            if root.accessibilityLabel?.isEmpty != false { local.append("cell \(index) lacks accessibility name") }
+            if cell.children.count != 1 || cell.children.first?.parent !== cell { local.append("cell \(index) action-router containment is invalid") }
+            cellEvidence.append(["index": index, "bounds": rect(frame), "preferredContentSize": [Double(cell.preferredContentSize.width), Double(cell.preferredContentSize.height)], "icons": imageEvidence])
+        }
+        for i in frames.indices {
+            for j in frames.indices where j > i {
+                if frames[i].intersection(frames[j]).width > 0.5 && frames[i].intersection(frames[j]).height > 0.5 { local.append("cells \(i) and \(j) overlap") }
+            }
+        }
+        measurements.append(["case": name, "inputCount": state.apps.count, "cellCount": cells.count, "viewport": rect(host.view.bounds), "labels": UserDefaults.standard.object(forKey: "LCShowAppLabels") as? Bool ?? true, "cells": cellEvidence, "violations": local])
+        if requireValid { failures += local.map { "\(name): \($0)" } }
+        return local.isEmpty
+    }
+    func verifyList(_ name: String, compact: Bool) {
+        let cells = controllers(host).compactMap { $0 as? LCAppBannerViewController }.filter { !($0.parent is LCGridAppCellViewController) }.sorted {
+            $0.view.convert($0.view.bounds, to: host.view).minY < $1.view.convert($1.view.bounds, to: host.view).minY
+        }
+        check(cells.map { $0.view.accessibilityLabel ?? "" } == state.apps.map(\.displayName), "\(name): list identities/order changed")
+        check(cells.allSatisfy { $0.view.bounds.width > 0 && abs($0.view.bounds.height - (compact ? 56 : 88)) < 1 }, "\(name): banner representable sizing is incorrect")
+        for cell in cells {
+            let images = descendants(cell.view).compactMap { $0 as? UIImageView }.filter { visible($0, in: cell.view) && $0.bounds.width >= 40 }
+            check(images.count == 1, "\(name): banner is missing its icon view")
+            for image in images {
+                check(cell.view.bounds.contains(image.convert(image.bounds, to: cell.view)), "\(name): production banner icon is clipped")
+                check(abs(image.bounds.height - (compact ? 40 : 60)) < 1, "\(name): production banner icon size did not track style")
+            }
+        }
+        measurements.append(["case": name, "inputCount": state.apps.count, "cellCount": cells.count, "scope": "production LCAppBanner representable and LCAppBannerRootView with controlled action-router dependency", "bounds": cells.map { rect($0.view.convert($0.view.bounds, to: host.view)) }])
+    }
+    func exerciseActions() {
+        let cells = gridControllers()
+        for cell in cells {
+            (cell.view as? UIControl)?.sendActions(for: .touchUpInside)
+            let interaction = UIContextMenuInteraction(delegate: cell)
+            let configuration = cell.contextMenuInteraction(interaction, configurationForMenuAtLocation: .zero)
+            // UIKit publicly exposes the provider through configuration only when asking the delegate;
+            // invoking the provider via NSInvocation is deliberately avoided. The source forwards to
+            // makeContextMenu; tap forwarding is executed, menu configuration presence is measured.
+            check(configuration != nil, "context menu configuration was dropped")
+#if CORRECTED_GRID
+            _ = cell.makeContextMenu()
+#endif
+        }
+        check(LCAppBannerViewController.primaryActions == state.apps.map(\.identity), "tap forwarding changed app identities/order")
+#if CORRECTED_GRID
+        check(LCAppBannerViewController.contextMenus == state.apps.map(\.identity), "context-menu forwarding changed app identities/order")
+#endif
+    }
+    func capture(_ name: String) {
+        let renderer = UIGraphicsImageRenderer(bounds: host.view.bounds)
+        let image = renderer.image { context in host.view.layer.render(in: context.cgContext) }
+        if let data = image.pngData() {
+            try? data.write(to: URL.documentsDirectoryCompat.appendingPathComponent("\(suite)-\(name).png"))
+        }
+    }
+    func run() async {
+        if cold {
+            check(UserDefaults.standard.string(forKey: "LCAppLayoutStyle") == "grid", "cold launch did not retain Grid preference")
+            check(UserDefaults.standard.bool(forKey: "LCShowAppLabels"), "cold launch did not retain labels preference")
+        } else {
+            UserDefaults.standard.set("list", forKey: "LCAppLayoutStyle")
+            UserDefaults.standard.set(true, forKey: "LCShowAppLabels")
+        }
+        host = UIHostingController(rootView: RenderingScreen(state: state))
+        window.rootViewController = parent
+        parent.addChild(host)
+        parent.view.addSubview(host.view)
+        host.didMove(toParent: parent)
+        window.makeKeyAndVisible()
+        await resize(min(window.bounds.width, 390))
+        if cold {
+            measure("cold-launch-saved-grid")
+            capture("cold-grid")
+        } else {
+            verifyList("initial-list", compact: false)
+            // Uses exactly the settings keys changed by the real Settings picker.
+            UserDefaults.standard.set("grid", forKey: "LCAppLayoutStyle")
+            await waitForLayout()
+            let initiallyValid = measure("list-settings-grid", requireValid: !baseline)
+            capture(baseline ? "baseline-grid" : "fixed-grid")
+            if baseline {
+                check(!initiallyValid, "baseline did not reproduce a measured rendering failure")
+                let violations = measurements.last?["violations"] as? [String] ?? []
+                check(violations.contains { $0.contains("non-positive bounds") || $0.contains("does not contain its icon") || $0.contains("overlap") || $0.contains("invisible") }, "baseline did not reproduce a geometry/visibility failure; missing-icon fallback alone is insufficient")
+            } else {
+                exerciseActions()
+                UserDefaults.standard.set(false, forKey: "LCShowAppLabels")
+                await waitForLayout()
+                measure("labels-disabled")
+                UserDefaults.standard.set(true, forKey: "LCShowAppLabels")
+                await waitForLayout()
+                measure("labels-restored")
+                for width: CGFloat in [320, 375, 390, 600, 768, 844, 1024] where width <= window.bounds.width {
+                    await resize(width)
+                    measure("resize-\(Int(width))")
+                    await resize(width, category: .accessibilityExtraExtraExtraLarge)
+                    measure("accessibility-\(Int(width))")
+                }
+                await resize(min(window.bounds.width, 390))
+                for cycle in 0..<3 {
+                    for layout in ["compactList", "list", "grid"] {
+                        UserDefaults.standard.set(layout, forKey: "LCAppLayoutStyle")
+                        await waitForLayout()
+                        if layout == "grid" { measure("transition-\(cycle)-grid") }
+                        else { verifyList("transition-\(cycle)-\(layout)", compact: layout == "compactList") }
+                    }
+                }
+                state.apps.remove(at: 2)
+                state.apps.insert(LCAppModel(9), at: 1)
+                state.apps.reverse()
+                await waitForLayout()
+                measure("live-collection-reorder-replace")
+                state.apps = []
+                await waitForLayout()
+                check(gridControllers().isEmpty, "empty collection retains stale grid cells")
+                // The harness owns the controlled empty state; actual product empty-state source is
+                // separately checked in repository tests, not claimed to execute here.
+                measurements.append(["case": "empty-collection", "inputCount": 0, "cellCount": gridControllers().count])
+                state.apps = (0..<6).map(LCAppModel.init)
+                await waitForLayout()
+                measure("repopulate-after-empty")
+                capture("final-grid")
+            }
+        }
+        let report: [String: Any] = [
+            "schemaVersion": 1, "mode": baseline ? "baseline" : "corrected", "phase": cold ? "cold" : "suite", "deviceClass": suite,
+            "os": UIDevice.current.systemVersion, "screen": rect(window.bounds), "deploymentTarget": "iOS 15.0",
+            "passed": failures.isEmpty, "failures": failures, "measurements": measurements,
+            "evidenceKind": "simulator execution of production grid and banner representables with controlled model/action-router dependencies",
+            "limitations": ["Not the reporter's physical device", "No production guest launch/signing/transport is performed", "Menu configuration presence is executed; menu action provider forwarding is covered separately", "Full Apps screen navigation is not hosted; settings transitions use the production preference keys"]
+        ]
+        let url = URL.documentsDirectoryCompat.appendingPathComponent("\(suite)-\(cold ? "cold" : "suite").json")
+        do {
+            let data = try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: url, options: .atomic)
+            print("ISSUE25_RENDERING_RESULT \(failures.isEmpty ? "PASS" : "FAIL") \(measurements.count) cases")
+        } catch { print("ISSUE25_REPORT_WRITE_FAILED") }
+    }
+}
+
+private extension URL {
+    static var documentsDirectoryCompat: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
+}
+
+@main final class RenderingAppDelegate: UIResponder, UIApplicationDelegate {
+    var window: UIWindow?
+    var runner: RenderingRunner?
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        self.window = window
+        let runner = RenderingRunner(window: window)
+        self.runner = runner
+        Task { @MainActor in await runner.run() }
+        return true
+    }
+}
