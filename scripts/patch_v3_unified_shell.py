@@ -92,36 +92,7 @@ def patch_embedded_status(root: Path) -> None:
         return
     anchor = "                debugLog(\"Started DatabaseManager.\")\n"
     insertion = '''                debugLog("Started DatabaseManager.")
-                // V3_SIDESTORE_STATUS_SNAPSHOT_V1: publish display-only status.
-                // Credentials, certificates, tokens, and database objects never leave SideStore.
-                if let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") {
-                    let account = DatabaseManager.shared.activeAccount()?.appleID ?? "Not signed in"
-                    let installedApps = InstalledApp.all(in: DatabaseManager.shared.viewContext)
-                    let sourceRequest = NSFetchRequest<Source>(entityName: "Source")
-                    let sources = (try? DatabaseManager.shared.viewContext.fetch(sourceRequest)) ?? []
-                    let sourceRows: [[String: Any]] = sources.prefix(100).map { source in
-                        ["identifier": source.identifier,
-                         "name": source.name,
-                         "subtitle": source.subtitle ?? "",
-                         "url": source.sourceURL.absoluteString,
-                         "appCount": source.apps.count]
-                    }
-                    let appRows: [[String: Any]] = installedApps.prefix(100).map { app in
-                        ["bundleID": app.bundleIdentifier,
-                         "name": app.name,
-                         "version": app.version,
-                         "isActive": app.isActive,
-                         "expirationDate": app.expirationDate,
-                         "hasUpdate": app.hasUpdate,
-                         "certificateStatus": app.certificateStatusRaw ?? "valid"]
-                    }
-                    defaults.set(["account": account,
-                                  "signing": DatabaseManager.shared.activeTeam() == nil ? "No active team" : "Ready",
-                                  "installedAppCount": installedApps.count,
-                                  "installedApps": appRows,
-                                  "sources": sourceRows,
-                                  "updatedAt": Date()], forKey: "v3SideStoreStatusSnapshot")
-                }
+                // V3_SIDESTORE_STATUS_SNAPSHOT_V1: retired in favor of live XPC reads.
 '''
     text = replace_once(text, anchor, insertion, "database startup status snapshot")
     path.write_text(text, encoding="utf-8")

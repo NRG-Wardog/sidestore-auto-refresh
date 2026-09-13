@@ -1,6 +1,8 @@
 
 // V3_SIDESTORE_COMMAND_SERVICE_V1
 // Compiled only into SideStore. No managed objects or credentials cross XPC.
+import SwiftUI
+
 @MainActor
 @objc(V3SideStoreService)
 final class V3SideStoreService: NSObject {
@@ -9,6 +11,7 @@ final class V3SideStoreService: NSObject {
     private var cancellations: [String: () -> Void] = [:]
     private var completed: [String: Data] = [:]
     private var mutationID: String?
+    private var finishPanel: (() -> Void)?
     static let presenter = UIViewController()
 
     @objc(execute:reply:)
@@ -89,6 +92,28 @@ final class V3SideStoreService: NSObject {
         let target = request["target"] as? String ?? ""
         switch operation {
         case "snapshot": return try snapshot()
+        case "panel":
+            let controller: UIViewController
+            switch target {
+            case "certificates": controller = UIHostingController(rootView: CertificatesView(presentingViewController: Self.presenter))
+            case "developerServices": controller = UIHostingController(rootView: DeveloperServicesView(presentingViewController: Self.presenter))
+            case "connection": controller = UIHostingController(rootView: ConnectionConfigView())
+            case "anisette": controller = UIHostingController(rootView: AnisetteServersView(selected: UserDefaults.standard.menuAnisetteURL, onResetAdiPb: {}))
+            case "health": controller = UIHostingController(rootView: HealthCheckView())
+            case "backups": controller = UIHostingController(rootView: BackupAndRestoreView())
+            case "sideJIT": controller = UIHostingController(rootView: SideJITServerConfigView())
+            default: throw ServiceError.invalidRequest
+            }
+            try await callback { done in
+                controller.navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(closePanel))
+                let navigation = UINavigationController(rootViewController: controller)
+                navigation.isModalInPresentation = true
+                self.finishPanel = { done(.success(())) }
+                self.cancellations[id] = { self.closePanel() }
+                Self.presenter.present(navigation, animated: true)
+            }
+        case "importPairing":
+            _ = try await PairingFileManager.shared.importPairingFile(presentingVC: Self.presenter, title: "Pairing File", message: "Select a pairing file")
         case "catalog":
             let query = NSFetchRequest<StoreApp>(entityName: "StoreApp")
             query.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
@@ -172,6 +197,12 @@ final class V3SideStoreService: NSObject {
         return object
     }
 
+    @objc private func closePanel() {
+        let finish = finishPanel
+        finishPanel = nil
+        Self.presenter.dismiss(animated: true) { finish?() }
+    }
+
     private func callback(_ start: (@escaping (Result<Void, Error>) -> Void) -> Void) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             start { result in continuation.resume(with: result) }
@@ -187,6 +218,8 @@ final class V3SideStoreService: NSObject {
                 "account": DatabaseManager.shared.activeAccount()?.appleID ?? "Not signed in",
                 "team": team?.name ?? "No active team", "teamID": team?.identifier ?? "",
                 "signing": team == nil ? "Sign in required" : "Team selected",
+                "certificate": CertificateManager.shared.activeCertificate == nil ? "No active certificate" : "Active certificate available",
+                "pairing": PairingFileManager.shared.fetchPairingFile() == nil ? "Pairing file required" : "Pairing file available",
                 "installedApps": apps.map { app in
                     ["identifier": app.objectID.uriRepresentation().absoluteString,
                      "bundleID": app.bundleIdentifier, "name": app.name, "version": app.version,

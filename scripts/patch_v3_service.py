@@ -39,6 +39,14 @@ def patch(live, side):
         path = root / relative
         changes[path] = transform(changes.get(path, path.read_text(encoding="utf-8")))
 
+    def lifecycle(s):
+        s = replace(s, "struct LCTabView: View {", "struct V3ApplicationRoot<Content: View>: View {\n    let content: Content")
+        start = s.index("        TabView(selection: $sharedModel.selectedTab) {")
+        end = s.index("        .downloadAlert", start)
+        s = s[:start] + "        content\n" + s[end:]
+        return replace(s, "        .onOpenURL { url in\n            dispatchURL(url: url)\n        }", "        // URL routing belongs to V3UnifiedTabs.")
+    edit(live, "LiveContainerSwiftUI/Views/LCTabView.swift", lifecycle)
+
     edit(live, "SideStoreSupport/XPCServer.h", lambda s: replace(s, "@protocol RefreshClient\n", '''@protocol RefreshClient
 // V3_COMMAND_PATCH_V1: primitive NSData only; the service validates its schema.
 - (void)v3Execute:(NSData* _Nonnull)request reply:(void (^ _Nonnull)(NSData* _Nonnull))reply NS_SWIFT_NAME(v3Execute(_:reply:));
@@ -116,6 +124,14 @@ def patch(live, side):
     edit(side, "AltStore/AppDelegate.swift", lambda s: s + (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8"))
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
         "        NavigationView {\n            ScrollView {", "        NavigationView {\n            ScrollView {\n                V3InstalledAppsSection(query: searchContext.debouncedQuery)"))
+    edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(replace(s,
+        '''        if appFound == nil && bundleId == "builtinSideStore" {
+            appFound = LCAppModel(appInfo: BuiltInSideStoreAppInfo.shared)
+        }''', '''        if bundleId == "builtinSideStore" {
+            sharedModel.selectedTab = .settings
+            return
+        }'''), '''            UserDefaults.standard.setValue(url.absoluteString, forKey: "launchAppUrlScheme")
+            LCUtils.openSideStore(delegate: self)''', '''            sharedModel.selectedTab = .sources'''))
     edit(live, "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", lambda s: replace(s,
         "            Form {", "            Form {\n                V3AccountSettings()"))
     # A service-owned blank presenter replaces the legacy tab controller. Auth and

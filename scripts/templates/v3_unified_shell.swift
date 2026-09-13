@@ -4,6 +4,10 @@ import SideStoreSupport
 
 // V3_UNIFIED_SHELL_V1_BEGIN
 struct V3UnifiedShell: View {
+    var body: some View { V3ApplicationRoot(content: V3UnifiedTabs()) }
+}
+
+struct V3UnifiedTabs: View {
     @EnvironmentObject private var sharedModel: SharedModel
     @StateObject private var status = V3SideStoreStatusStore()
     @State private var selectedInitialTab = false
@@ -64,6 +68,8 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var account = "Not available"
     @Published private(set) var signing = "Unknown"
     @Published private(set) var team = "Unknown"
+    @Published private(set) var certificate = "Unknown"
+    @Published private(set) var pairing = "Unknown"
     @Published private(set) var updatedAt: Date?
     @Published private(set) var installedApps: [V3SideStoreApp] = []
     @Published private(set) var sources: [V3SideStoreSource] = []
@@ -95,6 +101,8 @@ final class V3SideStoreStatusStore: ObservableObject {
         account = snapshot["account"] as? String ?? "Not signed in"
         team = snapshot["team"] as? String ?? "No active team"
         signing = snapshot["signing"] as? String ?? "Unknown"
+        certificate = snapshot["certificate"] as? String ?? "Unknown"
+        pairing = snapshot["pairing"] as? String ?? "Unknown"
         updatedAt = snapshot["updatedAt"] as? Date
         installedApps = (snapshot["installedApps"] as? [[String: Any]] ?? []).compactMap(V3SideStoreApp.init)
         sources = (snapshot["sources"] as? [[String: Any]] ?? []).compactMap(V3SideStoreSource.init)
@@ -297,19 +305,30 @@ struct V3AccountSettings: View {
     var body: some View {
         Section("Account and Signing") {
             Text(status.account); Text(status.team); Text(status.signing)
+            Text(status.certificate)
             ForEach(status.installedApps.filter { $0.isHost }) { app in
                 Text("Certificate: " + app.certificateStatus.capitalized)
                 if let date = app.expirationDate { Text("Host expires " + date.formatted(date: .abbreviated, time: .shortened)) }
             }
             Button("Sign In / Authenticate") { status.perform("signIn", title: "Account and signing") }
             Button("Sync App IDs") { status.perform("syncAppIDs", title: "Sync App IDs") }
+            panel("Certificates", "certificates")
+            panel("Developer Services", "developerServices")
             Button("Sign Out", role: .destructive) { status.perform("signOut", title: "Sign out") }
         }
         Section("SideStore") {
+            Text(status.pairing)
+            Button("Import Pairing File") { status.perform("importPairing", title: "Import pairing file") }
+            panel("Connection", "connection"); panel("Anisette Servers", "anisette")
+            panel("Health Check", "health"); panel("SideStore Backups", "backups")
+            panel("SideJIT Server", "sideJIT")
             setting("Beta updates", "betaUpdates"); setting("Disable idle timeout", "idleTimeoutDisabled")
             setting("Disable response caching", "responseCachingDisabled"); setting("Detailed operation logging", "verboseOperations")
             Button("Clear Download Cache") { status.perform("clearCache", title: "Clear download cache") }
         }
+    }
+    private func panel(_ title: String, _ key: String) -> some View {
+        Button(title) { status.perform("panel", target: key, title: title) }
     }
     private func setting(_ title: String, _ key: String) -> some View {
         Toggle(title, isOn: Binding(get: { status.settings[key] ?? false }, set: { status.perform("setSetting", target: key, title: title, value: $0) })).disabled(status.isStale)
@@ -380,7 +399,7 @@ private struct V3HomeView: View {
                 Section("Status") {
                     Label("\(sharedModel.apps.count) LiveContainer guests", systemImage: "rectangle.stack.fill")
                     Label("\(status.installedAppCount) sideloaded apps", systemImage: "app.badge")
-                    Text(status.account); Text(status.team); Text(status.signing)
+                    Text(status.account); Text(status.team); Text(status.signing); Text(status.certificate); Text(status.pairing)
                     Text(status.isStale ? "SideStore status is out of date" : "SideStore connected").foregroundColor(.secondary)
                     if let date = status.installedApps.filter({ $0.isActive }).compactMap(\.expirationDate).min() { Text("Next expiration: " + date.formatted(date: .abbreviated, time: .shortened)) }
                     Button("Reload Status") { status.reload() }
