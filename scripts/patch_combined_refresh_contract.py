@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Align embedded verification with the host's run identity; combined build only."""
 from pathlib import Path
+import hashlib
+import json
+import subprocess
 import sys
 
 MARKER = "COMBINED_REFRESH_MANIFEST_V2"
+PIN = "ff25922e5c13ccfafd83bda5092910d848ebd409"
 
 
 def replace_once(text: str, old: str, new: str) -> str:
@@ -13,11 +17,19 @@ def replace_once(text: str, old: str, new: str) -> str:
 
 
 def patch(root: Path) -> None:
+    if subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip() != PIN:
+        raise SystemExit("combined refresh contract requires pinned embedded SideStore")
     path = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
+    manifest = root / ".combined-refresh-contract.json"
+    patch_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     text = path.read_text(encoding="utf-8")
-    if MARKER in text:
+    if manifest.exists():
+        if json.loads(manifest.read_text()) != {"pin": PIN, "patch": patch_hash, "output": hashlib.sha256(path.read_bytes()).hexdigest()}:
+            raise SystemExit("combined refresh contract replay drift")
         verify(text)
         return
+    if MARKER in text:
+        raise SystemExit("combined refresh contract marker without matching provenance")
     text = replace_once(text,
         'defaults.set(refreshIdentifier, forKey: "liveContainerAutoRefreshHostHandoffRunID")',
         'defaults.set(defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier,\n                     forKey: "liveContainerAutoRefreshHostHandoffRunID")')
@@ -29,14 +41,24 @@ def patch(root: Path) -> None:
     start = text.index("    private func automaticRefreshDefaults()")
     end = text.index("    private func startListeningForRunningApps()", start)
     section = text[start:end].replace(r"\\(", r"\(")
+    section = replace_once(section, '                let nsError = error as NSError', '''                let runID = defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier
+                let failure = CombinedFailure.capture(error, operation: "refresh", stage: .refreshVerification, id: runID)''')
+    section = replace_once(section,
+        r'debugLog("[AUTO_REFRESH] REFRESH_FAILED bundle_id=\(bundleIdentifier) stage=refresh error_code=\(nsError.code) error_domain=\(nsError.domain) error=\(error.localizedDescription)")',
+        r'debugLog("[AUTO_REFRESH] REFRESH_FAILED \(failure.technicalDetails)")')
+    section = replace_once(section,
+        '"error_code": nsError.code, "error_domain": nsError.domain,\n                    "error": error.localizedDescription',
+        '"error_code": failure.underlyingCode, "error_domain": failure.underlyingDomain,\n                    "error": failure.message, "failure": failure.wire')
     text = text[:start] + section + text[end:]
     verify(text)
-    path.write_text(text, encoding="utf-8")
+    path.write_bytes(text.encode("utf-8"))
+    manifest.write_text(json.dumps({"pin": PIN, "patch": patch_hash, "output": hashlib.sha256(path.read_bytes()).hexdigest()}, sort_keys=True))
 
 
 def verify(text: str) -> None:
     for needle in (MARKER, '"expected_ids": installedApps.map',
-                   'defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier'):
+                   'defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier',
+                   '"failure": failure.wire', 'REFRESH_FAILED \\(failure.technicalDetails)'):
         if needle not in text:
             raise SystemExit(f"combined refresh contract missing {needle}")
 
