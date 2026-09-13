@@ -32,13 +32,13 @@ class ServicePatchTests(unittest.TestCase):
             self.skipTest("Set pinned source environment variables")
         roots = (directory / "live", directory / "side")
         files = (
-            ["SideStoreSupport/" + name for name in ("XPCServer.h", "XPCClient.m", "SideStore.swift", "SideStoreClient.swift")] +
+            ["SideStoreSupport/" + name for name in ("XPCServer.h", "XPCServer.m", "XPCClient.m", "SideStore.swift", "SideStoreClient.swift")] +
             ["LiveContainerSwiftUI/" + name for name in ("Views/LCTabView.swift", "Views/AppList/LCAppListView.swift",
              "Views/Settings/LCSettingsView.swift", "Views/Settings/LCMultiLCManagementView.swift",
              "Utilities/Shared.swift", "Utilities/LCUtilsExtensions.swift", "App/LiveContainerSwiftUIApp.swift", "App/AppDelegate.swift")] +
             ["MultitaskSupport/AppSceneViewController." + suffix for suffix in ("h", "m")] +
             ["LiveContainer/LCBootstrap.m", "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
-            ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift"])
+            ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift"])
         for source, root, pin, names in zip((live_source, side_source), roots, service.PINS, files):
             for name in names:
                 path = root / name
@@ -85,6 +85,21 @@ class ServicePatchTests(unittest.TestCase):
             self.assertIn("!isLiveProcess && sideStoreExist", (roots[0] / "LiveContainer/LCBootstrap.m").read_text(encoding="utf-8"))
             for name in ("ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"):
                 self.assertNotIn('set("builtinSideStore", forKey: "LCLaunchExtensionBundleID")', (roots[0] / name).read_text(encoding="utf-8"))
+
+    def test_service_and_startup_adapters_compose_on_pinned_sources(self):
+        startup = module("patch_combined_service_startup")
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name); roots = self.fixture(directory); self.apply(roots)
+            with mock.object(startup.subprocess, "check_output", side_effect=lambda args, **kw: service.PINS[0 if args[2] == str(roots[0]) else 1]):
+                startup.patch(*roots, "v3")
+                first = self.snapshot(directory); startup.patch(*roots, "v3")
+                self.assertEqual(first, self.snapshot(directory))
+            source = (roots[0] / "SideStoreSupport/SideStore.swift").read_text(encoding="utf-8")
+            self.assertNotIn("__v3_connect", source)
+            self.assertNotIn("bookmarkForURL(sideStoreHomeURL)!", source)
+            client = (roots[0] / "SideStoreSupport/SideStoreClient.swift").read_text(encoding="utf-8")
+            self.assertIn("CombinedVerification.sanitized(payload", client)
+            self.assertNotIn("reportRefreshResult(error.localizedDescription", client)
 
     def test_anchor_failure_writes_nothing(self):
         with tempfile.TemporaryDirectory() as name:
