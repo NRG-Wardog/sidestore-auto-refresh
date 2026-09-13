@@ -21,6 +21,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "7d8ae12905f8baa6e0ecc4dbdd3f25e2aa0e43fa"
 GRID = "scripts/templates/livecontainer_grid_app_cell.swift"
+V3_BASELINE = "9d1eed7992694aa0fb9a18742255c21c95b0e697"
 
 
 def command(*args: str, **kwargs) -> str:
@@ -92,7 +93,46 @@ def build_app(output: Path, live: Path, baseline: bool) -> tuple[Path, str, dict
     return bundle, bundle_id, hashes
 
 
-def execute(bundle: Path, bundle_id: str, kind: str, device: str, output: Path, baseline: bool, cold: bool) -> dict:
+def build_v3_app(output: Path, live: Path, source: Path | None) -> tuple[Path, str, dict]:
+    build = output / "v3-native"
+    build.mkdir(parents=True, exist_ok=True)
+    if source is None:
+        candidate = ROOT / "scripts/templates/v3_unified_shell.swift"
+        text = candidate.read_text() if candidate.exists() else subprocess.check_output([
+            "git", "-C", str(ROOT), "show", V3_BASELINE + ":scripts/templates/v3_unified_shell.swift"], text=True)
+    else:
+        text = source.read_text()
+    start = text.index("struct V3InstalledAppsSection: View {")
+    end = text.index("struct V3AppActions: View {", start)
+    section = text[start:end]
+    anchor = ".contextMenu { V3AppActions(app: app) }"
+    if section.count(anchor) != 2:
+        raise RuntimeError("V3 native renderer instrumentation anchor drift; review real section before proceeding")
+    instrumented = "import SwiftUI\n" + section.replace(anchor, anchor + ".background(FixtureGeometryProbe(id: app.identifier))")
+    generated = build / "V3InstalledAppsSection.swift"
+    generated.write_text(instrumented)
+    sources = [live / "LiveContainerSwiftUI/Models/AppLayoutStyle.swift", generated,
+               ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift"]
+    hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
+    hashes["original-V3InstalledAppsSection"] = hashlib.sha256(section.encode()).hexdigest()
+    bundle = build / "Issue25Rendering.app"
+    bundle.mkdir(exist_ok=True)
+    bundle_id = "org.sidestore.layout.fixture.v3native"
+    sdk = subprocess.check_output(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-path"], text=True).strip()
+    architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
+    command("xcrun", "swiftc", "-parse-as-library", "-swift-version", "5", "-sdk", sdk,
+            "-target", architecture + "-apple-ios15.0-simulator", "-g", "-Onone",
+            *map(str, sources), "-o", str(bundle / "Issue25Rendering"))
+    info = {"CFBundleExecutable": "Issue25Rendering", "CFBundleIdentifier": bundle_id,
+            "CFBundleName": "V3 Native Rendering", "CFBundlePackageType": "APPL", "CFBundleVersion": "1",
+            "CFBundleShortVersionString": "1.0", "MinimumOSVersion": "15.0", "LSRequiresIPhoneOS": True,
+            "UIDeviceFamily": [1, 2], "UILaunchScreen": {}}
+    (bundle / "Info.plist").write_bytes(plistlib.dumps(info))
+    command("codesign", "--force", "--sign", "-", str(bundle))
+    return bundle, bundle_id, hashes
+
+
+def execute(bundle: Path, bundle_id: str, kind: str, device: str, output: Path, baseline: bool, cold: bool, mode: str | None = None) -> dict:
     phase = "cold" if cold else "suite"
     command("xcrun", "simctl", "terminate", device, bundle_id) if cold else None
     if not cold:
@@ -114,7 +154,7 @@ def execute(bundle: Path, bundle_id: str, kind: str, device: str, output: Path, 
     if not report_path.exists():
         raise RuntimeError(f"Simulator rendering did not produce {kind}/{phase} evidence within 180 seconds")
     report = json.loads(report_path.read_text())
-    destination = output / ("baseline" if baseline else "corrected")
+    destination = output / (mode or ("baseline" if baseline else "corrected"))
     for path in (data_root / "Documents").iterdir():
         if path.name.startswith(kind + "-") and path.suffix in (".png", ".json"):
             shutil.copyfile(path, destination / path.name)
@@ -127,12 +167,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--livecontainer", type=Path, required=True, help="Already patched generated LiveContainer checkout")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--v3-source", type=Path, help="Generated v3 shell source; otherwise current template or immutable v3 baseline is used")
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     if platform.system() != "Darwin":
         raise SystemExit("This executable rendering suite requires macOS with Xcode and iOS simulators")
     builds = {baseline: build_app(output, args.livecontainer.resolve(), baseline) for baseline in (True, False)}
+    native_build = build_v3_app(output, args.livecontainer.resolve(), args.v3_source)
     reports = []
     devices = available_devices()
     try:
@@ -147,15 +189,18 @@ def main() -> None:
                 reports.append(execute(bundle, bundle_id, kind, device, output, baseline, False))
                 if not baseline:
                     reports.append(execute(bundle, bundle_id, kind, device, output, False, True))
+            bundle, bundle_id, _ = native_build
+            for cold in (False, True):
+                reports.append(execute(bundle, bundle_id, kind, device, output, False, cold, mode="v3-native"))
             if not booted:
                 command("xcrun", "simctl", "shutdown", device)
     finally:
         metadata = {
             "schemaVersion": 1, "builderCommit": command("git", "-C", str(ROOT), "rev-parse", "HEAD"),
             "ciRun": os.environ.get("GITHUB_RUN_ID"), "baselineBuilderCommit": BASELINE,
-            "sourceSHA256": {"baseline": builds[True][2], "corrected": builds[False][2]},
+            "sourceSHA256": {"baseline": builds[True][2], "corrected": builds[False][2], "v3-native": native_build[2]},
             "simulatorRuntimes": sorted(set(runtime for _, _, runtime in devices)),
-            "passed": len(reports) == 6 and all(report["passed"] for report in reports),
+            "passed": len(reports) == 10 and all(report["passed"] for report in reports),
             "reportCount": len(reports), "physicalDeviceExecution": False,
         }
         (output / "rendering-verification.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
