@@ -112,25 +112,33 @@ struct RenderingScreen: View, LCAppBannerDelegate {
         default: return nil
         }
     }
-    func unsatisfiedRequiredConstraints(in root: UIView) -> Int {
+    func requiredConstraintEvidence(in root: UIView) -> [[String: Any]] {
         // UIKit may break an unsatisfiable required constraint while leaving it
         // active. Check the actual resolved equations, including hidden labels.
         let constraints = root.constraints + root.subviews.filter { !($0 is LCAppBannerRootView) }.flatMap(\.constraints)
-        return constraints.filter { constraint in
+        return constraints.compactMap { constraint in
             guard constraint.isActive, constraint.priority == .required,
-                  let first = constraintValue(constraint.firstItem, attribute: constraint.firstAttribute, in: root) else { return false }
+                  let first = constraintValue(constraint.firstItem, attribute: constraint.firstAttribute, in: root) else { return nil }
             let second: CGFloat
             if constraint.secondItem == nil { second = 0 }
             else if let value = constraintValue(constraint.secondItem, attribute: constraint.secondAttribute, in: root) { second = value }
-            else { return false }
+            else { return nil }
             let difference = first - second * constraint.multiplier - constraint.constant
+            let violated: Bool
             switch constraint.relation {
-            case .equal: return abs(difference) > 0.5
-            case .lessThanOrEqual: return difference > 0.5
-            case .greaterThanOrEqual: return difference < -0.5
-            @unknown default: return true
+            case .equal: violated = abs(difference) > 0.5
+            case .lessThanOrEqual: violated = difference > 0.5
+            case .greaterThanOrEqual: violated = difference < -0.5
+            @unknown default: violated = true
             }
-        }.count
+            return ["constraintClass": String(describing: type(of: constraint)),
+                    "identifier": String((constraint.identifier ?? "").prefix(120)),
+                    "firstClass": (constraint.firstItem as? UIView).map { String(describing: type(of: $0)) } ?? "none",
+                    "secondClass": (constraint.secondItem as? UIView).map { String(describing: type(of: $0)) } ?? "none",
+                    "firstAttribute": constraint.firstAttribute.rawValue, "secondAttribute": constraint.secondAttribute.rawValue,
+                    "relation": constraint.relation.rawValue, "constant": Double(constraint.constant), "multiplier": Double(constraint.multiplier),
+                    "firstValue": Double(first), "secondValue": Double(second), "residual": Double(difference), "violated": violated]
+        }
     }
     func gridControllers() -> [LCGridAppCellViewController] {
         controllers(host).compactMap { $0 as? LCGridAppCellViewController }
@@ -201,9 +209,10 @@ struct RenderingScreen: View, LCAppBannerDelegate {
             } else if labelsEnabled { local.append("cell \(index) lacks visual label") }
             if root.accessibilityLabel?.isEmpty != false { local.append("cell \(index) lacks accessibility name") }
             if cell.children.count != 1 || cell.children.first?.parent !== cell { local.append("cell \(index) action-router containment is invalid") }
-            let brokenConstraints = unsatisfiedRequiredConstraints(in: root)
+            let constraints = requiredConstraintEvidence(in: root)
+            let brokenConstraints = constraints.filter { $0["violated"] as? Bool == true }.count
             if brokenConstraints > 0 { local.append("cell \(index) violates \(brokenConstraints) required layout constraints") }
-            cellEvidence.append(["index": index, "fixtureName": root.accessibilityLabel ?? "", "bounds": rect(frame), "preferredContentSize": [Double(cell.preferredContentSize.width), Double(cell.preferredContentSize.height)], "unsatisfiedRequiredConstraints": brokenConstraints, "visibility": visibilityEvidence(root), "icons": imageEvidence])
+            cellEvidence.append(["index": index, "fixtureName": root.accessibilityLabel ?? "", "bounds": rect(frame), "preferredContentSize": [Double(cell.preferredContentSize.width), Double(cell.preferredContentSize.height)], "unsatisfiedRequiredConstraints": brokenConstraints, "constraintEquations": constraints, "visibility": visibilityEvidence(root), "icons": imageEvidence])
         }
         for i in frames.indices {
             for j in frames.indices where j > i {
