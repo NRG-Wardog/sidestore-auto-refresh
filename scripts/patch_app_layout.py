@@ -357,22 +357,24 @@ def patch_livecontainer(root: Path) -> None:
         if revision != LIVE_CONTAINER_REVISION:
             die(f"LiveContainer revision mismatch: {revision}")
     manifest_path = root / ".lc-app-layout.json"
+    patch_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     template_hashes = {name: hashlib.sha256(template(name).encode()).hexdigest() for name in (
         "livecontainer_app_layout_style.swift", "livecontainer_grid_app_cell.swift")}
+    names = ["Models/AppLayoutStyle.swift", "Views/Settings/LCSettingsView.swift",
+             "Views/AppList/LCAppListView.swift", "Views/AppList/LCGridAppCell.swift"]
+    names += ["Views/AppList/LCAppBanner/" + name for name in (
+        "LCAppBanner.swift", "LCAppBannerView.swift", "LCAppBannerViewController.swift")]
+    names = ["LiveContainerSwiftUI/" + name for name in names]
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if manifest.get("revision") != LIVE_CONTAINER_REVISION or manifest.get("templates") != template_hashes:
+        if (manifest.get("revision") != LIVE_CONTAINER_REVISION or manifest.get("templates") != template_hashes
+                or manifest.get("patch") != patch_hash or set(manifest.get("files", {})) != set(names)):
             die("LiveContainer layout manifest/template drift")
         for name, expected in manifest["files"].items():
             path = root / name
             if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
                 die(f"LiveContainer layout replay drift: {name}")
         return
-    names = ["Models/AppLayoutStyle.swift", "Views/Settings/LCSettingsView.swift",
-             "Views/AppList/LCAppListView.swift", "Views/AppList/LCGridAppCell.swift"]
-    names += ["Views/AppList/LCAppBanner/" + name for name in (
-        "LCAppBanner.swift", "LCAppBannerView.swift", "LCAppBannerViewController.swift")]
-    names = ["LiveContainerSwiftUI/" + name for name in names]
     with tempfile.TemporaryDirectory(prefix="lc-layout-") as directory:
         staging = Path(directory)
         for name in names:
@@ -382,7 +384,7 @@ def patch_livecontainer(root: Path) -> None:
                 shutil.copyfile(source, staging / name)
         apply_livecontainer(staging)
         verify_livecontainer(staging)
-        manifest = {"revision": LIVE_CONTAINER_REVISION, "templates": template_hashes, "files": {}}
+        manifest = {"revision": LIVE_CONTAINER_REVISION, "patch": patch_hash, "templates": template_hashes, "files": {}}
         for name in names:
             data = (staging / name).read_bytes()
             manifest["files"][name] = hashlib.sha256(data).hexdigest()
