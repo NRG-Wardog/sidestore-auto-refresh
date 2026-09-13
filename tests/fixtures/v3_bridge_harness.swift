@@ -30,7 +30,7 @@ final class RefreshHandler {
     var connects = 0
     var stops = 0
     func v3_stopService() { stops += 1 }
-    lazy var connection = CombinedServiceConnection(dependencies: .init(
+    lazy var connection: CombinedServiceConnection = CombinedServiceConnection(dependencies: .init(
         resolveHost: { URL(fileURLWithPath: "/fixture") },
         prepareStorage: { $0.appendingPathComponent("Documents/SideStore") },
         createBookmark: { _ in Data([1]) },
