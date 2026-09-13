@@ -64,8 +64,13 @@ enum LiveContainerRefreshBridge {
     static var calls = 0
     static var fails = false
     static var incomplete = false
+    static var uncertain = false
     static func refreshAllApps() async throws {
         calls += 1
+        if uncertain {
+            LiveContainerAutoRefreshScheduler.defaults.set(UUID().uuidString, forKey: "liveContainerAutoRefreshUncertainMutationRunID")
+            throw NSError(domain: "test.refresh", code: 42, userInfo: [NSLocalizedDescriptionKey: "completion timed out"])
+        }
         if fails { throw NSError(domain: "test.refresh", code: 42, userInfo: [NSLocalizedDescriptionKey: "transport failed"]) }
         let defaults = LiveContainerAutoRefreshScheduler.defaults
         defaults.set(["run_id": defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? "",
