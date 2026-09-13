@@ -5,6 +5,7 @@ extension LiveContainerAutoRefreshScheduler {
         LiveContainerRefreshBridge.calls = 0
         LiveContainerRefreshBridge.fails = false
         LiveContainerRefreshBridge.incomplete = false
+        LiveContainerRefreshBridge.uncertain = false
         LiveContainerNetworkPreflight.error = nil
         LiveContainerNetworkPreflight.checks = 0
         BGTaskScheduler.shared.requests = []
@@ -54,10 +55,27 @@ extension LiveContainerAutoRefreshScheduler {
 
         clearTestState()
         LiveContainerRefreshBridge.incomplete = true
+        
         let omitted = BGTask()
         await execute(source: "manual", task: omitted)
         precondition(omitted.completions == [false])
         precondition(defaults.string(forKey: lastErrorKey) == "verification_manifest_incomplete")
+
+        clearTestState()
+        defaults.set(true, forKey: enabledKey)
+        LiveContainerRefreshBridge.uncertain = true
+        await execute(source: "manual", task: BGTask())
+        precondition(defaults.string(forKey: uncertainMutationKey) != nil)
+        precondition(defaults.object(forKey: nextRetryKey) == nil, "uncertain mutation scheduled an automatic retry")
+        let priorCalls = LiveContainerRefreshBridge.calls
+        defaults.set(Date.distantPast, forKey: deadlineKey)
+        schedule() // Advancing a schedule must not erase uncertainty.
+        await execute(source: "bgprocessing", task: BGTask())
+        precondition(LiveContainerRefreshBridge.calls == priorCalls, "uncertain mutation was replayed automatically")
+        LiveContainerRefreshBridge.uncertain = false
+        await execute(source: "manual", task: BGTask())
+        precondition(LiveContainerRefreshBridge.calls == priorCalls + 1)
+        precondition(defaults.string(forKey: uncertainMutationKey) == nil)
 
         clearTestState()
         activeRun = UUID()

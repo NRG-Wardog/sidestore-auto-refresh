@@ -208,6 +208,7 @@ class RefreshHandler: NSObject {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
                 refreshContinuation = continuation
+                defaults?.set(run, forKey: "liveContainerAutoRefreshUncertainMutationRunID")
                 client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName, refreshRunID: run)
             }
         }, onCancel: { Task { @MainActor in if self.v3RefreshToken == token { self.v3_stopService() } } })
@@ -223,6 +224,7 @@ class RefreshHandler: NSObject {
     fileprivate func completedRefresh(_ error: String?, runID: String, verification: Data?, id: UUID) {
         guard launchID == id, refreshContinuation != nil, refreshRunID == runID else { return }
         if let error {
+            UserDefaults(suiteName: "group.com.SideStore.SideStore")?.removeObject(forKey: "liveContainerAutoRefreshUncertainMutationRunID")
             finishRefreshContinuation(.failure(CombinedFailure.fromEncodedString(error, expectedID: runID) ??
                 CombinedFailure(operation: "refresh", stage: .command, id: runID)))
             return
@@ -236,6 +238,7 @@ class RefreshHandler: NSObject {
             return
         }
         defaults.set(manifest, forKey: "liveContainerAutoRefreshVerification")
+        defaults.removeObject(forKey: "liveContainerAutoRefreshUncertainMutationRunID")
         if payload["liveContainerAutoRefreshHostHandoffRunID"] as? String == runID {
             for key in ["liveContainerAutoRefreshHostHandoff", "liveContainerAutoRefreshHostHandoffRunID", "liveContainerAutoRefreshHostHandoffStartedAt", "liveContainerAutoRefreshHostPreviousExpiration"] {
                 if let value = payload[key] { defaults.set(value, forKey: key) }

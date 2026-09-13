@@ -35,6 +35,7 @@ enum LiveContainerAutoRefreshScheduler {
     static let warnedDeadlineKey = "liveContainerAutoRefreshWarnedDeadline"
     static let configurationKey = "liveContainerAutoRefreshConfiguration"
     static let retryExhaustedKey = "liveContainerAutoRefreshRetryExhausted"
+    static let uncertainMutationKey = "liveContainerAutoRefreshUncertainMutationRunID"
     static let warningIdentifier = "LiveContainerAutoRefresh.deadline"
     static let leadTime: TimeInterval = 60 * 60 // Provisional policy, not a timing guarantee.
     static let coalescingWindow: TimeInterval = 60
@@ -94,7 +95,8 @@ enum LiveContainerAutoRefreshScheduler {
     }
 
     private static func compactWorkIsDue(now: Date, manual: Bool = false) -> Bool {
-        LiveContainerRefreshPolicy.workIsDue(now: now,
+        guard manual || defaults.string(forKey: uncertainMutationKey) == nil else { return false }
+        return LiveContainerRefreshPolicy.workIsDue(now: now,
             eligible: defaults.object(forKey: earliestEligibleKey) as? Date,
             retry: defaults.object(forKey: nextRetryKey) as? Date,
             pendingHandoff: defaults.bool(forKey: hostHandoffKey),
@@ -185,6 +187,7 @@ enum LiveContainerAutoRefreshScheduler {
     }
 
     private static func markVerified(source: String, detail: String) {
+        defaults.removeObject(forKey: uncertainMutationKey)
         defaults.set(Date().addingTimeInterval(6 * 60 * 60), forKey: earliestEligibleKey)
         defaults.removeObject(forKey: nextRetryKey)
         defaults.set(0, forKey: retryCountKey)
@@ -297,6 +300,10 @@ enum LiveContainerAutoRefreshScheduler {
             return
         }
         defer { endRun(runID); schedule() }
+        if manual, defaults.string(forKey: uncertainMutationKey) != nil {
+            record(source: source, result: "explicit_retry", detail: "Previous mutation completion was uncertain. This user-requested attempt will reload SideStore's authoritative app state.")
+            defaults.removeObject(forKey: uncertainMutationKey)
+        }
         do {
             try await LiveContainerNetworkPreflight.check(allowForegroundActivation: manual && source != "vpn_return" && task == nil)
             try await performRefresh(runID: runID)
@@ -331,7 +338,8 @@ enum LiveContainerAutoRefreshScheduler {
             let nsError = error as NSError
             let count = defaults.integer(forKey: retryCountKey) + 1
             defaults.set(count, forKey: retryCountKey)
-            if !(error is CancellationError), !LiveContainerRefreshPolicy.isUserActionFailure(nsError),
+            if defaults.string(forKey: uncertainMutationKey) == nil,
+               !(error is CancellationError), !LiveContainerRefreshPolicy.isUserActionFailure(nsError),
                let delay = LiveContainerRefreshPolicy.retryDelay(failureCount: count) {
                 defaults.set(Date().addingTimeInterval(delay), forKey: nextRetryKey)
             } else {
@@ -360,7 +368,8 @@ enum LiveContainerAutoRefreshScheduler {
                 defaults.set("REFRESH_INTERRUPTED", forKey: healthStateKey)
                 let count = defaults.integer(forKey: retryCountKey) + 1
                 defaults.set(count, forKey: retryCountKey)
-                if let delay = LiveContainerRefreshPolicy.retryDelay(failureCount: count) {
+                if defaults.string(forKey: uncertainMutationKey) == nil,
+                   let delay = LiveContainerRefreshPolicy.retryDelay(failureCount: count) {
                     defaults.set(Date().addingTimeInterval(delay), forKey: nextRetryKey)
                 } else { defaults.set(true, forKey: retryExhaustedKey) }
                 record(source: source, result: "expired", detail: "iOS ended the background execution window; refresh was not verified.")
@@ -375,6 +384,7 @@ enum LiveContainerAutoRefreshScheduler {
         hostBundle = Bundle.main
         // A durable marker from a terminated process is not a live mutex.
         if defaults.string(forKey: activeRunKey) != nil {
+            defaults.set(defaults.string(forKey: activeRunKey), forKey: uncertainMutationKey)
             defaults.removeObject(forKey: activeRunKey)
             record(source: "relaunch", result: "interrupted", detail: "The previous process ended before recording completion.")
         }
@@ -479,7 +489,8 @@ enum LiveContainerAutoRefreshScheduler {
         guard let deadline else { return }
         scheduleDeadlineWarning(deadline) // Pre-scheduled; does not require a future app wake.
         defaults.set(processingRegistered ? "native_without_alarmkit" : "foreground_recovery_only", forKey: strategyKey)
-        if let ids = identifiers, processingRegistered, !defaults.bool(forKey: retryExhaustedKey), !defaults.bool(forKey: hostHandoffKey) {
+        if let ids = identifiers, processingRegistered, defaults.string(forKey: uncertainMutationKey) == nil,
+           !defaults.bool(forKey: retryExhaustedKey), !defaults.bool(forKey: hostHandoffKey) {
             let earliest = LiveContainerRefreshPolicy.earliestUsefulDate(now: now, deadline: deadline, lead: leadTime,
                 eligible: defaults.object(forKey: earliestEligibleKey) as? Date,
                 retry: defaults.object(forKey: nextRetryKey) as? Date)
