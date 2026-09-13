@@ -25,6 +25,28 @@ the reporter's device confirmation remain pending.
   SideStore uses a UIKit collection layout with explicit item sizes, not this
   controller representable; no standalone source change is made.
 
+## Measured reproduction
+
+The first simulator run,
+[34761678177](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/34761678177),
+preserved before/after screenshots and JSON. In its 390-point-wide phone viewport,
+the original renderer received six app models and created six controllers, but
+all six root bounds had **height 0**, and all six preferred sizes were `[0, 0]`.
+The same zero-height failure occurred on the tablet simulator. Thus the defect
+is a missing sizing contract, not lost app records or a filter dropping models.
+
+With the correction, the same roots measured **103 points high** with labels at
+the default text size; saved-Grid cold launches passed on both simulators. This
+height is computed from the icon, spacing and scaled caption font, not an
+arbitrary fixed row height. Labels-off height is 68 points.
+
+That first *whole suite* was not green: its banner measurement incorrectly
+equated an SF Symbol image's bounds with its Auto Layout alignment rectangle,
+and controller traversal counted a retained cell after a collection replacement.
+Those test-instrumentation distinctions are being checked separately; the
+zero-height before/after measurements remain evidence, not a claim that the
+entire matrix or a physical device passed.
+
 ## Persistent acceptance checklist
 
 | Requirement | Implementation | Executable test | Evidence | Remaining limitation |
