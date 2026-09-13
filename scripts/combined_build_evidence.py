@@ -30,6 +30,7 @@ def main():
     parser.add_argument('--ipa', type=Path)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--source', type=Path)
+    parser.add_argument('--side-source', type=Path)
     parser.add_argument('paths', nargs='+', type=Path)
     args = parser.parse_args()
     commit = os.environ['GITHUB_SHA']
@@ -75,17 +76,28 @@ def main():
     if args.source:
         paths = ['SideStoreSupport/SideStore.swift', 'SideStoreSupport/SideStoreClient.swift',
             'SideStoreSupport/XPCServer.m', 'SideStoreSupport/XPCServer.h', 'LiveContainer/LCBootstrap.m',
+            'LiveContainer/LCContainerStorage.h', 'LiveContainerSwiftUI/App/AppDelegate.swift',
             'LiveContainerSwiftUI/Models/AppLayoutStyle.swift', 'LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift',
             'LiveContainerSwiftUI/Views/AppList/LCAppListView.swift']
         paths += ['LiveContainerSwiftUI/Views/AppList/LCAppBanner/' + name for name in
                   ('LCAppBanner.swift', 'LCAppBannerView.swift', 'LCAppBannerViewController.swift')]
         paths += ['.lc-app-layout.json', '.combined-service-startup.json']
+        if args.product == 'v3':
+            paths += ['LiveContainerSwiftUI/Views/V3UnifiedShell.swift']
         for name in paths:
             data = (args.source / name).read_bytes()
             target = args.output / 'generated' / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
             generated[name] = hashlib.sha256(data).hexdigest()
+    if args.side_source:
+        for name in ['AltStore/AppDelegate.swift', 'SideStore/Core/Operations/PipelineExecutor.swift',
+                     'Dependencies/minimuxer/DeviceGateway/idevice/IdeviceGateway.swift']:
+            data = (args.side_source / name).read_bytes()
+            target = args.output / 'embedded-generated' / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+            generated['embedded/' + name] = hashlib.sha256(data).hexdigest()
     evidence = dict(identity, schema=1, physical_device_execution=False,
         verification_scope='Static package identity, error protocol, UUID and dSYM matching; not runtime validation',
         ipa=args.ipa.name, sha256=hashlib.sha256(args.ipa.read_bytes()).hexdigest(),
