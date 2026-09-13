@@ -34,7 +34,7 @@ final class V3SideStoreService: NSObject {
             let target = request["target"] as? String ?? ""
             tasks[target]?.cancel()
             cancellations[target]?()
-            Self.presenter.dismiss(animated: true)
+            if mutationID == target { Self.presenter.dismiss(animated: true) }
             reply(encode(["id": id, "version": 1, "ok": true]))
             return
         }
@@ -90,18 +90,25 @@ final class V3SideStoreService: NSObject {
         switch operation {
         case "snapshot": return try snapshot()
         case "panel":
-            let controller: UIViewController
+            let controller = UIHostingController(rootView: AnyView(EmptyView()))
+            let content: AnyView
             switch target {
-            case "certificates": controller = UIHostingController(rootView: CertificatesView(presentingViewController: Self.presenter))
-            case "developerServices": controller = UIHostingController(rootView: DeveloperServicesView(presentingViewController: Self.presenter))
-            case "connection": controller = UIHostingController(rootView: ConnectionConfigView())
-            case "anisette": controller = UIHostingController(rootView: AnisetteServersView(selected: UserDefaults.standard.menuAnisetteURL, onResetAdiPb: {}))
-            case "sideSign": controller = UIHostingController(rootView: SideSignConfigurationView())
-            case "health": controller = UIHostingController(rootView: HealthCheckView())
-            case "backups": controller = UIHostingController(rootView: BackupAndRestoreView())
-            case "sideJIT": controller = UIHostingController(rootView: SideJITServerConfigView())
+            case "certificates": content = AnyView(CertificatesView(presentingViewController: controller))
+            case "developerServices": content = AnyView(DeveloperServicesView(presentingViewController: controller))
+            case "connection": content = AnyView(ConnectionConfigView())
+            case "anisette": content = AnyView(AnisetteServersView(selected: UserDefaults.standard.menuAnisetteURL, onResetAdiPb: {}))
+            case "sideSign": content = AnyView(SideSignConfigurationView())
+            case "health": content = AnyView(HealthCheckView())
+            case "backups": content = AnyView(BackupAndRestoreView())
+            case "sideJIT": content = AnyView(SideJITServerConfigView())
+            case "customizations": content = AnyView(UserCustomizationsView())
+            case "diagnostics": content = AnyView(DeveloperOptionsView())
+            case "experimental": content = AnyView(ExperimentalFeaturesView())
             default: throw ServiceError.invalidRequest
             }
+            // SwiftUI links need navigation; UIKit certificate pushes need the
+            // actual hosting controller's navigation controller.
+            controller.rootView = AnyView(NavigationView { content }.navigationViewStyle(StackNavigationViewStyle()))
             try await callback { done in
                 controller.navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(closePanel))
                 let navigation = UINavigationController(rootViewController: controller)
@@ -229,7 +236,7 @@ final class V3SideStoreService: NSObject {
         let apps = InstalledApp.all(in: context)
         let sources = try context.fetch(NSFetchRequest<Source>(entityName: "Source"))
         let team = DatabaseManager.shared.activeTeam()
-        return ["updatedAt": Date(),
+        return ["updatedAt": Date(), "busy": mutationID != nil,
                 "account": DatabaseManager.shared.activeAccount()?.appleID ?? "Not signed in",
                 "team": team?.name ?? "No active team", "teamID": team?.identifier ?? "",
                 "signing": team == nil ? "Sign in required" : "Team selected",

@@ -3,8 +3,14 @@ import Combine
 import SideStoreSupport
 
 // V3_UNIFIED_SHELL_V1_BEGIN
+enum V3AppIdentity: Hashable {
+    case guest(path: String)
+    case installed(uri: String)
+    case source(identifier: String)
+}
+
 extension LCAppModel {
-    var v3Identity: String { "guest:" + (appInfo.relativeBundlePath ?? appInfo.bundlePath() ?? "") }
+    var v3Identity: V3AppIdentity { .guest(path: appInfo.relativeBundlePath ?? appInfo.bundlePath() ?? "") }
 }
 
 struct V3UnifiedShell: View {
@@ -125,7 +131,7 @@ struct V3SideStoreApp: Identifiable, Hashable {
     let isActive: Bool, hasUpdate: Bool, isHost: Bool
     let expirationDate: Date?
     let openURL: URL?
-    var id: String { "sidestore:" + identifier }
+    var id: V3AppIdentity { .installed(uri: identifier) }
     init?(_ row: [String: Any]) {
         guard let identifier = row["identifier"] as? String, let bundleID = row["bundleID"] as? String,
               let name = row["name"] as? String, let version = row["version"] as? String,
@@ -143,7 +149,7 @@ struct V3SideStoreSource: Identifiable, Hashable {
     let identifier: String, name: String, subtitle: String, url: String
     let appCount: Int
     let canRemove: Bool
-    var id: String { "sidestore-source:" + identifier }
+    var id: V3AppIdentity { .source(identifier: identifier) }
     init?(_ row: [String: Any]) {
         guard let identifier = row["identifier"] as? String, let name = row["name"] as? String,
               let url = row["url"] as? String, let appCount = row["appCount"] as? Int else { return nil }
@@ -327,10 +333,12 @@ struct V3AccountSettings: View {
             Button("Import Pairing File") { status.perform("importPairing", title: "Import pairing file") }
             panel("Connection", "connection"); panel("Anisette Servers", "anisette")
             panel("SideSign Configuration", "sideSign")
+            panel("Installation and Signing Options", "customizations")
             panel("Health Check", "health"); panel("SideStore Backups", "backups")
             panel("SideJIT Server", "sideJIT")
             setting("Beta updates", "betaUpdates"); setting("Disable idle timeout", "idleTimeoutDisabled")
-            setting("Disable response caching", "responseCachingDisabled"); setting("Detailed operation logging", "verboseOperations")
+            panel("SideStore Diagnostics", "diagnostics")
+            panel("Experimental Features", "experimental")
             Button("Clear Download Cache") { status.perform("clearCache", title: "Clear download cache") }
         }
         Section("Guest Runtime") {

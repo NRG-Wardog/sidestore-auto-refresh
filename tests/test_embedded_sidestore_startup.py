@@ -40,7 +40,7 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
              self.side / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift"),
         ):
             target.parent.mkdir(parents=True, exist_ok=True)
-            source_root = side if source.is_relative_to(side) else live
+            source_root = side if side in source.parents else live
             target.write_bytes(subprocess.check_output([
                 "git", "-C", str(source_root), "show", "HEAD:" + source.relative_to(source_root).as_posix()]))
         self.original_auth = self.text(self.side / "SideStore/Core/Auth/AuthManager.swift")

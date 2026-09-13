@@ -36,8 +36,16 @@ final class RefreshHandler {
 @main
 struct BridgeTests {
     @MainActor
+    static func waitForRequest(_ client: FakeClient) async {
+        let deadline = Date().addingTimeInterval(2)
+        while client.replies.isEmpty {
+            precondition(Date() < deadline, "request was never sent")
+            await Task.yield()
+        }
+    }
+    @MainActor
     static func main() async throws {
-        let bridge = V3ServiceBridge(readTimeout: 0.05, commandTimeout: 0.05)
+        let bridge = V3ServiceBridge(readTimeout: 0.25, commandTimeout: 1)
         let handler = RefreshHandler.shared
         let client = handler.client!
         async let a: Void = bridge.connect()
@@ -52,21 +60,21 @@ struct BridgeTests {
         do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("oversized reply accepted") } catch {}
         client.oversized = false; client.hold = true
         let cancelled = Task { try await bridge.request(operation: "install") }
-        try await Task.sleep(nanoseconds: 5_000_000)
+        await waitForRequest(client)
         cancelled.cancel()
         do { _ = try await cancelled.value; preconditionFailure("cancel ignored") } catch is CancellationError {} catch { preconditionFailure("wrong cancellation") }
         precondition(client.cancellations == 1)
         client.flush() // Late success cannot resume an already completed continuation.
         let interrupted = Task { try await bridge.request(operation: "snapshot") }
-        try await Task.sleep(nanoseconds: 5_000_000)
+        await waitForRequest(client)
         bridge.disconnected()
         do { _ = try await interrupted.value; preconditionFailure("disconnect ignored") } catch {}
         client.flush()
         do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("timeout ignored") } catch {}
-        precondition(client.cancellations == 2)
+        precondition(client.cancellations == 2, "expected cancellation plus timeout, received \(client.cancellations)")
         client.flush()
         let mutation = Task { try await bridge.request(operation: "install") }
-        try await Task.sleep(nanoseconds: 5_000_000)
+        await waitForRequest(client)
         do { _ = try await bridge.request(operation: "signOut"); preconditionFailure("concurrent mutation accepted") } catch {}
         mutation.cancel()
         _ = try? await mutation.value

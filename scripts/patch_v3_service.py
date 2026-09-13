@@ -141,6 +141,10 @@ def patch(live, side):
                 guard let self, let connection, self.v3Connection === connection else { return }
                 self.client = nil
                 self.v3Connection = nil
+                // Retire the disconnected process before allowing another DB owner.
+                self.v3StoppingPID = self.sideStorePid
+                self.v3LaunchID = UUID()
+                self.ext?._kill(15)
                 self.sideStorePid = 0
                 let error = NSError(domain: "V3SideStoreService", code: 2, userInfo: [NSLocalizedDescriptionKey: "SideStore disconnected."])
                 self.launchContinuation?.resume(throwing: error)
@@ -184,7 +188,7 @@ def patch(live, side):
         # NSXPC and NSExtension callbacks arrive on arbitrary queues. Funnel every
         # continuation, client and PID transition through the main actor.
         s = replace(s, "            ext.setRequestInterruptionBlock { uuid in",
-                    "            ext.setRequestInterruptionBlock { uuid in\n                Task { @MainActor in")
+                    "            ext.setRequestInterruptionBlock { uuid in\n                Task { @MainActor in\n                guard self.ext === ext else { return }")
         s = replace(s, "            }\n            \n            let launchID = UUID()",
                     "                }\n            }\n            \n            let launchID = UUID()")
         callbacks = [
@@ -203,7 +207,14 @@ def patch(live, side):
                 "    }\n\n    private func v3_" + name + "(" + arguments + ") {")
         s = s.replace('            finish(', '            v3_finish(').replace('        finish(error)', '        v3_finish(error)')
         s = replace(s, "        try await withUnsafeThrowingContinuation { c in\n            self.c = c",
-                    '''        guard self.c == nil, !V3ServiceBridge.shared.isMutating else {
+                    '''        // A cancelled/timed-out command may still be unwinding in SideStore.
+        // Ask its authoritative gate before executing the separate refresh intent.
+        let serviceStatus = try await V3ServiceBridge.shared.request(operation: "snapshot")
+        guard serviceStatus["busy"] as? Bool == false else {
+            throw NSError(domain: "V3SideStoreService", code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "SideStore is finishing another operation. Retry shortly."])
+        }
+        guard self.c == nil, !V3ServiceBridge.shared.isMutating else {
             throw NSError(domain: "V3SideStoreService", code: 5,
                 userInfo: [NSLocalizedDescriptionKey: "Another SideStore operation is running."])
         }
