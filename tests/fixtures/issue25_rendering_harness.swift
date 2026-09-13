@@ -131,7 +131,19 @@ struct RenderingScreen: View, LCAppBannerDelegate {
             case .greaterThanOrEqual: violated = difference < -0.5
             @unknown default: violated = true
             }
+            let intrinsic = String(describing: type(of: constraint)) == "NSContentSizeLayoutConstraint"
+            var effectivePriority = constraint.priority.rawValue
+            if intrinsic, let item = constraint.firstItem as? UIView {
+                // UIKit's intrinsic wrapper reports an equality/priority1000,
+                // but natural size has two directional priorities. Stretching
+                // uses hugging; compression uses resistance. A natural19pt
+                // symbol is therefore allowed to fill an explicit60pt icon.
+                let axis: NSLayoutConstraint.Axis = constraint.firstAttribute == .height ? .vertical : .horizontal
+                effectivePriority = difference > 0 ? item.contentHuggingPriority(for: axis).rawValue : item.contentCompressionResistancePriority(for: axis).rawValue
+            }
             return ["constraintClass": String(describing: type(of: constraint)),
+                    "role": intrinsic ? "intrinsicContentSize" : "explicitConstraint",
+                    "reportedPriority": constraint.priority.rawValue, "effectivePriority": effectivePriority,
                     "identifier": String((constraint.identifier ?? "").prefix(120)),
                     "firstClass": (constraint.firstItem as? UIView).map { String(describing: type(of: $0)) } ?? "none",
                     "secondClass": (constraint.secondItem as? UIView).map { String(describing: type(of: $0)) } ?? "none",
@@ -139,7 +151,8 @@ struct RenderingScreen: View, LCAppBannerDelegate {
                     "secondHidden": (constraint.secondItem as? UIView)?.isHidden ?? false,
                     "firstAttribute": constraint.firstAttribute.rawValue, "secondAttribute": constraint.secondAttribute.rawValue,
                     "relation": constraint.relation.rawValue, "constant": Double(constraint.constant), "multiplier": Double(constraint.multiplier),
-                    "firstValue": Double(first), "secondValue": Double(second), "residual": Double(difference), "violated": violated]
+                    "firstValue": Double(first), "secondValue": Double(second), "residual": Double(difference), "violated": violated,
+                    "requiredViolation": violated && effectivePriority >= UILayoutPriority.required.rawValue]
         }
     }
     func gridControllers() -> [LCGridAppCellViewController] {
@@ -207,12 +220,16 @@ struct RenderingScreen: View, LCAppBannerDelegate {
                 if labelsEnabled {
                     let labelBounds = title.convert(title.bounds, to: root)
                     if title.bounds.height <= 0 || !root.bounds.insetBy(dx: -0.5, dy: -0.5).contains(labelBounds) { local.append("cell \(index) title clipped by cell bounds") }
+                } else {
+                    let zeroHeight = title.constraints.contains { ($0.firstItem as? UIView) === title && $0.firstAttribute == .height && $0.secondItem == nil && $0.isActive && $0.priority == .required && $0.constant == 0 }
+                    let zeroGap = root.constraints.contains { ($0.firstItem as? UIView) === title && $0.firstAttribute == .top && ($0.secondItem as? UIView) === images.first && $0.secondAttribute == .bottom && $0.isActive && $0.priority == .required && $0.constant == 0 }
+                    if !zeroHeight || !zeroGap || abs(title.bounds.height) > 0.5 { local.append("cell \(index) hidden-label height/gap contract is not resolved to zero") }
                 }
             } else if labelsEnabled { local.append("cell \(index) lacks visual label") }
             if root.accessibilityLabel?.isEmpty != false { local.append("cell \(index) lacks accessibility name") }
             if cell.children.count != 1 || cell.children.first?.parent !== cell { local.append("cell \(index) action-router containment is invalid") }
             let constraints = requiredConstraintEvidence(in: root)
-            let brokenConstraints = constraints.filter { $0["violated"] as? Bool == true }.count
+            let brokenConstraints = constraints.filter { $0["requiredViolation"] as? Bool == true }.count
             if brokenConstraints > 0 { local.append("cell \(index) violates \(brokenConstraints) required layout constraints") }
             cellEvidence.append(["index": index, "fixtureName": root.accessibilityLabel ?? "", "bounds": rect(frame), "preferredContentSize": [Double(cell.preferredContentSize.width), Double(cell.preferredContentSize.height)], "unsatisfiedRequiredConstraints": brokenConstraints, "constraintEquations": constraints, "visibility": visibilityEvidence(root), "icons": imageEvidence])
         }
