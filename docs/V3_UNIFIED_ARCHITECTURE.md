@@ -72,8 +72,11 @@ navigation environment and native certificate actions use their actual hosting
 controller. Closing a sheet releases presentation, not the service database.
 
 The SideStore scene root is a service presenter, not the legacy tab controller.
-The normal launch button is removed. Settings exposes account/sign-in/sign-out,
-certificates, developer services, pairing import, connection, Anisette, SideSign
+The normal launch button is removed. Old startup selections, share-extension imports and multi-instance installation
+are routed back into the unified host. Local IPA import uses a one-use shared
+file authorization referenced by UUID; file bookmarks are not sent over XPC.
+Settings exposes account/sign-in/sign-out, certificates, developer services,
+pairing import, connection, Anisette, SideSign
 configuration, installation options, backups and diagnostics. Each remains
 backed by its original owner. Interactive service presentation requires iOS 16
 or newer; existing automated refresh requires the upstream iOS 17 intent

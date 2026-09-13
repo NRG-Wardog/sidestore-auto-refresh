@@ -34,8 +34,10 @@ class ServicePatchTests(unittest.TestCase):
         files = (
             ["SideStoreSupport/" + name for name in ("XPCServer.h", "XPCClient.m", "SideStore.swift", "SideStoreClient.swift")] +
             ["LiveContainerSwiftUI/" + name for name in ("Views/LCTabView.swift", "Views/AppList/LCAppListView.swift",
-             "Views/Settings/LCSettingsView.swift", "Utilities/Shared.swift", "App/LiveContainerSwiftUIApp.swift", "App/AppDelegate.swift")] +
-            ["MultitaskSupport/AppSceneViewController." + suffix for suffix in ("h", "m")],
+             "Views/Settings/LCSettingsView.swift", "Views/Settings/LCMultiLCManagementView.swift",
+             "Utilities/Shared.swift", "App/LiveContainerSwiftUIApp.swift", "App/AppDelegate.swift")] +
+            ["MultitaskSupport/AppSceneViewController." + suffix for suffix in ("h", "m")] +
+            ["LiveContainer/LCBootstrap.m", "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
             ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift"])
         for source, root, pin, names in zip((live_source, side_source), roots, service.PINS, files):
             for name in names:
@@ -72,6 +74,10 @@ class ServicePatchTests(unittest.TestCase):
                 self.apply(roots)
             self.assertNotIn("LCUtils.openSideStore", (roots[0] / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift").read_text())
             self.assertIn(".downloadAlert", (roots[0] / "LiveContainerSwiftUI/Views/LCTabView.swift").read_text())
+            self.assertNotIn("LCUtils.openSideStore", (roots[0] / "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift").read_text(encoding="utf-8"))
+            self.assertIn("!isLiveProcess && sideStoreExist", (roots[0] / "LiveContainer/LCBootstrap.m").read_text(encoding="utf-8"))
+            for name in ("ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"):
+                self.assertNotIn('set("builtinSideStore", forKey: "LCLaunchExtensionBundleID")', (roots[0] / name).read_text(encoding="utf-8"))
 
     def test_anchor_failure_writes_nothing(self):
         with tempfile.TemporaryDirectory() as name:
@@ -134,6 +140,16 @@ func encode(_ value: [String: Any]) -> Data {
     try! PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
 }
 precondition(V3WireContract.decodeRequest(encode(valid), now: now) != nil)
+var booleanVersion = valid; booleanVersion["version"] = true
+precondition(V3WireContract.decodeRequest(encode(booleanVersion), now: now) == nil)
+var page = valid; page["operation"] = "catalog"; page["cursor"] = 50
+precondition(V3WireContract.decodeRequest(encode(page), now: now) != nil)
+for cursor in [-1, 1_000_001, true, "50", 1.5] as [Any] {
+    page["cursor"] = cursor
+    precondition(V3WireContract.decodeRequest(encode(page), now: now) == nil)
+}
+var nonCatalog = valid; nonCatalog["cursor"] = 0
+precondition(V3WireContract.decodeRequest(encode(nonCatalog), now: now) == nil)
 for (key, value) in [("password", "secret"), ("token", "secret"), ("certificate", "secret"),
                      ("operation", "arbitrarySelector"), ("id", "bad"), ("target", String(repeating: "a", count: 4097))] {
     var request = valid

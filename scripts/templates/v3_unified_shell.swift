@@ -34,9 +34,17 @@ struct V3UnifiedTabs: View {
         .accessibilityIdentifier("V3_UNIFIED_SHELL_V1")
         .task {
             status.reload()
-            guard !selectedInitialTab else { return }
-            selectedInitialTab = true
-            if sharedModel.deepLink == nil { sharedModel.selectedTab = .home }
+            if !selectedInitialTab {
+                selectedInitialTab = true
+                if sharedModel.deepLink == nil { sharedModel.selectedTab = .home }
+            }
+            if let pending = UserDefaults.standard.string(forKey: "V3PendingSideStoreURL"), let url = URL(string: pending) {
+                UserDefaults.standard.removeObject(forKey: "V3PendingSideStoreURL")
+                if url.isFileURL {
+                    status.stageSharedIPA(url, bookmark: LCUtils.appGroupUserDefault.data(forKey: "LCLaunchExtensionFileBookmark"), title: "Install shared app")
+                    LCUtils.appGroupUserDefault.removeObject(forKey: "LCLaunchExtensionFileBookmark")
+                } else { dispatchURL(url) }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in status.reload() }
         .onReceive(monitor) { _ in status.reload() }
@@ -47,6 +55,24 @@ struct V3UnifiedTabs: View {
         } message: { Text(status.error ?? "") }
     }
     private func dispatchURL(_ url: URL) {
+        if ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
+            status.perform("installURL", target: url.absoluteString, title: "Install shared app")
+            return
+        }
+        if url.host?.lowercased() == "livecontainer-launch",
+           let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+           query.contains(where: { $0.name == "bundle-name" && $0.value == "builtinSideStore" }) {
+            if let encoded = query.first(where: { $0.name == "open-url" })?.value,
+               let data = Data(base64Encoded: encoded), let value = String(data: data, encoding: .utf8),
+               let selected = URL(string: value) {
+                if selected.isFileURL {
+                    let bookmark = LCUtils.appGroupUserDefault.data(forKey: "LCLaunchExtensionFileBookmark")
+                    status.stageSharedIPA(selected, bookmark: bookmark, title: "Install shared app")
+                    LCUtils.appGroupUserDefault.removeObject(forKey: "LCLaunchExtensionFileBookmark")
+                } else { dispatchURL(selected) }
+            } else { sharedModel.selectedTab = .settings }
+            return
+        }
         if url.scheme?.lowercased() == "sidestore", url.host?.lowercased() == "appbackupresponse" {
             let result = url.path.lowercased() == "/success" ? "success" : "failure"
             Task {
@@ -139,6 +165,17 @@ final class V3SideStoreStatusStore: ObservableObject {
     func perform(_ operation: String, target: String = "", title: String, value: Bool? = nil) {
         guard presentation == nil else { return }
         presentation = V3OperationRequest(operation: operation, target: target, title: title, value: value)
+    }
+    func stageSharedIPA(_ url: URL, bookmark: Data? = nil, title: String) {
+        guard presentation == nil else { return }
+        do {
+            guard url.isFileURL, url.pathExtension.lowercased() == "ipa" else { throw CocoaError(.fileReadUnsupportedScheme) }
+            let token = UUID().uuidString
+            let data = try bookmark ?? url.bookmarkData(options: URL.BookmarkCreationOptions(rawValue: 1 << 11),
+                                                       includingResourceValuesForKeys: nil, relativeTo: nil)
+            LCUtils.appGroupUserDefault.set(data, forKey: "V3SharedIPA." + token)
+            perform("installSharedIPA", target: token, title: title)
+        } catch { self.error = error.localizedDescription }
     }
 }
 
@@ -442,7 +479,11 @@ struct V3OperationSheet: View {
                     catch { message = error.localizedDescription }
                 }
         }.navigationViewStyle(StackNavigationViewStyle()).interactiveDismissDisabled(started)
-            .onDisappear { task?.cancel(); status.reload() }
+            .onDisappear {
+                task?.cancel()
+                if request.operation == "installSharedIPA" { LCUtils.appGroupUserDefault.removeObject(forKey: "V3SharedIPA." + request.target) }
+                status.reload()
+            }
     }
     private func start() {
         started = true
