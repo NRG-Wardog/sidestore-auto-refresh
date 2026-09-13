@@ -25,7 +25,7 @@ public final class V3ServiceBridge {
         let id = UUID().uuidString
         let mutation = !["snapshot", "catalog"].contains(operation)
         if mutation {
-            guard activeMutation == nil, RefreshHandler.shared.c == nil else {
+            guard activeMutation == nil, RefreshHandler.shared.v3RefreshToken == nil else {
                 throw failure("Another SideStore operation or refresh is running.")
             }
             activeMutation = id
