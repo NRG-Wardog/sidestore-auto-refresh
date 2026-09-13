@@ -133,7 +133,13 @@ final class V3SideStoreService: NSObject {
             let query = NSFetchRequest<StoreApp>(entityName: "StoreApp")
             query.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
                 StoreApp.visibleAppsPredicate, NSPredicate(format: "sourceIdentifier == %@", target)])
-            let apps = try context.fetch(query).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            let offset = request["cursor"] as? Int ?? 0
+            query.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true),
+                                     NSSortDescriptor(key: "bundleIdentifier", ascending: true)]
+            query.fetchOffset = offset
+            query.fetchLimit = 51
+            let fetched = try context.fetch(query)
+            let apps = Array(fetched.prefix(50))
             return ["apps": apps.map { app in
                 ["identifier": app.objectID.uriRepresentation().absoluteString,
                  "bundleID": app.bundleIdentifier, "name": app.name,
@@ -143,7 +149,7 @@ final class V3SideStoreService: NSObject {
                  "downloadURL": app.latestSupportedVersion?.downloadURL.absoluteString ?? "",
                  "canInstall": app.latestSupportedVersion != nil,
                  "installedID": app.installedApp?.objectID.uriRepresentation().absoluteString ?? ""] as [String: Any]
-            }]
+            }, "nextCursor": fetched.count > 50 ? offset + 50 : -1]
         case "refreshSources":
             try await callback { done in AppManager.shared.updateAllSources(completion: done) }
         case "addSource":

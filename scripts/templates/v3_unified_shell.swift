@@ -344,8 +344,18 @@ struct V3CatalogView: View {
         loading = true; error = nil
         defer { loading = false }
         do {
-            let result = try await V3ServiceBridge.shared.request(operation: "catalog", target: source.identifier)
-            apps = (result["apps"] as? [[String: Any]] ?? []).compactMap(V3CatalogApp.init)
+            var cursor = 0
+            apps = []
+            repeat {
+                try Task.checkCancellation()
+                let result = try await V3ServiceBridge.shared.request(operation: "catalog", target: source.identifier, cursor: cursor)
+                let page = (result["apps"] as? [[String: Any]] ?? []).compactMap(V3CatalogApp.init)
+                let existing = Set(apps.map(\.id))
+                apps.append(contentsOf: page.filter { !existing.contains($0.id) })
+                let next = result["nextCursor"] as? Int ?? -1
+                guard next == -1 || next > cursor else { throw NSError(domain: "V3Catalog", code: 1) }
+                cursor = next
+            } while cursor >= 0
         } catch { self.error = error.localizedDescription }
     }
 }
