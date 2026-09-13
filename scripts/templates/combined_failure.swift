@@ -41,7 +41,8 @@ enum CombinedVerification {
             if !success {
                 let native = NSError(domain: entry["error_domain"] as? String ?? "redacted", code: entry["error_code"] as? Int ?? 0,
                     userInfo: [NSLocalizedDescriptionKey: entry["error"] as? String ?? ""])
-                let failure = CombinedFailure.capture(native, operation: "refresh", stage: .refreshVerification, id: runID)
+                let preserved = (entry["failure"] as? [String: Any]).flatMap { CombinedFailure.decode($0, expectedID: runID) }
+                let failure = preserved ?? CombinedFailure.capture(native, operation: "refresh", stage: .refreshVerification, id: runID)
                 item["error"] = failure.localizedDescription
                 item["error_code"] = failure.underlyingCode; item["error_domain"] = failure.underlyingDomain
                 item["failure"] = failure.wire

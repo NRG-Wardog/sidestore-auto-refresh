@@ -1,7 +1,11 @@
 from pathlib import Path
+import ast
 import importlib.util
+import shutil
+import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch as mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("combined_contract", ROOT / "scripts/patch_combined_refresh_contract.py")
@@ -10,26 +14,24 @@ SPEC.loader.exec_module(patch)
 
 
 class CombinedRefreshContractTests(unittest.TestCase):
+    def fixture(self, root):
+        tree = ast.parse((ROOT / "scripts/patch_background_automation.py").read_text(encoding="utf-8"))
+        helper = next(node.value for node in ast.walk(tree) if isinstance(node, ast.Constant)
+                      and isinstance(node.value, str) and node.value.startswith("\n    private func automaticRefreshDefaults()"))
+        path = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
+        path.parent.mkdir(parents=True)
+        path.write_text(helper + "\n    private func startListeningForRunningApps() {}\n")
+        return path
+
+    def apply(self, root):
+        with mock.object(patch.subprocess, "check_output", return_value=patch.PIN):
+            patch.patch(root)
+
     def test_handoff_uses_host_run_and_manifest_counts_expected_apps(self):
-        source = r'''
-    private func automaticRefreshDefaults() -> UserDefaults { .standard }
-    private func persistAutomaticHostHandoff() {
-        defaults.set(refreshIdentifier, forKey: "liveContainerAutoRefreshHostHandoffRunID")
-        debugLog("[AUTO_REFRESH] HOST_REFRESH_HANDOFF_STARTED run_id=\\(refreshIdentifier)")
-    }
-    private func persistAutomaticRefreshVerification() {
-        serialized.append(["error_code": nsError.code, "error_domain": nsError.domain,
-                    "error": error.localizedDescription])
-        defaults.set(["version": 1, "date": Date(), "results": []], forKey: "manifest")
-    }
-    private func startListeningForRunningApps() {}
-'''
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            file = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
-            file.parent.mkdir(parents=True)
-            file.write_text(source)
-            patch.patch(root)
+            file = self.fixture(root)
+            self.apply(root)
             result = file.read_text()
             self.assertIn('"expected_ids": installedApps.map', result)
             self.assertIn('"version": 2', result)
@@ -37,8 +39,98 @@ class CombinedRefreshContractTests(unittest.TestCase):
             self.assertNotIn('"error": error.localizedDescription', result)
             self.assertIn('defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier', result)
             self.assertNotIn(r"\\(refreshIdentifier)", result)
-            patch.patch(root)
+            self.apply(root)
             self.assertEqual(result, file.read_text())
+
+    def test_replay_and_anchor_drift_fail_closed(self):
+        for change in ("anchor", "output", "manifest", "pin"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); file = self.fixture(root)
+                if change == "anchor": file.write_text(file.read_text().replace("let nsError = error as NSError", "let changed = error as NSError"))
+                elif change != "pin":
+                    self.apply(root)
+                    if change == "output": file.write_text(file.read_text() + "// unexpected drift")
+                    else: (root / ".combined-refresh-contract.json").write_text("{}")
+                before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                with self.assertRaises(SystemExit):
+                    if change == "pin":
+                        with mock.object(patch.subprocess, "check_output", return_value="0" * 40): patch.patch(root)
+                    else: self.apply(root)
+                self.assertEqual(before, {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()})
+
+    def test_actual_record_to_bridge_keeps_error_stage_and_sanitizes_logs(self):
+        compiler = shutil.which("swiftc")
+        if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); file = self.fixture(root); self.apply(root)
+            # Inject only the UserDefaults suite, preserving actual generated helper logic.
+            helper = file.read_text().replace('"group.com.SideStore.SideStore"', "testSuite")
+            swift = (ROOT / "scripts/templates/combined_failure.swift").read_text() + r'''
+let testSuite = "CombinedRecordTest." + UUID().uuidString
+@MainActor var logs: [String] = []
+struct InstalledApp {
+    var bundleIdentifier = "fixture.app", name = "Fixture"
+    var expirationDate = Date(), refreshedDate = Date()
+}
+enum StoreApp { static let altstoreAppID = "fixture.host" }
+@MainActor final class Operation {
+    var installedApps = [InstalledApp()]
+    var refreshIdentifier = UUID().uuidString
+    func debugLog(_ message: String) { logs.append(message) }
+    func record(_ error: Error) { persistAutomaticRefreshVerification(results: ["fixture.app": .failure(error)]) }
+''' + helper + r'''
+}
+@main struct Test {
+    @MainActor static func main() throws {
+        let defaults = UserDefaults(suiteName: testSuite)!
+        defer { defaults.removePersistentDomain(forName: testSuite) }
+        let run = UUID().uuidString
+        defaults.set(run, forKey: "liveContainerAutoRefreshExpectedRunID")
+        for stage in [CombinedFailure.Stage.authentication, .signing, .installation, .uniqueDeviceID] {
+            logs = []
+            let native = NSError(domain: "DeviceGatewayError", code: 77,
+                userInfo: [NSLocalizedDescriptionKey: "SECRET_TOKEN private-server-response"])
+            let wrapped = NSError(domain: "PipelineWrapper", code: 1,
+                userInfo: ["LCStructuredFailureStageV1": stage.rawValue, NSUnderlyingErrorKey: native,
+                           NSLocalizedDescriptionKey: "SECRET_TOKEN https://private.invalid/?password=secret"])
+            Operation().record(wrapped)
+            let stored = defaults.dictionary(forKey: "liveContainerAutoRefreshVerification")!
+            let storedRows = stored["results"] as! [[String: Any]]
+            let embeddedFailure = CombinedFailure.decode(storedRows[0]["failure"] as! [String: Any], expectedID: run)!
+            precondition(embeddedFailure.stage == stage && embeddedFailure.underlyingCode == 77)
+            let safe = CombinedVerification.sanitized(["liveContainerAutoRefreshVerification": stored], runID: run)
+            let encoded = try PropertyListSerialization.data(fromPropertyList: safe, format: .xml, options: 0)
+            let decoded = try PropertyListSerialization.propertyList(from: encoded, format: nil) as! [String: Any]
+            let manifest = decoded["liveContainerAutoRefreshVerification"] as! [String: Any]
+            let rows = manifest["results"] as! [[String: Any]]
+            let bridgedFailure = CombinedFailure.decode(rows[0]["failure"] as! [String: Any], expectedID: run)!
+            precondition(bridgedFailure.stage == stage && bridgedFailure.underlyingCode == 77)
+            precondition(bridgedFailure.operation == "refresh" && bridgedFailure.correlationID == run)
+            precondition(!String(decoding: encoded, as: UTF8.self).contains("SECRET_TOKEN"))
+            precondition(!logs.joined().contains("SECRET_TOKEN") && !logs.joined().contains("private.invalid"))
+            precondition(logs.contains { $0.contains("REFRESH_FAILED") && $0.contains("stage=" + stage.rawValue) })
+        }
+        let stale = CombinedFailure(operation: "refresh", stage: .signing, id: UUID().uuidString).wire
+        let legacy: [String: Any] = ["run_id": run, "expected_ids": ["fixture.app"], "results": [
+            ["bundle_id": "fixture.app", "success": false, "error_domain": "DeviceGatewayError", "error_code": 84,
+             "error": "lc_stage=uniqueDeviceID SECRET_TOKEN", "failure": stale] as [String: Any]]]
+        let safe = CombinedVerification.sanitized(["liveContainerAutoRefreshVerification": legacy], runID: run)
+        let manifest = safe["liveContainerAutoRefreshVerification"] as! [String: Any]
+        let rows = manifest["results"] as! [[String: Any]]
+        let failure = CombinedFailure.decode(rows[0]["failure"] as! [String: Any], expectedID: run)!
+        precondition(failure.stage == .uniqueDeviceID && failure.underlyingCode == 84)
+        precondition(!failure.localizedDescription.contains("SECRET_TOKEN"))
+        print("record-to-wire stage/correlation/redaction PASS")
+    }
+}
+'''
+            source = root / "main.swift"; executable = root / "record-tests"
+            source.write_text(swift)
+            compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)], capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("record-to-wire stage/correlation/redaction PASS", result.stdout)
 
 
 if __name__ == "__main__":
