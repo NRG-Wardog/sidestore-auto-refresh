@@ -5,7 +5,7 @@ final class StartupFixture {
     var failAt: CombinedFailure.Stage?
     var launches = 0, retirements = 0
     var events: [String] = []
-    lazy var connection = CombinedServiceConnection(dependencies: .init(
+    lazy var connection: CombinedServiceConnection = CombinedServiceConnection(dependencies: .init(
         resolveHost: { try self.step(.hostContainer); return URL(fileURLWithPath: "/fixture") },
         prepareStorage: { _ in try self.step(.storagePreparation); return URL(fileURLWithPath: "/fixture/Documents/SideStore") },
         createBookmark: { _ in try self.step(.bookmarkCreation); return Data([1]) },

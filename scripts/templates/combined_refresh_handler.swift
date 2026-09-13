@@ -15,7 +15,7 @@ class RefreshHandler: NSObject {
     private var readinessTask: Task<Void, Never>?
     private var retiringProcess: NSExtension?
     private var retiringPID: Int32 = 0
-    private lazy var service = CombinedServiceConnection(dependencies: .init(
+    private lazy var service: CombinedServiceConnection = CombinedServiceConnection(dependencies: .init(
         resolveHost: {
             guard !UserDefaults.isSideStore(), !UserDefaults.isLiveProcess() else {
                 throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)
@@ -179,7 +179,7 @@ class RefreshHandler: NSObject {
         }
         defer { timeout.cancel() }
         try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
                 refreshContinuation = continuation
                 client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName, refreshRunID: run)
