@@ -3,7 +3,7 @@ name: LiveContainer embedded SideStore build
 on:
   workflow_dispatch:
   push:
-    branches: [fix/combined-refresh-build-and-runtime]
+    branches: [fix/combined-refresh-build-and-runtime, fix/issue-18-v2-upstream-auth-sync]
 
 permissions:
   contents: read
@@ -14,8 +14,10 @@ concurrency:
 
 env:
   LIVE_CONTAINER_REF: 12377cf3b91d51739a33f14a302e5f522b238593
-  EMBEDDED_SIDESTORE_REF: 10ffa01ecdfe4203a7ad5d7f41c0d5de03bd8abb
-  MINIMUXER_REF: d57586ff506199ecfa8b78048930da821e5237de
+  EMBEDDED_SIDESTORE_REF: ff25922e5c13ccfafd83bda5092910d848ebd409
+  MINIMUXER_REF: 98c3c79982f813878e922ab42f9545314a700f0c
+  SIDESIGN_REF: a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d
+  SIDESIGN_GSA_FIX: 35993d7f68950ce00d6bf1fd0fbcaa7bef51dc9c
   IDEVICE_REF: ebd7dadfc55d1c4facee3d11ecf5b28e20548b57
   JKTCP_REF: e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020
 
@@ -70,6 +72,13 @@ jobs:
           test "$(git -C work/LiveContainer rev-parse HEAD)" = "$LIVE_CONTAINER_REF"
           test "$(git -C work/EmbeddedSideStore rev-parse HEAD)" = "$EMBEDDED_SIDESTORE_REF"
           test "$(git -C work/EmbeddedSideStore/Dependencies/minimuxer rev-parse HEAD)" = "$MINIMUXER_REF"
+          test "$(git -C work/EmbeddedSideStore/Dependencies/SideSign rev-parse HEAD)" = "$SIDESIGN_REF"
+          # Verify upstream resolution; never independently checkout or override SideSign.
+          git -C work/EmbeddedSideStore/Dependencies/SideSign fetch --unshallow origin
+          git -C work/EmbeddedSideStore/Dependencies/SideSign merge-base --is-ancestor "$SIDESIGN_GSA_FIX" HEAD
+          printf 'sidestore=%s\nminimuxer=%s\nsidesign=%s\ngsa_fix_ancestor=%s\n' \
+            "$EMBEDDED_SIDESTORE_REF" "$MINIMUXER_REF" "$SIDESIGN_REF" "$SIDESIGN_GSA_FIX" \
+            | tee artifacts/logs/upstream-auth-provenance.txt
           test "$(git -C idevice rev-parse HEAD)" = "$IDEVICE_REF"
           test "$(git -C jktcp rev-parse HEAD)" = "$JKTCP_REF"
 
@@ -201,6 +210,11 @@ jobs:
           git -C "$MUX" diff --check
           while IFS= read -r -d '' source; do swiftc -frontend -parse "$source"; done < <(find "$MUX" -type f -name '*.swift' -not -path '*/.build/*' -print0)
           swift package --package-path "$MUX/DeviceGateway" dump-package >"$RUNNER_TEMP/combined-gateway-package.json"
+          # Auth/configuration is upstream-owned and must remain byte-identical.
+          git -C work/EmbeddedSideStore diff --exit-code -- \
+            SideStore/Core/Auth SideStore/Core/Anisette \
+            SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift
+          git -C work/EmbeddedSideStore/Dependencies/SideSign diff --exit-code
 
       - name: Build host and embedded SideStore source targets
         shell: bash
@@ -273,6 +287,7 @@ jobs:
             artifacts/LiveContainer-SideStore-AutoRefresh.verification.json
             artifacts/LiveContainer-SideStore-AutoRefresh.runtime-verification.json
             artifacts/builder-commit.txt
+            artifacts/logs/upstream-auth-provenance.txt
           if-no-files-found: error
           compression-level: 0
           retention-days: 7

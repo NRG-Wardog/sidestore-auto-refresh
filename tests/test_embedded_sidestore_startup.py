@@ -3,6 +3,7 @@
 from pathlib import Path
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,8 +15,8 @@ from patch_embedded_sidestore_startup import MARKER, patch
 
 
 def upstream_roots():
-    live = ROOT / ".audit" / "upstream" / "LiveContainer"
-    side = ROOT / ".audit" / "upstream" / "SideStore"
+    live = Path(os.getenv("LIVE_CONTAINER_TEST_SOURCE", ROOT / ".audit/upstream/LiveContainer"))
+    side = Path(os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE", ROOT / ".audit/upstream/SideStore"))
     if not (live / "LiveContainer" / "LCBootstrap.m").is_file():
         raise unittest.SkipTest("Pinned LiveContainer source unavailable")
     if not (side / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift").is_file():
@@ -39,7 +40,15 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
              self.side / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift"),
         ):
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+            try:
+                rel = source.relative_to(side)
+                source_root = side
+            except ValueError:
+                rel = source.relative_to(live)
+                source_root = live
+            target.write_bytes(subprocess.check_output([
+                "git", "-C", str(source_root), "show", "HEAD:" + rel.as_posix()]))
+        self.original_auth = self.text(self.side / "SideStore/Core/Auth/AuthManager.swift")
 
     def text(self, path: Path) -> str:
         return path.read_text(encoding="utf-8")
@@ -60,12 +69,16 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
         self.assertIn('?: [NSMutableArray array]', hooks)
         self.assertIn('Return to LiveContainer', hooks)
         auth = self.text(self.side / "SideStore/Core/Auth/AuthManager.swift")
-        self.assertEqual(auth.count("let matches = Keychain.shared."), 4)
-        self.assertEqual(auth.count('"SAVE_FAILED"'), 4)
-        self.assertNotIn('debugLog("[SAVED]', auth)
-        for line in auth.splitlines():
-            if 'debugLog(' in line and 'readback_matches=' in line:
-                self.assertNotIn('newValue', line)
+        if "private var portalProxy: DeveloperPortalProxyWithAuth" in auth:
+            self.assertEqual(auth, self.original_auth, "Never patch upstream authentication behavior")
+            self.assertIn('coalesce(key: "apple_auth_session")', auth)
+        else:
+            self.assertEqual(auth.count("let matches = Keychain.shared."), 4)
+            self.assertEqual(auth.count('"SAVE_FAILED"'), 4)
+            self.assertNotIn('debugLog("[SAVED]', auth)
+            for line in auth.splitlines():
+                if 'debugLog(' in line and 'readback_matches=' in line:
+                    self.assertNotIn('newValue', line)
 
         bootstrap = self.text(self.live / "LiveContainer" / "LCBootstrap.m")
         self.assertIn(MARKER, bootstrap)
@@ -83,10 +96,14 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
         self.assertIn("reusing_attached_persistent_store_after_startup_failure", database)
         self.assertIn("Unable to read the active LiveContainer application bundle", database)
         self.assertIn("The active LiveContainer bundle has no readable provisioning profile", database)
-        self.assertIn("main_bundle=", database)
-        self.assertIn("active_bundle=", database)
-        self.assertIn("profile_exists=", database)
-        self.assertIn("app_group_path=", database)
+        if "private func performStart() async throws" in database:
+            self.assertIn("try await self.migrateDatabaseToAppGroupIfNeeded()", database)
+            self.assertIn("try await self.prepareDatabase()", database)
+        else:
+            self.assertIn("main_bundle=", database)
+            self.assertIn("active_bundle=", database)
+            self.assertIn("profile_exists=", database)
+            self.assertIn("app_group_path=", database)
         self.assertNotIn("guard let localAppBundle = ALTApplication(fileURL: Bundle.Info.activeBundleURL) else { return }", database)
 
     def temp_paths(self):
