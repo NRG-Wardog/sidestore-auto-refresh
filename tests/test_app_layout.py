@@ -181,6 +181,39 @@ class AppLayoutPatchTests(unittest.TestCase):
         self.assertIn('appLayoutStyle = newValue', patch_script)
         self.assertIn('showAppLabels = newValue', patch_script)
 
+    def test_livecontainer_replay_rejects_generated_grid_drift(self):
+        source = resolve_lc_source()
+        if not source:
+            self.skipTest("LiveContainer source unavailable")
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "LiveContainer"
+            copy_source(source, target)
+            first = subprocess.run([sys.executable, str(PATCH_SCRIPT), str(target)], capture_output=True, text=True)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            grid = target / "LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift"
+            grid.write_text(grid.read_text(encoding="utf-8") + "\n// Unexpected downstream mutation\n", encoding="utf-8")
+            changed = grid.read_bytes()
+            replay = subprocess.run([sys.executable, str(PATCH_SCRIPT), str(target)], capture_output=True, text=True)
+            self.assertNotEqual(replay.returncode, 0)
+            self.assertIn("replay drift", replay.stderr)
+            self.assertEqual(grid.read_bytes(), changed, "Replay must not erase unexpected downstream changes")
+
+    def test_livecontainer_failed_patch_is_transactional(self):
+        source = resolve_lc_source()
+        if not source:
+            self.skipTest("LiveContainer source unavailable")
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "LiveContainer"
+            copy_source(source, target)
+            controller = target / "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerViewController.swift"
+            controller.write_text(controller.read_text(encoding="utf-8").replace("traitCollection: traitCollection", "traitCollection: unexpectedTraits"), encoding="utf-8")
+            before = {p.relative_to(target): p.read_bytes() for p in target.rglob("*.swift")}
+            failed = subprocess.run([sys.executable, str(PATCH_SCRIPT), str(target)], capture_output=True, text=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn("compact controller sizing", failed.stderr)
+            after = {p.relative_to(target): p.read_bytes() for p in target.rglob("*.swift")}
+            self.assertEqual(before, after, "A late anchor mismatch must not partially apply layout changes")
+
     def test_accessibility_label_preserved_when_labels_hidden(self):
         # The UIKit grid control exposes the app name even when visual labels are hidden.
         grid_cell_template = (ROOT / "scripts" / "templates" / "livecontainer_grid_app_cell.swift").read_text(encoding="utf-8")
