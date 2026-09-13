@@ -24,6 +24,9 @@ def patch(root: Path) -> None:
     text = replace_once(text,
         'defaults.set(["version": 1, "date": Date(),',
         '// COMBINED_REFRESH_MANIFEST_V2: omissions are not verified success.\n        defaults.set(["version": 2, "date": Date(),\n            "schema": "LiveContainerRefreshManifestV2",\n            "expected_ids": installedApps.map { $0.bundleIdentifier },')
+    text = replace_once(text,
+        '"error_code": nsError.code, "error_domain": nsError.domain,\n                    "error": error.localizedDescription',
+        '"error_code": nsError.code, "error_domain": "SideStore",\n                    "error": "Refresh failed. Inspect SideStore operation diagnostics."')
     # The existing helper is itself a raw Python string; its diagnostic Swift
     # must interpolate values rather than print backslash-parenthesis literally.
     start = text.index("    private func automaticRefreshDefaults()")

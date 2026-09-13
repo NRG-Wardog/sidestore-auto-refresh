@@ -11,9 +11,17 @@ Two variants are available: **standalone SideStore** and **LiveContainer with th
 
 ## v3 unified combined application
 
-The combined build is being migrated to a single LiveContainer + SideStore experience. v3 makes the host own normal navigation with **Home, Apps, Sources, Refresh, and Settings**, while SideStore remains the authoritative owner of signing, authentication, app installation, sources, certificates, and its database.
+The v3 branch launches into one **Home, Apps, Sources, Refresh, and Settings** interface. Apps includes LiveContainer guests and SideStore-installed apps with separate typed identities. Sources supports SideStore catalogs, source addition/removal, app details, installation and updates.
 
-The migration does not alter the LocalDevVPN, Lockdown, CoreDevice, or RSD refresh transport. Its design, ownership rules, migration stages, and validation requirements are documented in [the v3 architecture document](docs/V3_UNIFIED_ARCHITECTURE.md).
+SideStore commands run in its existing LiveProcess service. Authentication, certificates, pairing and advanced signing controls appear inside the unified application's operation sheet, without its legacy tab bar. SideStore retains database, Keychain, authentication, signing and installation authority; the host retains guest runtime and refresh orchestration.
+
+Combined v3 uses LiveContainerSupport SideStore `ff25922e5c13ccfafd83bda5092910d848ebd409`, upstream minimuxer `98c3c79982f813878e922ab42f9545314a700f0c` and SideSign `a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d`. CI verifies that GSA fix `35993d7f68950ce00d6bf1fd0fbcaa7bef51dc9c` is in SideSign's ancestry. There is no independent SideSign override or authentication backport. Standalone is unchanged by this migration.
+
+For v3 setup, use **Settings → Account and Signing → Sign In / Authenticate**, then **Settings → SideStore → Import Pairing File** if needed. Configure LocalDevVPN, run **Refresh**, and inspect verification/history before enabling its schedule. Apps' per-app Refresh actions also route to that tab. Guest Return, Start Collapsed, custom colors and all three layouts retain their existing preference keys.
+
+Build `v3/architecture-assessment` with the combined workflow and download its `LiveContainer-SideStore-AutoRefresh-IPA` artifact. Install over the existing combined app with matching signing identity and app identifiers; no reset is part of the upgrade. Physical-device acceptance is separate from CI evidence. Release links and v2 screenshots below describe earlier releases, not a v3 release announcement.
+
+See [the v3 architecture document](docs/V3_UNIFIED_ARCHITECTURE.md) for the implementation, ownership, upstream authentication review and validation details.
 
 > [!IMPORTANT]
 > The current stable refresh path requires **Wi-Fi + the official App Store LocalDevVPN**. Cellular-only refresh is experimental and is not part of the stable release.

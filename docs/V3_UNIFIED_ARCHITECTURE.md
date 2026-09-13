@@ -1,206 +1,175 @@
-# v3 Unified LiveContainer + SideStore Architecture
+# v3 unified LiveContainer + SideStore
 
-## Purpose
+## Sources and patch model
 
-v3 turns the combined LiveContainer and SideStore build into one coherent product. It removes the normal user-facing transition into a separate embedded SideStore application while preserving the existing LiveContainer guest runtime and SideStore signing, authentication, source, installation, and refresh systems.
+The combined workflow pins LiveContainer `12377cf3b91d51739a33f14a302e5f522b238593`
+and LiveContainerSupport SideStore `ff25922e5c13ccfafd83bda5092910d848ebd409`.
+SideStore's own submodule resolution supplies minimuxer
+`98c3c79982f813878e922ab42f9545314a700f0c` and SideSign
+`a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d`.
 
-This is an architectural integration. It is not a visual wrapper around SideStore's existing UIKit tab bar.
+The repository contains semantic build-time patches, not vendored replacements.
+The workflow checks revisions before patching. `patch_v3_service.py` validates
+both input revisions and resolves every anchor before writing. It records
+output/template hashes; replay verifies them and rejects drift. Integration
+patches are replayed in CI, with Swift parsing and transport diff/hash checks.
 
-## Current architecture
+## Navigation and ownership
 
-The combined build is assembled from pinned upstream revisions:
+`V3UnifiedShell` supplies Home, Apps, Sources, Refresh and Settings.
+`V3ApplicationRoot` retains upstream startup checks, download handling and window
+lifecycle. Guest operations retain the original `LCAppListView` and
+`LCAppModel`: hidden guests, confirmations, launch modes and LiveProcess.
 
-- LiveContainer: `12377cf3b91d51739a33f14a302e5f522b238593`
-- Embedded SideStore: `10ffa01ecdfe4203a7ad5d7f41c0d5de03bd8abb`
+| State or operation | Authoritative owner |
+| --- | --- |
+| Guest files, configuration, launching and Return controls | LiveContainer |
+| Unified layout and normal navigation | Existing LiveContainer preferences |
+| Installed apps, sources, catalogs, account/team records | SideStore Core Data |
+| Credentials, certificates, signing and installation | SideStore managers/Keychain |
+| Signing, connection, Anisette and developer preferences | SideStore configuration managers |
+| Schedule, retries, orchestration history, verification UI | Existing host refresh scheduler/history |
+| Refresh execution and installation evidence | SideStore pipeline/minimuxer |
 
-LiveContainer is the executable host. It launches into a SwiftUI tab shell and owns guest storage, guest models, guest launching, LiveProcess, guest return controls, and LiveContainer settings.
+The host does not open SideStore Core Data or maintain another account, source
+or installation database. Status DTOs are in-memory projections with freshness
+timestamps, not a new persistent snapshot store. Existing guest-only signing
+configuration remains guest-scoped, not a second SideStore account.
 
-SideStore is embedded as a complete UIKit application. It owns its Core Data database, account and team state, certificates, signing, authentication, sideloaded app records, sources, app installation, and refresh pipeline.
+Apps aggregates guests and separately installed apps. `V3AppIdentity` distinguishes
+guest paths from installed-app object URIs, avoiding equal-name/bundle-ID
+collisions. List, Grid and Compact List use existing layout preferences and
+shared handlers. Details include expiration, activation and certificate status.
+Supported actions include open, refresh, update, activate/deactivate,
+backup/restore, JIT, library removal and device deletion. Host
+deletion/deactivation is rejected.
 
-The current bridge integrates refresh execution, result handoff, startup identity, and Keychain access. It does not integrate normal navigation or application state.
+Sources reads actual SideStore records and supported catalog versions. Addition,
+removal, installation and updates call SideStore's confirmation/operation APIs.
+Oversized catalogs report an error rather than silently dropping entries.
+The same catalog can install into LiveContainer using its existing guest download
+flow. Previously saved guest-source URLs remain stored and can be explicitly
+added to the unified SideStore catalog; no destructive conversion occurs.
 
-```mermaid
-flowchart TD
-    H[LiveContainer SwiftUI host] --> G[Guest storage, launch, LiveProcess]
-    H --> R[Host refresh scheduler and history]
-    R --> X[SideStoreSupport XPC bridge]
-    X --> S[Embedded SideStore process]
-    S --> D[SideStore Core Data, account, signing, sources]
-    S --> T[LocalDevVPN to Lockdown to CoreDevice to RSD]
-    S --> K[Shared Keychain]
-```
+Home combines live owner-supplied status with the host scheduler's last verified
+run, deadline and failure information. Guest signature warnings remain separate
+from verified host refresh state.
 
-### Current navigation
+## Commands and privileged presentation
 
-LiveContainer currently provides Sources, Apps, Tweaks, and Settings. SideStore separately provides News, Sources, Browse, My Apps, and Settings. Opening SideStore launches it as a built-in guest, so the user encounters a second app shell and navigation stack.
+`V3ServiceBridge` calls SideStoreSupport's `v3Execute:reply:` XPC endpoint.
+The embedded `V3SideStoreService` implements `execute:reply:`.
+The shared `V3WireContract` validates operation/field allowlists, UUID,
+version, deadline and sizes: 16 KiB requests and 4 MiB responses.
+Credentials, private keys, pairing contents and auth tokens are not command
+fields. Raw framework errors are not returned through this endpoint.
 
-## Duplication map
+Authentication and privileged configuration use SideStore-owned controllers
+rendered remotely inside the host operation sheet. The service's existing PID
+is attached by `AppSceneViewController.initWithServicePID`; it does not launch
+another database owner or import managed objects. SwiftUI links retain a
+navigation environment and native certificate actions use their actual hosting
+controller. Closing a sheet releases presentation, not the service database.
 
-| Area | Current state | v3 resolution |
-| --- | --- | --- |
-| Navigation | Separate LiveContainer and SideStore tab bars and back stacks. | One host-owned v3 navigation shell. |
-| Apps | LiveContainer owns guests. SideStore owns sideloaded installed apps. | One typed library view that aggregates references from both authoritative owners. |
-| Sources | LiveContainer stores source URLs and cache independently. SideStore stores sources and catalog data in Core Data. | One Sources area, with SideStore as owner for sideload source state and clearly scoped guest-only content where required. |
-| Refresh | Host owns schedule, retries, history, and verification UI. SideStore owns signing and refresh execution. | One Refresh screen backed by a shared orchestration contract. |
-| Settings | Separate settings screens and preference stores. | One settings hierarchy. Each value retains exactly one authoritative owner. |
-| Account and signing status | SideStore owns the actual state. Host has only selected refresh result metadata. | AccountService exposes bounded read models and commands from SideStore. |
-| Status and warnings | Host and SideStore present separate partial status. | Home combines real guest, signing, expiration, connection, and refresh state. |
+The SideStore scene root is a service presenter, not the legacy tab controller.
+The normal launch button is removed. Settings exposes account/sign-in/sign-out,
+certificates, developer services, pairing import, connection, Anisette, SideSign
+configuration, installation options, backups and diagnostics. Each remains
+backed by its original owner. Interactive service presentation requires iOS 16
+or newer; existing automated refresh requires the upstream iOS 17 intent
+runtime. Availability limits are displayed rather than opening legacy UI.
 
-The apparent duplication must not be solved by copying SideStore data into LiveContainer. SideStore Core Data, SideStore Keychain state, and SideStore preferences remain authoritative. LiveContainer guest models, guest files, and runtime state remain authoritative.
+## Lifecycle
 
-## Proposed v3 architecture
+Connection attempts are coalesced. The launch continuation is registered before
+LiveProcess startup, with a 45-second deadline. Requests settle once; completion
+cancels their timeout tasks. Stale/late replies cannot complete another request.
+Reads have a 30-second deadline and commands 600 seconds. Mutations are
+serialized; completed mutation replies are retained until their deadline to
+avoid duplicate execution.
 
-LiveContainer remains the executable host. Its existing root tab shell is replaced with a unified SwiftUI shell that owns all normal user navigation:
+Cancellation reaches the service task and available operation cancellation
+handles. It does not promise to undo an installation already committed by iOS:
+users must reload status before retrying. The service retains its mutation gate
+while an operation unwinds. Refresh checks that gate before invoking its separate
+intent. Disconnect settles pending callers and retires the old process before a
+replacement opens the database. Extension and connection callbacks are checked
+against the currently owned instance. Startup read retries are bounded;
+mutations are not automatically replayed after uncertain outcomes.
+Cancelled native operations retain the host mutation gate for a three-second
+grace period. If no completion arrives, the service is retired and reconnected
+on demand. This prevents a missing native callback from wedging the product.
 
-- Home
-- Apps
-- Sources
-- Refresh
-- Settings
+## Refresh and transport
 
-SideStore becomes a service provider for normal flows. The host communicates with it through a deliberately expanded XPC interface and receives small, non-secret data transfer objects. The host does not embed SideStore view controllers or open SideStore's tab controller in normal use.
+Refresh is the only normal refresh interface, including selected-app refresh.
+Manual/scheduled state, preferred time, retries, history, deadlines and correlated
+verification continue through the existing scheduler. Selected-app completion
+uses the same history without marking the host signing lifetime as verified.
 
-```mermaid
-flowchart TD
-    U[Unified v3 SwiftUI shell] --> HS[Home status]
-    U --> AL[App library]
-    U --> SO[Sources]
-    U --> RF[Refresh]
-    U --> ST[Settings]
+The stable route remains:
 
-    AL --> GS[GuestService]
-    AL --> SS[SideStoreService]
-    SO --> SS
-    RF --> RS[RefreshService]
-    ST --> SET[SettingsStore]
-    HS --> AS[AccountService]
+`Wi-Fi/LocalDevVPN → Lockdown → CoreDeviceProxy/TLS → CDTunnel → RSD → AFC/InstallationProxy`.
 
-    SS --> X[XPC service boundary]
-    RS --> X
-    AS --> X
-    SET --> X
-    X --> SD[SideStore database, signing, auth, sources]
-    GS --> LC[LiveContainer guest runtime and LiveProcess]
-```
+Minimuxer was diffed against `d57586ff506199ecfa8b78048930da821e5237de`.
+Retained upstream changes include scoped IPv6/fallback interfaces, IPv6 usbmux
+addresses, corrected backend caching and package URL disambiguation.
+Gateway patches change specific transport/staging methods, not whole files.
+The updated pipeline adapter preserves structured async execution, cellular
+readiness gating and MainActor completion. One transport lease covers a batch;
+ordinary apps finish before host replacement. Returning success/error paths
+release the lease. Idle deferred checks are not represented as verified
+connectivity. Tests cover pairing selection, routing, staging, installation
+identity, errors and cleanup.
 
-### Services and ownership
+## Issue 18 authentication integration
 
-| Service | Responsibility | Authoritative state |
-| --- | --- | --- |
-| `SideStoreService` | Installed app summaries, source catalog, install, update, refresh commands, expiration data. | SideStore database and operations. |
-| `RefreshService` | One user-facing refresh state machine, scheduler state, retries, history, verification, and execution commands. | Existing host refresh history and SideStore execution result. |
-| `AppLibraryService` | Aggregates typed guest and sideloaded app references. | LiveContainer guest state and SideStore app state. |
-| `GuestService` | Guest launch, storage, runtime, LiveProcess, return controls, guest settings. | LiveContainer. |
-| `AccountService` | Account, team, certificate, and signing status. | SideStore database and Keychain. |
-| `SettingsStore` | Presents logical settings sections and routes writes to the existing owner. | Existing LiveContainer or SideStore preference store. |
+SideSign `a731c0d` descends from GSA 5XX fix `35993d7`; CI verifies ancestry
+without independently checking out another SideSign revision. This uses the
+fixed upstream source, not the old PR's isolated Connection header backport.
 
-## v3 user experience
+The upstream review covered AuthManager, SignInOperation, DeveloperPortalProxy,
+SideSignConfigManager and Anisette configuration:
 
-### Home
+- AuthManager retains token-backed session coalescing and resolved Xcode/Anisette data.
+- SignInOperation retains cached sessions, token/password silent sign-in,
+  interactive verification/account repair, team selection, provisioning,
+  certificate reuse/revocation, device registration and persistence.
+- SideSign retains upstream header defaults and persisted customizations.
+- Anisette retains its configuration and request construction.
+- Developer Portal remains behind the upstream authenticated proxy.
 
-Home shows the signing account state, nearest expiration, last verified refresh, scheduled refresh state, transport warnings, active guests, and quick actions.
+The v3 adapter calls new `signIn`, `InstallTarget.app` and
+`StandaloneOperationContext` APIs, not removed AuthFlowHandler or
+AuthenticatedOperationContext APIs. Modern AuthManager is left byte-identical.
+After all patches, CI rejects diffs in Auth, Anisette, SignInOperation and
+SideSign. Standalone source, workflow and authentication patches are unchanged.
 
-### Apps
+## Upgrade preservation
 
-Apps is the only normal library view. It includes both SideStore-installed applications and LiveContainer guests, clearly identified by type. Existing actions remain available and route to their current underlying implementation. List, Grid, and Compact List apply to this unified presentation.
+No v3 reset, database copy or Keychain replacement is introduced. The existing
+SideStore home, app-group identity and Keychain migration remain. Upstream
+database migration/coalesced async startup stay intact. Failed preparation
+retries without reattaching SQLite. An unreadable host bundle/profile produces
+an error instead of successful empty preparation.
 
-### Sources
+Guest storage/configuration, layout keys, Return visibility, Start Collapsed,
+custom colors and refresh-history storage are retained. Sign-out is an explicit
+action and preserves reusable certificate/Anisette configuration using the
+upstream options. No normal upgrade requires invoking a diagnostics reset.
 
-Sources exposes SideStore source and browse behavior directly in the unified shell. Guest-specific source behavior remains explicitly scoped where it cannot safely use SideStore's installation pipeline.
+## Validation and physical-device acceptance
 
-### Refresh
+The workflow runs repository tests, patch replay, Swift parsing, host and embedded
+source builds, Rust/CoreDevice tests, IPA packaging and executable markers.
+The IPA artifact contains verification JSON, builder commit and upstream-auth
+provenance. Source-build evidence is uploaded separately. Local tests run in a
+clean v3 checkout; unrelated private investigation refs are neither removed nor
+published to satisfy security tests.
 
-Refresh is the only normal refresh screen. It provides manual refresh, schedule, preferred time, retry state, verification results, history, and appropriate diagnostics. The existing LocalDevVPN, Lockdown, CoreDevice, and RSD implementation is unchanged.
-
-### Settings
-
-Settings groups options into Account and Signing, Refresh, Guest Runtime, Interface, Storage, Advanced, and Diagnostics. Advanced SideStore settings and LiveContainer guest controls remain reachable without duplicating common settings.
-
-## Migration plan
-
-### Phase 1: Service contract and safety baseline
-
-1. Define SideStore XPC data transfer objects and commands.
-2. Add launch, reconnect, cancellation, timeout, and stale-response handling.
-3. Preserve SideStore Core Data, Keychain, authentication, signing, and transport ownership.
-4. Add unit tests for service boundaries before user-facing migration.
-
-### Phase 2: Unified shell, Home, and Refresh
-
-1. Replace the current root tab structure with the v3 shell.
-2. Build Home from real SideStore and LiveContainer status.
-3. Move the existing host refresh interface into Refresh.
-4. Retain the current scheduler, history, retry, verification, and SideStore execution pipeline.
-
-### Phase 3: Apps
-
-1. Build `AppLibraryService` with stable typed identifiers.
-2. Present guest and sideloaded apps in one view.
-3. Route guest actions to existing `LCAppModel` behavior.
-4. Route SideStore actions through the new service commands.
-5. Apply current List, Grid, and Compact List presentation options.
-
-### Phase 4: Sources, account, and settings
-
-1. Bring SideStore sources and browse actions into the host shell.
-2. Add SideStore account, certificate, and signing status to Settings.
-3. Consolidate refresh settings.
-4. Move SideStore transport and developer controls into Advanced.
-5. Migrate duplicate source URL state only where compatibility is proven.
-
-### Phase 5: Legacy route retirement
-
-1. Hide the embedded SideStore launch action from normal navigation.
-2. Keep an internal diagnostics fallback while upgrade and recovery behavior is validated.
-3. Remove the fallback only after v3 feature parity and on-device validation are complete.
-
-## Expected modules to change
-
-### Builder repository
-
-- `.github/workflows/livecontainer-build.yml`
-- `scripts/patch_livecontainer_autorefresh.py`
-- `scripts/patch_refresh_result_bridge.py`
-- `scripts/patch_embedded_sidestore_startup.py`
-- `scripts/patch_embedded_keychain.py`
-- New v3 patch scripts and Swift templates
-- Combined packaging verification and regression tests
-- `README.md` and this document
-
-### LiveContainer target
-
-- `LiveContainerSwiftUI/App/LiveContainerSwiftUIApp.swift`
-- `LiveContainerSwiftUI/Views/LCTabView.swift`
-- `LiveContainerSwiftUI/Views/AppList/LCAppListView.swift`
-- `LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift`
-- `LiveContainerSwiftUI/Models/LCAppModel.swift`
-- `LiveContainerSwiftUI/Utilities/Shared.swift`
-- `SideStoreSupport/SideStore.swift`
-- `SideStoreSupport/XPCServer.h`
-- `SideStoreSupport/XPCClient.m`
-- `SideStoreSupport/SideStoreClient.swift`
-
-### Embedded SideStore target
-
-- `AltStore/Managing Apps/AppManager.swift`
-- `AltStore/My Apps/MyAppsViewController.swift`
-- `AltStore/Sources/*`
-- `AltStore/Settings/*`
-- `AltStore/Core/Model/DatabaseManager/*`
-- `SideStore/Core/Auth/*`
-- `SideStore/Core/Operations/*`
-
-## Highest-risk integration points
-
-1. **XPC process lifecycle:** The SideStore service must safely handle launch, reconnect, cancellation, stale responses, and termination.
-2. **Database ownership:** LiveContainer must never directly open, copy, or synchronize SideStore Core Data.
-3. **Keychain and authentication:** Account status can be exposed, but credentials and auth tokens must not cross the service boundary.
-4. **Background refresh:** The host scheduler and SideStore signing pipeline stay internally separate while presenting one user-facing flow.
-5. **Transport regression:** LocalDevVPN, Lockdown, CoreDevice, and RSD remain unchanged and require regression verification after each phase.
-6. **App identity:** Guest and sideloaded apps can share names or bundle identifiers. The unified library needs stable typed identities and separate action routing.
-7. **Upgrade preservation:** Existing SideStore database records, Keychain state, refresh history, guest files, layout preferences, and return-control preferences must survive upgrade.
-8. **Build patch stability:** Because the project patches pinned upstream sources during CI, every new anchor needs idempotence checks, Swift parsing, and package verification.
-
-## Completion criteria
-
-v3 is complete only when the app launches directly into the unified shell, all normal SideStore and LiveContainer actions are reachable there, shared state has a single owner, the embedded SideStore tab UI is no longer part of normal navigation, existing user data survives upgrade, and automated plus on-device validation confirms signing, manual refresh, background refresh, verification, guest launch, LiveProcess, return controls, Keychain access, and the CoreDevice refresh transport.
+Physical-device acceptance must cover upgrade preservation, login/2FA,
+certificates/teams, source/install/update and other app actions, all guest layouts,
+LiveProcess/Return controls, manual/scheduled refresh with the computer
+disconnected, host-replacement reconciliation, VPN failure/recovery, process
+termination/reconnect and cancellation. CI cannot establish those outcomes.
+Issue 18's integrated build evidence is not proof of successful on-device login.

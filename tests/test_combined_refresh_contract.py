@@ -18,6 +18,8 @@ class CombinedRefreshContractTests(unittest.TestCase):
         debugLog("[AUTO_REFRESH] HOST_REFRESH_HANDOFF_STARTED run_id=\\(refreshIdentifier)")
     }
     private func persistAutomaticRefreshVerification() {
+        serialized.append(["error_code": nsError.code, "error_domain": nsError.domain,
+                    "error": error.localizedDescription])
         defaults.set(["version": 1, "date": Date(), "results": []], forKey: "manifest")
     }
     private func startListeningForRunningApps() {}
@@ -32,6 +34,7 @@ class CombinedRefreshContractTests(unittest.TestCase):
             self.assertIn('"expected_ids": installedApps.map', result)
             self.assertIn('"version": 2', result)
             self.assertIn('"schema": "LiveContainerRefreshManifestV2"', result)
+            self.assertNotIn('"error": error.localizedDescription', result)
             self.assertIn('defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier', result)
             self.assertNotIn(r"\\(refreshIdentifier)", result)
             patch.patch(root)

@@ -47,6 +47,20 @@ struct V3UnifiedTabs: View {
         } message: { Text(status.error ?? "") }
     }
     private func dispatchURL(_ url: URL) {
+        if url.scheme?.lowercased() == "sidestore", url.host?.lowercased() == "appbackupresponse" {
+            let result = url.path.lowercased() == "/success" ? "success" : "failure"
+            Task {
+                do { _ = try await V3ServiceBridge.shared.request(operation: "backupResult", target: result) }
+                catch { status.error = error.localizedDescription }
+            }
+            return
+        }
+        if url.scheme?.lowercased() == "sidestore", url.host?.lowercased() == "install" {
+            if let target = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name.lowercased() == "url" })?.value {
+                status.perform("installURL", target: target, title: "Install app")
+            }
+            return
+        }
         if url.host?.lowercased() == "source" {
             sharedModel.selectedTab = .sources
             if let source = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "url" })?.value { status.sourceURL = source }
@@ -79,6 +93,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var signing = "Unknown"
     @Published private(set) var team = "Unknown"
     @Published private(set) var certificate = "Unknown"
+    @Published private(set) var certificateExpiration: Date?
     @Published private(set) var pairing = "Unknown"
     @Published private(set) var updatedAt: Date?
     @Published private(set) var installedApps: [V3SideStoreApp] = []
@@ -113,6 +128,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         team = snapshot["team"] as? String ?? "No active team"
         signing = snapshot["signing"] as? String ?? "Unknown"
         certificate = snapshot["certificate"] as? String ?? "Unknown"
+        certificateExpiration = (snapshot["certificateExpiration"] as? Date).flatMap { $0 == .distantPast ? nil : $0 }
         pairing = snapshot["pairing"] as? String ?? "Unknown"
         updatedAt = snapshot["updatedAt"] as? Date
         installedApps = (snapshot["installedApps"] as? [[String: Any]] ?? []).compactMap(V3SideStoreApp.init)
@@ -246,6 +262,10 @@ struct V3SideStoreAppDetail: View {
 
 struct V3SourcesView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
+    private var savedGuestSources: [String] {
+        (UserDefaults.standard.stringArray(forKey: "LCAltStoreSourceURLs") ?? [])
+            .filter { saved in !status.sources.contains(where: { $0.url == saved }) }
+    }
     var body: some View {
         NavigationView {
             List {
@@ -262,6 +282,14 @@ struct V3SourcesView: View {
                         }
                     }
                 }
+                if !savedGuestSources.isEmpty {
+                    Section("Previously Saved Guest Sources") {
+                        ForEach(savedGuestSources, id: \.self) { url in
+                            Button(url) { status.sourceURL = url }
+                        }
+                        Text("Select a saved URL to preview and add it to the unified catalog. Existing saved URLs are preserved.").font(.caption)
+                    }
+                }
             }.navigationTitle("Sources").toolbar { Button("Reload") { status.perform("refreshSources", title: "Update sources") } }
         }.navigationViewStyle(StackNavigationViewStyle())
     }
@@ -270,16 +298,19 @@ struct V3SourcesView: View {
 struct V3CatalogApp: Identifiable {
     let id: String, name: String, version: String, developer: String, description: String, installedID: String
     let canInstall: Bool
+    let downloadURL: String
     init?(_ row: [String: Any]) {
         guard let id = row["identifier"] as? String, let name = row["name"] as? String else { return nil }
         self.id = id; self.name = name; version = row["version"] as? String ?? ""
         developer = row["developer"] as? String ?? ""; description = row["description"] as? String ?? ""
         installedID = row["installedID"] as? String ?? ""; canInstall = row["canInstall"] as? Bool ?? false
+        downloadURL = row["downloadURL"] as? String ?? ""
     }
 }
 
 struct V3CatalogView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
+    @EnvironmentObject private var sharedModel: SharedModel
     let source: V3SideStoreSource
     @State private var apps: [V3CatalogApp] = []
     @State private var query = ""
@@ -296,6 +327,13 @@ struct V3CatalogView: View {
                         Section {
                             if let installed = status.installedApps.first(where: { $0.identifier == app.installedID }) { V3AppActions(app: installed) }
                             else { Button("Install") { status.perform("install", target: app.id, title: "Install " + app.name) }.disabled(!app.canInstall) }
+                            Button("Install as LiveContainer Guest") {
+                                var link = URLComponents()
+                                link.scheme = "livecontainer"; link.host = "install"
+                                link.queryItems = [URLQueryItem(name: "url", value: app.downloadURL)]
+                                sharedModel.deepLink = link.url
+                                sharedModel.selectedTab = .apps
+                            }.disabled(!app.canInstall || app.downloadURL.isEmpty)
                         }
                     }.navigationTitle(app.name)
                 } label: { VStack(alignment: .leading) { Text(app.name); Text(app.version).font(.caption) } }
@@ -318,6 +356,7 @@ struct V3AccountSettings: View {
         Section("Account and Signing") {
             Text(status.account); Text(status.team); Text(status.signing)
             Text(status.certificate)
+            if let date = status.certificateExpiration { Text("Certificate expires " + date.formatted(date: .abbreviated, time: .shortened)) }
             ForEach(status.installedApps.filter { $0.isHost }) { app in
                 Text("Certificate: " + app.certificateStatus.capitalized)
                 if let date = app.expirationDate { Text("Host expires " + date.formatted(date: .abbreviated, time: .shortened)) }
@@ -337,7 +376,9 @@ struct V3AccountSettings: View {
             panel("Health Check", "health"); panel("SideStore Backups", "backups")
             panel("SideJIT Server", "sideJIT")
             setting("Beta updates", "betaUpdates"); setting("Disable idle timeout", "idleTimeoutDisabled")
+            panel("Update Channel", "releaseTrack")
             panel("SideStore Diagnostics", "diagnostics")
+            panel("Operation Logs", "logs")
             panel("Experimental Features", "experimental")
             Button("Clear Download Cache") { status.perform("clearCache", title: "Clear download cache") }
         }

@@ -26,6 +26,8 @@ final class RefreshHandler {
     var v3RefreshToken: UUID?
     var client: FakeClient? = FakeClient()
     var connects = 0
+    var stops = 0
+    func v3_stopService() { stops += 1 }
     func startRefresh(identifier: String, mangledName: String) async throws {
         precondition(identifier == "__v3_connect" && mangledName.isEmpty)
         connects += 1
@@ -81,6 +83,20 @@ struct BridgeTests {
         client.flush()
         client.hold = false
         _ = try await bridge.request(operation: "snapshot")
+        let recovery = V3ServiceBridge(readTimeout: 1, commandTimeout: 1, cancellationGrace: 0.02)
+        client.hold = true
+        let stuck = Task { try await recovery.request(operation: "signIn") }
+        await waitForRequest(client)
+        stuck.cancel()
+        _ = try? await stuck.value
+        precondition(recovery.isMutating, "cancel must retain the gate while native work unwinds")
+        let deadline = Date().addingTimeInterval(2)
+        while handler.stops == 0 {
+            precondition(Date() < deadline, "stuck native operation was not retired")
+            await Task.yield()
+        }
+        precondition(!recovery.isMutating)
+        client.flush()
         print("V3 lifecycle PASS")
     }
 }

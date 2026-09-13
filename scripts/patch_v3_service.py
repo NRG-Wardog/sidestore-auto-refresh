@@ -99,6 +99,10 @@ def patch(live, side):
 
     private func v3_cancelRefresh(_ token: UUID) {
         guard v3RefreshToken == token else { return }
+        v3_stopService()
+    }
+
+    func v3_stopService() {
         v3RefreshToken = nil
         c?.resume(throwing: CancellationError())
         c = nil
@@ -232,6 +236,11 @@ def patch(live, side):
             guard self.client != nil''')
         return s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_service_bridge.swift").read_text(encoding="utf-8")
     edit(live, "SideStoreSupport/SideStore.swift", host)
+    edit(live, "SideStoreSupport/SideStoreClient.swift", lambda s: replace(replace(s,
+        "reportRefreshResult(error.localizedDescription, server: server)",
+        'reportRefreshResult("SideStore refresh failed. Check account, pairing and operation diagnostics.", server: server)'),
+        '"SideStore could not encode installation results: " + error.localizedDescription',
+        '"SideStore could not encode installation results."'))
     edit(side, "AltStore/AppDelegate.swift", lambda s: s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8"))
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
         "        NavigationView {\n            ScrollView {", "        NavigationView {\n            ScrollView {\n                V3InstalledAppsSection(query: searchContext.debouncedQuery)"))
@@ -248,6 +257,10 @@ def patch(live, side):
           .replace('ForEach(filteredHiddenApps, id: \\.self)', 'ForEach(filteredHiddenApps, id: \\.v3Identity)'))
     edit(live, "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", lambda s: replace(s,
         "            Form {", "            Form {\n                V3AccountSettings()"))
+    edit(live, "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", lambda s: replace(s,
+        "        let storeScheme : String", '''        // Combined certificate import never falls through to a legacy app URL.
+        if UserDefaults.sideStoreExist() { return }
+        let storeScheme : String'''))
     edit(live, "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift", lambda s: replace(s,
         '        Form {\n            Section("Status") {', '        Form {\n            V3TargetedRefreshSection()\n            Section("Status") {'))
     edit(live, "LiveContainerSwiftUI/App/AppDelegate.swift", lambda s: replace(replace(s,

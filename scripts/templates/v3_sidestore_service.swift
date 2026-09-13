@@ -39,7 +39,7 @@ final class V3SideStoreService: NSObject {
             return
         }
         guard tasks[id] == nil else { reply(encode(["id": id, "error": "busy"])); return }
-        let mutation = !["snapshot", "catalog"].contains(operation)
+        let mutation = !["snapshot", "catalog", "backupResult"].contains(operation)
         guard !mutation || (mutationID == nil && completed.count < 512) else {
             reply(encode(["id": id, "error": "busy"])); return
         }
@@ -89,6 +89,12 @@ final class V3SideStoreService: NSObject {
         let target = request["target"] as? String ?? ""
         switch operation {
         case "snapshot": return try snapshot()
+        case "backupResult":
+            guard mutationID != nil, ["success", "failure"].contains(target) else { throw ServiceError.invalidRequest }
+            let result: Result<Void, Error> = target == "success" ? .success(()) : .failure(ServiceError.unsupported)
+            NotificationCenter.default.post(name: AppDelegate.appBackupDidFinish, object: nil,
+                userInfo: [AppDelegate.appBackupResultKey: result])
+            return [:]
         case "panel":
             let controller = UIHostingController(rootView: AnyView(EmptyView()))
             let content: AnyView
@@ -104,6 +110,10 @@ final class V3SideStoreService: NSObject {
             case "customizations": content = AnyView(UserCustomizationsView())
             case "diagnostics": content = AnyView(DeveloperOptionsView())
             case "experimental": content = AnyView(ExperimentalFeaturesView())
+            case "releaseTrack": content = AnyView(V3ReleaseTrackView())
+            case "logs":
+                guard let delegate = UIApplication.shared.delegate as? AppDelegate else { throw ServiceError.notReady }
+                content = AnyView(ConsoleLogView(logURL: delegate.consoleLog.logFileURL))
             default: throw ServiceError.invalidRequest
             }
             // SwiftUI links need navigation; UIKit certificate pushes need the
@@ -130,6 +140,7 @@ final class V3SideStoreService: NSObject {
                  "version": app.latestSupportedVersion?.version ?? "Unavailable",
                  "developer": app.developerName, "description": app.localizedDescription,
                  "iconURL": app.iconURL.absoluteString,
+                 "downloadURL": app.latestSupportedVersion?.downloadURL.absoluteString ?? "",
                  "canInstall": app.latestSupportedVersion != nil,
                  "installedID": app.installedApp?.objectID.uriRepresentation().absoluteString ?? ""] as [String: Any]
             }]
@@ -169,11 +180,19 @@ final class V3SideStoreService: NSObject {
             case "verboseOperations": UserDefaults.standard.isVerboseOperationsLoggingEnabled = value
             default: throw ServiceError.invalidRequest
             }
-        case "install":
-            let app: StoreApp = try object(target)
-            guard app.latestSupportedVersion != nil else { throw ServiceError.unsupported }
+        case "install", "installURL":
+            let installTarget: InstallTarget
+            if operation == "install" {
+                let app: StoreApp = try object(target)
+                guard app.latestSupportedVersion != nil else { throw ServiceError.unsupported }
+                installTarget = .app(app)
+            } else {
+                guard let url = URL(string: target), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
+                      url.host != nil, url.user == nil, url.password == nil else { throw ServiceError.invalidRequest }
+                installTarget = .url(url)
+            }
             try await callback { done in
-                let group = AppManager.shared.install(.app(app), presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
+                let group = AppManager.shared.install(installTarget, presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
                 cancellations[id] = { group.cancel(); group.progress.cancel() }
             }
         case "refreshApp":
@@ -236,11 +255,13 @@ final class V3SideStoreService: NSObject {
         let apps = InstalledApp.all(in: context)
         let sources = try context.fetch(NSFetchRequest<Source>(entityName: "Source"))
         let team = DatabaseManager.shared.activeTeam()
+        let certificate = CertificateManager.shared.activeCertificate?.certificate.x509
         return ["updatedAt": Date(), "busy": mutationID != nil,
                 "account": DatabaseManager.shared.activeAccount()?.appleID ?? "Not signed in",
                 "team": team?.name ?? "No active team", "teamID": team?.identifier ?? "",
                 "signing": team == nil ? "Sign in required" : "Team selected",
                 "certificate": CertificateManager.shared.activeCertificate == nil ? "No active certificate" : "Active certificate available",
+                "certificateExpiration": certificate?.expiryDate ?? Date.distantPast,
                 "pairing": PairingFileManager.shared.fetchPairingFile() == nil ? "Pairing file required" : "Pairing file available",
                 "installedApps": apps.map { app in
                     ["identifier": app.objectID.uriRepresentation().absoluteString,
@@ -260,5 +281,20 @@ final class V3SideStoreService: NSObject {
                              "idleTimeoutDisabled": UserDefaults.standard.isIdleTimeoutDisableEnabled,
                              "responseCachingDisabled": UserDefaults.standard.responseCachingDisabled,
                              "verboseOperations": UserDefaults.standard.isVerboseOperationsLoggingEnabled]]
+    }
+}
+
+private struct V3ReleaseTrackView: View {
+    @State private var track = UserDefaults.standard.betaUdpatesTrack ?? UserDefaults.defaultBetaUpdatesTrack
+    private var tracks: [String] {
+        [track] + ReleaseTrackType.betaTracks.map(\.rawValue).filter { $0 != track }
+    }
+    var body: some View {
+        Form {
+            Picker("Beta update channel", selection: $track) {
+                ForEach(tracks, id: \.self) { Text($0).tag($0) }
+            }
+        }.navigationTitle("Update Channel")
+            .onChange(of: track) { UserDefaults.standard.betaUdpatesTrack = $0 }
     }
 }

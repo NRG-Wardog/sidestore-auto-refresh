@@ -304,17 +304,14 @@ def patch(minimuxer: Path):
             try Task.checkCancellation()
             try await self.performOperation(for: operation, handler: handler, group: group)
         }''', "structured host-last ordering")
-            return replace_once(text, '''        return group
-    }
-    
-    func performOperation''', '''        await transportCore.endTransportBatch()
+            return replace_once(text, "        return group\n    }\n    \n    func performOperation", '''        await transportCore.endTransportBatch()
         return group
         } catch {
             await transportCore.endTransportBatch()
             throw error
         }
     }
-    
+
     func performOperation''', "structured batch release")
         text = replace_once(text, '''            // run the operation pipeline
             try await withThrowingTaskGroup(of: Void.self) { taskGroup in
