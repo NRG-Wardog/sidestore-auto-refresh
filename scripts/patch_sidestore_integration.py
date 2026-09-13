@@ -608,7 +608,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
                 debugLog("[SIDESTORE_COREDEVICE] LOCKDOWN_CONNECT_FAIL code=\\(firstCode) subcode=\\(firstSubCode) action=retry")
                 idevice_error_free(firstErr)
                 invalidateConnection()
-                
+
                 do {{
                     try ensureRPConnection()
                     guard let freshAdapter = self.adapter, let freshHandshake = self.handshake else {{
@@ -636,7 +636,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
                 throw IdeviceGatewayError(.serviceError, reason: "Lockdownd client is nil after connect")
             }}
             defer {{ lockdownd_client_free(client) }}
-            
+
             var plistVal: plist_t? = nil
             verboseLog("[IdeviceGateway] fetchUDID() calling lockdownd_get_value for UniqueDeviceID")
             let valErr = lockdownd_get_value(client, "UniqueDeviceID", nil, &plistVal)
@@ -671,7 +671,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
                 debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=usbmuxd code=\\(code)")
                 throw IdeviceGatewayError(.connectionFailed, reason: "usbmuxd connection failed (code \\(code)): \\(msg)")
             }}
-            
+
             guard let conn = conn else {{
                 throw IdeviceGatewayError(.connectionFailed, reason: "usbmuxd connection returned nil")
             }}
@@ -686,7 +686,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
                 debugLog("[SIDESTORE_COREDEVICE] FETCH_UDID_FAIL stage=usbmuxd_devices code=\\(code)")
                 throw IdeviceGatewayError(.serviceError, reason: "usbmuxd get_devices failed (code \\(code)): \\(msg)")
             }}
-            
+
             var udidResult: String? = nil
             if count > 0, let devicesPtr = devices, let firstDev = devicesPtr.pointee {{
                 defer {{ idevice_usbmuxd_device_list_free(devices, count) }}
