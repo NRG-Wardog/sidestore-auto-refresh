@@ -53,6 +53,11 @@ def copy_source(src: Path, dst: Path) -> None:
         ignore_dangling_symlinks=True,
         ignore=shutil.ignore_patterns(".git", ".build", "build", "*.xcframework", "*.ipa"),
     )
+    if (src / "LiveContainerSwiftUI").is_dir():
+        # The patch only reads revision metadata. Reuse the pinned fixture's
+        # object database without copying it or mutating its working tree.
+        git_dir = subprocess.check_output(["git", "-C", str(src), "rev-parse", "--absolute-git-dir"], text=True).strip()
+        (dst / ".git").write_text("gitdir: " + git_dir + "\n", encoding="utf-8")
 
 
 class AppLayoutPatchTests(unittest.TestCase):
@@ -213,6 +218,32 @@ class AppLayoutPatchTests(unittest.TestCase):
             self.assertIn("compact controller sizing", failed.stderr)
             after = {p.relative_to(target): p.read_bytes() for p in target.rglob("*.swift")}
             self.assertEqual(before, after, "A late anchor mismatch must not partially apply layout changes")
+
+    def test_livecontainer_unversioned_input_is_rejected(self):
+        source = resolve_lc_source()
+        if not source:
+            self.skipTest("LiveContainer source unavailable")
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "LiveContainer"
+            copy_source(source, target)
+            (target / ".git").unlink()
+            failed = subprocess.run([sys.executable, str(PATCH_SCRIPT), str(target)], capture_output=True, text=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn("requires a versioned checkout", failed.stderr)
+            self.assertFalse((target / "LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift").exists())
+
+    def test_livecontainer_wrong_revision_is_rejected(self):
+        source = resolve_lc_source()
+        if not source:
+            self.skipTest("LiveContainer source unavailable")
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "LiveContainer"
+            copy_source(source, target)
+            wrong_git = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "--absolute-git-dir"], text=True).strip()
+            (target / ".git").write_text("gitdir: " + wrong_git + "\n", encoding="utf-8")
+            failed = subprocess.run([sys.executable, str(PATCH_SCRIPT), str(target)], capture_output=True, text=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn("revision mismatch", failed.stderr)
 
     def test_accessibility_label_preserved_when_labels_hidden(self):
         # The UIKit grid control exposes the app name even when visual labels are hidden.
