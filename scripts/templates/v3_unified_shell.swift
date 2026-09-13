@@ -81,6 +81,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published var error: String?
     @Published var presentation: V3OperationRequest?
     @Published var sourceURL = ""
+    @Published var refreshTarget: String?
     @Published private(set) var loading = false
     @Published private(set) var connected = false
     var installedAppCount: Int { installedApps.count }
@@ -205,7 +206,7 @@ struct V3AppActions: View {
                 if !opened { Task { @MainActor in status.error = "The app could not be opened. Check whether it is still installed." } }
             } }
         }
-        Button("Refresh") { sharedModel.selectedTab = .refresh }
+        Button("Refresh") { status.refreshTarget = app.isHost ? nil : app.identifier; sharedModel.selectedTab = .refresh }
         if app.hasUpdate { Button("Update") { action("update", "Update " + app.name) } }
         if !app.isHost {
             Button(app.isActive ? "Deactivate" : "Activate") { action(app.isActive ? "deactivate" : "activate", app.isActive ? "Deactivate app" : "Activate app") }
@@ -343,6 +344,20 @@ struct V3AccountSettings: View {
     }
 }
 
+struct V3TargetedRefreshSection: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    var body: some View {
+        if let target = status.refreshTarget, let app = status.installedApps.first(where: { $0.identifier == target }) {
+            Section("Selected App") {
+                Text(app.name)
+                if let date = app.expirationDate { Text("Expires " + date.formatted(date: .abbreviated, time: .shortened)) }
+                Button("Refresh " + app.name) { status.perform("refreshApp", target: target, title: "Refresh " + app.name) }
+                Button("Clear Selection") { status.refreshTarget = nil }
+            }
+        }
+    }
+}
+
 struct V3OperationSheet: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @Environment(\.dismiss) private var dismiss
@@ -372,9 +387,20 @@ struct V3OperationSheet: View {
     private func start() {
         started = true
         task = Task {
-            do { status.accept(try await V3ServiceBridge.shared.request(operation: request.operation, target: request.target, value: request.value)); dismiss() }
-            catch { message = error.localizedDescription; started = false }
+            do {
+                status.accept(try await V3ServiceBridge.shared.request(operation: request.operation, target: request.target, value: request.value))
+                recordRefresh("completed", "SideStore completed the selected app's refresh. Check its current expiration above.")
+                dismiss()
+            } catch {
+                message = error.localizedDescription; started = false
+                recordRefresh("failed", message)
+            }
         }
+    }
+    private func recordRefresh(_ result: String, _ detail: String) {
+        guard request.operation == "refreshApp" else { return }
+        NotificationCenter.default.post(name: Notification.Name("V3TargetedRefreshResult"), object: nil,
+                                        userInfo: ["result": result, "detail": detail])
     }
 }
 

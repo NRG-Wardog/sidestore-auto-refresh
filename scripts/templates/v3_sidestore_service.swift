@@ -165,6 +165,19 @@ final class V3SideStoreService: NSObject {
                 let group = AppManager.shared.install(app, presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
                 cancellations[id] = { group.cancel(); group.progress.cancel() }
             }
+        case "refreshApp":
+            let app: InstalledApp = try object(target)
+            guard app.isActive, app.bundleIdentifier != StoreApp.altstoreAppID else { throw ServiceError.unsupported }
+            let handler = AuthFlowHandler(presentingViewController: Self.presenter)
+            let group = RefreshGroup(context: AuthenticatedOperationContext(authenticationHandler: handler, anisetteServerHandler: handler, dbBackgroundContext: nil))
+            try await callback { done in
+                group.completionHandler = { results in
+                    guard let result = results[app.bundleIdentifier] else { done(.failure(ServiceError.notFound)); return }
+                    done(result.map { _ in () })
+                }
+                cancellations[id] = { group.cancel(); group.progress.cancel() }
+                AppManager.shared.refresh([app], presentingViewController: Self.presenter, group: group)
+            }
         case "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "jit":
             let app: InstalledApp = try object(target)
             if ["deactivate", "remove", "delete"].contains(operation), app.bundleIdentifier == StoreApp.altstoreAppID { throw ServiceError.unsupported }
