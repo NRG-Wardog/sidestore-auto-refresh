@@ -23,6 +23,10 @@ struct LCGridAppCell: UIViewControllerRepresentable {
         controller.update(model: appModel, dynamicColors: dynamicColors, darkModeIcon: darkModeIcon, showLabels: showLabels)
     }
 
+    @available(iOS 16.0, *)
+    func sizeThatFits(_ proposal: ProposedViewSize, uiViewController: LCGridAppCellViewController, context: Context) -> CGSize? {
+        uiViewController.fittingSize(width: proposal.width)
+    }
 }
 
 final class LCGridAppCellViewController: UIViewController, UIContextMenuInteractionDelegate {
@@ -61,19 +65,54 @@ final class LCGridAppCellViewController: UIViewController, UIContextMenuInteract
     func update(model: LCAppModel, dynamicColors: Bool, darkModeIcon: Bool, showLabels: Bool) {
         actionRouter.update(model: model, dynamicColors: dynamicColors, darkModeIcon: darkModeIcon)
         gridView.update(model: model, darkModeIcon: darkModeIcon, showLabels: showLabels)
+        // preferredContentSize and intrinsicContentSize are also used on iOS 15,
+        // where UIViewControllerRepresentable.sizeThatFits is unavailable.
+        preferredContentSize = fittingSize(width: nil)
+    }
+
+    func fittingSize(width: CGFloat?) -> CGSize {
+        CGSize(width: width.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 76,
+               height: gridView.intrinsicContentSize.height)
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        gridView.updateMetrics()
+        preferredContentSize = fittingSize(width: nil)
     }
 
     @objc private func performPrimaryAction() { actionRouter.performPrimaryAction() }
 
+    func makeContextMenu() -> UIMenu { actionRouter.makeContextMenu() }
+
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
-        UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [actionRouter] _ in actionRouter.makeContextMenu() }
+        UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in self?.makeContextMenu() }
     }
 }
 
 private final class LCGridAppCellView: UIControl {
+    // The grid's vertical contract is derived from its actual icon, spacing and
+    // scaled two-line label, not the parent scroll view's unbounded proposal.
+    private static let iconSide: CGFloat = 60
+    private static let topInset: CGFloat = 4
+    private static let labelSpacing: CGFloat = 6
+    private static let bottomInset: CGFloat = 4
     private let iconImageView = UIImageView()
     private let titleLabel = UILabel()
     private let lockView = UIImageView(image: UIImage(systemName: "lock.fill"))
+
+    override var intrinsicContentSize: CGSize {
+        let labelHeight = titleLabel.isHidden ? 0 : Self.labelSpacing + ceil(titleLabel.font.lineHeight * 2)
+        return CGSize(width: UIView.noIntrinsicMetric,
+                      height: Self.topInset + Self.iconSide + labelHeight + Self.bottomInset)
+    }
+
+    func updateMetrics() {
+        titleLabel.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(
+            for: .systemFont(ofSize: 12, weight: .medium), compatibleWith: traitCollection)
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -85,7 +124,8 @@ private final class LCGridAppCellView: UIControl {
         iconImageView.layer.cornerCurve = .continuous
         iconImageView.clipsToBounds = true
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        updateMetrics()
+        titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 2
         titleLabel.lineBreakMode = .byTruncatingTail
@@ -98,28 +138,29 @@ private final class LCGridAppCellView: UIControl {
         addSubview(lockView)
         addSubview(titleLabel)
         NSLayoutConstraint.activate([
-            iconImageView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            iconImageView.topAnchor.constraint(equalTo: topAnchor, constant: Self.topInset),
             iconImageView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            iconImageView.widthAnchor.constraint(equalToConstant: 60),
-            iconImageView.heightAnchor.constraint(equalToConstant: 60),
+            iconImageView.widthAnchor.constraint(equalToConstant: Self.iconSide),
+            iconImageView.heightAnchor.constraint(equalToConstant: Self.iconSide),
             lockView.widthAnchor.constraint(equalToConstant: 18),
             lockView.heightAnchor.constraint(equalToConstant: 18),
             lockView.trailingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 4),
             lockView.topAnchor.constraint(equalTo: iconImageView.topAnchor, constant: -4),
-            titleLabel.topAnchor.constraint(equalTo: iconImageView.bottomAnchor, constant: 6),
+            titleLabel.topAnchor.constraint(equalTo: iconImageView.bottomAnchor, constant: Self.labelSpacing),
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
             titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
-            titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor)
+            titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -Self.bottomInset)
         ])
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func update(model: LCAppModel, darkModeIcon: Bool, showLabels: Bool) {
-        iconImageView.image = model.appInfo.iconIsDarkIcon(darkModeIcon) ?? UIImage()
+        iconImageView.image = model.appInfo.iconIsDarkIcon(darkModeIcon) ?? UIImage(systemName: "app.fill")
         titleLabel.text = model.displayName
         titleLabel.isHidden = !showLabels
         lockView.isHidden = !model.appInfo.isLocked
         accessibilityLabel = model.displayName
+        updateMetrics()
     }
 }
