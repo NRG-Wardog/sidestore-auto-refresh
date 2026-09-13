@@ -25,10 +25,12 @@ V3_BASELINE = "9d1eed7992694aa0fb9a18742255c21c95b0e697"
 
 
 def command(*args: str, **kwargs) -> str:
-    result = subprocess.run(list(args), check=True, text=True, stdout=subprocess.PIPE,
+    print("Running: " + " ".join(args), flush=True)
+    result = subprocess.run(list(args), check=False, text=True, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, **kwargs)
     if result.stdout:
         print(result.stdout, end="", flush=True)
+    result.check_returncode()
     return result.stdout.strip()
 
 
