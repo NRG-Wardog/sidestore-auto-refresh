@@ -135,14 +135,17 @@ class RefreshHandler: NSObject {
         service.signal(.connected, attempt: id)
     }
     fileprivate func applicationReady(_ id: UUID) {
-        guard launchID == id else { return }
-        readinessTask?.cancel()
+        // finishedLaunching may be repeated; one readiness probe owns this launch.
+        guard launchID == id, readinessTask == nil else { return }
         readinessTask = Task { @MainActor in
             do {
                 try await awaitServiceReady(id)
                 guard launchID == id else { return }
                 service.signal(.ready, attempt: id)
-            } catch { failed(id, stage: .serviceReadiness, underlying: error) }
+            } catch {
+                guard !Task.isCancelled, launchID == id else { return }
+                failed(id, stage: .serviceReadiness, underlying: error)
+            }
         }
     }
     private func awaitServiceReady(_ id: UUID) async throws {

@@ -16,6 +16,52 @@ import patch_combined_service_startup as startup
 
 
 class ExecutableStartupTests(unittest.TestCase):
+    def test_actual_adapter_duplicate_readiness_is_idempotent(self):
+        compiler = shutil.which("swiftc")
+        if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
+        adapter = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text()
+        method = adapter[adapter.index("    fileprivate func applicationReady("):adapter.index("    private func awaitServiceReady(")]
+        source = '''import Foundation
+enum Stage { case serviceReadiness }
+@MainActor final class Probe {
+    var launchID: UUID? = UUID()
+    var readinessTask: Task<Void, Never>?
+    var probes = 0; var failures = 0; var signals = 0
+    var service: Probe { self }
+    enum Signal { case ready }
+    func signal(_ signal: Signal, attempt: UUID) { signals += 1 }
+    func awaitServiceReady(_ id: UUID) async throws { probes += 1; try await Task.sleep(nanoseconds: 30_000_000) }
+    func failed(_ id: UUID, stage: Stage, underlying: Error) { failures += 1 }
+''' + method + '''
+}
+@main struct Test {
+    @MainActor static func main() async throws {
+        let owner = Probe(); let id = owner.launchID!
+        owner.applicationReady(id)
+        try await Task.sleep(nanoseconds: 5_000_000)
+        owner.applicationReady(id)
+        try await Task.sleep(nanoseconds: 60_000_000)
+        owner.applicationReady(id)
+        precondition(owner.probes == 1 && owner.signals == 1 && owner.failures == 0)
+        owner.readinessTask = nil; owner.launchID = UUID()
+        owner.applicationReady(id)
+        precondition(owner.probes == 1)
+        owner.applicationReady(owner.launchID!)
+        owner.readinessTask?.cancel()
+        try await Task.sleep(nanoseconds: 60_000_000)
+        precondition(owner.failures == 0 && owner.signals == 1)
+        print("adapter duplicate readiness/cancellation PASS")
+    }
+}
+'''
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "main.swift"; exe = Path(temp) / "probe"
+            path.write_text(source)
+            result = subprocess.run([compiler, "-parse-as-library", str(path), "-o", str(exe)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = subprocess.run([str(exe)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_actual_startup_state_machine_and_error_wire(self):
         compiler = shutil.which("swiftc")
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
