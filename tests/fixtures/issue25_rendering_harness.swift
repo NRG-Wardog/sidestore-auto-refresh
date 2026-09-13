@@ -69,8 +69,8 @@ struct RenderingScreen: View, LCAppBannerDelegate {
             try? await Task.sleep(nanoseconds: 70_000_000)
         }
     }
-    func resize(_ width: CGFloat, category: ContentSizeCategory = .large) async {
-        host.view.frame = CGRect(x: 0, y: 0, width: min(width, window.bounds.width), height: window.bounds.height)
+    func resize(_ width: CGFloat, height: CGFloat? = nil, category: ContentSizeCategory = .large) async {
+        host.view.frame = CGRect(x: 0, y: 0, width: min(width, window.bounds.width), height: min(height ?? window.bounds.height, window.bounds.height))
         parent.setOverrideTraitCollection(UITraitCollection(horizontalSizeClass: width < 600 ? .compact : .regular), forChild: host)
         state.textSize = category
         await waitForLayout()
@@ -318,6 +318,9 @@ struct RenderingScreen: View, LCAppBannerDelegate {
                     await resize(width, category: .accessibilityExtraExtraExtraLarge)
                     measure("accessibility-\(Int(width))")
                 }
+                await resize(min(window.bounds.width, 844), height: 320)
+                measure("landscape-shaped-window")
+                capture("landscape-shaped-window")
                 await resize(min(window.bounds.width, 390))
                 for cycle in 0..<3 {
                     for layout in ["compactList", "list", "grid"] {
