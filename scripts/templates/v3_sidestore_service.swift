@@ -1,0 +1,209 @@
+
+// V3_SIDESTORE_COMMAND_SERVICE_V1
+// Compiled only into SideStore. No managed objects or credentials cross XPC.
+@MainActor
+@objc(V3SideStoreService)
+final class V3SideStoreService: NSObject {
+    static let shared = V3SideStoreService()
+    private var tasks: [String: Task<Void, Never>] = [:]
+    private var cancellations: [String: () -> Void] = [:]
+    private var completed: [String: Data] = [:]
+    private var mutationID: String?
+    static let presenter = UIViewController()
+
+    @objc(execute:reply:)
+    nonisolated static func execute(_ data: Data, reply: @escaping (Data) -> Void) {
+        Task { @MainActor in shared.receive(data, reply: reply) }
+    }
+
+    private func receive(_ data: Data, reply: @escaping (Data) -> Void) {
+        guard data.count <= 16384,
+              let request = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              Set(request.keys).isSubset(of: ["version", "id", "operation", "target", "value", "deadline"]),
+              request["version"] as? Int == 1,
+              let id = request["id"] as? String, UUID(uuidString: id) != nil,
+              let operation = request["operation"] as? String,
+              let deadline = request["deadline"] as? Date,
+              deadline > Date(), deadline.timeIntervalSinceNow <= 610 else {
+            reply(encode(["error": "invalidRequest"]))
+            return
+        }
+        if let previous = completed[id] { reply(previous); return }
+        if operation == "cancel" {
+            let target = request["target"] as? String ?? ""
+            tasks[target]?.cancel()
+            cancellations[target]?()
+            Self.presenter.dismiss(animated: true)
+            reply(encode(["id": id, "version": 1, "ok": true]))
+            return
+        }
+        guard tasks[id] == nil else { reply(encode(["id": id, "error": "busy"])); return }
+        let mutation = !["snapshot", "catalog"].contains(operation)
+        guard !mutation || mutationID == nil else {
+            reply(encode(["id": id, "error": "busy"])); return
+        }
+        if mutation { mutationID = id }
+        tasks[id] = Task { @MainActor in
+            defer {
+                tasks[id] = nil
+                cancellations[id] = nil
+                if mutationID == id { mutationID = nil }
+            }
+            var response: [String: Any] = ["version": 1, "id": id]
+            do {
+                guard DatabaseManager.shared.isStarted else { throw ServiceError.notReady }
+                try Task.checkCancellation()
+                response["result"] = try await run(operation, request: request, id: id)
+                try Task.checkCancellation()
+                response["ok"] = true
+            } catch {
+                // Raw framework errors can contain URLs, authentication data or server responses.
+                // Detailed errors remain inside the SideStore process.
+                if let serviceError = error as? ServiceError { response["error"] = serviceError.rawValue }
+                else if error is CancellationError { response["error"] = "cancelled" }
+                else { response["error"] = "operationFailed" }
+            }
+            let encoded = encode(response)
+            if completed.count >= 128 { completed.removeAll() }
+            completed[id] = encoded
+            reply(encoded)
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(max(0, deadline.timeIntervalSinceNow) * 1_000_000_000))
+            if tasks[id] != nil { tasks[id]?.cancel(); cancellations[id]?() }
+        }
+    }
+
+    enum ServiceError: String, Error { case notReady, invalidRequest, notFound, unsupported, busy }
+
+    private func encode(_ value: [String: Any]) -> Data {
+        guard let data = try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0),
+              data.count <= 4_194_304 else {
+            return try! PropertyListSerialization.data(fromPropertyList: ["id": value["id"] ?? "", "error": "responseTooLarge"], format: .binary, options: 0)
+        }
+        return data
+    }
+
+    private func run(_ operation: String, request: [String: Any], id: String) async throws -> [String: Any] {
+        let context = DatabaseManager.shared.viewContext
+        let target = request["target"] as? String ?? ""
+        switch operation {
+        case "snapshot": return try snapshot()
+        case "catalog":
+            let query = NSFetchRequest<StoreApp>(entityName: "StoreApp")
+            query.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+                StoreApp.visibleAppsPredicate, NSPredicate(format: "sourceIdentifier == %@", target)])
+            let apps = try context.fetch(query).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            return ["apps": apps.map { app in
+                ["identifier": app.objectID.uriRepresentation().absoluteString,
+                 "bundleID": app.bundleIdentifier, "name": app.name,
+                 "version": app.latestSupportedVersion?.version ?? "Unavailable",
+                 "developer": app.developerName, "description": app.localizedDescription,
+                 "iconURL": app.iconURL.absoluteString,
+                 "canInstall": app.latestSupportedVersion != nil,
+                 "installedID": app.installedApp?.objectID.uriRepresentation().absoluteString ?? ""] as [String: Any]
+            }]
+        case "refreshSources":
+            try await callback { done in AppManager.shared.updateAllSources(completion: done) }
+        case "addSource":
+            guard let url = URL(string: target), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
+                  url.host != nil, url.user == nil, url.password == nil else { throw ServiceError.invalidRequest }
+            let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+            let source = try await AppManager.shared.fetchSource(sourceURL: url, managedObjectContext: background)
+            try await AppManager.shared.add(source, presentingViewController: Self.presenter)
+        case "removeSource":
+            let query = NSFetchRequest<Source>(entityName: "Source")
+            query.predicate = NSPredicate(format: "identifier == %@", target)
+            guard let source = try context.fetch(query).first else { throw ServiceError.notFound }
+            try await AppManager.shared.remove(source, presentingViewController: Self.presenter)
+        case "signIn":
+            try await callback { done in
+                AppManager.shared.authenticate(presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
+            }
+        case "signOut":
+            // Preserve reusable certificate and anisette state, matching upgrade preservation.
+            AuthManager.shared.signOut(keepCertificate: true, keepAnisetteData: true)
+        case "syncAppIDs":
+            try await callback { done in AppManager.shared.syncAppIDs(presentingViewController: Self.presenter, showAuthIfRequired: true, completionHandler: done) }
+        case "clearCache":
+            try await callback { done in AppManager.shared.clearAppCache(completion: done) }
+        case "setSetting":
+            guard let value = request["value"] as? Bool else { throw ServiceError.invalidRequest }
+            switch target {
+            case "betaUpdates": UserDefaults.standard.isBetaUpdatesEnabled = value
+            case "idleTimeoutDisabled": UserDefaults.standard.isIdleTimeoutDisableEnabled = value
+            case "responseCachingDisabled": UserDefaults.standard.responseCachingDisabled = value
+            case "verboseOperations": UserDefaults.standard.isVerboseOperationsLoggingEnabled = value
+            default: throw ServiceError.invalidRequest
+            }
+        case "install":
+            let app: StoreApp = try object(target)
+            guard app.latestSupportedVersion != nil else { throw ServiceError.unsupported }
+            try await callback { done in
+                let group = AppManager.shared.install(app, presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
+                cancellations[id] = { group.cancel(); group.progress.cancel() }
+            }
+        case "update", "activate", "deactivate", "remove", "backup", "restore", "jit":
+            let app: InstalledApp = try object(target)
+            if ["deactivate", "remove"].contains(operation), app.bundleIdentifier == StoreApp.altstoreAppID { throw ServiceError.unsupported }
+            try await callback { done in
+                let finished: (Result<InstalledApp, Error>) -> Void = { result in done(result.map { _ in () }) }
+                switch operation {
+                case "update":
+                    let progress = AppManager.shared.update(app, presentingViewController: Self.presenter, completionHandler: finished)
+                    cancellations[id] = { progress.cancel() }
+                case "activate": AppManager.shared.activate(app, presentingViewController: Self.presenter, completionHandler: finished)
+                case "deactivate": AppManager.shared.deactivate(app, presentingViewController: Self.presenter, completionHandler: finished)
+                case "remove": AppManager.shared.removeApp(app, presentingViewController: Self.presenter, completionHandler: done)
+                case "backup": AppManager.shared.backup(app, presentingViewController: Self.presenter, completionHandler: finished)
+                case "restore": AppManager.shared.restore(app, presentingViewController: Self.presenter, completionHandler: finished)
+                default: AppManager.shared.enableJIT(for: app, completionHandler: done)
+                }
+            }
+        default: throw ServiceError.invalidRequest
+        }
+        return try snapshot()
+    }
+
+    private func object<T: NSManagedObject>(_ identifier: String) throws -> T {
+        guard let url = URL(string: identifier),
+              let id = DatabaseManager.shared.persistentContainer.persistentStoreCoordinator.managedObjectID(forURIRepresentation: url),
+              let object = try DatabaseManager.shared.viewContext.existingObject(with: id) as? T else { throw ServiceError.notFound }
+        return object
+    }
+
+    private func callback(_ start: (@escaping (Result<Void, Error>) -> Void) -> Void) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            start { result in continuation.resume(with: result) }
+        }
+    }
+
+    private func snapshot() throws -> [String: Any] {
+        let context = DatabaseManager.shared.viewContext
+        let apps = InstalledApp.all(in: context)
+        let sources = try context.fetch(NSFetchRequest<Source>(entityName: "Source"))
+        let team = DatabaseManager.shared.activeTeam()
+        return ["updatedAt": Date(),
+                "account": DatabaseManager.shared.activeAccount()?.appleID ?? "Not signed in",
+                "team": team?.name ?? "No active team", "teamID": team?.identifier ?? "",
+                "signing": team == nil ? "Sign in required" : "Team selected",
+                "installedApps": apps.map { app in
+                    ["identifier": app.objectID.uriRepresentation().absoluteString,
+                     "bundleID": app.bundleIdentifier, "name": app.name, "version": app.version,
+                     "isActive": app.isActive, "expirationDate": app.expirationDate,
+                     "refreshedDate": app.refreshedDate, "hasUpdate": app.hasUpdate,
+                     "certificateStatus": app.certificateStatusRaw ?? "unknown",
+                     "openURL": app.openAppURL.absoluteString,
+                     "isHost": app.bundleIdentifier == StoreApp.altstoreAppID] as [String: Any]
+                },
+                "sources": sources.map { source in
+                    ["identifier": source.identifier, "name": source.name, "subtitle": source.subtitle ?? "",
+                     "url": source.sourceURL.absoluteString, "appCount": source.apps.count,
+                     "canRemove": source.identifier != Source.altStoreIdentifier] as [String: Any]
+                },
+                "settings": ["betaUpdates": UserDefaults.standard.isBetaUpdatesEnabled,
+                             "idleTimeoutDisabled": UserDefaults.standard.isIdleTimeoutDisableEnabled,
+                             "responseCachingDisabled": UserDefaults.standard.responseCachingDisabled,
+                             "verboseOperations": UserDefaults.standard.isVerboseOperationsLoggingEnabled]]
+    }
+}
