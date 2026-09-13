@@ -2,6 +2,42 @@ name: Feature request
 description: Propose a focused improvement to the builder, transport, verification, or UX
 title: "[Feature]: "
 body:
+  - type: dropdown
+    id: product_line
+    attributes:
+      label: Product line
+      description: Select the product line this request should change. Use the shared option for cross-product or builder work.
+      options:
+        - "v1 - Standalone SideStore"
+        - "v2 - Combined LiveContainer + SideStore"
+        - "v3 - Unified LiveContainer + SideStore test build"
+        - "Multiple product lines - identify each below"
+        - "Shared / all product lines / builder"
+        - "Not sure - provide the download source below"
+    validations:
+      required: true
+
+  - type: input
+    id: release_version
+    attributes:
+      label: Exact release or build version
+      description: Give the release tag or builder commit this request refers to. For a general proposal, write "Not version-specific". Do not give only the upstream LiveContainer/SideStore version.
+      placeholder: "Release tag v2.1.0, or full builder commit for a test build"
+    validations:
+      required: true
+
+  - type: textarea
+    id: build_source
+    attributes:
+      label: Download source and IPA filename
+      description: Give the release URL, Actions run URL, or source branch/commit that motivated the request, plus the IPA filename if applicable. For a general proposal, write "Not applicable - general proposal". Do not upload an IPA or private signing material.
+      placeholder: |
+        Release or Actions run URL:
+        IPA filename:
+        Builder commit (if known):
+    validations:
+      required: true
+
   - type: textarea
     id: problem
     attributes:
