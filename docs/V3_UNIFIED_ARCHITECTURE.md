@@ -75,6 +75,8 @@ The SideStore scene root is a service presenter, not the legacy tab controller.
 The normal launch button is removed. Old startup selections, share-extension imports and multi-instance installation
 are routed back into the unified host. Local IPA import uses a one-use shared
 file authorization referenced by UUID; file bookmarks are not sent over XPC.
+SideStore-based guest JIT acquisition calls the service directly, while other
+configured JIT providers and LiveProcess launch modes retain their existing paths.
 Settings exposes account/sign-in/sign-out, certificates, developer services,
 pairing import, connection, Anisette, SideSign
 configuration, installation options, backups and diagnostics. Each remains
