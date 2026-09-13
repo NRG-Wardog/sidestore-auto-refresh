@@ -61,7 +61,7 @@ struct RenderingScreen: View, LCAppBannerDelegate {
     }
     func check(_ value: Bool, _ message: String) { if !value { failures.append(message) } }
     func waitForLayout() async {
-        for _ in 0..<4 {
+        for _ in 0..<8 {
             parent.view.setNeedsLayout()
             parent.view.layoutIfNeeded()
             host.view.setNeedsLayout()
@@ -93,13 +93,80 @@ struct RenderingScreen: View, LCAppBannerDelegate {
     func rect(_ bounds: CGRect) -> [Double] {
         [Double(bounds.minX), Double(bounds.minY), Double(bounds.width), Double(bounds.height)]
     }
+    func constraintValue(_ item: AnyObject?, attribute: NSLayoutConstraint.Attribute, in root: UIView) -> CGFloat? {
+        guard let view = item as? UIView else { return nil }
+        let frame: CGRect
+        if view === root { frame = root.alignmentRect(forFrame: root.bounds) }
+        else if let superview = view.superview {
+            frame = superview.convert(view.alignmentRect(forFrame: view.frame), to: root)
+        } else { return nil }
+        switch attribute {
+        case .top: return frame.minY
+        case .bottom: return frame.maxY
+        case .leading, .left: return frame.minX
+        case .trailing, .right: return frame.maxX
+        case .centerX: return frame.midX
+        case .centerY: return frame.midY
+        case .width: return frame.width
+        case .height: return frame.height
+        default: return nil
+        }
+    }
+    func unsatisfiedRequiredConstraints(in root: UIView) -> Int {
+        // UIKit may break an unsatisfiable required constraint while leaving it
+        // active. Check the actual resolved equations, including hidden labels.
+        let constraints = root.constraints + root.subviews.filter { !($0 is LCAppBannerRootView) }.flatMap(\.constraints)
+        return constraints.filter { constraint in
+            guard constraint.isActive, constraint.priority == .required,
+                  let first = constraintValue(constraint.firstItem, attribute: constraint.firstAttribute, in: root) else { return false }
+            let second: CGFloat
+            if constraint.secondItem == nil { second = 0 }
+            else if let value = constraintValue(constraint.secondItem, attribute: constraint.secondAttribute, in: root) { second = value }
+            else { return false }
+            let difference = first - second * constraint.multiplier - constraint.constant
+            switch constraint.relation {
+            case .equal: return abs(difference) > 0.5
+            case .lessThanOrEqual: return difference > 0.5
+            case .greaterThanOrEqual: return difference < -0.5
+            @unknown default: return true
+            }
+        }.count
+    }
     func gridControllers() -> [LCGridAppCellViewController] {
         controllers(host).compactMap { $0 as? LCGridAppCellViewController }
-            .filter { $0.view.isDescendant(of: host.view) }.sorted {
+            .filter { $0.view.isDescendant(of: host.view) && (baseline || hiddenReason($0.view) == nil) }.sorted {
             let left = $0.view.convert($0.view.bounds, to: host.view)
             let right = $1.view.convert($1.view.bounds, to: host.view)
             return abs(left.minY - right.minY) > 1 ? left.minY < right.minY : left.minX < right.minX
         }
+    }
+    func hiddenReason(_ root: UIView) -> String? {
+        var region = root.convert(root.bounds, to: host.view)
+        var current: UIView? = root
+        while let candidate = current {
+            if candidate.isHidden || candidate.layer.isHidden { return "hidden ancestor" }
+            if candidate.alpha <= 0.01 || candidate.layer.opacity <= 0.01 { return "transparent ancestor" }
+            if candidate !== root && (candidate.clipsToBounds || candidate.layer.masksToBounds) {
+                region = region.intersection(candidate.convert(candidate.bounds, to: host.view))
+                if region.isEmpty || region.isNull { return "clipped by ancestor bounds" }
+            }
+            if candidate === host.view { return nil }
+            current = candidate.superview
+        }
+        return "detached from host"
+    }
+    func visibilityEvidence(_ root: UIView) -> [[String: Any]] {
+        var result: [[String: Any]] = []
+        var current: UIView? = root
+        while let candidate = current, result.count < 12 {
+            result.append(["class": String(describing: type(of: candidate)), "hidden": candidate.isHidden,
+                           "layerHidden": candidate.layer.isHidden, "alpha": Double(candidate.alpha),
+                           "layerOpacity": Double(candidate.layer.opacity), "clips": candidate.clipsToBounds,
+                           "bounds": rect(candidate.bounds)])
+            if candidate === host.view { break }
+            current = candidate.superview
+        }
+        return result
     }
     @discardableResult func measure(_ name: String, requireValid: Bool = true) -> Bool {
         let cells = gridControllers()
@@ -134,7 +201,9 @@ struct RenderingScreen: View, LCAppBannerDelegate {
             } else if labelsEnabled { local.append("cell \(index) lacks visual label") }
             if root.accessibilityLabel?.isEmpty != false { local.append("cell \(index) lacks accessibility name") }
             if cell.children.count != 1 || cell.children.first?.parent !== cell { local.append("cell \(index) action-router containment is invalid") }
-            cellEvidence.append(["index": index, "bounds": rect(frame), "preferredContentSize": [Double(cell.preferredContentSize.width), Double(cell.preferredContentSize.height)], "icons": imageEvidence])
+            let brokenConstraints = unsatisfiedRequiredConstraints(in: root)
+            if brokenConstraints > 0 { local.append("cell \(index) violates \(brokenConstraints) required layout constraints") }
+            cellEvidence.append(["index": index, "fixtureName": root.accessibilityLabel ?? "", "bounds": rect(frame), "preferredContentSize": [Double(cell.preferredContentSize.width), Double(cell.preferredContentSize.height)], "unsatisfiedRequiredConstraints": brokenConstraints, "visibility": visibilityEvidence(root), "icons": imageEvidence])
         }
         for i in frames.indices {
             for j in frames.indices where j > i {
@@ -142,7 +211,10 @@ struct RenderingScreen: View, LCAppBannerDelegate {
             }
         }
         let retainedButDetached = controllers(host).compactMap { $0 as? LCGridAppCellViewController }.filter { !$0.view.isDescendant(of: host.view) }.count
-        measurements.append(["case": name, "inputCount": state.apps.count, "cellCount": cells.count, "retainedButDetachedControllers": retainedButDetached, "viewport": rect(host.view.bounds), "labels": UserDefaults.standard.object(forKey: "LCShowAppLabels") as? Bool ?? true, "cells": cellEvidence, "violations": local])
+        let excluded = controllers(host).compactMap { $0 as? LCGridAppCellViewController }.filter { !cells.contains($0) }.map {
+            ["fixtureName": $0.view.accessibilityLabel ?? "", "reason": hiddenReason($0.view) ?? "not attached", "visibility": visibilityEvidence($0.view)] as [String: Any]
+        }
+        measurements.append(["case": name, "inputCount": state.apps.count, "cellCount": cells.count, "retainedButDetachedControllers": retainedButDetached, "excludedControllers": excluded, "viewport": rect(host.view.bounds), "labels": UserDefaults.standard.object(forKey: "LCShowAppLabels") as? Bool ?? true, "cells": cellEvidence, "violations": local])
         if requireValid { failures += local.map { "\(name): \($0)" } }
         return local.isEmpty
     }
