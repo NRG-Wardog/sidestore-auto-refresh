@@ -15,6 +15,8 @@ class RefreshHandler: NSObject {
     private var readinessTask: Task<Void, Never>?
     private var retiringProcess: NSExtension?
     private var retiringPID: Int32 = 0
+    private var launchRequestPending: UUID?
+    private var retiringRequestPending: UUID?
     private lazy var service: CombinedServiceConnection = CombinedServiceConnection(dependencies: .init(
         resolveHost: {
             guard !UserDefaults.isSideStore(), !UserDefaults.isLiveProcess() else {
@@ -43,6 +45,18 @@ class RefreshHandler: NSObject {
         retire: { [unowned self] id in self.retire(id) }))
 
     func ensureServiceConnected() async throws {
+        // A cancelled begin-request may still call back with a newly launched process.
+        // Do not open a second database owner while that launch remains unresolved.
+        if retiringRequestPending != nil {
+            let until = Date().addingTimeInterval(3)
+            while retiringRequestPending != nil && Date() < until {
+                try Task.checkCancellation()
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            guard retiringRequestPending == nil else {
+                throw CombinedFailure(operation: "connect", stage: .extensionLaunch, code: .busy, id: UUID().uuidString)
+            }
+        }
         if retiringPID > 0 {
             let until = Date().addingTimeInterval(3)
             while getpgid(retiringPID) > 0 && Date() < until {
@@ -87,9 +101,19 @@ class RefreshHandler: NSObject {
         ext.setRequestInterruptionBlock { [weak self] _ in
             Task { @MainActor in self?.failed(id, stage: .extensionLaunch, code: .interrupted) }
         }
+        launchRequestPending = id
         LCLaunchServiceExtension(ext, item) { [weak self] uuid, error in
             Task { @MainActor in
-                guard let self, self.launchID == id else { return }
+                guard let self else { ext._kill(9); return }
+                guard self.launchID == id else {
+                    ext._kill(9)
+                    if self.retiringRequestPending == id {
+                        self.retiringRequestPending = nil
+                        if let uuid { self.retiringPID = ext.pid(forRequestIdentifier: uuid) }
+                    }
+                    return
+                }
+                self.launchRequestPending = nil
                 guard error == nil, let uuid else { self.failed(id, stage: .extensionLaunch, underlying: error); return }
                 let pid = ext.pid(forRequestIdentifier: uuid)
                 guard pid > 0 else { self.failed(id, stage: .extensionLaunch); return }
@@ -127,13 +151,15 @@ class RefreshHandler: NSObject {
     fileprivate func failed(_ id: UUID, stage: CombinedFailure.Stage, code: CombinedFailure.Code = .failed, underlying: Error? = nil) {
         guard launchID == id || service.attemptID == id else { return }
         let failure = CombinedFailure(operation: refreshContinuation == nil ? "connect" : "refresh",
-            stage: stage, code: code, id: refreshRunID ?? id.uuidString, underlying: underlying, retryable: true)
+            stage: stage, code: code, id: refreshRunID ?? id.uuidString, underlying: underlying,
+            retryable: refreshContinuation == nil && code == .interrupted ? true : nil)
         finishRefreshContinuation(.failure(failure))
         service.fail(id, failure)
     }
     private func retire(_ id: UUID) {
         guard launchID == id else { return }
         launchID = nil
+        if launchRequestPending == id { retiringRequestPending = id; launchRequestPending = nil }
         readinessTask?.cancel(); readinessTask = nil
         listener?.invalidate(); listener = nil
         connection?.invalidate(); connection = nil; client = nil
