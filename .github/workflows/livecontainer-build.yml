@@ -126,6 +126,8 @@ jobs:
           PY
             python3 builder/scripts/patch_combined_refresh_contract.py work/EmbeddedSideStore
             python3 builder/scripts/patch_combined_refresh_contract.py work/EmbeddedSideStore
+            python3 builder/scripts/patch_combined_service_startup.py work/LiveContainer work/EmbeddedSideStore v2
+            python3 builder/scripts/patch_combined_service_startup.py work/LiveContainer work/EmbeddedSideStore v2
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/App/AppDelegate.swift
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift
@@ -207,6 +209,8 @@ jobs:
           python3 -c 'import hashlib, pathlib, sys; root = pathlib.Path(sys.argv[1]); print([(str(p.relative_to(root)), hashlib.sha256(p.read_bytes()).hexdigest()) for p in sorted(root.rglob("*.swift"))])' "$MUX" >"$RUNNER_TEMP/combined-swift-second.txt"
           cmp "$RUNNER_TEMP/combined-transport-first.diff" "$RUNNER_TEMP/combined-transport-second.diff"
           cmp "$RUNNER_TEMP/combined-swift-first.txt" "$RUNNER_TEMP/combined-swift-second.txt"
+          python3 builder/scripts/patch_combined_service_startup.py --transport "$MUX"
+          python3 builder/scripts/patch_combined_service_startup.py --transport "$MUX"
           git -C "$MUX" diff --check
           while IFS= read -r -d '' source; do swiftc -frontend -parse "$source"; done < <(find "$MUX" -type f -name '*.swift' -not -path '*/.build/*' -print0)
           swift package --package-path "$MUX/DeviceGateway" dump-package >"$RUNNER_TEMP/combined-gateway-package.json"
@@ -247,6 +251,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 builder/scripts/combined_build_evidence.py identity --product v2 \
+            "$RUNNER_TEMP/livecontainer-derived-data/Build/Products/Release-iphoneos/LiveContainer.app" \
+            "$RUNNER_TEMP/embedded-sidestore-derived-data/Build/Products/Release-iphoneos/SideStore.app"
           python3 builder/scripts/package_livecontainer_combined.py \
             --root work/LiveContainer \
             --host "$RUNNER_TEMP/livecontainer-derived-data/Build/Products/Release-iphoneos/LiveContainer.app" \
@@ -255,6 +262,14 @@ jobs:
           python3 builder/scripts/patch_combined_refresh_contract.py --verify-ipa artifacts/LiveContainer-SideStore-AutoRefresh.ipa \
             2>&1 | tee artifacts/logs/runtime-contract-verification.log
           printf 'builder_commit=%s\n' "$GITHUB_SHA" > artifacts/builder-commit.txt
+          python3 builder/scripts/combined_build_evidence.py collect --product v2 \
+            --ipa artifacts/LiveContainer-SideStore-AutoRefresh.ipa --output artifacts/debug-evidence \
+            "$RUNNER_TEMP/livecontainer-derived-data/Build/Products/Release-iphoneos" \
+            "$RUNNER_TEMP/embedded-sidestore-derived-data/Build/Products/Release-iphoneos"
+          mkdir -p artifacts/debug-evidence/generated
+          cp work/LiveContainer/SideStoreSupport/SideStore.swift artifacts/debug-evidence/generated/
+          cp work/LiveContainer/SideStoreSupport/SideStoreClient.swift artifacts/debug-evidence/generated/
+          cp work/LiveContainer/SideStoreSupport/XPCServer.m artifacts/debug-evidence/generated/
 
       - name: Verify embedded CoreDevice transport executable
         shell: bash
@@ -300,3 +315,12 @@ jobs:
           path: artifacts/logs
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Preserve matching crash symbols and generated startup source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-v2-debug-evidence
+          path: artifacts/debug-evidence
+          if-no-files-found: warn
+          retention-days: 90
