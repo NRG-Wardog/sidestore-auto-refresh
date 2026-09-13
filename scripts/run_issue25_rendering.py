@@ -191,6 +191,8 @@ def main() -> None:
     if args.skip_v3_native and args.v3_source:
         parser.error("--skip-v3-native and --v3-source are mutually exclusive")
     output = args.output.resolve()
+    if output.exists() and any(output.iterdir()):
+        parser.error("--output must be a fresh evidence directory; previous-run evidence is not overwritten or reused")
     output.mkdir(parents=True, exist_ok=True)
     if platform.system() != "Darwin":
         raise SystemExit("This executable rendering suite requires macOS with Xcode and iOS simulators")
