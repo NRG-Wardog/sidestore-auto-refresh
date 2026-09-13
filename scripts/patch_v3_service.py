@@ -69,11 +69,7 @@ def patch(live, side):
         # Shared startup/refresh responsibilities are installed by the combined startup adapter.
         return s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_service_bridge.swift").read_text(encoding="utf-8")
     edit(live, "SideStoreSupport/SideStore.swift", host)
-    edit(live, "SideStoreSupport/SideStoreClient.swift", lambda s: replace(replace(s,
-        "reportRefreshResult(error.localizedDescription, server: server)",
-        'reportRefreshResult("SideStore refresh failed. Check account, pairing and operation diagnostics.", server: server)'),
-        '"SideStore could not encode installation results: " + error.localizedDescription',
-        '"SideStore could not encode installation results."'))
+    # The shared combined-startup adapter owns structured refresh error/result encoding.
     edit(side, "AltStore/AppDelegate.swift", lambda s: s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8"))
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
         "        NavigationView {\n            ScrollView {", "        NavigationView {\n            ScrollView {\n                V3InstalledAppsSection(query: searchContext.debouncedQuery)"))
