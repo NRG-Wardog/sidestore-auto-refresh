@@ -144,7 +144,8 @@ struct RenderingScreen: View, LCAppBannerDelegate {
         if requireValid { failures += local.map { "\(name): \($0)" } }
         return local.isEmpty
     }
-    func verifyList(_ name: String, compact: Bool) {
+    @discardableResult func verifyList(_ name: String, compact: Bool, requireValid: Bool = true) -> Bool {
+        let previousFailures = failures.count
         let cells = controllers(host).compactMap { $0 as? LCAppBannerViewController }.filter { !($0.parent is LCGridAppCellViewController) }.sorted {
             $0.view.convert($0.view.bounds, to: host.view).minY < $1.view.convert($1.view.bounds, to: host.view).minY
         }
@@ -158,7 +159,10 @@ struct RenderingScreen: View, LCAppBannerDelegate {
                 check(abs(image.bounds.height - (compact ? 40 : 60)) < 1, "\(name): production banner icon size did not track style")
             }
         }
-        measurements.append(["case": name, "inputCount": state.apps.count, "cellCount": cells.count, "scope": "production LCAppBanner representable and LCAppBannerRootView with controlled action-router dependency", "bounds": cells.map { rect($0.view.convert($0.view.bounds, to: host.view)) }])
+        let violations = Array(failures.dropFirst(previousFailures))
+        measurements.append(["case": name, "inputCount": state.apps.count, "cellCount": cells.count, "scope": "production LCAppBanner representable and LCAppBannerRootView with controlled action-router dependency; baseline compact omits new applyLayoutStyle to reproduce old 60-point icon geometry", "bounds": cells.map { rect($0.view.convert($0.view.bounds, to: host.view)) }, "violations": violations])
+        if !requireValid { failures.removeSubrange(previousFailures..<failures.count) }
+        return violations.isEmpty
     }
     func exerciseActions() {
         let cells = gridControllers()
@@ -215,6 +219,11 @@ struct RenderingScreen: View, LCAppBannerDelegate {
                 check(!initiallyValid, "baseline did not reproduce a measured rendering failure")
                 let violations = measurements.last?["violations"] as? [String] ?? []
                 check(violations.contains { $0.contains("non-positive bounds") || $0.contains("does not contain its icon") || $0.contains("overlap") || $0.contains("invisible") }, "baseline did not reproduce a geometry/visibility failure; missing-icon fallback alone is insufficient")
+                UserDefaults.standard.set("compactList", forKey: "LCAppLayoutStyle")
+                await waitForLayout()
+                let compactValid = verifyList("baseline-compact-old-icon-geometry", compact: true, requireValid: false)
+                check(!compactValid, "baseline compact did not reproduce clipping of original 60-point icon in 56-point row")
+                capture("baseline-compact")
             } else {
                 exerciseActions()
                 UserDefaults.standard.set(false, forKey: "LCShowAppLabels")
@@ -256,11 +265,11 @@ struct RenderingScreen: View, LCAppBannerDelegate {
             }
         }
         let report: [String: Any] = [
-            "schemaVersion": 1, "mode": baseline ? "baseline" : "corrected", "phase": cold ? "cold" : "suite", "deviceClass": suite,
+            "schemaVersion": 1, "mode": baseline ? "baseline" : (ProcessInfo.processInfo.arguments.contains("--fallback") ? "fallback-contract" : "corrected"), "phase": cold ? "cold" : "suite", "deviceClass": suite,
             "os": UIDevice.current.systemVersion, "screen": rect(window.bounds), "deploymentTarget": "iOS 15.0",
             "passed": failures.isEmpty, "failures": failures, "measurements": measurements,
             "evidenceKind": "simulator execution of production grid and banner representables with controlled model/action-router dependencies",
-            "limitations": ["Not the reporter's physical device", "No production guest launch/signing/transport is performed", "Menu configuration presence is executed; menu action provider forwarding is covered separately", "Full Apps screen navigation is not hosted; settings transitions use the production preference keys"]
+            "limitations": ["Not the reporter's physical device", "No production guest launch/signing/transport is performed", "Menu configuration and real controller forwarding helper are executed; UIKit menu presentation remains a device acceptance check", "Full Apps screen navigation is not hosted; settings transitions use the production preference keys", "Fallback-contract mode removes the iOS16 sizeThatFits hook on the available simulator; it is not execution on iOS15"]
         ]
         let url = URL.documentsDirectoryCompat.appendingPathComponent("\(suite)-\(cold ? "cold" : "suite").json")
         do {
