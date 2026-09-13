@@ -96,7 +96,10 @@ struct V3RenderingScreen: View {
     func measure(_ name: String) {
         let expected = status.installedApps.filter { state.query.isEmpty || $0.name.localizedCaseInsensitiveContains(state.query) || $0.bundleID.localizedCaseInsensitiveContains(state.query) }
         let frames = state.frames.sorted {
-            abs($0.value.minY - $1.value.minY) > 1 ? $0.value.minY < $1.value.minY : $0.value.minX < $1.value.minX
+            // LazyVGrid's default vertical alignment is center: different label
+            // heights share a row center, not a top edge. JSON records all raw
+            // frames so this ordering assertion can be independently checked.
+            abs($0.value.midY - $1.value.midY) > 1 ? $0.value.midY < $1.value.midY : $0.value.minX < $1.value.minX
         }
         check(frames.map(\.key) == expected.map(\.identifier), "\(name): native SideStore cell identity/order mismatch")
         for (id, frame) in frames {
