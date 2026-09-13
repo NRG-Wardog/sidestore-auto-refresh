@@ -108,7 +108,10 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("builder/scripts/patch_app_layout.py", standalone_workflow)
         contract = (SCRIPTS / COMBINED_REFRESH_SCRIPT).read_text(encoding="utf-8")
         self.assertIn("from patch_embedded_keychain import patch as patch_shared_keychain", contract)
-        self.assertIn("patch_shared_keychain(Path(sys.argv[1]))", contract)
+        self.assertIn("patch_combined_cli(Path(sys.argv[1]))", contract)
+        self.assertIn("patch_shared_keychain(staged)", contract)
+        self.assertLess(contract.index("patch_shared_keychain(staged)"),
+                        contract.index("_patch_verified(staged)", contract.index("patch_shared_keychain(staged)")))
         self.assertIn("[LC_KEYCHAIN] SHARED_GROUP_SELECTED", contract)
 
     def test_upstream_ipsec_anchor_preserves_original_punctuation(self):
