@@ -16,7 +16,7 @@ the reporter's device confirmation remain pending.
   Its original root has neither an intrinsic size nor a preferred controller
   size, and does not implement the iOS 16 sizing hook. The simulator harness
   compares this exact original renderer with the generated corrected renderer;
-  measurements, not this inspection alone, determine reproduction success.
+  the measured zero-height reproduction below confirms this defect.
 - The original Compact List requests 56 points while keeping its 60-point icon
   and 88-point root intrinsic size. The correction makes the root and icon match
   the requested compact presentation and hides secondary visual metadata only.
@@ -38,7 +38,11 @@ is a missing sizing contract, not lost app records or a filter dropping models.
 With the correction, the same roots measured **103 points high** with labels at
 the default text size; saved-Grid cold launches passed on both simulators. This
 height is computed from the icon, spacing and scaled caption font, not an
-arbitrary fixed row height. Labels-off height is 68 points.
+arbitrary fixed row height. Labels-off height is 68 points, and the largest
+accessibility category produced 165-point cells. All tested width/category
+combinations from 320 through 1024 points retained six non-overlapping cells.
+The oldest installed simulator runtime was iOS 26.2; compiling for deployment
+15.0 does not establish execution on iOS 15.
 
 That first *whole suite* was not green: its banner measurement incorrectly
 equated an SF Symbol image's bounds with its Auto Layout alignment rectangle,
