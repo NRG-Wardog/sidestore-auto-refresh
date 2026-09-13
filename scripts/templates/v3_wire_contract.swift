@@ -12,7 +12,8 @@ enum V3WireContract {
     static func decodeRequest(_ data: Data, now: Date = Date()) -> [String: Any]? {
         guard data.count <= requestLimit,
               let request = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              Set(request.keys).isSubset(of: ["version", "id", "operation", "target", "value", "deadline"]),
+              Set(request.keys).isSubset(of: ["version", "id", "operation", "target", "value", "deadline", "cursor"]),
+              let version = request["version"] as? NSNumber, CFGetTypeID(version) != CFBooleanGetTypeID(),
               request["version"] as? Int == 1,
               let id = request["id"] as? String, UUID(uuidString: id) != nil,
               let operation = request["operation"] as? String, operations.contains(operation),
@@ -23,6 +24,9 @@ enum V3WireContract {
             guard operation == "setSetting", let number = value as? NSNumber,
                   CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
         } else if operation == "setSetting" { return nil }
+        if let cursor = request["cursor"] {
+            guard operation == "catalog", let value = cursor as? Int, value >= 0, value <= 1_000_000 else { return nil }
+        }
         return request
     }
 }

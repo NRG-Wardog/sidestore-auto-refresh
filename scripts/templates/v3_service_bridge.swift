@@ -30,7 +30,7 @@ public final class V3ServiceBridge {
         try await task.value
     }
 
-    public func request(operation: String, target: String = "", value: Bool? = nil) async throws -> [String: Any] {
+    public func request(operation: String, target: String = "", value: Bool? = nil, cursor: Int? = nil) async throws -> [String: Any] {
         try Task.checkCancellation()
         try await connect()
         let id = UUID().uuidString
@@ -46,6 +46,7 @@ public final class V3ServiceBridge {
         var message: [String: Any] = ["version": 1, "id": id, "operation": operation,
                                       "target": target, "deadline": Date().addingTimeInterval(timeout)]
         if let value { message["value"] = value }
+        if let cursor { message["cursor"] = cursor }
         let data = try PropertyListSerialization.data(fromPropertyList: message, format: .binary, options: 0)
         guard data.count <= 16384 else { throw failure("Request is too large.") }
         let response: Data = try await withTaskCancellationHandler(operation: {
