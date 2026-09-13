@@ -71,6 +71,12 @@ public final class V3ServiceBridge {
                     if self.pending[id] != nil {
                         self.cancelRemote(id, mutation: mutation)
                         self.settle(id, .failure(self.failure("SideStore timed out. The operation may have completed; reload its status before retrying.")))
+                        if !mutation, !self.isMutating, RefreshHandler.shared.v3RefreshToken == nil {
+                            // An idle service that cannot answer a read needs a fresh process.
+                            // Never retire it for a read while signing/install/refresh is active.
+                            RefreshHandler.shared.v3_stopService()
+                            self.disconnected()
+                        }
                     }
                 }
             }

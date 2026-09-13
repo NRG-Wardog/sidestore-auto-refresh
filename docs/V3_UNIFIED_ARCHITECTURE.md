@@ -104,6 +104,8 @@ mutations are not automatically replayed after uncertain outcomes.
 Cancelled native operations retain the host mutation gate for a three-second
 grace period. If no completion arrives, the service is retired and reconnected
 on demand. This prevents a missing native callback from wedging the product.
+An idle service that times out on a read is also retired; read timeouts never
+terminate an active signing, installation or refresh operation.
 
 ## Refresh and transport
 
