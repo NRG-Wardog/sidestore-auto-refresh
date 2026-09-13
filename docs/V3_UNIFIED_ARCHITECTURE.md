@@ -86,6 +86,14 @@ runtime. Availability limits are displayed rather than opening legacy UI.
 
 ## Lifecycle
 
+Startup and refresh now have separate implementations. `ensureServiceConnected`
+uses an injectable connection state machine and the authoritative host container;
+`performRefresh` establishes readiness before dispatching an actual refresh.
+The `__v3_connect` sentinel and empty mangled-name connection requests are removed.
+Legacy bootstrap and service startup share idempotent directory preparation.
+Bookmark NSError values are preserved and reported without force unwraps.
+See [the matched-binary crash investigation](COMBINED_STARTUP_CRASH.md).
+
 Connection attempts are coalesced. The launch continuation is registered before
 LiveProcess startup, with a 45-second deadline. Requests settle once; completion
 cancels their timeout tasks. Stale/late replies cannot complete another request.
@@ -99,7 +107,7 @@ users must reload status before retrying. The service retains its mutation gate
 while an operation unwinds. Refresh checks that gate before invoking its separate
 intent. Disconnect settles pending callers and retires the old process before a
 replacement opens the database. Extension and connection callbacks are checked
-against the currently owned instance. Startup read retries are bounded;
+against the currently owned instance. Failed startup disables automatic status retries until explicit retry;
 mutations are not automatically replayed after uncertain outcomes.
 Cancelled native operations retain the host mutation gate for a three-second
 grace period. If no completion arrives, the service is retired and reconnected
@@ -108,6 +116,12 @@ An idle service that times out on a read is also retired; read timeouts never
 terminate an active signing, installation or refresh operation.
 
 ## Refresh and transport
+
+`CombinedFailure` provides operation/stage/code/correlation and sanitized native
+domain/code over a bounded version-1 envelope. Refresh metadata has a separate
+field allowlist, including sanitized per-app failures. Connection or intent return
+alone is not a verified refresh. Build Candidate in Settings identifies the product
+line and immutable builder revision without changing signing or bundle identity.
 
 Refresh is the only normal refresh interface, including selected-app refresh.
 Manual/scheduled state, preferred time, retries, history, deadlines and correlated

@@ -19,7 +19,9 @@ Combined v3 uses LiveContainerSupport SideStore `ff25922e5c13ccfafd83bda5092910d
 
 For v3 setup, use **Settings → Account and Signing → Sign In / Authenticate**, then **Settings → SideStore → Import Pairing File** if needed. Configure LocalDevVPN, run **Refresh**, and inspect verification/history before enabling its schedule. Apps' per-app Refresh actions also route to that tab. Guest Return, Start Collapsed, custom colors and all three layouts retain their existing preference keys.
 
-Build `v3/architecture-assessment` with the combined workflow and download its `LiveContainer-SideStore-AutoRefresh-IPA` artifact. Install over the existing combined app with matching signing identity and app identifiers; no reset is part of the upgrade. Physical-device acceptance is separate from CI evidence. Release links and v2 screenshots below describe earlier releases, not a v3 release announcement.
+Startup-recovery candidates are built on `fix/v3-startup-errors`; use the full builder SHA and matching CI evidence attached to the draft, not a mutable branch as package identity. Settings > Build Candidate reports the product line, builder commit and run. Install over the existing combined app with matching signing identity and app identifiers; no reset is part of the upgrade. List, Grid and Compact List retain `LCAppLayoutStyle`. Physical-device acceptance is separate from CI evidence. These candidates remain draft prereleases, not a v3 production-readiness announcement.
+
+The [startup crash investigation](docs/COMBINED_STARTUP_CRASH.md) records the exact binary match and remaining device uncertainty. Both corrected combined lines include Issue #24 error propagation; standalone packages retain their separate provenance. Upstream GSA integration does not establish that all login failures or HTTP 429 are resolved.
 
 See [the v3 architecture document](docs/V3_UNIFIED_ARCHITECTURE.md) for the implementation, ownership, upstream authentication review and validation details.
 

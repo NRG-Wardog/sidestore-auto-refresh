@@ -38,10 +38,12 @@ final class V3SideStoreService: NSObject {
             reply(encode(["id": id, "version": 1, "ok": true]))
             return
         }
-        guard tasks[id] == nil else { reply(encode(["id": id, "error": "busy"])); return }
+        guard tasks[id] == nil else { reply(encode(["version": 1, "id": id, "error": "busy",
+            "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire])); return }
         let mutation = !["snapshot", "catalog", "backupResult"].contains(operation)
         guard !mutation || (mutationID == nil && completed.count < 512) else {
-            reply(encode(["id": id, "error": "busy"])); return
+            reply(encode(["version": 1, "id": id, "error": "busy",
+                "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire])); return
         }
         if mutation { mutationID = id }
         tasks[id] = Task { @MainActor in
