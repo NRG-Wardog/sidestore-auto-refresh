@@ -135,6 +135,8 @@ struct RenderingScreen: View, LCAppBannerDelegate {
                     "identifier": String((constraint.identifier ?? "").prefix(120)),
                     "firstClass": (constraint.firstItem as? UIView).map { String(describing: type(of: $0)) } ?? "none",
                     "secondClass": (constraint.secondItem as? UIView).map { String(describing: type(of: $0)) } ?? "none",
+                    "firstHidden": (constraint.firstItem as? UIView)?.isHidden ?? false,
+                    "secondHidden": (constraint.secondItem as? UIView)?.isHidden ?? false,
                     "firstAttribute": constraint.firstAttribute.rawValue, "secondAttribute": constraint.secondAttribute.rawValue,
                     "relation": constraint.relation.rawValue, "constant": Double(constraint.constant), "multiplier": Double(constraint.multiplier),
                     "firstValue": Double(first), "secondValue": Double(second), "residual": Double(difference), "violated": violated]
@@ -323,6 +325,7 @@ struct RenderingScreen: View, LCAppBannerDelegate {
                 UserDefaults.standard.set(true, forKey: "LCShowAppLabels")
                 await waitForLayout()
                 measure("labels-restored")
+                if !ProcessInfo.processInfo.arguments.contains("--diagnostic") {
                 for width: CGFloat in [320, 375, 390, 600, 768, 844, 1024] where width <= window.bounds.width {
                     await resize(width)
                     measure("resize-\(Int(width))")
@@ -358,12 +361,14 @@ struct RenderingScreen: View, LCAppBannerDelegate {
                 await waitForLayout()
                 measure("repopulate-after-empty")
                 capture("final-grid")
+                }
             }
         }
         let report: [String: Any] = [
             "schemaVersion": 1, "mode": baseline ? "baseline" : (ProcessInfo.processInfo.arguments.contains("--fallback") ? "fallback-contract" : "corrected"), "phase": cold ? "cold" : "suite", "deviceClass": suite,
             "os": UIDevice.current.systemVersion, "screen": rect(window.bounds), "deploymentTarget": "iOS 15.0",
             "passed": failures.isEmpty, "failures": failures, "measurements": measurements,
+            "diagnosticOnly": ProcessInfo.processInfo.arguments.contains("--diagnostic"),
             "evidenceKind": "simulator execution of production grid and banner representables with controlled model/action-router dependencies",
             "limitations": ["Not the reporter's physical device", "No production guest launch/signing/transport is performed", "Menu configuration and real controller forwarding helper are executed; UIKit menu presentation remains a device acceptance check", "Full Apps screen navigation is not hosted; settings transitions use the production preference keys", "Fallback-contract mode removes the iOS16 sizeThatFits hook on the available simulator; it is not execution on iOS15"]
         ]
