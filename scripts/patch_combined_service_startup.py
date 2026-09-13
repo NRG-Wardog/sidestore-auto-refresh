@@ -8,6 +8,10 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "LC_SERVICE_CONNECTION_V1"
+OUTPUTS = {(0, name) for name in ("SideStoreSupport/SideStore.swift", "LiveContainer/LCContainerStorage.h",
+    "LiveContainer/LCBootstrap.m", "SideStoreSupport/XPCServer.h", "SideStoreSupport/XPCServer.m",
+    "SideStoreSupport/SideStoreClient.swift", "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift")} | {
+    (1, "AltStore/AppDelegate.swift"), (1, "SideStore/Core/Operations/PipelineExecutor.swift")}
 
 
 def replace(text, old, new):
@@ -24,10 +28,14 @@ def patch(live, side, product):
             raise SystemExit("combined startup requires pinned source")
     manifest = live / ".combined-service-startup.json"
     templates = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in TEMPLATES.glob("combined_*")}
+    templates["patch_combined_service_startup.py"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     if manifest.exists():
         previous = json.loads(manifest.read_text())
         if previous["templates"] != templates or previous["product"] != product:
             raise SystemExit("combined startup templates changed; use fresh pinned sources")
+        if (previous.get("pins") != list(PINS) or len(previous["files"]) != len(OUTPUTS)
+                or {(i, name) for i, name, _ in previous["files"]} != OUTPUTS):
+            raise SystemExit("combined startup manifest source/output drift")
         for index, relative, digest in previous["files"]:
             if hashlib.sha256(((live, side)[index] / relative).read_bytes()).hexdigest() != digest:
                 raise SystemExit("combined startup replay drift: " + relative)
@@ -185,7 +193,7 @@ extension SideStoreClient {
         index = 0 if live in path.parents else 1
         records.append([index, path.relative_to((live, side)[index]).as_posix(), hashlib.sha256(text.encode()).hexdigest()])
     for path, text in changes.items(): path.write_bytes(text.encode())
-    manifest.write_text(json.dumps({"templates": templates, "product": product, "files": records}, indent=2))
+    manifest.write_text(json.dumps({"templates": templates, "product": product, "pins": PINS, "files": records}, indent=2))
 
 
 def patch_transport(root):
@@ -194,8 +202,9 @@ def patch_transport(root):
     path = root / "DeviceGateway/idevice/IdeviceGateway.swift"
     text = path.read_text(encoding="utf-8")
     marker = root / ".combined-errors.sha256"
+    patch_digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     if marker.exists():
-        if marker.read_text() != hashlib.sha256(path.read_bytes()).hexdigest():
+        if marker.read_text() != patch_digest + ":" + hashlib.sha256(path.read_bytes()).hexdigest():
             raise SystemExit("transport diagnostic replay drift")
         return
     stages = {
@@ -233,7 +242,7 @@ private func lcTransportFailureStage(_ message: String) -> String {
     # The old wrappers still receive typed errors, not nil, and the FFI code is read before free.
     text += "\n// LC_STRUCTURED_FAILURE_V1\n"
     path.write_bytes(text.encode())
-    marker.write_text(hashlib.sha256(path.read_bytes()).hexdigest())
+    marker.write_text(patch_digest + ":" + hashlib.sha256(path.read_bytes()).hexdigest())
 
 
 if __name__ == "__main__":

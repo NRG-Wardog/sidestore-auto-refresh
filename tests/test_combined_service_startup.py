@@ -1,5 +1,6 @@
 """Executable failure behavior plus pinned, transactional adapter regression."""
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shutil
@@ -111,3 +112,18 @@ class StartupPatchTests(unittest.TestCase):
             before = self.snapshot(root)
             with self.assertRaises(SystemExit): self.apply(roots)
             self.assertEqual(before, self.snapshot(root))
+
+    def test_replay_rejects_missing_output_and_patch_revision(self):
+        for change in ("missing-output", "patch-revision", "source-pin"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp); roots = self.fixture(root)
+                self.apply(roots)
+                manifest = roots[0] / ".combined-service-startup.json"
+                data = json.loads(manifest.read_text())
+                if change == "missing-output": data["files"].pop()
+                elif change == "source-pin": data["pins"][0] = "0" * 40
+                else: data["templates"]["patch_combined_service_startup.py"] = "0" * 64
+                manifest.write_text(json.dumps(data))
+                before = self.snapshot(root)
+                with self.assertRaises(SystemExit): self.apply(roots)
+                self.assertEqual(before, self.snapshot(root))
