@@ -88,7 +88,8 @@ final class CombinedServiceConnection {
         if waiters.isEmpty && !isReady { stop(code: .cancelled) }
     }
     static func resolveHost(_ value: String?, fileManager: FileManager = .default) throws -> URL {
-        guard let value, !value.isEmpty, value.hasPrefix("/"), !value.contains("\0"), value != "/" else {
+        guard let value, !value.isEmpty, value.hasPrefix("/"), !value.contains("\0"), value != "/",
+              !value.split(separator: "/").contains(where: { $0 == "." || $0 == ".." }) else {
             throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadInvalidFileNameError)
         }
         let home = URL(fileURLWithPath: value, isDirectory: true).standardizedFileURL
