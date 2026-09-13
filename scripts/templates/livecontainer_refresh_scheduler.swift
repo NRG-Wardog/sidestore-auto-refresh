@@ -153,7 +153,7 @@ enum LiveContainerAutoRefreshScheduler {
     private static func performRefresh(runID: UUID) async throws {
         guard #available(iOS 17.0, *) else {
             throw NSError(domain: "LiveContainerRefresh.UnsupportedOS", code: 17,
-                userInfo: [NSLocalizedDescriptionKey: "This automatic embedded bridge requires iOS 17 or later. Use the existing embedded SideStore manual refresh on this version."])
+                userInfo: [NSLocalizedDescriptionKey: "This combined refresh bridge requires iOS 17 or later. Refresh was not started. Review app expiration and account status; copy these diagnostics if you need assistance."])
         }
         try Task.checkCancellation()
         print("[LIVE_CONTAINER_REFRESH] REFRESH_ATTEMPT_STARTED run_id=\(runID.uuidString)")
@@ -166,15 +166,15 @@ enum LiveContainerAutoRefreshScheduler {
         let pending = defaults.bool(forKey: hostHandoffKey)
         guard let manifest = defaults.dictionary(forKey: verificationKey) else {
             print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=manifest_missing run_id=\(runID)")
-            return (false, pending, "SideStore returned without sharing installation results with LiveContainer. Refresh is unconfirmed. Open embedded SideStore and check its refresh history before retrying.")
+            return (false, pending, "SideStore returned without sharing installation results with LiveContainer. Refresh is unconfirmed. Review Refresh history, app expiration, and account status before an explicit retry.")
         }
         guard manifest["run_id"] as? String == runID else {
             print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=run_mismatch expected_run=\(runID) actual_run=\(manifest["run_id"] as? String ?? "missing")")
-            return (false, pending, "LiveContainer received results for a different refresh attempt. This attempt could not be verified. Check embedded SideStore history and retry once the previous refresh finishes.")
+            return (false, pending, "LiveContainer received results for a different refresh attempt. This attempt could not be verified. Review Refresh history and app expiration; explicitly retry only after the previous attempt finishes.")
         }
         guard let results = manifest["results"] as? [[String: Any]], !results.isEmpty else {
             print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=results_empty run_id=\(runID)")
-            return (false, pending, "SideStore returned no app installation results. No successful refresh was confirmed. Open embedded SideStore to check eligible apps and its refresh history.")
+            return (false, pending, "SideStore returned no app installation results. No successful refresh was confirmed. Review eligible apps, account status, and Refresh history before an explicit retry.")
         }
         guard let expected = manifest["expected_ids"] as? [String], !expected.isEmpty,
               Set(results.compactMap { $0["bundle_id"] as? String }) == Set(expected) else {
@@ -186,8 +186,10 @@ enum LiveContainerAutoRefreshScheduler {
         return pending ? (false, true, "host_handoff_awaiting_relaunch") : (true, false, "verified_installed_app_records")
     }
 
-    private static func markVerified(source: String, detail: String) {
-        defaults.removeObject(forKey: uncertainMutationKey)
+    @discardableResult
+    private static func markVerified(runID: String, source: String, detail: String) -> Bool {
+        if let uncertain = defaults.string(forKey: uncertainMutationKey), uncertain != runID { return false }
+        if defaults.string(forKey: uncertainMutationKey) == runID { defaults.removeObject(forKey: uncertainMutationKey) }
         defaults.set(Date().addingTimeInterval(6 * 60 * 60), forKey: earliestEligibleKey)
         defaults.removeObject(forKey: nextRetryKey)
         defaults.set(0, forKey: retryCountKey)
@@ -201,10 +203,12 @@ enum LiveContainerAutoRefreshScheduler {
         record(source: source, result: "verified", detail: detail)
         cancelDeadlineProtection()
         notify(title: "Refresh completed", body: detail, kind: "verified")
+        return true
     }
 
     private static func verifyPendingHostHandoff() {
         guard activeRun == nil, defaults.bool(forKey: hostHandoffKey) else { return }
+        if let uncertain = defaults.string(forKey: uncertainMutationKey), uncertain != defaults.string(forKey: hostHandoffRunKey) { return }
         guard let baseline = defaults.dictionary(forKey: hostBaselineKey),
               let runID = baseline["run_id"] as? String,
               runID == defaults.string(forKey: hostHandoffRunKey),
@@ -230,7 +234,7 @@ enum LiveContainerAutoRefreshScheduler {
                     defaults.set(true, forKey: retryExhaustedKey)
                     defaults.set("HOST_REFRESH_FAILED", forKey: healthStateKey)
                     record(source: "relaunch", result: "host_refresh_failed", detail: "The installed host profile did not advance after replacement. Retry manually; no success was recorded.")
-                    notify(title: "LiveContainer refresh not confirmed", body: "Its installed signing validity did not advance. Open SideStore and retry the refresh.", kind: "host_failed")
+                    notify(title: "LiveContainer refresh not confirmed", body: "Its installed signing validity did not advance. Review app expiration and account status, then explicitly retry in Refresh.", kind: "host_failed")
                 }
                 return
             }
@@ -239,13 +243,13 @@ enum LiveContainerAutoRefreshScheduler {
             print("[LIVE_CONTAINER_REFRESH] HOST_REFRESH_VERIFIED evidence=installed_profile_expiration_advanced")
             let batch = verifyRefreshManifest(runID: runID)
             if batch.verified {
-                markVerified(source: "relaunch", detail: "LiveContainer's installed profile renewed; all requested app results were confirmed.")
+                markVerified(runID: runID, source: "relaunch", detail: "LiveContainer's installed profile renewed; all requested app results were confirmed.")
             } else {
                 // Host replacement can kill the process before it writes the
                 // final batch results. Host success is not whole-batch success.
                 defaults.set("HOST_REFRESH_VERIFIED", forKey: healthStateKey)
                 record(source: "relaunch", result: "host_verified_batch_unconfirmed", detail: batch.reason)
-                notify(title: "LiveContainer refreshed", body: "Its installed profile renewed. Some batch results remain unconfirmed; check SideStore history.", kind: "host_verified")
+                notify(title: "LiveContainer refreshed", body: "Its installed profile renewed. Some batch results remain unconfirmed; review Refresh history and app expiration.", kind: "host_verified")
             }
         } catch {
             defaults.set("HOST_REFRESH_AWAITING_RELAUNCH", forKey: healthStateKey)
@@ -320,7 +324,10 @@ enum LiveContainerAutoRefreshScheduler {
                 try Task.checkCancellation()
                 guard gate.claim() else { return }
                 if guestsValid {
-                    markVerified(source: source, detail: "All requested installed-app results were confirmed.")
+                    guard markVerified(runID: runID.uuidString, source: source, detail: "All requested installed-app results were confirmed.") else {
+                        task?.setTaskCompleted(success: false)
+                        return
+                    }
                     print("[LIVE_CONTAINER_REFRESH] REFRESH_RESULT run_id=\(runID.uuidString) success=true verified=true")
                     task?.setTaskCompleted(success: true)
                 } else {

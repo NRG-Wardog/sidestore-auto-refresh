@@ -3,6 +3,27 @@ import CoreFoundation
 
 // LC_REFRESH_METADATA_SANITIZED_V1: never forward arbitrary saved result dictionaries.
 enum CombinedVerification {
+    static let uncertainMutationKey = "liveContainerAutoRefreshUncertainMutationRunID"
+    static func clearUncertainty(_ defaults: UserDefaults, runID: String) {
+        guard defaults.string(forKey: uncertainMutationKey) == runID else { return }
+        defaults.removeObject(forKey: uncertainMutationKey)
+    }
+    // Complete terminal results establish completion, not verified refresh success.
+    // Empty, duplicated or omitted app results leave mutation completion uncertain.
+    static func hasCompleteTerminalResults(_ manifest: [String: Any], runID: String) -> Bool {
+        guard UUID(uuidString: runID) != nil, manifest["run_id"] as? String == runID,
+              manifest["version"] as? Int == 2, manifest["schema"] as? String == "LiveContainerRefreshManifestV2",
+              let expected = manifest["expected_ids"] as? [String], !expected.isEmpty, expected.count <= 1024,
+              expected.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 512 }), Set(expected).count == expected.count,
+              let entries = manifest["results"] as? [[String: Any]], entries.count == expected.count else { return false }
+        var received = Set<String>()
+        for entry in entries {
+            guard let identifier = entry["bundle_id"] as? String, expected.contains(identifier),
+                  received.insert(identifier).inserted,
+                  let success = entry["success"] as? NSNumber, CFGetTypeID(success) == CFBooleanGetTypeID() else { return false }
+        }
+        return received == Set(expected)
+    }
     static func sanitized(_ payload: [String: Any], runID: String) -> [String: Any] {
         guard let manifest = payload["liveContainerAutoRefreshVerification"] as? [String: Any],
               manifest["run_id"] as? String == runID,
