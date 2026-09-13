@@ -47,9 +47,26 @@ The oldest installed simulator runtime was iOS 26.2; compiling for deployment
 That first *whole suite* was not green: its banner measurement incorrectly
 equated an SF Symbol image's bounds with its Auto Layout alignment rectangle,
 and controller traversal counted a retained cell after a collection replacement.
-Those test-instrumentation distinctions are being checked separately; the
-zero-height before/after measurements remain evidence, not a claim that the
-entire matrix or a physical device passed.
+Those distinctions were resolved by measuring Auto Layout alignment rectangles
+and the complete ancestor visibility chain. Run
+[34762725544](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/34762725544)
+confirmed that the removed seventh controller's platform host was hidden with
+zero alpha and layer opacity; exactly six cells were rendered. Native v3 section
+ordering is measured by row centers because unequal-height tiles are vertically
+centered. Its phone/tablet suite and cold-launch cases passed in that run.
+
+A later checker diagnostic,
+[34763446959](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/34763446959),
+showed that all explicit required constraints were satisfied. Its only residuals
+were UIKit intrinsic-size suggestions, whose content hugging/compression
+priorities must be evaluated separately. The corrected checker retains these
+diagnostics, strictly checks required equations, and additionally requires the
+hidden label's zero-height and zero-spacing constraints. A diagnostic-only run
+is explicitly marked `fullSuiteValidated=false`; it is not a full-suite pass.
+
+The final candidate's own `rendering-verification.json` is the authority for its
+complete matrix result, source hashes, builder commit and CI run. Do not attach
+an earlier run's evidence to a later IPA or infer physical-device success from it.
 
 ## Persistent acceptance checklist
 
