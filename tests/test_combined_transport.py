@@ -88,6 +88,22 @@ class SourceFixture(unittest.TestCase):
 
 
 class CombinedTransportTests(SourceFixture):
+    def test_upstream_ipv6_and_backend_cache_improvements_survive(self):
+        upstream = {name: self.read(name) for name in (
+            "Common/NetworkUtils.swift", "Sources/Services/UsbmuxdProxyServer.swift")}
+        before_api = self.read("Sources/MinimuxerApi.swift")
+        patch(self.mux)
+        for name, original in upstream.items():
+            self.assertEqual(self.read(name), original)
+        gateway = self.gateway.read_text(encoding="utf-8")
+        for method in ("withSockaddr", "syncHeartbeat"):
+            if "func " + method in self.original:
+                self.assertEqual(function(gateway, method), function(self.original, method))
+        api = self.read("Sources/MinimuxerApi.swift")
+        cache = "if let cached = cachedInstance, currentBackend == resolvedBackend"
+        self.assertLess(api.index(cache), api.index("currentBackend = resolvedBackend", api.index(cache)))
+        self.assertIn("cached.core.setDeviceProbeTimeout(resolvedTimeout)", before_api)
+
     def test_modern_gateway_double_application(self):
         patch_gateway(self.mux)
         first = snapshot(self.side)
@@ -213,9 +229,9 @@ class CombinedTransportTests(SourceFixture):
         self.assertNotIn("no ipsec interface (required for lockdown", impl.lower())
         runner = (self.side / "SideStore/Core/Operations/PipelineRunner.swift").read_text(encoding="utf-8")
         begin = runner.index("await transportCore.beginTransportBatch()")
-        task = runner.index("try await Task.detached {", begin)
+        task = runner.index("do {", begin)
         readiness = runner.index("/* Minimuxer Readiness Check */", task)
-        end = runner.index("}.value", readiness)
+        end = runner.index("await transportCore.endTransportBatch()", readiness)
         self.assertLess(begin, task)
         self.assertLess(task, readiness)
         normal = runner.index("for operation in normalOperations {", readiness)
@@ -242,7 +258,9 @@ class CombinedTransportTests(SourceFixture):
                       runner[readiness:normal])
         self.assertEqual(runner.count("await transportCore.beginTransportBatch()"), 1)
         self.assertEqual(runner.count("await transportCore.endTransportBatch()"), 2)
-        self.assertRegex(runner[end:], r"(?s)\} catch \{\s*await transportCore.endTransportBatch\(\)\s*throw error\s*\}\s*await transportCore.endTransportBatch\(\)")
+        self.assertRegex(runner[end:], r"(?s)await transportCore.endTransportBatch\(\)\s*return group\s*\} catch \{\s*await transportCore.endTransportBatch\(\)\s*throw error")
+        self.assertIn("CellularRefreshManager.shared.isEnabled", runner[readiness:end])
+        self.assertIn("await MainActor.run", runner[host:end])
         gateway = self.gateway.read_text(encoding="utf-8")
         self.assertIn("self.batchCount += 1", function(gateway, "beginTransportBatch"))
         cleanup = function(gateway, "endTransportBatch")
@@ -431,6 +449,22 @@ for modern in [false, true] {
 
 
 class CombinedWorkflowTests(unittest.TestCase):
+    def test_fixed_upstream_authentication_pins_and_no_override(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        for pin in ("ff25922e5c13ccfafd83bda5092910d848ebd409",
+                    "98c3c79982f813878e922ab42f9545314a700f0c",
+                    "a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d",
+                    "35993d7f68950ce00d6bf1fd0fbcaa7bef51dc9c"):
+            self.assertIn(pin, workflow)
+        self.assertIn('merge-base --is-ancestor "$SIDESIGN_GSA_FIX" HEAD', workflow)
+        self.assertNotRegex(workflow, r"SideSign (?:checkout|cherry-pick)")
+        self.assertIn("SideStore/Core/Auth SideStore/Core/Anisette", workflow)
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
+        self.assertNotIn("AuthFlowHandler", service)
+        self.assertNotIn("AuthenticatedOperationContext", service)
+        self.assertIn("AppManager.shared.signIn(", service)
+        self.assertIn("SideSignConfigurationView()", service)
+
     def test_local_binary_and_combined_patch_injected_before_build(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
         checks = workflow[workflow.index("- name: Run repository checks before patches"):]

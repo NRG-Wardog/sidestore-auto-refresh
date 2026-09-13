@@ -268,6 +268,54 @@ def patch(minimuxer: Path):
     sidestore = minimuxer.parent.parent
     runner = sidestore / "SideStore/Core/Operations/PipelineRunner.swift"
     def pipeline(text):
+        if "        /* Minimuxer Readiness Check */" in text and "        try await Task.detached {" not in text:
+            # ff25922 removed the redundant detached task. Retain its structured
+            # cancellation, CellularRefreshManager gate and MainActor completion.
+            text = replace_once(text, "        /* Minimuxer Readiness Check */",
+                '''        // COMBINED_COREDEVICE_PIPELINE_BATCH_V1: lease before readiness, release on every returning path.
+        let transportCore = minimuxer.core
+        await transportCore.beginTransportBatch()
+        do {
+        /* Minimuxer Readiness Check */''', "structured batch acquisition")
+            text = replace_once(text, '''        // run the operation pipeline
+        try await withThrowingTaskGroup(of: Void.self) { taskGroup in
+            for operation in operations {
+                taskGroup.addTask {
+                    try await self.performOperation(for: operation, handler: handler, group: group)
+                }
+            }
+            while let _ = try await taskGroup.next() {}
+        }''', '''        // Finish standalone apps before a host replacement can terminate us.
+        let hostOperations = operations.filter {
+            ($0.app as? ALTApplication)?.isAltStoreApp == true || $0.bundleIdentifier.isAltStoreAppID
+        }
+        let normalOperations = operations.filter {
+            !(($0.app as? ALTApplication)?.isAltStoreApp == true || $0.bundleIdentifier.isAltStoreAppID)
+        }
+        try await withThrowingTaskGroup(of: Void.self) { taskGroup in
+            for operation in normalOperations {
+                taskGroup.addTask {
+                    try await self.performOperation(for: operation, handler: handler, group: group)
+                }
+            }
+            while let _ = try await taskGroup.next() {}
+        }
+        for operation in hostOperations {
+            try Task.checkCancellation()
+            try await self.performOperation(for: operation, handler: handler, group: group)
+        }''', "structured host-last ordering")
+            return replace_once(text, '''        return group
+    }
+    
+    func performOperation''', '''        await transportCore.endTransportBatch()
+        return group
+        } catch {
+            await transportCore.endTransportBatch()
+            throw error
+        }
+    }
+    
+    func performOperation''', "structured batch release")
         text = replace_once(text, '''            // run the operation pipeline
             try await withThrowingTaskGroup(of: Void.self) { taskGroup in
                 for operation in operations {

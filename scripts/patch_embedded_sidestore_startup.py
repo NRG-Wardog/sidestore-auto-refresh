@@ -102,6 +102,27 @@ def patch_database(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     if MARKER in text:
         return
+    if "private func performStart() async throws" in text:
+        # Preserve upstream's coalesced async start, migration and preparation.
+        text = replace_once(text,
+            "        try await self.persistentContainer.loadPersistentStores()",
+            '''        // EMBEDDED_SIDESTORE_STARTUP_FIX_V1: retry preparation without reattaching SQLite.
+        if self.persistentContainer.persistentStoreCoordinator.persistentStores.isEmpty {
+            try await self.persistentContainer.loadPersistentStores()
+        } else {
+            debugLog("[SIDESTORE_STARTUP] reusing_attached_persistent_store_after_startup_failure")
+        }''', "async database retry")
+        text = replace_once(text,
+            "            guard let localAppBundle = ALTApplication(fileURL: Bundle.Info.activeBundleURL) else { return }",
+            '''            guard let localAppBundle = ALTApplication(fileURL: Bundle.Info.activeBundleURL) else {
+                throw ALTError.invalidApp(reason: "Unable to read the active LiveContainer application bundle.")
+            }''', "async bundle failure")
+        text = replace_once(text,
+            "                throw ALTError(.invalidApp)",
+            '                throw ALTError.invalidApp(reason: "The active LiveContainer bundle has no readable provisioning profile.")',
+            "async profile failure")
+        path.write_text(text, encoding="utf-8")
+        return
     old = '''                case .success:
                     self.persistentContainer.loadPersistentStores { (description, error) in
                         guard error == nil else { return finish(error!) }
@@ -195,6 +216,11 @@ def patch_return_button(path: Path) -> None:
 
 def patch_auth_storage(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
+    if "private var portalProxy: DeveloperPortalProxyWithAuth" in text:
+        # ff25922 owns token/session/configuration behavior. Leave it byte-identical.
+        if 'coalesce(key: "apple_auth_session")' not in text:
+            raise ValueError("Unexpected upstream AuthManager implementation")
+        return
     if "AUTH_STORAGE_READBACK_V1" in text:
         return
     for key, label in (("appleIDEmailAddress", "AppleID email"),

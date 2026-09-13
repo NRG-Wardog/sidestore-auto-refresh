@@ -326,6 +326,7 @@ struct V3AccountSettings: View {
             Text(status.pairing)
             Button("Import Pairing File") { status.perform("importPairing", title: "Import pairing file") }
             panel("Connection", "connection"); panel("Anisette Servers", "anisette")
+            panel("SideSign Configuration", "sideSign")
             panel("Health Check", "health"); panel("SideStore Backups", "backups")
             panel("SideJIT Server", "sideJIT")
             setting("Beta updates", "betaUpdates"); setting("Disable idle timeout", "idleTimeoutDisabled")

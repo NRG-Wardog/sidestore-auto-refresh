@@ -96,6 +96,7 @@ final class V3SideStoreService: NSObject {
             case "developerServices": controller = UIHostingController(rootView: DeveloperServicesView(presentingViewController: Self.presenter))
             case "connection": controller = UIHostingController(rootView: ConnectionConfigView())
             case "anisette": controller = UIHostingController(rootView: AnisetteServersView(selected: UserDefaults.standard.menuAnisetteURL, onResetAdiPb: {}))
+            case "sideSign": controller = UIHostingController(rootView: SideSignConfigurationView())
             case "health": controller = UIHostingController(rootView: HealthCheckView())
             case "backups": controller = UIHostingController(rootView: BackupAndRestoreView())
             case "sideJIT": controller = UIHostingController(rootView: SideJITServerConfigView())
@@ -140,13 +141,16 @@ final class V3SideStoreService: NSObject {
             try await AppManager.shared.remove(source, presentingViewController: Self.presenter)
         case "signIn":
             try await callback { done in
-                AppManager.shared.authenticate(presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
+                AppManager.shared.signIn(presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
             }
         case "signOut":
             // Preserve reusable certificate and anisette state, matching upgrade preservation.
             AuthManager.shared.signOut(keepCertificate: true, keepAnisetteData: true)
         case "syncAppIDs":
-            try await callback { done in AppManager.shared.syncAppIDs(presentingViewController: Self.presenter, showAuthIfRequired: true, completionHandler: done) }
+            if !AuthManager.shared.isAuthenticated {
+                _ = try await AuthManager.shared.signIn(presentingViewController: Self.presenter)
+            }
+            try await callback { done in AppManager.shared.syncAppIDs(completionHandler: done) }
         case "clearCache":
             try await callback { done in AppManager.shared.clearAppCache(completion: done) }
         case "setSetting":
@@ -162,14 +166,14 @@ final class V3SideStoreService: NSObject {
             let app: StoreApp = try object(target)
             guard app.latestSupportedVersion != nil else { throw ServiceError.unsupported }
             try await callback { done in
-                let group = AppManager.shared.install(app, presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
+                let group = AppManager.shared.install(.app(app), presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
                 cancellations[id] = { group.cancel(); group.progress.cancel() }
             }
         case "refreshApp":
             let app: InstalledApp = try object(target)
             guard app.isActive, app.bundleIdentifier != StoreApp.altstoreAppID else { throw ServiceError.unsupported }
-            let handler = AuthFlowHandler(presentingViewController: Self.presenter)
-            let group = RefreshGroup(context: AuthenticatedOperationContext(authenticationHandler: handler, anisetteServerHandler: handler, dbBackgroundContext: nil))
+            let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+            let group = RefreshGroup(context: StandaloneOperationContext(steps: .signIn, dbBackgroundContext: background))
             try await callback { done in
                 group.completionHandler = { results in
                     guard let result = results[app.bundleIdentifier] else { done(.failure(ServiceError.notFound)); return }
