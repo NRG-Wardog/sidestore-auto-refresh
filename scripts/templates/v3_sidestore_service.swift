@@ -29,7 +29,32 @@ final class V3SideStoreService: NSObject {
     private var completed: [String: (data: Data, deadline: Date)] = [:]
     private var mutationID: String?
     private var finishPanel: (() -> Void)?
-    static let presenter = UIViewController()
+    static var presenter: UIViewController {
+        if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }),
+           let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first,
+           let root = window.rootViewController {
+            return topViewController(root)
+        }
+        if let window = UIApplication.shared.windows.first(where: { $0.isKeyWindow }) ?? UIApplication.shared.windows.first,
+           let root = window.rootViewController {
+            return topViewController(root)
+        }
+        return fallbackPresenter
+    }
+    private static let fallbackPresenter = UIViewController()
+
+    private static func topViewController(_ root: UIViewController) -> UIViewController {
+        if let presented = root.presentedViewController, !presented.isBeingDismissed {
+            return topViewController(presented)
+        }
+        if let nav = root as? UINavigationController, let visible = nav.visibleViewController {
+            return topViewController(visible)
+        }
+        if let tab = root as? UITabBarController, let selected = tab.selectedViewController {
+            return topViewController(selected)
+        }
+        return root
+    }
 
     @objc(execute:reply:)
     nonisolated static func execute(_ data: Data, reply: @escaping (Data) -> Void) {

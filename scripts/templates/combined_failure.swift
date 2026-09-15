@@ -80,8 +80,9 @@ public struct CombinedFailure: Error, LocalizedError {
     public let underlyingDomain: String
     public let underlyingCode: Int
     public let retryable: Bool?
+    public let detail: String?
     public init(operation: String, stage: Stage, code: Code = .failed, id: String,
-                underlying: Error? = nil, retryable: Bool? = nil) {
+                underlying: Error? = nil, retryable: Bool? = nil, detail: String? = nil) {
         let normalized = ["snapshot": "status", "refreshApp": "refresh", "installURL": "install", "installSharedIPA": "install",
                           "addSource": "source", "removeSource": "source", "refreshSources": "source", "syncAppIDs": "signIn"][operation] ?? operation
         self.operation = Self.operations.contains(normalized) ? normalized : "command"
@@ -92,10 +93,12 @@ public struct CombinedFailure: Error, LocalizedError {
         underlyingDomain = Self.domains.contains(domain) ? domain : "redacted"
         underlyingCode = error?.code ?? 0
         self.retryable = retryable
+        self.detail = detail
     }
     private static let operations: Set<String> = ["connect", "status", "command", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit"]
     private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError"]
     public var message: String {
+        if let detail, !detail.isEmpty { return detail }
         if code == .cancelled { return "The \(operation) request was cancelled. Its result may need reconciliation." }
         if code == .timedOut { return "The \(operation) request timed out during \(stage.rawValue)." }
         switch stage {
@@ -143,6 +146,7 @@ public struct CombinedFailure: Error, LocalizedError {
         var result: [String: Any] = ["version": 1, "operation": operation, "stage": stage.rawValue, "code": code.rawValue,
             "correlationID": correlationID, "underlyingDomain": underlyingDomain, "underlyingCode": underlyingCode]
         if let retryable { result["retryable"] = retryable }
+        if let detail, !detail.isEmpty { result["detail"] = detail }
         return result
     }
     public var encodedString: String {
@@ -156,7 +160,7 @@ public struct CombinedFailure: Error, LocalizedError {
         return decode(value, expectedID: expectedID)
     }
     public static func decode(_ value: [String: Any], expectedID: String) -> CombinedFailure? {
-        guard Set(value.keys).isSubset(of: ["version", "operation", "stage", "code", "correlationID", "underlyingDomain", "underlyingCode", "retryable"]),
+        guard Set(value.keys).isSubset(of: ["version", "operation", "stage", "code", "correlationID", "underlyingDomain", "underlyingCode", "retryable", "detail"]),
               let version = value["version"] as? NSNumber, CFGetTypeID(version) != CFBooleanGetTypeID(),
               value["version"] as? Int == 1, value["correlationID"] as? String == expectedID,
               let operation = value["operation"] as? String, operations.contains(operation),
@@ -168,8 +172,9 @@ public struct CombinedFailure: Error, LocalizedError {
         if let retry = value["retryable"] {
             guard let bool = retry as? NSNumber, CFGetTypeID(bool) == CFBooleanGetTypeID() else { return nil }
         }
+        let detail = value["detail"] as? String
         return CombinedFailure(operation: operation, stage: stage, code: code, id: expectedID,
-            underlying: NSError(domain: domain, code: number), retryable: value["retryable"] as? Bool)
+            underlying: NSError(domain: domain, code: number), retryable: value["retryable"] as? Bool, detail: detail)
     }
     public static func capture(_ error: Error, operation: String, stage: Stage, id: String) -> CombinedFailure {
         if let known = error as? CombinedFailure { return known }
@@ -189,8 +194,18 @@ public struct CombinedFailure: Error, LocalizedError {
             }
             if let next = cause.userInfo[NSUnderlyingErrorKey] as? NSError { cause = next } else { break }
         }
+        var detail: String? = nil
+        let desc = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !desc.isEmpty && !desc.hasPrefix("The operation couldn") {
+            var cleaned = desc
+            if let regex = try? NSRegularExpression(pattern: "https?://[^\\s]+", options: []) {
+                cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: NSRange(location: 0, length: cleaned.utf16.count), withTemplate: "[URL]")
+            }
+            detail = String(cleaned.prefix(256))
+        }
         return CombinedFailure(operation: operation, stage: resolved,
             code: error is CancellationError ? .cancelled : .failed, id: id,
-            underlying: nativeCode.map { NSError(domain: "DeviceGatewayError", code: $0) } ?? cause)
+            underlying: nativeCode.map { NSError(domain: "DeviceGatewayError", code: $0) } ?? cause,
+            detail: detail)
     }
 }

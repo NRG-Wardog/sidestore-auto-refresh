@@ -49,7 +49,7 @@ struct V3UnifiedTabs: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in status.reload(manual: false) }
         .onReceive(monitor) { _ in status.reload(manual: false) }
         .onOpenURL(perform: dispatchURL)
-        .sheet(item: $status.presentation) { V3OperationSheet(request: $0).environmentObject(status) }
+        .fullScreenCover(item: $status.presentation) { V3OperationSheet(request: $0).environmentObject(status) }
         .alert("SideStore", isPresented: Binding(get: { status.error != nil }, set: { if !$0 { status.error = nil } })) {
             Button("Copy Diagnostics") { UIPasteboard.general.string = status.error }
             Button("Retry Connection") { status.reload() }
@@ -175,7 +175,53 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
     func perform(_ operation: String, target: String = "", title: String, value: Bool? = nil) {
         guard presentation == nil else { return }
-        presentation = V3OperationRequest(operation: operation, target: target, title: title, value: value)
+        switch operation {
+        case "signOut": signOut()
+        case "syncAppIDs": syncAppIDs()
+        case "clearCache": clearCache()
+        case "refreshSources": refreshSources()
+        default:
+            presentation = V3OperationRequest(operation: operation, target: target, title: title, value: value)
+        }
+    }
+    func signOut() {
+        loading = true
+        Task {
+            defer { loading = false }
+            do {
+                _ = try await V3ServiceBridge.shared.request(operation: "signOut")
+                reload()
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+    func syncAppIDs() {
+        loading = true
+        Task {
+            defer { loading = false }
+            do {
+                _ = try await V3ServiceBridge.shared.request(operation: "syncAppIDs")
+                reload()
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+    func clearCache() {
+        loading = true
+        Task {
+            defer { loading = false }
+            do {
+                _ = try await V3ServiceBridge.shared.request(operation: "clearCache")
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+    func refreshSources() {
+        loading = true
+        Task {
+            defer { loading = false }
+            do {
+                _ = try await V3ServiceBridge.shared.request(operation: "refreshSources")
+                reload()
+            } catch { self.error = error.localizedDescription }
+        }
     }
     func stageSharedIPA(_ url: URL, bookmark: Data? = nil, title: String) {
         guard presentation == nil else { return }
@@ -229,17 +275,37 @@ struct V3InstalledAppsSection: View {
     var query = ""
     private var apps: [V3SideStoreApp] { status.installedApps.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.bundleID.localizedCaseInsensitiveContains(query) } }
     var body: some View {
-        VStack(alignment: .leading) {
-            Text("Sideloaded Apps").font(.headline)
-            if status.isStale { Button("Reconnect to SideStore") { status.reload() } }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Sideloaded Apps").font(.headline)
+                Spacer()
+                Text("\(status.installedAppCount)")
+                    .font(.caption.weight(.bold))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color(UIColor.secondarySystemFill)))
+            }
+            if status.isStale {
+                Button {
+                    status.reload()
+                } label: {
+                    Label("Reconnect to SideStore", systemImage: "arrow.clockwise")
+                        .font(.caption)
+                }
+            }
             if layout == .grid {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))]) {
                     ForEach(apps) { app in
                         NavigationLink(destination: V3SideStoreAppDetail(identifier: app.identifier)) {
-                            VStack {
-                                Image(systemName: "app.fill").font(.system(size: 44))
-                                if labels { Text(app.name).lineLimit(2).font(.caption) }
-                                Text(app.isActive ? "Active" : "Inactive").font(.caption2)
+                            VStack(spacing: 4) {
+                                Image(systemName: "app.fill")
+                                    .font(.system(size: 44))
+                                    .foregroundColor(.accentColor)
+                                if labels { Text(app.name).lineLimit(2).font(.caption).foregroundColor(.primary) }
+                                Text(app.isActive ? "Active" : "Inactive")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundColor(app.isActive ? .green : .secondary)
                             }.frame(maxWidth: .infinity, minHeight: 88)
                         }.accessibilityLabel(app.name).contextMenu { V3AppActions(app: app) }
                     }
@@ -247,20 +313,51 @@ struct V3InstalledAppsSection: View {
             } else {
                 ForEach(apps) { app in
                     NavigationLink(destination: V3SideStoreAppDetail(identifier: app.identifier)) {
-                        HStack {
-                            Image(systemName: "app.fill").font(layout == .compactList ? .title2 : .largeTitle)
-                            VStack(alignment: .leading) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "app.fill")
+                                .font(layout == .compactList ? .title2 : .largeTitle)
+                                .foregroundColor(.accentColor)
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text(app.name)
-                                Text(app.version + " · " + (app.isActive ? "Active" : "Inactive")).font(.caption).foregroundColor(.secondary)
-                                if layout != .compactList, let expiration = app.expirationDate { Text("Expires " + expiration.formatted(date: .abbreviated, time: .omitted)).font(.caption) }
+                                    .font(.headline)
+                                    .foregroundColor(.primary)
+                                Text(app.version + " · " + app.bundleID)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                if layout != .compactList, let expiration = app.expirationDate {
+                                    Text("Expires " + expiration.formatted(date: .abbreviated, time: .omitted))
+                                        .font(.caption2)
+                                        .foregroundColor(Calendar.current.dateComponents([.day], from: Date(), to: expiration).day ?? 0 <= 2 ? .red : .orange)
+                                }
                             }
                             Spacer()
-                            if app.hasUpdate { Image(systemName: "arrow.down.circle") }
-                        }.padding(.vertical, layout == .compactList ? 4 : 12)
+                            VStack(alignment: .trailing, spacing: 4) {
+                                Text(app.isActive ? "Active" : "Inactive")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundColor(app.isActive ? .green : .secondary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill((app.isActive ? Color.green : Color.gray).opacity(0.15)))
+                                if app.hasUpdate {
+                                    Image(systemName: "arrow.down.circle.fill")
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                        }.padding(.vertical, layout == .compactList ? 4 : 8)
                     }.contextMenu { V3AppActions(app: app) }
                 }
             }
-            if apps.isEmpty { Text(status.loading ? "Loading apps…" : "No sideloaded apps").foregroundColor(.secondary) }
+            if apps.isEmpty {
+                HStack {
+                    Spacer()
+                    Text(status.loading ? "Loading apps…" : "No sideloaded apps")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+                .padding(.vertical, 8)
+            }
             Text("LiveContainer Guests").font(.headline).padding(.top)
         }.padding(.horizontal)
     }
@@ -297,14 +394,56 @@ struct V3SideStoreAppDetail: View {
     var body: some View {
         List {
             if let app {
+                Section {
+                    HStack(spacing: 16) {
+                        Image(systemName: "app.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.accentColor)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(app.name)
+                                .font(.title3.weight(.bold))
+                            Text(app.bundleID)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .textSelection(.enabled)
+                            Text("Version " + app.version)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
                 Section("Status") {
-                    Text(app.isActive ? "Active" : "Inactive"); Text("Certificate: " + app.certificateStatus.capitalized)
-                    if let expiration = app.expirationDate { Text("Expires " + expiration.formatted(date: .abbreviated, time: .shortened)) }
-                    Text("Version " + app.version); Text(app.bundleID).font(.caption).textSelection(.enabled)
+                    HStack {
+                        Label("State", systemImage: "circle.fill")
+                            .foregroundColor(app.isActive ? .green : .secondary)
+                        Spacer()
+                        Text(app.isActive ? "Active" : "Inactive")
+                            .foregroundColor(.secondary)
+                    }
+                    HStack {
+                        Label("Certificate", systemImage: "signature")
+                        Spacer()
+                        Text(app.certificateStatus.capitalized)
+                            .foregroundColor(.secondary)
+                    }
+                    if let expiration = app.expirationDate {
+                        HStack {
+                            Label("Expires", systemImage: "calendar.badge.clock")
+                            Spacer()
+                            Text(expiration.formatted(date: .abbreviated, time: .shortened))
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
                 Section("Actions") { V3AppActions(app: app) }
-            } else { Text("This app is no longer in the library.") }
-        }.navigationTitle(app?.name ?? "App")
+            } else {
+                Text("This app is no longer in the library.")
+                    .foregroundColor(.secondary)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle(app?.name ?? "App")
     }
 }
 
@@ -318,28 +457,83 @@ struct V3SourcesView: View {
         NavigationView {
             List {
                 Section("Add Source") {
-                    TextField("https://example.com/source.json", text: $status.sourceURL).keyboardType(.URL).autocapitalization(.none).disableAutocorrection(true)
-                    Button("Preview and Add Source") { status.perform("addSource", target: status.sourceURL, title: "Add source") }.disabled(status.sourceURL.isEmpty)
+                    HStack {
+                        Image(systemName: "link")
+                            .foregroundColor(.secondary)
+                        TextField("https://example.com/source.json", text: $status.sourceURL)
+                            .keyboardType(.URL)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                    }
+                    Button {
+                        status.perform("addSource", target: status.sourceURL, title: "Add Source")
+                    } label: {
+                        Label("Preview and Add Source", systemImage: "plus.circle.fill")
+                    }
+                    .disabled(status.sourceURL.isEmpty)
                 }
-                Section("Sources") {
+                Section("Sources (\(status.sources.count))") {
                     ForEach(status.sources) { source in
                         NavigationLink(destination: V3CatalogView(source: source)) {
-                            VStack(alignment: .leading) { Text(source.name); Text("\(source.appCount) apps").font(.caption).foregroundColor(.secondary) }
-                        }.contextMenu {
-                            if source.canRemove { Button("Remove Source", role: .destructive) { status.perform("removeSource", target: source.identifier, title: "Remove source") } }
+                            HStack(spacing: 12) {
+                                Image(systemName: "folder.fill")
+                                    .font(.title3)
+                                    .foregroundColor(.accentColor)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(source.name)
+                                        .font(.headline)
+                                    Text("\(source.appCount) apps")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        .contextMenu {
+                            if source.canRemove {
+                                Button(role: .destructive) {
+                                    status.perform("removeSource", target: source.identifier, title: "Remove source")
+                                } label: {
+                                    Label("Remove Source", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                 }
                 if !savedGuestSources.isEmpty {
                     Section("Previously Saved Guest Sources") {
                         ForEach(savedGuestSources, id: \.self) { url in
-                            Button(url) { status.sourceURL = url }
+                            Button {
+                                status.sourceURL = url
+                            } label: {
+                                HStack {
+                                    Image(systemName: "bookmark")
+                                        .foregroundColor(.secondary)
+                                    Text(url)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                            }
                         }
-                        Text("Select a saved URL to preview and add it to the unified catalog. Existing saved URLs are preserved.").font(.caption)
+                        Text("Select a saved URL to preview and add it to the unified catalog. Existing saved URLs are preserved.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
-            }.navigationTitle("Sources").toolbar { Button("Reload") { status.perform("refreshSources", title: "Update sources") } }
-        }.navigationViewStyle(StackNavigationViewStyle())
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Sources")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        status.refreshSources()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+            }
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
     }
 }
 
@@ -366,30 +560,116 @@ struct V3CatalogView: View {
     @State private var error: String?
     var body: some View {
         List {
-            if loading { ProgressView() }
-            if let error { Text(error); Button("Retry") { Task { await load() } } }
+            if loading {
+                HStack {
+                    Spacer()
+                    ProgressView("Loading catalog…")
+                    Spacer()
+                }
+                .padding()
+            }
+            if let error {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(error).font(.caption).foregroundColor(.red)
+                    Button("Retry") { Task { await load() } }
+                }
+            }
             ForEach(apps.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { app in
                 NavigationLink {
                     List {
-                        Section { Text(app.developer); Text(app.version); Text(app.description) }
                         Section {
-                            if let installed = status.installedApps.first(where: { $0.identifier == app.installedID }) { V3AppActions(app: installed) }
-                            else { Button("Install") { status.perform("install", target: app.id, title: "Install " + app.name) }.disabled(!app.canInstall) }
-                            Button("Install as LiveContainer Guest") {
+                            HStack(spacing: 16) {
+                                Image(systemName: "app.fill")
+                                    .font(.system(size: 48))
+                                    .foregroundColor(.accentColor)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(app.name)
+                                        .font(.title3.weight(.bold))
+                                    Text(app.developer)
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                    Text("Version " + app.version)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        
+                        if !app.description.isEmpty {
+                            Section("Description") {
+                                Text(app.description)
+                                    .font(.body)
+                            }
+                        }
+                        
+                        Section("Actions") {
+                            if let installed = status.installedApps.first(where: { $0.identifier == app.installedID }) {
+                                V3AppActions(app: installed)
+                            } else {
+                                Button {
+                                    status.perform("install", target: app.id, title: "Install " + app.name)
+                                } label: {
+                                    Label("Install with SideStore", systemImage: "arrow.down.app.fill")
+                                }
+                                .disabled(!app.canInstall)
+                            }
+                            Button {
                                 var link = URLComponents()
-                                link.scheme = "livecontainer"; link.host = "install"
+                                link.scheme = "livecontainer"
+                                link.host = "install"
                                 link.queryItems = [URLQueryItem(name: "url", value: app.downloadURL)]
                                 sharedModel.deepLink = link.url
                                 sharedModel.selectedTab = .apps
-                            }.disabled(!app.canInstall || app.downloadURL.isEmpty)
+                            } label: {
+                                Label("Install as LiveContainer Guest", systemImage: "square.stack.3d.up")
+                            }
+                            .disabled(!app.canInstall || app.downloadURL.isEmpty)
                         }
-                    }.navigationTitle(app.name)
-                } label: { VStack(alignment: .leading) { Text(app.name); Text(app.version).font(.caption) } }
+                    }
+                    .listStyle(.insetGrouped)
+                    .navigationTitle(app.name)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "app.fill")
+                            .font(.title2)
+                            .foregroundColor(.accentColor)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(app.name)
+                                .font(.headline)
+                            Text(app.developer + (app.version.isEmpty ? "" : " · v" + app.version))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        if status.installedApps.contains(where: { $0.identifier == app.installedID }) {
+                            Text("Installed")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Capsule().fill(Color(UIColor.secondarySystemFill)))
+                        } else if app.canInstall {
+                            Text("GET")
+                                .font(.caption.weight(.bold))
+                                .foregroundColor(.accentColor)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 4)
+                                .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
             }
-        }.navigationTitle(source.name).searchable(text: $query).task { await load() }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle(source.name)
+        .searchable(text: $query, prompt: "Search apps in " + source.name)
+        .task { await load() }
     }
     private func load() async {
-        loading = true; error = nil
+        loading = true
+        error = nil
         defer { loading = false }
         do {
             var cursor = 0
@@ -412,43 +692,121 @@ struct V3AccountSettings: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     var body: some View {
         Section("Account and Signing") {
-            Text(status.account); Text(status.team); Text(status.signing)
-            Text(status.certificate)
-            if let date = status.certificateExpiration { Text("Certificate expires " + date.formatted(date: .abbreviated, time: .shortened)) }
-            ForEach(status.installedApps.filter { $0.isHost }) { app in
-                Text("Certificate: " + app.certificateStatus.capitalized)
-                if let date = app.expirationDate { Text("Host expires " + date.formatted(date: .abbreviated, time: .shortened)) }
+            HStack {
+                Label("Apple ID", systemImage: "person.crop.circle.fill")
+                Spacer()
+                Text(status.account)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
             }
-            Button("Sign In / Authenticate") { status.perform("signIn", title: "Account and signing") }
-            Button("Sync App IDs") { status.perform("syncAppIDs", title: "Sync App IDs") }
-            panel("Certificates", "certificates")
-            panel("Developer Services", "developerServices")
-            Button("Sign Out", role: .destructive) { status.perform("signOut", title: "Sign out") }
+            HStack {
+                Label("Team", systemImage: "person.2.fill")
+                Spacer()
+                Text(status.team)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            HStack {
+                Label("Signing", systemImage: "signature")
+                Spacer()
+                Text(status.signing)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            if let date = status.certificateExpiration {
+                HStack {
+                    Label("Certificate", systemImage: "doc.plaintext")
+                    Spacer()
+                    Text("Expires " + date.formatted(date: .abbreviated, time: .shortened))
+                        .foregroundColor(.secondary)
+                }
+            }
+            ForEach(status.installedApps.filter { $0.isHost }) { app in
+                HStack {
+                    Label("Host App", systemImage: "app.badge.fill")
+                    Spacer()
+                    Text(app.certificateStatus.capitalized + (app.expirationDate.map { " (exp " + $0.formatted(date: .abbreviated, time: .omitted) + ")" } ?? ""))
+                        .foregroundColor(.secondary)
+                }
+            }
+            Button {
+                status.perform("signIn", title: "Sign In")
+            } label: {
+                Label("Sign In / Re-authenticate", systemImage: "person.badge.key.fill")
+            }
+            Button {
+                status.syncAppIDs()
+            } label: {
+                Label("Sync App IDs", systemImage: "arrow.triangle.2.circlepath")
+            }
+            panel("Certificates", "certificates", icon: "doc.text")
+            panel("Developer Services", "developerServices", icon: "wrench.and.screwdriver")
+            Button(role: .destructive) {
+                status.signOut()
+            } label: {
+                Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+            }
         }
+        
         Section("SideStore") {
-            Text(status.pairing)
-            Button("Import Pairing File") { status.perform("importPairing", title: "Import pairing file") }
-            panel("Connection", "connection"); panel("Anisette Servers", "anisette")
-            panel("SideSign Configuration", "sideSign")
-            panel("Installation and Signing Options", "customizations")
-            panel("Health Check", "health"); panel("SideStore Backups", "backups")
-            panel("SideJIT Server", "sideJIT")
-            setting("Beta updates", "betaUpdates"); setting("Disable idle timeout", "idleTimeoutDisabled")
-            panel("Update Channel", "releaseTrack")
-            panel("SideStore Diagnostics", "diagnostics")
-            panel("Operation Logs", "logs")
-            panel("Experimental Features", "experimental")
-            Button("Clear Download Cache") { status.perform("clearCache", title: "Clear download cache") }
+            HStack {
+                Label("Pairing Status", systemImage: "link")
+                Spacer()
+                Text(status.pairing)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Button {
+                status.perform("importPairing", title: "Import Pairing File")
+            } label: {
+                Label("Import Pairing File", systemImage: "doc.badge.plus")
+            }
+            panel("Connection", "connection", icon: "network")
+            panel("Anisette Servers", "anisette", icon: "server.rack")
+            panel("SideSign Configuration", "sideSign", icon: "pencil.and.outline")
+            panel("Installation and Signing Options", "customizations", icon: "slider.horizontal.3")
+            panel("Health Check", "health", icon: "heart.text.square")
+            panel("SideStore Backups", "backups", icon: "archivebox")
+            panel("SideJIT Server", "sideJIT", icon: "bolt.fill")
+            setting("Beta updates", "betaUpdates", icon: "sparkles")
+            setting("Disable idle timeout", "idleTimeoutDisabled", icon: "timer")
+            panel("Update Channel", "releaseTrack", icon: "arrow.triangle.merge")
+            panel("SideStore Diagnostics", "diagnostics", icon: "waveform.path.ecg")
+            panel("Operation Logs", "logs", icon: "doc.text.magnifyingglass")
+            panel("Experimental Features", "experimental", icon: "flask")
+            Button {
+                status.clearCache()
+            } label: {
+                Label("Clear Download Cache", systemImage: "trash")
+            }
         }
+        
         Section("Guest Runtime") {
-            NavigationLink("Tweaks", destination: LCTweaksView())
+            NavigationLink {
+                LCTweaksView()
+            } label: {
+                Label("Tweaks", systemImage: "slider.vertical.3")
+            }
         }
     }
-    private func panel(_ title: String, _ key: String) -> some View {
-        Button(title) { status.perform("panel", target: key, title: title) }
+    private func panel(_ title: String, _ key: String, icon: String) -> some View {
+        Button {
+            status.perform("panel", target: key, title: title)
+        } label: {
+            HStack {
+                Label(title, systemImage: icon)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
     }
-    private func setting(_ title: String, _ key: String) -> some View {
-        Toggle(title, isOn: Binding(get: { status.settings[key] ?? false }, set: { status.perform("setSetting", target: key, title: title, value: $0) })).disabled(status.isStale)
+    private func setting(_ title: String, _ key: String, icon: String) -> some View {
+        Toggle(isOn: Binding(get: { status.settings[key] ?? false }, set: { status.perform("setSetting", target: key, title: title, value: $0) })) {
+            Label(title, systemImage: icon)
+        }
+        .disabled(status.isStale)
     }
 }
 
@@ -457,9 +815,19 @@ struct V3TargetedRefreshSection: View {
     var body: some View {
         if let target = status.refreshTarget, let app = status.installedApps.first(where: { $0.identifier == target }) {
             Section("Selected App") {
-                Text(app.name)
-                if let date = app.expirationDate { Text("Expires " + date.formatted(date: .abbreviated, time: .shortened)) }
-                Button("Refresh " + app.name) { status.perform("refreshApp", target: target, title: "Refresh " + app.name) }
+                HStack {
+                    Label(app.name, systemImage: "app.fill")
+                    Spacer()
+                    if let date = app.expirationDate {
+                        Text("Expires " + date.formatted(date: .abbreviated, time: .shortened))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Button {
+                    status.perform("refreshApp", target: target, title: "Refresh " + app.name)
+                } label: {
+                    Label("Refresh " + app.name, systemImage: "arrow.clockwise")
+                }
                 Button("Clear Selection") { status.refreshTarget = nil }
             }
         }
@@ -477,27 +845,97 @@ struct V3OperationSheet: View {
     @State private var started = false
     var body: some View {
         NavigationView {
-            VStack {
-                if !started { Text(request.title).padding(); Button("Continue") { start() }.disabled(!ready) }
-                else { ProgressView("Working…").padding() }
+            ZStack {
+                Color(UIColor.systemBackground).ignoresSafeArea()
+                if #available(iOS 16.0, *), pid > 0 {
+                    V3RemoteServiceView(pid: pid, ready: $ready)
+                        .ignoresSafeArea(.keyboard, edges: .bottom)
+                } else if pid == 0 && message.isEmpty {
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Text("Connecting to SideStore…")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                } else if #available(iOS 16.0, *) {} else {
+                    Text("Interactive SideStore operations require iOS 16 or later.")
+                        .foregroundColor(.secondary)
+                }
+                
                 if !message.isEmpty {
-                    Text(message).padding().textSelection(.enabled)
-                    Button("Copy Diagnostics") { UIPasteboard.general.string = message }
+                    VStack {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.orange)
+                                Text("Operation Notice")
+                                    .font(.headline)
+                                Spacer()
+                                Button {
+                                    message = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            Text(message)
+                                .font(.footnote)
+                                .textSelection(.enabled)
+                            HStack {
+                                Button("Copy Diagnostics") {
+                                    UIPasteboard.general.string = message
+                                }
+                                .font(.caption)
+                                Spacer()
+                                Button("Retry") {
+                                    message = ""
+                                    start()
+                                }
+                                .font(.caption)
+                                .buttonStyle(.borderedProminent)
+                            }
+                        }
+                        .padding()
+                        .background(RoundedRectangle(cornerRadius: 14).fill(Color(UIColor.secondarySystemGroupedBackground)))
+                        .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                        Spacer()
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
-                if #available(iOS 16.0, *), pid > 0 { V3RemoteServiceView(pid: pid, ready: $ready) }
-                else { Text("Interactive SideStore operations require iOS 16 or later.") }
-            }.navigationTitle(request.title)
-                .toolbar { Button(started ? "Cancel" : "Close") { task?.cancel(); dismiss() } }
-                .task {
-                    do { try await V3ServiceBridge.shared.connect(); pid = V3ServiceBridge.shared.processID }
-                    catch { message = error.localizedDescription }
-                }
-        }.navigationViewStyle(StackNavigationViewStyle()).interactiveDismissDisabled(started)
-            .onDisappear {
-                task?.cancel()
-                if request.operation == "installSharedIPA" { LCUtils.appGroupUserDefault.removeObject(forKey: "V3SharedIPA." + request.target) }
-                status.reload()
             }
+            .navigationTitle(request.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        task?.cancel()
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
+        .task {
+            do {
+                try await V3ServiceBridge.shared.connect()
+                pid = V3ServiceBridge.shared.processID
+                if !started {
+                    start()
+                }
+            } catch {
+                message = error.localizedDescription
+            }
+        }
+        .onDisappear {
+            task?.cancel()
+            if request.operation == "installSharedIPA" {
+                LCUtils.appGroupUserDefault.removeObject(forKey: "V3SharedIPA." + request.target)
+            }
+            status.reload()
+        }
     }
     private func start() {
         started = true
@@ -507,7 +945,8 @@ struct V3OperationSheet: View {
                 recordRefresh("completed", "SideStore completed the selected app's refresh. Check its current expiration above.")
                 dismiss()
             } catch {
-                message = error.localizedDescription; started = false
+                message = error.localizedDescription
+                started = false
                 recordRefresh("failed", message)
             }
         }
@@ -545,30 +984,204 @@ private struct V3HomeView: View {
     var body: some View {
         NavigationView {
             List {
-                Section("Status") {
-                    Label("\(sharedModel.apps.count) LiveContainer guests", systemImage: "rectangle.stack.fill")
-                    Label("\(status.installedAppCount) sideloaded apps", systemImage: "app.badge")
-                    Text(status.account); Text(status.team); Text(status.signing); Text(status.certificate); Text(status.pairing)
-                    Text(status.isStale ? "SideStore status is out of date" : "SideStore connected").foregroundColor(.secondary)
-                    if let date = status.installedApps.filter({ $0.isActive }).compactMap(\.expirationDate).min() { Text("Next expiration: " + date.formatted(date: .abbreviated, time: .shortened)) }
-                    Button("Reload Status") { status.reload() }
+                Section {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "shippingbox.circle.fill")
+                                .font(.system(size: 38))
+                                .foregroundColor(.accentColor)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("LiveContainer + SideStore")
+                                    .font(.headline)
+                                HStack(spacing: 6) {
+                                    Circle()
+                                        .fill(status.connected ? Color.green : (status.loading ? Color.orange : Color.gray))
+                                        .frame(width: 8, height: 8)
+                                    Text(status.connected ? "Active & Connected" : (status.loading ? "Connecting…" : "Not Connected"))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Button {
+                                status.reload()
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            .buttonStyle(.bordered)
+                            .buttonBorderShape(.capsule)
+                            .disabled(status.loading)
+                        }
+                        
+                        Divider()
+                        
+                        HStack(spacing: 0) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(sharedModel.apps.count)")
+                                    .font(.title2.weight(.bold))
+                                Text("Guests")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            
+                            Divider().frame(height: 28)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(status.installedAppCount)")
+                                    .font(.title2.weight(.bold))
+                                Text("Sideloaded")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, 12)
+                            
+                            Divider().frame(height: 28)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let date = status.installedApps.filter({ $0.isActive }).compactMap(\.expirationDate).min() {
+                                    Text(date, style: .relative)
+                                        .font(.callout.weight(.bold))
+                                        .foregroundColor(Calendar.current.dateComponents([.day], from: Date(), to: date).day ?? 0 <= 2 ? .red : .orange)
+                                    Text("Next Expiry")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Text("—")
+                                        .font(.title2.weight(.bold))
+                                    Text("Next Expiry")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, 12)
+                        }
+                    }
+                    .padding(.vertical, 4)
                 }
-                Section("Refresh") {
-                    Text(refreshState.replacingOccurrences(of: "_", with: " ").capitalized)
-                    if let date = defaults?.object(forKey: "liveContainerAutoRefreshLastSuccessfulRefresh") as? Date { Text("Last verified run: " + date.formatted(date: .abbreviated, time: .shortened)) }
-                    if let date = defaults?.object(forKey: "liveContainerAutoRefreshTargetDeadline") as? Date { Text("Refresh deadline: " + date.formatted(date: .abbreviated, time: .shortened)) }
-                    if let error = defaults?.string(forKey: "liveContainerAutoRefreshLastError"), !error.isEmpty { Text(error).font(.caption).foregroundColor(.red) }
-                    Text(MultitaskManager.isMultitasking() ? "LiveProcess guests are running" : "No LiveProcess guests are running").font(.caption)
-                    Text("Refresh requires Wi-Fi and LocalDevVPN.").font(.caption)
-                    Button("Refresh and Schedule") { sharedModel.selectedTab = .refresh }
+                
+                Section("Status & Identity") {
+                    HStack {
+                        Label("Apple ID", systemImage: "person.crop.circle")
+                        Spacer()
+                        Text(status.account)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    HStack {
+                        Label("Developer Team", systemImage: "person.2")
+                        Spacer()
+                        Text(status.team)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    HStack {
+                        Label("Signing Status", systemImage: "signature")
+                        Spacer()
+                        Text(status.signing)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    HStack {
+                        Label("Pairing Status", systemImage: "link")
+                        Spacer()
+                        Text(status.pairing)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    if let date = status.certificateExpiration {
+                        HStack {
+                            Label("Certificate Expiry", systemImage: "calendar.badge.clock")
+                            Spacer()
+                            Text(date.formatted(date: .abbreviated, time: .shortened))
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
+                
+                Section("Background Refresh") {
+                    HStack {
+                        Label("Daemon Health", systemImage: "bolt.badge.clock")
+                        Spacer()
+                        Text(refreshState.replacingOccurrences(of: "_", with: " ").capitalized)
+                            .foregroundColor(.secondary)
+                    }
+                    if let date = defaults?.object(forKey: "liveContainerAutoRefreshLastSuccessfulRefresh") as? Date {
+                        HStack {
+                            Label("Last Verified Run", systemImage: "checkmark.circle")
+                            Spacer()
+                            Text(date.formatted(date: .abbreviated, time: .shortened))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    if let date = defaults?.object(forKey: "liveContainerAutoRefreshTargetDeadline") as? Date {
+                        HStack {
+                            Label("Refresh Deadline", systemImage: "hourglass")
+                            Spacer()
+                            Text(date.formatted(date: .abbreviated, time: .shortened))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    if let error = defaults?.string(forKey: "liveContainerAutoRefreshLastError"), !error.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Last Refresh Warning", systemImage: "exclamationmark.triangle")
+                                .foregroundColor(.red)
+                                .font(.caption)
+                            Text(error)
+                                .font(.caption2)
+                                .foregroundColor(.red)
+                        }
+                    }
+                    Button {
+                        sharedModel.selectedTab = .refresh
+                    } label: {
+                        Label("Open Refresh Manager", systemImage: "arrow.clockwise")
+                    }
+                }
+                
                 Section("Quick Actions") {
-                    Button("Open Apps") { sharedModel.selectedTab = .apps }
-                    Button("Browse Sources") { sharedModel.selectedTab = .sources }
-                    Button("Account and Settings") { sharedModel.selectedTab = .settings }
+                    Button {
+                        sharedModel.selectedTab = .apps
+                    } label: {
+                        HStack {
+                            Label("Manage Installed Apps", systemImage: "square.stack.3d.up.fill")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    Button {
+                        sharedModel.selectedTab = .sources
+                    } label: {
+                        HStack {
+                            Label("Browse App Sources", systemImage: "books.vertical.fill")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    Button {
+                        sharedModel.selectedTab = .settings
+                    } label: {
+                        HStack {
+                            Label("SideStore & Account Settings", systemImage: "gearshape.fill")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
-            }.navigationTitle("Home")
-        }.navigationViewStyle(StackNavigationViewStyle())
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Home")
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
     }
 }
 // V3_UNIFIED_SHELL_V1_END
