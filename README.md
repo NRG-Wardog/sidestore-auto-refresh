@@ -20,18 +20,18 @@ That transport change is the reason this fork exists. The scheduling controls, v
 
 ### What I changed
 
-The project started from one practical problem: **the normal SideStore refresh path did not work reliably on my setup.** I kept SideStore's signing, account flow, and LocalDevVPN model, and changed the route used to reach the device services.
+The original SideStore refresh path did not work reliably on my setup, so I kept SideStore's signing, account flow, and LocalDevVPN model and changed the transport route used to reach the device.
 
-| Original path / behavior | This fork | Why I changed it |
-| --- | --- | --- |
-| Lockdown services use a direct TCP provider | **Lockdown -> CoreDeviceProxy -> CDTunnel -> RSD** | The direct path was the part that failed on my setup |
-| Lockdown local-VPN readiness on iOS 26.4+ expects IKEv2/IPsec | Uses the official **LocalDevVPN `utun` + CoreDevice** path | No second IKEv2/IPsec tunnel is needed for this route |
-| Composite pairing files prefer RemotePairing first | Prefer valid **Lockdown** data | Keeps same-device refresh on the CoreDevice route |
-| Background refresh follows the upstream scheduling behavior | Adds **six-hour, daily, and weekly** schedules, preferred time, notifications, and history | Gives more control before the 7-day signing window expires |
-| Connection failures can be difficult to distinguish | Adds stage-specific transport errors and run verification | Makes it clear whether failure is VPN, CoreDevice, RSD, Lockdown, signing, or another stage |
-| LiveContainer + SideStore still exposes separate flows | v3 uses one **Home / Apps / Sources / Refresh / Settings** interface | Removes unnecessary switching while SideStore still owns signing, authentication, sources, and its database |
+| Upstream / original | This project |
+| --- | --- |
+| Lockdown services use a direct TCP provider | **Lockdown -> CoreDeviceProxy -> CDTunnel -> RSD** |
+| Lockdown local-VPN readiness on iOS 26.4+ expects IKEv2/IPsec | Uses the official **LocalDevVPN `utun` + CoreDevice** path, without a second IKEv2/IPsec tunnel |
+| Composite pairing files prefer RemotePairing first | Prefers valid **Lockdown** data so the CoreDevice route is selected |
+| SideStore already has background refresh | Adds explicit **six-hour, daily, and weekly** schedules, preferred time, notifications, history, and verification |
+| Connection failures can be difficult to separate | Keeps VPN, CoreDevice, RSD, Lockdown, signing, and other failures distinguishable |
+| LiveContainer already ships a combined SideStore build | v3 presents **Home / Apps / Sources / Refresh / Settings** as one interface instead of normal use feeling like two apps |
 
-**What I did not replace:** SideStore's signing model, Apple-account flow, SideSign, or the official LocalDevVPN app. The main change is the transport route, with scheduling, verification, diagnostics, and the unified v3 interface added around it.
+SideStore's signing model, Apple-account flow, SideSign, and the official LocalDevVPN app remain upstream-owned. The main project-specific change is the transport route, with scheduling, diagnostics, verification, and the unified v3 UI built around it.
 
 <details>
 <summary><strong>Exact transport difference</strong></summary>
