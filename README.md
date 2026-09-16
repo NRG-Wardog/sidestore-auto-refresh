@@ -10,73 +10,49 @@ An independent, open-source build based on **SideStore** and **LiveContainer**, 
 The recommended combined build is **v3.0.0**, which unifies LiveContainer and SideStore in one interface. **Standalone SideStore v1** remains available, and **combined v2** is the previous interface line. A computer is needed for the initial install and pairing setup. After that, the stable refresh path is designed to run on the iPhone without keeping the computer connected.
 
 
-## Why this fork exists
+## Why this project exists
 
-I started this project because the original SideStore refresh path did not work reliably on my setup. **SideStore already supported on-device/background refresh and already used LocalDevVPN; the part I changed was the transport path used after the local VPN is up.**
+I built this project because the stock SideStore refresh path was not reliable on my setup. The key fix was not another shortcut or trigger around the same flow; it was changing the same-device transport used to reach the iPhone's device services.
 
-For the upstream code checked on **September 16, 2026**, SideStore `develop` uses minimuxer `20248550bbe014805460d4fa22ea69f146d338a0`. In Lockdown mode, that code still routes service calls through a direct TCP provider, and its local-VPN readiness check requires an IKEv2/IPsec interface on iOS 26.4+. This project instead prefers a valid Lockdown record when a pairing file contains both formats, accepts the LocalDevVPN `utun` route for the CoreDevice path, then establishes a CoreDevice tunnel and reaches device services through RSD.
+The stable route used here is:
 
-That transport change is the reason this fork exists. The scheduling controls, verification/history, diagnostics, layout options, Guest Return controls, and the v3 unified UI were added later on top of it.
+```text
+official LocalDevVPN -> Lockdown -> CoreDeviceProxy TLS -> CDTunnel -> RSD -> AFC / InstallationProxy
+```
 
-### What I changed
+Once that route was working, the project grew into a more complete LiveContainer + SideStore experience: explicit refresh scheduling, history and verification, stage-specific diagnostics, layout choices, Guest Return controls, and the unified v3 interface.
 
-The original SideStore refresh path did not work reliably on my setup, so I kept SideStore's signing, account flow, and LocalDevVPN model and changed the transport route used to reach the device.
+### What this project improves
 
-| Upstream / original | This project |
+| Area | What this project provides |
 | --- | --- |
-| Lockdown services use a direct TCP provider | **Lockdown -> CoreDeviceProxy -> CDTunnel -> RSD** |
-| Lockdown local-VPN readiness on iOS 26.4+ expects IKEv2/IPsec | Uses the official **LocalDevVPN `utun` + CoreDevice** path, without a second IKEv2/IPsec tunnel |
-| Composite pairing files prefer RemotePairing first | Prefers valid **Lockdown** data so the CoreDevice route is selected |
-| SideStore already has background refresh | Adds explicit **six-hour, daily, and weekly** schedules, preferred time, notifications, history, and verification |
-| Connection failures can be difficult to separate | Keeps VPN, CoreDevice, RSD, Lockdown, signing, and other failures distinguishable |
-| LiveContainer already ships a combined SideStore build | v3 presents **Home / Apps / Sources / Refresh / Settings** as one interface instead of normal use feeling like two apps |
-
-SideStore's signing model, Apple-account flow, SideSign, and the official LocalDevVPN app remain upstream-owned. The main project-specific change is the transport route, with scheduling, diagnostics, verification, and the unified v3 UI built around it.
-
-<details>
-<summary><strong>Exact transport difference</strong></summary>
-
-**Upstream Lockdown path in the code checked above**
-
-```text
-SideStore
-    -> LocalDevVPN / utun
-    -> selected peer IP
-    -> direct TCP provider
-    -> Lockdown / AFC / InstallationProxy service calls
-```
-
-**This project's stable Lockdown/CoreDevice path**
-
-```text
-SideStore
-    -> official LocalDevVPN on the current Wi-Fi subnet
-    -> Lockdown pairing record
-    -> TCP provider to the LocalDevVPN peer
-    -> CoreDeviceProxy TLS
-    -> CDTunnel
-    -> userspace IPv6 adapter
-    -> RSD
-    -> Lockdown / AFC / InstallationProxy service calls
-```
-
-The LocalDevVPN **Tunnel IP** and **Device/Peer IP** are two virtual addresses used by this route. They must be different, unused addresses inside the iPhone's current Wi-Fi subnet; they are not the iPhone's own Wi-Fi IP or the router's IP.
-
-</details>
+| **Reliable same-device transport** | Replaces the Lockdown service route that failed on my setup with the **LocalDevVPN -> CoreDevice -> RSD** path used by this project |
+| **A real unified LiveContainer + SideStore experience** | v3 keeps LiveContainer as the host and exposes SideStore through a bounded service interface, so normal use stays inside **Home / Apps / Sources / Refresh / Settings** instead of jumping into a separate embedded SideStore flow |
+| **Explicit refresh automation** | User-controlled **six-hour, daily, and weekly** schedules, preferred time, notifications, deadline awareness, and persistent history |
+| **Verified refresh results** | Correlates each run with its actual result, so a task starting, a handoff occurring, or a request being sent is not reported as a successful refresh by itself |
+| **Useful diagnostics** | Keeps VPN, CoreDevice, heartbeat, RSD, Lockdown, signing, and installation failures distinguishable instead of collapsing unrelated failures into one generic message |
+| **Better app browsing** | Adds **List, Grid, and Compact List**, persistent layout preferences, and optional Grid labels; these project-specific layout controls are not present in the upstream LiveContainer app list checked for this comparison |
+| **Better guest navigation** | Adds the project-specific **Return** control, **Start Collapsed**, saved position, and custom icon/background colors for fullscreen/direct guest flows |
+| **PC-free refresh runtime after setup** | A computer is still used for initial installation and pairing, but the supported refresh path is designed to operate on the iPhone with Wi-Fi + the official LocalDevVPN and without leaving the PC connected |
 
 <details>
-<summary><strong>What is inherited, and what is project-specific?</strong></summary>
+<summary><strong>Technical comparison with upstream</strong></summary>
 
-**Inherited from upstream:** SideStore's app/signing model, Apple-account flow, periodic refresh concept, LocalDevVPN concept, minimuxer, the underlying idevice/CoreDevice components, and LiveContainer's existing combined build and guest runtime.
+This is the source-level difference behind the product behavior above:
 
-**Project-specific work:** selecting and adapting the Lockdown/CoreDevice route above, transport reliability patches, explicit scheduling/history/verification, structured transport diagnostics, Guest Return additions, app-layout choices, and the v3 unified host/service UX.
+| Area | Upstream code checked | This project |
+| --- | --- | --- |
+| Lockdown service route | Direct TCP provider for Lockdown service calls | **CoreDeviceProxy TLS -> CDTunnel -> userspace IPv6 -> RSD** |
+| Local-VPN readiness on iOS 26.4+ | Lockdown local-VPN readiness checks for an IKEv2/IPsec interface | The CoreDevice route uses the official LocalDevVPN `utun` path without requiring a second IKEv2/IPsec tunnel |
+| Composite pairing file | RemotePairing keys are checked before Lockdown keys | Valid **Lockdown** data is preferred so the CoreDevice route is selected |
+| Combined LC + SS navigation | Current LiveContainer code opens/selects a built-in SideStore flow through `openSideStore` / `builtinSideStore` | v3 routes normal SideStore operations through the unified host UI and service bridge instead of switching the user into the embedded SideStore UI |
 
-This repository does not claim to have invented SideStore, LiveContainer, LocalDevVPN, RSD, or CoreDevice. It changes how those pieces are wired and validated for this use case.
+SideStore's own README describes periodic background refresh. The improvement here is not a claim that background refresh never existed; it is the combination of the changed transport route with explicit schedules, observability, history, verification, and failure handling.
 
 </details>
 
 > [!NOTE]
-> **Comparison basis:** upstream SideStore `develop` at `797e0d46c46491c7fba1192c789c016d24b35591` with minimuxer `20248550bbe014805460d4fa22ea69f146d338a0`, checked September 16, 2026. The published v3.0.0 package is pinned separately; upstream behavior can change after this comparison.
+> **Comparison basis:** upstream SideStore `develop` at `797e0d46c46491c7fba1192c789c016d24b35591`, minimuxer `20248550bbe014805460d4fa22ea69f146d338a0`, and LiveContainer source checked on September 16, 2026. Upstream can change after this snapshot.
 
 > [!IMPORTANT]
 > The current stable refresh path requires **Wi-Fi + the official App Store LocalDevVPN**. Cellular-only refresh is experimental and is not part of the stable release.
@@ -139,7 +115,7 @@ These screenshots show the earlier standalone SideStore v1.0.2 interface. The cu
 
 ## Quick navigation
 
-- [Why this fork exists](#why-this-fork-exists)
+- [Why this project exists](#why-this-project-exists)
 - [Choose a build](#which-version-should-i-download)
 - [What is different from the original projects?](#how-this-project-differs-from-the-original-projects)
 - [Recommended installer](#recommended-installer)
@@ -219,12 +195,9 @@ The release still includes manual refresh, scheduled refresh, refresh history, v
 
 ## How this project differs from the original projects
 
-The detailed source-checked comparison is now near the top of this README under **Why this fork exists**. Two attribution points are especially important:
+SideStore and LiveContainer are the upstream foundations; this repository turns them into a different end-to-end experience for this use case. The main advantages are the **CoreDevice/RSD refresh route**, the **unified v3 LiveContainer + SideStore workflow**, explicit scheduling and history, run-level verification, structured diagnostics, and the additional app/guest UI controls described above.
 
-- **Upstream SideStore already supports sideloading and periodic background refresh, and already uses LocalDevVPN.**
-- **Upstream LiveContainer already provides a LiveContainer + SideStore build.**
-
-The defining transport change in this repository is the Lockdown/CoreDevice/RSD route described above. Scheduling, verification, diagnostics, guest controls, layout options, and the unified v3 experience are additional project layers around that transport.
+For the exact source-level differences, expand **Technical comparison with upstream** near the top of this README.
 
 ### What this project does not change
 
