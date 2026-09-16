@@ -9,6 +9,12 @@ An independent, open-source build based on **SideStore** and **LiveContainer**, 
 
 The recommended combined build is **v3.0.0**, which unifies LiveContainer and SideStore in one interface. **Standalone SideStore v1** remains available, and **combined v2** is the previous interface line. A computer is needed for the initial install and pairing setup. After that, the stable refresh path is designed to run on the iPhone without keeping the computer connected.
 
+> [!IMPORTANT]
+> The current stable refresh path requires **Wi-Fi + the official App Store LocalDevVPN**. Cellular-only refresh is experimental and is not part of the stable release.
+
+> [!NOTE]
+> This is not an official SideStore or LiveContainer release. For stock behavior and upstream support, use the official [SideStore](https://github.com/SideStore/SideStore) and [LiveContainer](https://github.com/LiveContainer/LiveContainer) projects.
+
 
 ## Why this project exists
 
@@ -48,6 +54,8 @@ This is the source-level difference behind the product behavior above:
 | Combined LC + SS navigation | Current LiveContainer code opens/selects a built-in SideStore flow through `openSideStore` / `builtinSideStore` | v3 routes normal SideStore operations through the unified host UI and service bridge instead of switching the user into the embedded SideStore UI |
 
 SideStore's own README describes periodic background refresh. The improvement here is not a claim that background refresh never existed; it is the combination of the changed transport route with explicit schedules, observability, history, verification, and failure handling.
+
+_Comparison basis: upstream SideStore `develop` at `797e0d46c46491c7fba1192c789c016d24b35591`, minimuxer `20248550bbe014805460d4fa22ea69f146d338a0`, and LiveContainer source checked on September 16, 2026. Upstream can change after this snapshot._
 
 </details>
 
@@ -286,15 +294,6 @@ Check these first, in order:
 
 For deeper troubleshooting, see [Troubleshooting](#troubleshooting) and [Verification](docs/VERIFICATION.md).
 
-> [!NOTE]
-> **Comparison basis:** upstream SideStore `develop` at `797e0d46c46491c7fba1192c789c016d24b35591`, minimuxer `20248550bbe014805460d4fa22ea69f146d338a0`, and LiveContainer source checked on September 16, 2026. Upstream can change after this snapshot.
-
-> [!IMPORTANT]
-> The current stable refresh path requires **Wi-Fi + the official App Store LocalDevVPN**. Cellular-only refresh is experimental and is not part of the stable release.
-
-> [!NOTE]
-> This is not an official SideStore or LiveContainer release. For stock behavior and upstream support, use the official [SideStore](https://github.com/SideStore/SideStore) and [LiveContainer](https://github.com/LiveContainer/LiveContainer) projects.
-
 ## What is this?
 
 **v3 brings Home, Apps, Sources, Refresh, and Settings into one app experience.** You no longer need to switch between LiveContainer and the old embedded SideStore interface for normal operations. LocalDevVPN remains a separate app used by the refresh transport.
@@ -354,9 +353,7 @@ These screenshots show the earlier standalone SideStore v1.0.2 interface. The cu
 - [Choose a build](#which-version-should-i-download)
 - [What is different from the original projects?](#how-this-project-differs-from-the-original-projects)
 - [Installation](#installation)
-- [Unified setup (v3)](#unified-setup-v3)
-- [Previous combined setup (v2)](#combined-setup-v2)
-- [Standalone setup](#standalone-setup-v1)
+- [Previous product lines](#previous-product-lines)
 - [Troubleshooting](#troubleshooting)
 - [Technical architecture](#technical-architecture)
 
@@ -444,284 +441,17 @@ For the exact source-level differences, expand **Technical comparison with upstr
 
 Because the combined build modifies LiveContainer and contains embedded SideStore code, use the same trust model you would use for any modified LiveContainer build. This repository is open source, and you can [build it yourself](#build-it-yourself) if you prefer to verify the build path personally.
 
-## Setup at a glance
+## Previous product lines
 
-```text
-Choose unified v3, standalone v1, or previous combined v2
-    -> install iLoader
-    -> connect and trust the iPhone
-    -> Import IPA
-    -> trust the sideloaded app
-    -> enable Developer Mode
-    -> place pairing data with iLoader
-    -> install and configure LocalDevVPN
-    -> run one manual refresh
-    -> enable automatic refresh
-```
+The main [Installation](#installation) guide above is written for the recommended **v3.0.0** build.
 
-## Recommended installer
+### Combined v2.1.1
 
-For beginners, the recommended example installer is **[iLoader](https://github.com/nab138/iloader/releases/latest)**.
+Use the [v2.1.1 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.1) only if you specifically want the previous combined interface. Open LiveContainer, enter the embedded SideStore flow, run one manual refresh first, and enable automation only after that manual refresh succeeds.
 
-Official project: [github.com/nab138/iloader](https://github.com/nab138/iloader)
+### Standalone SideStore v1.0.4
 
-Use **iLoader 2.3.1 or newer** for current SideStore / LiveContainer installation flows.
-
-It is a good fit because it can:
-
-- import and sign a custom IPA
-- detect and select the connected iPhone
-- manage pairing data
-- place pairing files into supported SideStore-compatible apps
-- run on Windows, macOS, and Linux
-
-The important point is to use **Import IPA** with the IPA downloaded from this repository. iLoader also offers built-in upstream SideStore and LiveContainer + SideStore installers, but those are not this project's modified builds.
-
-### Windows prerequisite
-
-Make sure Apple's device drivers are installed before using iLoader. iLoader's documented Windows path uses iTunes. Connect the iPhone by USB, unlock it, and tap **Trust** when iOS asks whether to trust the computer.
-
-If iLoader cannot see the device, verify that Apple's software can see it before troubleshooting this project.
-
-## What you need
-
-Before starting, have the following ready:
-
-- an iPhone or iPad supported by the build you want to test
-- a Free Apple Account / Personal Team for signing
-- a Windows, macOS, or Linux computer for the initial setup
-- a USB cable for installation and pairing
-- [iLoader](https://github.com/nab138/iloader/releases/latest), or another compatible installer
-- the official [LocalDevVPN on the App Store](https://apps.apple.com/us/app/localdevvpn/id6755608044), by **Coxson Engineering LLC**
-- a Wi-Fi network
-
-See [Compatibility](docs/COMPATIBILITY.md) for the current device evidence. You do not need to understand CoreDevice, RSD, TLS, or CDTunnel before using the project.
-
-## Global first-time setup
-
-These steps apply to **unified v3, standalone v1, and previous combined v2**. Complete this section first, then finish the short setup for the variant you installed.
-
-### 1. Download the IPA
-
-Choose exactly one build for the setup you want:
-
-**Unified LiveContainer + SideStore v3.0.0 (recommended)**
-
-[Download `LiveContainer-SideStore-AutoRefresh.ipa`](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v3.0.0/LiveContainer-SideStore-AutoRefresh.ipa)
-
-For the previous interface, see the [v2.1.1 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.1).
-
-**Standalone SideStore v1.0.4**
-
-[Download `SideStore.ipa`](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.4/SideStore.ipa)
-
-### 2. Install iLoader and connect the device
-
-1. Download the latest [iLoader release](https://github.com/nab138/iloader/releases/latest).
-2. Connect the iPhone to the computer by USB.
-3. Unlock the iPhone and leave it unlocked during the initial setup.
-4. Tap **Trust** on the iPhone if the computer trust prompt appears.
-5. Open iLoader.
-6. Under the device section, select the connected iPhone.
-7. Sign in to your Apple Account. iLoader currently labels this section **Apple ID**.
-
-### 3. Import and install this project's IPA
-
-In iLoader:
-
-1. Find the **Installers** section.
-2. Click **Import IPA**.
-3. Select the v3, v1, or previous v2 IPA you downloaded from this repository.
-   For combined v2/v3, retain the required app extensions, including LiveProcess. Do not remove all extensions.
-4. Let iLoader sign and install it with your Apple Account.
-5. Wait for the installation to finish before disconnecting the device.
-
-> [!IMPORTANT]
-> Do not select iLoader's built-in stock **SideStore** or **LiveContainer + SideStore** build if your goal is to install this repository. Use **Import IPA** and choose the file downloaded from this repository.
-
-### 4. Trust the sideloaded app on iPhone
-
-If the installed app will not open or iOS shows **Untrusted Developer**:
-
-`Settings -> General -> VPN & Device Management`
-
-Under **Developer App**, select the Apple Account used to sign the IPA, then tap **Trust**.
-
-### 5. Enable Developer Mode
-
-Go to:
-
-`Settings -> Privacy & Security -> Developer Mode`
-
-Turn **Developer Mode** on. iOS may restart the device. After reboot, confirm **Turn On** if requested.
-
-### 6. Place the pairing file with iLoader
-
-A pairing file is the trust record that lets SideStore authenticate with the same iPhone it is running on. It must belong to the exact physical device you are setting up.
-
-Keep the iPhone connected by USB and unlocked. Then in iLoader:
-
-1. Open the **Management** section.
-2. Open **Manage Pairing File**.
-3. If the newly installed app is not shown, click **Rescan Installed Apps**.
-4. Find the installed SideStore-compatible app.
-5. Click **Place** next to that app. You can use **Place In All Apps** if that is intentionally what you want.
-6. Wait for **Pairing file placed successfully!** before continuing.
-
-> [!CAUTION]
-> Pairing files contain private device credentials. Never upload them to GitHub, Discord, an issue report, a public file host, or a screenshot.
-
-For a confirmed missing, invalid, or wrong-device pairing record, reconnect the same device by USB and repeat **Manage Pairing File -> Place**. In v3, first read the reported failure stage: a network, service-startup, or RSD error does not by itself mean the pairing file needs replacing.
-
-### 7. Install the correct LocalDevVPN
-
-Install the official **[LocalDevVPN](https://apps.apple.com/us/app/localdevvpn/id6755608044)** from the App Store.
-
-Check the developer name: **Coxson Engineering LLC**.
-
-LocalDevVPN creates the local virtual route used by the stable same-device refresh path. VPN Super and an additional IKEv2/IPSec tunnel are not required for this project's current stable CoreDevice path.
-
-### 8. Find the iPhone's Wi-Fi subnet
-
-LocalDevVPN must use addresses from the **same IPv4 subnet** as the Wi-Fi network currently joined by the iPhone.
-
-On iPhone:
-
-`Settings -> Wi-Fi -> tap the info button next to the connected network`
-
-Look at both:
-
-- **IP Address**
-- **Subnet Mask**
-
-Example:
-
-```text
-IP Address:  192.168.1.50
-Subnet Mask: 255.255.255.0
-```
-
-That example is the `192.168.1.x/24` subnet.
-
-> [!WARNING]
-> If your subnet mask is not `255.255.255.0` and you are not sure which addresses belong to the subnet, do not guess. Check your router configuration or ask for help with the exact IP address and subnet mask.
-
-### 9. Choose two unused addresses
-
-You need two unused IPv4 addresses in that same subnet. The safest approach is to check the router's DHCP range or connected-client list and choose addresses that are not assigned to another device.
-
-Example only for `192.168.1.x/24`:
-
-```text
-Tunnel IP: 192.168.1.240/32
-Device IP: 192.168.1.241/32
-```
-
-Do not use:
-
-- the iPhone's actual IP address
-- the router or gateway address
-- an IP currently assigned to another device
-- an address outside the iPhone's current Wi-Fi subnet
-
-### 10. Configure LocalDevVPN
-
-Open:
-
-`LocalDevVPN -> Settings -> Network Configuration`
-
-Then:
-
-1. Enter the chosen **Tunnel IP** with `/32`.
-2. Enter the chosen **Device IP** with `/32`.
-3. Enable **Allow Intermediate Addresses**.
-4. Tap **Done**.
-5. Tap **Save & Apply**.
-6. Connect LocalDevVPN.
-7. Open **Session Details** and confirm the custom addresses were retained.
-
-> [!IMPORTANT]
-> If you move to a Wi-Fi network with a different subnet, update the Tunnel IP and Device IP before refreshing again.
-
-### 11. Enable Background App Refresh
-
-Go to:
-
-`Settings -> General -> Background App Refresh`
-
-Make sure Background App Refresh is enabled globally and for the relevant installed app when iOS exposes a per-app toggle.
-
-Allow notifications if you want refresh status and deadline warnings.
-
-## Unified setup (v3)
-
-Use this section for **v3.0.0** after completing the global setup above.
-
-1. Open the app. The main tabs are **Home, Apps, Sources, Refresh, and Settings**. You do not need to enter the legacy SideStore interface.
-2. Open **Settings > Account and Signing > Sign In / Authenticate** and complete the account flow. If pairing was not placed during setup, use **Settings > SideStore > Import Pairing File** with the record for this exact device.
-3. Keep Wi-Fi and the configured LocalDevVPN connected. Open **Refresh** and perform one manual refresh. Read its result and verification history before enabling automation.
-4. Choose **Daily** or **Six-hour** scheduling. Prefer a time when you are normally on the Wi-Fi network for which LocalDevVPN is configured. iOS may delay execution, so check the last verified refresh before signing expires.
-5. Use **Apps** for guests and SideStore-installed apps, **Sources** to browse catalogs, and **Settings > Interface** for List, Grid, or Compact List.
-
-Upgrade over the matching existing combined installation with the same signing identity and identifiers. Back up important guest data first; do not delete the app or reset data as a routine upgrade step.
-
-## Combined setup (v2)
-
-Use this section only for **LiveContainer + SideStore v2.1.1**.
-
-### 1. Open LiveContainer and embedded SideStore
-
-Open **LiveContainer**, then open the embedded **SideStore**.
-
-Sign into SideStore with the Apple Account you use for SideStore.
-
-### 2. Run one manual refresh first
-
-Open:
-
-`LiveContainer -> SideStore Refresh -> Refresh SideStore now`
-
-Keep Wi-Fi and LocalDevVPN available while the test runs.
-
-**Do not enable scheduled refresh until this manual refresh succeeds.**
-
-If host replacement closes or relaunches LiveContainer, reopen it and let verification finish. A handoff or background-task launch is not considered success by itself.
-
-### 3. Enable automatic refresh
-
-Open LiveContainer's SideStore refresh settings and enable automation.
-
-Choose one of the supported schedules:
-
-- Six-hour
-- Daily
-- Weekly
-
-**Daily or Six-hour is recommended** because it gives iOS more opportunities to run before the normal seven-day Personal Team signing window expires.
-
-The selected time is a **target deadline**, not an exact alarm. iOS controls when background work actually starts and may delay or omit a background launch.
-
-## Standalone setup (v1)
-
-Use this section for **standalone SideStore v1.0.4**.
-
-### 1. Open SideStore
-
-Open SideStore and sign in with the Apple Account you use for SideStore.
-
-### 2. Run one manual refresh first
-
-Keep Wi-Fi and LocalDevVPN connected, then perform a normal manual refresh. Confirm that the refresh succeeds before enabling automation.
-
-### 3. Enable automatic refresh
-
-Open:
-
-`SideStore -> Settings -> Refreshing Apps -> Refresh Schedule`
-
-Choose a schedule and verify the result in refresh history after the next run.
-
-The standalone build supports manual, six-hour, daily, and weekly refresh options. The selected time is not a guaranteed iOS alarm. Background execution is controlled by iOS.
+Use the [v1.0.4 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.4) if you want SideStore without LiveContainer. Install it over the matching existing standalone SideStore installation, keep LocalDevVPN configured for the current Wi-Fi subnet, run one manual refresh, then enable its refresh schedule.
 
 ## Normal daily use
 
