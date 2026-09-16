@@ -61,7 +61,7 @@ _Comparison basis: upstream SideStore `develop` at `797e0d46c46491c7fba1192c789c
 
 ---
 
-<h1 align="center"><a href="#installation">🚀 GO TO INSTALLATION 🚀</a></h1>
+<h1 align="center"><a href="#installation">GO TO INSTALLATION</a></h1>
 <p align="center"><strong>Download the correct IPA, install it, pair the device, configure LocalDevVPN, and verify your first refresh.</strong></p>
 <p align="center"><a href="#what-this-project-improves">See what this project improves</a> · <a href="#installation">Start installation</a></p>
 
@@ -73,7 +73,7 @@ _Comparison basis: upstream SideStore `develop` at `797e0d46c46491c7fba1192c789c
 
 For most users, install **Unified v3.0.0**. It is the recommended LiveContainer + SideStore build.
 
-<p align="center"><a href="https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v3.0.0/LiveContainer-SideStore-AutoRefresh.ipa"><strong>⬇️ DOWNLOAD v3.0.0 IPA</strong></a></p>
+<p align="center"><a href="https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v3.0.0/LiveContainer-SideStore-AutoRefresh.ipa"><strong>DOWNLOAD v3.0.0 IPA</strong></a></p>
 
 > [!IMPORTANT]
 > For installation, download **`LiveContainer-SideStore-AutoRefresh.ipa`**. You do **not** need `build-evidence.zip` or GitHub's source-code archives to install the app.
