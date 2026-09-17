@@ -169,7 +169,7 @@ class V3UnifiedShellTests(unittest.TestCase):
         self.assertIn("ancestor = view.superview", source)
         self.assertNotIn("host.view.subviews.compactMap", source)
         self.assertIn("scroll.adjustedContentInset", source)
-        self.assertIn("probe.intersection(usable).intersection(hostClip)", source)
+        self.assertIn("probe.intersection(hostClip)", source)
         self.assertIn("near(content.viewport, nativeContent)", source)
         self.assertIn("contains(visible, cell.viewport), contains(content.content, cell.content)", source)
         self.assertIn("near(translated, cell.viewport)", source)
