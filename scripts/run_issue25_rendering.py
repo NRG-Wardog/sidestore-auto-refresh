@@ -122,7 +122,7 @@ def build_v3_app(output: Path, live: Path, source: Path | None) -> tuple[Path, s
     end = text.index("struct V3AppActions: View {", start)
     section = text[start:end]
     anchor = ".contextMenu { V3AppActions(app: app) }"
-    if section.count(anchor) != 2:
+    if section.count(anchor) != 1:
         raise RuntimeError("V3 native renderer instrumentation anchor drift; review real section before proceeding")
     instrumented = "import SwiftUI\n" + section.replace(anchor, anchor + ".background(FixtureGeometryProbe(id: app.identifier))")
     generated = build / "V3InstalledAppsSection.swift"

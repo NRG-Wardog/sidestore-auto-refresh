@@ -4,12 +4,22 @@ import UIKit
 @MainActor final class RenderingState: ObservableObject {
     @Published var apps = (0..<6).map(LCAppModel.init)
     @Published var textSize: ContentSizeCategory = .large
+#if CORRECTED_GRID
+    @Published var usesGridSizes = false
+#endif
 }
 
 struct RenderingScreen: View, LCAppBannerDelegate {
     @ObservedObject var state: RenderingState
     @AppStorage("LCAppLayoutStyle") var style: AppLayoutStyle = .list
     @AppStorage("LCShowAppLabels") var labels = true
+#if CORRECTED_GRID
+    @AppStorage(LCGridSize.storageKey) var gridSize: LCGridSize = .medium
+    @ScaledMetric(relativeTo: .caption) private var gridTextScale: CGFloat = 1
+    private var sizedColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: gridSize.minimumWidth * min(1.5, max(1, gridTextScale))), spacing: 16, alignment: .top)]
+    }
+#endif
     private let columns = [GridItem(.adaptive(minimum: 76, maximum: 100), spacing: 16, alignment: .top)]
     var body: some View {
         ScrollView {
@@ -22,6 +32,21 @@ struct RenderingScreen: View, LCAppBannerDelegate {
         .environment(\.sizeCategory, state.textSize)
     }
     @ViewBuilder private var collection: some View {
+#if CORRECTED_GRID
+        if state.usesGridSizes {
+            LazyVGrid(columns: sizedColumns, spacing: 16) {
+                ForEach(state.apps, id: \.self) { app in
+                    LCGridAppCell(appModel: app, delegate: self, showLabels: labels, gridSize: gridSize)
+                }
+            }
+        } else {
+            legacyCollection
+        }
+#else
+        legacyCollection
+#endif
+    }
+    @ViewBuilder private var legacyCollection: some View {
         switch style {
         case .grid:
             LazyVGrid(columns: columns, spacing: 16) {
@@ -210,6 +235,15 @@ struct RenderingScreen: View, LCAppBannerDelegate {
                 let imageFrame = image.convert(image.bounds, to: root)
                 if !root.bounds.insetBy(dx: -0.5, dy: -0.5).contains(imageFrame) { local.append("cell \(index) does not contain its icon") }
                 if image.image == nil || image.image?.size.width == 0 { local.append("cell \(index) has no visible icon/fallback") }
+#if CORRECTED_GRID
+                if state.usesGridSizes {
+                    let size = LCGridSize.resolve(UserDefaults.standard.string(forKey: LCGridSize.storageKey))
+                    let alignment = image.alignmentRect(forFrame: image.frame)
+                    if abs(alignment.width - size.iconSize) > 0.5 || abs(alignment.height - size.iconSize) > 0.5 {
+                        local.append("cell \(index) icon does not track global grid size")
+                    }
+                }
+#endif
                 imageEvidence.append(["bounds": rect(imageFrame), "hasImage": image.image != nil, "imageWidth": Double(image.image?.size.width ?? 0)])
             }
             if images.isEmpty { local.append("cell \(index) has no icon view") }
@@ -293,6 +327,43 @@ struct RenderingScreen: View, LCAppBannerDelegate {
         check(LCAppBannerViewController.contextMenus == state.apps.map(\.identity), "context-menu forwarding changed app identities/order")
 #endif
     }
+#if CORRECTED_GRID
+    func exerciseGridSizes() async {
+        state.usesGridSizes = true
+        state.apps = (0..<2).map(LCAppModel.init)
+        if cold {
+            check(UserDefaults.standard.string(forKey: LCGridSize.storageKey) == "extraLarge", "cold launch did not retain global grid size")
+            await resize(min(window.bounds.width, 390))
+            measure("issue26-cold-extraLarge")
+            return
+        }
+        for size in LCGridSize.allCases {
+            UserDefaults.standard.set(size.rawValue, forKey: LCGridSize.storageKey)
+            for width: CGFloat in [320, 375, 390, 600, 768, 844, 1024] where width <= window.bounds.width {
+                for labels in [false, true] {
+                    UserDefaults.standard.set(labels, forKey: "LCShowAppLabels")
+                    await resize(width)
+                    measure("issue26-\(size.rawValue)-\(Int(width))-labels-\(labels)")
+                    let normalHeight = gridControllers().first?.view.bounds.height ?? 0
+                    await resize(width, category: .accessibilityExtraExtraExtraLarge)
+                    measure("issue26-\(size.rawValue)-\(Int(width))-labels-\(labels)-accessibility")
+                    if labels {
+                        check((gridControllers().first?.view.bounds.height ?? 0) > normalHeight, "issue26: accessibility text did not increase cell height")
+                    }
+                }
+            }
+        }
+        for legacy in ["list", "compactList", "grid", "unknown"] {
+            UserDefaults.standard.set(legacy, forKey: "LCAppLayoutStyle")
+            await resize(min(window.bounds.width, 390))
+            measure("issue26-legacy-\(legacy)-still-grid")
+        }
+        exerciseActions()
+        capture("issue26-extraLarge")
+        UserDefaults.standard.set("grid", forKey: "LCAppLayoutStyle")
+        UserDefaults.standard.set(true, forKey: "LCShowAppLabels")
+    }
+#endif
     func capture(_ name: String) {
         let renderer = UIGraphicsImageRenderer(bounds: host.view.bounds)
         let image = renderer.image { context in host.view.layer.render(in: context.cgContext) }
@@ -381,6 +452,11 @@ struct RenderingScreen: View, LCAppBannerDelegate {
                 }
             }
         }
+#if CORRECTED_GRID
+        if !ProcessInfo.processInfo.arguments.contains("--diagnostic") {
+            await exerciseGridSizes()
+        }
+#endif
         let report: [String: Any] = [
             "schemaVersion": 1, "mode": baseline ? "baseline" : (ProcessInfo.processInfo.arguments.contains("--fallback") ? "fallback-contract" : "corrected"), "phase": cold ? "cold" : "suite", "deviceClass": suite,
             "os": UIDevice.current.systemVersion, "screen": rect(window.bounds), "deploymentTarget": "iOS 15.0",

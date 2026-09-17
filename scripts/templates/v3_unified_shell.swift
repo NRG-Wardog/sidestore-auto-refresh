@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import SideStoreSupport
+import UniformTypeIdentifiers
 
 // V3_UNIFIED_SHELL_V1_BEGIN
 enum V3AppIdentity: Hashable {
@@ -20,24 +21,19 @@ struct V3UnifiedShell: View {
 struct V3UnifiedTabs: View {
     @EnvironmentObject private var sharedModel: SharedModel
     @StateObject private var status = V3SideStoreStatusStore()
-    @State private var selectedInitialTab = false
+    @State private var selectedInstallURL: URL?
     private let monitor = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     var body: some View {
         TabView(selection: $sharedModel.selectedTab) {
             V3HomeView().tabItem { Label("Home", systemImage: "house.fill") }.tag(LCTabIdentifier.home)
             LCAppListView().tabItem { Label("Apps", systemImage: "square.stack.3d.up.fill") }.tag(LCTabIdentifier.apps)
             V3SourcesView().tabItem { Label("Sources", systemImage: "books.vertical") }.tag(LCTabIdentifier.sources)
-            LCEmbeddedSideStoreRefreshView().tabItem { Label("Refresh", systemImage: "arrow.clockwise") }.tag(LCTabIdentifier.refresh)
             LCSettingsView().tabItem { Label("Settings", systemImage: "gearshape.fill") }.tag(LCTabIdentifier.settings)
         }
         .environmentObject(status)
         .accessibilityIdentifier("V3_UNIFIED_SHELL_V1")
         .task {
             status.reload(manual: false)
-            if !selectedInitialTab {
-                selectedInitialTab = true
-                if sharedModel.deepLink == nil { sharedModel.selectedTab = .home }
-            }
             if let pending = UserDefaults.standard.string(forKey: "V3PendingSideStoreURL"), let url = URL(string: pending) {
                 UserDefaults.standard.removeObject(forKey: "V3PendingSideStoreURL")
                 if url.isFileURL {
@@ -49,7 +45,24 @@ struct V3UnifiedTabs: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in status.reload(manual: false) }
         .onReceive(monitor) { _ in status.reload(manual: false) }
         .onOpenURL(perform: dispatchURL)
+        .sheet(isPresented: $status.installPickerPresented, onDismiss: {
+            if let url = selectedInstallURL {
+                selectedInstallURL = nil
+                status.stageSharedIPA(url, title: "Install / Sideload App")
+            }
+        }) {
+            V3IPADocumentPicker { url in
+                selectedInstallURL = url
+                status.installPickerPresented = false
+            }
+        }
         .fullScreenCover(item: $status.presentation) { V3OperationSheet(request: $0).environmentObject(status) }
+        .sheet(isPresented: $status.refreshPresented, onDismiss: { status.reload() }) {
+            NavigationView { LCEmbeddedSideStoreRefreshView()
+                .navigationTitle("Refresh")
+                .navigationBarTitleDisplayMode(.inline) }
+            .navigationViewStyle(StackNavigationViewStyle())
+        }
         .alert("SideStore", isPresented: Binding(get: { status.error != nil }, set: { if !$0 { status.error = nil } })) {
             Button("Copy Diagnostics") { UIPasteboard.general.string = status.error }
             Button("Retry Connection") { status.reload() }
@@ -112,11 +125,65 @@ struct V3UnifiedTabs: View {
             switch url.host?.lowercased() {
             case "livecontainer-launch", "install", "open-web-page", "open-url": sharedModel.selectedTab = .apps
             case "certificate": sharedModel.selectedTab = .settings
-            case "refresh": sharedModel.selectedTab = .refresh
+            case "refresh": status.refreshPresented = true
             default: return
             }
         }
         sharedModel.deepLink = url
+    }
+}
+
+struct V3IPADocumentPicker: UIViewControllerRepresentable {
+    let completion: (URL?) -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(completion: completion) }
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        private var completion: ((URL?) -> Void)?
+        init(completion: @escaping (URL?) -> Void) { self.completion = completion }
+        private func finish(_ url: URL?) {
+            let callback = completion
+            completion = nil
+            callback?(url)
+        }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            finish(urls.first)
+        }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finish(nil) }
+    }
+}
+
+struct V3RefreshAllButton: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    @AppStorage("liveContainerAutoRefreshActiveRunID", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var activeRun = ""
+    @AppStorage("liveContainerAutoRefreshHealthState", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var health = "UNKNOWN"
+    var body: some View {
+        Button {
+            NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil)
+        } label: {
+            HStack {
+                if !activeRun.isEmpty { ProgressView() }
+                Text("Refresh All")
+            }
+        }
+        .disabled(!activeRun.isEmpty || status.presentation != nil)
+        .accessibilityValue(health.replacingOccurrences(of: "_", with: " ").lowercased())
+        .onChange(of: health) { _ in status.reload(manual: false) }
+        .onChange(of: activeRun) { value in if value.isEmpty { status.reload(manual: false) } }
+    }
+}
+
+struct V3InstallButton: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    var body: some View {
+        Button("Install / Sideload App") { status.installPickerPresented = true }
+            .accessibilityHint("Choose an IPA to sign and install as an iOS app with SideStore")
+            .disabled(status.presentation != nil || status.installPickerPresented)
     }
 }
 
@@ -144,6 +211,8 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published var presentation: V3OperationRequest?
     @Published var sourceURL = ""
     @Published var refreshTarget: String?
+    @Published var refreshPresented = false
+    @Published var installPickerPresented = false
     @Published private(set) var loading = false
     @Published private(set) var connected = false
     @Published private(set) var requiresConnectionRetry = false
@@ -226,7 +295,12 @@ final class V3SideStoreStatusStore: ObservableObject {
     func stageSharedIPA(_ url: URL, bookmark: Data? = nil, title: String) {
         guard presentation == nil else { return }
         do {
-            guard url.isFileURL, url.pathExtension.lowercased() == "ipa" else { throw CocoaError(.fileReadUnsupportedScheme) }
+            guard url.isFileURL, url.pathExtension.lowercased() == "ipa" else {
+                throw NSError(domain: "V3IPASelection", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "Choose an IPA file to install with SideStore. Other files cannot be installed."])
+            }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let token = UUID().uuidString
             let data = try bookmark ?? url.bookmarkData(options: URL.BookmarkCreationOptions(rawValue: 1 << 11),
                                                        includingResourceValuesForKeys: nil, relativeTo: nil)
@@ -270,7 +344,8 @@ struct V3SideStoreSource: Identifiable, Hashable {
 
 struct V3InstalledAppsSection: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
-    @AppStorage("LCAppLayoutStyle", store: LCUtils.appGroupUserDefault) private var layout: AppLayoutStyle = .list
+    @AppStorage(LCGridSize.storageKey, store: LCUtils.appGroupUserDefault) private var gridSize: LCGridSize = .medium
+    @ScaledMetric(relativeTo: .caption) private var textScale: CGFloat = 1
     @AppStorage("LCShowAppLabels", store: LCUtils.appGroupUserDefault) private var labels = true
     var query = ""
     private var apps: [V3SideStoreApp] { status.installedApps.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.bundleID.localizedCaseInsensitiveContains(query) } }
@@ -294,58 +369,23 @@ struct V3InstalledAppsSection: View {
                         .font(.caption)
                 }
             }
-            if layout == .grid {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))]) {
-                    ForEach(apps) { app in
-                        NavigationLink(destination: V3SideStoreAppDetail(identifier: app.identifier)) {
-                            VStack(spacing: 4) {
-                                Image(systemName: "app.fill")
-                                    .font(.system(size: 44))
-                                    .foregroundColor(.accentColor)
-                                if labels { Text(app.name).lineLimit(2).font(.caption).foregroundColor(.primary) }
-                                Text(app.isActive ? "Active" : "Inactive")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundColor(app.isActive ? .green : .secondary)
-                            }.frame(maxWidth: .infinity, minHeight: 88)
-                        }.accessibilityLabel(app.name).contextMenu { V3AppActions(app: app) }
-                    }
-                }
-            } else {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: gridSize.minimumWidth * min(1.5, max(1, textScale))), spacing: 16, alignment: .top)], spacing: 16) {
                 ForEach(apps) { app in
                     NavigationLink(destination: V3SideStoreAppDetail(identifier: app.identifier)) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "app.fill")
-                                .font(layout == .compactList ? .title2 : .largeTitle)
-                                .foregroundColor(.accentColor)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(app.name)
-                                    .font(.headline)
-                                    .foregroundColor(.primary)
-                                Text(app.version + " · " + app.bundleID)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                if layout != .compactList, let expiration = app.expirationDate {
-                                    Text("Expires " + expiration.formatted(date: .abbreviated, time: .omitted))
-                                        .font(.caption2)
-                                        .foregroundColor(Calendar.current.dateComponents([.day], from: Date(), to: expiration).day ?? 0 <= 2 ? .red : .orange)
-                                }
+                        VStack(spacing: 6) {
+                            V3InstalledAppIcon(identifier: app.identifier, version: app.version, size: gridSize.iconSize)
+                            if labels {
+                                Text(app.name).lineLimit(2).font(.caption).foregroundColor(.primary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
-                            Spacer()
-                            VStack(alignment: .trailing, spacing: 4) {
-                                Text(app.isActive ? "Active" : "Inactive")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundColor(app.isActive ? .green : .secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill((app.isActive ? Color.green : Color.gray).opacity(0.15)))
-                                if app.hasUpdate {
-                                    Image(systemName: "arrow.down.circle.fill")
-                                        .foregroundColor(.accentColor)
-                                }
+                            if !app.isActive {
+                                Text("Inactive").font(.caption2).foregroundColor(.secondary)
+                            } else if let expiration = app.expirationDate {
+                                Text(expiration, style: .relative).font(.caption2).foregroundColor(.secondary)
                             }
-                        }.padding(.vertical, layout == .compactList ? 4 : 8)
-                    }.contextMenu { V3AppActions(app: app) }
+                        }.frame(maxWidth: .infinity, minHeight: gridSize.iconSize + 8)
+                            .padding(.vertical, 4)
+                    }.accessibilityLabel(app.name).contextMenu { V3AppActions(app: app) }
                 }
             }
             if apps.isEmpty {
@@ -363,6 +403,30 @@ struct V3InstalledAppsSection: View {
     }
 }
 
+struct V3InstalledAppIcon: View {
+    let identifier: String
+    let version: String
+    let size: CGFloat
+    @State private var image: UIImage?
+    var body: some View {
+        Group {
+            if let image { Image(uiImage: image).resizable().scaledToFit() }
+            else { Image(systemName: "app.fill").resizable().scaledToFit().foregroundColor(.secondary) }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.23))
+        .accessibilityHidden(true)
+        .task(id: identifier + version) {
+            image = nil
+            do {
+                let reply = try await V3ServiceBridge.shared.request(operation: "appIcon", target: identifier)
+                try Task.checkCancellation()
+                if let data = reply["icon"] as? Data { image = UIImage(data: data) }
+            } catch {}
+        }
+    }
+}
+
 struct V3AppActions: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @EnvironmentObject private var sharedModel: SharedModel
@@ -373,7 +437,7 @@ struct V3AppActions: View {
                 if !opened { Task { @MainActor in status.error = "The app could not be opened. Check whether it is still installed." } }
             } }
         }
-        Button("Refresh") { status.refreshTarget = app.isHost ? nil : app.identifier; sharedModel.selectedTab = .refresh }
+        Button("Refresh") { status.refreshTarget = app.isHost ? nil : app.identifier; status.refreshPresented = true }
         if app.hasUpdate { Button("Update") { action("update", "Update " + app.name) } }
         if !app.isHost {
             Button(app.isActive ? "Deactivate" : "Activate") { action(app.isActive ? "deactivate" : "activate", app.isActive ? "Deactivate app" : "Activate app") }
@@ -1136,7 +1200,7 @@ private struct V3HomeView: View {
                         }
                     }
                     Button {
-                        sharedModel.selectedTab = .refresh
+                        status.refreshPresented = true
                     } label: {
                         Label("Open Refresh Manager", systemImage: "arrow.clockwise")
                     }

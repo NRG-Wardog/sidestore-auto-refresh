@@ -82,7 +82,7 @@ final class V3SideStoreService: NSObject {
         }
         guard tasks[id] == nil else { reply(encode(["version": 1, "id": id, "error": "busy",
             "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire])); return }
-        let mutation = !["snapshot", "catalog", "backupResult"].contains(operation)
+        let mutation = !["snapshot", "catalog", "appIcon", "backupResult"].contains(operation)
         guard !mutation || (mutationID == nil && completed.count < 512) else {
             reply(encode(["version": 1, "id": id, "error": "busy",
                 "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire])); return
@@ -154,6 +154,17 @@ final class V3SideStoreService: NSObject {
         let target = request["target"] as? String ?? ""
         switch operation {
         case "snapshot": return try snapshot()
+        case "appIcon":
+            let app: InstalledApp = try object(target)
+            guard let image = try await app.loadIcon() else { return [:] }
+            try Task.checkCancellation()
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let thumbnail = UIGraphicsImageRenderer(size: CGSize(width: 192, height: 192), format: format).image { _ in
+                image.draw(in: CGRect(x: 0, y: 0, width: 192, height: 192))
+            }
+            guard let data = thumbnail.pngData(), data.count <= 262_144 else { return [:] }
+            return ["icon": data]
         case "backupResult":
             guard mutationID != nil, ["success", "failure"].contains(target) else { throw ServiceError.invalidRequest }
             let result: Result<Void, Error> = target == "success" ? .success(()) : .failure(ServiceError.unsupported)

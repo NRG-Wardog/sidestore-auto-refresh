@@ -2,6 +2,16 @@ import SwiftUI
 import UIKit
 
 enum LCUtils { static let appGroupUserDefault = UserDefaults.standard }
+@MainActor final class V3ServiceBridge {
+    static let shared = V3ServiceBridge()
+    func request(operation: String, target: String) async throws -> [String: Any] {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 192, height: 192)).image { context in
+            UIColor.systemOrange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 192, height: 192))
+        }
+        return ["icon": image.pngData()!]
+    }
+}
 struct V3SideStoreApp: Identifiable {
     let identifier: String
     var id: String { identifier }

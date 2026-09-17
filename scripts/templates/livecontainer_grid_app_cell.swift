@@ -5,22 +5,24 @@ struct LCGridAppCell: UIViewControllerRepresentable {
     @ObservedObject var appModel: LCAppModel
     var delegate: LCAppBannerDelegate
     var showLabels: Bool
+    var gridSize: LCGridSize?
 
     @AppStorage("dynamicColors", store: LCUtils.appGroupUserDefault) private var dynamicColors = true
     @AppStorage("darkModeIcon", store: LCUtils.appGroupUserDefault) private var darkModeIcon = false
 
-    init(appModel: LCAppModel, delegate: LCAppBannerDelegate, showLabels: Bool) {
+    init(appModel: LCAppModel, delegate: LCAppBannerDelegate, showLabels: Bool, gridSize: LCGridSize? = nil) {
         _appModel = ObservedObject(wrappedValue: appModel)
         self.delegate = delegate
         self.showLabels = showLabels
+        self.gridSize = gridSize
     }
 
     func makeUIViewController(context: Context) -> LCGridAppCellViewController {
-        LCGridAppCellViewController(delegate: delegate, configuration: LCAppBannerConfiguration(model: appModel, dynamicColors: dynamicColors, darkModeIcon: darkModeIcon), showLabels: showLabels)
+        LCGridAppCellViewController(delegate: delegate, configuration: LCAppBannerConfiguration(model: appModel, dynamicColors: dynamicColors, darkModeIcon: darkModeIcon), showLabels: showLabels, gridSize: gridSize)
     }
 
     func updateUIViewController(_ controller: LCGridAppCellViewController, context: Context) {
-        controller.update(model: appModel, dynamicColors: dynamicColors, darkModeIcon: darkModeIcon, showLabels: showLabels)
+        controller.update(model: appModel, dynamicColors: dynamicColors, darkModeIcon: darkModeIcon, showLabels: showLabels, gridSize: gridSize)
     }
 
     @available(iOS 16.0, *)
@@ -33,10 +35,10 @@ final class LCGridAppCellViewController: UIViewController, UIContextMenuInteract
     private let actionRouter: LCAppBannerViewController
     private let gridView = LCGridAppCellView()
 
-    init(delegate: LCAppBannerDelegate, configuration: LCAppBannerConfiguration, showLabels: Bool) {
+    init(delegate: LCAppBannerDelegate, configuration: LCAppBannerConfiguration, showLabels: Bool, gridSize: LCGridSize? = nil) {
         actionRouter = LCAppBannerViewController(delegate: delegate, config: configuration)
         super.init(nibName: nil, bundle: nil)
-        update(model: configuration.model, dynamicColors: configuration.dynamicColors, darkModeIcon: configuration.darkModeIcon, showLabels: showLabels)
+        update(model: configuration.model, dynamicColors: configuration.dynamicColors, darkModeIcon: configuration.darkModeIcon, showLabels: showLabels, gridSize: gridSize)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -62,16 +64,16 @@ final class LCGridAppCellViewController: UIViewController, UIContextMenuInteract
         gridView.addInteraction(UIContextMenuInteraction(delegate: self))
     }
 
-    func update(model: LCAppModel, dynamicColors: Bool, darkModeIcon: Bool, showLabels: Bool) {
+    func update(model: LCAppModel, dynamicColors: Bool, darkModeIcon: Bool, showLabels: Bool, gridSize: LCGridSize? = nil) {
         actionRouter.update(model: model, dynamicColors: dynamicColors, darkModeIcon: darkModeIcon)
-        gridView.update(model: model, darkModeIcon: darkModeIcon, showLabels: showLabels)
+        gridView.update(model: model, darkModeIcon: darkModeIcon, showLabels: showLabels, gridSize: gridSize)
         // preferredContentSize and intrinsicContentSize are also used on iOS 15,
         // where UIViewControllerRepresentable.sizeThatFits is unavailable.
         preferredContentSize = fittingSize(width: nil)
     }
 
     func fittingSize(width: CGFloat?) -> CGSize {
-        CGSize(width: width.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 76,
+        CGSize(width: width.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? gridView.minimumWidth,
                height: gridView.intrinsicContentSize.height)
     }
 
@@ -93,7 +95,11 @@ final class LCGridAppCellViewController: UIViewController, UIContextMenuInteract
 private final class LCGridAppCellView: UIControl {
     // The grid's vertical contract is derived from its actual icon, spacing and
     // scaled two-line label, not the parent scroll view's unbounded proposal.
-    private static let iconSide: CGFloat = 60
+    private var gridSize: LCGridSize?
+    private var iconSide: CGFloat { gridSize?.iconSize ?? 60 }
+    var minimumWidth: CGFloat { gridSize?.minimumWidth ?? 76 }
+    private lazy var iconWidthConstraint = iconImageView.widthAnchor.constraint(equalToConstant: iconSide)
+    private lazy var iconHeightConstraint = iconImageView.heightAnchor.constraint(equalToConstant: iconSide)
     private static let topInset: CGFloat = 4
     private static let labelSpacing: CGFloat = 6
     private static let bottomInset: CGFloat = 4
@@ -106,7 +112,7 @@ private final class LCGridAppCellView: UIControl {
     override var intrinsicContentSize: CGSize {
         let labelHeight = titleLabel.isHidden ? 0 : Self.labelSpacing + ceil(titleLabel.font.lineHeight * 2)
         return CGSize(width: UIView.noIntrinsicMetric,
-                      height: Self.topInset + Self.iconSide + labelHeight + Self.bottomInset)
+                      height: Self.topInset + iconSide + labelHeight + Self.bottomInset)
     }
 
     func updateMetrics() {
@@ -142,8 +148,8 @@ private final class LCGridAppCellView: UIControl {
         NSLayoutConstraint.activate([
             iconImageView.topAnchor.constraint(equalTo: topAnchor, constant: Self.topInset),
             iconImageView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            iconImageView.widthAnchor.constraint(equalToConstant: Self.iconSide),
-            iconImageView.heightAnchor.constraint(equalToConstant: Self.iconSide),
+            iconWidthConstraint,
+            iconHeightConstraint,
             lockView.widthAnchor.constraint(equalToConstant: 18),
             lockView.heightAnchor.constraint(equalToConstant: 18),
             lockView.trailingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 4),
@@ -157,7 +163,11 @@ private final class LCGridAppCellView: UIControl {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func update(model: LCAppModel, darkModeIcon: Bool, showLabels: Bool) {
+    func update(model: LCAppModel, darkModeIcon: Bool, showLabels: Bool, gridSize: LCGridSize?) {
+        self.gridSize = gridSize
+        iconWidthConstraint.constant = iconSide
+        iconHeightConstraint.constant = iconSide
+        iconImageView.layer.cornerRadius = iconSide * 14 / 60
         iconImageView.image = model.appInfo.iconIsDarkIcon(darkModeIcon) ?? UIImage(systemName: "app.fill")
         titleLabel.text = model.displayName
         titleLabel.isHidden = !showLabels
