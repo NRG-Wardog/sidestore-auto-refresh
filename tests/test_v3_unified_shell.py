@@ -198,7 +198,7 @@ class V3UnifiedShellTests(unittest.TestCase):
         source = (ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift").read_text(encoding="utf-8")
         helpers = source[source.index("    func valid("):source.index("    func freshSamples(")]
         rect = next(line for line in source.splitlines() if "func rect(" in line)
-        program = "import Foundation\n" + rect + "\n" + helpers + '''
+        program = "import Foundation\nimport CoreGraphics\n" + rect + "\n" + helpers + '''
 let viewport = CGRect(x: 0, y: 44, width: 320, height: 730)
 let content = CGRect(x: 0, y: 0, width: 320, height: 1600)
 let belowFold = CGRect(x: 16, y: 951, width: 288, height: 230)
