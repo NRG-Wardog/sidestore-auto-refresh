@@ -131,6 +131,7 @@ struct V3RenderingScreen: View {
     }
     var failures: [String] = []
     var measurements: [[String: Any]] = []
+    var observationDiagnostics: [String: Any] = [:]
     var cold: Bool { ProcessInfo.processInfo.arguments.contains("--cold") }
     var suite: String { ProcessInfo.processInfo.arguments.contains("--tablet") ? "tablet" : "phone" }
     init(window: UIWindow) { self.window = window }
@@ -187,6 +188,9 @@ struct V3RenderingScreen: View {
             let cells = samples.filter { $0.id == id }
             let contents = samples.filter { $0.id == "content" }
             let viewports = samples.filter { $0.id == "viewport" }
+            observationDiagnostics = ["attempt": attempt, "epoch": state.epoch,
+                                      "cellProbes": cells.count, "contentProbes": contents.count,
+                                      "viewportProbes": viewports.count]
             guard cells.count == 1, contents.count == 1, viewports.count == 1 else { previous = nil; continue }
             let cell = cells[0], content = contents[0]
             let visible = viewport(scroll, probe: viewports[0].viewport)
@@ -197,6 +201,24 @@ struct V3RenderingScreen: View {
                 .offsetBy(dx: -scroll.bounds.minX, dy: -scroll.bounds.minY)
             let minimumY = -scroll.adjustedContentInset.top
             let maximumY = max(minimumY, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
+            observationDiagnostics["checks"] = [
+                "minimumOffset": scroll.contentOffset.y >= minimumY - 0.5,
+                "maximumOffset": scroll.contentOffset.y <= maximumY + 0.5,
+                "horizontalOffset": abs(scroll.contentOffset.x + scroll.adjustedContentInset.left) <= 0.5,
+                "viewportWidth": abs(viewports[0].viewport.width - scroll.bounds.width) <= 0.5,
+                "viewportHeight": abs(viewports[0].viewport.height - scroll.bounds.height) <= 0.5,
+                "nativeContentAgreement": near(content.viewport, nativeContent),
+                "visibleCell": contains(visible, cell.viewport),
+                "containedCell": contains(content.content, cell.content),
+                "coordinateAgreement": near(translated, cell.viewport),
+                "notDragging": !scroll.isDragging,
+                "notDecelerating": !scroll.isDecelerating
+            ]
+            observationDiagnostics["nativeContent"] = rect(nativeContent)
+            observationDiagnostics["scrollBounds"] = rect(scroll.bounds)
+            observationDiagnostics["visibleBounds"] = valid(visible) ? rect(visible) : []
+            observationDiagnostics["adjustedInsets"] = [Double(scroll.adjustedContentInset.top), Double(scroll.adjustedContentInset.left), Double(scroll.adjustedContentInset.bottom), Double(scroll.adjustedContentInset.right)]
+            observationDiagnostics["contentSize"] = [Double(scroll.contentSize.width), Double(scroll.contentSize.height)]
             guard scroll.contentOffset.y >= minimumY - 0.5, scroll.contentOffset.y <= maximumY + 0.5,
                   abs(scroll.contentOffset.x + scroll.adjustedContentInset.left) <= 0.5,
                   abs(viewports[0].viewport.width - scroll.bounds.width) <= 0.5,
@@ -238,6 +260,7 @@ struct V3RenderingScreen: View {
                     visits.append(["identity": id, "pass": pass, "reached": false,
                                    "offsetBefore": [Double(before.x), Double(before.y)],
                                    "offsetAfter": [Double(scroll.contentOffset.x), Double(scroll.contentOffset.y)],
+                                   "diagnostics": observationDiagnostics,
                                    "samples": state.samples.filter { $0.epoch == state.epoch && valid($0.viewport) && valid($0.content) }.map {
                                        ["identity": $0.id, "epoch": $0.epoch, "bounds": rect($0.content), "viewportBounds": rect($0.viewport)]
                                    }])
