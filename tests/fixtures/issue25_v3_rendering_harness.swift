@@ -200,7 +200,8 @@ struct V3RenderingScreen: View {
             let maximumY = max(minimumY, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
             guard scroll.contentOffset.y >= minimumY - 0.5, scroll.contentOffset.y <= maximumY + 0.5,
                   abs(scroll.contentOffset.x + scroll.adjustedContentInset.left) <= 0.5,
-                  near(viewports[0].viewport, CGRect(origin: .zero, size: scroll.bounds.size)),
+                  abs(viewports[0].viewport.width - scroll.bounds.width) <= 0.5,
+                  abs(viewports[0].viewport.height - scroll.bounds.height) <= 0.5,
                   near(content.viewport, nativeContent),
                   contains(visible, cell.viewport), contains(content.content, cell.content),
                   near(translated, cell.viewport), !scroll.isDragging, !scroll.isDecelerating else { previous = nil; continue }
