@@ -213,6 +213,14 @@ precondition(!contains(viewport, .zero))
 precondition(!valid(CGRect(x: CGFloat.nan, y: 0, width: 10, height: 10)))
 precondition(!near(belowFold, belowFold.offsetBy(dx: 0, dy: 2)))
 precondition(near(belowFold, belowFold.offsetBy(dx: 0, dy: 0.25)))
+let scrollBounds = CGRect(x: 0, y: -62, width: 390, height: 874)
+let visibleHeight = scrollBounds.height - 62 - 34
+precondition(visibleHeight == 778)
+let nativeSection = CGRect(x: 0, y: 0, width: 390, height: 325)
+let initialSection = nativeSection.offsetBy(dx: -scrollBounds.minX, dy: -scrollBounds.minY - 62)
+precondition(near(initialSection, nativeSection))
+let scrolledSection = nativeSection.offsetBy(dx: 0, dy: -200 - 62)
+precondition(near(scrolledSection, CGRect(x: 0, y: -262, width: 390, height: 325)))
 '''
         with tempfile.TemporaryDirectory() as directory:
             main = Path(directory) / "main.swift"

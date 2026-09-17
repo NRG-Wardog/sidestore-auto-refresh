@@ -170,11 +170,9 @@ struct V3RenderingScreen: View {
         return state.samples.filter { $0.epoch == epoch }
     }
     func viewport(_ scroll: UIScrollView, probe: CGRect) -> CGRect {
-        // The probe already reports the scroll view's frame in the v3-viewport
-        // space (chrome excluded by SwiftUI). Clipping by adjustedContentInset
-        // here would double-subtract the navigation bar and reject valid cells.
         let hostClip = scroll.convert(host.view.bounds, from: host.view)
-            .offsetBy(dx: -scroll.bounds.minX, dy: -scroll.bounds.minY)
+            .offsetBy(dx: -scroll.bounds.minX - scroll.adjustedContentInset.left,
+                      dy: -scroll.bounds.minY - scroll.adjustedContentInset.top)
         return probe.intersection(hostClip)
     }
     func observe(_ id: String, scroll: UIScrollView) async -> (cell: FixtureFrame, content: FixtureFrame, viewport: CGRect, samples: [FixtureFrame])? {
@@ -198,15 +196,18 @@ struct V3RenderingScreen: View {
                                                    dy: content.viewport.minY - content.content.minY)
             guard let marker = state.scrollMarker else { previous = nil; continue }
             let nativeContent = scroll.convert(marker.bounds, from: marker)
-                .offsetBy(dx: -scroll.bounds.minX, dy: -scroll.bounds.minY)
+                .offsetBy(dx: -scroll.bounds.minX - scroll.adjustedContentInset.left,
+                          dy: -scroll.bounds.minY - scroll.adjustedContentInset.top)
+            let visibleWidth = scroll.bounds.width - scroll.adjustedContentInset.left - scroll.adjustedContentInset.right
+            let visibleHeight = scroll.bounds.height - scroll.adjustedContentInset.top - scroll.adjustedContentInset.bottom
             let minimumY = -scroll.adjustedContentInset.top
             let maximumY = max(minimumY, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
             observationDiagnostics["checks"] = [
                 "minimumOffset": scroll.contentOffset.y >= minimumY - 0.5,
                 "maximumOffset": scroll.contentOffset.y <= maximumY + 0.5,
                 "horizontalOffset": abs(scroll.contentOffset.x + scroll.adjustedContentInset.left) <= 0.5,
-                "viewportWidth": abs(viewports[0].viewport.width - scroll.bounds.width) <= 0.5,
-                "viewportHeight": abs(viewports[0].viewport.height - scroll.bounds.height) <= 0.5,
+                "viewportWidth": abs(viewports[0].viewport.width - visibleWidth) <= 0.5,
+                "viewportHeight": abs(viewports[0].viewport.height - visibleHeight) <= 0.5,
                 "nativeContentAgreement": near(content.viewport, nativeContent),
                 "visibleCell": contains(visible, cell.viewport),
                 "containedCell": contains(content.content, cell.content),
@@ -221,8 +222,8 @@ struct V3RenderingScreen: View {
             observationDiagnostics["contentSize"] = [Double(scroll.contentSize.width), Double(scroll.contentSize.height)]
             guard scroll.contentOffset.y >= minimumY - 0.5, scroll.contentOffset.y <= maximumY + 0.5,
                   abs(scroll.contentOffset.x + scroll.adjustedContentInset.left) <= 0.5,
-                  abs(viewports[0].viewport.width - scroll.bounds.width) <= 0.5,
-                  abs(viewports[0].viewport.height - scroll.bounds.height) <= 0.5,
+                  abs(viewports[0].viewport.width - visibleWidth) <= 0.5,
+                  abs(viewports[0].viewport.height - visibleHeight) <= 0.5,
                   near(content.viewport, nativeContent),
                   contains(visible, cell.viewport), contains(content.content, cell.content),
                   near(translated, cell.viewport), !scroll.isDragging, !scroll.isDecelerating else { previous = nil; continue }
