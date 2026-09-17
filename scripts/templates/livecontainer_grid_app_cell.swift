@@ -9,6 +9,7 @@ struct LCGridAppCell: UIViewControllerRepresentable {
 
     @AppStorage("dynamicColors", store: LCUtils.appGroupUserDefault) private var dynamicColors = true
     @AppStorage("darkModeIcon", store: LCUtils.appGroupUserDefault) private var darkModeIcon = false
+    @Environment(\.sizeCategory) private var sizeCategory
 
     init(appModel: LCAppModel, delegate: LCAppBannerDelegate, showLabels: Bool, gridSize: LCGridSize? = nil) {
         _appModel = ObservedObject(wrappedValue: appModel)
@@ -22,7 +23,29 @@ struct LCGridAppCell: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: LCGridAppCellViewController, context: Context) {
-        controller.update(model: appModel, dynamicColors: dynamicColors, darkModeIcon: darkModeIcon, showLabels: showLabels, gridSize: gridSize)
+        controller.update(model: appModel, dynamicColors: dynamicColors, darkModeIcon: darkModeIcon, showLabels: showLabels, gridSize: gridSize, sizeCategory: Self.uiContentSizeCategory(sizeCategory))
+    }
+
+    // On iOS 15 UIViewControllerRepresentable.sizeThatFits is unavailable, so
+    // SwiftUI sizes the cell from preferredContentSize. Text-size changes arrive
+    // here before UIKit trait propagation, so the SwiftUI category is bridged
+    // explicitly; otherwise intrinsicContentSize lags one update behind.
+    static func uiContentSizeCategory(_ category: ContentSizeCategory) -> UIContentSizeCategory {
+        switch category {
+        case .extraSmall: return .extraSmall
+        case .small: return .small
+        case .medium: return .medium
+        case .large: return .large
+        case .extraLarge: return .extraLarge
+        case .extraExtraLarge: return .extraExtraLarge
+        case .extraExtraExtraLarge: return .extraExtraExtraLarge
+        case .accessibilityMedium: return .accessibilityMedium
+        case .accessibilityLarge: return .accessibilityLarge
+        case .accessibilityExtraLarge: return .accessibilityExtraLarge
+        case .accessibilityExtraExtraLarge: return .accessibilityExtraExtraLarge
+        case .accessibilityExtraExtraExtraLarge: return .accessibilityExtraExtraExtraLarge
+        @unknown default: return .large
+        }
     }
 
     @available(iOS 16.0, *)
@@ -64,9 +87,17 @@ final class LCGridAppCellViewController: UIViewController, UIContextMenuInteract
         gridView.addInteraction(UIContextMenuInteraction(delegate: self))
     }
 
-    func update(model: LCAppModel, dynamicColors: Bool, darkModeIcon: Bool, showLabels: Bool, gridSize: LCGridSize? = nil) {
+    func update(model: LCAppModel, dynamicColors: Bool, darkModeIcon: Bool, showLabels: Bool, gridSize: LCGridSize? = nil, sizeCategory: UIContentSizeCategory? = nil) {
         actionRouter.update(model: model, dynamicColors: dynamicColors, darkModeIcon: darkModeIcon)
         gridView.update(model: model, darkModeIcon: darkModeIcon, showLabels: showLabels, gridSize: gridSize)
+        if let sizeCategory, gridView.traitCollection.preferredContentSizeCategory != sizeCategory {
+            let traits = UITraitCollection(traitsFrom: [
+                gridView.traitCollection,
+                UITraitCollection(preferredContentSizeCategory: sizeCategory)
+            ])
+            gridView.setNeedsLayout()
+            gridView.updateMetrics(for: traits)
+        }
         // preferredContentSize and intrinsicContentSize are also used on iOS 15,
         // where UIViewControllerRepresentable.sizeThatFits is unavailable.
         preferredContentSize = fittingSize(width: nil)
@@ -115,9 +146,9 @@ private final class LCGridAppCellView: UIControl {
                       height: Self.topInset + iconSide + labelHeight + Self.bottomInset)
     }
 
-    func updateMetrics() {
+    func updateMetrics(for traits: UITraitCollection? = nil) {
         titleLabel.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(
-            for: .systemFont(ofSize: 12, weight: .medium), compatibleWith: traitCollection)
+            for: .systemFont(ofSize: 12, weight: .medium), compatibleWith: traits ?? self.traitCollection)
         invalidateIntrinsicContentSize()
         setNeedsLayout()
     }

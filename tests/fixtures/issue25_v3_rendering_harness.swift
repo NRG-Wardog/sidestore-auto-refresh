@@ -84,6 +84,7 @@ struct V3RenderingScreen: View {
     let state = V3RenderingState()
     let status = V3SideStoreStatusStore()
     var host: UIHostingController<V3RenderingScreen>!
+    var scrollView: UIScrollView? { host.view.subviews.compactMap { $0 as? UIScrollView }.first }
     var failures: [String] = []
     var measurements: [[String: Any]] = []
     var cold: Bool { ProcessInfo.processInfo.arguments.contains("--cold") }
@@ -106,25 +107,39 @@ struct V3RenderingScreen: View {
     }
     func measure(_ name: String) {
         let expected = status.installedApps.filter { state.query.isEmpty || $0.name.localizedCaseInsensitiveContains(state.query) || $0.bundleID.localizedCaseInsensitiveContains(state.query) }
-        let frames = state.frames.sorted {
-            // LazyVGrid's default vertical alignment is center: different label
-            // heights share a row center, not a top edge. JSON records all raw
-            // frames so this ordering assertion can be independently checked.
-            abs($0.value.midY - $1.value.midY) > 1 ? $0.value.midY < $1.value.midY : $0.value.minX < $1.value.minX
-        }
+        // LazyVGrid rows use GridItem alignment .top, so cells in a row share a
+        // top edge even when their heights differ (long two-line labels).
+        // Bucket by rounded minY, then order columns by minX inside each row.
+        let frames = state.frames
+            .sorted { ($0.value.minY, $0.value.minX) < ($1.value.minY, $1.value.minX) }
+            .reduce(into: [[(key: String, frame: CGRect)]]()) { rows, entry in
+                if let last = rows.last, let anchor = last.first, abs(anchor.frame.minY - entry.value.minY) <= 1 {
+                    rows[rows.count - 1].append(entry)
+                } else {
+                    rows.append([entry])
+                }
+            }
+            .flatMap { $0.sorted { $0.frame.minX < $1.frame.minX } }
         check(frames.map(\.key) == expected.map(\.identifier), "\(name): native SideStore cell identity/order mismatch")
+        // Probe frames are recorded in the ScrollView's named content space, so
+        // reachability is asserted against the content size: accessibility text
+        // sizes legitimately push rows below the fold of a scrollable canvas.
+        let contentSize = scrollView?.contentSize ?? CGSize(width: host.view.bounds.width, height: 0)
         for (id, frame) in frames {
             check(frame.width > 0 && frame.height > 0, "\(name): \(id) has non-positive bounds")
-            check(frame.intersects(host.view.bounds), "\(name): \(id) is not visible")
+            check(frame.minX >= -1 && frame.maxX <= contentSize.width + 1,
+                  "\(name): \(id) is horizontally outside the scrollable content area")
+            check(frame.minY >= -1 && frame.maxY <= contentSize.height + 1,
+                  "\(name): \(id) is vertically outside the scrollable content area")
         }
         for i in frames.indices {
             for j in frames.indices where j > i {
-                let intersection = frames[i].value.intersection(frames[j].value)
+                let intersection = frames[i].frame.intersection(frames[j].frame)
                 check(intersection.width <= 0.5 || intersection.height <= 0.5, "\(name): native SideStore cells overlap")
             }
         }
         measurements.append(["case": name, "inputCount": expected.count, "cellCount": frames.count,
-                             "viewport": rect(host.view.bounds), "frames": frames.map { ["identity": $0.key, "bounds": rect($0.value)] },
+                             "viewport": rect(host.view.bounds), "frames": frames.map { ["identity": $0.key, "bounds": rect($0.frame)] },
                              "labels": UserDefaults.standard.bool(forKey: "LCShowAppLabels")])
     }
     func run() async {

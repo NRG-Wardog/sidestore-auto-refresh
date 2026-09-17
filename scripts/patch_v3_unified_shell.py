@@ -34,8 +34,10 @@ def patch_host(root: Path) -> None:
     if "case home" not in text:
         text = replace_once(text, "public enum LCTabIdentifier: Hashable {\n    case sources\n    case apps\n    case tweaks\n    case settings\n}",
                             "public enum LCTabIdentifier: Hashable {\n    case home\n    case sources\n    case apps\n    case refresh\n    case tweaks\n    case settings\n}", "tab identifiers")
-        text = text.replace('    @Published var selectedTab: LCTabIdentifier = .apps',
-                            '    @Published var selectedTab: LCTabIdentifier = LCLaunchTab.resolve(LCUtils.appGroupUserDefault.string(forKey: LCLaunchTab.storageKey)) == .apps ? .apps : .home')
+        text = replace_once(text,
+                            '    @Published var selectedTab: LCTabIdentifier = .apps',
+                            '    @Published var selectedTab: LCTabIdentifier = LCLaunchTab.resolve(LCUtils.appGroupUserDefault.string(forKey: LCLaunchTab.storageKey)) == .apps ? .apps : .home',
+                            "launch-tab startup preference")
         shared.write_text(text, encoding="utf-8")
 
     app = root / "LiveContainerSwiftUI/App/LiveContainerSwiftUIApp.swift"

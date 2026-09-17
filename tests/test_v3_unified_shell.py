@@ -19,7 +19,7 @@ def fixture(root: Path) -> Tuple[Path, Path]:
     (live / "LiveContainerSwiftUI/App").mkdir(parents=True)
     (live / "LiveContainerSwiftUI/Views/Settings").mkdir(parents=True)
     (side / "AltStore").mkdir(parents=True)
-    (live / "LiveContainerSwiftUI/Utilities/Shared.swift").write_text("public enum LCTabIdentifier: Hashable {\n    case sources\n    case apps\n    case tweaks\n    case settings\n}\n")
+    (live / "LiveContainerSwiftUI/Utilities/Shared.swift").write_text("public enum LCTabIdentifier: Hashable {\n    case sources\n    case apps\n    case tweaks\n    case settings\n}\n\npublic struct SharedModel {\n    @Published var selectedTab: LCTabIdentifier = .apps\n}\n")
     (live / "LiveContainerSwiftUI/App/LiveContainerSwiftUIApp.swift").write_text("struct Root {\n            LCTabView()\n}\n")
     (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").write_text('''struct Settings {
                 if store == .SideStore {
@@ -97,6 +97,26 @@ class V3UnifiedShellTests(unittest.TestCase):
             self.assertIn("V3_SIDESTORE_STATUS_SNAPSHOT_V1", status)
             self.assertNotIn("appleIDPassword", status)
             self.assertNotIn("appleIDXcodeToken", status)
+
+    def test_launch_tab_startup_preference_is_applied(self):
+        with tempfile.TemporaryDirectory() as directory:
+            live, side = fixture(Path(directory))
+            patch.patch(live, side)
+            shared = (live / "LiveContainerSwiftUI/Utilities/Shared.swift").read_text()
+            self.assertIn("LCLaunchTab.resolve(LCUtils.appGroupUserDefault.string(forKey: LCLaunchTab.storageKey)) == .apps ? .apps : .home", shared)
+
+    def test_launch_tab_anchor_drift_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            live, side = fixture(root)
+            path = live / "LiveContainerSwiftUI/Utilities/Shared.swift"
+            path.write_text(path.read_text().replace(
+                "    @Published var selectedTab: LCTabIdentifier = .apps",
+                "    @Published var selectedTab: LCTabIdentifier = .tweaks"))
+            before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+            with self.assertRaises(SystemExit):
+                patch.patch(live, side)
+            self.assertEqual(before, {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()})
 
     def test_files_install_is_separate_from_guest_import(self):
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
