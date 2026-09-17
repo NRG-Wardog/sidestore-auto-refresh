@@ -109,17 +109,17 @@ struct V3RenderingScreen: View {
         let expected = status.installedApps.filter { state.query.isEmpty || $0.name.localizedCaseInsensitiveContains(state.query) || $0.bundleID.localizedCaseInsensitiveContains(state.query) }
         // LazyVGrid rows use GridItem alignment .top, so cells in a row share a
         // top edge even when their heights differ (long two-line labels).
-        // Bucket by rounded minY, then order columns by minX inside each row.
-        let frames = state.frames
-            .sorted { ($0.value.minY, $0.value.minX) < ($1.value.minY, $1.value.minX) }
-            .reduce(into: [[(key: String, frame: CGRect)]]()) { rows, entry in
-                if let last = rows.last, let anchor = last.first, abs(anchor.frame.minY - entry.value.minY) <= 1 {
-                    rows[rows.count - 1].append(entry)
-                } else {
-                    rows.append([entry])
-                }
+        // Bucket rows by top edge, then order columns by minX inside each row.
+        let probes: [(key: String, frame: CGRect)] = state.frames.map { (key: $0.key, frame: $0.value) }
+        var rows: [[(key: String, frame: CGRect)]] = []
+        for entry in probes.sorted(by: { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }) {
+            if let anchor = rows.last?.first, abs(anchor.frame.minY - entry.frame.minY) <= 1 {
+                rows[rows.count - 1].append(entry)
+            } else {
+                rows.append([entry])
             }
-            .flatMap { $0.sorted { $0.frame.minX < $1.frame.minX } }
+        }
+        let frames = rows.flatMap { $0.sorted { $0.frame.minX < $1.frame.minX } }
         check(frames.map(\.key) == expected.map(\.identifier), "\(name): native SideStore cell identity/order mismatch")
         // Probe frames are recorded in the ScrollView's named content space, so
         // reachability is asserted against the content size: accessibility text
