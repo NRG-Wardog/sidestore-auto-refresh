@@ -169,13 +169,12 @@ struct V3RenderingScreen: View {
         return state.samples.filter { $0.epoch == epoch }
     }
     func viewport(_ scroll: UIScrollView, probe: CGRect) -> CGRect {
-        let insets = scroll.adjustedContentInset
-        let usable = CGRect(x: insets.left, y: insets.top,
-                            width: scroll.bounds.width - insets.left - insets.right,
-                            height: scroll.bounds.height - insets.top - insets.bottom)
+        // The probe already reports the scroll view's frame in the v3-viewport
+        // space (chrome excluded by SwiftUI). Clipping by adjustedContentInset
+        // here would double-subtract the navigation bar and reject valid cells.
         let hostClip = scroll.convert(host.view.bounds, from: host.view)
             .offsetBy(dx: -scroll.bounds.minX, dy: -scroll.bounds.minY)
-        return probe.intersection(usable).intersection(hostClip)
+        return probe.intersection(hostClip)
     }
     func observe(_ id: String, scroll: UIScrollView) async -> (cell: FixtureFrame, content: FixtureFrame, viewport: CGRect, samples: [FixtureFrame])? {
         var previous: (cell: FixtureFrame, content: FixtureFrame, viewport: CGRect, offset: CGPoint, size: CGSize)?
