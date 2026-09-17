@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -270,6 +271,69 @@ class AppLayoutPatchTests(unittest.TestCase):
                 banner_view = banner_file.read_text(encoding="utf-8")
                 self.assertIn("self.accessibilityLabel = values.name", banner_view)
                 self.assertIn("self.accessibilityView?.accessibilityLabel", banner_view)
+
+    def test_grid_explicit_size_category_reaches_creation_and_update(self):
+        text = (ROOT / "scripts/templates/livecontainer_grid_app_cell.swift").read_text(encoding="utf-8")
+        self.assertIn(r"@Environment(\.sizeCategory) private var sizeCategory", text)
+        for method in ("makeUIViewController", "updateUIViewController"):
+            with self.subTest(method=method):
+                body = text.split(f"func {method}(", 1)[1].split("\n    }", 1)[0]
+                self.assertIn("sizeCategory: Self.uiContentSizeCategory(sizeCategory)", body)
+        controller = text.split("final class LCGridAppCellViewController:", 1)[1].split("private final class LCGridAppCellView:", 1)[0]
+        initializer = controller.split("    init(", 1)[1].split("\n    }", 1)[0]
+        self.assertIn("sizeCategory: UIContentSizeCategory)", initializer)
+        self.assertIn("gridView = LCGridAppCellView(sizeCategory: sizeCategory)", initializer)
+        self.assertRegex(initializer, r"update\(model: configuration\.model,[^\n]+sizeCategory: sizeCategory\)")
+        update = controller.split("    func update(", 1)[1].split("\n    }", 1)[0]
+        self.assertIn("sizeCategory: UIContentSizeCategory)", update)
+        self.assertRegex(update, r"gridView\.update\(model: model,[^\n]+sizeCategory: sizeCategory\)")
+        self.assertLess(update.index("gridView.update("), update.index("preferredContentSize = fittingSize(width: nil)"))
+        self.assertIn("height: gridView.intrinsicContentSize.height", controller)
+
+    def test_grid_stored_category_is_the_only_font_scaling_authority(self):
+        text = (ROOT / "scripts/templates/livecontainer_grid_app_cell.swift").read_text(encoding="utf-8")
+        view = text.split("private final class LCGridAppCellView:", 1)[1]
+        self.assertIn("private var sizeCategory: UIContentSizeCategory", view)
+        initializer = view.split("    init(sizeCategory: UIContentSizeCategory)", 1)[1].split("\n    }", 1)[0]
+        update = view.split("    func update(", 1)[1].split("\n    }", 1)[0]
+        for name, body in (("creation", initializer), ("update", update)):
+            with self.subTest(path=name):
+                self.assertLess(body.index("self.sizeCategory = sizeCategory"), body.index("updateMetrics()"))
+        self.assertIn("sizeCategory: UIContentSizeCategory)", update)
+        metrics = view.split("    private func updateMetrics() {", 1)[1].split("\n    }", 1)[0]
+        self.assertIn("UITraitCollection(preferredContentSizeCategory: sizeCategory)", metrics)
+        self.assertIn("UIFontMetrics(forTextStyle: .caption1).scaledFont(", metrics)
+        self.assertIn("compatibleWith: traits)", metrics)
+        self.assertLess(metrics.index("titleLabel.font ="), metrics.index("invalidateIntrinsicContentSize()"))
+        self.assertIn("setNeedsLayout()", metrics)
+        self.assertEqual(text.count("titleLabel.font ="), 1)
+        self.assertIn("titleLabel.adjustsFontForContentSizeCategory = false", view)
+        self.assertNotIn("titleLabel.adjustsFontForContentSizeCategory = true", text)
+        self.assertNotIn("traitCollectionDidChange", text)
+        self.assertNotIn(".traitCollection", text)
+        self.assertNotIn("updateMetrics(for:", text)
+        self.assertIn("titleLabel.isHidden ? 0 : Self.labelSpacing + ceil(titleLabel.font.lineHeight * 2)", view)
+        self.assertIn("height: Self.topInset + iconSide + labelHeight + Self.bottomInset", view)
+
+    def test_grid_size_category_bridge_covers_all_dynamic_type_sizes(self):
+        text = (ROOT / "scripts/templates/livecontainer_grid_app_cell.swift").read_text(encoding="utf-8")
+        for category in (
+            "extraSmall", "small", "medium", "large", "extraLarge", "extraExtraLarge", "extraExtraExtraLarge",
+            "accessibilityMedium", "accessibilityLarge", "accessibilityExtraLarge",
+            "accessibilityExtraExtraLarge", "accessibilityExtraExtraExtraLarge",
+        ):
+            with self.subTest(category=category):
+                self.assertIn(f"case .{category}: return .{category}", text)
+        self.assertIn("@unknown default: return .large", text)
+
+    def test_grid_fallback_harness_size_that_fits_anchor_is_preserved(self):
+        text = (ROOT / "scripts/templates/livecontainer_grid_app_cell.swift").read_text(encoding="utf-8")
+        pattern = r"    @available\(iOS 16\.0, \*\)\n    func sizeThatFits\([^\n]+\n        uiViewController\.fittingSize\(width: proposal\.width\)\n    }\n"
+        fallback, count = re.subn(pattern, "", text)
+        self.assertEqual(count, 1)
+        self.assertNotIn("func sizeThatFits(", fallback)
+        self.assertIn("preferredContentSize = fittingSize(width: nil)", fallback)
+        self.assertIn("height: gridView.intrinsicContentSize.height", fallback)
 
     def test_safety_boundary_presentation_only(self):
         lc_source = resolve_lc_source()

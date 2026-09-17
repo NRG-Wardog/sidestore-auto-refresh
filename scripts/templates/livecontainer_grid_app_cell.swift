@@ -19,7 +19,7 @@ struct LCGridAppCell: UIViewControllerRepresentable {
     }
 
     func makeUIViewController(context: Context) -> LCGridAppCellViewController {
-        LCGridAppCellViewController(delegate: delegate, configuration: LCAppBannerConfiguration(model: appModel, dynamicColors: dynamicColors, darkModeIcon: darkModeIcon), showLabels: showLabels, gridSize: gridSize)
+        LCGridAppCellViewController(delegate: delegate, configuration: LCAppBannerConfiguration(model: appModel, dynamicColors: dynamicColors, darkModeIcon: darkModeIcon), showLabels: showLabels, gridSize: gridSize, sizeCategory: Self.uiContentSizeCategory(sizeCategory))
     }
 
     func updateUIViewController(_ controller: LCGridAppCellViewController, context: Context) {
@@ -56,12 +56,13 @@ struct LCGridAppCell: UIViewControllerRepresentable {
 
 final class LCGridAppCellViewController: UIViewController, UIContextMenuInteractionDelegate {
     private let actionRouter: LCAppBannerViewController
-    private let gridView = LCGridAppCellView()
+    private let gridView: LCGridAppCellView
 
-    init(delegate: LCAppBannerDelegate, configuration: LCAppBannerConfiguration, showLabels: Bool, gridSize: LCGridSize? = nil) {
+    init(delegate: LCAppBannerDelegate, configuration: LCAppBannerConfiguration, showLabels: Bool, gridSize: LCGridSize? = nil, sizeCategory: UIContentSizeCategory) {
         actionRouter = LCAppBannerViewController(delegate: delegate, config: configuration)
+        gridView = LCGridAppCellView(sizeCategory: sizeCategory)
         super.init(nibName: nil, bundle: nil)
-        update(model: configuration.model, dynamicColors: configuration.dynamicColors, darkModeIcon: configuration.darkModeIcon, showLabels: showLabels, gridSize: gridSize)
+        update(model: configuration.model, dynamicColors: configuration.dynamicColors, darkModeIcon: configuration.darkModeIcon, showLabels: showLabels, gridSize: gridSize, sizeCategory: sizeCategory)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -87,17 +88,9 @@ final class LCGridAppCellViewController: UIViewController, UIContextMenuInteract
         gridView.addInteraction(UIContextMenuInteraction(delegate: self))
     }
 
-    func update(model: LCAppModel, dynamicColors: Bool, darkModeIcon: Bool, showLabels: Bool, gridSize: LCGridSize? = nil, sizeCategory: UIContentSizeCategory? = nil) {
+    func update(model: LCAppModel, dynamicColors: Bool, darkModeIcon: Bool, showLabels: Bool, gridSize: LCGridSize? = nil, sizeCategory: UIContentSizeCategory) {
         actionRouter.update(model: model, dynamicColors: dynamicColors, darkModeIcon: darkModeIcon)
-        gridView.update(model: model, darkModeIcon: darkModeIcon, showLabels: showLabels, gridSize: gridSize)
-        if let sizeCategory, gridView.traitCollection.preferredContentSizeCategory != sizeCategory {
-            let traits = UITraitCollection(traitsFrom: [
-                gridView.traitCollection,
-                UITraitCollection(preferredContentSizeCategory: sizeCategory)
-            ])
-            gridView.setNeedsLayout()
-            gridView.updateMetrics(for: traits)
-        }
+        gridView.update(model: model, darkModeIcon: darkModeIcon, showLabels: showLabels, gridSize: gridSize, sizeCategory: sizeCategory)
         // preferredContentSize and intrinsicContentSize are also used on iOS 15,
         // where UIViewControllerRepresentable.sizeThatFits is unavailable.
         preferredContentSize = fittingSize(width: nil)
@@ -106,12 +99,6 @@ final class LCGridAppCellViewController: UIViewController, UIContextMenuInteract
     func fittingSize(width: CGFloat?) -> CGSize {
         CGSize(width: width.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? gridView.minimumWidth,
                height: gridView.intrinsicContentSize.height)
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        gridView.updateMetrics()
-        preferredContentSize = fittingSize(width: nil)
     }
 
     @objc private func performPrimaryAction() { actionRouter.performPrimaryAction() }
@@ -127,6 +114,7 @@ private final class LCGridAppCellView: UIControl {
     // The grid's vertical contract is derived from its actual icon, spacing and
     // scaled two-line label, not the parent scroll view's unbounded proposal.
     private var gridSize: LCGridSize?
+    private var sizeCategory: UIContentSizeCategory
     private var iconSide: CGFloat { gridSize?.iconSize ?? 60 }
     var minimumWidth: CGFloat { gridSize?.minimumWidth ?? 76 }
     private lazy var iconWidthConstraint = iconImageView.widthAnchor.constraint(equalToConstant: iconSide)
@@ -146,15 +134,17 @@ private final class LCGridAppCellView: UIControl {
                       height: Self.topInset + iconSide + labelHeight + Self.bottomInset)
     }
 
-    func updateMetrics(for traits: UITraitCollection? = nil) {
+    private func updateMetrics() {
+        let traits = UITraitCollection(preferredContentSizeCategory: sizeCategory)
         titleLabel.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(
-            for: .systemFont(ofSize: 12, weight: .medium), compatibleWith: traits ?? self.traitCollection)
+            for: .systemFont(ofSize: 12, weight: .medium), compatibleWith: traits)
         invalidateIntrinsicContentSize()
         setNeedsLayout()
     }
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    init(sizeCategory: UIContentSizeCategory) {
+        self.sizeCategory = sizeCategory
+        super.init(frame: .zero)
         isAccessibilityElement = true
         accessibilityTraits = .button
         iconImageView.translatesAutoresizingMaskIntoConstraints = false
@@ -163,8 +153,8 @@ private final class LCGridAppCellView: UIControl {
         iconImageView.layer.cornerCurve = .continuous
         iconImageView.clipsToBounds = true
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.adjustsFontForContentSizeCategory = false
         updateMetrics()
-        titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 2
         titleLabel.lineBreakMode = .byTruncatingTail
@@ -194,7 +184,8 @@ private final class LCGridAppCellView: UIControl {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func update(model: LCAppModel, darkModeIcon: Bool, showLabels: Bool, gridSize: LCGridSize?) {
+    func update(model: LCAppModel, darkModeIcon: Bool, showLabels: Bool, gridSize: LCGridSize?, sizeCategory: UIContentSizeCategory) {
+        self.sizeCategory = sizeCategory
         self.gridSize = gridSize
         iconWidthConstraint.constant = iconSide
         iconHeightConstraint.constant = iconSide

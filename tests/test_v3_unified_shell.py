@@ -134,6 +134,102 @@ class V3UnifiedShellTests(unittest.TestCase):
         self.assertIn('Button("Add to LiveContainer"', integration)
         self.assertIn('choosingIPA = true', integration)
 
+    def test_native_rendering_scrolls_every_identity_with_fresh_probes(self):
+        source = (ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift").read_text(encoding="utf-8")
+        self.assertIn("ScrollViewReader { reader in", source)
+        self.assertIn("reader.scrollTo(state.scrollID, anchor: .center)", source)
+        self.assertIn("state.scrollRequest += 1", source)
+        self.assertIn("for id in identities {", source)
+        self.assertIn("await observe(id, scroll: scroll)", source)
+        self.assertIn("state.epoch += 1", source)
+        self.assertIn("state.samples.filter { $0.epoch == epoch }", source)
+        self.assertIn("current[id] = cell.content", source)
+        self.assertNotIn("state.frames", source)
+        self.assertIn("current.count == identities.count && collected.count == identities.count", source)
+        self.assertIn("return near(prior, frame)", source)
+        self.assertIn("prior.offset == scroll.contentOffset, prior.size == scroll.contentSize", source)
+        self.assertIn("full-collection geometry did not converge", source)
+        self.assertIn('"scrollVisits": visits', source)
+        calls = [line.strip() for line in source.splitlines() if "measure(" in line and "func measure" not in line]
+        self.assertEqual(len(calls), 11)
+        self.assertTrue(all(line.startswith("await measure(") for line in calls))
+
+    def test_native_rendering_coordinates_are_bounded_and_non_layout_affecting(self):
+        source = (ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift").read_text(encoding="utf-8")
+        screen = source.split("struct V3RenderingScreen: View {", 1)[1].split("@MainActor final class V3RenderingRunner", 1)[0]
+        self.assertIn('V3InstalledAppsSection(query: state.query)\n'
+                      '                        .background(FixtureGeometryProbe(id: "content"))\n'
+                      '                        .background(FixtureScrollMarker(state: state))\n'
+                      '                        .coordinateSpace(name: "v3-content")', screen)
+        self.assertIn('}\n                .background(FixtureGeometryProbe(id: "viewport"))\n'
+                      '                .coordinateSpace(name: "v3-viewport")', screen)
+        for modifier in (".frame(", ".padding(", ".offset(", ".scaleEffect(", ".ignoresSafeArea("):
+            self.assertNotIn(modifier, screen)
+        self.assertIn("var ancestor = state.scrollMarker?.superview", source)
+        self.assertIn("ancestor = view.superview", source)
+        self.assertNotIn("host.view.subviews.compactMap", source)
+        self.assertIn("scroll.adjustedContentInset", source)
+        self.assertIn("probe.intersection(usable).intersection(hostClip)", source)
+        self.assertIn("near(content.viewport, nativeContent)", source)
+        self.assertIn("contains(visible, cell.viewport), contains(content.content, cell.content)", source)
+        self.assertIn("near(translated, cell.viewport)", source)
+        self.assertIn("scroll.contentSize.width <= scroll.bounds.width + 0.5", source)
+        self.assertIn("observation.content.viewport.maxX <= measuredViewport.maxX + 0.5", source)
+        self.assertNotIn("is anchored outside", source)
+
+    def test_native_rendering_validates_full_collection_order_and_overlap(self):
+        source = (ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift").read_text(encoding="utf-8")
+        self.assertIn("value.append(contentsOf: nextValue())", source)
+        self.assertIn("Set(cells.map(\\.id)).count == cells.count", source)
+        self.assertIn("isSubset(of: Set(identities))", source)
+        self.assertIn("abs(anchor.frame.minY - entry.frame.minY) <= 1", source)
+        self.assertIn("$0.sorted { $0.frame.minX < $1.frame.minX }", source)
+        self.assertIn("check(frames.map(\\.key) == identities", source)
+        self.assertIn("collected.map { (key: $0.key, frame: $0.value) }", source)
+        self.assertIn("frames[i].frame.intersection(frames[j].frame)", source)
+        self.assertIn("empty collection retained native cells", source)
+        self.assertIn(".accessibilityExtraExtraExtraLarge", source)
+        self.assertIn("status.installedApps.reverse()", source)
+
+    def test_native_geometry_predicates_when_swift_is_available(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("swiftc unavailable; native geometry predicates not executed")
+        source = (ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift").read_text(encoding="utf-8")
+        helpers = source[source.index("    func valid("):source.index("    func freshSamples(")]
+        rect = next(line for line in source.splitlines() if "func rect(" in line)
+        program = "import Foundation\n" + rect + "\n" + helpers + '''
+let viewport = CGRect(x: 0, y: 44, width: 320, height: 730)
+let content = CGRect(x: 0, y: 0, width: 320, height: 1600)
+let belowFold = CGRect(x: 16, y: 951, width: 288, height: 230)
+precondition(contains(content, belowFold))
+precondition(!contains(viewport, belowFold))
+precondition(contains(viewport, belowFold.offsetBy(dx: 0, dy: -800)))
+precondition(!contains(viewport, CGRect(x: 244, y: 100, width: 136, height: 108)))
+precondition(!contains(viewport, CGRect(x: -10, y: 100, width: 288, height: 108)))
+precondition(!contains(viewport, CGRect(x: 16, y: 750, width: 288, height: 108)))
+precondition(!contains(viewport, CGRect(x: 16, y: 0, width: 288, height: 108)))
+precondition(!contains(viewport, .zero))
+precondition(!valid(CGRect(x: CGFloat.nan, y: 0, width: 10, height: 10)))
+precondition(!near(belowFold, belowFold.offsetBy(dx: 0, dy: 2)))
+precondition(near(belowFold, belowFold.offsetBy(dx: 0, dy: 0.25)))
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            main = Path(directory) / "main.swift"
+            binary = Path(directory) / "geometry.exe"
+            main.write_text(program, encoding="utf-8")
+            result = __import__("subprocess").run([compiler, str(main), "-o", str(binary)], text=True, capture_output=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = __import__("subprocess").run([str(binary)], text=True, capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_native_harness_parses_when_swift_is_available(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("swiftc unavailable; SwiftUI/UIKit compilation requires Xcode")
+        result = __import__("subprocess").run([compiler, "-frontend", "-parse", str(ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift")], text=True, capture_output=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_template_parses_when_swift_is_available(self):
         compiler = shutil.which("swiftc")
         if not compiler:
