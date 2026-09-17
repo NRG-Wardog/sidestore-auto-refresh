@@ -173,9 +173,8 @@ enum Stage { case serviceReadiness }
     @MainActor static func main() async throws {
         let owner = Probe(); let id = owner.launchID!
         owner.applicationReady(id)
-        try await Task.sleep(nanoseconds: 5_000_000)
         owner.applicationReady(id)
-        try await Task.sleep(nanoseconds: 60_000_000)
+        await owner.readinessTask?.value
         owner.applicationReady(id)
         precondition(owner.probes == 1 && owner.signals == 1 && owner.failures == 0)
         owner.readinessTask = nil; owner.launchID = UUID()
@@ -183,7 +182,7 @@ enum Stage { case serviceReadiness }
         precondition(owner.probes == 1)
         owner.applicationReady(owner.launchID!)
         owner.readinessTask?.cancel()
-        try await Task.sleep(nanoseconds: 60_000_000)
+        await owner.readinessTask?.value
         precondition(owner.failures == 0 && owner.signals == 1)
         print("adapter duplicate readiness/cancellation PASS")
     }
