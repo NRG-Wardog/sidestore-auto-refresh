@@ -28,6 +28,10 @@ def fixture(root: Path) -> Tuple[Path, Path]:
                     }
                 }
 }
+
+struct LCTweaksView: View {
+    var body: some View { Text("tweaks") }
+}
 ''')
     (live / "LiveContainerSwiftUI/Views/AppList").mkdir(parents=True)
     (live / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift").write_text('''struct Apps {
@@ -80,15 +84,35 @@ class V3UnifiedShellTests(unittest.TestCase):
             shell = (live / "LiveContainerSwiftUI/Views/V3UnifiedShell.swift").read_text()
             self.assertIn("struct V3UnifiedShell", shell)
             self.assertIn(".tag(LCTabIdentifier.home)", shell)
-            self.assertIn(".tag(LCTabIdentifier.refresh)", shell)
-            self.assertIn("sharedModel.selectedTab = .home", shell)
+            self.assertNotIn(".tag(LCTabIdentifier.refresh)", shell)
+            for tab in ("home", "apps", "sources", "settings"):
+                self.assertIn(f".tag(LCTabIdentifier.{tab})", shell)
+            self.assertNotIn("sharedModel.selectedTab = .home", shell)
+            self.assertIn("status.refreshPresented = true", shell)
             self.assertNotIn("LCUtils.openSideStore", shell)
             self.assertIn("V3_UNIFIED_SHELL_V1: SideStore is reached through unified tabs.", (live / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift").read_text())
             self.assertNotIn("SideStore scheduled refresh", (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text())
+            self.assertIn("Refresh, Schedule and History", (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text())
             status = (side / "AltStore/AppDelegate.swift").read_text()
             self.assertIn("V3_SIDESTORE_STATUS_SNAPSHOT_V1", status)
             self.assertNotIn("appleIDPassword", status)
             self.assertNotIn("appleIDXcodeToken", status)
+
+    def test_files_install_is_separate_from_guest_import(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        integration = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
+        self.assertIn('Button("Install / Sideload App")', source)
+        self.assertIn('UIDocumentPickerViewController(forOpeningContentTypes:', source)
+        self.assertIn('func documentPickerWasCancelled', source)
+        self.assertIn('status.stageSharedIPA(url, title: "Install / Sideload App")', source)
+        self.assertIn('perform("installSharedIPA", target: token', source)
+        self.assertIn('installTarget = .url(url)', service)
+        self.assertIn('AppManager.shared.install(installTarget', service)
+        self.assertIn('group.cancel(); group.progress.cancel()', service)
+        self.assertIn('status.accept(try await V3ServiceBridge.shared.request', source)
+        self.assertIn('Button("Add to LiveContainer"', integration)
+        self.assertIn('choosingIPA = true', integration)
 
     def test_template_parses_when_swift_is_available(self):
         compiler = shutil.which("swiftc")

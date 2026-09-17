@@ -28,7 +28,7 @@ public final class V3ServiceBridge {
         try Task.checkCancellation()
         try await connect()
         let id = UUID().uuidString
-        let mutation = !["snapshot", "catalog", "backupResult"].contains(operation)
+        let mutation = !["snapshot", "catalog", "appIcon", "backupResult"].contains(operation)
         if mutation {
             guard !isMutating, RefreshHandler.shared.v3RefreshToken == nil else {
                 throw CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
@@ -36,7 +36,7 @@ public final class V3ServiceBridge {
             activeMutation = id
         }
         defer { if activeMutation == id { activeMutation = nil } }
-        let timeout = ["snapshot", "catalog"].contains(operation) ? readTimeout : commandTimeout
+        let timeout = ["snapshot", "catalog", "appIcon"].contains(operation) ? readTimeout : commandTimeout
         var message: [String: Any] = ["version": 1, "id": id, "operation": operation,
                                       "target": target, "deadline": Date().addingTimeInterval(timeout)]
         if let value { message["value"] = value }

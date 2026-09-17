@@ -34,6 +34,8 @@ def patch_host(root: Path) -> None:
     if "case home" not in text:
         text = replace_once(text, "public enum LCTabIdentifier: Hashable {\n    case sources\n    case apps\n    case tweaks\n    case settings\n}",
                             "public enum LCTabIdentifier: Hashable {\n    case home\n    case sources\n    case apps\n    case refresh\n    case tweaks\n    case settings\n}", "tab identifiers")
+        text = text.replace('    @Published var selectedTab: LCTabIdentifier = .apps',
+                            '    @Published var selectedTab: LCTabIdentifier = LCLaunchTab.resolve(LCUtils.appGroupUserDefault.string(forKey: LCLaunchTab.storageKey)) == .apps ? .apps : .home')
         shared.write_text(text, encoding="utf-8")
 
     app = root / "LiveContainerSwiftUI/App/LiveContainerSwiftUIApp.swift"
@@ -56,10 +58,14 @@ def patch_host(root: Path) -> None:
                     }
                 }
 '''
+    replacement = '''                Section {
+                    NavigationLink { LCEmbeddedSideStoreRefreshView() } label: { Text("Refresh, Schedule and History") }
+                }
+'''
     if old in text:
-        settings.write_text(text.replace(old, "                // V3_REFRESH_SETTINGS_IN_TAB\n", 1), encoding="utf-8")
-    elif "// V3_REFRESH_SETTINGS_IN_TAB" not in text:
-        die("refresh settings removal anchor changed")
+        settings.write_text(text.replace(old, replacement, 1), encoding="utf-8")
+    elif replacement not in text:
+        die("refresh settings anchor changed")
 
     app_list = root / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift"
     text = app_list.read_text(encoding="utf-8")
@@ -112,7 +118,7 @@ def verify(live: Path, side: Path) -> None:
     if any(not p.exists() for p in required):
         die("v3 host files are missing")
     shell = required[0].read_text(encoding="utf-8")
-    for token in (MARKER, "V3SideStoreStatusStore", "V3SourcesView", "LCEmbeddedSideStoreRefreshView", "LCTabIdentifier.refresh"):
+    for token in (MARKER, "V3SideStoreStatusStore", "V3SourcesView", "LCEmbeddedSideStoreRefreshView", "LCTabIdentifier.settings"):
         if token not in shell:
             die(f"v3 shell is missing {token}")
     if "V3UnifiedShell()" not in required[1].read_text(encoding="utf-8"):

@@ -73,6 +73,16 @@ def patch(live, side):
     edit(side, "AltStore/AppDelegate.swift", lambda s: s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8"))
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
         "        NavigationView {\n            ScrollView {", "        NavigationView {\n            ScrollView {\n                V3InstalledAppsSection(query: searchContext.debouncedQuery)"))
+    edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
+        '            .navigationTitle("lc.appList.myApps".loc)\n            .toolbar {',
+        '            .navigationTitle("My Apps")\n            .toolbar {\n                ToolbarItem(placement: .primaryAction) { V3RefreshAllButton() }'))
+    edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
+        '''                                Button("lc.appList.installFromIpa".loc, systemImage: "doc.badge.plus", action: {
+                                    choosingIPA = true
+                                })''', '''                                V3InstallButton()
+                                Button("Add to LiveContainer", systemImage: "doc.badge.plus", action: {
+                                    choosingIPA = true
+                                })'''))
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(replace(s,
         '''        if appFound == nil && bundleId == "builtinSideStore" {
             appFound = LCAppModel(appInfo: BuiltInSideStoreAppInfo.shared)

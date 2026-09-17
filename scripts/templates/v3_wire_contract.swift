@@ -5,7 +5,7 @@ import CoreFoundation
 enum V3WireContract {
     static let requestLimit = 16_384
     static let responseLimit = 4_194_304
-    static let operations: Set<String> = ["snapshot", "catalog", "cancel", "refreshSources", "addSource",
+    static let operations: Set<String> = ["snapshot", "catalog", "appIcon", "cancel", "refreshSources", "addSource",
         "removeSource", "signIn", "signOut", "syncAppIDs", "clearCache", "setSetting", "install",
         "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "jit", "panel", "importPairing", "refreshApp", "backupResult", "installURL", "installSharedIPA"]
 
