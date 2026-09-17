@@ -30,6 +30,7 @@ struct V3SideStoreApp: Identifiable {
 }
 @MainActor final class V3SideStoreStatusStore: ObservableObject {
     @Published var installedApps = (0..<6).map(V3SideStoreApp.init)
+    var installedAppCount: Int { installedApps.count }
     let isStale = false
     let loading = false
     func reload() {}
