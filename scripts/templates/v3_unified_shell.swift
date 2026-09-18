@@ -22,6 +22,7 @@ struct V3UnifiedTabs: View {
     @EnvironmentObject private var sharedModel: SharedModel
     @StateObject private var status = V3SideStoreStatusStore()
     @State private var selectedInstallURL: URL?
+    @State private var selectedPairingURL: URL?
     private let monitor = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     var body: some View {
         TabView(selection: $sharedModel.selectedTab) {
@@ -54,6 +55,17 @@ struct V3UnifiedTabs: View {
             V3IPADocumentPicker { url in
                 selectedInstallURL = url
                 status.installPickerPresented = false
+            }
+        }
+        .sheet(isPresented: $status.pairingPickerPresented, onDismiss: {
+            if let url = selectedPairingURL {
+                selectedPairingURL = nil
+                status.stagePairingFile(url)
+            }
+        }) {
+            V3PairingDocumentPicker { url in
+                selectedPairingURL = url
+                status.pairingPickerPresented = false
             }
         }
         .fullScreenCover(item: $status.presentation) { V3OperationSheet(request: $0).environmentObject(status) }
@@ -158,6 +170,32 @@ struct V3IPADocumentPicker: UIViewControllerRepresentable {
     }
 }
 
+struct V3PairingDocumentPicker: UIViewControllerRepresentable {
+    let completion: (URL?) -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(completion: completion) }
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let types = ["mobiledevicepairing", "plist", "xml"].compactMap { UTType(filenameExtension: $0) }
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types.isEmpty ? [.data] : types, asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        private var completion: ((URL?) -> Void)?
+        init(completion: @escaping (URL?) -> Void) { self.completion = completion }
+        private func finish(_ url: URL?) {
+            let callback = completion
+            completion = nil
+            callback?(url)
+        }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            finish(urls.first)
+        }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finish(nil) }
+    }
+}
+
 struct V3RefreshAllButton: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @AppStorage("liveContainerAutoRefreshActiveRunID", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var activeRun = ""
@@ -213,6 +251,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published var refreshTarget: String?
     @Published var refreshPresented = false
     @Published var installPickerPresented = false
+    @Published var pairingPickerPresented = false
     @Published private(set) var loading = false
     @Published private(set) var connected = false
     @Published private(set) var requiresConnectionRetry = false
@@ -292,6 +331,34 @@ final class V3SideStoreStatusStore: ObservableObject {
             } catch { self.error = error.localizedDescription }
         }
     }
+    func stagePairingFile(_ url: URL) {
+        guard presentation == nil else { return }
+        do {
+            let allowedExtensions = Set(["mobiledevicepairing", "plist", "xml"])
+            guard url.isFileURL, allowedExtensions.contains(url.pathExtension.lowercased()) else {
+                throw NSError(domain: "V3PairingSelection", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "Choose a .mobiledevicepairing, .plist, or .xml pairing file."])
+            }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let token = UUID().uuidString
+            let bookmark = try url.bookmarkData(options: URL.BookmarkCreationOptions(rawValue: 1 << 11),
+                                                includingResourceValuesForKeys: nil, relativeTo: nil)
+            LCUtils.appGroupUserDefault.set(bookmark, forKey: "V3SharedPairing." + token)
+            loading = true
+            Task {
+                defer { loading = false }
+                do {
+                    let snapshot = try await V3ServiceBridge.shared.request(operation: "importPairingSharedFile", target: token)
+                    accept(snapshot)
+                } catch {
+                    LCUtils.appGroupUserDefault.removeObject(forKey: "V3SharedPairing." + token)
+                    self.error = error.localizedDescription
+                }
+            }
+        } catch { self.error = error.localizedDescription }
+    }
+
     func stageSharedIPA(_ url: URL, bookmark: Data? = nil, title: String) {
         guard presentation == nil else { return }
         do {
@@ -803,7 +870,11 @@ struct V3AccountSettings: View {
             } label: {
                 Label("Sync App IDs", systemImage: "arrow.triangle.2.circlepath")
             }
-            panel("Certificates", "certificates", icon: "doc.text")
+            NavigationLink {
+                V3CertificatesView()
+            } label: {
+                Label("Certificates", systemImage: "doc.text")
+            }
             panel("Developer Services", "developerServices", icon: "wrench.and.screwdriver")
             Button(role: .destructive) {
                 status.signOut()
@@ -821,7 +892,7 @@ struct V3AccountSettings: View {
                     .lineLimit(1)
             }
             Button {
-                status.perform("importPairing", title: "Import Pairing File")
+                status.pairingPickerPresented = true
             } label: {
                 Label("Import Pairing File", systemImage: "doc.badge.plus")
             }
@@ -871,6 +942,126 @@ struct V3AccountSettings: View {
             Label(title, systemImage: icon)
         }
         .disabled(status.isStale)
+    }
+}
+
+struct V3CertificateRecord: Identifiable, Hashable {
+    let serialNumber: String
+    let name: String
+    let expirationDate: Date
+    let active: Bool
+    var id: String { serialNumber }
+    init?(_ row: [String: Any]) {
+        guard let serialNumber = row["serialNumber"] as? String,
+              let name = row["name"] as? String,
+              let expirationDate = row["expirationDate"] as? Date,
+              let active = row["active"] as? Bool else { return nil }
+        self.serialNumber = serialNumber
+        self.name = name
+        self.expirationDate = expirationDate
+        self.active = active
+    }
+}
+
+struct V3CertificatesView: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    @State private var certificates: [V3CertificateRecord] = []
+    @State private var loading = false
+    @State private var error: String?
+    @State private var deleteCandidate: V3CertificateRecord?
+
+    var body: some View {
+        List {
+            if loading && certificates.isEmpty {
+                HStack { Spacer(); ProgressView(); Spacer() }
+            } else if certificates.isEmpty {
+                ContentUnavailableView("No Local Certificates", systemImage: "doc.badge.ellipsis",
+                                       description: Text("No locally cached signing certificates are available."))
+            } else {
+                ForEach(certificates) { certificate in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(certificate.name).font(.headline)
+                            Spacer()
+                            if certificate.active {
+                                Label("Active", systemImage: "checkmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        Text(certificate.serialNumber)
+                            .font(.caption.monospaced())
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                        Text("Expires " + certificate.expirationDate.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        HStack {
+                            if !certificate.active {
+                                Button("Use for Signing") {
+                                    Task { await mutate("activateLocalCertificate", target: certificate.serialNumber) }
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                            Button("Delete", role: .destructive) { deleteCandidate = certificate }
+                                .buttonStyle(.bordered)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .navigationTitle("Certificates")
+        .overlay(alignment: .bottom) {
+            if let error {
+                Text(error)
+                    .font(.footnote)
+                    .padding(10)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    .padding()
+                    .onTapGesture { self.error = nil }
+            }
+        }
+        .confirmationDialog("Delete certificate?", isPresented: Binding(
+            get: { deleteCandidate != nil },
+            set: { if !$0 { deleteCandidate = nil } }
+        ), titleVisibility: .visible) {
+            if let certificate = deleteCandidate {
+                Button("Delete " + certificate.name, role: .destructive) {
+                    deleteCandidate = nil
+                    Task { await mutate("deleteLocalCertificate", target: certificate.serialNumber) }
+                }
+            }
+            Button("Cancel", role: .cancel) { deleteCandidate = nil }
+        }
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    private func load() async {
+        loading = true
+        defer { loading = false }
+        do {
+            let result = try await V3ServiceBridge.shared.request(operation: "certificatesSnapshot")
+            certificates = (result["certificates"] as? [[String: Any]] ?? []).compactMap(V3CertificateRecord.init)
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func mutate(_ operation: String, target: String) async {
+        loading = true
+        defer { loading = false }
+        do {
+            let snapshot = try await V3ServiceBridge.shared.request(operation: operation, target: target)
+            status.accept(snapshot)
+            let result = try await V3ServiceBridge.shared.request(operation: "certificatesSnapshot")
+            certificates = (result["certificates"] as? [[String: Any]] ?? []).compactMap(V3CertificateRecord.init)
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 }
 
