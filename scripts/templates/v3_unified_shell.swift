@@ -61,12 +61,6 @@ struct V3UnifiedTabs: View {
             NavigationView { V3SignInView().environmentObject(status) }
                 .navigationViewStyle(StackNavigationViewStyle())
         }
-        .sheet(isPresented: $status.refreshPresented, onDismiss: { status.reload() }) {
-            NavigationView { LCEmbeddedSideStoreRefreshView()
-                .navigationTitle("Refresh")
-                .navigationBarTitleDisplayMode(.inline) }
-            .navigationViewStyle(StackNavigationViewStyle())
-        }
         .alert("SideStore", isPresented: Binding(get: { status.error != nil }, set: { if !$0 { status.error = nil } })) {
             Button("Copy Diagnostics") { UIPasteboard.general.string = status.error }
             Button("Retry Connection") { status.reload() }
@@ -129,7 +123,9 @@ struct V3UnifiedTabs: View {
             switch url.host?.lowercased() {
             case "livecontainer-launch", "install", "open-web-page", "open-url": sharedModel.selectedTab = .apps
             case "certificate": sharedModel.selectedTab = .settings
-            case "refresh": status.refreshPresented = true
+            case "refresh":
+                sharedModel.selectedTab = .home
+                status.refreshPresented = true
             default: return
             }
         }
@@ -477,7 +473,11 @@ struct V3AppActions: View {
                 if !opened { Task { @MainActor in status.error = "The app could not be opened. Check whether it is still installed." } }
             } }
         }
-        Button("Refresh") { status.refreshTarget = app.isHost ? nil : app.identifier; status.refreshPresented = true }
+        Button("Refresh") {
+            sharedModel.selectedTab = .home
+            status.refreshTarget = app.isHost ? nil : app.identifier
+            status.refreshPresented = true
+        }
         if app.hasUpdate { Button("Update") { action("update", "Update " + app.name) } }
         if !app.isHost {
             Button(app.isActive ? "Deactivate" : "Activate") { action(app.isActive ? "deactivate" : "activate", app.isActive ? "Deactivate app" : "Activate app") }
@@ -911,7 +911,7 @@ struct V3AccountSettings: View {
             }
         }
 
-        Section("SideStore") {
+        Section("Device") {
             HStack {
                 Label("Pairing Status", systemImage: "link")
                 Spacer()
@@ -925,23 +925,32 @@ struct V3AccountSettings: View {
                 Label("Import Pairing File", systemImage: "doc.badge.plus")
             }
             link("Connection", icon: "network") { V3ConnectionView().environmentObject(status) }
-            link("Anisette Servers", icon: "server.rack") { V3AnisetteView().environmentObject(status) }
-            link("SideSign Configuration", icon: "pencil.and.outline") { V3SideSignView().environmentObject(status) }
-            link("Installation and Signing Options", icon: "slider.horizontal.3") { V3CustomizationsView().environmentObject(status) }
-            link("Health Check", icon: "heart.text.square") { V3HealthView().environmentObject(status) }
+        }
+
+        Section("Apps and Data") {
             link("SideStore Backups", icon: "archivebox") { V3BackupsView().environmentObject(status) }
-            link("SideJIT Server", icon: "bolt.fill") { V3SideJITView().environmentObject(status) }
-            setting("Beta updates", "isBetaUpdatesEnabled", icon: "sparkles")
-            setting("Disable idle timeout", "isIdleTimeoutDisableEnabled", icon: "timer")
-            link("Update Channel", icon: "arrow.triangle.merge") { V3ReleaseTrackHostView().environmentObject(status) }
-            link("SideStore Diagnostics", icon: "waveform.path.ecg") { V3DiagnosticsView().environmentObject(status) }
-            link("Operation Logs", icon: "doc.text.magnifyingglass") { V3LogsView().environmentObject(status) }
-            link("Experimental Features", icon: "flask") { V3ExperimentalView().environmentObject(status) }
+            link("Installation and Signing Options", icon: "slider.horizontal.3") { V3CustomizationsView().environmentObject(status) }
             Button {
                 status.clearCache()
             } label: {
                 Label("Clear Download Cache", systemImage: "trash")
             }
+        }
+
+        Section("Services") {
+            link("Anisette Servers", icon: "server.rack") { V3AnisetteView().environmentObject(status) }
+            link("SideSign Configuration", icon: "pencil.and.outline") { V3SideSignView().environmentObject(status) }
+            link("SideJIT Server", icon: "bolt.fill") { V3SideJITView().environmentObject(status) }
+            link("Update Channel", icon: "arrow.triangle.merge") { V3ReleaseTrackHostView().environmentObject(status) }
+            setting("Beta updates", "isBetaUpdatesEnabled", icon: "sparkles")
+            setting("Disable idle timeout", "isIdleTimeoutDisableEnabled", icon: "timer")
+        }
+
+        Section("Diagnostics") {
+            link("Health Check", icon: "heart.text.square") { V3HealthView().environmentObject(status) }
+            link("Operation Logs", icon: "doc.text.magnifyingglass") { V3LogsView().environmentObject(status) }
+            link("SideStore Diagnostics", icon: "waveform.path.ecg") { V3DiagnosticsView().environmentObject(status) }
+            link("Experimental Features", icon: "flask") { V3ExperimentalView().environmentObject(status) }
         }
 
         Section("Guest Runtime") {
@@ -1257,6 +1266,12 @@ struct V3PromptSection: View {
         }
     }
     private var isMulti: Bool { kind == "extensions" || kind == "revocation" }
+    private var deliveryOptions: [[String: String]] {
+        options.filter { ["trustedDevice", "sms", "voice"].contains($0["id"] ?? "") }
+    }
+    private var phoneOptions: [[String: String]] {
+        options.filter { ($0["id"] ?? "").hasPrefix("phone:") }
+    }
     var body: some View {
         Section(title) {
             if !message.isEmpty {
@@ -1264,6 +1279,62 @@ struct V3PromptSection: View {
                     .font(.footnote)
                     .foregroundColor(.secondary)
             }
+            if kind == "twoFactor" {
+                Text("Step 1 - Choose how Apple sends your code:")
+                    .font(.subheadline.weight(.semibold))
+                ForEach(deliveryOptions, id: \.self) { option in
+                    Button {
+                        var answer = fields
+                        answer["choice"] = option["id"] ?? ""
+                        answer["action"] = option["id"] ?? ""
+                        onAnswer(answer)
+                    } label: {
+                        HStack {
+                            Text(option["label"] ?? "")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+                ForEach(phoneOptions, id: \.self) { option in
+                    Button {
+                        var answer = fields
+                        let phoneID = String((option["id"] ?? "").dropFirst("phone:".count))
+                        answer["phoneID"] = phoneID
+                        let delivery = fields["mode"] == "voice" ? "voice" : "sms"
+                        answer["choice"] = delivery
+                        answer["action"] = delivery
+                        onAnswer(answer)
+                    } label: {
+                        HStack {
+                            Image(systemName: "phone.fill")
+                                .foregroundColor(.accentColor)
+                            Text(option["label"] ?? "")
+                            Spacer()
+                        }
+                    }
+                }
+                Text("Step 2 - Enter the code you received:")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.top, 4)
+                TextField("6-digit code", text: binding("code"))
+                    .keyboardType(.numberPad)
+                    .textFieldStyle(.roundedBorder)
+                Button("Submit Code") {
+                    var answer = fields
+                    answer["choice"] = "code"
+                    answer["action"] = "code"
+                    onAnswer(answer)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled((fields["code"] ?? "").isEmpty)
+                Button("Cancel Sign In", role: .cancel) {
+                    onAnswer(["action": "cancel", "choice": "cancel"])
+                }
+            } else {
             ForEach(fieldDefs, id: \.self) { field in
                 if field["key"] == "mode" || field["key"] == "activeID" || field["key"] == "phoneID" || field["key"] == "url" || field["key"] == "serials" {
                     if let value = field["value"], !value.isEmpty, field["key"] == "url" {
@@ -1284,7 +1355,8 @@ struct V3PromptSection: View {
                 Button("Submit") { submit(choice: "") }
                     .buttonStyle(.borderedProminent)
             }
-            if isMulti {                ForEach(options.filter { $0["id"] != "keep" && $0["id"] != "keepAll" }, id: \.self) { option in
+            if isMulti {
+                ForEach(options.filter { $0["id"] != "keep" && $0["id"] != "keepAll" }, id: \.self) { option in
                     Button {
                         toggle(option["id"] ?? "")
                     } label: {
@@ -1317,6 +1389,7 @@ struct V3PromptSection: View {
                         onAnswer(answer)
                     }
                 }
+            }
             }
         }
         .onAppear {
@@ -2438,6 +2511,14 @@ struct V3ExperimentalView: View {
     }
 }
 
+struct V3RefreshDetailView: View {
+    var body: some View {
+        LCEmbeddedSideStoreRefreshView()
+            .navigationTitle("Refresh")
+            .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 private struct V3HomeView: View {
     @EnvironmentObject private var sharedModel: SharedModel
     @EnvironmentObject private var status: V3SideStoreStatusStore
@@ -2479,87 +2560,122 @@ private struct V3HomeView: View {
                         Divider()
                         
                         HStack(spacing: 0) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(sharedModel.apps.count)")
-                                    .font(.title2.weight(.bold))
-                                Text("Guests")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            
-                            Divider().frame(height: 28)
-                            
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(status.installedAppCount)")
-                                    .font(.title2.weight(.bold))
-                                Text("Sideloaded")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.leading, 12)
-                            
-                            Divider().frame(height: 28)
-                            
-                            VStack(alignment: .leading, spacing: 2) {
-                                if let date = status.installedApps.filter({ $0.isActive }).compactMap(\.expirationDate).min() {
-                                    Text(date, style: .relative)
-                                        .font(.callout.weight(.bold))
-                                        .foregroundColor(Calendar.current.dateComponents([.day], from: Date(), to: date).day ?? 0 <= 2 ? .red : .orange)
-                                    Text("Next Expiry")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                } else {
-                                    Text("-")
+                            Button {
+                                sharedModel.selectedTab = .apps
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(sharedModel.apps.count)")
                                         .font(.title2.weight(.bold))
-                                    Text("Next Expiry")
+                                    Text("Guests")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.leading, 12)
+                            .buttonStyle(.plain)
+
+                            Divider().frame(height: 28)
+
+                            Button {
+                                sharedModel.selectedTab = .apps
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(status.installedAppCount)")
+                                        .font(.title2.weight(.bold))
+                                    Text("Sideloaded")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, 12)
+                            }
+                            .buttonStyle(.plain)
+
+                            Divider().frame(height: 28)
+
+                            Button {
+                                sharedModel.selectedTab = .apps
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    if let date = status.installedApps.filter({ $0.isActive }).compactMap(\.expirationDate).min() {
+                                        Text(date, style: .relative)
+                                            .font(.callout.weight(.bold))
+                                            .foregroundColor(Calendar.current.dateComponents([.day], from: Date(), to: date).day ?? 0 <= 2 ? .red : .orange)
+                                        Text("Next Expiry")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    } else {
+                                        Text("-")
+                                            .font(.title2.weight(.bold))
+                                        Text("Next Expiry")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, 12)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.vertical, 4)
                 }
                 
                 Section("Status & Identity") {
-                    HStack {
-                        Label("Apple ID", systemImage: "person.crop.circle")
-                        Spacer()
-                        Text(status.account)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
+                    NavigationLink {
+                        V3SignInView().environmentObject(status)
+                    } label: {
+                        HStack {
+                            Label("Apple ID", systemImage: "person.crop.circle")
+                            Spacer()
+                            Text(status.account)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
                     }
-                    HStack {
-                        Label("Developer Team", systemImage: "person.2")
-                        Spacer()
-                        Text(status.team)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
+                    NavigationLink {
+                        V3DeveloperServicesView().environmentObject(status)
+                    } label: {
+                        HStack {
+                            Label("Developer Team", systemImage: "person.2")
+                            Spacer()
+                            Text(status.team)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
                     }
-                    HStack {
-                        Label("Signing Status", systemImage: "signature")
-                        Spacer()
-                        Text(status.signing)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
+                    NavigationLink {
+                        V3CertificatesView().environmentObject(status)
+                    } label: {
+                        HStack {
+                            Label("Signing Status", systemImage: "signature")
+                            Spacer()
+                            Text(status.signing)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
                     }
-                    HStack {
-                        Label("Pairing Status", systemImage: "link")
-                        Spacer()
-                        Text(status.pairing)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
+                    NavigationLink {
+                        V3PairingView().environmentObject(status)
+                    } label: {
+                        HStack {
+                            Label("Pairing Status", systemImage: "link")
+                            Spacer()
+                            Text(status.pairing)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
                     }
                     if let date = status.certificateExpiration {
-                        HStack {
-                            Label("Certificate Expiry", systemImage: "calendar.badge.clock")
-                            Spacer()
-                            Text(date.formatted(date: .abbreviated, time: .shortened))
-                                .foregroundColor(.secondary)
+                        NavigationLink {
+                            V3CertificatesView().environmentObject(status)
+                        } label: {
+                            HStack {
+                                Label("Certificate Expiry", systemImage: "calendar.badge.clock")
+                                Spacer()
+                                Text(date.formatted(date: .abbreviated, time: .shortened))
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
                 }
@@ -2597,46 +2713,26 @@ private struct V3HomeView: View {
                                 .foregroundColor(.red)
                         }
                     }
-                    Button {
-                        status.refreshPresented = true
+                    NavigationLink(isActive: $status.refreshPresented) {
+                        V3RefreshDetailView()
                     } label: {
                         Label("Open Refresh Manager", systemImage: "arrow.clockwise")
                     }
                 }
                 
-                Section("Quick Actions") {
-                    Button {
-                        sharedModel.selectedTab = .apps
-                    } label: {
-                        HStack {
-                            Label("Manage Installed Apps", systemImage: "square.stack.3d.up.fill")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                Section("About") {
+                    Text("LiveContainer + SideStore unified build")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    if let url = URL(string: "https://github.com/NRG-Wardog") {
+                        Link(destination: url) {
+                            Label("NRG-Wardog on GitHub", systemImage: "link")
                         }
                     }
-                    Button {
-                        sharedModel.selectedTab = .sources
-                    } label: {
-                        HStack {
-                            Label("Browse App Sources", systemImage: "books.vertical.fill")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    Button {
-                        sharedModel.selectedTab = .settings
-                    } label: {
-                        HStack {
-                            Label("SideStore & Account Settings", systemImage: "gearshape.fill")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                    if let product = Bundle.main.object(forInfoDictionaryKey: "LCProductLine") as? String {
+                        Text(product)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
             }

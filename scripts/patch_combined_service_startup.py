@@ -178,8 +178,7 @@ extension SideStoreClient {
                 userInfo: ["LCStructuredFailureStageV1": stage, NSUnderlyingErrorKey: native,
                            NSLocalizedDescriptionKey: native.localizedDescription])'''))
     edit(live, "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", lambda s: replace(s,
-        "            Form {", '''            Form {
-                Section("Build Candidate") {
+        "                if sharedModel.developerMode {", '''                Section("Build Candidate") {
                     Text("Product: " + (Bundle.main.object(forInfoDictionaryKey: "LCProductLine") as? String ?? "unknown"))
                     Text(Bundle.main.object(forInfoDictionaryKey: "LCBuilderCommit") as? String ?? "unknown commit").font(.caption).textSelection(.enabled)
                     Button("Copy Build Diagnostics") {
@@ -187,7 +186,9 @@ extension SideStoreClient {
                             $0 + "=" + (Bundle.main.object(forInfoDictionaryKey: $0) as? String ?? "unknown")
                         }.joined(separator: "\\n")
                     }
-                }'''))
+                }
+
+                if sharedModel.developerMode {'''))
     records = []
     for path, text in changes.items():
         index = 0 if live in path.parents else 1

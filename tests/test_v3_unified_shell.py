@@ -1,6 +1,7 @@
 """Regression coverage for the v3 host-owned navigation shell."""
 from pathlib import Path
 import importlib.util
+import re
 import shutil
 import tempfile
 import unittest
@@ -87,7 +88,11 @@ class V3UnifiedShellTests(unittest.TestCase):
             self.assertNotIn(".tag(LCTabIdentifier.refresh)", shell)
             for tab in ("home", "apps", "sources", "settings"):
                 self.assertIn(f".tag(LCTabIdentifier.{tab})", shell)
-            self.assertNotIn("sharedModel.selectedTab = .home", shell)
+            homeSelections = [m.start() for m in re.finditer("sharedModel.selectedTab = .home", shell)]
+            self.assertEqual(len(homeSelections), 2)
+            for position in homeSelections:
+                context = shell[max(0, position - 400):position]
+                self.assertTrue('"refresh"' in context or '"Refresh"' in context)
             self.assertIn("status.refreshPresented = true", shell)
             self.assertNotIn("LCUtils.openSideStore", shell)
             self.assertIn("V3_UNIFIED_SHELL_V1: SideStore is reached through unified tabs.", (live / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift").read_text())
@@ -269,8 +274,13 @@ precondition(near(scrolledSection, CGRect(x: 0, y: -262, width: 390, height: 325
                       "V3SideJITView", "V3ReleaseTrackHostView", "V3DiagnosticsView",
                       "V3LogsView", "V3ExperimentalView", "V3SettingsStore",
                       "V3OperationSheet", "signInPresented", "V3SignInLink",
-                      "needsSignIn", "Begin Sign In"):
+                      "needsSignIn", "Begin Sign In", "V3RefreshDetailView",
+                      "NRG-Wardog", "Step 1 -", "Submit Code"):
             self.assertIn(token, source)
+        for gone in ("Quick Actions",
+                     ".sheet(isPresented: $status.refreshPresented"):
+            self.assertNotIn(gone, source)
+        self.assertIn("NavigationLink(isActive: $status.refreshPresented)", source)
         self.assertIn('Button("Submit")', source)
         for operation in ("authBegin", "authPoll", "authRespond", "authCancel",
                           "opStart", "opPoll", "opAnswer", "opCancel",
