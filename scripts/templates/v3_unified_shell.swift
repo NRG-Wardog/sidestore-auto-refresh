@@ -68,6 +68,10 @@ struct V3UnifiedTabs: View {
                 status.pairingPickerPresented = false
             }
         }
+        .sheet(isPresented: $status.signInPresented, onDismiss: { status.reload() }) {
+            NavigationView { V3SignInView().environmentObject(status) }
+                .navigationViewStyle(StackNavigationViewStyle())
+        }
         .fullScreenCover(item: $status.presentation) { V3OperationSheet(request: $0).environmentObject(status) }
         .sheet(isPresented: $status.refreshPresented, onDismiss: { status.reload() }) {
             NavigationView { LCEmbeddedSideStoreRefreshView()
@@ -252,6 +256,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published var refreshPresented = false
     @Published var installPickerPresented = false
     @Published var pairingPickerPresented = false
+    @Published var signInPresented = false
     @Published private(set) var loading = false
     @Published private(set) var connected = false
     @Published private(set) var requiresConnectionRetry = false
@@ -861,7 +866,7 @@ struct V3AccountSettings: View {
                 }
             }
             Button {
-                status.perform("signIn", title: "Sign In")
+                status.signInPresented = true
             } label: {
                 Label("Sign In / Re-authenticate", systemImage: "person.badge.key.fill")
             }
