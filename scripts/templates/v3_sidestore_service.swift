@@ -1455,7 +1455,20 @@ final class V3SideStoreService: NSObject {
             }
             CellularRefreshManager.shared.setEnabled(enabled)
 
-        case "logs", "health", "backups":
+        case "backups":
+            switch action {
+            case "refresh":
+                break
+            case "setApplePassword":
+                guard let password = payload["password"] as? String, !password.isEmpty else {
+                    throw ServiceError.invalidRequest
+                }
+                AuthManager.shared.password = password
+            default:
+                throw ServiceError.invalidRequest
+            }
+
+        case "logs", "health":
             guard action == "refresh" else { throw ServiceError.invalidRequest }
 
         default:
