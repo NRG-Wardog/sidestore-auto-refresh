@@ -161,6 +161,67 @@ def patch(live, side):
             Task { @MainActor in LiveContainerAutoRefreshScheduler.record(source: "manual_selected_app", result: result, detail: detail) }
         }
         // LC_REFRESH_HOST_V2'''))
+    def app_manager_headless_adapters(s):
+        # Keep AppManager as the business-logic owner. V3 only separates confirmation
+        # and presentation from execution; existing UI callers retain their defaults.
+        s = replace(s, '''    func add(@AsyncManaged _ source: Source,
+             message: String? = NSLocalizedString("Make sure to only add sources that you trust.", comment: ""),
+             presentingViewController: UIViewController) async throws
+    {''', '''    func add(@AsyncManaged _ source: Source,
+             message: String? = NSLocalizedString("Make sure to only add sources that you trust.", comment: ""),
+             presentingViewController: UIViewController?,
+             confirmed: Bool = false) async throws
+    {''')
+        s = replace(s, '''        let title = String(format: NSLocalizedString("Would you like to add the source “%@”?", comment: ""), sourceName)
+        let action = await UIAlertAction(title: NSLocalizedString("Add Source", comment: ""), style: .default)
+        try await presentingViewController.presentConfirmationAlert(title: title, message: message ?? "", primaryAction: action)
+''', '''        if !confirmed {
+            guard let presentingViewController else {
+                throw OperationError.invalidOperationContext("AppManager.add requires either host confirmation or a presenter")
+            }
+            let title = String(format: NSLocalizedString("Would you like to add the source “%@”?", comment: ""), sourceName)
+            let action = await UIAlertAction(title: NSLocalizedString("Add Source", comment: ""), style: .default)
+            try await presentingViewController.presentConfirmationAlert(title: title, message: message ?? "", primaryAction: action)
+        }
+''')
+        s = replace(s, '''    func remove(@AsyncManaged _ source: Source, presentingViewController: UIViewController) async throws
+    {''', '''    func remove(@AsyncManaged _ source: Source,
+                presentingViewController: UIViewController?,
+                confirmed: Bool = false) async throws
+    {''')
+        s = replace(s, '''        let title = String(format: NSLocalizedString("Are you sure you want to remove the source “%@”?", comment: ""), sourceName)
+        let message = NSLocalizedString("Any apps you've installed from this source will remain, but they'll no longer receive any app updates.", comment: "")
+        let action = await UIAlertAction(title: NSLocalizedString("Remove Source", comment: ""), style: .destructive)
+        try await presentingViewController.presentConfirmationAlert(title: title, message: message, primaryAction: action)
+''', '''        if !confirmed {
+            guard let presentingViewController else {
+                throw OperationError.invalidOperationContext("AppManager.remove requires either host confirmation or a presenter")
+            }
+            let title = String(format: NSLocalizedString("Are you sure you want to remove the source “%@”?", comment: ""), sourceName)
+            let message = NSLocalizedString("Any apps you've installed from this source will remain, but they'll no longer receive any app updates.", comment: "")
+            let action = await UIAlertAction(title: NSLocalizedString("Remove Source", comment: ""), style: .destructive)
+            try await presentingViewController.presentConfirmationAlert(title: title, message: message, primaryAction: action)
+        }
+''')
+        s = replace(s, '''    func install(_ target: InstallTarget,
+                 presentingViewController: UIViewController? = nil,
+                 context: StandaloneOperationContext? = nil,
+                 completionHandler: @escaping (Result<InstalledApp, Error>) -> Void) -> RefreshGroup
+    {
+        debugLog("[AppManager] install() called for target: \(target)")
+        let pipelineHandler = self.makePipelineHandler(presentingViewController: presentingViewController)
+''', '''    func install(_ target: InstallTarget,
+                 presentingViewController: UIViewController? = nil,
+                 context: StandaloneOperationContext? = nil,
+                 pipelineHandler suppliedPipelineHandler: PipelineExecutionHandler? = nil,
+                 completionHandler: @escaping (Result<InstalledApp, Error>) -> Void) -> RefreshGroup
+    {
+        debugLog("[AppManager] install() called for target: \(target)")
+        let pipelineHandler = suppliedPipelineHandler ?? self.makePipelineHandler(presentingViewController: presentingViewController)
+''')
+        return s
+    edit(side, "AltStore/Managing Apps/AppManager.swift", app_manager_headless_adapters)
+
     # A service-owned blank presenter replaces the legacy tab controller. Auth and
     # operation confirmation controllers render remotely within the host sheet.
     edit(side, "AltStore/SceneDelegate.swift", lambda s: replace(s,
