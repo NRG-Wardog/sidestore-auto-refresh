@@ -1,7 +1,8 @@
 
 // V3_SIDESTORE_COMMAND_SERVICE_V1
 // Compiled only into SideStore. No managed objects or credentials cross XPC.
-import SwiftUI
+import Foundation
+import UIKit
 import SideSign
 import Minimuxer
 
@@ -729,38 +730,10 @@ private final class V3HeadlessOperationFlow {
 final class V3SideStoreService: NSObject {
     static let shared = V3SideStoreService()
     private var tasks: [String: Task<Void, Never>] = [:]
-    private var cancellations: [String: () -> Void] = [:]
     private var completed: [String: (data: Data, deadline: Date)] = [:]
     private var mutationID: String?
     private var signInFlow: V3HeadlessSignInFlow?
     private var operationFlow: V3HeadlessOperationFlow?
-    private var finishPanel: (() -> Void)?
-    static var presenter: UIViewController {
-        if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }),
-           let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first,
-           let root = window.rootViewController {
-            return topViewController(root)
-        }
-        if let window = UIApplication.shared.windows.first(where: { $0.isKeyWindow }) ?? UIApplication.shared.windows.first,
-           let root = window.rootViewController {
-            return topViewController(root)
-        }
-        return fallbackPresenter
-    }
-    private static let fallbackPresenter = UIViewController()
-
-    private static func topViewController(_ root: UIViewController) -> UIViewController {
-        if let presented = root.presentedViewController, !presented.isBeingDismissed {
-            return topViewController(presented)
-        }
-        if let nav = root as? UINavigationController, let visible = nav.visibleViewController {
-            return topViewController(visible)
-        }
-        if let tab = root as? UITabBarController, let selected = tab.selectedViewController {
-            return topViewController(selected)
-        }
-        return root
-    }
 
     @objc(execute:reply:)
     nonisolated static func execute(_ data: Data, reply: @escaping (Data) -> Void) {
@@ -781,8 +754,6 @@ final class V3SideStoreService: NSObject {
         if operation == "cancel" {
             let target = request["target"] as? String ?? ""
             tasks[target]?.cancel()
-            cancellations[target]?()
-            if mutationID == target { Self.presenter.dismiss(animated: true) }
             reply(encode(["id": id, "version": 1, "ok": true]))
             return
         }
@@ -791,7 +762,8 @@ final class V3SideStoreService: NSObject {
         let nonMutatingOperations: Set<String> = [
             "snapshot", "catalog", "appIcon", "backupResult", "certificatesSnapshot",
             "signInState", "signInRespond", "cancelSignIn",
-            "operationState", "operationRespond", "cancelOperation"
+            "operationState", "operationRespond", "cancelOperation",
+            "settingsPanelSnapshot", "developerServicesSnapshot"
         ]
         let mutation = !nonMutatingOperations.contains(operation)
         if mutation, operation != "beginSignIn", let flow = signInFlow, !flow.isTerminal {
@@ -812,7 +784,6 @@ final class V3SideStoreService: NSObject {
         tasks[id] = Task { @MainActor in
             defer {
                 tasks[id] = nil
-                cancellations[id] = nil
                 if mutationID == id { mutationID = nil }
             }
             var response: [String: Any] = ["version": 1, "id": id]
@@ -857,7 +828,7 @@ final class V3SideStoreService: NSObject {
         }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(max(0, deadline.timeIntervalSinceNow) * 1_000_000_000))
-            if tasks[id] != nil { tasks[id]?.cancel(); cancellations[id]?() }
+            if tasks[id] != nil { tasks[id]?.cancel() }
         }
     }
 
@@ -1888,12 +1859,6 @@ final class V3SideStoreService: NSObject {
         return object
     }
 
-    @objc private func closePanel() {
-        let finish = finishPanel
-        finishPanel = nil
-        Self.presenter.dismiss(animated: true) { finish?() }
-    }
-
     private func callback(_ start: (@escaping (Result<Void, Error>) -> Void) -> Void) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let gate = V3ServiceCallbackGate(continuation)
@@ -1932,20 +1897,5 @@ final class V3SideStoreService: NSObject {
                              "idleTimeoutDisabled": UserDefaults.standard.isIdleTimeoutDisableEnabled,
                              "responseCachingDisabled": UserDefaults.standard.responseCachingDisabled,
                              "verboseOperations": UserDefaults.standard.isVerboseOperationsLoggingEnabled]]
-    }
-}
-
-private struct V3ReleaseTrackView: View {
-    @State private var track = UserDefaults.standard.betaUdpatesTrack ?? UserDefaults.defaultBetaUpdatesTrack
-    private var tracks: [String] {
-        [track] + ReleaseTrackType.betaTracks.map(\.rawValue).filter { $0 != track }
-    }
-    var body: some View {
-        Form {
-            Picker("Beta update channel", selection: $track) {
-                ForEach(tracks, id: \.self) { Text($0).tag($0) }
-            }
-        }.navigationTitle("Update Channel")
-            .onChange(of: track) { UserDefaults.standard.betaUdpatesTrack = $0 }
     }
 }
