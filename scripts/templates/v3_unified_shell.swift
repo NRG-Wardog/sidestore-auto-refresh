@@ -975,8 +975,19 @@ struct V3CertificatesView: View {
             if loading && certificates.isEmpty {
                 HStack { Spacer(); ProgressView(); Spacer() }
             } else if certificates.isEmpty {
-                ContentUnavailableView("No Local Certificates", systemImage: "doc.badge.ellipsis",
-                                       description: Text("No locally cached signing certificates are available."))
+                VStack(spacing: 10) {
+                    Image(systemName: "doc.badge.ellipsis")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                    Text("No Local Certificates")
+                        .font(.headline)
+                    Text("No locally cached signing certificates are available.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
             } else {
                 ForEach(certificates) { certificate in
                     VStack(alignment: .leading, spacing: 6) {
