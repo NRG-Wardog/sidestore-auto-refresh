@@ -950,6 +950,527 @@ struct V3AccountSettings: View {
     }
 }
 
+
+struct V3SignInView: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var flow: [String: Any] = [:]
+    @State private var sessionID = ""
+    @State private var appleID = ""
+    @State private var password = ""
+    @State private var verificationCode = ""
+    @State private var selectedCertificates = Set<String>()
+    @State private var selectedExtensions = Set<String>()
+    @State private var customBundleID = ""
+    @State private var appendTeamID = true
+    @State private var localError: String?
+    @State private var submitting = false
+    @State private var lastChallengeID = ""
+
+    private var phase: String { flow["phase"] as? String ?? "starting" }
+    private var kind: String { flow["kind"] as? String ?? "" }
+    private var message: String { flow["message"] as? String ?? "" }
+    private var fields: [String: Any] { flow["fields"] as? [String: Any] ?? [:] }
+    private var challengeID: String { flow["challengeID"] as? String ?? "" }
+    private var terminal: Bool { ["completed", "failed", "cancelled"].contains(phase) }
+
+    var body: some View {
+        List {
+            if let localError {
+                Section {
+                    Text(localError)
+                        .foregroundColor(.red)
+                        .textSelection(.enabled)
+                }
+            }
+
+            switch phase {
+            case "starting", "running":
+                Section {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text(message.isEmpty ? "Authenticating…" : message)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            case "requiresInput":
+                challengeContent
+            case "completed":
+                Section {
+                    Label("Signed in successfully", systemImage: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    if let result = flow["fields"] as? [String: Any],
+                       let teamName = result["teamName"] as? String, !teamName.isEmpty {
+                        HStack {
+                            Text("Team")
+                            Spacer()
+                            Text(teamName).foregroundColor(.secondary)
+                        }
+                    }
+                    Button("Done") {
+                        status.reload()
+                        dismiss()
+                    }
+                }
+            case "failed":
+                Section {
+                    Label("Sign in failed", systemImage: "xmark.octagon.fill")
+                        .foregroundColor(.red)
+                    Text(message)
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                    Button("Try Again") {
+                        Task { await begin() }
+                    }
+                }
+            case "cancelled":
+                Section {
+                    Text("Sign in was cancelled.")
+                        .foregroundColor(.secondary)
+                    Button("Done") { dismiss() }
+                }
+            default:
+                Section {
+                    Text("Unknown authentication state.")
+                        .foregroundColor(.secondary)
+                    Button("Cancel") {
+                        Task { await cancelFlow() }
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Sign In")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(terminal ? "Done" : "Cancel") {
+                    if terminal { dismiss() }
+                    else { Task { await cancelFlow() } }
+                }
+            }
+        }
+        .task {
+            await begin()
+            await monitor()
+        }
+        .onDisappear {
+            guard !terminal, !sessionID.isEmpty else { return }
+            let id = sessionID
+            Task {
+                _ = try? await V3ServiceBridge.shared.request(operation: "cancelSignIn", target: id)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var challengeContent: some View {
+        let currentFields = fields
+        switch kind {
+        case "credentials":
+            Section("Apple ID") {
+                if let error = currentFields["error"] as? String, !error.isEmpty {
+                    Text(error).foregroundColor(.red)
+                }
+                TextField("Apple ID", text: $appleID)
+                    .keyboardType(.emailAddress)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                SecureField("Password", text: $password)
+                Button("Continue") {
+                    Task {
+                        await respond([
+                            "action": "submitCredentials",
+                            "appleID": appleID,
+                            "password": password
+                        ])
+                        password = ""
+                    }
+                }
+                .disabled(submitting || appleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || password.isEmpty)
+            }
+
+        case "verificationMethod":
+            Section("Verification Method") {
+                Text(message).foregroundColor(.secondary)
+                Button("Apple Devices") {
+                    Task { await respond(["action": "trustedDevice"]) }
+                }
+                verificationPhoneButtons(fields: currentFields)
+            }
+
+        case "verificationCode":
+            Section("Verification Code") {
+                if let error = currentFields["error"] as? String, !error.isEmpty {
+                    Text(error).foregroundColor(.red)
+                }
+                Text(message).foregroundColor(.secondary)
+                TextField("6-digit code", text: $verificationCode)
+                    .keyboardType(.numberPad)
+                Button("Continue") {
+                    let code = verificationCode
+                    verificationCode = ""
+                    Task { await respond(["action": "submitCode", "code": code]) }
+                }
+                .disabled(submitting || verificationCode.count != 6)
+            }
+            Section("Other Options") {
+                if (currentFields["mode"] as? String) == "trustedDevice" {
+                    Button("Request on Apple Devices Again") {
+                        Task { await respond(["action": "trustedDevice"]) }
+                    }
+                }
+                verificationPhoneButtons(fields: currentFields)
+            }
+
+        case "teamSelection":
+            Section("Developer Team") {
+                Text(message).foregroundColor(.secondary)
+                let teams = currentFields["teams"] as? [[String: Any]] ?? []
+                ForEach(Array(teams.enumerated()), id: \.offset) { _, team in
+                    let teamID = team["id"] as? String ?? ""
+                    let teamName = team["name"] as? String ?? teamID
+                    let teamType = team["type"] as? String ?? ""
+                    Button {
+                        Task { await respond(["action": "selectTeam", "teamID": teamID]) }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(teamName)
+                            if !teamType.isEmpty {
+                                Text(teamType).font(.caption).foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+
+        case "revocationDecision":
+            Section("Existing Certificates") {
+                Text(message).foregroundColor(.secondary)
+                let certificates = currentFields["certificates"] as? [[String: Any]] ?? []
+                ForEach(Array(certificates.enumerated()), id: \.offset) { _, certificate in
+                    let serial = certificate["serial"] as? String ?? ""
+                    let name = certificate["machineName"] as? String
+                        ?? certificate["name"] as? String
+                        ?? serial
+                    Toggle(isOn: selectionBinding(serial, in: $selectedCertificates)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                            Text(serial).font(.caption2).foregroundColor(.secondary).textSelection(.enabled)
+                        }
+                    }
+                }
+                Button("Revoke Selected", role: .destructive) {
+                    Task {
+                        await respond([
+                            "action": "revokeSelected",
+                            "serials": Array(selectedCertificates)
+                        ])
+                    }
+                }
+                .disabled(submitting || selectedCertificates.isEmpty)
+                Button("Keep Existing Certificates") {
+                    Task { await respond(["action": "keepExisting"]) }
+                }
+            }
+
+        case "accountRepair":
+            Section("Account Repair") {
+                Text(message).foregroundColor(.secondary)
+                if let value = currentFields["developerURL"] as? String, let url = URL(string: value) {
+                    Button("Open Developer Account") {
+                        UIApplication.shared.open(url)
+                        Task { await respond(["action": "cancel"]) }
+                    }
+                }
+                if let value = currentFields["appleAccountURL"] as? String, let url = URL(string: value) {
+                    Button("Open Apple Account") {
+                        UIApplication.shared.open(url)
+                        Task { await respond(["action": "cancel"]) }
+                    }
+                }
+                Button("Skip & Continue") {
+                    Task { await respond(["action": "proceed"]) }
+                }
+            }
+
+        case "provisioningDecision":
+            Section("Developer Portal") {
+                Text(message).foregroundColor(.secondary).textSelection(.enabled)
+                Button("Retry") { Task { await respond(["action": "retry"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "postAuth":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                Button("Continue") { Task { await respond(["action": "continue"]) } }
+            }
+
+        case "resignDecision":
+            Section("SideStore Signature") {
+                Text(message).foregroundColor(.secondary)
+                if let reason = currentFields["reason"] as? String, !reason.isEmpty {
+                    HStack {
+                        Text("Reason")
+                        Spacer()
+                        Text(reason).foregroundColor(.secondary)
+                    }
+                }
+                Button("Resign Now") { Task { await respond(["action": "resignNow"]) } }
+                Button("Resign Later") { Task { await respond(["action": "later"]) } }
+            }
+
+        case "anisetteWarning":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                Button("Continue") { Task { await respond(["action": "continue"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "bundleIDMismatch":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                detailRow("Requested", currentFields["targetID"] as? String ?? "")
+                detailRow("Active", currentFields["activeEffectiveID"] as? String ?? "")
+                Button("Proceed") { Task { await respond(["action": "proceed"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "permissionsReview":
+            Section("Permissions") {
+                Text(message).foregroundColor(.secondary)
+                let permissions = currentFields["permissions"] as? [String] ?? []
+                if permissions.isEmpty {
+                    Text("No additional permissions reported.").foregroundColor(.secondary)
+                } else {
+                    ForEach(permissions, id: \.self) { Text($0).font(.footnote) }
+                }
+                Button("Continue") { Task { await respond(["action": "continue"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "extensionRemoval":
+            Section("App Extensions") {
+                Text(message).foregroundColor(.secondary)
+                let extensions = currentFields["extensions"] as? [[String: Any]] ?? []
+                ForEach(Array(extensions.enumerated()), id: \.offset) { _, item in
+                    let bundleID = item["bundleID"] as? String ?? ""
+                    let name = item["name"] as? String ?? bundleID
+                    Toggle(isOn: selectionBinding(bundleID, in: $selectedExtensions)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                            Text(bundleID).font(.caption2).foregroundColor(.secondary)
+                        }
+                    }
+                }
+                if !selectedExtensions.isEmpty {
+                    Button("Remove Selected", role: .destructive) {
+                        Task {
+                            await respond([
+                                "action": "removeSelected",
+                                "bundleIDs": Array(selectedExtensions)
+                            ])
+                        }
+                    }
+                }
+                Button("Remove All Extensions", role: .destructive) {
+                    Task { await respond(["action": "removeAll"]) }
+                }
+                Button("Keep Extensions — Main Profile") {
+                    Task { await respond(["action": "keepMainProfile"]) }
+                }
+                Button("Keep Extensions — Separate App IDs") {
+                    Task { await respond(["action": "keepSeparateProfiles"]) }
+                }
+            }
+
+        case "unsupportedVersion":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                let appName = currentFields["appName"] as? String ?? "App"
+                let version = currentFields["compatibleVersion"] as? String ?? ""
+                Button("Install \(appName) \(version)") {
+                    Task { await respond(["action": "useCompatible"]) }
+                }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "backgroundSuspension":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                Button("Continue") { Task { await respond(["action": "continue"]) } }
+            }
+
+        case "bundleIDCustomization":
+            Section("App ID") {
+                Text(message).foregroundColor(.secondary)
+                TextField("Bundle Identifier", text: $customBundleID)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                Toggle("Append Team ID", isOn: $appendTeamID)
+                Button("Confirm") {
+                    Task {
+                        await respond([
+                            "action": "confirm",
+                            "bundleID": customBundleID,
+                            "appendTeamID": appendTeamID
+                        ])
+                    }
+                }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "appGroupMismatch":
+            Section("App Group") {
+                Text(message).foregroundColor(.secondary)
+                detailRow("Original", currentFields["originalGroup"] as? String ?? "")
+                detailRow("Corrected", currentFields["correctedGroup"] as? String ?? "")
+                Button("Correct & Proceed") { Task { await respond(["action": "correct"]) } }
+                Button("Keep Original") { Task { await respond(["action": "keep"]) } }
+            }
+
+        default:
+            Section {
+                Text(message.isEmpty ? "SideStore requested an unsupported interaction." : message)
+                    .foregroundColor(.secondary)
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func verificationPhoneButtons(fields: [String: Any]) -> some View {
+        let phones = fields["phoneNumbers"] as? [[String: Any]] ?? []
+        let activeID = fields["activeID"] as? String
+        ForEach(Array(phones.enumerated()), id: \.offset) { _, phone in
+            let phoneID = phone["id"] as? String ?? activeID ?? ""
+            let number = phone["number"] as? String ?? "Phone"
+            if !phoneID.isEmpty {
+                Button("Text \(number)") {
+                    Task { await respond(["action": "sms", "phoneID": phoneID]) }
+                }
+                Button("Call \(number)") {
+                    Task { await respond(["action": "voice", "phoneID": phoneID]) }
+                }
+            }
+        }
+    }
+
+    private func detailRow(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .top) {
+            Text(title)
+            Spacer()
+            Text(value)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+        }
+    }
+
+    private func selectionBinding(_ value: String, in selection: Binding<Set<String>>) -> Binding<Bool> {
+        Binding(
+            get: { selection.wrappedValue.contains(value) },
+            set: { selected in
+                if selected { selection.wrappedValue.insert(value) }
+                else { selection.wrappedValue.remove(value) }
+            }
+        )
+    }
+
+    @MainActor
+    private func begin() async {
+        guard !submitting else { return }
+        submitting = true
+        localError = nil
+        defer { submitting = false }
+        do {
+            apply(try await V3ServiceBridge.shared.request(operation: "beginSignIn"))
+        } catch {
+            localError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func monitor() async {
+        while !Task.isCancelled {
+            if terminal { return }
+            do { try await Task.sleep(nanoseconds: 300_000_000) }
+            catch { return }
+            guard !sessionID.isEmpty, phase != "requiresInput" else { continue }
+            do {
+                apply(try await V3ServiceBridge.shared.request(operation: "signInState", target: sessionID))
+            } catch is CancellationError {
+                return
+            } catch {
+                localError = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor
+    private func respond(_ values: [String: Any]) async {
+        guard !submitting, !sessionID.isEmpty, !challengeID.isEmpty else { return }
+        submitting = true
+        localError = nil
+        defer { submitting = false }
+        var payload = values
+        payload["challengeID"] = challengeID
+        do {
+            apply(try await V3ServiceBridge.shared.request(
+                operation: "signInRespond",
+                target: sessionID,
+                payload: payload
+            ))
+        } catch {
+            localError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func cancelFlow() async {
+        guard !sessionID.isEmpty else { dismiss(); return }
+        do {
+            apply(try await V3ServiceBridge.shared.request(operation: "cancelSignIn", target: sessionID))
+        } catch {
+            localError = error.localizedDescription
+        }
+        dismiss()
+    }
+
+    @MainActor
+    private func apply(_ value: [String: Any]) {
+        flow = value
+        sessionID = value["sessionID"] as? String ?? sessionID
+
+        let nextChallenge = value["challengeID"] as? String ?? ""
+        if !nextChallenge.isEmpty, nextChallenge != lastChallengeID {
+            lastChallengeID = nextChallenge
+            verificationCode = ""
+            selectedCertificates.removeAll()
+            selectedExtensions.removeAll()
+
+            let nextFields = value["fields"] as? [String: Any] ?? [:]
+            if (value["kind"] as? String) == "credentials",
+               let suggestedAppleID = nextFields["appleID"] as? String,
+               appleID.isEmpty {
+                appleID = suggestedAppleID
+            }
+            if (value["kind"] as? String) == "bundleIDCustomization" {
+                customBundleID = nextFields["bundleID"] as? String ?? ""
+                appendTeamID = nextFields["appendTeamID"] as? Bool ?? true
+            }
+        }
+
+        if (value["phase"] as? String) == "completed" {
+            password = ""
+            verificationCode = ""
+            status.reload()
+        }
+    }
+}
+
 struct V3CertificateRecord: Identifiable, Hashable {
     let serialNumber: String
     let name: String
