@@ -64,25 +64,32 @@ version, deadline and sizes: 16 KiB requests and 4 MiB responses.
 Credentials, private keys, pairing contents and auth tokens are not command
 fields. Raw framework errors are not returned through this endpoint.
 
-Authentication and privileged configuration use SideStore-owned controllers
-rendered remotely inside the host operation sheet. The service's existing PID
-is attached by `AppSceneViewController.initWithServicePID`; it does not launch
-another database owner or import managed objects. SwiftUI links retain a
-navigation environment and native certificate actions use their actual hosting
-controller. Closing a sheet releases presentation, not the service database.
+The v3 target is a headless SideStore backend: LiveContainer owns every visible
+screen, sheet, alert, picker and confirmation. SideStore may retain process,
+Core Data, Keychain, signing, provisioning and installation ownership, but its
+UIViewController/SwiftUI presentation must not be part of a normal user flow.
 
-The SideStore scene root is a service presenter, not the legacy tab controller.
-The normal launch button is removed. Old startup selections, share-extension imports and multi-instance installation
-are routed back into the unified host. Local IPA import uses a one-use shared
-file authorization referenced by UUID; file bookmarks are not sent over XPC.
-SideStore-based guest JIT acquisition calls the service directly, while other
-configured JIT providers and LiveProcess launch modes retain their existing paths.
-Settings exposes account/sign-in/sign-out, certificates, developer services,
-pairing import, connection, Anisette, SideSign
-configuration, installation options, backups and diagnostics. Each remains
-backed by its original owner. Interactive service presentation requires iOS 16
-or newer; existing automated refresh requires the upstream iOS 17 intent
-runtime. Availability limits are displayed rather than opening legacy UI.
+The migration is incremental so the working v3 build is not replaced with a
+non-functional shell. The first converted privileged surfaces are certificate
+inspection/activation/deletion and pairing-file import. Certificate data is
+returned as bounded DTOs. Pairing selection is performed by a host-owned document
+picker and transferred through a one-use app-group bookmark; file contents are
+not placed on the XPC command wire.
+
+Remaining remote presentation dependencies are explicitly tracked in
+[V3_HEADLESS_UI_MIGRATION.md](V3_HEADLESS_UI_MIGRATION.md). Until each flow is
+converted, it remains a migration blocker rather than part of the target
+architecture. The final state removes `V3RemoteServiceView`,
+`AppSceneViewController(servicePID:)` and the SideStore presenter from all normal
+v3 paths.
+
+The normal SideStore launch button remains removed. Old startup selections,
+share-extension imports and multi-instance installation are routed back into the
+unified host. Local IPA import uses a one-use shared file authorization referenced
+by UUID. SideStore-based guest JIT acquisition calls the service directly, while
+other configured JIT providers and LiveProcess launch modes retain their existing
+paths. Existing automated refresh still requires the upstream iOS 17 intent
+runtime.
 
 ## Lifecycle
 
