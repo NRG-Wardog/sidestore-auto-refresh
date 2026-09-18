@@ -1060,7 +1060,7 @@ struct V3OperationSheet: View {
                 }
                 if let offer = sourceOffer {
                     Section("Missing Source") {
-                        Text(""\(offer["name"] ?? "")" is not added. Add it, then the operation retries automatically.")
+                        Text("\"\((offer["name"] ?? ""))\" is not added. Add it, then the operation retries automatically.")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                         Button {

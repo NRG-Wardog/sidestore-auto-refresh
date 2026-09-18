@@ -182,7 +182,7 @@ class WireExecutionTests(unittest.TestCase):
         if not compiler:
             self.skipTest("Swift compiler unavailable")
         source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
-        gate = source[source.index("private final class V3ServiceCallbackGate:"):
+        gate = source[source.index("final class V3ServiceCallbackGate:"):
                       source.index("// V3_NATIVE_CALLBACK_GATE_END")]
         callback = source[source.index("    private func callback("):
                           source.index("    private func snapshot()")]
@@ -293,11 +293,14 @@ for date in [now.addingTimeInterval(-1), now, now.addingTimeInterval(611)] {
     var request = valid; request["deadline"] = date
     precondition(V3WireContract.decodeRequest(encode(request), now: now) == nil)
 }
-var setting = valid; setting["operation"] = "setSetting"; setting["target"] = "betaUpdates"
-setting["value"] = true
+var setting = valid; setting["operation"] = "settingsSet"; setting["target"] = "isBetaUpdatesEnabled"
+setting["payload"] = ["key": "isBetaUpdatesEnabled", "type": "bool", "bool": true]
 precondition(V3WireContract.decodeRequest(encode(setting), now: now) != nil)
-setting["value"] = 1
-precondition(V3WireContract.decodeRequest(encode(setting), now: now) == nil)
+setting["payload"] = ["key": "isBetaUpdatesEnabled", "type": "bool", "bool": 1]
+precondition(V3WireContract.decodeRequest(encode(setting), now: now) != nil)
+var legacySetting = valid; legacySetting["operation"] = "setSetting"; legacySetting["target"] = "betaUpdates"
+legacySetting["value"] = true
+precondition(V3WireContract.decodeRequest(encode(legacySetting), now: now) == nil)
 precondition(V3WireContract.decodeRequest(Data(repeating: 0, count: 16385), now: now) == nil)
 precondition(V3WireContract.decodeRequest(Data([1, 2, 3]), now: now) == nil)
 print("V3 wire contract PASS")
