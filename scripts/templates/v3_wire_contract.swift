@@ -6,7 +6,7 @@ enum V3WireContract {
     static let requestLimit = 16_384
     static let responseLimit = 4_194_304
     static let operations: Set<String> = ["snapshot", "catalog", "appIcon", "cancel", "refreshSources", "addSource",
-        "removeSource", "beginSignIn", "signInState", "signInRespond", "cancelSignIn", "signOut", "syncAppIDs", "clearCache", "setSetting", "install",
+        "removeSource", "beginSignIn", "signInState", "signInRespond", "cancelSignIn", "operationState", "operationRespond", "cancelOperation", "signOut", "syncAppIDs", "clearCache", "setSetting", "install",
         "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "jit", "panel", "refreshApp", "backupResult", "installURL", "installSharedIPA",
         "certificatesSnapshot", "activateLocalCertificate", "deleteLocalCertificate", "importPairingSharedFile"]
 
@@ -31,8 +31,8 @@ enum V3WireContract {
                   let value = cursor as? Int, value >= 0, value <= 1_000_000 else { return nil }
         }
         if let payload = request["payload"] {
-            guard operation == "signInRespond", let data = payload as? Data, data.count <= 8_192 else { return nil }
-        } else if operation == "signInRespond" {
+            guard ["signInRespond", "operationRespond"].contains(operation), let data = payload as? Data, data.count <= 8_192 else { return nil }
+        } else if ["signInRespond", "operationRespond"].contains(operation) {
             return nil
         }
         return request
