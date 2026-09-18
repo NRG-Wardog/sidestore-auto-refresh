@@ -1630,141 +1630,406 @@ struct V3OperationSheet: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @Environment(\.dismiss) private var dismiss
     let request: V3OperationRequest
-    @State private var pid: Int32 = 0
-    @State private var ready = false
-    @State private var task: Task<Void, Never>?
-    @State private var message = ""
-    @State private var started = false
+
+    @State private var flow: [String: Any] = [:]
+    @State private var sessionID = ""
+    @State private var localError: String?
+    @State private var submitting = false
+    @State private var selectedExtensions = Set<String>()
+    @State private var customBundleID = ""
+    @State private var appendTeamID = true
+    @State private var lastChallengeID = ""
+
+    private var phase: String { flow["phase"] as? String ?? "starting" }
+    private var kind: String { flow["kind"] as? String ?? "" }
+    private var message: String { flow["message"] as? String ?? "" }
+    private var fields: [String: Any] { flow["fields"] as? [String: Any] ?? [:] }
+    private var challengeID: String { flow["challengeID"] as? String ?? "" }
+    private var terminal: Bool { ["completed", "failed", "cancelled"].contains(phase) }
+
     var body: some View {
         NavigationView {
-            ZStack {
-                Color(UIColor.systemBackground).ignoresSafeArea()
-                if #available(iOS 16.0, *), pid > 0 {
-                    V3RemoteServiceView(pid: pid, ready: $ready)
-                        .ignoresSafeArea(.keyboard, edges: .bottom)
-                } else if pid == 0 && message.isEmpty {
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.2)
-                        Text("Connecting to SideStore…")
-                            .font(.subheadline)
+            List {
+                if let localError {
+                    Section {
+                        Text(localError)
+                            .foregroundColor(.red)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                switch phase {
+                case "starting", "running":
+                    Section {
+                        if let progress = flow["progress"] as? Double {
+                            ProgressView(value: progress)
+                            Text("\(Int(progress * 100))%")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            ProgressView()
+                        }
+                        Text(message.isEmpty ? "Working…" : message)
                             .foregroundColor(.secondary)
                     }
-                } else if #available(iOS 16.0, *) {} else {
-                    Text("Interactive SideStore operations require iOS 16 or later.")
-                        .foregroundColor(.secondary)
-                }
-                
-                if !message.isEmpty {
-                    VStack {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundColor(.orange)
-                                Text("Operation Notice")
-                                    .font(.headline)
-                                Spacer()
-                                Button {
-                                    message = ""
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            Text(message)
-                                .font(.footnote)
-                                .textSelection(.enabled)
-                            HStack {
-                                Button("Copy Diagnostics") {
-                                    UIPasteboard.general.string = message
-                                }
-                                .font(.caption)
-                                Spacer()
-                                Button("Retry") {
-                                    message = ""
-                                    start()
-                                }
-                                .font(.caption)
-                                .buttonStyle(.borderedProminent)
-                            }
+
+                case "requiresInput":
+                    challengeContent
+
+                case "completed":
+                    Section {
+                        Label("Completed", systemImage: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Button("Done") {
+                            finish(result: "completed", detail: "SideStore completed the operation.")
                         }
-                        .padding()
-                        .background(RoundedRectangle(cornerRadius: 14).fill(Color(UIColor.secondarySystemGroupedBackground)))
-                        .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
-                        .padding(.horizontal)
-                        .padding(.top, 8)
-                        Spacer()
                     }
-                    .transition(.move(edge: .top).combined(with: .opacity))
+
+                case "failed":
+                    Section {
+                        Label("Operation Failed", systemImage: "xmark.octagon.fill")
+                            .foregroundColor(.red)
+                        Text(message)
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                        if request.operation != "installSharedIPA" {
+                            Button("Try Again") { Task { await begin() } }
+                        }
+                        Button("Done") {
+                            finish(result: "failed", detail: message)
+                        }
+                    }
+
+                case "cancelled":
+                    Section {
+                        Text("Operation cancelled.")
+                            .foregroundColor(.secondary)
+                        Button("Done") {
+                            finish(result: "cancelled", detail: "The operation was cancelled.")
+                        }
+                    }
+
+                default:
+                    Section {
+                        Text("Unknown operation state.")
+                            .foregroundColor(.secondary)
+                        Button("Cancel", role: .destructive) {
+                            Task { await cancelFlow() }
+                        }
+                    }
                 }
             }
+            .listStyle(.insetGrouped)
             .navigationTitle(request.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        task?.cancel()
-                        dismiss()
+                    Button(terminal ? "Done" : "Cancel") {
+                        if terminal {
+                            finish(result: phase, detail: message)
+                        } else {
+                            Task { await cancelFlow() }
+                        }
                     }
                 }
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .task {
-            do {
-                try await V3ServiceBridge.shared.connect()
-                pid = V3ServiceBridge.shared.processID
-                if !started {
-                    start()
-                }
-            } catch {
-                message = error.localizedDescription
-            }
+            await begin()
+            await monitor()
         }
         .onDisappear {
-            task?.cancel()
+            if !terminal, !sessionID.isEmpty {
+                let id = sessionID
+                Task {
+                    _ = try? await V3ServiceBridge.shared.request(operation: "cancelOperation", target: id)
+                }
+            }
             if request.operation == "installSharedIPA" {
                 LCUtils.appGroupUserDefault.removeObject(forKey: "V3SharedIPA." + request.target)
             }
             status.reload()
         }
     }
-    private func start() {
-        started = true
-        task = Task {
-            do {
-                status.accept(try await V3ServiceBridge.shared.request(operation: request.operation, target: request.target, value: request.value))
-                recordRefresh("completed", "SideStore completed the selected app's refresh. Check its current expiration above.")
-                dismiss()
-            } catch {
-                message = error.localizedDescription
-                started = false
-                recordRefresh("failed", message)
+
+    @ViewBuilder
+    private var challengeContent: some View {
+        let currentFields = fields
+        switch kind {
+        case "sourceAddConfirmation":
+            Section("Source") {
+                detailRow("Name", currentFields["name"] as? String ?? "")
+                detailRow("URL", currentFields["url"] as? String ?? "")
+                if !message.isEmpty { Text(message).foregroundColor(.secondary) }
+                Button("Add Source") {
+                    Task { await respond(["action": "confirm"]) }
+                }
+                Button("Cancel", role: .destructive) {
+                    Task { await cancelFlow() }
+                }
+            }
+
+        case "sourceRemoveConfirmation":
+            Section("Source") {
+                detailRow("Name", currentFields["name"] as? String ?? "")
+                Text(message).foregroundColor(.secondary)
+                Button("Remove Source", role: .destructive) {
+                    Task { await respond(["action": "confirm"]) }
+                }
+                Button("Cancel") { Task { await cancelFlow() } }
+            }
+
+        case "bundleIDMismatch":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                detailRow("Requested", currentFields["targetID"] as? String ?? "")
+                detailRow("Active", currentFields["activeEffectiveID"] as? String ?? "")
+                Button("Proceed") { Task { await respond(["action": "proceed"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "permissionsReview":
+            Section("Permissions") {
+                Text(message).foregroundColor(.secondary)
+                let permissions = currentFields["permissions"] as? [String] ?? []
+                if permissions.isEmpty {
+                    Text("No additional permissions reported.")
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(permissions, id: \.self) {
+                        Text($0).font(.footnote)
+                    }
+                }
+                Button("Continue") { Task { await respond(["action": "continue"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "extensionRemoval":
+            Section("App Extensions") {
+                Text(message).foregroundColor(.secondary)
+                let extensions = currentFields["extensions"] as? [[String: Any]] ?? []
+                ForEach(Array(extensions.enumerated()), id: \.offset) { _, item in
+                    let bundleID = item["bundleID"] as? String ?? ""
+                    let name = item["name"] as? String ?? bundleID
+                    Toggle(isOn: selectionBinding(bundleID)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                            Text(bundleID).font(.caption2).foregroundColor(.secondary)
+                        }
+                    }
+                }
+                if !selectedExtensions.isEmpty {
+                    Button("Remove Selected", role: .destructive) {
+                        Task {
+                            await respond([
+                                "action": "removeSelected",
+                                "bundleIDs": Array(selectedExtensions)
+                            ])
+                        }
+                    }
+                }
+                Button("Remove All Extensions", role: .destructive) {
+                    Task { await respond(["action": "removeAll"]) }
+                }
+                Button("Keep Extensions — Main Profile") {
+                    Task { await respond(["action": "keepMainProfile"]) }
+                }
+                Button("Keep Extensions — Separate App IDs") {
+                    Task { await respond(["action": "keepSeparateProfiles"]) }
+                }
+            }
+
+        case "unsupportedVersion":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                let appName = currentFields["appName"] as? String ?? "App"
+                let version = currentFields["compatibleVersion"] as? String ?? ""
+                Button("Install \(appName) \(version)") {
+                    Task { await respond(["action": "useCompatible"]) }
+                }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "backgroundSuspension":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                Button("Continue") { Task { await respond(["action": "continue"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "bundleIDCustomization":
+            Section("App ID") {
+                Text(message).foregroundColor(.secondary)
+                TextField("Bundle Identifier", text: $customBundleID)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                Toggle("Append Team ID", isOn: $appendTeamID)
+                Button("Confirm") {
+                    Task {
+                        await respond([
+                            "action": "confirm",
+                            "bundleID": customBundleID,
+                            "appendTeamID": appendTeamID
+                        ])
+                    }
+                }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "appGroupMismatch":
+            Section("App Group") {
+                Text(message).foregroundColor(.secondary)
+                detailRow("Original", currentFields["originalGroup"] as? String ?? "")
+                detailRow("Corrected", currentFields["correctedGroup"] as? String ?? "")
+                Button("Correct & Proceed") { Task { await respond(["action": "correct"]) } }
+                Button("Keep Original") { Task { await respond(["action": "keep"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        default:
+            Section {
+                Text(message.isEmpty ? "SideStore requested an unsupported interaction." : message)
+                    .foregroundColor(.secondary)
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
             }
         }
     }
+
+    private func detailRow(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .top) {
+            Text(title)
+            Spacer()
+            Text(value)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+        }
+    }
+
+    private func selectionBinding(_ value: String) -> Binding<Bool> {
+        Binding(
+            get: { selectedExtensions.contains(value) },
+            set: { enabled in
+                if enabled { selectedExtensions.insert(value) }
+                else { selectedExtensions.remove(value) }
+            }
+        )
+    }
+
+    @MainActor
+    private func begin() async {
+        guard !submitting else { return }
+        submitting = true
+        localError = nil
+        defer { submitting = false }
+        do {
+            let result = try await V3ServiceBridge.shared.request(
+                operation: request.operation,
+                target: request.target,
+                value: request.value
+            )
+            if result["sessionID"] as? String != nil {
+                apply(result)
+            } else {
+                status.accept(result)
+                recordRefresh("completed", "SideStore completed the selected app's refresh. Check its current expiration above.")
+                dismiss()
+            }
+        } catch {
+            localError = error.localizedDescription
+            flow = ["phase": "failed", "message": error.localizedDescription]
+            recordRefresh("failed", error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func monitor() async {
+        while !Task.isCancelled {
+            if terminal { return }
+            do { try await Task.sleep(nanoseconds: 300_000_000) }
+            catch { return }
+            guard !sessionID.isEmpty, phase != "requiresInput" else { continue }
+            do {
+                apply(try await V3ServiceBridge.shared.request(operation: "operationState", target: sessionID))
+            } catch is CancellationError {
+                return
+            } catch {
+                localError = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor
+    private func respond(_ values: [String: Any]) async {
+        guard !submitting, !sessionID.isEmpty, !challengeID.isEmpty else { return }
+        submitting = true
+        localError = nil
+        defer { submitting = false }
+
+        var payload = values
+        payload["challengeID"] = challengeID
+        do {
+            apply(try await V3ServiceBridge.shared.request(
+                operation: "operationRespond",
+                target: sessionID,
+                payload: payload
+            ))
+        } catch {
+            localError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func cancelFlow() async {
+        if !sessionID.isEmpty {
+            do {
+                apply(try await V3ServiceBridge.shared.request(operation: "cancelOperation", target: sessionID))
+            } catch {
+                localError = error.localizedDescription
+            }
+        }
+        finish(result: "cancelled", detail: "The operation was cancelled.")
+    }
+
+    @MainActor
+    private func apply(_ value: [String: Any]) {
+        flow = value
+        sessionID = value["sessionID"] as? String ?? sessionID
+
+        let nextChallenge = value["challengeID"] as? String ?? ""
+        if !nextChallenge.isEmpty, nextChallenge != lastChallengeID {
+            lastChallengeID = nextChallenge
+            selectedExtensions.removeAll()
+
+            let nextFields = value["fields"] as? [String: Any] ?? [:]
+            if (value["kind"] as? String) == "bundleIDCustomization" {
+                customBundleID = nextFields["bundleID"] as? String ?? ""
+                appendTeamID = nextFields["appendTeamID"] as? Bool ?? true
+            }
+        }
+
+        if (value["phase"] as? String) == "completed" {
+            status.reload()
+            recordRefresh("completed", "SideStore completed the selected app's refresh. Check its current expiration above.")
+        } else if (value["phase"] as? String) == "failed" {
+            recordRefresh("failed", value["message"] as? String ?? "Operation failed.")
+        }
+    }
+
+    private func finish(result: String, detail: String) {
+        recordRefresh(result, detail)
+        status.reload()
+        dismiss()
+    }
+
     private func recordRefresh(_ result: String, _ detail: String) {
         guard request.operation == "refreshApp" else { return }
-        NotificationCenter.default.post(name: Notification.Name("V3TargetedRefreshResult"), object: nil,
-                                        userInfo: ["result": result, "detail": detail])
-    }
-}
-
-@available(iOS 16.0, *)
-struct V3RemoteServiceView: UIViewControllerRepresentable {
-    let pid: Int32
-    @Binding var ready: Bool
-    func makeCoordinator() -> Coordinator { Coordinator(ready: $ready) }
-    func makeUIViewController(context: Context) -> AppSceneViewController { AppSceneViewController(servicePID: pid, delegate: context.coordinator) }
-    func updateUIViewController(_ controller: AppSceneViewController, context: Context) {}
-    static func dismantleUIViewController(_ controller: AppSceneViewController, coordinator: Coordinator) { controller.appTerminationCleanUp() }
-    final class Coordinator: NSObject, AppSceneViewControllerDelegate {
-        var ready: Binding<Bool>
-        init(ready: Binding<Bool>) { self.ready = ready }
-        func appSceneVCAppDidExit(_ vc: AppSceneViewController!) { ready.wrappedValue = false }
-        func appSceneVC(_ vc: AppSceneViewController!, didInitializeWithError error: Error!) { ready.wrappedValue = error == nil }
-        func appSceneVCWillActivateScene(_ vc: AppSceneViewController!) { DispatchQueue.main.async { self.ready.wrappedValue = true } }
-        func appSceneVC(_ vc: AppSceneViewController!, didUpdateFrom settings: UIMutableApplicationSceneSettings!, transitionContext context: Any!, lifecycleActionType: UInt32) {}
+        NotificationCenter.default.post(
+            name: Notification.Name("V3TargetedRefreshResult"),
+            object: nil,
+            userInfo: ["result": result, "detail": detail]
+        )
     }
 }
 
