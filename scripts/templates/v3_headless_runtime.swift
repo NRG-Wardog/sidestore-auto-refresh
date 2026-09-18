@@ -838,7 +838,7 @@ enum V3BackendCommands {
         let name = try await background.performAsync { source.name }
         let identifier = try await background.performAsync { source.identifier }
         let added = try await source.isAdded()
-        let title = "Would you like to add the source "\(name)"?"
+        let title = "Would you like to add the source \"\(name)\"?"
         return ["identifier": identifier, "name": name, "alreadyAdded": added,
                 "title": title, "message": "Make sure to only add sources that you trust."]
     }
