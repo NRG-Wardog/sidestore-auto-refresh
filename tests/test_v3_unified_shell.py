@@ -120,6 +120,7 @@ class V3UnifiedShellTests(unittest.TestCase):
 
     def test_files_install_is_separate_from_guest_import(self):
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         integration = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
         self.assertIn('Button("Install / Sideload App")', source)
@@ -127,10 +128,14 @@ class V3UnifiedShellTests(unittest.TestCase):
         self.assertIn('func documentPickerWasCancelled', source)
         self.assertIn('status.stageSharedIPA(url, title: "Install / Sideload App")', source)
         self.assertIn('perform("installSharedIPA", target: token', source)
-        self.assertIn('installTarget = .url(url)', service)
-        self.assertIn('AppManager.shared.install(installTarget', service)
-        self.assertIn('group.cancel(); group.progress.cancel()', service)
-        self.assertIn('status.accept(try await V3ServiceBridge.shared.request', source)
+        self.assertIn('"opStart"', source)
+        self.assertIn('"kind": request.operation', source)
+        self.assertIn('case "opStart"', service)
+        self.assertIn('InstallTarget', runtime)
+        self.assertIn('AnyApp(name:', runtime)
+        self.assertIn('.performSingleOperation(operation, handler: handler, context: context)', runtime)
+        self.assertIn('V3HeadlessPipelineHandler', runtime)
+        self.assertIn('group.cancel(); group.progress.cancel()', runtime)
         self.assertIn('Button("Add to LiveContainer"', integration)
         self.assertIn('choosingIPA = true', integration)
 
@@ -244,6 +249,39 @@ precondition(near(scrolledSection, CGRect(x: 0, y: -262, width: 390, height: 325
             self.skipTest("swiftc unavailable")
         result = __import__("subprocess").run([compiler, "-frontend", "-parse", str(ROOT / "scripts/templates/v3_unified_shell.swift")], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_normal_flows_render_no_sidesstore_ui(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        for token in ("V3RemoteServiceView", "AppSceneViewController(servicePID",
+                      "Self.presenter", "presentingViewController:",
+                      "struct CertificatesView", "struct DeveloperServicesView",
+                      'status.perform("panel"', 'status.perform("signIn"',
+                      'status.perform("addSource"', 'status.perform("removeSource"',
+                      'status.perform("importPairing"', 'status.perform("setSetting"'):
+            self.assertNotIn(token, source)
+
+    def test_headless_host_surfaces_exist(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        for token in ("V3SignInView", "V3AuthStore", "V3CertificatesView",
+                      "V3DeveloperServicesView", "V3PairingView", "V3PromptSection",
+                      "V3ConnectionView", "V3AnisetteView", "V3SideSignView",
+                      "V3CustomizationsView", "V3HealthView", "V3BackupsView",
+                      "V3SideJITView", "V3ReleaseTrackHostView", "V3DiagnosticsView",
+                      "V3LogsView", "V3ExperimentalView", "V3SettingsStore",
+                      "V3OperationSheet", "signInPresented"):
+            self.assertIn(token, source)
+        for operation in ("authBegin", "authPoll", "authRespond", "authCancel",
+                          "opStart", "opPoll", "opAnswer", "opCancel",
+                          "certList", "certSetActive", "certDelete", "certPortalList",
+                          "certRevoke", "certCreate", "devTeams", "devDevices",
+                          "devAppIDs", "devGroups", "devProfiles", "sourcePreview",
+                          "sourceAddConfirmed", "sourceRemoveConfirmed",
+                          "pairingImportData", "settingsGet", "settingsSet",
+                          "anisetteList", "anisetteReset", "anisetteSync",
+                          "sidesignGet", "sidesignSet", "sidesignReset",
+                          "sidesignImport", "sidesignExport", "logTail",
+                          "healthSnapshot", "accountExport", "accountImport"):
+            self.assertIn(f'"{operation}"', source)
 
 
 if __name__ == "__main__":

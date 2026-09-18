@@ -83,7 +83,10 @@ public struct CombinedFailure: Error, LocalizedError {
     public init(operation: String, stage: Stage, code: Code = .failed, id: String,
                 underlying: Error? = nil, retryable: Bool? = nil) {
         let normalized = ["snapshot": "status", "refreshApp": "refresh", "installURL": "install", "installSharedIPA": "install",
-                          "addSource": "source", "removeSource": "source", "refreshSources": "source", "syncAppIDs": "signIn"][operation] ?? operation
+                          "addSource": "source", "removeSource": "source", "refreshSources": "source", "syncAppIDs": "signIn",
+                          "authBegin": "signIn", "authPoll": "signIn", "authRespond": "signIn", "authCancel": "signIn",
+                          "opStart": "command", "opPoll": "command", "opAnswer": "command", "opCancel": "command",
+                          "sourcePreview": "source", "sourceAddConfirmed": "source", "sourceRemoveConfirmed": "source"][operation] ?? operation
         self.operation = Self.operations.contains(normalized) ? normalized : "command"
         self.stage = stage; self.code = code
         correlationID = UUID(uuidString: id) != nil ? id : UUID().uuidString

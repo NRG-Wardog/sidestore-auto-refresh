@@ -70,7 +70,7 @@ def patch(live, side):
         return s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_service_bridge.swift").read_text(encoding="utf-8")
     edit(live, "SideStoreSupport/SideStore.swift", host)
     # The shared combined-startup adapter owns structured refresh error/result encoding.
-    edit(side, "AltStore/AppDelegate.swift", lambda s: s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8"))
+    edit(side, "AltStore/AppDelegate.swift", lambda s: s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8"))
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
         "        NavigationView {\n            ScrollView {", "        NavigationView {\n            ScrollView {\n                V3InstalledAppsSection(query: searchContext.debouncedQuery)"))
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
@@ -166,12 +166,9 @@ def patch(live, side):
     edit(side, "AltStore/SceneDelegate.swift", lambda s: replace(s,
         '        guard let _ = (scene as? UIWindowScene) else { return }',
         '''        guard let windowScene = scene as? UIWindowScene else { return }
-        // V3_COMMAND_PATCH_V1: no legacy tab bar in a service scene.
-        let serviceWindow = UIWindow(windowScene: windowScene)
-        V3SideStoreService.presenter.view.backgroundColor = .systemBackground
-        serviceWindow.rootViewController = V3SideStoreService.presenter
-        self.window = serviceWindow
-        serviceWindow.makeKeyAndVisible()'''))
+        // V3_HEADLESS_SERVICE_V2: no window, tab bar, presenter, or visible UI
+        // in a service scene. The process executes headless backend commands.
+        _ = windowScene'''))
 
     # Attach a remote scene to the existing service process, never a second DB owner.
     edit(live, "MultitaskSupport/AppSceneViewController.h", lambda s: replace(s,

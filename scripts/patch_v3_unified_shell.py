@@ -120,9 +120,13 @@ def verify(live: Path, side: Path) -> None:
     if any(not p.exists() for p in required):
         die("v3 host files are missing")
     shell = required[0].read_text(encoding="utf-8")
-    for token in (MARKER, "V3SideStoreStatusStore", "V3SourcesView", "LCEmbeddedSideStoreRefreshView", "LCTabIdentifier.settings"):
+    for token in (MARKER, "V3SideStoreStatusStore", "V3SourcesView", "LCEmbeddedSideStoreRefreshView", "LCTabIdentifier.settings",
+                  "V3SignInView", "V3CertificatesView", "V3PromptSection", "V3PairingView", "V3AuthStore"):
         if token not in shell:
             die(f"v3 shell is missing {token}")
+    for forbidden in ("V3RemoteServiceView", "Self.presenter", "presentingViewController: Self.presenter"):
+        if forbidden in shell:
+            die(f"v3 shell still embeds SideStore UI: {forbidden}")
     if "V3UnifiedShell()" not in required[1].read_text(encoding="utf-8"):
         die("v3 shell is not the application root")
     app_list = (live / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift").read_text(encoding="utf-8")

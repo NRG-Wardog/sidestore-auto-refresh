@@ -45,7 +45,8 @@ backup/restore, JIT, library removal and device deletion. Host
 deletion/deactivation is rejected.
 
 Sources reads actual SideStore records and supported catalog versions. Addition,
-removal, installation and updates call SideStore's confirmation/operation APIs.
+removal, installation and updates run through headless service commands; every
+confirmation renders in the host before the confirmed command is sent.
 Oversized catalogs report an error rather than silently dropping entries.
 The same catalog can install into LiveContainer using its existing guest download
 flow. Previously saved guest-source URLs remain stored and can be explicitly
@@ -55,7 +56,7 @@ Home combines live owner-supplied status with the host scheduler's last verified
 run, deadline and failure information. Guest signature warnings remain separate
 from verified host refresh state.
 
-## Commands and privileged presentation
+## Commands and headless backend
 
 `V3ServiceBridge` calls SideStoreSupport's `v3Execute:reply:` XPC endpoint.
 The embedded `V3SideStoreService` implements `execute:reply:`.
@@ -64,25 +65,46 @@ version, deadline and sizes: 16 KiB requests and 4 MiB responses.
 Credentials, private keys, pairing contents and auth tokens are not command
 fields. Raw framework errors are not returned through this endpoint.
 
-Authentication and privileged configuration use SideStore-owned controllers
-rendered remotely inside the host operation sheet. The service's existing PID
-is attached by `AppSceneViewController.initWithServicePID`; it does not launch
-another database owner or import managed objects. SwiftUI links retain a
-navigation environment and native certificate actions use their actual hosting
-controller. Closing a sheet releases presentation, not the service database.
+SideStore is a headless backend from the user's perspective. LiveContainer
+owns 100% of visible presentation: navigation, tabs, sheets, alerts, forms,
+confirmations, loading states, errors and progress. No normal user flow opens
+or renders SideStore UI: there is no remote scene, no SideStore-owned
+controller, picker, alert or navigation stack, and no visible transition into
+a SideStore process. The SideStore scene runs windowless; the process exists
+only to own Core Data, Keychain, authentication, signing, provisioning,
+installation, refresh, sources and transport.
 
-The SideStore scene root is a service presenter, not the legacy tab controller.
+Interaction crosses the bridge as data. Mutating work runs in service-side
+sessions (`opStart`/`opPoll`/`opAnswer`/`opCancel`) with states working,
+awaitingPrompt, requiresSource, waitingForAuthentication, completed,
+cancelled and failed, plus numeric progress. Sign-in runs as a state machine
+(`authBegin`/`authPoll`/`authRespond`/`authCancel`) over the existing
+`SignInOperation`: credentials, two-factor delivery/code selection, trusted
+phone selection, team selection, account repair, revocation choice, resign
+confirmation, provisioning retry and anisette warnings are prompts rendered
+by the host; `AuthManager`, portal proxy, team/provisioning/certificate logic
+and persistence are reused unchanged. Certificates, developer objects
+(teams/devices/App IDs/groups/profiles), pairing files, SideSign
+configuration, Anisette servers, settings, logs, health and account
+backup/restore cross as DTOs/commands; the host renders every screen.
+
 The normal launch button is removed. Old startup selections, share-extension imports and multi-instance installation
 are routed back into the unified host. Local IPA import uses a one-use shared
 file authorization referenced by UUID; file bookmarks are not sent over XPC.
+Pairing/account/SideSign imports stage file bytes under one-use group-default
+tokens that the service consumes; the service never presents its own picker.
 SideStore-based guest JIT acquisition calls the service directly, while other
 configured JIT providers and LiveProcess launch modes retain their existing paths.
 Settings exposes account/sign-in/sign-out, certificates, developer services,
 pairing import, connection, Anisette, SideSign
 configuration, installation options, backups and diagnostics. Each remains
-backed by its original owner. Interactive service presentation requires iOS 16
-or newer; existing automated refresh requires the upstream iOS 17 intent
+backed by its original owner. Existing automated refresh requires the upstream iOS 17 intent
 runtime. Availability limits are displayed rather than opening legacy UI.
+
+Deferred on purpose: Anisette ADI reset (tied to its alert-controller flow),
+EMProxy developer test hooks, refresh-attempt clearing, raw database file
+export, and SideJIT live device-refresh actions. These need product decisions
+or streaming file transfer and stay out of normal flows.
 
 ## Lifecycle
 
