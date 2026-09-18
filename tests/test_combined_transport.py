@@ -460,10 +460,14 @@ class CombinedWorkflowTests(unittest.TestCase):
         self.assertNotRegex(workflow, r"SideSign (?:checkout|cherry-pick)")
         self.assertIn("SideStore/Core/Auth SideStore/Core/Anisette", workflow)
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
-        self.assertNotIn("AuthFlowHandler", service)
-        self.assertNotIn("AuthenticatedOperationContext", service)
-        self.assertIn("AppManager.shared.signIn(", service)
-        self.assertIn("SideSignConfigurationView()", service)
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
+        self.assertNotIn("AuthFlowHandler", service + runtime)
+        self.assertNotIn("AuthenticatedOperationContext", service + runtime)
+        self.assertNotIn("presentingViewController", service + runtime)
+        self.assertNotIn("SideSignConfigurationView()", service + runtime)
+        self.assertIn("SignInOperation(context:", runtime)
+        self.assertIn("SignInHandler, AnisetteServerHandler", runtime)
+        self.assertIn("SideSignConfigManager.shared", runtime)
 
     def test_local_binary_and_combined_patch_injected_before_build(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")

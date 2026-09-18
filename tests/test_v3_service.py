@@ -1,6 +1,7 @@
 """Exercise pinned patch transactions and the actual shipped wire decoder."""
 import importlib.util
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -128,6 +129,51 @@ class ServicePatchTests(unittest.TestCase):
         self.assertNotIn("v3SideStoreStatusSnapshot", host)
         self.assertIn("pending.removeValue", bridge)
         self.assertIn("decoded[\"id\"] as? String == id", bridge)
+
+    def test_headless_service_has_no_presentation(self):
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        for token in ("Self.presenter", "presentingViewController:", "UIHostingController",
+                      "UINavigationController(rootViewController", "CertificatesView(",
+                      "DeveloperServicesView(", "importPairingFile(presentingVC",
+                      "presentConfirmationAlert", "V3RemoteServiceView", "serviceWindow",
+                      "makeKeyAndVisible", "AppManager.shared.signIn(presentingViewController",
+                      "AuthManager.shared.signIn(presentingViewController"):
+            self.assertNotIn(token, service + runtime)
+        self.assertNotIn("present(", service + runtime)
+        self.assertNotIn("dismiss(", service + runtime)
+
+    def test_headless_operation_inventory(self):
+        contract = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        for removed in ("panel", "signIn", "install", "refreshApp", "addSource",
+                        "removeSource", "importPairing", "update", "activate",
+                        "deactivate", "remove", "delete", "backup", "restore",
+                        "installURL", "installSharedIPA", "setSetting"):
+            self.assertNotIn(f'"{removed}"', contract)
+        for op in ("authBegin", "authPoll", "authRespond", "authCancel", "opStart", "opPoll",
+                   "opAnswer", "opCancel", "certList", "certSetActive", "certDelete",
+                   "certPortalList", "certRevoke", "certCreate", "devTeams", "devDevices",
+                   "devAppIDs", "devGroups", "devProfiles", "sourcePreview", "sourceAddConfirmed",
+                   "sourceRemoveConfirmed", "pairingImportData", "settingsGet", "settingsSet",
+                   "anisetteList", "anisetteReset", "anisetteSync", "sidesignGet", "sidesignSet",
+                   "sidesignReset", "sidesignImport", "sidesignExport", "logTail",
+                   "healthSnapshot", "accountExport", "accountImport"):
+            self.assertIn(f'"{op}"', contract)
+            self.assertIn(f'case "{op}"', service)
+        self.assertIn('"payload"', contract)
+
+    def test_prompt_kinds_are_closed_set(self):
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        kinds = set(re.findall(r'kind: "([a-zA-Z]+)"', runtime))
+        expected = {"credentials", "twoFactor", "team", "accountRepair", "provisioningError",
+                    "postAuth", "revocation", "resign", "anisetteOutdated", "bundleIDMismatch",
+                    "permissions", "extensions", "unsupportedVersion", "bundleIDOverride",
+                    "appGroupMismatch"}
+        self.assertEqual(kinds, expected)
+        self.assertIn("V3PromptSection", host)
+        self.assertIn("V3SignInView", host)
 
 
 class WireExecutionTests(unittest.TestCase):
@@ -260,3 +306,93 @@ print("V3 wire contract PASS")
             subprocess.run([compiler, str(program), "-o", str(executable)], check=True, capture_output=True, text=True)
             result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
             self.assertIn("PASS", result.stdout)
+
+    def test_headless_wire_contract_accepts_payload_and_session_ops(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable")
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            program = directory / "main.swift"
+            program.write_text((ROOT / "scripts/templates/v3_wire_contract.swift").read_text() + r'''
+let now = Date(timeIntervalSince1970: 100000)
+func encode(_ value: [String: Any]) -> Data {
+    try! PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
+}
+func base(_ operation: String) -> [String: Any] {
+    ["version": 1, "id": UUID().uuidString, "operation": operation,
+     "target": UUID().uuidString, "deadline": now.addingTimeInterval(30)]
+}
+for operation in ["authBegin", "authPoll", "authRespond", "opStart", "opPoll", "opAnswer",
+                  "certList", "certRevoke", "devTeams", "sourcePreview", "sourceAddConfirmed",
+                  "pairingImportData", "settingsGet", "settingsSet", "anisetteList",
+                  "sidesignGet", "logTail", "healthSnapshot", "accountExport", "accountImport"] {
+    var request = base(operation)
+    request["payload"] = ["kind": "install", "answer": ["choice": "proceed"]]
+    precondition(V3WireContract.decodeRequest(encode(request), now: now) != nil, operation)
+    precondition(V3WireContract.readOperations.contains(operation) == ["authPoll", "opPoll", "certList", "devTeams", "sourcePreview", "settingsGet", "anisetteList", "sidesignGet", "logTail", "healthSnapshot"].contains(operation), operation)
+}
+for removed in ["panel", "signIn", "install", "refreshApp", "addSource", "removeSource", "importPairing", "setSetting", "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "installURL", "installSharedIPA"] {
+    precondition(V3WireContract.decodeRequest(encode(base(removed)), now: now) == nil, removed)
+}
+var badPayload = base("opStart")
+badPayload["payload"] = "not-a-dict"
+precondition(V3WireContract.decodeRequest(encode(badPayload), now: now) == nil)
+var legacyValue = base("snapshot")
+legacyValue["value"] = true
+precondition(V3WireContract.decodeRequest(encode(legacyValue), now: now) == nil)
+print("V3 headless wire contract PASS")
+''')
+            executable = directory / "headless-wire-tests"
+            compiled = subprocess.run([compiler, "-parse-as-library", str(program), "-o", str(executable)], capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3 headless wire contract PASS", result.stdout)
+
+    def test_shipped_prompt_gate_parks_and_resumes_once(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable")
+        source = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
+        gate = source[source.index("@MainActor\nfinal class V3PromptCenter"):]
+        gate = gate[:gate.index("\n}\n") + len("\n}\n")]
+        program = "import Foundation\n" + gate + r'''
+@main struct PromptGateTests {
+    static func main() async throws {
+        let center = V3PromptCenter()
+        async let first = center.park(promptID: "p1")
+        async let second = center.park(promptID: "p2")
+        try await Task.sleep(nanoseconds: 20_000_000)
+        precondition(center.answer(promptID: "p1", answer: ["choice": "proceed"]))
+        precondition(!center.answer(promptID: "p1", answer: ["choice": "proceed"]))
+        precondition(!center.answer(promptID: "missing", answer: [:]))
+        let firstAnswer = try await first
+        precondition(firstAnswer["choice"] == "proceed")
+        center.cancel(promptID: "p2")
+        do {
+            _ = try await second
+            preconditionFailure("cancelled park resumed")
+        } catch is CancellationError {}
+        async let third = center.park(promptID: "p3")
+        try await Task.sleep(nanoseconds: 10_000_000)
+        let task = Task { try await third }
+        task.cancel()
+        do {
+            _ = try await task.value
+            preconditionFailure("task cancel did not resume")
+        } catch is CancellationError {}
+        print("V3 prompt gate PASS")
+    }
+}
+'''
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            swift = directory / "main.swift"
+            swift.write_text(program)
+            executable = directory / "prompt-gate-tests"
+            compiled = subprocess.run([compiler, "-parse-as-library", str(swift), "-o", str(executable)], capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3 prompt gate PASS", result.stdout)

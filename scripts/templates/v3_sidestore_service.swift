@@ -1,12 +1,15 @@
 
 // V3_SIDESTORE_COMMAND_SERVICE_V1
 // Compiled only into SideStore. No managed objects or credentials cross XPC.
+// V3_HEADLESS_SERVICE_V2: headless backend. This file owns the command gate,
+// snapshots, and non-interactive reads. All interactive work runs through
+// V3HeadlessRuntime sessions; no window, presenter, or visible UI exists here.
 import SwiftUI
 
 // V3_NATIVE_CALLBACK_GATE_V1: native completions can arrive on arbitrary queues.
 // Cancellation does not manufacture a native completion or release the mutation gate.
 // The owning service retains it until the real callback returns or the process retires.
-private final class V3ServiceCallbackGate: @unchecked Sendable {
+final class V3ServiceCallbackGate: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Void, Error>?
     init(_ continuation: CheckedContinuation<Void, Error>) { self.continuation = continuation }
@@ -24,37 +27,10 @@ private final class V3ServiceCallbackGate: @unchecked Sendable {
 @objc(V3SideStoreService)
 final class V3SideStoreService: NSObject {
     static let shared = V3SideStoreService()
-    private var tasks: [String: Task<Void, Never>] = [:]
-    private var cancellations: [String: () -> Void] = [:]
-    private var completed: [String: (data: Data, deadline: Date)] = [:]
-    private var mutationID: String?
-    private var finishPanel: (() -> Void)?
-    static var presenter: UIViewController {
-        if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }),
-           let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first,
-           let root = window.rootViewController {
-            return topViewController(root)
-        }
-        if let window = UIApplication.shared.windows.first(where: { $0.isKeyWindow }) ?? UIApplication.shared.windows.first,
-           let root = window.rootViewController {
-            return topViewController(root)
-        }
-        return fallbackPresenter
-    }
-    private static let fallbackPresenter = UIViewController()
-
-    private static func topViewController(_ root: UIViewController) -> UIViewController {
-        if let presented = root.presentedViewController, !presented.isBeingDismissed {
-            return topViewController(presented)
-        }
-        if let nav = root as? UINavigationController, let visible = nav.visibleViewController {
-            return topViewController(visible)
-        }
-        if let tab = root as? UITabBarController, let selected = tab.selectedViewController {
-            return topViewController(selected)
-        }
-        return root
-    }
+    var tasks: [String: Task<Void, Never>] = [:]
+    var cancellations: [String: () -> Void] = [:]
+    var completed: [String: (data: Data, deadline: Date)] = [:]
+    var mutationID: String?
 
     @objc(execute:reply:)
     nonisolated static func execute(_ data: Data, reply: @escaping (Data) -> Void) {
@@ -74,19 +50,19 @@ final class V3SideStoreService: NSObject {
         if let previous = completed[id] { reply(previous.data); return }
         if operation == "cancel" {
             let target = request["target"] as? String ?? ""
-            tasks[target]?.cancel()
-            cancellations[target]?()
-            if mutationID == target { Self.presenter.dismiss(animated: true) }
+            if !V3HeadlessRuntime.shared.cancelSession(target) {
+                tasks[target]?.cancel()
+                cancellations[target]?()
+            }
             reply(encode(["id": id, "version": 1, "ok": true]))
             return
         }
         guard tasks[id] == nil else { reply(encode(["version": 1, "id": id, "error": "busy",
             "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire])); return }
-        let mutation = !["snapshot", "catalog", "appIcon", "backupResult"].contains(operation)
+        let mutation = !V3WireContract.readOperations.contains(operation)
         guard !mutation || (mutationID == nil && completed.count < 512) else {
             reply(encode(["version": 1, "id": id, "error": "busy",
-                "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire])); return
-        }
+                "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire])); return }
         if mutation { mutationID = id }
         tasks[id] = Task { @MainActor in
             defer {
@@ -105,14 +81,17 @@ final class V3SideStoreService: NSObject {
                 // Raw framework errors can contain URLs, authentication data or server responses.
                 // Detailed errors remain inside the SideStore process.
                 if let serviceError = error as? ServiceError { response["error"] = serviceError.rawValue }
+                else if let headlessError = error as? V3SideStoreServiceError { response["error"] = headlessError.rawValue }
                 else if error is CancellationError { response["error"] = "cancelled" }
                 else { response["error"] = "operationFailed" }
                 let stage: CombinedFailure.Stage
                 switch operation {
                 case "snapshot": stage = .serviceReadiness
-                case "signIn", "signOut", "syncAppIDs": stage = .authentication
-                case "install", "installURL", "installSharedIPA", "update", "activate": stage = .installation
-                case "refreshApp": stage = .refreshVerification
+                case "authBegin", "authPoll", "authRespond", "authCancel", "accountExport", "accountImport": stage = .authentication
+                case "opStart", "opPoll", "opAnswer", "opCancel": stage = .command
+                case "certList", "certSetActive", "certDelete", "certPortalList", "certRevoke", "certCreate": stage = .signing
+                case "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles", "syncAppIDs": stage = .authentication
+                case "sourcePreview", "sourceAddConfirmed", "sourceRemoveConfirmed": stage = .command
                 default: stage = .command
                 }
                 if let serviceError = error as? ServiceError {
@@ -123,6 +102,17 @@ final class V3SideStoreService: NSObject {
                     case .unsupported: code = .unsupported
                     case .notFound: code = .unavailable
                     case .invalidRequest: code = .invalidConfiguration
+                    }
+                    response["failure"] = CombinedFailure(operation: operation, stage: stage, code: code, id: id).wire
+                } else if let headlessError = error as? V3SideStoreServiceError {
+                    let code: CombinedFailure.Code
+                    switch headlessError {
+                    case .notReady: code = .notReady
+                    case .busy: code = .busy
+                    case .unsupported: code = .unsupported
+                    case .notFound: code = .unavailable
+                    case .invalidRequest: code = .invalidConfiguration
+                    case .authRequired: code = .notReady
                     }
                     response["failure"] = CombinedFailure(operation: operation, stage: stage, code: code, id: id).wire
                 } else {
@@ -152,6 +142,7 @@ final class V3SideStoreService: NSObject {
     private func run(_ operation: String, request: [String: Any], id: String) async throws -> [String: Any] {
         let context = DatabaseManager.shared.viewContext
         let target = request["target"] as? String ?? ""
+        let payload = request["payload"] as? [String: Any] ?? [:]
         switch operation {
         case "snapshot": return try snapshot()
         case "appIcon":
@@ -171,40 +162,6 @@ final class V3SideStoreService: NSObject {
             NotificationCenter.default.post(name: AppDelegate.appBackupDidFinish, object: nil,
                 userInfo: [AppDelegate.appBackupResultKey: result])
             return [:]
-        case "panel":
-            let controller = UIHostingController(rootView: AnyView(EmptyView()))
-            let content: AnyView
-            switch target {
-            case "certificates": content = AnyView(CertificatesView(presentingViewController: controller))
-            case "developerServices": content = AnyView(DeveloperServicesView(presentingViewController: controller))
-            case "connection": content = AnyView(ConnectionConfigView())
-            case "anisette": content = AnyView(AnisetteServersView(selected: UserDefaults.standard.menuAnisetteURL, onResetAdiPb: {}))
-            case "sideSign": content = AnyView(SideSignConfigurationView())
-            case "health": content = AnyView(HealthCheckView())
-            case "backups": content = AnyView(BackupAndRestoreView())
-            case "sideJIT": content = AnyView(SideJITServerConfigView())
-            case "customizations": content = AnyView(UserCustomizationsView())
-            case "diagnostics": content = AnyView(DeveloperOptionsView())
-            case "experimental": content = AnyView(ExperimentalFeaturesView())
-            case "releaseTrack": content = AnyView(V3ReleaseTrackView())
-            case "logs":
-                guard let delegate = UIApplication.shared.delegate as? AppDelegate else { throw ServiceError.notReady }
-                content = AnyView(ConsoleLogView(logURL: delegate.consoleLog.logFileURL))
-            default: throw ServiceError.invalidRequest
-            }
-            // SwiftUI links need navigation; UIKit certificate pushes need the
-            // actual hosting controller's navigation controller.
-            controller.rootView = AnyView(NavigationView { content }.navigationViewStyle(StackNavigationViewStyle()))
-            try await callback { done in
-                controller.navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(closePanel))
-                let navigation = UINavigationController(rootViewController: controller)
-                navigation.isModalInPresentation = true
-                self.finishPanel = { done(.success(())) }
-                self.cancellations[id] = { self.closePanel() }
-                Self.presenter.present(navigation, animated: true)
-            }
-        case "importPairing":
-            _ = try await PairingFileManager.shared.importPairingFile(presentingVC: Self.presenter, title: "Pairing File", message: "Select a pairing file")
         case "catalog":
             let query = NSFetchRequest<StoreApp>(entityName: "StoreApp")
             query.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
@@ -226,103 +183,157 @@ final class V3SideStoreService: NSObject {
                  "canInstall": app.latestSupportedVersion != nil,
                  "installedID": app.installedApp?.objectID.uriRepresentation().absoluteString ?? ""] as [String: Any]
             }, "nextCursor": fetched.count > 50 ? offset + 50 : -1]
-        case "refreshSources":
-            try await callback { done in AppManager.shared.updateAllSources(completion: done) }
-        case "addSource":
-            guard let url = URL(string: target), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
-                  url.host != nil, url.user == nil, url.password == nil else { throw ServiceError.invalidRequest }
-            let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
-            let source = try await AppManager.shared.fetchSource(sourceURL: url, managedObjectContext: background)
-            try await AppManager.shared.add(source, presentingViewController: Self.presenter)
-        case "removeSource":
-            let query = NSFetchRequest<Source>(entityName: "Source")
-            query.predicate = NSPredicate(format: "identifier == %@", target)
-            guard let source = try context.fetch(query).first else { throw ServiceError.notFound }
-            try await AppManager.shared.remove(source, presentingViewController: Self.presenter)
-        case "signIn":
-            try await callback { done in
-                AppManager.shared.signIn(presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
-            }
         case "signOut":
             // Preserve reusable certificate and anisette state, matching upgrade preservation.
             AuthManager.shared.signOut(keepCertificate: true, keepAnisetteData: true)
+            return try snapshot()
         case "syncAppIDs":
             if !AuthManager.shared.isAuthenticated {
-                _ = try await AuthManager.shared.signIn(presentingViewController: Self.presenter)
+                throw V3SideStoreServiceError.authRequired
             }
             try await callback { done in AppManager.shared.syncAppIDs(completionHandler: done) }
+            return try snapshot()
         case "clearCache":
             try await callback { done in AppManager.shared.clearAppCache(completion: done) }
-        case "setSetting":
-            guard let value = request["value"] as? Bool else { throw ServiceError.invalidRequest }
-            switch target {
-            case "betaUpdates": UserDefaults.standard.isBetaUpdatesEnabled = value
-            case "idleTimeoutDisabled": UserDefaults.standard.isIdleTimeoutDisableEnabled = value
-            case "responseCachingDisabled": UserDefaults.standard.responseCachingDisabled = value
-            case "verboseOperations": UserDefaults.standard.isVerboseOperationsLoggingEnabled = value
-            default: throw ServiceError.invalidRequest
-            }
-        case "install", "installURL", "installSharedIPA":
-            let installTarget: InstallTarget
-            var scopedURL: URL?
-            defer { scopedURL?.stopAccessingSecurityScopedResource() }
-            if operation == "install" {
-                let app: StoreApp = try object(target)
-                guard app.latestSupportedVersion != nil else { throw ServiceError.unsupported }
-                installTarget = .app(app)
-            } else if operation == "installSharedIPA" {
-                guard UUID(uuidString: target) != nil, let group = Bundle.main.altstoreAppGroup,
-                      let defaults = UserDefaults(suiteName: group),
-                      let bookmark = defaults.data(forKey: "V3SharedIPA." + target) else { throw ServiceError.invalidRequest }
-                defaults.removeObject(forKey: "V3SharedIPA." + target)
-                var stale = false
-                let url = try URL(resolvingBookmarkData: bookmark, options: .withoutUI, relativeTo: nil, bookmarkDataIsStale: &stale)
-                guard !stale, url.isFileURL, url.pathExtension.lowercased() == "ipa" else { throw ServiceError.invalidRequest }
-                if url.startAccessingSecurityScopedResource() { scopedURL = url }
-                installTarget = .url(url)
-            } else {
-                guard let url = URL(string: target), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
-                      url.host != nil, url.user == nil, url.password == nil else { throw ServiceError.invalidRequest }
-                installTarget = .url(url)
-            }
-            try await callback { done in
-                let group = AppManager.shared.install(installTarget, presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
-                cancellations[id] = { group.cancel(); group.progress.cancel() }
-            }
-        case "refreshApp":
+            return try snapshot()
+        case "refreshSources":
+            try await callback { done in AppManager.shared.updateAllSources(completion: done) }
+            return try snapshot()
+        case "jit":
             let app: InstalledApp = try object(target)
-            guard app.isActive, app.bundleIdentifier != StoreApp.altstoreAppID else { throw ServiceError.unsupported }
-            let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
-            let group = RefreshGroup(context: StandaloneOperationContext(steps: .signIn, dbBackgroundContext: background))
-            try await callback { done in
-                group.completionHandler = { results in
-                    guard let result = results[app.bundleIdentifier] else { done(.failure(ServiceError.notFound)); return }
-                    done(result.map { _ in () })
-                }
-                cancellations[id] = { group.cancel(); group.progress.cancel() }
-                AppManager.shared.refresh([app], presentingViewController: Self.presenter, group: group)
+            try await callback { done in AppManager.shared.enableJIT(for: app, completionHandler: done) }
+            return try snapshot()
+        case "authBegin":
+            guard let deadline = request["deadline"] as? Date else { throw ServiceError.invalidRequest }
+            return V3HeadlessRuntime.shared.auth.begin(deadline: deadline)
+        case "authPoll":
+            guard let reply = V3HeadlessRuntime.shared.auth.poll(id: target) else { throw ServiceError.invalidRequest }
+            return reply
+        case "authRespond":
+            guard let answer = payload["answer"] as? [String: String],
+                  let promptID = payload["prompt"] as? String,
+                  let reply = V3HeadlessRuntime.shared.auth.respond(id: target, promptID: promptID, answer: answer) else {
+                throw ServiceError.invalidRequest
             }
-        case "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "jit":
-            let app: InstalledApp = try object(target)
-            if ["deactivate", "remove", "delete"].contains(operation), app.bundleIdentifier == StoreApp.altstoreAppID { throw ServiceError.unsupported }
-            try await callback { done in
-                let finished: (Result<InstalledApp, Error>) -> Void = { result in done(result.map { _ in () }) }
-                switch operation {
-                case "update":
-                    let progress = AppManager.shared.update(app, presentingViewController: Self.presenter, completionHandler: finished)
-                    cancellations[id] = { progress.cancel() }
-                case "activate": AppManager.shared.activate(app, presentingViewController: Self.presenter, completionHandler: finished)
-                case "deactivate": AppManager.shared.deactivate(app, presentingViewController: Self.presenter, completionHandler: finished)
-                case "remove": AppManager.shared.removeApp(app, presentingViewController: Self.presenter, completionHandler: done)
-                case "delete": AppManager.shared.deleteApp(app, presentingViewController: Self.presenter, completionHandler: finished)
-                case "backup": AppManager.shared.backup(app, presentingViewController: Self.presenter, completionHandler: finished)
-                case "restore": AppManager.shared.restore(app, presentingViewController: Self.presenter, completionHandler: finished)
-                default: AppManager.shared.enableJIT(for: app, completionHandler: done)
-                }
+            return reply
+        case "authCancel":
+            guard V3HeadlessRuntime.shared.auth.cancel(id: target) else { throw ServiceError.invalidRequest }
+            return [:]
+        case "opStart":
+            guard let kind = payload["kind"] as? String,
+                  let deadline = request["deadline"] as? Date else { throw ServiceError.invalidRequest }
+            let opTarget = payload["target"] as? String ?? target
+            return await V3HeadlessRuntime.shared.operations.start(kind: kind, target: opTarget,
+                value: payload["value"] as? Bool, deadline: deadline)
+        case "opPoll":
+            guard let reply = V3HeadlessRuntime.shared.operations.poll(id: target) else { throw ServiceError.invalidRequest }
+            return reply
+        case "opAnswer":
+            guard let answer = payload["answer"] as? [String: String],
+                  let promptID = payload["prompt"] as? String,
+                  let reply = V3HeadlessRuntime.shared.operations.answer(id: target, promptID: promptID, answer: answer) else {
+                throw ServiceError.invalidRequest
             }
+            return reply
+        case "opCancel":
+            guard V3HeadlessRuntime.shared.operations.cancel(id: target) else { throw ServiceError.invalidRequest }
+            return [:]
+        case "certList":
+            return ["certificates": V3BackendCommands.certificates()]
+        case "certSetActive":
+            guard let certificate = CertificateManager.shared.getLocalCertificate(serialNumber: target) else {
+                throw ServiceError.notFound
+            }
+            try CertificateManager.shared.setActiveCertificate(certificate)
+            return try snapshot()
+        case "certDelete":
+            CertificateManager.shared.deleteCertificate(serialNumber: target)
+            return try snapshot()
+        case "certPortalList":
+            return ["certificates": try await V3BackendCommands.portalCertificates()]
+        case "certRevoke":
+            _ = try await AuthManager.shared.getAuthenticatedSession()
+            let team = try await AuthManager.shared.getAuthenticatedTeam()
+            let certificates = try await DeveloperPortalProxy.shared.fetchCertificates(team: team)
+            guard let certificate = certificates.first(where: { $0.serialNumber == target }) else {
+                throw ServiceError.notFound
+            }
+            _ = try await DeveloperPortalProxy.shared.revokeCertificate(certificate, team: team)
+            return try snapshot()
+        case "certCreate":
+            _ = try await AuthManager.shared.getAuthenticatedSession()
+            let team = try await AuthManager.shared.getAuthenticatedTeam()
+            let name = UIDevice.current.name
+            let created = try await DeveloperPortalProxy.shared.createCertificate(
+                machineName: "SideStore - \(team.name)'s \(name)", team: team)
+            CertificateManager.shared.saveCertificate(created)
+            if let local = CertificateManager.shared.getLocalCertificate(serialNumber: created.serialNumber) {
+                try? CertificateManager.shared.setActiveCertificate(local)
+            }
+            return try snapshot()
+        case "devTeams":
+            return ["teams": try await V3BackendCommands.developerTeams()]
+        case "devDevices":
+            return ["devices": try await V3BackendCommands.developerDevices()]
+        case "devAppIDs":
+            return ["appIDs": try await V3BackendCommands.developerAppIDs()]
+        case "devGroups":
+            return ["groups": try await V3BackendCommands.developerGroups()]
+        case "devProfiles":
+            return ["profiles": try await V3BackendCommands.developerProfiles()]
+        case "sourcePreview":
+            return try await V3BackendCommands.sourcePreview(urlString: target)
+        case "sourceAddConfirmed":
+            try await V3BackendCommands.sourceAddConfirmed(urlString: target)
+            return try snapshot()
+        case "sourceRemoveConfirmed":
+            try await V3BackendCommands.sourceRemoveConfirmed(identifier: target)
+            return try snapshot()
+        case "pairingImportData":
+            try V3BackendCommands.pairingImportData(token: target)
+            return try snapshot()
+        case "settingsGet":
+            return V3BackendCommands.settingsGet()
+        case "settingsSet":
+            try V3BackendCommands.settingsSet(payload: payload)
+            return try snapshot()
+        case "anisetteList":
+            return ["servers": await V3BackendCommands.anisetteList()]
+        case "anisetteReset":
+            _ = try await AnisetteServersManager.shared.resetToOriginalState()
+            return ["servers": await V3BackendCommands.anisetteList()]
+        case "anisetteSync":
+            _ = try await AnisetteServersManager.shared.syncWithRemote()
+            return ["servers": await V3BackendCommands.anisetteList()]
+        case "sidesignGet":
+            return ["config": await V3BackendCommands.sidesignJSON()]
+        case "sidesignSet":
+            guard let json = payload["config"] as? String else { throw ServiceError.invalidRequest }
+            try await V3BackendCommands.sidesignSet(json: json)
+            return ["config": await V3BackendCommands.sidesignJSON()]
+        case "sidesignReset":
+            _ = SideSignConfigManager.shared.resetToDefaults()
+            return ["config": await V3BackendCommands.sidesignJSON()]
+        case "sidesignImport":
+            try await V3BackendCommands.sidesignImport(token: target)
+            return ["config": await V3BackendCommands.sidesignJSON()]
+        case "sidesignExport":
+            return ["config": await V3BackendCommands.sidesignExport()]
+        case "logTail":
+            return V3BackendCommands.logTail()
+        case "healthSnapshot":
+            return await V3BackendCommands.health()
+        case "accountExport":
+            guard let password = payload["password"] as? String, !password.isEmpty else {
+                throw ServiceError.invalidRequest
+            }
+            let includeApple = payload["includeApple"] as? Bool ?? false
+            return ["backup": try V3BackendCommands.accountExport(password: password, includeApplePassword: includeApple)]
+        case "accountImport":
+            guard let password = payload["password"] as? String else { throw ServiceError.invalidRequest }
+            return try V3BackendCommands.accountImport(token: target, password: password)
         default: throw ServiceError.invalidRequest
         }
-        return try snapshot()
     }
 
     private func object<T: NSManagedObject>(_ identifier: String) throws -> T {
@@ -330,12 +341,6 @@ final class V3SideStoreService: NSObject {
               let id = DatabaseManager.shared.persistentContainer.persistentStoreCoordinator.managedObjectID(forURIRepresentation: url),
               let object = try DatabaseManager.shared.viewContext.existingObject(with: id) as? T else { throw ServiceError.notFound }
         return object
-    }
-
-    @objc private func closePanel() {
-        let finish = finishPanel
-        finishPanel = nil
-        Self.presenter.dismiss(animated: true) { finish?() }
     }
 
     private func callback(_ start: (@escaping (Result<Void, Error>) -> Void) -> Void) async throws {
@@ -376,20 +381,5 @@ final class V3SideStoreService: NSObject {
                              "idleTimeoutDisabled": UserDefaults.standard.isIdleTimeoutDisableEnabled,
                              "responseCachingDisabled": UserDefaults.standard.responseCachingDisabled,
                              "verboseOperations": UserDefaults.standard.isVerboseOperationsLoggingEnabled]]
-    }
-}
-
-private struct V3ReleaseTrackView: View {
-    @State private var track = UserDefaults.standard.betaUdpatesTrack ?? UserDefaults.defaultBetaUpdatesTrack
-    private var tracks: [String] {
-        [track] + ReleaseTrackType.betaTracks.map(\.rawValue).filter { $0 != track }
-    }
-    var body: some View {
-        Form {
-            Picker("Beta update channel", selection: $track) {
-                ForEach(tracks, id: \.self) { Text($0).tag($0) }
-            }
-        }.navigationTitle("Update Channel")
-            .onChange(of: track) { UserDefaults.standard.betaUdpatesTrack = $0 }
     }
 }

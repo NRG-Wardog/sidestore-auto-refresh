@@ -57,6 +57,10 @@ struct V3UnifiedTabs: View {
             }
         }
         .fullScreenCover(item: $status.presentation) { V3OperationSheet(request: $0).environmentObject(status) }
+        .sheet(isPresented: $status.signInPresented, onDismiss: { status.reload() }) {
+            NavigationView { V3SignInView().environmentObject(status) }
+                .navigationViewStyle(StackNavigationViewStyle())
+        }
         .sheet(isPresented: $status.refreshPresented, onDismiss: { status.reload() }) {
             NavigationView { LCEmbeddedSideStoreRefreshView()
                 .navigationTitle("Refresh")
@@ -192,7 +196,12 @@ struct V3OperationRequest: Identifiable {
     let operation: String
     let target: String
     let title: String
-    var value: Bool? = nil
+}
+
+struct V3PromptAnswer {
+    var fields: [String: String] = [:]
+    var choice = ""
+    var selected: Set<String> = []
 }
 
 @MainActor
@@ -213,6 +222,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published var refreshTarget: String?
     @Published var refreshPresented = false
     @Published var installPickerPresented = false
+    @Published var signInPresented = false
     @Published private(set) var loading = false
     @Published private(set) var connected = false
     @Published private(set) var requiresConnectionRetry = false
@@ -249,9 +259,19 @@ final class V3SideStoreStatusStore: ObservableObject {
         case "syncAppIDs": syncAppIDs()
         case "clearCache": clearCache()
         case "refreshSources": refreshSources()
-        default:
-            presentation = V3OperationRequest(operation: operation, target: target, title: title, value: value)
+        case "jit": jit(target: target)
+        case "install", "installURL", "installSharedIPA", "update", "refreshApp",
+             "activate", "deactivate", "remove", "delete", "backup", "restore":
+            presentation = V3OperationRequest(operation: operation, target: target, title: title)
+        default: break
         }
+    }
+    private func needsSignIn(_ error: Error) -> Bool {
+        (error as? CombinedFailure)?.stage == .authentication
+    }
+    private func failed(_ error: Error) {
+        if needsSignIn(error) { signInPresented = true }
+        else { self.error = error.localizedDescription }
     }
     func signOut() {
         loading = true
@@ -260,7 +280,17 @@ final class V3SideStoreStatusStore: ObservableObject {
             do {
                 _ = try await V3ServiceBridge.shared.request(operation: "signOut")
                 reload()
-            } catch { self.error = error.localizedDescription }
+            } catch { failed(error) }
+        }
+    }
+    func jit(target: String) {
+        loading = true
+        Task {
+            defer { loading = false }
+            do {
+                _ = try await V3ServiceBridge.shared.request(operation: "jit", target: target)
+                reload()
+            } catch { failed(error) }
         }
     }
     func syncAppIDs() {
@@ -270,7 +300,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             do {
                 _ = try await V3ServiceBridge.shared.request(operation: "syncAppIDs")
                 reload()
-            } catch { self.error = error.localizedDescription }
+            } catch { failed(error) }
         }
     }
     func clearCache() {
@@ -279,7 +309,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             defer { loading = false }
             do {
                 _ = try await V3ServiceBridge.shared.request(operation: "clearCache")
-            } catch { self.error = error.localizedDescription }
+            } catch { failed(error) }
         }
     }
     func refreshSources() {
@@ -289,8 +319,17 @@ final class V3SideStoreStatusStore: ObservableObject {
             do {
                 _ = try await V3ServiceBridge.shared.request(operation: "refreshSources")
                 reload()
-            } catch { self.error = error.localizedDescription }
+            } catch { failed(error) }
         }
+    }
+    func stageSharedFile(_ data: Data) -> String? {
+        guard !data.isEmpty, data.count <= 4_194_304 else {
+            self.error = "The selected file is empty or too large to hand to the SideStore service."
+            return nil
+        }
+        let token = UUID().uuidString
+        LCUtils.appGroupUserDefault.set(data, forKey: "V3SharedFile." + token)
+        return token
     }
     func stageSharedIPA(_ url: URL, bookmark: Data? = nil, title: String) {
         guard presentation == nil else { return }
@@ -391,7 +430,7 @@ struct V3InstalledAppsSection: View {
             if apps.isEmpty {
                 HStack {
                     Spacer()
-                    Text(status.loading ? "Loading apps…" : "No sideloaded apps")
+                    Text(status.loading ? "Loading apps..." : "No sideloaded apps")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                     Spacer()
@@ -513,6 +552,9 @@ struct V3SideStoreAppDetail: View {
 
 struct V3SourcesView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
+    @State private var preview: [String: Any]?
+    @State private var previewBusy = false
+    @State private var removeCandidate: V3SideStoreSource?
     private var savedGuestSources: [String] {
         (UserDefaults.standard.stringArray(forKey: "LCAltStoreSourceURLs") ?? [])
             .filter { saved in !status.sources.contains(where: { $0.url == saved }) }
@@ -530,11 +572,29 @@ struct V3SourcesView: View {
                             .disableAutocorrection(true)
                     }
                     Button {
-                        status.perform("addSource", target: status.sourceURL, title: "Add Source")
+                        Task { await previewSource() }
                     } label: {
-                        Label("Preview and Add Source", systemImage: "plus.circle.fill")
+                        Label(previewBusy ? "Checking Source..." : "Preview and Add Source", systemImage: "plus.circle.fill")
                     }
-                    .disabled(status.sourceURL.isEmpty)
+                    .disabled(status.sourceURL.isEmpty || previewBusy)
+                    if let preview {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(preview["name"] as? String ?? "")
+                                .font(.headline)
+                            Text(preview["title"] as? String ?? "")
+                                .font(.subheadline)
+                            Text(preview["message"] as? String ?? "")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                        Button {
+                            Task { await confirmAdd(url: preview["url"] as? String ?? status.sourceURL) }
+                        } label: {
+                            Label((preview["alreadyAdded"] as? Bool ?? false) ? "Already Added" : "Confirm Add Source", systemImage: "checkmark.circle.fill")
+                        }
+                        .disabled(preview["alreadyAdded"] as? Bool ?? false)
+                    }
                 }
                 Section("Sources (\(status.sources.count))") {
                     ForEach(status.sources) { source in
@@ -556,7 +616,7 @@ struct V3SourcesView: View {
                         .contextMenu {
                             if source.canRemove {
                                 Button(role: .destructive) {
-                                    status.perform("removeSource", target: source.identifier, title: "Remove source")
+                                    removeCandidate = source
                                 } label: {
                                     Label("Remove Source", systemImage: "trash")
                                 }
@@ -596,8 +656,42 @@ struct V3SourcesView: View {
                     }
                 }
             }
+            .confirmationDialog("Remove this source?", isPresented: Binding(get: { removeCandidate != nil }, set: { if !$0 { removeCandidate = nil } }), titleVisibility: .visible) {
+                Button("Remove Source", role: .destructive) {
+                    if let candidate = removeCandidate {
+                        Task { await confirmRemove(id: candidate.identifier) }
+                    }
+                }
+                Button("Cancel", role: .cancel) { removeCandidate = nil }
+            } message: {
+                Text("Apps already installed from this source stay installed, but they will no longer receive updates.")
+            }
         }
         .navigationViewStyle(StackNavigationViewStyle())
+    }
+    private func previewSource() async {
+        previewBusy = true
+        defer { previewBusy = false }
+        do {
+            var row = try await V3ServiceBridge.shared.request(operation: "sourcePreview", target: status.sourceURL)
+            row["url"] = status.sourceURL
+            preview = row
+        } catch { status.error = error.localizedDescription }
+    }
+    private func confirmAdd(url: String) async {
+        do {
+            _ = try await V3ServiceBridge.shared.request(operation: "sourceAddConfirmed", target: url)
+            preview = nil
+            status.sourceURL = ""
+            status.reload()
+        } catch { status.error = error.localizedDescription }
+    }
+    private func confirmRemove(id: String) async {
+        removeCandidate = nil
+        do {
+            _ = try await V3ServiceBridge.shared.request(operation: "sourceRemoveConfirmed", target: id)
+            status.reload()
+        } catch { status.error = error.localizedDescription }
     }
 }
 
@@ -627,7 +721,7 @@ struct V3CatalogView: View {
             if loading {
                 HStack {
                     Spacer()
-                    ProgressView("Loading catalog…")
+                    ProgressView("Loading catalog...")
                     Spacer()
                 }
                 .padding()
@@ -793,8 +887,8 @@ struct V3AccountSettings: View {
                         .foregroundColor(.secondary)
                 }
             }
-            Button {
-                status.perform("signIn", title: "Sign In")
+            NavigationLink {
+                V3SignInView().environmentObject(status)
             } label: {
                 Label("Sign In / Re-authenticate", systemImage: "person.badge.key.fill")
             }
@@ -803,15 +897,15 @@ struct V3AccountSettings: View {
             } label: {
                 Label("Sync App IDs", systemImage: "arrow.triangle.2.circlepath")
             }
-            panel("Certificates", "certificates", icon: "doc.text")
-            panel("Developer Services", "developerServices", icon: "wrench.and.screwdriver")
+            link("Certificates", icon: "doc.text") { V3CertificatesView().environmentObject(status) }
+            link("Developer Services", icon: "wrench.and.screwdriver") { V3DeveloperServicesView().environmentObject(status) }
             Button(role: .destructive) {
                 status.signOut()
             } label: {
                 Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
             }
         }
-        
+
         Section("SideStore") {
             HStack {
                 Label("Pairing Status", systemImage: "link")
@@ -820,31 +914,31 @@ struct V3AccountSettings: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
-            Button {
-                status.perform("importPairing", title: "Import Pairing File")
+            NavigationLink {
+                V3PairingView().environmentObject(status)
             } label: {
                 Label("Import Pairing File", systemImage: "doc.badge.plus")
             }
-            panel("Connection", "connection", icon: "network")
-            panel("Anisette Servers", "anisette", icon: "server.rack")
-            panel("SideSign Configuration", "sideSign", icon: "pencil.and.outline")
-            panel("Installation and Signing Options", "customizations", icon: "slider.horizontal.3")
-            panel("Health Check", "health", icon: "heart.text.square")
-            panel("SideStore Backups", "backups", icon: "archivebox")
-            panel("SideJIT Server", "sideJIT", icon: "bolt.fill")
-            setting("Beta updates", "betaUpdates", icon: "sparkles")
-            setting("Disable idle timeout", "idleTimeoutDisabled", icon: "timer")
-            panel("Update Channel", "releaseTrack", icon: "arrow.triangle.merge")
-            panel("SideStore Diagnostics", "diagnostics", icon: "waveform.path.ecg")
-            panel("Operation Logs", "logs", icon: "doc.text.magnifyingglass")
-            panel("Experimental Features", "experimental", icon: "flask")
+            link("Connection", icon: "network") { V3ConnectionView().environmentObject(status) }
+            link("Anisette Servers", icon: "server.rack") { V3AnisetteView().environmentObject(status) }
+            link("SideSign Configuration", icon: "pencil.and.outline") { V3SideSignView().environmentObject(status) }
+            link("Installation and Signing Options", icon: "slider.horizontal.3") { V3CustomizationsView().environmentObject(status) }
+            link("Health Check", icon: "heart.text.square") { V3HealthView().environmentObject(status) }
+            link("SideStore Backups", icon: "archivebox") { V3BackupsView().environmentObject(status) }
+            link("SideJIT Server", icon: "bolt.fill") { V3SideJITView().environmentObject(status) }
+            setting("Beta updates", "isBetaUpdatesEnabled", icon: "sparkles")
+            setting("Disable idle timeout", "isIdleTimeoutDisableEnabled", icon: "timer")
+            link("Update Channel", icon: "arrow.triangle.merge") { V3ReleaseTrackHostView().environmentObject(status) }
+            link("SideStore Diagnostics", icon: "waveform.path.ecg") { V3DiagnosticsView().environmentObject(status) }
+            link("Operation Logs", icon: "doc.text.magnifyingglass") { V3LogsView().environmentObject(status) }
+            link("Experimental Features", icon: "flask") { V3ExperimentalView().environmentObject(status) }
             Button {
                 status.clearCache()
             } label: {
                 Label("Clear Download Cache", systemImage: "trash")
             }
         }
-        
+
         Section("Guest Runtime") {
             NavigationLink {
                 LCTweaksView()
@@ -853,24 +947,53 @@ struct V3AccountSettings: View {
             }
         }
     }
-    private func panel(_ title: String, _ key: String, icon: String) -> some View {
-        Button {
-            status.perform("panel", target: key, title: title)
-        } label: {
+    private func link<Destination: View>(_ title: String, icon: String, @ViewBuilder destination: () -> Destination) -> some View {
+        NavigationLink(destination: destination) {
             HStack {
                 Label(title, systemImage: icon)
                 Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
         }
     }
     private func setting(_ title: String, _ key: String, icon: String) -> some View {
-        Toggle(isOn: Binding(get: { status.settings[key] ?? false }, set: { status.perform("setSetting", target: key, title: title, value: $0) })) {
+        V3BoolSettingRow(title: title, key: key, icon: icon)
+            .environmentObject(status)
+    }
+}
+
+struct V3BoolSettingRow: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    let title: String
+    let key: String
+    let icon: String
+    @State private var value = false
+    @State private var loaded = false
+    var body: some View {
+        Toggle(isOn: Binding(get: { value }, set: { value = $0; save($0) })) {
             Label(title, systemImage: icon)
         }
-        .disabled(status.isStale)
+        .disabled(status.isStale || !loaded)
+        .task { await load() }
+    }
+    private func load() async {
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "settingsGet")
+            if let bools = reply["bools"] as? [String: Bool], let current = bools[key] {
+                value = current
+            } else if let legacy = status.settings[key] {
+                value = legacy
+            }
+            loaded = true
+        } catch { status.error = error.localizedDescription }
+    }
+    private func save(_ newValue: Bool) {
+        Task {
+            do {
+                _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
+                    payload: ["key": key, "type": "bool", "bool": newValue])
+                status.reload()
+            } catch { status.error = error.localizedDescription }
+        }
     }
 }
 
@@ -902,118 +1025,202 @@ struct V3OperationSheet: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @Environment(\.dismiss) private var dismiss
     let request: V3OperationRequest
-    @State private var pid: Int32 = 0
-    @State private var ready = false
-    @State private var task: Task<Void, Never>?
+    @State private var session: String?
+    @State private var state = "working"
+    @State private var progress = 0.0
+    @State private var prompt: [String: Any]?
+    @State private var sourceOffer: [String: String]?
     @State private var message = ""
+    @State private var task: Task<Void, Never>?
     @State private var started = false
+    private var retryAllowed: Bool { request.operation != "installSharedIPA" }
     var body: some View {
         NavigationView {
-            ZStack {
-                Color(UIColor.systemBackground).ignoresSafeArea()
-                if #available(iOS 16.0, *), pid > 0 {
-                    V3RemoteServiceView(pid: pid, ready: $ready)
-                        .ignoresSafeArea(.keyboard, edges: .bottom)
-                } else if pid == 0 && message.isEmpty {
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.2)
-                        Text("Connecting to SideStore…")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+            List {
+                Section {
+                    HStack {
+                        if state == "working" || state == "awaitingPrompt" {
+                            ProgressView(value: progress > 0 ? progress : nil)
+                                .frame(maxWidth: .infinity)
+                        } else if state == "completed" {
+                            Label("Completed", systemImage: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                        }
                     }
-                } else if #available(iOS 16.0, *) {} else {
-                    Text("Interactive SideStore operations require iOS 16 or later.")
-                        .foregroundColor(.secondary)
+                    HStack {
+                        Text("Status")
+                        Spacer()
+                        Text(statusText).foregroundColor(.secondary)
+                    }
                 }
-                
+                if let prompt {
+                    V3PromptSection(prompt: prompt) { answer in
+                        Task { await answerPrompt(id: prompt["id"] as? String ?? "", answer: answer) }
+                    }
+                }
+                if let offer = sourceOffer {
+                    Section("Missing Source") {
+                        Text(""\(offer["name"] ?? "")" is not added. Add it, then the operation retries automatically.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                        Button {
+                            Task { await addSourceAndRetry(id: offer["id"] ?? "") }
+                        } label: {
+                            Label("Add Source and Retry", systemImage: "plus.circle.fill")
+                        }
+                    }
+                }
                 if !message.isEmpty {
-                    VStack {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundColor(.orange)
-                                Text("Operation Notice")
-                                    .font(.headline)
-                                Spacer()
-                                Button {
-                                    message = ""
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.secondary)
-                                }
+                    Section("Notice") {
+                        Text(message)
+                            .font(.footnote)
+                            .textSelection(.enabled)
+                        HStack {
+                            Button("Copy Diagnostics") {
+                                UIPasteboard.general.string = message
                             }
-                            Text(message)
-                                .font(.footnote)
-                                .textSelection(.enabled)
-                            HStack {
-                                Button("Copy Diagnostics") {
-                                    UIPasteboard.general.string = message
-                                }
-                                .font(.caption)
-                                Spacer()
+                            .font(.caption)
+                            Spacer()
+                            if retryAllowed {
                                 Button("Retry") {
-                                    message = ""
+                                    reset()
                                     start()
                                 }
                                 .font(.caption)
                                 .buttonStyle(.borderedProminent)
                             }
                         }
-                        .padding()
-                        .background(RoundedRectangle(cornerRadius: 14).fill(Color(UIColor.secondarySystemGroupedBackground)))
-                        .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
-                        .padding(.horizontal)
-                        .padding(.top, 8)
-                        Spacer()
                     }
-                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
+            .listStyle(.insetGrouped)
             .navigationTitle(request.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") {
                         task?.cancel()
+                        cancelSession()
                         dismiss()
                     }
                 }
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
-        .task {
-            do {
-                try await V3ServiceBridge.shared.connect()
-                pid = V3ServiceBridge.shared.processID
-                if !started {
-                    start()
-                }
-            } catch {
-                message = error.localizedDescription
-            }
-        }
+        .task { start() }
         .onDisappear {
             task?.cancel()
+            cancelSession()
             if request.operation == "installSharedIPA" {
                 LCUtils.appGroupUserDefault.removeObject(forKey: "V3SharedIPA." + request.target)
             }
             status.reload()
         }
     }
+    private var statusText: String {
+        switch state {
+        case "completed": return "Completed"
+        case "awaitingPrompt": return "Needs your input"
+        case "failed": return "Failed"
+        case "cancelled": return "Cancelled"
+        default: return progress > 0 ? "\(Int(progress * 100))%" : "Working..."
+        }
+    }
+    private func reset() {
+        session = nil; state = "working"; progress = 0; prompt = nil; sourceOffer = nil; message = ""
+    }
     private func start() {
+        guard !started else { return }
         started = true
-        task = Task {
-            do {
-                status.accept(try await V3ServiceBridge.shared.request(operation: request.operation, target: request.target, value: request.value))
-                recordRefresh("completed", "SideStore completed the selected app's refresh. Check its current expiration above.")
-                dismiss()
-            } catch {
-                message = error.localizedDescription
-                started = false
-                recordRefresh("failed", message)
+        task = Task { await run() }
+    }
+    private func run() async {
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "opStart",
+                payload: ["kind": request.operation, "target": request.target])
+            guard let id = reply["session"] as? String else {
+                throw NSError(domain: "V3Operation", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "The service did not start the operation."])
+            }
+            session = id
+            try await pollLoop(id: id)
+        } catch {
+            state = "failed"
+            message = error.localizedDescription
+            recordRefresh("failed", message)
+        }
+    }
+    private func pollLoop(id: String) async throws {
+        while !Task.isCancelled {
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            try Task.checkCancellation()
+            let reply = try await V3ServiceBridge.shared.request(operation: "opPoll", target: id)
+            apply(reply)
+            guard let current = reply["state"] as? String,
+                  current == "working" || current == "awaitingPrompt" else { return }
+        }
+    }
+    private func apply(_ reply: [String: Any]) {
+        state = reply["state"] as? String ?? state
+        progress = reply["progress"] as? Double ?? progress
+        prompt = reply["prompt"] as? [String: Any]
+        switch state {
+        case "completed":
+            recordRefresh("completed", "The operation completed. Reload the app list to confirm the result.")
+            status.reload()
+            dismiss()
+        case "cancelled":
+            dismiss()
+        case "waitingForAuthentication":
+            status.signInPresented = true
+            message = "Sign in first, then run this action again."
+        case "requiresSource":
+            sourceOffer = ["id": reply["sourceID"] as? String ?? "",
+                           "name": reply["sourceName"] as? String ?? "Unknown source"]
+            prompt = nil
+        case "failed":
+            var detail = "The operation failed."
+            if let stage = reply["stage"] as? String, let code = reply["code"] as? String {
+                detail += " (\(stage): \(code))"
+            }
+            message = detail
+            recordRefresh("failed", detail)
+        default: break
+        }
+    }
+    private func answerPrompt(id: String, answer: [String: String]) async {
+        guard let session else { return }
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "opAnswer", target: session,
+                payload: ["prompt": id, "answer": answer])
+            apply(reply)
+        } catch {
+            state = "failed"
+            message = error.localizedDescription
+        }
+    }
+    private func addSourceAndRetry(id: String) async {
+        guard !id.isEmpty else { return }
+        do {
+            let preview = try await V3ServiceBridge.shared.request(operation: "sourcePreview", target: id)
+            _ = try await V3ServiceBridge.shared.request(operation: "sourceAddConfirmed",
+                target: preview["identifier"] as? String ?? id)
+            sourceOffer = nil
+            status.reload()
+            reset()
+            started = false
+            start()
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+    private func cancelSession() {
+        if let session {
+            Task {
+                _ = try? await V3ServiceBridge.shared.request(operation: "opCancel", target: session)
             }
         }
+        session = nil
     }
     private func recordRefresh(_ result: String, _ detail: String) {
         guard request.operation == "refreshApp" else { return }
@@ -1022,21 +1229,1166 @@ struct V3OperationSheet: View {
     }
 }
 
-@available(iOS 16.0, *)
-struct V3RemoteServiceView: UIViewControllerRepresentable {
-    let pid: Int32
-    @Binding var ready: Bool
-    func makeCoordinator() -> Coordinator { Coordinator(ready: $ready) }
-    func makeUIViewController(context: Context) -> AppSceneViewController { AppSceneViewController(servicePID: pid, delegate: context.coordinator) }
-    func updateUIViewController(_ controller: AppSceneViewController, context: Context) {}
-    static func dismantleUIViewController(_ controller: AppSceneViewController, coordinator: Coordinator) { controller.appTerminationCleanUp() }
-    final class Coordinator: NSObject, AppSceneViewControllerDelegate {
-        var ready: Binding<Bool>
-        init(ready: Binding<Bool>) { self.ready = ready }
-        func appSceneVCAppDidExit(_ vc: AppSceneViewController!) { ready.wrappedValue = false }
-        func appSceneVC(_ vc: AppSceneViewController!, didInitializeWithError error: Error!) { ready.wrappedValue = error == nil }
-        func appSceneVCWillActivateScene(_ vc: AppSceneViewController!) { DispatchQueue.main.async { self.ready.wrappedValue = true } }
-        func appSceneVC(_ vc: AppSceneViewController!, didUpdateFrom settings: UIMutableApplicationSceneSettings!, transitionContext context: Any!, lifecycleActionType: UInt32) {}
+struct V3PromptSection: View {
+    let prompt: [String: Any]
+    let onAnswer: ([String: String]) -> Void
+    @State private var fields: [String: String] = [:]
+    @State private var selected: Set<String> = []
+    private var kind: String { prompt["kind"] as? String ?? "" }
+    private var title: String { prompt["title"] as? String ?? "Input Needed" }
+    private var message: String { prompt["message"] as? String ?? "" }
+    private var fieldDefs: [[String: String]] {
+        (prompt["fields"] as? [[String: Any]] ?? []).compactMap { row in
+            guard let key = row["key"] as? String else { return nil }
+            return ["key": key, "label": row["label"] as? String ?? key,
+                    "secure": row["secure"] as? String ?? "false",
+                    "value": row["value"] as? String ?? ""]
+        }
+    }
+    private var options: [[String: String]] {
+        (prompt["options"] as? [[String: Any]] ?? []).compactMap { row in
+            guard let id = row["id"] as? String else { return nil }
+            return ["id": id, "label": row["label"] as? String ?? id]
+        }
+    }
+    private var isMulti: Bool { kind == "extensions" || kind == "revocation" }
+    var body: some View {
+        Section(title) {
+            if !message.isEmpty {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+            ForEach(fieldDefs, id: \.self) { field in
+                if field["key"] == "mode" || field["key"] == "activeID" || field["key"] == "phoneID" || field["key"] == "url" || field["key"] == "serials" {
+                    if let value = field["value"], !value.isEmpty, field["key"] == "url" {
+                        Text(value)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                    }
+                } else if field["secure"] == "true" {
+                    SecureField(field["label"] ?? "", text: binding(field["key"] ?? ""))
+                } else {
+                    TextField(field["label"] ?? "", text: binding(field["key"] ?? ""))
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                }
+            }
+            if isMulti {
+                ForEach(options.filter { $0["id"] != "keep" && $0["id"] != "keepAll" }, id: \.self) { option in
+                    Button {
+                        toggle(option["id"] ?? "")
+                    } label: {
+                        HStack {
+                            Image(systemName: selected.contains(option["id"] ?? "") ? "checkmark.circle.fill" : "circle")
+                                .foregroundColor(.accentColor)
+                            Text(option["label"] ?? "")
+                        }
+                    }
+                }
+                if kind == "revocation" {
+                    Button("Keep Existing") { submit(choice: "keep") }
+                } else {
+                    Button("Keep All") { submit(choice: "keepAll") }
+                }
+                Button(kind == "revocation" ? "Revoke Selected" : "Remove Selected", role: .destructive) {
+                    var answer = fields
+                    answer["choice"] = kind == "revocation" ? "revoke" : "selected"
+                    answer["ids"] = selected.sorted().joined(separator: ",")
+                    answer["serials"] = selected.sorted().joined(separator: ",")
+                    onAnswer(answer)
+                }
+                .disabled(selected.isEmpty)
+            } else {
+                ForEach(options, id: \.self) { option in
+                    Button(option["label"] ?? "", role: (option["id"] == "cancel" || option["id"] == "deny") ? .cancel : .none) {
+                        var answer = fields
+                        answer["choice"] = option["id"] ?? ""
+                        answer["action"] = option["id"] ?? ""
+                        onAnswer(answer)
+                    }
+                }
+            }
+        }
+        .onAppear {
+            for field in fieldDefs {
+                if fields[field["key"] ?? ""] == nil {
+                    fields[field["key"] ?? ""] = field["value"] ?? ""
+                }
+            }
+        }
+    }
+    private func binding(_ key: String) -> Binding<String> {
+        Binding(get: { fields[key] ?? "" }, set: { fields[key] = $0 })
+    }
+    private func toggle(_ id: String) {
+        if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
+    }
+    private func submit(choice: String) {
+        var answer = fields
+        answer["choice"] = choice
+        onAnswer(answer)
+    }
+}
+
+@MainActor
+final class V3AuthStore: ObservableObject {
+    @Published var state = "idle"
+    @Published var prompt: [String: Any]?
+    @Published var attempts = 0
+    @Published var message = ""
+    @Published var team = ""
+    private var session: String?
+    private var task: Task<Void, Never>?
+
+    func begin() {
+        task?.cancel()
+        task = Task { await run() }
+    }
+
+    private func run() async {
+        do {
+            state = "working"
+            message = ""
+            prompt = nil
+            let reply = try await V3ServiceBridge.shared.request(operation: "authBegin")
+            guard let id = reply["session"] as? String else {
+                throw NSError(domain: "V3Auth", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "The service did not start sign-in."])
+            }
+            session = id
+            try await pollLoop(id: id)
+        } catch {
+            state = "failed"
+            message = error.localizedDescription
+        }
+    }
+
+    private func pollLoop(id: String) async throws {
+        while !Task.isCancelled {
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            try Task.checkCancellation()
+            let reply = try await V3ServiceBridge.shared.request(operation: "authPoll", target: id)
+            apply(reply)
+            guard let current = reply["state"] as? String, current == "working" || current == "awaitingPrompt" else { return }
+        }
+    }
+
+    private func apply(_ reply: [String: Any]) {
+        state = reply["state"] as? String ?? state
+        attempts = reply["attempts"] as? Int ?? attempts
+        prompt = reply["prompt"] as? [String: Any]
+        if state == "completed" {
+            team = reply["team"] as? String ?? ""
+            prompt = nil
+        } else if state == "failed" {
+            var detail = "Sign-in failed."
+            if let stage = reply["stage"] as? String, let code = reply["code"] as? String {
+                detail += " (\(stage): \(code))"
+            }
+            message = detail
+            prompt = nil
+        }
+    }
+
+    func answer(promptID: String, answer: [String: String]) {
+        guard let session else { return }
+        Task {
+            do {
+                let reply = try await V3ServiceBridge.shared.request(operation: "authRespond", target: session,
+                    payload: ["prompt": promptID, "answer": answer])
+                apply(reply)
+            } catch {
+                state = "failed"
+                message = error.localizedDescription
+            }
+        }
+    }
+
+    func cancel() {
+        task?.cancel()
+        if let session {
+            Task { _ = try? await V3ServiceBridge.shared.request(operation: "authCancel", target: session) }
+        }
+        session = nil
+        state = "cancelled"
+        prompt = nil
+        task = nil
+    }
+}
+
+struct V3SignInView: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    @StateObject private var auth = V3AuthStore()
+    var body: some View {
+        List {
+            Section("Apple ID") {
+                HStack {
+                    Text("Status")
+                    Spacer()
+                    Text(statusText).foregroundColor(.secondary)
+                }
+                if auth.state == "completed" {
+                    HStack {
+                        Label("Signed in", systemImage: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Spacer()
+                        if !auth.team.isEmpty { Text(auth.team).foregroundColor(.secondary) }
+                    }
+                }
+                if !auth.message.isEmpty {
+                    Text(auth.message)
+                        .font(.footnote)
+                        .foregroundColor(.red)
+                        .textSelection(.enabled)
+                }
+                if auth.state == "idle" || auth.state == "failed" || auth.state == "cancelled" {
+                    Button {
+                        auth.begin()
+                    } label: {
+                        Label(auth.state == "idle" ? "Begin Sign In" : "Try Again", systemImage: "person.badge.key.fill")
+                    }
+                }
+                if auth.state == "working" || auth.state == "awaitingPrompt" {
+                    Button("Cancel Sign In", role: .cancel) { auth.cancel() }
+                }
+            }
+            if let prompt = auth.prompt {
+                V3PromptSection(prompt: prompt) { answer in
+                    auth.answer(promptID: prompt["id"] as? String ?? "", answer: answer)
+                }
+            }
+            Section("About") {
+                Text("Sign-in runs entirely in this screen. Credentials and codes go to Apple through the SideStore service; no separate app opens.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Sign In")
+        .task { auth.begin() }
+        .onDisappear {
+            auth.cancel()
+            status.reload()
+        }
+    }
+    private var statusText: String {
+        switch auth.state {
+        case "completed": return "Signed in"
+        case "awaitingPrompt": return "Needs your input"
+        case "failed": return "Failed"
+        case "cancelled": return "Cancelled"
+        case "working": return "Working..."
+        default: return "Not started"
+        }
+    }
+}
+
+struct V3CertificateRow: Identifiable {
+    let serial: String, name: String, machine: String, email: String
+    let active: Bool
+    let created: Date?
+    let expiry: Date?
+    var id: String { serial }
+    init?(_ row: [String: Any]) {
+        guard let serial = row["serial"] as? String, !serial.isEmpty else { return nil }
+        self.serial = serial; name = row["name"] as? String ?? serial
+        machine = row["machineName"] as? String ?? ""; email = row["requesterEmail"] as? String ?? ""
+        active = row["active"] as? Bool ?? false
+        created = row["created"] as? Date; expiry = row["expiry"] as? Date
+    }
+}
+
+struct V3CertificatesView: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    @State private var local: [V3CertificateRow] = []
+    @State private var portal: [V3CertificateRow] = []
+    @State private var loading = true
+    @State private var portalLoaded = false
+    @State private var message = ""
+    @State private var confirm: (String, String)?
+    var body: some View {
+        List {
+            if !message.isEmpty {
+                Section {
+                    Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled)
+                }
+            }
+            Section("On This Device (\(local.count))") {
+                if loading { ProgressView("Loading certificates...") }
+                ForEach(local) { cert in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(cert.name).font(.headline)
+                            Spacer()
+                            if cert.active {
+                                Text("Active").font(.caption.weight(.bold)).foregroundColor(.green)
+                            }
+                        }
+                        Text(cert.serial).font(.caption).foregroundColor(.secondary).textSelection(.enabled)
+                        if let expiry = cert.expiry {
+                            Text("Expires " + expiry.formatted(date: .abbreviated, time: .omitted))
+                                .font(.caption).foregroundColor(.secondary)
+                        }
+                        HStack {
+                            if !cert.active {
+                                Button("Set Active") { setActive(serial: cert.serial) }
+                                    .font(.caption)
+                            }
+                            Spacer()
+                            Button("Delete", role: .destructive) { confirm = ("delete", cert.serial) }
+                                .font(.caption)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            Section("Developer Portal") {
+                if !portalLoaded {
+                    Button("Load Portal Certificates") { Task { await loadPortal() } }
+                } else {
+                    ForEach(portal) { cert in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(cert.name).font(.headline)
+                            Text(cert.serial).font(.caption).foregroundColor(.secondary).textSelection(.enabled)
+                            if let expiry = cert.expiry {
+                                Text("Expires " + expiry.formatted(date: .abbreviated, time: .omitted))
+                                    .font(.caption).foregroundColor(.secondary)
+                            }
+                            Button("Revoke", role: .destructive) { confirm = ("revoke", cert.serial) }
+                                .font(.caption)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    Button("Request New Certificate") { confirm = ("create", "") }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Certificates")
+        .task { await reload() }
+        .confirmationDialog("Are you sure?", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }), titleVisibility: .visible) {
+            Button("Confirm", role: .destructive) {
+                if let action = confirm { Task { await runConfirmed(action: action.0, serial: action.1) } }
+            }
+            Button("Cancel", role: .cancel) { confirm = nil }
+        } message: {
+            Text("Revoking or deleting a certificate affects every app signed with it.")
+        }
+    }
+    private func reload() async {
+        loading = true
+        defer { loading = false }
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "certList")
+            local = (reply["certificates"] as? [[String: Any]] ?? []).compactMap(V3CertificateRow.init)
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+    private func loadPortal() async {
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "certPortalList")
+            portal = (reply["certificates"] as? [[String: Any]] ?? []).compactMap(V3CertificateRow.init)
+            portalLoaded = true
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+    private func setActive(serial: String) {
+        Task {
+            do {
+                _ = try await V3ServiceBridge.shared.request(operation: "certSetActive", target: serial)
+                status.reload()
+                await reload()
+            } catch { message = error.localizedDescription }
+        }
+    }
+    private func runConfirmed(action: String, serial: String) async {
+        confirm = nil
+        do {
+            switch action {
+            case "delete": _ = try await V3ServiceBridge.shared.request(operation: "certDelete", target: serial)
+            case "revoke": _ = try await V3ServiceBridge.shared.request(operation: "certRevoke", target: serial)
+            default: _ = try await V3ServiceBridge.shared.request(operation: "certCreate")
+            }
+            status.reload()
+            await reload()
+            portalLoaded = false
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+}
+
+struct V3DeveloperServicesView: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    @State private var teams: [[String: String]] = []
+    @State private var devices: [[String: String]] = []
+    @State private var appIDs: [[String: String]] = []
+    @State private var groups: [[String: String]] = []
+    @State private var profiles: [[String: Any]] = []
+    @State private var message = ""
+    @State private var loading = true
+    var body: some View {
+        List {
+            if !message.isEmpty {
+                Section { Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled) }
+            }
+            Section("Actions") {
+                Button { status.syncAppIDs() } label: { Label("Sync App IDs", systemImage: "arrow.triangle.2.circlepath") }
+                Button("Reload Developer Data") { Task { await reload() } }
+            }
+            simpleSection("Teams", rows: teams.map { "\($0["name"] ?? "") (\($0["identifier"] ?? ""))" })
+            simpleSection("Devices", rows: devices.map { "\($0["name"] ?? "") · \($0["identifier"] ?? "")" })
+            simpleSection("App IDs", rows: appIDs.map { "\($0["name"] ?? "") · \($0["bundleID"] ?? "")" })
+            simpleSection("App Groups", rows: groups.map { "\($0["name"] ?? "") · \($0["identifier"] ?? "")" })
+            Section("Provisioning Profiles (\(profiles.count))") {
+                if loading { ProgressView() }
+                ForEach(profiles.compactMap { $0["identifier"] as? String }, id: \.self) { id in
+                    if let row = profiles.first(where: { ($0["identifier"] as? String) == id }) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row["name"] as? String ?? "").font(.headline)
+                            Text((row["bundleID"] as? String ?? "") + " · " + (row["team"] as? String ?? ""))
+                                .font(.caption).foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Developer Services")
+        .task { await reload() }
+    }
+    private func simpleSection(_ title: String, rows: [String]) -> some View {
+        Section("\(title) (\(rows.count))") {
+            if loading { ProgressView() }
+            if rows.isEmpty && !loading {
+                Text("None").foregroundColor(.secondary)
+            }
+            ForEach(rows, id: \.self) { row in
+                Text(row).font(.subheadline).textSelection(.enabled)
+            }
+        }
+    }
+    private func strings(_ reply: [String: Any], key: String) -> [[String: String]] {
+        (reply[key] as? [[String: Any]] ?? []).map { row in
+            Dictionary(uniqueKeysWithValues: row.compactMap { k, v in (v as? String).map { (k, $0) } })
+        }
+    }
+    private func reload() async {
+        loading = true
+        defer { loading = false }
+        do {
+            async let teamsReply = V3ServiceBridge.shared.request(operation: "devTeams")
+            async let devicesReply = V3ServiceBridge.shared.request(operation: "devDevices")
+            async let appIDsReply = V3ServiceBridge.shared.request(operation: "devAppIDs")
+            async let groupsReply = V3ServiceBridge.shared.request(operation: "devGroups")
+            async let profilesReply = V3ServiceBridge.shared.request(operation: "devProfiles")
+            let (teamsResult, devicesResult, appIDsResult, groupsResult, profilesResult) =
+                try await (teamsReply, devicesReply, appIDsReply, groupsReply, profilesReply)
+            teams = strings(teamsResult, key: "teams")
+            devices = strings(devicesResult, key: "devices")
+            appIDs = strings(appIDsResult, key: "appIDs")
+            groups = strings(groupsResult, key: "groups")
+            profiles = profilesResult["profiles"] as? [[String: Any]] ?? []
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+}
+
+struct V3FilePicker: UIViewControllerRepresentable {
+    let types: [String]
+    let completion: (URL?) -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(completion: completion) }
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types.map { UTType($0) ?? .data }, asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        private var completion: ((URL?) -> Void)?
+        init(completion: @escaping (URL?) -> Void) { self.completion = completion }
+        private func finish(_ url: URL?) {
+            let callback = completion
+            completion = nil
+            callback?(url)
+        }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { finish(urls.first) }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finish(nil) }
+    }
+}
+
+struct V3ActivitySheet: UIViewControllerRepresentable {
+    let items: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+
+struct V3PairingView: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    @State private var pickerPresented = false
+    @State private var message = ""
+    @State private var working = false
+    var body: some View {
+        List {
+            Section("Status") {
+                HStack {
+                    Text("Pairing Status")
+                    Spacer()
+                    Text(status.pairing).foregroundColor(.secondary)
+                }
+                if !message.isEmpty {
+                    Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled)
+                }
+            }
+            Section {
+                Button {
+                    pickerPresented = true
+                } label: {
+                    Label(working ? "Importing..." : "Select Pairing File", systemImage: "doc.badge.plus")
+                }
+                .disabled(working)
+                Text("Pick a .mobiledevicepairing or .plist file. This screen owns the picker; the service only validates and stores the file.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Pairing File")
+        .sheet(isPresented: $pickerPresented) {
+            V3FilePicker(types: ["com.apple.property-list", "public.xml", "public.data"]) { url in
+                pickerPresented = false
+                if let url { Task { await importFile(url) } }
+            }
+        }
+    }
+    private func importFile(_ url: URL) async {
+        working = true
+        defer { working = false }
+        do {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let data = try Data(contentsOf: url)
+            guard let token = status.stageSharedFile(data) else { return }
+            _ = try await V3ServiceBridge.shared.request(operation: "pairingImportData", target: token)
+            message = ""
+            status.reload()
+        } catch { message = error.localizedDescription }
+    }
+}
+
+@MainActor
+final class V3SettingsStore: ObservableObject {
+    @Published var bools: [String: Bool] = [:]
+    @Published var strings: [String: String] = [:]
+    @Published var ints: [String: Int] = [:]
+    @Published var loaded = false
+    @Published var message = ""
+    func load() async {
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "settingsGet")
+            bools = reply["bools"] as? [String: Bool] ?? [:]
+            strings = reply["strings"] as? [String: String] ?? [:]
+            ints = reply["ints"] as? [String: Int] ?? [:]
+            loaded = true
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+    func setBool(_ key: String, _ value: Bool) {
+        bools[key] = value
+        Task {
+            do {
+                _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
+                    payload: ["key": key, "type": "bool", "bool": value])
+            } catch { message = error.localizedDescription }
+        }
+    }
+    func setString(_ key: String, _ value: String) {
+        strings[key] = value
+        Task {
+            do {
+                _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
+                    payload: ["key": key, "type": "string", "string": value])
+            } catch { message = error.localizedDescription }
+        }
+    }
+    func setInt(_ key: String, _ value: Int) {
+        ints[key] = value
+        Task {
+            do {
+                _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
+                    payload: ["key": key, "type": "int", "int": value])
+            } catch { message = error.localizedDescription }
+        }
+    }
+}
+
+struct V3ToggleRow: View {
+    @ObservedObject var store: V3SettingsStore
+    let title: String
+    let key: String
+    var body: some View {
+        Toggle(title, isOn: Binding(get: { store.bools[key] ?? false },
+                                    set: { store.setBool(key, $0) }))
+            .disabled(!store.loaded)
+    }
+}
+
+struct V3TextRow: View {
+    @ObservedObject var store: V3SettingsStore
+    let title: String
+    let key: String
+    @State private var text = ""
+    @State private var seeded = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.subheadline)
+            TextField("Not set", text: $text, onCommit: { store.setString(key, text) })
+                .textFieldStyle(.roundedBorder)
+                .autocapitalization(.none)
+                .disableAutocorrection(true)
+                .disabled(!store.loaded)
+        }
+        .padding(.vertical, 2)
+        .onReceive(store.$strings) { strings in
+            if !seeded, let current = strings[key] {
+                text = current
+                seeded = true
+            }
+        }
+    }
+}
+
+struct V3ConnectionView: View {
+    @StateObject private var store = V3SettingsStore()
+    @State private var port = ""
+    var body: some View {
+        List {
+            if !store.message.isEmpty {
+                Section { Text(store.message).font(.footnote).foregroundColor(.red) }
+            }
+            Section("Connection") {
+                V3ToggleRow(store: store, title: "Always Show VPN Configuration", key: "alwaysShowWireGuardConfig")
+                V3ToggleRow(store: store, title: "Accept IPv6 Connections", key: "acceptIPv6ConnectionConfig")
+                V3ToggleRow(store: store, title: "Use Local VPN", key: "useLocalVPN")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Remote Pairing Port Override (0 = default)").font(.subheadline)
+                    TextField("0", text: $port, onCommit: {
+                        store.setInt("remotePairingPortOverride", Int(port) ?? 0)
+                    })
+                    .textFieldStyle(.roundedBorder)
+                    .keyboardType(.numberPad)
+                    .disabled(!store.loaded)
+                }
+                .padding(.vertical, 2)
+                .onReceive(store.$ints) { ints in
+                    if let value = ints["remotePairingPortOverride"], port.isEmpty {
+                        port = String(value)
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Connection")
+        .task { await store.load() }
+    }
+}
+
+struct V3AnisetteServerRow: Identifiable {
+    let id: String, name: String, address: String
+    let hidden: Bool, active: Bool
+    init?(_ row: [String: Any]) {
+        guard let id = row["id"] as? String, !id.isEmpty else { return nil }
+        self.id = id; name = row["name"] as? String ?? id; address = row["address"] as? String ?? ""
+        hidden = row["hidden"] as? Bool ?? false; active = row["active"] as? Bool ?? false
+    }
+}
+
+struct V3AnisetteView: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    @StateObject private var store = V3SettingsStore()
+    @State private var servers: [V3AnisetteServerRow] = []
+    @State private var message = ""
+    var body: some View {
+        List {
+            if !message.isEmpty {
+                Section { Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled) }
+            }
+            if !store.message.isEmpty {
+                Section { Text(store.message).font(.footnote).foregroundColor(.red) }
+            }
+            Section("Servers (\(servers.count))") {
+                ForEach(servers) { server in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text(server.name).font(.headline)
+                            Spacer()
+                            if server.active {
+                                Text("Active").font(.caption.weight(.bold)).foregroundColor(.green)
+                            }
+                        }
+                        Text(server.address).font(.caption).foregroundColor(.secondary).textSelection(.enabled)
+                        if !server.active && !server.hidden {
+                            Button("Use This Server") {
+                                store.setString("menuAnisetteURL", server.address)
+                            }
+                            .font(.caption)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                HStack {
+                    Button("Sync with Remote") { Task { await remote("anisetteSync") } }
+                    Spacer()
+                    Button("Reset to Defaults", role: .destructive) { Task { await remote("anisetteReset") } }
+                }
+                .font(.caption)
+            }
+            Section("Options") {
+                V3ToggleRow(store: store, title: "Offline Mode", key: "isAnisetteOfflineMode")
+                V3ToggleRow(store: store, title: "Disable Rotation", key: "disableAnisetteRotation")
+                V3ToggleRow(store: store, title: "On-Device Anisette", key: "useOnDeviceAnisette")
+                V3TextRow(store: store, title: "Custom Server URL", key: "textInputAnisetteURL")
+                V3TextRow(store: store, title: "Custom Anisette URL Override", key: "customAnisetteURL")
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Anisette Servers")
+        .task {
+            await store.load()
+            await reload()
+        }
+    }
+    private func reload() async {
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "anisetteList")
+            servers = (reply["servers"] as? [[String: Any]] ?? []).compactMap(V3AnisetteServerRow.init)
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+    private func remote(_ operation: String) async {
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: operation)
+            servers = (reply["servers"] as? [[String: Any]] ?? []).compactMap(V3AnisetteServerRow.init)
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+}
+
+struct V3SideSignView: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    @State private var config = ""
+    @State private var message = ""
+    @State private var pickerPresented = false
+    @State private var shareItems: [Any]?
+    var body: some View {
+        List {
+            if !message.isEmpty {
+                Section { Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled) }
+            }
+            Section("Configuration JSON") {
+                TextEditor(text: $config)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(minHeight: 220)
+                HStack {
+                    Button("Save") { Task { await save() } }
+                    Spacer()
+                    Button("Reset to Defaults", role: .destructive) { Task { await remote("sidesignReset") } }
+                }
+                .font(.caption)
+            }
+            Section("Import / Export") {
+                Button("Import from File") { pickerPresented = true }
+                Button("Export to File") { Task { await exportConfig() } }
+                Text("The picker belongs to this screen; the service only parses and stores the file.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("SideSign Configuration")
+        .task { await reload() }
+        .sheet(isPresented: $pickerPresented) {
+            V3FilePicker(types: ["public.json"]) { url in
+                pickerPresented = false
+                if let url { Task { await importFile(url) } }
+            }
+        }
+        .sheet(item: Binding(get: { shareItems.map { V3ShareBox(items: $0) } }, set: { _ in shareItems = nil })) { box in
+            V3ActivitySheet(items: box.items)
+        }
+    }
+    private func reload() async {
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "sidesignGet")
+            config = reply["config"] as? String ?? "{}"
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+    private func save() async {
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "sidesignSet", payload: ["config": config])
+            config = reply["config"] as? String ?? config
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+    private func remote(_ operation: String) async {
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: operation)
+            config = reply["config"] as? String ?? config
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+    private func importFile(_ url: URL) async {
+        do {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let data = try Data(contentsOf: url)
+            guard let token = status.stageSharedFile(data) else { return }
+            let reply = try await V3ServiceBridge.shared.request(operation: "sidesignImport", target: token)
+            config = reply["config"] as? String ?? config
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+    private func exportConfig() async {
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "sidesignExport")
+            let text = reply["config"] as? String ?? "{}"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("sidesign-config.json")
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            shareItems = [url]
+        } catch { message = error.localizedDescription }
+    }
+}
+
+struct V3ShareBox: Identifiable {
+    let id = UUID()
+    let items: [Any]
+}
+
+struct V3CustomizationsView: View {
+    @StateObject private var store = V3SettingsStore()
+    var body: some View {
+        List {
+            if !store.message.isEmpty {
+                Section { Text(store.message).font(.footnote).foregroundColor(.red) }
+            }
+            Section("Signing") {
+                V3ToggleRow(store: store, title: "Customize App ID", key: "customizeAppId")
+                V3ToggleRow(store: store, title: "Customize App Extensions", key: "customizeAppExtensions")
+                V3ToggleRow(store: store, title: "Auto-Fix App Group IDs", key: "autoFixAppGroupIDs")
+                V3ToggleRow(store: store, title: "Prefer Resigned IPA", key: "preferResignedIPA")
+                V3ToggleRow(store: store, title: "Export Resigned App", key: "isExportResignedAppEnabled")
+                V3TextRow(store: store, title: "Minimuxer Gateway Backend", key: "minimuxerGatewayBackend")
+            }
+            Section("Verification") {
+                V3ToggleRow(store: store, title: "App Verification Disabled", key: "appVerificationDisabled")
+                V3ToggleRow(store: store, title: "Verify Bundle ID", key: "isBundleIDVerificationEnabled")
+                V3ToggleRow(store: store, title: "Verify iOS Version", key: "isiOSVersionVerificationEnabled")
+                V3ToggleRow(store: store, title: "Verify App Version", key: "isAppVersionVerificationEnabled")
+                V3ToggleRow(store: store, title: "Verify Checksum", key: "isChecksumVerificationEnabled")
+                V3ToggleRow(store: store, title: "Verify File Size", key: "isFileSizeVerificationEnabled")
+                V3ToggleRow(store: store, title: "Disable Permission Checking", key: "permissionCheckingDisabled")
+            }
+            Section("Backups") {
+                V3ToggleRow(store: store, title: "Skip Non-Copyable Backup Files", key: "skipNonCopyableBackupFiles")
+            }
+            Section("Network") {
+                V3ToggleRow(store: store, title: "On-Device Anisette", key: "useOnDeviceAnisette")
+                V3ToggleRow(store: store, title: "WireGuard EMP", key: "enableEMPforWireguard")
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Installation Options")
+        .task { await store.load() }
+    }
+}
+
+struct V3HealthView: View {
+    @State private var rows: [(String, String)] = []
+    @State private var message = ""
+    var body: some View {
+        List {
+            if !message.isEmpty {
+                Section { Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled) }
+            }
+            Section("Health") {
+                ForEach(rows, id: \.0) { row in
+                    HStack {
+                        Text(row.0)
+                        Spacer()
+                        Text(row.1).foregroundColor(.secondary).multilineTextAlignment(.trailing)
+                    }
+                    .font(.subheadline)
+                }
+            }
+            Section {
+                Button("Re-check") { Task { await reload() } }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Health Check")
+        .task { await reload() }
+    }
+    private func reload() async {
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
+            var result: [(String, String)] = []
+            result.append(("Account", reply["account"] as? String ?? ""))
+            result.append(("Team", reply["team"] as? String ?? ""))
+            result.append(("Certificate", reply["certificate"] as? String ?? ""))
+            result.append(("Pairing", reply["pairing"] as? String ?? ""))
+            if let anisette = reply["anisette"] as? [String: Any] {
+                result.append(("Anisette Servers", "\(anisette["servers"] as? Int ?? 0)"))
+            }
+            if let sidesign = reply["sidesign"] as? [String: Any] {
+                result.append(("SideSign Configured", (sidesign["configured"] as? Bool ?? false) ? "Yes" : "No"))
+            }
+            rows = result
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+}
+
+struct V3BackupsView: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    @State private var exportPassword = ""
+    @State private var includeApple = false
+    @State private var importPassword = ""
+    @State private var pickerPresented = false
+    @State private var shareItems: [Any]?
+    @State private var message = ""
+    @State private var importedEmail = ""
+    var body: some View {
+        List {
+            if !message.isEmpty {
+                Section { Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled) }
+            }
+            Section("App Backups") {
+                ForEach(status.installedApps.filter { !$0.isHost }) { app in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(app.name).font(.headline)
+                        HStack {
+                            Button("Back Up") {
+                                status.perform("backup", target: app.identifier, title: "Back up " + app.name)
+                            }
+                            .font(.caption)
+                            Spacer()
+                            Button("Restore") {
+                                status.perform("restore", target: app.identifier, title: "Restore " + app.name)
+                            }
+                            .font(.caption)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            Section("Export Account") {
+                SecureField("File Password", text: $exportPassword)
+                    .textFieldStyle(.roundedBorder)
+                Toggle("Include Apple Password", isOn: $includeApple)
+                Button("Export Account File") { Task { await exportAccount() } }
+                    .disabled(exportPassword.isEmpty)
+            }
+            Section("Import Account") {
+                Button("Select Backup File") { pickerPresented = true }
+                SecureField("File Password", text: $importPassword)
+                    .textFieldStyle(.roundedBorder)
+                if !importedEmail.isEmpty {
+                    Text("Imported account for \(importedEmail). Sign in with its Apple password to finish.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    Button("Continue to Sign In") { status.signInPresented = true }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Backups")
+        .sheet(isPresented: $pickerPresented) {
+            V3FilePicker(types: ["public.data"]) { url in
+                pickerPresented = false
+                if let url { Task { await importAccount(url) } }
+            }
+        }
+        .sheet(item: Binding(get: { shareItems.map { V3ShareBox(items: $0) } }, set: { _ in shareItems = nil })) { box in
+            V3ActivitySheet(items: box.items)
+        }
+    }
+    private func exportAccount() async {
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "accountExport",
+                payload: ["password": exportPassword, "includeApple": includeApple])
+            guard let encoded = reply["backup"] as? String,
+                  let data = Data(base64Encoded: encoded) else {
+                throw NSError(domain: "V3Backups", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "The service returned an unreadable backup."])
+            }
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("sidestore-account.sidestorebackup")
+            try data.write(to: url, options: .atomic)
+            shareItems = [url]
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+    private func importAccount(_ url: URL) async {
+        do {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let data = try Data(contentsOf: url)
+            guard let token = status.stageSharedFile(data) else { return }
+            let reply = try await V3ServiceBridge.shared.request(operation: "accountImport", target: token,
+                payload: ["password": importPassword])
+            importedEmail = reply["email"] as? String ?? ""
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+}
+
+struct V3SideJITView: View {
+    @StateObject private var store = V3SettingsStore()
+    @State private var ping = ""
+    var body: some View {
+        List {
+            if !store.message.isEmpty {
+                Section { Text(store.message).font(.footnote).foregroundColor(.red) }
+            }
+            Section("Server") {
+                V3ToggleRow(store: store, title: "SideJIT Server Enabled", key: "isSideJITServerEnabled")
+                V3TextRow(store: store, title: "Server Address", key: "textInputSideJITServerurl")
+                Button("Test Reachability") { test() }
+                if !ping.isEmpty {
+                    Text(ping).font(.caption).foregroundColor(.secondary)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("SideJIT Server")
+        .task { await store.load() }
+    }
+    private func test() {
+        guard let address = store.strings["textInputSideJITServerurl"], !address.isEmpty,
+              let url = URL(string: address.hasPrefix("http") ? address : "http://" + address) else {
+            ping = "Enter a server address first."
+            return
+        }
+        ping = "Checking..."
+        Task {
+            do {
+                var request = URLRequest(url: url, timeoutInterval: 10)
+                request.httpMethod = "GET"
+                let (_, response) = try await URLSession.shared.data(for: request)
+                ping = (response as? HTTPURLResponse).map { "Reachable (HTTP \($0.statusCode))." } ?? "Reachable."
+            } catch {
+                ping = "Unreachable: \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
+struct V3ReleaseTrackHostView: View {
+    @StateObject private var store = V3SettingsStore()
+    var body: some View {
+        List {
+            if !store.message.isEmpty {
+                Section { Text(store.message).font(.footnote).foregroundColor(.red) }
+            }
+            Section("Update Channel") {
+                V3TextRow(store: store, title: "Beta Track", key: "betaUdpatesTrack")
+                Text("Leave empty for the default channel.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Update Channel")
+        .task { await store.load() }
+    }
+}
+
+struct V3DiagnosticsView: View {
+    @StateObject private var store = V3SettingsStore()
+    @State private var confirmReset = false
+    var body: some View {
+        List {
+            if !store.message.isEmpty {
+                Section { Text(store.message).font(.footnote).foregroundColor(.red) }
+            }
+            Section("Logging") {
+                V3ToggleRow(store: store, title: "Verbose Operations", key: "isVerboseOperationsLoggingEnabled")
+                V3ToggleRow(store: store, title: "Verbose SideStore", key: "isSideStoreVerboseLoggingEnabled")
+                V3ToggleRow(store: store, title: "Verbose Signing", key: "isAltSignVerboseLoggingEnabled")
+                V3ToggleRow(store: store, title: "Verbose Transport", key: "isMinimuxerVerboseLoggingEnabled")
+                V3ToggleRow(store: store, title: "Widget Logging", key: "widgetVerboseLogging")
+                V3ToggleRow(store: store, title: "Rotate Logs on Startup", key: "isRotateLogsOnStartupEnabled")
+                V3ToggleRow(store: store, title: "Disable Response Caching", key: "responseCachingDisabled")
+            }
+            Section("Advanced") {
+                V3ToggleRow(store: store, title: "Cellular Refresh", key: "isCellularRefreshEnabled")
+                V3ToggleRow(store: store, title: "Debug Mode", key: "isDebugModeEnabled")
+                Button("Recreate Database on Next Start", role: .destructive) { confirmReset = true }
+                    .confirmationDialog("Recreate the database on next start?", isPresented: $confirmReset, titleVisibility: .visible) {
+                        Button("Confirm", role: .destructive) { store.setBool("recreateDatabaseOnNextStart", true) }
+                        Button("Cancel", role: .cancel) {}
+                    }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Diagnostics")
+        .task { await store.load() }
+    }
+}
+
+struct V3LogsView: View {
+    @State private var tail = ""
+    @State private var message = ""
+    var body: some View {
+        List {
+            if !message.isEmpty {
+                Section { Text(message).font(.footnote).foregroundColor(.red) }
+            }
+            Section {
+                Button("Reload Logs") { Task { await reload() } }
+                Button("Copy Logs") { UIPasteboard.general.string = tail }
+            }
+            Section("Operation Logs") {
+                Text(String(tail.suffix(120_000)))
+                    .font(.system(.caption2, design: .monospaced))
+                    .textSelection(.enabled)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Operation Logs")
+        .task { await reload() }
+    }
+    private func reload() async {
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "logTail")
+            tail = reply["tail"] as? String ?? ""
+            message = ""
+        } catch { message = error.localizedDescription }
+    }
+}
+
+struct V3ExperimentalView: View {
+    @StateObject private var store = V3SettingsStore()
+    var body: some View {
+        List {
+            if !store.message.isEmpty {
+                Section { Text(store.message).font(.footnote).foregroundColor(.red) }
+            }
+            Section("Experimental") {
+                V3ToggleRow(store: store, title: "Cellular Refresh", key: "isCellularRefreshEnabled")
+                Text("Experimental options can change or disappear. Current signing state is never reset by toggling them.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Experimental Features")
+        .task { await store.load() }
     }
 }
 
@@ -1061,7 +2413,7 @@ private struct V3HomeView: View {
                                     Circle()
                                         .fill(status.connected ? Color.green : (status.loading ? Color.orange : Color.gray))
                                         .frame(width: 8, height: 8)
-                                    Text(status.connected ? "Active & Connected" : (status.loading ? "Connecting…" : "Not Connected"))
+                                    Text(status.connected ? "Active & Connected" : (status.loading ? "Connecting..." : "Not Connected"))
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
@@ -1113,7 +2465,7 @@ private struct V3HomeView: View {
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 } else {
-                                    Text("—")
+                                    Text("-")
                                         .font(.title2.weight(.bold))
                                     Text("Next Expiry")
                                         .font(.caption)
