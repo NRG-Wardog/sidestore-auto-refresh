@@ -462,7 +462,9 @@ class CombinedWorkflowTests(unittest.TestCase):
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
         self.assertNotIn("AuthFlowHandler", service)
         self.assertNotIn("AuthenticatedOperationContext", service)
-        self.assertIn("AppManager.shared.signIn(", service)
+        self.assertIn("SignInOperation(", service)
+        self.assertIn("V3HeadlessSignInFlow", service)
+        self.assertNotIn("AppManager.shared.signIn(presentingViewController: Self.presenter)", service)
         self.assertIn("SideSignConfigurationView()", service)
 
     def test_local_binary_and_combined_patch_injected_before_build(self):

@@ -128,11 +128,30 @@ class V3UnifiedShellTests(unittest.TestCase):
         self.assertIn('status.stageSharedIPA(url, title: "Install / Sideload App")', source)
         self.assertIn('perform("installSharedIPA", target: token', source)
         self.assertIn('installTarget = .url(url)', service)
-        self.assertIn('AppManager.shared.install(installTarget', service)
-        self.assertIn('group.cancel(); group.progress.cancel()', service)
-        self.assertIn('status.accept(try await V3ServiceBridge.shared.request', source)
+        self.assertIn('AppManager.shared.install(', service)
+        self.assertIn('pipelineHandler: handler', service)
+        self.assertIn('group.cancel()', service)
+        self.assertIn('operation: "operationState"', source)
+        self.assertIn('operation: "operationRespond"', source)
+        self.assertNotIn("V3RemoteServiceView", source)
+        self.assertNotIn("AppSceneViewController(servicePID:", source)
         self.assertIn('Button("Add to LiveContainer"', integration)
         self.assertIn('choosingIPA = true', integration)
+
+
+    def test_pairing_and_certificates_are_host_owned(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        self.assertIn("struct V3PairingDocumentPicker", source)
+        self.assertIn("status.pairingPickerPresented = true", source)
+        self.assertIn('V3ServiceBridge.shared.request(operation: "importPairingSharedFile"', source)
+        self.assertNotIn('status.perform("importPairing"', source)
+        self.assertIn("struct V3CertificatesView", source)
+        self.assertIn("V3CertificatesView()", source)
+        self.assertIn('operation: "certificatesSnapshot"', source)
+        self.assertNotIn('panel("Certificates", "certificates"', source)
+        self.assertNotIn('case "certificates": content = AnyView(CertificatesView', service)
+
 
     def test_native_rendering_scrolls_every_identity_with_fresh_probes(self):
         source = (ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift").read_text(encoding="utf-8")

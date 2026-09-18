@@ -22,6 +22,7 @@ struct V3UnifiedTabs: View {
     @EnvironmentObject private var sharedModel: SharedModel
     @StateObject private var status = V3SideStoreStatusStore()
     @State private var selectedInstallURL: URL?
+    @State private var selectedPairingURL: URL?
     private let monitor = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     var body: some View {
         TabView(selection: $sharedModel.selectedTab) {
@@ -55,6 +56,21 @@ struct V3UnifiedTabs: View {
                 selectedInstallURL = url
                 status.installPickerPresented = false
             }
+        }
+        .sheet(isPresented: $status.pairingPickerPresented, onDismiss: {
+            if let url = selectedPairingURL {
+                selectedPairingURL = nil
+                status.stagePairingFile(url)
+            }
+        }) {
+            V3PairingDocumentPicker { url in
+                selectedPairingURL = url
+                status.pairingPickerPresented = false
+            }
+        }
+        .sheet(isPresented: $status.signInPresented, onDismiss: { status.reload() }) {
+            NavigationView { V3SignInView().environmentObject(status) }
+                .navigationViewStyle(StackNavigationViewStyle())
         }
         .fullScreenCover(item: $status.presentation) { V3OperationSheet(request: $0).environmentObject(status) }
         .sheet(isPresented: $status.refreshPresented, onDismiss: { status.reload() }) {
@@ -158,6 +174,32 @@ struct V3IPADocumentPicker: UIViewControllerRepresentable {
     }
 }
 
+struct V3PairingDocumentPicker: UIViewControllerRepresentable {
+    let completion: (URL?) -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(completion: completion) }
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let types = ["mobiledevicepairing", "plist", "xml"].compactMap { UTType(filenameExtension: $0) }
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types.isEmpty ? [.data] : types, asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        private var completion: ((URL?) -> Void)?
+        init(completion: @escaping (URL?) -> Void) { self.completion = completion }
+        private func finish(_ url: URL?) {
+            let callback = completion
+            completion = nil
+            callback?(url)
+        }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            finish(urls.first)
+        }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finish(nil) }
+    }
+}
+
 struct V3RefreshAllButton: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @AppStorage("liveContainerAutoRefreshActiveRunID", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var activeRun = ""
@@ -213,6 +255,8 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published var refreshTarget: String?
     @Published var refreshPresented = false
     @Published var installPickerPresented = false
+    @Published var pairingPickerPresented = false
+    @Published var signInPresented = false
     @Published private(set) var loading = false
     @Published private(set) var connected = false
     @Published private(set) var requiresConnectionRetry = false
@@ -292,6 +336,34 @@ final class V3SideStoreStatusStore: ObservableObject {
             } catch { self.error = error.localizedDescription }
         }
     }
+    func stagePairingFile(_ url: URL) {
+        guard presentation == nil else { return }
+        do {
+            let allowedExtensions = Set(["mobiledevicepairing", "plist", "xml"])
+            guard url.isFileURL, allowedExtensions.contains(url.pathExtension.lowercased()) else {
+                throw NSError(domain: "V3PairingSelection", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "Choose a .mobiledevicepairing, .plist, or .xml pairing file."])
+            }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let token = UUID().uuidString
+            let bookmark = try url.bookmarkData(options: URL.BookmarkCreationOptions(rawValue: 1 << 11),
+                                                includingResourceValuesForKeys: nil, relativeTo: nil)
+            LCUtils.appGroupUserDefault.set(bookmark, forKey: "V3SharedPairing." + token)
+            loading = true
+            Task {
+                defer { loading = false }
+                do {
+                    let snapshot = try await V3ServiceBridge.shared.request(operation: "importPairingSharedFile", target: token)
+                    accept(snapshot)
+                } catch {
+                    LCUtils.appGroupUserDefault.removeObject(forKey: "V3SharedPairing." + token)
+                    self.error = error.localizedDescription
+                }
+            }
+        } catch { self.error = error.localizedDescription }
+    }
+
     func stageSharedIPA(_ url: URL, bookmark: Data? = nil, title: String) {
         guard presentation == nil else { return }
         do {
@@ -794,7 +866,7 @@ struct V3AccountSettings: View {
                 }
             }
             Button {
-                status.perform("signIn", title: "Sign In")
+                status.signInPresented = true
             } label: {
                 Label("Sign In / Re-authenticate", systemImage: "person.badge.key.fill")
             }
@@ -803,8 +875,16 @@ struct V3AccountSettings: View {
             } label: {
                 Label("Sync App IDs", systemImage: "arrow.triangle.2.circlepath")
             }
-            panel("Certificates", "certificates", icon: "doc.text")
-            panel("Developer Services", "developerServices", icon: "wrench.and.screwdriver")
+            NavigationLink {
+                V3CertificatesView()
+            } label: {
+                Label("Certificates", systemImage: "doc.text")
+            }
+            NavigationLink {
+                V3DeveloperServicesView()
+            } label: {
+                Label("Developer Services", systemImage: "wrench.and.screwdriver")
+            }
             Button(role: .destructive) {
                 status.signOut()
             } label: {
@@ -821,23 +901,27 @@ struct V3AccountSettings: View {
                     .lineLimit(1)
             }
             Button {
-                status.perform("importPairing", title: "Import Pairing File")
+                status.pairingPickerPresented = true
             } label: {
                 Label("Import Pairing File", systemImage: "doc.badge.plus")
             }
-            panel("Connection", "connection", icon: "network")
-            panel("Anisette Servers", "anisette", icon: "server.rack")
-            panel("SideSign Configuration", "sideSign", icon: "pencil.and.outline")
-            panel("Installation and Signing Options", "customizations", icon: "slider.horizontal.3")
-            panel("Health Check", "health", icon: "heart.text.square")
-            panel("SideStore Backups", "backups", icon: "archivebox")
-            panel("SideJIT Server", "sideJIT", icon: "bolt.fill")
+            advancedPanel("Connection", "connection", icon: "network")
+            advancedPanel("Anisette Servers", "anisette", icon: "server.rack")
+            advancedPanel("SideSign Configuration", "sideSign", icon: "pencil.and.outline")
+            advancedPanel("Installation and Signing Options", "customizations", icon: "slider.horizontal.3")
+            advancedPanel("Health Check", "health", icon: "heart.text.square")
+            NavigationLink {
+                V3AccountBackupView()
+            } label: {
+                Label("SideStore Backups", systemImage: "archivebox")
+            }
+            advancedPanel("SideJIT Server", "sideJIT", icon: "bolt.fill")
             setting("Beta updates", "betaUpdates", icon: "sparkles")
             setting("Disable idle timeout", "idleTimeoutDisabled", icon: "timer")
-            panel("Update Channel", "releaseTrack", icon: "arrow.triangle.merge")
-            panel("SideStore Diagnostics", "diagnostics", icon: "waveform.path.ecg")
-            panel("Operation Logs", "logs", icon: "doc.text.magnifyingglass")
-            panel("Experimental Features", "experimental", icon: "flask")
+            advancedPanel("Update Channel", "releaseTrack", icon: "arrow.triangle.merge")
+            advancedPanel("SideStore Diagnostics", "diagnostics", icon: "waveform.path.ecg")
+            advancedPanel("Operation Logs", "logs", icon: "doc.text.magnifyingglass")
+            advancedPanel("Experimental Features", "experimental", icon: "flask")
             Button {
                 status.clearCache()
             } label: {
@@ -853,17 +937,11 @@ struct V3AccountSettings: View {
             }
         }
     }
-    private func panel(_ title: String, _ key: String, icon: String) -> some View {
-        Button {
-            status.perform("panel", target: key, title: title)
+    private func advancedPanel(_ title: String, _ key: String, icon: String) -> some View {
+        NavigationLink {
+            V3HeadlessSettingsPanelView(title: title, key: key)
         } label: {
-            HStack {
-                Label(title, systemImage: icon)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+            Label(title, systemImage: icon)
         }
     }
     private func setting(_ title: String, _ key: String, icon: String) -> some View {
@@ -871,6 +949,1711 @@ struct V3AccountSettings: View {
             Label(title, systemImage: icon)
         }
         .disabled(status.isStale)
+    }
+}
+
+
+
+
+
+private struct V3ShareItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct V3HostShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+private struct V3AccountBackupPicker: UIViewControllerRepresentable {
+    let onPick: (URL) -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: false)
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let parent: V3AccountBackupPicker
+        init(parent: V3AccountBackupPicker) { self.parent = parent }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else {
+                parent.onCancel()
+                return
+            }
+            parent.onPick(url)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            parent.onCancel()
+        }
+    }
+}
+
+struct V3AccountBackupView: View {
+    @State private var exportPassword = ""
+    @State private var includeApplePassword = false
+    @State private var importPassword = ""
+    @State private var importApplePassword = ""
+    @State private var pickerPresented = false
+    @State private var shareItem: V3ShareItem?
+    @State private var loading = false
+    @State private var message: String?
+    @State private var error: String?
+    @State private var needsApplePassword = false
+
+    var body: some View {
+        Form {
+            if let error {
+                Section { Text(error).foregroundColor(.red).textSelection(.enabled) }
+            }
+            if let message {
+                Section { Text(message).foregroundColor(.secondary) }
+            }
+
+            Section {
+                SecureField("Backup file password", text: $exportPassword)
+                Toggle("Include Apple ID password", isOn: $includeApplePassword)
+                Button {
+                    Task { await exportAccount() }
+                } label: {
+                    if loading { ProgressView() }
+                    else { Label("Export Account Backup", systemImage: "square.and.arrow.up") }
+                }
+                .disabled(loading || exportPassword.isEmpty)
+            } header: {
+                Text("Export")
+            } footer: {
+                Text("Encryption and account serialization remain inside SideStore. LiveContainer only presents the form and share sheet.")
+            }
+
+            Section {
+                SecureField("Backup file password", text: $importPassword)
+                SecureField("Apple ID password if backup does not contain it", text: $importApplePassword)
+                Button {
+                    pickerPresented = true
+                } label: {
+                    Label("Choose Account Backup", systemImage: "doc.badge.plus")
+                }
+                .disabled(loading || importPassword.isEmpty)
+            } header: {
+                Text("Import")
+            } footer: {
+                Text("The host owns the document picker. SideStore receives a one-use bookmark and performs the existing ImportExport restore.")
+            }
+
+            if needsApplePassword {
+                Section("Complete Import") {
+                    SecureField("Apple ID password", text: $importApplePassword)
+                    Button("Save Apple ID Password") {
+                        Task { await completeImportedAccount() }
+                    }
+                    .disabled(loading || importApplePassword.isEmpty)
+                }
+            }
+        }
+        .navigationTitle("SideStore Backups")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $pickerPresented) {
+            V3AccountBackupPicker(
+                onPick: { url in
+                    pickerPresented = false
+                    Task { await importAccount(url) }
+                },
+                onCancel: { pickerPresented = false }
+            )
+        }
+        .sheet(item: $shareItem, onDismiss: cleanupShareItem) { item in
+            V3HostShareSheet(url: item.url)
+        }
+    }
+
+    @MainActor
+    private func exportAccount() async {
+        guard !loading, !exportPassword.isEmpty else { return }
+        loading = true
+        error = nil
+        message = nil
+        defer {
+            exportPassword = ""
+            loading = false
+        }
+
+        do {
+            let result = try await V3ServiceBridge.shared.request(
+                operation: "backupAccountExport",
+                payload: [
+                    "password": exportPassword,
+                    "includeApplePassword": includeApplePassword
+                ]
+            )
+            guard let data = result["data"] as? Data, !data.isEmpty else {
+                throw NSError(domain: "V3AccountBackup", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "SideStore returned an empty account backup."])
+            }
+            let name = result["fileName"] as? String ?? "SideStoreAccountBackup.sidestore"
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString + "-" + name)
+            try data.write(to: url, options: .atomic)
+            shareItem = V3ShareItem(url: url)
+            message = "Encrypted backup created."
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func importAccount(_ url: URL) async {
+        guard !loading, !importPassword.isEmpty else { return }
+        loading = true
+        error = nil
+        message = nil
+        needsApplePassword = false
+        defer {
+            importPassword = ""
+            loading = false
+        }
+
+        do {
+            guard url.isFileURL else {
+                throw NSError(domain: "V3AccountBackup", code: 2,
+                              userInfo: [NSLocalizedDescriptionKey: "Choose a local backup file."])
+            }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+            let token = UUID().uuidString
+            let bookmark = try url.bookmarkData(
+                options: URL.BookmarkCreationOptions(rawValue: 1 << 11),
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            LCUtils.appGroupUserDefault.set(bookmark, forKey: "V3SharedAccountBackup." + token)
+
+            var payload: [String: Any] = ["password": importPassword]
+            if !importApplePassword.isEmpty { payload["applePassword"] = importApplePassword }
+
+            do {
+                let result = try await V3ServiceBridge.shared.request(
+                    operation: "backupAccountImportSharedFile",
+                    target: token,
+                    payload: payload
+                )
+                needsApplePassword = (result["needsApplePassword"] as? Bool) ?? false
+                let email = result["email"] as? String ?? "account"
+                message = needsApplePassword
+                    ? "Imported \(email). Enter the Apple ID password to complete the account state."
+                    : "Imported \(email) successfully."
+                if !needsApplePassword { importApplePassword = "" }
+            } catch {
+                LCUtils.appGroupUserDefault.removeObject(forKey: "V3SharedAccountBackup." + token)
+                throw error
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func completeImportedAccount() async {
+        guard !loading, !importApplePassword.isEmpty else { return }
+        loading = true
+        error = nil
+        defer {
+            loading = false
+            importApplePassword = ""
+        }
+        do {
+            _ = try await V3ServiceBridge.shared.request(
+                operation: "settingsPanelCommand",
+                target: "backups",
+                payload: [
+                    "action": "setApplePassword",
+                    "password": importApplePassword
+                ]
+            )
+            needsApplePassword = false
+            message = "Imported account credentials completed."
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func cleanupShareItem() {
+        guard let url = shareItem?.url else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+}
+
+private enum V3DeveloperForm: Identifiable {
+    case appID
+    case appGroup
+    case renameGroup(id: String, current: String)
+    case device
+    case renameDevice(id: String, current: String)
+
+    var id: String {
+        switch self {
+        case .appID: return "appID"
+        case .appGroup: return "appGroup"
+        case .renameGroup(let id, _): return "renameGroup-" + id
+        case .device: return "device"
+        case .renameDevice(let id, _): return "renameDevice-" + id
+        }
+    }
+}
+
+struct V3DeveloperServicesView: View {
+    @State private var data: [String: Any] = [:]
+    @State private var loading = false
+    @State private var error: String?
+    @State private var form: V3DeveloperForm?
+    @State private var confirm: [String: Any]?
+
+    private var team: [String: Any] { data["team"] as? [String: Any] ?? [:] }
+    private var appIDs: [[String: Any]] { data["appIDs"] as? [[String: Any]] ?? [] }
+    private var profiles: [[String: Any]] { data["profiles"] as? [[String: Any]] ?? [] }
+    private var appGroups: [[String: Any]] { data["appGroups"] as? [[String: Any]] ?? [] }
+    private var devices: [[String: Any]] { data["devices"] as? [[String: Any]] ?? [] }
+    private var certificates: [[String: Any]] { data["certificates"] as? [[String: Any]] ?? [] }
+
+    var body: some View {
+        Form {
+            if loading && data.isEmpty {
+                Section { HStack { Spacer(); ProgressView("Loading Developer Portal…"); Spacer() } }
+            }
+            if let error {
+                Section { Text(error).foregroundColor(.red).textSelection(.enabled) }
+            }
+
+            if !team.isEmpty {
+                Section("Developer Account") {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(team["name"] as? String ?? "Developer Team").font(.headline)
+                            Text("Team ID: " + (team["id"] as? String ?? ""))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Text(team["type"] as? String ?? "")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            Section {
+                if appIDs.isEmpty { Text("No App IDs registered.").foregroundColor(.secondary) }
+                ForEach(Array(appIDs.enumerated()), id: \.offset) { _, app in
+                    let id = app["id"] as? String ?? ""
+                    let name = app["name"] as? String ?? "App ID"
+                    let bundle = app["bundleID"] as? String ?? ""
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                            Text(bundle).font(.caption).foregroundColor(.secondary).textSelection(.enabled)
+                        }
+                        Spacer()
+                        Menu {
+                            Button("Generate Provisioning Profile") {
+                                Task { await command(["action": "generateProfile", "appID": id]) }
+                            }
+                            Button("Delete", role: .destructive) {
+                                confirm = ["action": "deleteAppID", "id": id, "title": "Delete App ID?", "name": name]
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                    }
+                }
+                Button {
+                    form = .appID
+                } label: {
+                    Label("Register App ID", systemImage: "plus")
+                }
+            } header: {
+                Text("App IDs (\(appIDs.count))")
+            }
+
+            Section {
+                if profiles.isEmpty { Text("No provisioning profiles.").foregroundColor(.secondary) }
+                ForEach(Array(profiles.enumerated()), id: \.offset) { _, profile in
+                    let id = profile["id"] as? String ?? ""
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text(profile["name"] as? String ?? "Profile")
+                            Spacer()
+                            if let date = profile["expires"] as? Date {
+                                Text(date, style: .date).font(.caption).foregroundColor(.secondary)
+                            }
+                        }
+                        Text(profile["bundleID"] as? String ?? "")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        HStack {
+                            Text(profile["uuid"] as? String ?? "")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .textSelection(.enabled)
+                            Spacer()
+                            Button(role: .destructive) {
+                                confirm = [
+                                    "action": "deleteProfile",
+                                    "id": id,
+                                    "title": "Delete Provisioning Profile?",
+                                    "name": profile["name"] as? String ?? "Profile"
+                                ]
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(id.isEmpty)
+                        }
+                    }
+                }
+                if !profiles.isEmpty {
+                    Button("Delete All Profiles", role: .destructive) {
+                        confirm = [
+                            "action": "deleteAllProfiles",
+                            "title": "Delete All Profiles?",
+                            "name": "\(profiles.count) provisioning profiles"
+                        ]
+                    }
+                }
+            } header: {
+                Text("Provisioning Profiles (\(profiles.count))")
+            }
+
+            Section {
+                if certificates.isEmpty { Text("No portal certificates.").foregroundColor(.secondary) }
+                ForEach(Array(certificates.enumerated()), id: \.offset) { _, certificate in
+                    let serial = certificate["serial"] as? String ?? ""
+                    let name = certificate["name"] as? String ?? "Certificate"
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                            Text(serial).font(.caption2).foregroundColor(.secondary).textSelection(.enabled)
+                            if let date = certificate["expires"] as? Date {
+                                Text("Expires " + date.formatted(date: .abbreviated, time: .omitted))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Button(role: .destructive) {
+                            confirm = [
+                                "action": "revokeCertificate",
+                                "serial": serial,
+                                "title": "Revoke Certificate?",
+                                "name": name
+                            ]
+                        } label: {
+                            Image(systemName: "xmark.seal")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            } header: {
+                Text("Certificates (\(certificates.count))")
+            }
+
+            Section {
+                if appGroups.isEmpty { Text("No App Groups.").foregroundColor(.secondary) }
+                ForEach(Array(appGroups.enumerated()), id: \.offset) { _, group in
+                    let id = group["id"] as? String ?? ""
+                    let name = group["name"] as? String ?? "App Group"
+                    let identifier = group["groupIdentifier"] as? String ?? ""
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                            Text(identifier).font(.caption).foregroundColor(.secondary).textSelection(.enabled)
+                        }
+                        Spacer()
+                        Menu {
+                            Button("Rename") { form = .renameGroup(id: id, current: name) }
+                            Button("Delete", role: .destructive) {
+                                confirm = ["action": "deleteAppGroup", "id": id, "title": "Delete App Group?", "name": name]
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                    }
+                }
+                Button {
+                    form = .appGroup
+                } label: {
+                    Label("Create App Group", systemImage: "plus")
+                }
+            } header: {
+                Text("App Groups (\(appGroups.count))")
+            }
+
+            Section {
+                if devices.isEmpty { Text("No registered devices.").foregroundColor(.secondary) }
+                ForEach(Array(devices.enumerated()), id: \.offset) { _, device in
+                    let id = device["id"] as? String ?? ""
+                    let name = device["name"] as? String ?? "Device"
+                    let status = device["status"] as? String ?? ""
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                            Text((device["type"] as? String ?? "") + (status == "d" ? " • Disabled" : ""))
+                                .font(.caption)
+                                .foregroundColor(status == "d" ? .red : .secondary)
+                            Text(id).font(.caption2).foregroundColor(.secondary).textSelection(.enabled)
+                        }
+                        Spacer()
+                        Menu {
+                            Button("Rename") { form = .renameDevice(id: id, current: name) }
+                            if status != "d" {
+                                Button("Disable") {
+                                    confirm = ["action": "disableDevice", "id": id, "title": "Disable Device?", "name": name]
+                                }
+                            }
+                            Button("Delete", role: .destructive) {
+                                confirm = ["action": "deleteDevice", "id": id, "title": "Delete Device?", "name": name]
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                    }
+                }
+                Button {
+                    form = .device
+                } label: {
+                    Label("Register Device", systemImage: "plus")
+                }
+            } header: {
+                Text("Registered Devices (\(devices.count))")
+            }
+        }
+        .navigationTitle("Developer Services")
+        .navigationBarTitleDisplayMode(.inline)
+        .refreshable { await load(force: true) }
+        .task { await load(force: false) }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await load(force: true) }
+                } label: {
+                    if loading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
+                }
+                .disabled(loading)
+            }
+        }
+        .sheet(item: $form) { form in
+            V3DeveloperServiceForm(form: form) { payload in
+                self.form = nil
+                Task { await command(payload) }
+            }
+        }
+        .alert(
+            confirm?["title"] as? String ?? "Confirm",
+            isPresented: Binding(
+                get: { confirm != nil },
+                set: { shown in if !shown { confirm = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { confirm = nil }
+            Button("Continue", role: .destructive) {
+                guard var payload = confirm else { return }
+                payload.removeValue(forKey: "title")
+                payload.removeValue(forKey: "name")
+                confirm = nil
+                Task { await command(payload) }
+            }
+        } message: {
+            Text(confirm?["name"] as? String ?? "")
+        }
+    }
+
+    @MainActor
+    private func load(force: Bool) async {
+        guard !loading else { return }
+        loading = true
+        error = nil
+        defer { loading = false }
+        do {
+            if force {
+                data = try await V3ServiceBridge.shared.request(
+                    operation: "developerServicesCommand",
+                    payload: ["action": "refresh"]
+                )
+            } else {
+                data = try await V3ServiceBridge.shared.request(operation: "developerServicesSnapshot")
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func command(_ payload: [String: Any]) async {
+        guard !loading else { return }
+        loading = true
+        error = nil
+        defer { loading = false }
+        do {
+            data = try await V3ServiceBridge.shared.request(
+                operation: "developerServicesCommand",
+                payload: payload
+            )
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+}
+
+private struct V3DeveloperServiceForm: View {
+    let form: V3DeveloperForm
+    let submit: ([String: Any]) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name = ""
+    @State private var identifier = ""
+    @State private var deviceType = "iPhone"
+
+    var body: some View {
+        NavigationView {
+            Form {
+                switch form {
+                case .appID:
+                    Section("App ID") {
+                        TextField("Name", text: $name)
+                        TextField("Bundle ID (com.example.app)", text: $identifier)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                case .appGroup:
+                    Section("App Group") {
+                        TextField("Name", text: $name)
+                        TextField("group.com.example.shared", text: $identifier)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                case .renameGroup(_, let current), .renameDevice(_, let current):
+                    Section("Name") {
+                        TextField("Name", text: $name)
+                            .onAppear { if name.isEmpty { name = current } }
+                    }
+                case .device:
+                    Section("Device") {
+                        TextField("Name", text: $name)
+                        TextField("UDID", text: $identifier)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Picker("Type", selection: $deviceType) {
+                            ForEach(["iPhone", "iPad", "Apple TV", "Apple Watch", "Mac", "Vision Pro"], id: \.self) {
+                                Text($0).tag($0)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        submit(payload)
+                        dismiss()
+                    }
+                    .disabled(!valid)
+                }
+            }
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
+    }
+
+    private var title: String {
+        switch form {
+        case .appID: return "Register App ID"
+        case .appGroup: return "Create App Group"
+        case .renameGroup: return "Rename App Group"
+        case .device: return "Register Device"
+        case .renameDevice: return "Rename Device"
+        }
+    }
+
+    private var valid: Bool {
+        switch form {
+        case .appID, .appGroup, .device:
+            return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                   !identifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .renameGroup, .renameDevice:
+            return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private var payload: [String: Any] {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedIdentifier = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch form {
+        case .appID:
+            return ["action": "createAppID", "name": trimmedName, "bundleID": trimmedIdentifier]
+        case .appGroup:
+            return ["action": "createAppGroup", "name": trimmedName, "groupIdentifier": trimmedIdentifier]
+        case .renameGroup(let id, _):
+            return ["action": "renameAppGroup", "id": id, "name": trimmedName]
+        case .device:
+            return ["action": "registerDevice", "name": trimmedName, "identifier": trimmedIdentifier, "type": deviceType]
+        case .renameDevice(let id, _):
+            return ["action": "renameDevice", "id": id, "name": trimmedName]
+        }
+    }
+}
+
+struct V3HeadlessSettingsPanelView: View {
+    let title: String
+    let key: String
+
+    @State private var snapshot: [String: Any] = [:]
+    @State private var boolValues: [String: Bool] = [:]
+    @State private var stringValues: [String: String] = [:]
+    @State private var integerValues: [String: String] = [:]
+    @State private var optionValues: [String: String] = [:]
+    @State private var jsonText = ""
+    @State private var anisetteSource = ""
+    @State private var loading = false
+    @State private var error: String?
+    @State private var notice: String?
+
+    private var mode: String { snapshot["mode"] as? String ?? "info" }
+    private var sections: [[String: Any]] { snapshot["sections"] as? [[String: Any]] ?? [] }
+
+    var body: some View {
+        Group {
+            if snapshot.isEmpty && loading {
+                ProgressView("Loading…")
+            } else {
+                content
+            }
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+        .refreshable { await load() }
+        .alert("SideStore", isPresented: Binding(
+            get: { error != nil || notice != nil },
+            set: { shown in if !shown { error = nil; notice = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(error ?? notice ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch mode {
+        case "json":
+            Form {
+                Section {
+                    TextEditor(text: $jsonText)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(minHeight: 360)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } header: {
+                    Text("Raw JSON")
+                } footer: {
+                    Text("The host edits presentation only. SideStore validates and persists the existing SideSign configuration.")
+                }
+                Section {
+                    Button("Save") {
+                        Task {
+                            await command([
+                                "action": "saveRaw",
+                                "json": jsonText
+                            ])
+                        }
+                    }
+                    .disabled(loading || jsonText.isEmpty)
+
+                    Button("Reset to Defaults", role: .destructive) {
+                        Task { await command(["action": "reset"]) }
+                    }
+                    .disabled(loading)
+                }
+            }
+
+        case "anisette":
+            anisetteView
+
+        case "log":
+            ScrollView {
+                Text(snapshot["text"] as? String ?? "No log output.")
+                    .font(.system(.caption2, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+            }
+
+        default:
+            Form {
+                if let error {
+                    Section { Text(error).foregroundColor(.red).textSelection(.enabled) }
+                }
+                ForEach(Array(sections.enumerated()), id: \.offset) { _, section in
+                    let rows = section["rows"] as? [[String: Any]] ?? []
+                    Section(section["title"] as? String ?? "") {
+                        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                            rowView(row)
+                        }
+                    }
+                }
+                if snapshot["saveAction"] as? String != nil {
+                    Section {
+                        Button {
+                            Task { await saveForm() }
+                        } label: {
+                            if loading { ProgressView() }
+                            else { Text("Save Changes") }
+                        }
+                        .disabled(loading)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rowView(_ row: [String: Any]) -> some View {
+        let type = row["type"] as? String ?? "info"
+        let rowKey = row["key"] as? String ?? ""
+        let rowTitle = row["title"] as? String ?? rowKey
+        let subtitle = row["subtitle"] as? String
+
+        switch type {
+        case "bool":
+            Toggle(isOn: Binding(
+                get: { boolValues[rowKey] ?? boolValue(row["value"]) },
+                set: { boolValues[rowKey] = $0 }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(rowTitle)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle).font(.caption).foregroundColor(.secondary)
+                    }
+                }
+            }
+
+        case "text":
+            VStack(alignment: .leading, spacing: 5) {
+                Text(rowTitle).font(.subheadline)
+                TextField(rowTitle, text: Binding(
+                    get: { stringValues[rowKey] ?? stringValue(row["value"]) },
+                    set: { stringValues[rowKey] = $0 }
+                ))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle).font(.caption).foregroundColor(.secondary)
+                }
+            }
+
+        case "integer":
+            VStack(alignment: .leading, spacing: 5) {
+                Text(rowTitle).font(.subheadline)
+                TextField(rowTitle, text: Binding(
+                    get: { integerValues[rowKey] ?? String(intValue(row["value"])) },
+                    set: { integerValues[rowKey] = $0.filter(\.isNumber) }
+                ))
+                .keyboardType(.numberPad)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle).font(.caption).foregroundColor(.secondary)
+                }
+            }
+
+        case "option":
+            Picker(rowTitle, selection: Binding(
+                get: { optionValues[rowKey] ?? stringValue(row["value"]) },
+                set: { optionValues[rowKey] = $0 }
+            )) {
+                ForEach(row["options"] as? [String] ?? [], id: \.self) {
+                    Text($0).tag($0)
+                }
+            }
+
+        default:
+            HStack(alignment: .top) {
+                Text(rowTitle)
+                Spacer()
+                Text(stringValue(row["value"]))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.trailing)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private var anisetteView: some View {
+        Form {
+            if let error {
+                Section { Text(error).foregroundColor(.red).textSelection(.enabled) }
+            }
+
+            Section("Active Server") {
+                let active = snapshot["active"] as? String ?? ""
+                let servers = snapshot["servers"] as? [[String: Any]] ?? []
+                if servers.isEmpty {
+                    Text("No Anisette servers are configured.")
+                        .foregroundColor(.secondary)
+                }
+                ForEach(Array(servers.enumerated()), id: \.offset) { _, server in
+                    let name = server["name"] as? String ?? "Server"
+                    let address = server["address"] as? String ?? ""
+                    let hidden = boolValue(server["hidden"])
+                    HStack {
+                        Button {
+                            Task { await command(["action": "select", "address": address]) }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text(name)
+                                    if address == active { Image(systemName: "checkmark.circle.fill") }
+                                }
+                                Text(address)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .disabled(hidden || loading)
+                        Spacer()
+                        Button {
+                            Task {
+                                await command([
+                                    "action": "toggleHidden",
+                                    "address": address,
+                                    "hidden": !hidden
+                                ])
+                            }
+                        } label: {
+                            Image(systemName: hidden ? "eye.slash" : "eye")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+
+            Section("Catalog Source") {
+                TextField("Catalog URL", text: $anisetteSource)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                Button("Sync from Source") {
+                    Task {
+                        await command([
+                            "action": "setSource",
+                            "source": anisetteSource
+                        ])
+                    }
+                }
+                .disabled(loading || anisetteSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button("Refresh Now") {
+                    Task { await command(["action": "sync"]) }
+                }
+                .disabled(loading)
+
+                Button("Reset Server Catalog") {
+                    Task { await command(["action": "reset"]) }
+                }
+                .disabled(loading)
+            }
+
+            Section("Authentication Data") {
+                Button("Reset adi.pb and Sign Out", role: .destructive) {
+                    Task {
+                        await command([
+                            "action": "resetAdi",
+                            "keepHeaders": true
+                        ])
+                    }
+                }
+                .disabled(loading)
+
+                if boolValue(snapshot["offline"]) {
+                    Text("Offline catalog: " + (snapshot["importedFileName"] as? String ?? "imported file"))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        guard !loading else { return }
+        loading = true
+        error = nil
+        defer { loading = false }
+        do {
+            let value = try await V3ServiceBridge.shared.request(operation: "settingsPanelSnapshot", target: key)
+            apply(value)
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func command(_ payload: [String: Any]) async {
+        guard !loading else { return }
+        loading = true
+        error = nil
+        defer { loading = false }
+        do {
+            let value = try await V3ServiceBridge.shared.request(
+                operation: "settingsPanelCommand",
+                target: key,
+                payload: payload
+            )
+            apply(value)
+            notice = "Updated."
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func saveForm() async {
+        var values: [String: Any] = [:]
+        boolValues.forEach { values[$0.key] = $0.value }
+        stringValues.forEach { values[$0.key] = $0.value }
+        integerValues.forEach {
+            if let value = Int($0.value) { values[$0.key] = value }
+        }
+        optionValues.forEach { values[$0.key] = $0.value }
+        await command(["action": "save", "values": values])
+    }
+
+    @MainActor
+    private func apply(_ value: [String: Any]) {
+        snapshot = value
+        boolValues.removeAll()
+        stringValues.removeAll()
+        integerValues.removeAll()
+        optionValues.removeAll()
+
+        if let json = value["json"] as? String { jsonText = json }
+        if let source = value["source"] as? String { anisetteSource = source }
+
+        for section in value["sections"] as? [[String: Any]] ?? [] {
+            for row in section["rows"] as? [[String: Any]] ?? [] {
+                guard let rowKey = row["key"] as? String else { continue }
+                switch row["type"] as? String {
+                case "bool":
+                    boolValues[rowKey] = boolValue(row["value"])
+                case "text":
+                    stringValues[rowKey] = stringValue(row["value"])
+                case "integer":
+                    integerValues[rowKey] = String(intValue(row["value"]))
+                case "option":
+                    optionValues[rowKey] = stringValue(row["value"])
+                default:
+                    break
+                }
+            }
+        }
+    }
+
+    private func boolValue(_ value: Any?) -> Bool {
+        if let value = value as? Bool { return value }
+        return (value as? NSNumber)?.boolValue ?? false
+    }
+
+    private func intValue(_ value: Any?) -> Int {
+        if let value = value as? Int { return value }
+        return (value as? NSNumber)?.intValue ?? 0
+    }
+
+    private func stringValue(_ value: Any?) -> String {
+        switch value {
+        case let value as String: return value
+        case let value as NSNumber: return value.stringValue
+        case let value as Date: return value.formatted(date: .abbreviated, time: .shortened)
+        case .none: return ""
+        default: return String(describing: value!)
+        }
+    }
+}
+
+struct V3SignInView: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var flow: [String: Any] = [:]
+    @State private var sessionID = ""
+    @State private var appleID = ""
+    @State private var password = ""
+    @State private var verificationCode = ""
+    @State private var selectedCertificates = Set<String>()
+    @State private var selectedExtensions = Set<String>()
+    @State private var customBundleID = ""
+    @State private var appendTeamID = true
+    @State private var localError: String?
+    @State private var submitting = false
+    @State private var lastChallengeID = ""
+
+    private var phase: String { flow["phase"] as? String ?? "starting" }
+    private var kind: String { flow["kind"] as? String ?? "" }
+    private var message: String { flow["message"] as? String ?? "" }
+    private var fields: [String: Any] { flow["fields"] as? [String: Any] ?? [:] }
+    private var challengeID: String { flow["challengeID"] as? String ?? "" }
+    private var terminal: Bool { ["completed", "failed", "cancelled"].contains(phase) }
+
+    var body: some View {
+        List {
+            if let localError {
+                Section {
+                    Text(localError)
+                        .foregroundColor(.red)
+                        .textSelection(.enabled)
+                }
+            }
+
+            switch phase {
+            case "starting", "running":
+                Section {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text(message.isEmpty ? "Authenticating…" : message)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            case "requiresInput":
+                challengeContent
+            case "completed":
+                Section {
+                    Label("Signed in successfully", systemImage: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    if let result = flow["fields"] as? [String: Any],
+                       let teamName = result["teamName"] as? String, !teamName.isEmpty {
+                        HStack {
+                            Text("Team")
+                            Spacer()
+                            Text(teamName).foregroundColor(.secondary)
+                        }
+                    }
+                    Button("Done") {
+                        status.reload()
+                        dismiss()
+                    }
+                }
+            case "failed":
+                Section {
+                    Label("Sign in failed", systemImage: "xmark.octagon.fill")
+                        .foregroundColor(.red)
+                    Text(message)
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                    Button("Try Again") {
+                        Task { await begin() }
+                    }
+                }
+            case "cancelled":
+                Section {
+                    Text("Sign in was cancelled.")
+                        .foregroundColor(.secondary)
+                    Button("Done") { dismiss() }
+                }
+            default:
+                Section {
+                    Text("Unknown authentication state.")
+                        .foregroundColor(.secondary)
+                    Button("Cancel") {
+                        Task { await cancelFlow() }
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Sign In")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(terminal ? "Done" : "Cancel") {
+                    if terminal { dismiss() }
+                    else { Task { await cancelFlow() } }
+                }
+            }
+        }
+        .task {
+            await begin()
+            await monitor()
+        }
+        .onDisappear {
+            guard !terminal, !sessionID.isEmpty else { return }
+            let id = sessionID
+            Task {
+                _ = try? await V3ServiceBridge.shared.request(operation: "cancelSignIn", target: id)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var challengeContent: some View {
+        let currentFields = fields
+        switch kind {
+        case "credentials":
+            Section("Apple ID") {
+                if let error = currentFields["error"] as? String, !error.isEmpty {
+                    Text(error).foregroundColor(.red)
+                }
+                TextField("Apple ID", text: $appleID)
+                    .keyboardType(.emailAddress)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                SecureField("Password", text: $password)
+                Button("Continue") {
+                    Task {
+                        await respond([
+                            "action": "submitCredentials",
+                            "appleID": appleID,
+                            "password": password
+                        ])
+                        password = ""
+                    }
+                }
+                .disabled(submitting || appleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || password.isEmpty)
+            }
+
+        case "verificationMethod":
+            Section("Verification Method") {
+                Text(message).foregroundColor(.secondary)
+                Button("Apple Devices") {
+                    Task { await respond(["action": "trustedDevice"]) }
+                }
+                verificationPhoneButtons(fields: currentFields)
+            }
+
+        case "verificationCode":
+            Section("Verification Code") {
+                if let error = currentFields["error"] as? String, !error.isEmpty {
+                    Text(error).foregroundColor(.red)
+                }
+                Text(message).foregroundColor(.secondary)
+                TextField("6-digit code", text: $verificationCode)
+                    .keyboardType(.numberPad)
+                Button("Continue") {
+                    let code = verificationCode
+                    verificationCode = ""
+                    Task { await respond(["action": "submitCode", "code": code]) }
+                }
+                .disabled(submitting || verificationCode.count != 6)
+            }
+            Section("Other Options") {
+                if (currentFields["mode"] as? String) == "trustedDevice" {
+                    Button("Request on Apple Devices Again") {
+                        Task { await respond(["action": "trustedDevice"]) }
+                    }
+                }
+                verificationPhoneButtons(fields: currentFields)
+            }
+
+        case "teamSelection":
+            Section("Developer Team") {
+                Text(message).foregroundColor(.secondary)
+                let teams = currentFields["teams"] as? [[String: Any]] ?? []
+                ForEach(Array(teams.enumerated()), id: \.offset) { _, team in
+                    let teamID = team["id"] as? String ?? ""
+                    let teamName = team["name"] as? String ?? teamID
+                    let teamType = team["type"] as? String ?? ""
+                    Button {
+                        Task { await respond(["action": "selectTeam", "teamID": teamID]) }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(teamName)
+                            if !teamType.isEmpty {
+                                Text(teamType).font(.caption).foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+
+        case "revocationDecision":
+            Section("Existing Certificates") {
+                Text(message).foregroundColor(.secondary)
+                let certificates = currentFields["certificates"] as? [[String: Any]] ?? []
+                ForEach(Array(certificates.enumerated()), id: \.offset) { _, certificate in
+                    let serial = certificate["serial"] as? String ?? ""
+                    let name = certificate["machineName"] as? String
+                        ?? certificate["name"] as? String
+                        ?? serial
+                    Toggle(isOn: selectionBinding(serial, in: $selectedCertificates)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                            Text(serial).font(.caption2).foregroundColor(.secondary).textSelection(.enabled)
+                        }
+                    }
+                }
+                Button("Revoke Selected", role: .destructive) {
+                    Task {
+                        await respond([
+                            "action": "revokeSelected",
+                            "serials": Array(selectedCertificates)
+                        ])
+                    }
+                }
+                .disabled(submitting || selectedCertificates.isEmpty)
+                Button("Keep Existing Certificates") {
+                    Task { await respond(["action": "keepExisting"]) }
+                }
+            }
+
+        case "accountRepair":
+            Section("Account Repair") {
+                Text(message).foregroundColor(.secondary)
+                if let value = currentFields["developerURL"] as? String, let url = URL(string: value) {
+                    Button("Open Developer Account") {
+                        UIApplication.shared.open(url)
+                        Task { await respond(["action": "cancel"]) }
+                    }
+                }
+                if let value = currentFields["appleAccountURL"] as? String, let url = URL(string: value) {
+                    Button("Open Apple Account") {
+                        UIApplication.shared.open(url)
+                        Task { await respond(["action": "cancel"]) }
+                    }
+                }
+                Button("Skip & Continue") {
+                    Task { await respond(["action": "proceed"]) }
+                }
+            }
+
+        case "provisioningDecision":
+            Section("Developer Portal") {
+                Text(message).foregroundColor(.secondary).textSelection(.enabled)
+                Button("Retry") { Task { await respond(["action": "retry"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "postAuth":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                Button("Continue") { Task { await respond(["action": "continue"]) } }
+            }
+
+        case "resignDecision":
+            Section("SideStore Signature") {
+                Text(message).foregroundColor(.secondary)
+                if let reason = currentFields["reason"] as? String, !reason.isEmpty {
+                    HStack {
+                        Text("Reason")
+                        Spacer()
+                        Text(reason).foregroundColor(.secondary)
+                    }
+                }
+                Button("Resign Now") { Task { await respond(["action": "resignNow"]) } }
+                Button("Resign Later") { Task { await respond(["action": "later"]) } }
+            }
+
+        case "anisetteWarning":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                Button("Continue") { Task { await respond(["action": "continue"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "bundleIDMismatch":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                detailRow("Requested", currentFields["targetID"] as? String ?? "")
+                detailRow("Active", currentFields["activeEffectiveID"] as? String ?? "")
+                Button("Proceed") { Task { await respond(["action": "proceed"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "permissionsReview":
+            Section("Permissions") {
+                Text(message).foregroundColor(.secondary)
+                let permissions = currentFields["permissions"] as? [String] ?? []
+                if permissions.isEmpty {
+                    Text("No additional permissions reported.").foregroundColor(.secondary)
+                } else {
+                    ForEach(permissions, id: \.self) { Text($0).font(.footnote) }
+                }
+                Button("Continue") { Task { await respond(["action": "continue"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "extensionRemoval":
+            Section("App Extensions") {
+                Text(message).foregroundColor(.secondary)
+                let extensions = currentFields["extensions"] as? [[String: Any]] ?? []
+                ForEach(Array(extensions.enumerated()), id: \.offset) { _, item in
+                    let bundleID = item["bundleID"] as? String ?? ""
+                    let name = item["name"] as? String ?? bundleID
+                    Toggle(isOn: selectionBinding(bundleID, in: $selectedExtensions)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                            Text(bundleID).font(.caption2).foregroundColor(.secondary)
+                        }
+                    }
+                }
+                if !selectedExtensions.isEmpty {
+                    Button("Remove Selected", role: .destructive) {
+                        Task {
+                            await respond([
+                                "action": "removeSelected",
+                                "bundleIDs": Array(selectedExtensions)
+                            ])
+                        }
+                    }
+                }
+                Button("Remove All Extensions", role: .destructive) {
+                    Task { await respond(["action": "removeAll"]) }
+                }
+                Button("Keep Extensions — Main Profile") {
+                    Task { await respond(["action": "keepMainProfile"]) }
+                }
+                Button("Keep Extensions — Separate App IDs") {
+                    Task { await respond(["action": "keepSeparateProfiles"]) }
+                }
+            }
+
+        case "unsupportedVersion":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                let appName = currentFields["appName"] as? String ?? "App"
+                let version = currentFields["compatibleVersion"] as? String ?? ""
+                Button("Install \(appName) \(version)") {
+                    Task { await respond(["action": "useCompatible"]) }
+                }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "backgroundSuspension":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                Button("Continue") { Task { await respond(["action": "continue"]) } }
+            }
+
+        case "bundleIDCustomization":
+            Section("App ID") {
+                Text(message).foregroundColor(.secondary)
+                TextField("Bundle Identifier", text: $customBundleID)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                Toggle("Append Team ID", isOn: $appendTeamID)
+                Button("Confirm") {
+                    Task {
+                        await respond([
+                            "action": "confirm",
+                            "bundleID": customBundleID,
+                            "appendTeamID": appendTeamID
+                        ])
+                    }
+                }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "appGroupMismatch":
+            Section("App Group") {
+                Text(message).foregroundColor(.secondary)
+                detailRow("Original", currentFields["originalGroup"] as? String ?? "")
+                detailRow("Corrected", currentFields["correctedGroup"] as? String ?? "")
+                Button("Correct & Proceed") { Task { await respond(["action": "correct"]) } }
+                Button("Keep Original") { Task { await respond(["action": "keep"]) } }
+            }
+
+        default:
+            Section {
+                Text(message.isEmpty ? "SideStore requested an unsupported interaction." : message)
+                    .foregroundColor(.secondary)
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func verificationPhoneButtons(fields: [String: Any]) -> some View {
+        let phones = fields["phoneNumbers"] as? [[String: Any]] ?? []
+        let activeID = fields["activeID"] as? String
+        ForEach(Array(phones.enumerated()), id: \.offset) { _, phone in
+            let phoneID = phone["id"] as? String ?? activeID ?? ""
+            let number = phone["number"] as? String ?? "Phone"
+            if !phoneID.isEmpty {
+                Button("Text \(number)") {
+                    Task { await respond(["action": "sms", "phoneID": phoneID]) }
+                }
+                Button("Call \(number)") {
+                    Task { await respond(["action": "voice", "phoneID": phoneID]) }
+                }
+            }
+        }
+    }
+
+    private func detailRow(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .top) {
+            Text(title)
+            Spacer()
+            Text(value)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+        }
+    }
+
+    private func selectionBinding(_ value: String, in selection: Binding<Set<String>>) -> Binding<Bool> {
+        Binding(
+            get: { selection.wrappedValue.contains(value) },
+            set: { selected in
+                if selected { selection.wrappedValue.insert(value) }
+                else { selection.wrappedValue.remove(value) }
+            }
+        )
+    }
+
+    @MainActor
+    private func begin() async {
+        guard !submitting else { return }
+        submitting = true
+        localError = nil
+        defer { submitting = false }
+        do {
+            apply(try await V3ServiceBridge.shared.request(operation: "beginSignIn"))
+        } catch {
+            localError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func monitor() async {
+        while !Task.isCancelled {
+            if terminal { return }
+            do { try await Task.sleep(nanoseconds: 300_000_000) }
+            catch { return }
+            guard !sessionID.isEmpty, phase != "requiresInput" else { continue }
+            do {
+                apply(try await V3ServiceBridge.shared.request(operation: "signInState", target: sessionID))
+            } catch is CancellationError {
+                return
+            } catch {
+                localError = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor
+    private func respond(_ values: [String: Any]) async {
+        guard !submitting, !sessionID.isEmpty, !challengeID.isEmpty else { return }
+        submitting = true
+        localError = nil
+        defer { submitting = false }
+        var payload = values
+        payload["challengeID"] = challengeID
+        do {
+            apply(try await V3ServiceBridge.shared.request(
+                operation: "signInRespond",
+                target: sessionID,
+                payload: payload
+            ))
+        } catch {
+            localError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func cancelFlow() async {
+        guard !sessionID.isEmpty else { dismiss(); return }
+        do {
+            apply(try await V3ServiceBridge.shared.request(operation: "cancelSignIn", target: sessionID))
+        } catch {
+            localError = error.localizedDescription
+        }
+        dismiss()
+    }
+
+    @MainActor
+    private func apply(_ value: [String: Any]) {
+        flow = value
+        sessionID = value["sessionID"] as? String ?? sessionID
+
+        let nextChallenge = value["challengeID"] as? String ?? ""
+        if !nextChallenge.isEmpty, nextChallenge != lastChallengeID {
+            lastChallengeID = nextChallenge
+            verificationCode = ""
+            selectedCertificates.removeAll()
+            selectedExtensions.removeAll()
+
+            let nextFields = value["fields"] as? [String: Any] ?? [:]
+            if (value["kind"] as? String) == "credentials",
+               let suggestedAppleID = nextFields["appleID"] as? String,
+               appleID.isEmpty {
+                appleID = suggestedAppleID
+            }
+            if (value["kind"] as? String) == "bundleIDCustomization" {
+                customBundleID = nextFields["bundleID"] as? String ?? ""
+                appendTeamID = nextFields["appendTeamID"] as? Bool ?? true
+            }
+        }
+
+        if (value["phase"] as? String) == "completed" {
+            password = ""
+            verificationCode = ""
+            status.reload()
+        }
+    }
+}
+
+struct V3CertificateRecord: Identifiable, Hashable {
+    let serialNumber: String
+    let name: String
+    let expirationDate: Date
+    let active: Bool
+    var id: String { serialNumber }
+    init?(_ row: [String: Any]) {
+        guard let serialNumber = row["serialNumber"] as? String,
+              let name = row["name"] as? String,
+              let expirationDate = row["expirationDate"] as? Date,
+              let active = row["active"] as? Bool else { return nil }
+        self.serialNumber = serialNumber
+        self.name = name
+        self.expirationDate = expirationDate
+        self.active = active
+    }
+}
+
+struct V3CertificatesView: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    @State private var certificates: [V3CertificateRecord] = []
+    @State private var loading = false
+    @State private var error: String?
+    @State private var deleteCandidate: V3CertificateRecord?
+
+    var body: some View {
+        List {
+            if loading && certificates.isEmpty {
+                HStack { Spacer(); ProgressView(); Spacer() }
+            } else if certificates.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "doc.badge.ellipsis")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                    Text("No Local Certificates")
+                        .font(.headline)
+                    Text("No locally cached signing certificates are available.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+            } else {
+                ForEach(certificates) { certificate in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(certificate.name).font(.headline)
+                            Spacer()
+                            if certificate.active {
+                                Label("Active", systemImage: "checkmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        Text(certificate.serialNumber)
+                            .font(.caption.monospaced())
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                        Text("Expires " + certificate.expirationDate.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        HStack {
+                            if !certificate.active {
+                                Button("Use for Signing") {
+                                    Task { await mutate("activateLocalCertificate", target: certificate.serialNumber) }
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                            Button("Delete", role: .destructive) { deleteCandidate = certificate }
+                                .buttonStyle(.bordered)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .navigationTitle("Certificates")
+        .overlay(alignment: .bottom) {
+            if let error {
+                Text(error)
+                    .font(.footnote)
+                    .padding(10)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    .padding()
+                    .onTapGesture { self.error = nil }
+            }
+        }
+        .confirmationDialog("Delete certificate?", isPresented: Binding(
+            get: { deleteCandidate != nil },
+            set: { if !$0 { deleteCandidate = nil } }
+        ), titleVisibility: .visible) {
+            if let certificate = deleteCandidate {
+                Button("Delete " + certificate.name, role: .destructive) {
+                    deleteCandidate = nil
+                    Task { await mutate("deleteLocalCertificate", target: certificate.serialNumber) }
+                }
+            }
+            Button("Cancel", role: .cancel) { deleteCandidate = nil }
+        }
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    private func load() async {
+        loading = true
+        defer { loading = false }
+        do {
+            let result = try await V3ServiceBridge.shared.request(operation: "certificatesSnapshot")
+            certificates = (result["certificates"] as? [[String: Any]] ?? []).compactMap(V3CertificateRecord.init)
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func mutate(_ operation: String, target: String) async {
+        loading = true
+        defer { loading = false }
+        do {
+            let snapshot = try await V3ServiceBridge.shared.request(operation: operation, target: target)
+            status.accept(snapshot)
+            let result = try await V3ServiceBridge.shared.request(operation: "certificatesSnapshot")
+            certificates = (result["certificates"] as? [[String: Any]] ?? []).compactMap(V3CertificateRecord.init)
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 }
 
@@ -902,141 +2685,406 @@ struct V3OperationSheet: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @Environment(\.dismiss) private var dismiss
     let request: V3OperationRequest
-    @State private var pid: Int32 = 0
-    @State private var ready = false
-    @State private var task: Task<Void, Never>?
-    @State private var message = ""
-    @State private var started = false
+
+    @State private var flow: [String: Any] = [:]
+    @State private var sessionID = ""
+    @State private var localError: String?
+    @State private var submitting = false
+    @State private var selectedExtensions = Set<String>()
+    @State private var customBundleID = ""
+    @State private var appendTeamID = true
+    @State private var lastChallengeID = ""
+
+    private var phase: String { flow["phase"] as? String ?? "starting" }
+    private var kind: String { flow["kind"] as? String ?? "" }
+    private var message: String { flow["message"] as? String ?? "" }
+    private var fields: [String: Any] { flow["fields"] as? [String: Any] ?? [:] }
+    private var challengeID: String { flow["challengeID"] as? String ?? "" }
+    private var terminal: Bool { ["completed", "failed", "cancelled"].contains(phase) }
+
     var body: some View {
         NavigationView {
-            ZStack {
-                Color(UIColor.systemBackground).ignoresSafeArea()
-                if #available(iOS 16.0, *), pid > 0 {
-                    V3RemoteServiceView(pid: pid, ready: $ready)
-                        .ignoresSafeArea(.keyboard, edges: .bottom)
-                } else if pid == 0 && message.isEmpty {
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.2)
-                        Text("Connecting to SideStore…")
-                            .font(.subheadline)
+            List {
+                if let localError {
+                    Section {
+                        Text(localError)
+                            .foregroundColor(.red)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                switch phase {
+                case "starting", "running":
+                    Section {
+                        if let progress = flow["progress"] as? Double {
+                            ProgressView(value: progress)
+                            Text("\(Int(progress * 100))%")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            ProgressView()
+                        }
+                        Text(message.isEmpty ? "Working…" : message)
                             .foregroundColor(.secondary)
                     }
-                } else if #available(iOS 16.0, *) {} else {
-                    Text("Interactive SideStore operations require iOS 16 or later.")
-                        .foregroundColor(.secondary)
-                }
-                
-                if !message.isEmpty {
-                    VStack {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundColor(.orange)
-                                Text("Operation Notice")
-                                    .font(.headline)
-                                Spacer()
-                                Button {
-                                    message = ""
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            Text(message)
-                                .font(.footnote)
-                                .textSelection(.enabled)
-                            HStack {
-                                Button("Copy Diagnostics") {
-                                    UIPasteboard.general.string = message
-                                }
-                                .font(.caption)
-                                Spacer()
-                                Button("Retry") {
-                                    message = ""
-                                    start()
-                                }
-                                .font(.caption)
-                                .buttonStyle(.borderedProminent)
-                            }
+
+                case "requiresInput":
+                    challengeContent
+
+                case "completed":
+                    Section {
+                        Label("Completed", systemImage: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Button("Done") {
+                            finish(result: "completed", detail: "SideStore completed the operation.")
                         }
-                        .padding()
-                        .background(RoundedRectangle(cornerRadius: 14).fill(Color(UIColor.secondarySystemGroupedBackground)))
-                        .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
-                        .padding(.horizontal)
-                        .padding(.top, 8)
-                        Spacer()
                     }
-                    .transition(.move(edge: .top).combined(with: .opacity))
+
+                case "failed":
+                    Section {
+                        Label("Operation Failed", systemImage: "xmark.octagon.fill")
+                            .foregroundColor(.red)
+                        Text(message)
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                        if request.operation != "installSharedIPA" {
+                            Button("Try Again") { Task { await begin() } }
+                        }
+                        Button("Done") {
+                            finish(result: "failed", detail: message)
+                        }
+                    }
+
+                case "cancelled":
+                    Section {
+                        Text("Operation cancelled.")
+                            .foregroundColor(.secondary)
+                        Button("Done") {
+                            finish(result: "cancelled", detail: "The operation was cancelled.")
+                        }
+                    }
+
+                default:
+                    Section {
+                        Text("Unknown operation state.")
+                            .foregroundColor(.secondary)
+                        Button("Cancel", role: .destructive) {
+                            Task { await cancelFlow() }
+                        }
+                    }
                 }
             }
+            .listStyle(.insetGrouped)
             .navigationTitle(request.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        task?.cancel()
-                        dismiss()
+                    Button(terminal ? "Done" : "Cancel") {
+                        if terminal {
+                            finish(result: phase, detail: message)
+                        } else {
+                            Task { await cancelFlow() }
+                        }
                     }
                 }
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .task {
-            do {
-                try await V3ServiceBridge.shared.connect()
-                pid = V3ServiceBridge.shared.processID
-                if !started {
-                    start()
-                }
-            } catch {
-                message = error.localizedDescription
-            }
+            await begin()
+            await monitor()
         }
         .onDisappear {
-            task?.cancel()
+            if !terminal, !sessionID.isEmpty {
+                let id = sessionID
+                Task {
+                    _ = try? await V3ServiceBridge.shared.request(operation: "cancelOperation", target: id)
+                }
+            }
             if request.operation == "installSharedIPA" {
                 LCUtils.appGroupUserDefault.removeObject(forKey: "V3SharedIPA." + request.target)
             }
             status.reload()
         }
     }
-    private func start() {
-        started = true
-        task = Task {
-            do {
-                status.accept(try await V3ServiceBridge.shared.request(operation: request.operation, target: request.target, value: request.value))
-                recordRefresh("completed", "SideStore completed the selected app's refresh. Check its current expiration above.")
-                dismiss()
-            } catch {
-                message = error.localizedDescription
-                started = false
-                recordRefresh("failed", message)
+
+    @ViewBuilder
+    private var challengeContent: some View {
+        let currentFields = fields
+        switch kind {
+        case "sourceAddConfirmation":
+            Section("Source") {
+                detailRow("Name", currentFields["name"] as? String ?? "")
+                detailRow("URL", currentFields["url"] as? String ?? "")
+                if !message.isEmpty { Text(message).foregroundColor(.secondary) }
+                Button("Add Source") {
+                    Task { await respond(["action": "confirm"]) }
+                }
+                Button("Cancel", role: .destructive) {
+                    Task { await cancelFlow() }
+                }
+            }
+
+        case "sourceRemoveConfirmation":
+            Section("Source") {
+                detailRow("Name", currentFields["name"] as? String ?? "")
+                Text(message).foregroundColor(.secondary)
+                Button("Remove Source", role: .destructive) {
+                    Task { await respond(["action": "confirm"]) }
+                }
+                Button("Cancel") { Task { await cancelFlow() } }
+            }
+
+        case "bundleIDMismatch":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                detailRow("Requested", currentFields["targetID"] as? String ?? "")
+                detailRow("Active", currentFields["activeEffectiveID"] as? String ?? "")
+                Button("Proceed") { Task { await respond(["action": "proceed"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "permissionsReview":
+            Section("Permissions") {
+                Text(message).foregroundColor(.secondary)
+                let permissions = currentFields["permissions"] as? [String] ?? []
+                if permissions.isEmpty {
+                    Text("No additional permissions reported.")
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(permissions, id: \.self) {
+                        Text($0).font(.footnote)
+                    }
+                }
+                Button("Continue") { Task { await respond(["action": "continue"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "extensionRemoval":
+            Section("App Extensions") {
+                Text(message).foregroundColor(.secondary)
+                let extensions = currentFields["extensions"] as? [[String: Any]] ?? []
+                ForEach(Array(extensions.enumerated()), id: \.offset) { _, item in
+                    let bundleID = item["bundleID"] as? String ?? ""
+                    let name = item["name"] as? String ?? bundleID
+                    Toggle(isOn: selectionBinding(bundleID)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                            Text(bundleID).font(.caption2).foregroundColor(.secondary)
+                        }
+                    }
+                }
+                if !selectedExtensions.isEmpty {
+                    Button("Remove Selected", role: .destructive) {
+                        Task {
+                            await respond([
+                                "action": "removeSelected",
+                                "bundleIDs": Array(selectedExtensions)
+                            ])
+                        }
+                    }
+                }
+                Button("Remove All Extensions", role: .destructive) {
+                    Task { await respond(["action": "removeAll"]) }
+                }
+                Button("Keep Extensions — Main Profile") {
+                    Task { await respond(["action": "keepMainProfile"]) }
+                }
+                Button("Keep Extensions — Separate App IDs") {
+                    Task { await respond(["action": "keepSeparateProfiles"]) }
+                }
+            }
+
+        case "unsupportedVersion":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                let appName = currentFields["appName"] as? String ?? "App"
+                let version = currentFields["compatibleVersion"] as? String ?? ""
+                Button("Install \(appName) \(version)") {
+                    Task { await respond(["action": "useCompatible"]) }
+                }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "backgroundSuspension":
+            Section {
+                Text(message).foregroundColor(.secondary)
+                Button("Continue") { Task { await respond(["action": "continue"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "bundleIDCustomization":
+            Section("App ID") {
+                Text(message).foregroundColor(.secondary)
+                TextField("Bundle Identifier", text: $customBundleID)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                Toggle("Append Team ID", isOn: $appendTeamID)
+                Button("Confirm") {
+                    Task {
+                        await respond([
+                            "action": "confirm",
+                            "bundleID": customBundleID,
+                            "appendTeamID": appendTeamID
+                        ])
+                    }
+                }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        case "appGroupMismatch":
+            Section("App Group") {
+                Text(message).foregroundColor(.secondary)
+                detailRow("Original", currentFields["originalGroup"] as? String ?? "")
+                detailRow("Corrected", currentFields["correctedGroup"] as? String ?? "")
+                Button("Correct & Proceed") { Task { await respond(["action": "correct"]) } }
+                Button("Keep Original") { Task { await respond(["action": "keep"]) } }
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
+            }
+
+        default:
+            Section {
+                Text(message.isEmpty ? "SideStore requested an unsupported interaction." : message)
+                    .foregroundColor(.secondary)
+                Button("Cancel", role: .destructive) { Task { await cancelFlow() } }
             }
         }
     }
+
+    private func detailRow(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .top) {
+            Text(title)
+            Spacer()
+            Text(value)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+        }
+    }
+
+    private func selectionBinding(_ value: String) -> Binding<Bool> {
+        Binding(
+            get: { selectedExtensions.contains(value) },
+            set: { enabled in
+                if enabled { selectedExtensions.insert(value) }
+                else { selectedExtensions.remove(value) }
+            }
+        )
+    }
+
+    @MainActor
+    private func begin() async {
+        guard !submitting else { return }
+        submitting = true
+        localError = nil
+        defer { submitting = false }
+        do {
+            let result = try await V3ServiceBridge.shared.request(
+                operation: request.operation,
+                target: request.target,
+                value: request.value
+            )
+            if result["sessionID"] as? String != nil {
+                apply(result)
+            } else {
+                status.accept(result)
+                recordRefresh("completed", "SideStore completed the selected app's refresh. Check its current expiration above.")
+                dismiss()
+            }
+        } catch {
+            localError = error.localizedDescription
+            flow = ["phase": "failed", "message": error.localizedDescription]
+            recordRefresh("failed", error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func monitor() async {
+        while !Task.isCancelled {
+            if terminal { return }
+            do { try await Task.sleep(nanoseconds: 300_000_000) }
+            catch { return }
+            guard !sessionID.isEmpty, phase != "requiresInput" else { continue }
+            do {
+                apply(try await V3ServiceBridge.shared.request(operation: "operationState", target: sessionID))
+            } catch is CancellationError {
+                return
+            } catch {
+                localError = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor
+    private func respond(_ values: [String: Any]) async {
+        guard !submitting, !sessionID.isEmpty, !challengeID.isEmpty else { return }
+        submitting = true
+        localError = nil
+        defer { submitting = false }
+
+        var payload = values
+        payload["challengeID"] = challengeID
+        do {
+            apply(try await V3ServiceBridge.shared.request(
+                operation: "operationRespond",
+                target: sessionID,
+                payload: payload
+            ))
+        } catch {
+            localError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func cancelFlow() async {
+        if !sessionID.isEmpty {
+            do {
+                apply(try await V3ServiceBridge.shared.request(operation: "cancelOperation", target: sessionID))
+            } catch {
+                localError = error.localizedDescription
+            }
+        }
+        finish(result: "cancelled", detail: "The operation was cancelled.")
+    }
+
+    @MainActor
+    private func apply(_ value: [String: Any]) {
+        flow = value
+        sessionID = value["sessionID"] as? String ?? sessionID
+
+        let nextChallenge = value["challengeID"] as? String ?? ""
+        if !nextChallenge.isEmpty, nextChallenge != lastChallengeID {
+            lastChallengeID = nextChallenge
+            selectedExtensions.removeAll()
+
+            let nextFields = value["fields"] as? [String: Any] ?? [:]
+            if (value["kind"] as? String) == "bundleIDCustomization" {
+                customBundleID = nextFields["bundleID"] as? String ?? ""
+                appendTeamID = nextFields["appendTeamID"] as? Bool ?? true
+            }
+        }
+
+        if (value["phase"] as? String) == "completed" {
+            status.reload()
+            recordRefresh("completed", "SideStore completed the selected app's refresh. Check its current expiration above.")
+        } else if (value["phase"] as? String) == "failed" {
+            recordRefresh("failed", value["message"] as? String ?? "Operation failed.")
+        }
+    }
+
+    private func finish(result: String, detail: String) {
+        recordRefresh(result, detail)
+        status.reload()
+        dismiss()
+    }
+
     private func recordRefresh(_ result: String, _ detail: String) {
         guard request.operation == "refreshApp" else { return }
-        NotificationCenter.default.post(name: Notification.Name("V3TargetedRefreshResult"), object: nil,
-                                        userInfo: ["result": result, "detail": detail])
-    }
-}
-
-@available(iOS 16.0, *)
-struct V3RemoteServiceView: UIViewControllerRepresentable {
-    let pid: Int32
-    @Binding var ready: Bool
-    func makeCoordinator() -> Coordinator { Coordinator(ready: $ready) }
-    func makeUIViewController(context: Context) -> AppSceneViewController { AppSceneViewController(servicePID: pid, delegate: context.coordinator) }
-    func updateUIViewController(_ controller: AppSceneViewController, context: Context) {}
-    static func dismantleUIViewController(_ controller: AppSceneViewController, coordinator: Coordinator) { controller.appTerminationCleanUp() }
-    final class Coordinator: NSObject, AppSceneViewControllerDelegate {
-        var ready: Binding<Bool>
-        init(ready: Binding<Bool>) { self.ready = ready }
-        func appSceneVCAppDidExit(_ vc: AppSceneViewController!) { ready.wrappedValue = false }
-        func appSceneVC(_ vc: AppSceneViewController!, didInitializeWithError error: Error!) { ready.wrappedValue = error == nil }
-        func appSceneVCWillActivateScene(_ vc: AppSceneViewController!) { DispatchQueue.main.async { self.ready.wrappedValue = true } }
-        func appSceneVC(_ vc: AppSceneViewController!, didUpdateFrom settings: UIMutableApplicationSceneSettings!, transitionContext context: Any!, lifecycleActionType: UInt32) {}
+        NotificationCenter.default.post(
+            name: Notification.Name("V3TargetedRefreshResult"),
+            object: nil,
+            userInfo: ["result": result, "detail": detail]
+        )
     }
 }
 

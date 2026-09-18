@@ -38,7 +38,8 @@ class ServicePatchTests(unittest.TestCase):
              "Utilities/Shared.swift", "Utilities/LCUtilsExtensions.swift", "App/LiveContainerSwiftUIApp.swift", "App/AppDelegate.swift")] +
             ["MultitaskSupport/AppSceneViewController." + suffix for suffix in ("h", "m")] +
             ["LiveContainer/LCBootstrap.m", "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
-            ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift"])
+            ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift", "AltStore/Managing Apps/AppManager.swift",
+             "SideStore/Core/Operations/PipelineExecutor.swift"])
         for source, root, pin, names in zip((live_source, side_source), roots, service.PINS, files):
             for name in names:
                 path = root / name
@@ -260,3 +261,19 @@ print("V3 wire contract PASS")
             subprocess.run([compiler, str(program), "-o", str(executable)], check=True, capture_output=True, text=True)
             result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
             self.assertIn("PASS", result.stdout)
+
+
+    def test_headless_certificate_and_pairing_contract(self):
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        service_source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        for operation in ("certificatesSnapshot", "activateLocalCertificate", "deleteLocalCertificate", "importPairingSharedFile"):
+            self.assertIn('"' + operation + '"', wire)
+        self.assertNotIn('"importPairing"', wire)
+        self.assertIn('case "certificatesSnapshot":', service_source)
+        self.assertIn('case "activateLocalCertificate":', service_source)
+        self.assertIn('case "deleteLocalCertificate":', service_source)
+        self.assertIn('case "importPairingSharedFile":', service_source)
+        self.assertNotIn('case "certificates": content = AnyView(CertificatesView', service_source)
+        self.assertNotIn('case "importPairing":', service_source)
+        self.assertIn('PairingFileManager.shared.savePairingFile(contents: contents)', service_source)
+        self.assertIn('CertificateManager.shared.getAllLocalCertificates()', service_source)
