@@ -28,7 +28,7 @@ public final class V3ServiceBridge {
         try Task.checkCancellation()
         try await connect()
         let id = UUID().uuidString
-        let readOperations: Set<String> = ["snapshot", "catalog", "appIcon", "backupResult", "certificatesSnapshot", "signInState", "operationState"]
+        let readOperations: Set<String> = ["snapshot", "catalog", "appIcon", "backupResult", "certificatesSnapshot", "signInState", "operationState", "settingsPanelSnapshot", "developerServicesSnapshot"]
         let interactiveControlOperations: Set<String> = ["signInRespond", "cancelSignIn", "operationRespond", "cancelOperation"]
         let mutation = !readOperations.contains(operation) && !interactiveControlOperations.contains(operation)
         if mutation {
@@ -45,7 +45,7 @@ public final class V3ServiceBridge {
         if let cursor { message["cursor"] = cursor }
         if let payload {
             let payloadData = try PropertyListSerialization.data(fromPropertyList: payload, format: .binary, options: 0)
-            guard payloadData.count <= 8_192 else {
+            guard payloadData.count <= 32_768 else {
                 throw CombinedFailure(operation: operation, stage: .command, code: .invalidConfiguration, id: id)
             }
             message["payload"] = payloadData
