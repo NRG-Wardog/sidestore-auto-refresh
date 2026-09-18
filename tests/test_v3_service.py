@@ -250,6 +250,7 @@ enum Failure: Error { case native }
             program.write_text((ROOT / "tests/fixtures/v3_bridge_harness.swift").read_text() +
                                (ROOT / "scripts/templates/combined_failure.swift").read_text() +
                                (ROOT / "scripts/templates/combined_service_connection.swift").read_text() +
+                               (ROOT / "scripts/templates/v3_wire_contract.swift").read_text() +
                                (ROOT / "scripts/templates/v3_service_bridge.swift").read_text())
             executable = directory / "bridge-tests"
             compiled = subprocess.run([compiler, "-parse-as-library", str(program), "-o", str(executable)], capture_output=True, text=True)
@@ -364,25 +365,25 @@ print("V3 headless wire contract PASS")
 @main struct PromptGateTests {
     static func main() async throws {
         let center = V3PromptCenter()
-        async let first = center.park(promptID: "p1")
-        async let second = center.park(promptID: "p2")
+        let first = Task { try await center.park(promptID: "p1") }
         try await Task.sleep(nanoseconds: 20_000_000)
         precondition(center.answer(promptID: "p1", answer: ["choice": "proceed"]))
         precondition(!center.answer(promptID: "p1", answer: ["choice": "proceed"]))
         precondition(!center.answer(promptID: "missing", answer: [:]))
-        let firstAnswer = try await first
+        let firstAnswer = try await first.value
         precondition(firstAnswer["choice"] == "proceed")
-        center.cancel(promptID: "p2")
+        let second = Task { try await center.park(promptID: "p2") }
+        try await Task.sleep(nanoseconds: 10_000_000)
+        second.cancel()
         do {
-            _ = try await second
+            _ = try await second.value
             preconditionFailure("cancelled park resumed")
         } catch is CancellationError {}
-        async let third = center.park(promptID: "p3")
+        let third = Task { try await center.park(promptID: "p3") }
         try await Task.sleep(nanoseconds: 10_000_000)
-        let task = Task { try await third }
-        task.cancel()
+        third.cancel()
         do {
-            _ = try await task.value
+            _ = try await third.value
             preconditionFailure("task cancel did not resume")
         } catch is CancellationError {}
         print("V3 prompt gate PASS")
