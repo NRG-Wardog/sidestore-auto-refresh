@@ -955,6 +955,250 @@ struct V3AccountSettings: View {
 
 
 
+
+private struct V3ShareItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct V3HostShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+private struct V3AccountBackupPicker: UIViewControllerRepresentable {
+    let onPick: (URL) -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: false)
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let parent: V3AccountBackupPicker
+        init(parent: V3AccountBackupPicker) { self.parent = parent }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else {
+                parent.onCancel()
+                return
+            }
+            parent.onPick(url)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            parent.onCancel()
+        }
+    }
+}
+
+struct V3AccountBackupView: View {
+    @State private var exportPassword = ""
+    @State private var includeApplePassword = false
+    @State private var importPassword = ""
+    @State private var importApplePassword = ""
+    @State private var pickerPresented = false
+    @State private var shareItem: V3ShareItem?
+    @State private var loading = false
+    @State private var message: String?
+    @State private var error: String?
+    @State private var needsApplePassword = false
+
+    var body: some View {
+        Form {
+            if let error {
+                Section { Text(error).foregroundColor(.red).textSelection(.enabled) }
+            }
+            if let message {
+                Section { Text(message).foregroundColor(.secondary) }
+            }
+
+            Section {
+                SecureField("Backup file password", text: $exportPassword)
+                Toggle("Include Apple ID password", isOn: $includeApplePassword)
+                Button {
+                    Task { await exportAccount() }
+                } label: {
+                    if loading { ProgressView() }
+                    else { Label("Export Account Backup", systemImage: "square.and.arrow.up") }
+                }
+                .disabled(loading || exportPassword.isEmpty)
+            } header: {
+                Text("Export")
+            } footer: {
+                Text("Encryption and account serialization remain inside SideStore. LiveContainer only presents the form and share sheet.")
+            }
+
+            Section {
+                SecureField("Backup file password", text: $importPassword)
+                SecureField("Apple ID password if backup does not contain it", text: $importApplePassword)
+                Button {
+                    pickerPresented = true
+                } label: {
+                    Label("Choose Account Backup", systemImage: "doc.badge.plus")
+                }
+                .disabled(loading || importPassword.isEmpty)
+            } header: {
+                Text("Import")
+            } footer: {
+                Text("The host owns the document picker. SideStore receives a one-use bookmark and performs the existing ImportExport restore.")
+            }
+
+            if needsApplePassword {
+                Section("Complete Import") {
+                    SecureField("Apple ID password", text: $importApplePassword)
+                    Button("Save Apple ID Password") {
+                        Task { await completeImportedAccount() }
+                    }
+                    .disabled(loading || importApplePassword.isEmpty)
+                }
+            }
+        }
+        .navigationTitle("SideStore Backups")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $pickerPresented) {
+            V3AccountBackupPicker(
+                onPick: { url in
+                    pickerPresented = false
+                    Task { await importAccount(url) }
+                },
+                onCancel: { pickerPresented = false }
+            )
+        }
+        .sheet(item: $shareItem, onDismiss: cleanupShareItem) { item in
+            V3HostShareSheet(url: item.url)
+        }
+    }
+
+    @MainActor
+    private func exportAccount() async {
+        guard !loading, !exportPassword.isEmpty else { return }
+        loading = true
+        error = nil
+        message = nil
+        defer {
+            exportPassword = ""
+            loading = false
+        }
+
+        do {
+            let result = try await V3ServiceBridge.shared.request(
+                operation: "backupAccountExport",
+                payload: [
+                    "password": exportPassword,
+                    "includeApplePassword": includeApplePassword
+                ]
+            )
+            guard let data = result["data"] as? Data, !data.isEmpty else {
+                throw NSError(domain: "V3AccountBackup", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "SideStore returned an empty account backup."])
+            }
+            let name = result["fileName"] as? String ?? "SideStoreAccountBackup.sidestore"
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString + "-" + name)
+            try data.write(to: url, options: .atomic)
+            shareItem = V3ShareItem(url: url)
+            message = "Encrypted backup created."
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func importAccount(_ url: URL) async {
+        guard !loading, !importPassword.isEmpty else { return }
+        loading = true
+        error = nil
+        message = nil
+        needsApplePassword = false
+        defer {
+            importPassword = ""
+            loading = false
+        }
+
+        do {
+            guard url.isFileURL else {
+                throw NSError(domain: "V3AccountBackup", code: 2,
+                              userInfo: [NSLocalizedDescriptionKey: "Choose a local backup file."])
+            }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+            let token = UUID().uuidString
+            let bookmark = try url.bookmarkData(
+                options: URL.BookmarkCreationOptions(rawValue: 1 << 11),
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            LCUtils.appGroupUserDefault.set(bookmark, forKey: "V3SharedAccountBackup." + token)
+
+            var payload: [String: Any] = ["password": importPassword]
+            if !importApplePassword.isEmpty { payload["applePassword"] = importApplePassword }
+
+            do {
+                let result = try await V3ServiceBridge.shared.request(
+                    operation: "backupAccountImportSharedFile",
+                    target: token,
+                    payload: payload
+                )
+                needsApplePassword = (result["needsApplePassword"] as? Bool) ?? false
+                let email = result["email"] as? String ?? "account"
+                message = needsApplePassword
+                    ? "Imported \(email). Enter the Apple ID password to complete the account state."
+                    : "Imported \(email) successfully."
+                if !needsApplePassword { importApplePassword = "" }
+            } catch {
+                LCUtils.appGroupUserDefault.removeObject(forKey: "V3SharedAccountBackup." + token)
+                throw error
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func completeImportedAccount() async {
+        guard !loading, !importApplePassword.isEmpty else { return }
+        loading = true
+        error = nil
+        defer {
+            loading = false
+            importApplePassword = ""
+        }
+        do {
+            _ = try await V3ServiceBridge.shared.request(
+                operation: "settingsPanelCommand",
+                target: "backups",
+                payload: [
+                    "action": "setApplePassword",
+                    "password": importApplePassword
+                ]
+            )
+            needsApplePassword = false
+            message = "Imported account credentials completed."
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func cleanupShareItem() {
+        guard let url = shareItem?.url else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+}
+
 private enum V3DeveloperForm: Identifiable {
     case appID
     case appGroup
