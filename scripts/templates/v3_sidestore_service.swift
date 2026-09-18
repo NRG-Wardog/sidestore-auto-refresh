@@ -631,6 +631,7 @@ final class V3SideStoreService: NSObject {
     private var cancellations: [String: () -> Void] = [:]
     private var completed: [String: (data: Data, deadline: Date)] = [:]
     private var mutationID: String?
+    private var signInFlow: V3HeadlessSignInFlow?
     private var finishPanel: (() -> Void)?
     static var presenter: UIViewController {
         if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }),
@@ -685,7 +686,16 @@ final class V3SideStoreService: NSObject {
         }
         guard tasks[id] == nil else { reply(encode(["version": 1, "id": id, "error": "busy",
             "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire])); return }
-        let mutation = !["snapshot", "catalog", "appIcon", "backupResult", "certificatesSnapshot"].contains(operation)
+        let nonMutatingOperations: Set<String> = [
+            "snapshot", "catalog", "appIcon", "backupResult", "certificatesSnapshot",
+            "signInState", "signInRespond", "cancelSignIn"
+        ]
+        let mutation = !nonMutatingOperations.contains(operation)
+        if mutation, operation != "beginSignIn", let flow = signInFlow, !flow.isTerminal {
+            reply(encode(["version": 1, "id": id, "error": "busy",
+                "failure": CombinedFailure(operation: operation, stage: .authentication, code: .busy, id: id, retryable: true).wire]))
+            return
+        }
         guard !mutation || (mutationID == nil && completed.count < 512) else {
             reply(encode(["version": 1, "id": id, "error": "busy",
                 "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire])); return
@@ -713,7 +723,7 @@ final class V3SideStoreService: NSObject {
                 let stage: CombinedFailure.Stage
                 switch operation {
                 case "snapshot": stage = .serviceReadiness
-                case "signIn", "signOut", "syncAppIDs": stage = .authentication
+                case "beginSignIn", "signInState", "signInRespond", "cancelSignIn", "signOut", "syncAppIDs": stage = .authentication
                 case "install", "installURL", "installSharedIPA", "update", "activate": stage = .installation
                 case "refreshApp": stage = .refreshVerification
                 default: stage = .command
@@ -757,6 +767,29 @@ final class V3SideStoreService: NSObject {
         let target = request["target"] as? String ?? ""
         switch operation {
         case "snapshot": return try snapshot()
+        case "beginSignIn":
+            if signInFlow == nil || signInFlow?.isTerminal == true {
+                let flow = V3HeadlessSignInFlow()
+                signInFlow = flow
+                flow.start()
+            }
+            guard let flow = signInFlow else { throw ServiceError.notReady }
+            return flow.snapshot()
+        case "signInState":
+            guard let flow = signInFlow, flow.id == target else { throw ServiceError.notFound }
+            return flow.snapshot()
+        case "signInRespond":
+            guard let flow = signInFlow, flow.id == target,
+                  let data = request["payload"] as? Data,
+                  let payload = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
+                throw ServiceError.invalidRequest
+            }
+            try flow.session.respond(payload)
+            return flow.snapshot()
+        case "cancelSignIn":
+            guard let flow = signInFlow, flow.id == target else { throw ServiceError.notFound }
+            flow.cancel()
+            return flow.snapshot()
         case "appIcon":
             let app: InstalledApp = try object(target)
             guard let image = try await app.loadIcon() else { return [:] }
@@ -875,17 +908,10 @@ final class V3SideStoreService: NSObject {
             query.predicate = NSPredicate(format: "identifier == %@", target)
             guard let source = try context.fetch(query).first else { throw ServiceError.notFound }
             try await AppManager.shared.remove(source, presentingViewController: Self.presenter)
-        case "signIn":
-            try await callback { done in
-                AppManager.shared.signIn(presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
-            }
         case "signOut":
             // Preserve reusable certificate and anisette state, matching upgrade preservation.
             AuthManager.shared.signOut(keepCertificate: true, keepAnisetteData: true)
         case "syncAppIDs":
-            if !AuthManager.shared.isAuthenticated {
-                _ = try await AuthManager.shared.signIn(presentingViewController: Self.presenter)
-            }
             try await callback { done in AppManager.shared.syncAppIDs(completionHandler: done) }
         case "clearCache":
             try await callback { done in AppManager.shared.clearAppCache(completion: done) }
