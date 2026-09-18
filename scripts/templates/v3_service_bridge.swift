@@ -29,7 +29,7 @@ public final class V3ServiceBridge {
         try await connect()
         let id = UUID().uuidString
         let readOperations: Set<String> = ["snapshot", "catalog", "appIcon", "backupResult", "certificatesSnapshot", "signInState"]
-        let interactiveControlOperations: Set<String> = ["beginSignIn", "signInRespond", "cancelSignIn"]
+        let interactiveControlOperations: Set<String> = ["signInRespond", "cancelSignIn"]
         let mutation = !readOperations.contains(operation) && !interactiveControlOperations.contains(operation)
         if mutation {
             guard !isMutating, RefreshHandler.shared.v3RefreshToken == nil else {
@@ -38,7 +38,7 @@ public final class V3ServiceBridge {
             activeMutation = id
         }
         defer { if activeMutation == id { activeMutation = nil } }
-        let timeout = readOperations.contains(operation) || interactiveControlOperations.contains(operation) ? readTimeout : commandTimeout
+        let timeout = readOperations.contains(operation) || interactiveControlOperations.contains(operation) || operation == "beginSignIn" ? readTimeout : commandTimeout
         var message: [String: Any] = ["version": 1, "id": id, "operation": operation,
                                       "target": target, "deadline": Date().addingTimeInterval(timeout)]
         if let value { message["value"] = value }
