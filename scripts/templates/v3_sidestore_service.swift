@@ -1061,6 +1061,584 @@ final class V3SideStoreService: NSObject {
         return try snapshot()
     }
 
+
+    private func decodePayload(_ request: [String: Any]) throws -> [String: Any]? {
+        guard let data = request["payload"] as? Data, data.count <= 32_768 else { return nil }
+        return try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+    }
+
+    private func settingRow(
+        _ type: String,
+        key: String,
+        title: String,
+        value: Any,
+        subtitle: String? = nil,
+        options: [String]? = nil,
+        destructive: Bool = false
+    ) -> [String: Any] {
+        var row: [String: Any] = [
+            "type": type,
+            "key": key,
+            "title": title,
+            "value": value
+        ]
+        if let subtitle { row["subtitle"] = subtitle }
+        if let options { row["options"] = options }
+        if destructive { row["destructive"] = true }
+        return row
+    }
+
+    private func settingSection(_ title: String, rows: [[String: Any]]) -> [String: Any] {
+        ["title": title, "rows": rows]
+    }
+
+    private func settingsPanelSnapshot(_ target: String) async throws -> [String: Any] {
+        switch target {
+        case "connection":
+            let config = ConnectionConfig.shared
+            return [
+                "title": "Connection",
+                "mode": "form",
+                "sections": [
+                    settingSection("Connection Mode", rows: [
+                        settingRow("bool", key: "useLocalVPN", title: "Use Local VPN", value: config.useLocalVPN),
+                        settingRow("text", key: "overrideTunnelPeerIp", title: "Device IP Override", value: config.overrideTunnelPeerIp),
+                        settingRow("text", key: "remoteServerIp", title: "Remote Device IP", value: config.remoteServerIp),
+                        settingRow("integer", key: "remotePairingPortOverride", title: "RemotePair Port Override", value: UserDefaults.standard.remotePairingPortOverride)
+                    ]),
+                    settingSection("WireGuard", rows: [
+                        settingRow("text", key: "wireguardServerHost", title: "Bind Host / IP", value: config.wireguardServerHost),
+                        settingRow("integer", key: "wireguardServerPort", title: "Bind Port", value: Int(config.wireguardServerPort)),
+                        settingRow("bool", key: "alwaysShowWireGuardConfig", title: "Always Show WireGuard Config", value: UserDefaults.standard.alwaysShowWireGuardConfig),
+                        settingRow("bool", key: "acceptIPv6ConnectionConfig", title: "Accept IPv6 Config", value: UserDefaults.standard.acceptIPv6ConnectionConfig)
+                    ]),
+                    settingSection("Live Status", rows: [
+                        settingRow("info", key: "tunnelInterface", title: "Tunnel Interface", value: config.formattedTunnelIface ?? "Unavailable"),
+                        settingRow("info", key: "tunnelPeer", title: "Tunnel Peer", value: config.formattedTunnelPeer ?? "Unavailable"),
+                        settingRow("info", key: "remotePeer", title: "Remote Peer", value: config.remotePeerIp ?? "Unavailable"),
+                        settingRow("info", key: "remoteReachable", title: "Remote Reachable", value: config.remoteReachable ? "Yes" : "No")
+                    ])
+                ],
+                "saveAction": "save"
+            ]
+
+        case "anisette":
+            let manager = AnisetteServersManager.shared
+            let servers = await manager.loadLocalServers()
+            let active = UserDefaults.standard.menuAnisetteURL
+            let offline = await manager.isOfflineMode
+            let importedName = await manager.importedFileName ?? ""
+            return [
+                "title": "Anisette Servers",
+                "mode": "anisette",
+                "active": active,
+                "source": UserDefaults.standard.menuAnisetteList,
+                "offline": offline,
+                "importedFileName": importedName,
+                "servers": servers.map {
+                    ["name": $0.name, "address": $0.address, "hidden": $0.isHidden]
+                }
+            ]
+
+        case "sideSign":
+            let headers = await SideSignConfigManager.shared.loadConfig()
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            let data = try encoder.encode(headers)
+            return [
+                "title": "SideSign Configuration",
+                "mode": "json",
+                "json": String(data: data, encoding: .utf8) ?? "{}"
+            ]
+
+        case "customizations":
+            let backend = UserDefaults.standard.minimuxerGatewayBackend
+            return [
+                "title": "Installation and Signing Options",
+                "mode": "form",
+                "sections": [
+                    settingSection("Anisette", rows: [
+                        settingRow("bool", key: "useOnDeviceAnisette", title: "On-Device Anisette", value: UserDefaults.standard.useOnDeviceAnisette,
+                                   subtitle: "Changing this signs out the backend and requires a SideStore service restart.")
+                    ]),
+                    settingSection("General", rows: [
+                        settingRow("bool", key: "customizeAppId", title: "Customize AppID", value: UserDefaults.standard.customizeAppId),
+                        settingRow("bool", key: "customizeAppExtensions", title: "Customize App Extensions", value: UserDefaults.standard.customizeAppExtensions),
+                        settingRow("bool", key: "autoFixAppGroupIDs", title: "Auto-Fix AppGroup IDs", value: UserDefaults.standard.autoFixAppGroupIDs),
+                        settingRow("bool", key: "preferResignedIPA", title: "Prefer Resigned IPA", value: UserDefaults.standard.preferResignedIPA),
+                        settingRow("bool", key: "isExportResignedAppEnabled", title: "Export Resigned IPAs", value: UserDefaults.standard.isExportResignedAppEnabled),
+                        settingRow("bool", key: "skipNonCopyableBackupFiles", title: "Skip Uncopyable Backup Files", value: UserDefaults.standard.skipNonCopyableBackupFiles)
+                    ]),
+                    settingSection("App Verification", rows: [
+                        settingRow("bool", key: "appVerificationDisabled", title: "Disable All Verifications", value: UserDefaults.standard.appVerificationDisabled),
+                        settingRow("bool", key: "isBundleIDVerificationEnabled", title: "Bundle Identifier Check", value: UserDefaults.standard.isBundleIDVerificationEnabled),
+                        settingRow("bool", key: "isiOSVersionVerificationEnabled", title: "iOS Version Check", value: UserDefaults.standard.isiOSVersionVerificationEnabled),
+                        settingRow("bool", key: "isAppVersionVerificationEnabled", title: "App Version Check", value: UserDefaults.standard.isAppVersionVerificationEnabled),
+                        settingRow("bool", key: "isChecksumVerificationEnabled", title: "Checksum Check", value: UserDefaults.standard.isChecksumVerificationEnabled),
+                        settingRow("bool", key: "isFileSizeVerificationEnabled", title: "App File Size Check", value: UserDefaults.standard.isFileSizeVerificationEnabled),
+                        settingRow("bool", key: "permissionCheckingEnabled", title: "Permission Checks", value: !UserDefaults.standard.permissionCheckingDisabled)
+                    ]),
+                    settingSection("EMProxy & Minimuxer", rows: [
+                        settingRow("bool", key: "enableEMPforWireguard", title: "EMProxy (WireGuard) Server", value: UserDefaults.standard.enableEMPforWireguard,
+                                   subtitle: "Requires backend restart."),
+                        settingRow("option", key: "minimuxerGatewayBackend", title: "Minimuxer Backend", value: backend,
+                                   options: GatewayBackend.allCases.map(\.rawValue))
+                    ])
+                ],
+                "saveAction": "save"
+            ]
+
+        case "health":
+            let config = ConnectionConfig.shared
+            let readiness = await minimuxer.core.isReady(withDDIMountCheck: true)
+            return [
+                "title": "Health Check",
+                "mode": "info",
+                "sections": [
+                    settingSection("Core Requirements", rows: [
+                        settingRow("info", key: "readiness", title: "Minimuxer", value: String(describing: readiness)),
+                        settingRow("info", key: "pairing", title: "Pairing File", value: PairingFileManager.shared.fetchPairingFile() == nil ? "Missing" : "Loaded"),
+                        settingRow("info", key: "tunnelPeer", title: "Tunnel Peer", value: config.formattedTunnelPeer ?? "Unavailable"),
+                        settingRow("info", key: "remoteReachable", title: "Remote Reachable", value: config.remoteReachable ? "Yes" : "No")
+                    ])
+                ]
+            ]
+
+        case "sideJIT":
+            return [
+                "title": "SideJIT Server",
+                "mode": "form",
+                "sections": [
+                    settingSection("Server", rows: [
+                        settingRow("bool", key: "isSideJITServerEnabled", title: "Enable SideJITServer", value: UserDefaults.standard.isSideJITServerEnabled),
+                        settingRow("text", key: "textInputSideJITServerurl", title: "Server Address", value: UserDefaults.standard.textInputSideJITServerurl ?? "",
+                                   subtitle: "Leave empty for Bonjour discovery.")
+                    ])
+                ],
+                "saveAction": "save"
+            ]
+
+        case "releaseTrack":
+            let current = UserDefaults.standard.betaUdpatesTrack ?? UserDefaults.defaultBetaUpdatesTrack
+            let tracks = [current] + ReleaseTrackType.betaTracks.map(\.rawValue).filter { $0 != current }
+            return [
+                "title": "Update Channel",
+                "mode": "form",
+                "sections": [
+                    settingSection("Updates", rows: [
+                        settingRow("option", key: "betaUpdatesTrack", title: "Beta Update Channel", value: current, options: tracks)
+                    ])
+                ],
+                "saveAction": "save"
+            ]
+
+        case "diagnostics":
+            return [
+                "title": "SideStore Diagnostics",
+                "mode": "form",
+                "sections": [
+                    settingSection("Logging", rows: [
+                        settingRow("bool", key: "responseCachingDisabled", title: "Disable URL Response Caching", value: UserDefaults.standard.responseCachingDisabled),
+                        settingRow("bool", key: "isRotateLogsOnStartupEnabled", title: "Rotate Logs on Startup", value: UserDefaults.standard.isRotateLogsOnStartupEnabled),
+                        settingRow("bool", key: "isSideStoreVerboseLoggingEnabled", title: "SideStore Verbose Logging", value: UserDefaults.standard.isSideStoreVerboseLoggingEnabled),
+                        settingRow("bool", key: "isAltSignVerboseLoggingEnabled", title: "SideSign Verbose Logging", value: UserDefaults.standard.isAltSignVerboseLoggingEnabled),
+                        settingRow("bool", key: "isMinimuxerVerboseLoggingEnabled", title: "Minimuxer Verbose Logging", value: UserDefaults.standard.isMinimuxerVerboseLoggingEnabled),
+                        settingRow("bool", key: "isVerboseOperationsLoggingEnabled", title: "Operations Verbose Logging", value: UserDefaults.standard.isVerboseOperationsLoggingEnabled)
+                    ]),
+                    settingSection("Database & Connection", rows: [
+                        settingRow("bool", key: "recreateDatabaseOnNextStart", title: "Recreate Database on Next Start", value: UserDefaults.standard.recreateDatabaseOnNextStart),
+                        settingRow("bool", key: "alwaysShowWireGuardConfig", title: "Always Show WireGuard Config", value: UserDefaults.standard.alwaysShowWireGuardConfig),
+                        settingRow("bool", key: "acceptIPv6ConnectionConfig", title: "Accept IPv6 Connection Config", value: UserDefaults.standard.acceptIPv6ConnectionConfig)
+                    ])
+                ],
+                "saveAction": "save"
+            ]
+
+        case "experimental":
+            return [
+                "title": "Experimental Features",
+                "mode": "form",
+                "sections": [
+                    settingSection("Feature Flags", rows: [
+                        settingRow("bool", key: "isCellularRefreshEnabled", title: "Cellular Refresh", value: UserDefaults.standard.isCellularRefreshEnabled)
+                    ])
+                ],
+                "saveAction": "save"
+            ]
+
+        case "logs":
+            guard let delegate = UIApplication.shared.delegate as? AppDelegate else { throw ServiceError.notReady }
+            let url = delegate.consoleLog.logFileURL
+            let data = (try? Data(contentsOf: url)) ?? Data()
+            let tail = data.suffix(262_144)
+            let text = String(data: tail, encoding: .utf8) ?? String(decoding: tail, as: UTF8.self)
+            return [
+                "title": "Operation Logs",
+                "mode": "log",
+                "text": text
+            ]
+
+        case "backups":
+            return [
+                "title": "SideStore Backups",
+                "mode": "backup",
+                "account": AuthManager.shared.currentAppleID ?? ""
+            ]
+
+        default:
+            throw ServiceError.invalidRequest
+        }
+    }
+
+    private func settingsPanelCommand(_ target: String, payload: [String: Any]) async throws -> [String: Any] {
+        guard let action = payload["action"] as? String else { throw ServiceError.invalidRequest }
+
+        switch target {
+        case "connection":
+            guard action == "save", let values = payload["values"] as? [String: Any] else {
+                throw ServiceError.invalidRequest
+            }
+            let config = ConnectionConfig.shared
+            if let value = values["useLocalVPN"] as? Bool { config.useLocalVPN = value }
+            if let value = values["overrideTunnelPeerIp"] as? String { config.overrideTunnelPeerIp = value.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if let value = values["remoteServerIp"] as? String { config.remoteServerIp = value.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if let value = values["wireguardServerHost"] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                config.wireguardServerHost = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if let number = values["wireguardServerPort"] as? NSNumber {
+                let port = number.intValue
+                guard (1...65535).contains(port) else { throw ServiceError.invalidRequest }
+                config.wireguardServerPort = UInt16(port)
+            }
+            if let number = values["remotePairingPortOverride"] as? NSNumber {
+                let port = number.intValue
+                guard port == 0 || (1...65535).contains(port) else { throw ServiceError.invalidRequest }
+                UserDefaults.standard.remotePairingPortOverride = port
+            }
+            if let value = values["alwaysShowWireGuardConfig"] as? Bool {
+                UserDefaults.standard.alwaysShowWireGuardConfig = value
+            }
+            if let value = values["acceptIPv6ConnectionConfig"] as? Bool {
+                UserDefaults.standard.acceptIPv6ConnectionConfig = value
+            }
+            syncMinimuxerBackendFromUserDefaults()
+            await bindConnectionConfig()
+
+        case "anisette":
+            let manager = AnisetteServersManager.shared
+            switch action {
+            case "select":
+                guard let address = payload["address"] as? String else { throw ServiceError.invalidRequest }
+                let servers = await manager.loadLocalServers()
+                guard servers.contains(where: { !$0.isHidden && $0.address == address }) else { throw ServiceError.invalidRequest }
+                UserDefaults.standard.menuAnisetteURL = address
+            case "toggleHidden":
+                guard let address = payload["address"] as? String,
+                      let hidden = payload["hidden"] as? Bool else { throw ServiceError.invalidRequest }
+                var servers = await manager.loadLocalServers()
+                guard let index = servers.firstIndex(where: { $0.address == address }) else { throw ServiceError.notFound }
+                servers[index].isHidden = hidden
+                await manager.saveLocalServers(servers)
+            case "sync":
+                _ = try await manager.syncWithRemote(forceRemote: true)
+            case "reset":
+                _ = try await manager.resetToOriginalState()
+            case "setSource":
+                guard let source = payload["source"] as? String, let url = URL(string: source),
+                      ["https", "http"].contains(url.scheme?.lowercased() ?? "") else { throw ServiceError.invalidRequest }
+                UserDefaults.standard.menuAnisetteList = source
+                _ = try await manager.syncWithRemote(sourceURLString: source, forceRemote: true)
+            case "resetAdi":
+                let keepHeaders = payload["keepHeaders"] as? Bool ?? true
+                AuthManager.shared.signOut(keepCertificate: true, keepAnisetteData: false, keepAnisetteHeaders: keepHeaders)
+            default:
+                throw ServiceError.invalidRequest
+            }
+
+        case "sideSign":
+            switch action {
+            case "saveRaw":
+                guard let json = payload["json"] as? String,
+                      json.utf8.count <= 24_000,
+                      let data = json.data(using: .utf8) else { throw ServiceError.invalidRequest }
+                let headers = try JSONDecoder().decode(SideSignHeaders.self, from: data)
+                await SideSignConfigManager.shared.saveConfig(headers)
+            case "reset":
+                _ = await SideSignConfigManager.shared.resetToDefaults()
+            default:
+                throw ServiceError.invalidRequest
+            }
+
+        case "customizations":
+            guard action == "save", let values = payload["values"] as? [String: Any] else {
+                throw ServiceError.invalidRequest
+            }
+            if let value = values["customizeAppId"] as? Bool { UserDefaults.standard.customizeAppId = value }
+            if let value = values["customizeAppExtensions"] as? Bool { UserDefaults.standard.customizeAppExtensions = value }
+            if let value = values["autoFixAppGroupIDs"] as? Bool { UserDefaults.standard.autoFixAppGroupIDs = value }
+            if let value = values["preferResignedIPA"] as? Bool { UserDefaults.standard.preferResignedIPA = value }
+            if let value = values["isExportResignedAppEnabled"] as? Bool { UserDefaults.standard.isExportResignedAppEnabled = value }
+            if let value = values["skipNonCopyableBackupFiles"] as? Bool { UserDefaults.standard.skipNonCopyableBackupFiles = value }
+            if let value = values["appVerificationDisabled"] as? Bool { UserDefaults.standard.appVerificationDisabled = value }
+            if let value = values["isBundleIDVerificationEnabled"] as? Bool { UserDefaults.standard.isBundleIDVerificationEnabled = value }
+            if let value = values["isiOSVersionVerificationEnabled"] as? Bool { UserDefaults.standard.isiOSVersionVerificationEnabled = value }
+            if let value = values["isAppVersionVerificationEnabled"] as? Bool { UserDefaults.standard.isAppVersionVerificationEnabled = value }
+            if let value = values["isChecksumVerificationEnabled"] as? Bool { UserDefaults.standard.isChecksumVerificationEnabled = value }
+            if let value = values["isFileSizeVerificationEnabled"] as? Bool { UserDefaults.standard.isFileSizeVerificationEnabled = value }
+            if let value = values["permissionCheckingEnabled"] as? Bool { UserDefaults.standard.permissionCheckingDisabled = !value }
+            if let value = values["enableEMPforWireguard"] as? Bool { UserDefaults.standard.enableEMPforWireguard = value }
+            if let value = values["minimuxerGatewayBackend"] as? String,
+               GatewayBackend.allCases.map(\.rawValue).contains(value) {
+                UserDefaults.standard.minimuxerGatewayBackend = value
+            }
+            if let value = values["useOnDeviceAnisette"] as? Bool,
+               value != UserDefaults.standard.useOnDeviceAnisette {
+                AuthManager.shared.signOut(keepCertificate: true, keepAnisetteData: false)
+                UserDefaults.standard.useOnDeviceAnisette = value
+            }
+            UserDefaults.standard.synchronize()
+
+        case "sideJIT":
+            guard action == "save", let values = payload["values"] as? [String: Any] else {
+                throw ServiceError.invalidRequest
+            }
+            if let value = values["isSideJITServerEnabled"] as? Bool {
+                UserDefaults.standard.isSideJITServerEnabled = value
+            }
+            if let value = values["textInputSideJITServerurl"] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                UserDefaults.standard.textInputSideJITServerurl = trimmed.isEmpty ? nil : trimmed
+            }
+
+        case "releaseTrack":
+            guard action == "save", let values = payload["values"] as? [String: Any],
+                  let value = values["betaUpdatesTrack"] as? String else { throw ServiceError.invalidRequest }
+            let allowed = Set(ReleaseTrackType.betaTracks.map(\.rawValue) + [UserDefaults.defaultBetaUpdatesTrack])
+            guard allowed.contains(value) else { throw ServiceError.invalidRequest }
+            UserDefaults.standard.betaUdpatesTrack = value
+
+        case "diagnostics":
+            guard action == "save", let values = payload["values"] as? [String: Any] else {
+                throw ServiceError.invalidRequest
+            }
+            if let value = values["responseCachingDisabled"] as? Bool { UserDefaults.standard.responseCachingDisabled = value }
+            if let value = values["isRotateLogsOnStartupEnabled"] as? Bool { UserDefaults.standard.isRotateLogsOnStartupEnabled = value }
+            if let value = values["isSideStoreVerboseLoggingEnabled"] as? Bool {
+                UserDefaults.standard.isSideStoreVerboseLoggingEnabled = value
+                SideStoreLogging.setLogging(value)
+            }
+            if let value = values["isAltSignVerboseLoggingEnabled"] as? Bool {
+                UserDefaults.standard.isAltSignVerboseLoggingEnabled = value
+                SideSignLogging.setLogging(value)
+            }
+            if let value = values["isMinimuxerVerboseLoggingEnabled"] as? Bool {
+                UserDefaults.standard.isMinimuxerVerboseLoggingEnabled = value
+                minimuxerSetLogging(value)
+            }
+            if let value = values["isVerboseOperationsLoggingEnabled"] as? Bool {
+                UserDefaults.standard.isVerboseOperationsLoggingEnabled = value
+            }
+            if let value = values["recreateDatabaseOnNextStart"] as? Bool {
+                UserDefaults.standard.recreateDatabaseOnNextStart = value
+            }
+            if let value = values["alwaysShowWireGuardConfig"] as? Bool {
+                UserDefaults.standard.alwaysShowWireGuardConfig = value
+            }
+            if let value = values["acceptIPv6ConnectionConfig"] as? Bool {
+                UserDefaults.standard.acceptIPv6ConnectionConfig = value
+            }
+
+        case "experimental":
+            guard action == "save", let values = payload["values"] as? [String: Any],
+                  let enabled = values["isCellularRefreshEnabled"] as? Bool else {
+                throw ServiceError.invalidRequest
+            }
+            CellularRefreshManager.shared.setEnabled(enabled)
+
+        case "logs", "health", "backups":
+            guard action == "refresh" else { throw ServiceError.invalidRequest }
+
+        default:
+            throw ServiceError.invalidRequest
+        }
+
+        return try await settingsPanelSnapshot(target)
+    }
+
+    private func developerServicesSnapshot() async throws -> [String: Any] {
+        guard let team = AuthManager.shared.team else { throw ServiceError.notReady }
+
+        async let appIDsTask = DeveloperPortalProxy.shared.fetchAppIDs()
+        async let profilesTask = DeveloperPortalProxy.shared.listProvisioningProfiles()
+        async let groupsTask = DeveloperPortalProxy.shared.fetchAppGroups()
+        async let devicesTask = DeveloperPortalProxy.shared.fetchDevices(types: .all)
+        async let certsTask = DeveloperPortalProxy.shared.fetchCertificates()
+
+        let (appIDs, profiles, groups, devices, certificates) =
+            try await (appIDsTask, profilesTask, groupsTask, devicesTask, certsTask)
+
+        return [
+            "team": [
+                "id": team.identifier,
+                "name": team.name,
+                "type": team.type.displayName,
+                "paid": team.isPaid
+            ],
+            "appIDs": appIDs.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }.map {
+                [
+                    "id": $0.identifier,
+                    "name": $0.name,
+                    "bundleID": $0.bundleIdentifier,
+                    "featureCount": $0.features.count
+                ] as [String: Any]
+            },
+            "profiles": profiles.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }.map {
+                [
+                    "id": $0.identifier ?? "",
+                    "uuid": $0.uuid.uuidString,
+                    "name": $0.name,
+                    "bundleID": $0.bundleIdentifier ?? "",
+                    "expires": $0.dateExpire
+                ] as [String: Any]
+            },
+            "appGroups": groups.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }.map {
+                [
+                    "id": $0.identifier,
+                    "name": $0.name,
+                    "groupIdentifier": $0.groupIdentifier
+                ] as [String: Any]
+            },
+            "devices": devices.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }.map {
+                [
+                    "id": $0.identifier,
+                    "name": $0.name,
+                    "type": $0.type.displayName,
+                    "status": $0.status
+                ] as [String: Any]
+            },
+            "certificates": certificates.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }.map {
+                [
+                    "serial": $0.serialNumber,
+                    "name": $0.name,
+                    "expires": $0.expiryDate,
+                    "machineName": $0.machineName ?? ""
+                ] as [String: Any]
+            }
+        ]
+    }
+
+    private func developerServicesCommand(_ payload: [String: Any]) async throws {
+        guard let action = payload["action"] as? String else { throw ServiceError.invalidRequest }
+
+        switch action {
+        case "refresh":
+            AuthManager.shared.session = nil
+
+        case "createAppID":
+            guard let name = payload["name"] as? String,
+                  let bundleID = payload["bundleID"] as? String,
+                  !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !bundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ServiceError.invalidRequest
+            }
+            _ = try await DeveloperPortalProxy.shared.addAppID(
+                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                bundleIdentifier: bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+
+        case "deleteAppID":
+            guard let id = payload["id"] as? String else { throw ServiceError.invalidRequest }
+            let items = try await DeveloperPortalProxy.shared.fetchAppIDs()
+            guard let item = items.first(where: { $0.identifier == id }) else { throw ServiceError.notFound }
+            _ = try await DeveloperPortalProxy.shared.deleteAppID(item)
+
+        case "generateProfile":
+            guard let id = payload["appID"] as? String else { throw ServiceError.invalidRequest }
+            let items = try await DeveloperPortalProxy.shared.fetchAppIDs()
+            guard let item = items.first(where: { $0.identifier == id }) else { throw ServiceError.notFound }
+            _ = try await DeveloperPortalProxy.shared.downloadProvisioningProfile(
+                for: item,
+                deviceType: DeveloperPortalProxy.currentDeviceType
+            )
+
+        case "deleteProfile":
+            guard let id = payload["id"] as? String, !id.isEmpty else { throw ServiceError.invalidRequest }
+            _ = try await DeveloperPortalProxy.shared.deleteProvisioningProfile(profileID: id)
+
+        case "deleteAllProfiles":
+            let profiles = try await DeveloperPortalProxy.shared.listProvisioningProfiles()
+            for profile in profiles {
+                if let id = profile.identifier {
+                    _ = try await DeveloperPortalProxy.shared.deleteProvisioningProfile(profileID: id)
+                }
+            }
+
+        case "revokeCertificate":
+            guard let serial = payload["serial"] as? String else { throw ServiceError.invalidRequest }
+            let certs = try await DeveloperPortalProxy.shared.fetchCertificates()
+            guard let cert = certs.first(where: { $0.serialNumber == serial }) else { throw ServiceError.notFound }
+            _ = try await DeveloperPortalProxy.shared.revokeCertificate(cert)
+
+        case "createAppGroup":
+            guard let name = payload["name"] as? String,
+                  let identifier = payload["groupIdentifier"] as? String else { throw ServiceError.invalidRequest }
+            _ = try await DeveloperPortalProxy.shared.addAppGroup(name: name, groupIdentifier: identifier)
+
+        case "renameAppGroup":
+            guard let id = payload["id"] as? String,
+                  let name = payload["name"] as? String else { throw ServiceError.invalidRequest }
+            let groups = try await DeveloperPortalProxy.shared.fetchAppGroups()
+            guard var group = groups.first(where: { $0.identifier == id }) else { throw ServiceError.notFound }
+            group.name = name
+            _ = try await DeveloperPortalProxy.shared.updateAppGroup(group)
+
+        case "deleteAppGroup":
+            guard let id = payload["id"] as? String else { throw ServiceError.invalidRequest }
+            let groups = try await DeveloperPortalProxy.shared.fetchAppGroups()
+            guard let group = groups.first(where: { $0.identifier == id }) else { throw ServiceError.notFound }
+            _ = try await DeveloperPortalProxy.shared.deleteAppGroup(group)
+
+        case "registerDevice":
+            guard let name = payload["name"] as? String,
+                  let identifier = payload["identifier"] as? String,
+                  let typeName = payload["type"] as? String else { throw ServiceError.invalidRequest }
+            let type: ALTDeviceType
+            switch typeName.lowercased() {
+            case "iphone": type = .iphone
+            case "ipad": type = .ipad
+            case "apple tv", "appletv": type = .appleTV
+            case "apple watch", "applewatch": type = .appleWatch
+            case "mac": type = .mac
+            case "vision pro", "visionpro": type = .visionPro
+            default: throw ServiceError.invalidRequest
+            }
+            _ = try await DeveloperPortalProxy.shared.registerDevice(name: name, identifier: identifier, type: type)
+
+        case "renameDevice":
+            guard let id = payload["id"] as? String,
+                  let name = payload["name"] as? String else { throw ServiceError.invalidRequest }
+            let devices = try await DeveloperPortalProxy.shared.fetchDevices(types: .all)
+            guard var device = devices.first(where: { $0.identifier == id }) else { throw ServiceError.notFound }
+            device.name = name
+            _ = try await DeveloperPortalProxy.shared.updateDevice(device)
+
+        case "disableDevice":
+            guard let id = payload["id"] as? String else { throw ServiceError.invalidRequest }
+            let devices = try await DeveloperPortalProxy.shared.fetchDevices(types: .all)
+            guard let device = devices.first(where: { $0.identifier == id }) else { throw ServiceError.notFound }
+            _ = try await DeveloperPortalProxy.shared.disableDevice(device)
+
+        case "deleteDevice":
+            guard let id = payload["id"] as? String else { throw ServiceError.invalidRequest }
+            let devices = try await DeveloperPortalProxy.shared.fetchDevices(types: .all)
+            guard let device = devices.first(where: { $0.identifier == id }) else { throw ServiceError.notFound }
+            _ = try await DeveloperPortalProxy.shared.deleteDevice(device)
+
+        default:
+            throw ServiceError.invalidRequest
+        }
+    }
+
     private func beginHeadlessOperation(_ operation: String, target: String) async throws -> [String: Any] {
         guard operationFlow == nil || operationFlow?.isTerminal == true else { throw ServiceError.busy }
 
