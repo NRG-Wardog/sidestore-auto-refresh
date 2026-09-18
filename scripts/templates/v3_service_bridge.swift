@@ -24,11 +24,13 @@ public final class V3ServiceBridge {
         try await RefreshHandler.shared.ensureServiceConnected()
     }
 
-    public func request(operation: String, target: String = "", value: Bool? = nil, cursor: Int? = nil) async throws -> [String: Any] {
+    public func request(operation: String, target: String = "", value: Bool? = nil, cursor: Int? = nil, payload: [String: Any]? = nil) async throws -> [String: Any] {
         try Task.checkCancellation()
         try await connect()
         let id = UUID().uuidString
-        let mutation = !["snapshot", "catalog", "appIcon", "backupResult"].contains(operation)
+        let readOperations: Set<String> = ["snapshot", "catalog", "appIcon", "backupResult", "certificatesSnapshot", "signInState"]
+        let interactiveControlOperations: Set<String> = ["beginSignIn", "signInRespond", "cancelSignIn"]
+        let mutation = !readOperations.contains(operation) && !interactiveControlOperations.contains(operation)
         if mutation {
             guard !isMutating, RefreshHandler.shared.v3RefreshToken == nil else {
                 throw CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
@@ -36,11 +38,18 @@ public final class V3ServiceBridge {
             activeMutation = id
         }
         defer { if activeMutation == id { activeMutation = nil } }
-        let timeout = ["snapshot", "catalog", "appIcon"].contains(operation) ? readTimeout : commandTimeout
+        let timeout = readOperations.contains(operation) || interactiveControlOperations.contains(operation) ? readTimeout : commandTimeout
         var message: [String: Any] = ["version": 1, "id": id, "operation": operation,
                                       "target": target, "deadline": Date().addingTimeInterval(timeout)]
         if let value { message["value"] = value }
         if let cursor { message["cursor"] = cursor }
+        if let payload {
+            let payloadData = try PropertyListSerialization.data(fromPropertyList: payload, format: .binary, options: 0)
+            guard payloadData.count <= 8_192 else {
+                throw CombinedFailure(operation: operation, stage: .command, code: .invalidConfiguration, id: id)
+            }
+            message["payload"] = payloadData
+        }
         let data = try PropertyListSerialization.data(fromPropertyList: message, format: .binary, options: 0)
         guard data.count <= 16384 else { throw CombinedFailure(operation: operation, stage: .command, code: .invalidConfiguration, id: id) }
         let response: Data = try await withTaskCancellationHandler(operation: {
