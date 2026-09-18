@@ -56,6 +56,17 @@ private final class V3HeadlessInteractionSession {
         state = ["phase": phase, "message": bounded(message)]
     }
 
+    func setProgress(_ fraction: Double, message: String) {
+        guard !isTerminal, phase == "running" else { return }
+        revision += 1
+        let boundedFraction = min(max(fraction, 0), 1)
+        state = [
+            "phase": phase,
+            "message": bounded(message),
+            "progress": boundedFraction
+        ]
+    }
+
     func complete(_ fields: [String: Any] = [:]) {
         guard !isTerminal else { return }
         revision += 1
@@ -620,6 +631,94 @@ private final class V3HeadlessSignInFlow: NSObject, SignInHandler, AnisetteServe
             default: throw V3HeadlessFlowError.invalidResponse
             }
         }
+    }
+}
+
+
+@MainActor
+private final class V3HeadlessOperationFlow {
+    let session: V3HeadlessInteractionSession
+    private var task: Task<Void, Never>?
+    private var progressTask: Task<Void, Never>?
+    private var progress: Progress?
+    private var cancelAction: (() -> Void)?
+    private var scopedURL: URL?
+
+    init(title: String) {
+        session = V3HeadlessInteractionSession(title: title)
+    }
+
+    var id: String { session.id }
+    var isTerminal: Bool { session.isTerminal }
+    func snapshot() -> [String: Any] { session.snapshot() }
+
+    func start(_ work: @escaping @MainActor (V3HeadlessPipelineHandler, V3HeadlessOperationFlow) async throws -> [String: Any]) {
+        guard task == nil else { return }
+        session.setRunning("Starting…")
+        let handler = V3HeadlessPipelineHandler(session: session)
+        task = Task { @MainActor in
+            do {
+                let result = try await work(handler, self)
+                stopTrackingProgress()
+                releaseScopedURL()
+                session.complete(result)
+            } catch {
+                stopTrackingProgress()
+                releaseScopedURL()
+                if Task.isCancelled || error is CancellationError {
+                    session.cancel()
+                } else {
+                    session.fail(error)
+                }
+            }
+        }
+    }
+
+    func track(_ progress: Progress, cancel: (() -> Void)? = nil) {
+        self.progress = progress
+        self.cancelAction = cancel
+        progressTask?.cancel()
+        progressTask = Task { @MainActor in
+            while !Task.isCancelled, !session.isTerminal {
+                if !progress.isIndeterminate {
+                    session.setProgress(progress.fractionCompleted, message: "Working…")
+                }
+                do { try await Task.sleep(nanoseconds: 250_000_000) }
+                catch { return }
+            }
+        }
+    }
+
+    func retainSecurityScopedURL(_ url: URL) {
+        releaseScopedURL()
+        if url.startAccessingSecurityScopedResource() {
+            scopedURL = url
+        }
+    }
+
+    func cancel() {
+        cancelAction?()
+        progress?.cancel()
+        task?.cancel()
+        stopTrackingProgress()
+        releaseScopedURL()
+        session.cancel()
+    }
+
+    private func stopTrackingProgress() {
+        progressTask?.cancel()
+        progressTask = nil
+        progress = nil
+        cancelAction = nil
+    }
+
+    private func releaseScopedURL() {
+        scopedURL?.stopAccessingSecurityScopedResource()
+        scopedURL = nil
+    }
+
+    deinit {
+        scopedURL?.stopAccessingSecurityScopedResource()
     }
 }
 
