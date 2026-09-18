@@ -880,7 +880,11 @@ struct V3AccountSettings: View {
             } label: {
                 Label("Certificates", systemImage: "doc.text")
             }
-            panel("Developer Services", "developerServices", icon: "wrench.and.screwdriver")
+            NavigationLink {
+                V3DeveloperServicesView()
+            } label: {
+                Label("Developer Services", systemImage: "wrench.and.screwdriver")
+            }
             Button(role: .destructive) {
                 status.signOut()
             } label: {
@@ -901,19 +905,23 @@ struct V3AccountSettings: View {
             } label: {
                 Label("Import Pairing File", systemImage: "doc.badge.plus")
             }
-            panel("Connection", "connection", icon: "network")
-            panel("Anisette Servers", "anisette", icon: "server.rack")
-            panel("SideSign Configuration", "sideSign", icon: "pencil.and.outline")
-            panel("Installation and Signing Options", "customizations", icon: "slider.horizontal.3")
-            panel("Health Check", "health", icon: "heart.text.square")
-            panel("SideStore Backups", "backups", icon: "archivebox")
-            panel("SideJIT Server", "sideJIT", icon: "bolt.fill")
+            advancedPanel("Connection", "connection", icon: "network")
+            advancedPanel("Anisette Servers", "anisette", icon: "server.rack")
+            advancedPanel("SideSign Configuration", "sideSign", icon: "pencil.and.outline")
+            advancedPanel("Installation and Signing Options", "customizations", icon: "slider.horizontal.3")
+            advancedPanel("Health Check", "health", icon: "heart.text.square")
+            NavigationLink {
+                V3AccountBackupView()
+            } label: {
+                Label("SideStore Backups", systemImage: "archivebox")
+            }
+            advancedPanel("SideJIT Server", "sideJIT", icon: "bolt.fill")
             setting("Beta updates", "betaUpdates", icon: "sparkles")
             setting("Disable idle timeout", "idleTimeoutDisabled", icon: "timer")
-            panel("Update Channel", "releaseTrack", icon: "arrow.triangle.merge")
-            panel("SideStore Diagnostics", "diagnostics", icon: "waveform.path.ecg")
-            panel("Operation Logs", "logs", icon: "doc.text.magnifyingglass")
-            panel("Experimental Features", "experimental", icon: "flask")
+            advancedPanel("Update Channel", "releaseTrack", icon: "arrow.triangle.merge")
+            advancedPanel("SideStore Diagnostics", "diagnostics", icon: "waveform.path.ecg")
+            advancedPanel("Operation Logs", "logs", icon: "doc.text.magnifyingglass")
+            advancedPanel("Experimental Features", "experimental", icon: "flask")
             Button {
                 status.clearCache()
             } label: {
@@ -929,17 +937,11 @@ struct V3AccountSettings: View {
             }
         }
     }
-    private func panel(_ title: String, _ key: String, icon: String) -> some View {
-        Button {
-            status.perform("panel", target: key, title: title)
+    private func advancedPanel(_ title: String, _ key: String, icon: String) -> some View {
+        NavigationLink {
+            V3HeadlessSettingsPanelView(title: title, key: key)
         } label: {
-            HStack {
-                Label(title, systemImage: icon)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+            Label(title, systemImage: icon)
         }
     }
     private func setting(_ title: String, _ key: String, icon: String) -> some View {
