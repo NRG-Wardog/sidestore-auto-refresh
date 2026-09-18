@@ -82,7 +82,7 @@ final class V3SideStoreService: NSObject {
         }
         guard tasks[id] == nil else { reply(encode(["version": 1, "id": id, "error": "busy",
             "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire])); return }
-        let mutation = !["snapshot", "catalog", "appIcon", "backupResult"].contains(operation)
+        let mutation = !["snapshot", "catalog", "appIcon", "backupResult", "certificatesSnapshot"].contains(operation)
         guard !mutation || (mutationID == nil && completed.count < 512) else {
             reply(encode(["version": 1, "id": id, "error": "busy",
                 "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire])); return
@@ -175,7 +175,6 @@ final class V3SideStoreService: NSObject {
             let controller = UIHostingController(rootView: AnyView(EmptyView()))
             let content: AnyView
             switch target {
-            case "certificates": content = AnyView(CertificatesView(presentingViewController: controller))
             case "developerServices": content = AnyView(DeveloperServicesView(presentingViewController: controller))
             case "connection": content = AnyView(ConnectionConfigView())
             case "anisette": content = AnyView(AnisetteServersView(selected: UserDefaults.standard.menuAnisetteURL, onResetAdiPb: {}))
@@ -203,8 +202,42 @@ final class V3SideStoreService: NSObject {
                 self.cancellations[id] = { self.closePanel() }
                 Self.presenter.present(navigation, animated: true)
             }
-        case "importPairing":
-            _ = try await PairingFileManager.shared.importPairingFile(presentingVC: Self.presenter, title: "Pairing File", message: "Select a pairing file")
+        case "importPairingSharedFile":
+            guard UUID(uuidString: target) != nil, let group = Bundle.main.altstoreAppGroup,
+                  let defaults = UserDefaults(suiteName: group),
+                  let bookmark = defaults.data(forKey: "V3SharedPairing." + target) else { throw ServiceError.invalidRequest }
+            defaults.removeObject(forKey: "V3SharedPairing." + target)
+            var stale = false
+            let url = try URL(resolvingBookmarkData: bookmark, options: .withoutUI, relativeTo: nil, bookmarkDataIsStale: &stale)
+            let allowedExtensions = Set(["mobiledevicepairing", "plist", "xml"])
+            guard !stale, url.isFileURL, allowedExtensions.contains(url.pathExtension.lowercased()) else {
+                throw ServiceError.invalidRequest
+            }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let data = try Data(contentsOf: url)
+            guard !data.isEmpty, data.count <= 1_048_576,
+                  let contents = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
+                throw ServiceError.invalidRequest
+            }
+            try PairingFileManager.shared.savePairingFile(contents: contents)
+        case "certificatesSnapshot":
+            let activeSerial = CertificateManager.shared.activeCertificate?.serialNumber
+            let certificates: [[String: Any]] = CertificateManager.shared.getAllLocalCertificates().map { certificate in
+                ["serialNumber": certificate.serialNumber,
+                 "name": certificate.name,
+                 "expirationDate": certificate.x509.expiryDate,
+                 "active": certificate.serialNumber == activeSerial]
+            }
+            return ["certificates": certificates]
+        case "activateLocalCertificate":
+            guard let certificate = CertificateManager.shared.getLocalCertificate(serialNumber: target) else {
+                throw ServiceError.notFound
+            }
+            try CertificateManager.shared.setActiveCertificate(certificate)
+        case "deleteLocalCertificate":
+            guard !target.isEmpty else { throw ServiceError.invalidRequest }
+            CertificateManager.shared.deleteCertificate(serialNumber: target)
         case "catalog":
             let query = NSFetchRequest<StoreApp>(entityName: "StoreApp")
             query.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
