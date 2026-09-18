@@ -2,6 +2,8 @@
 // V3_SIDESTORE_COMMAND_SERVICE_V1
 // Compiled only into SideStore. No managed objects or credentials cross XPC.
 import SwiftUI
+import SideSign
+import Minimuxer
 
 // V3_NATIVE_CALLBACK_GATE_V1: native completions can arrive on arbitrary queues.
 // Cancellation does not manufacture a native completion or release the mutation gate.
@@ -929,37 +931,51 @@ final class V3SideStoreService: NSObject {
             NotificationCenter.default.post(name: AppDelegate.appBackupDidFinish, object: nil,
                 userInfo: [AppDelegate.appBackupResultKey: result])
             return [:]
-        case "panel":
-            let controller = UIHostingController(rootView: AnyView(EmptyView()))
-            let content: AnyView
-            switch target {
-            case "developerServices": content = AnyView(DeveloperServicesView(presentingViewController: controller))
-            case "connection": content = AnyView(ConnectionConfigView())
-            case "anisette": content = AnyView(AnisetteServersView(selected: UserDefaults.standard.menuAnisetteURL, onResetAdiPb: {}))
-            case "sideSign": content = AnyView(SideSignConfigurationView())
-            case "health": content = AnyView(HealthCheckView())
-            case "backups": content = AnyView(BackupAndRestoreView())
-            case "sideJIT": content = AnyView(SideJITServerConfigView())
-            case "customizations": content = AnyView(UserCustomizationsView())
-            case "diagnostics": content = AnyView(DeveloperOptionsView())
-            case "experimental": content = AnyView(ExperimentalFeaturesView())
-            case "releaseTrack": content = AnyView(V3ReleaseTrackView())
-            case "logs":
-                guard let delegate = UIApplication.shared.delegate as? AppDelegate else { throw ServiceError.notReady }
-                content = AnyView(ConsoleLogView(logURL: delegate.consoleLog.logFileURL))
-            default: throw ServiceError.invalidRequest
+        case "settingsPanelSnapshot":
+            return try await settingsPanelSnapshot(target)
+        case "settingsPanelCommand":
+            guard let payload = try decodePayload(request) else { throw ServiceError.invalidRequest }
+            return try await settingsPanelCommand(target, payload: payload)
+        case "developerServicesSnapshot":
+            return try await developerServicesSnapshot()
+        case "developerServicesCommand":
+            guard let payload = try decodePayload(request) else { throw ServiceError.invalidRequest }
+            try await developerServicesCommand(payload)
+            return try await developerServicesSnapshot()
+        case "backupAccountExport":
+            guard let payload = try decodePayload(request),
+                  let password = payload["password"] as? String, !password.isEmpty else {
+                throw ServiceError.invalidRequest
             }
-            // SwiftUI links need navigation; UIKit certificate pushes need the
-            // actual hosting controller's navigation controller.
-            controller.rootView = AnyView(NavigationView { content }.navigationViewStyle(StackNavigationViewStyle()))
-            try await callback { done in
-                controller.navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(closePanel))
-                let navigation = UINavigationController(rootViewController: controller)
-                navigation.isModalInPresentation = true
-                self.finishPanel = { done(.success(())) }
-                self.cancellations[id] = { self.closePanel() }
-                Self.presenter.present(navigation, animated: true)
+            let includeApplePassword = payload["includeApplePassword"] as? Bool ?? false
+            let data = try ImportExport.exportAccount(password: password, includeApplePassword: includeApplePassword)
+            guard data.count <= 1_048_576 else { throw ServiceError.unsupported }
+            return ["fileName": AppConstants.accountConfigurationFileName, "data": data]
+        case "backupAccountImportSharedFile":
+            guard let payload = try decodePayload(request),
+                  let password = payload["password"] as? String, !password.isEmpty,
+                  UUID(uuidString: target) != nil,
+                  let group = Bundle.main.altstoreAppGroup,
+                  let defaults = UserDefaults(suiteName: group),
+                  let bookmark = defaults.data(forKey: "V3SharedAccountBackup." + target) else {
+                throw ServiceError.invalidRequest
             }
+            defaults.removeObject(forKey: "V3SharedAccountBackup." + target)
+            var stale = false
+            let url = try URL(resolvingBookmarkData: bookmark, options: .withoutUI, relativeTo: nil, bookmarkDataIsStale: &stale)
+            guard !stale, url.isFileURL else { throw ServiceError.invalidRequest }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let data = try Data(contentsOf: url)
+            guard !data.isEmpty, data.count <= 1_048_576 else { throw ServiceError.invalidRequest }
+            let account = try ImportExport.importAccount(data, filePassword: password)
+            if let applePassword = payload["applePassword"] as? String, !applePassword.isEmpty {
+                AuthManager.shared.password = applePassword
+            }
+            return [
+                "email": account.email,
+                "needsApplePassword": (account.password?.isEmpty ?? true) && ((payload["applePassword"] as? String)?.isEmpty ?? true)
+            ]
         case "importPairingSharedFile":
             guard UUID(uuidString: target) != nil, let group = Bundle.main.altstoreAppGroup,
                   let defaults = UserDefaults(suiteName: group),
