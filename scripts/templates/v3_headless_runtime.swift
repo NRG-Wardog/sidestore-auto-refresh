@@ -269,9 +269,9 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
     func resolveRevocation(certificates: [ALTX509Certificate], teamType: ALTTeamType) async throws -> RevokeDecision {
         let answer = try await ask(kind: "revocation", title: "Certificates Need Attention",
                                    message: "The portal holds certificates that block provisioning for a \("\(teamType)") team. Keep the existing certificates or revoke the selected ones.",
+                                   fields: [["key": "serials", "label": "serials", "secure": "false", "value": ""]],
                                    options: [["id": "keep", "label": "Keep Existing"]] +
-                                       certificates.map { ["id": "revoke:\($0.serialNumber)", "label": "\($0.name) (\($0.serialNumber))"] },
-                                   fields: [["key": "serials", "label": "serials", "secure": "false", "value": ""]])
+                                       certificates.map { ["id": "revoke:\($0.serialNumber)", "label": "\($0.name) (\($0.serialNumber))"] })
         if answer["choice"] == "keep" { return .keepExisting }
         let serials = Set((answer["serials"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
         let selected = certificates.filter { serials.contains($0.serialNumber) }
@@ -539,12 +539,18 @@ final class V3OperationCenter {
         let baseContext = StandaloneOperationContext(steps: .signIn, dbBackgroundContext: background)
         switch kind {
         case "install", "installURL", "installSharedIPA":
-            let app = try await resolveInstallTarget(kind: kind, target: target)
-            if case .app(let protocolApp) = app, let storeApp = protocolApp.storeApp,
-               let source = storeApp.source {
-                guard try await source.isAdded() else {
-                    throw V3RequiresSourceError(sourceID: source.identifier, sourceName: source.name)
+            let target = try await resolveInstallTarget(kind: kind, target: target)
+            let app: AppProtocol
+            switch target {
+            case .app(let protocolApp):
+                app = protocolApp
+                if let storeApp = protocolApp.storeApp, let source = storeApp.source {
+                    guard try await source.isAdded() else {
+                        throw V3RequiresSourceError(sourceID: source.identifier, sourceName: source.name)
+                    }
                 }
+            case .url(_):
+                throw V3SideStoreServiceError.invalidRequest
             }
             return V3OpDriver(kind: kind) {
                 try await self.single(id: id, operation: .install(app), handler: handler, context: baseContext)
@@ -578,7 +584,7 @@ final class V3OperationCenter {
                         }
                     }
                 }
-                V3SideStoreService.cancellations[id] = { group.cancel(); group.progress.cancel() }
+                V3SideStoreService.shared.cancellations[id] = { group.cancel(); group.progress.cancel() }
                 do {
                     try await AppManager.shared.pipelineRunner.perform([.refresh(app)], handler: handler, group: group)
                 } catch {
@@ -630,13 +636,13 @@ final class V3OperationCenter {
                 }
                 Task { @MainActor in
                     self.sessions[id]?.group = group
-                    V3SideStoreService.cancellations[id] = { group.cancel(); group.progress.cancel() }
+                    V3SideStoreService.shared.cancellations[id] = { group.cancel(); group.progress.cancel() }
                 }
             }
         }, onCancel: {
             Task { @MainActor in
                 self.sessions[id]?.group?.cancel()
-                if let cancel = V3SideStoreService.cancellations[id] { cancel() }
+                if let cancel = V3SideStoreService.shared.cancellations[id] { cancel() }
             }
         })
         try Task.checkCancellation()
@@ -819,13 +825,27 @@ enum V3BackendCommands {
         }
     }
 
+    static func profileRow(_ profile: ALTListedProvisioningProfile) -> [String: Any] {
+        // The portal list shape is upstream-owned; reflect scalar members instead
+        // of hard-coding them so portal changes cannot break compilation.
+        var row: [String: Any] = [:]
+        for child in Mirror(reflecting: profile).children {
+            guard let label = child.label else { continue }
+            switch child.value {
+            case let value as String: row[label] = value
+            case let value as Bool: row[label] = value
+            case let value as Int: row[label] = value
+            case let value as Date: row[label] = value
+            case let value as UUID: row[label] = value.uuidString
+            default: row[label] = String(describing: child.value)
+            }
+        }
+        return row
+    }
+
     static func developerProfiles() async throws -> [[String: Any]] {
         _ = try await AuthManager.shared.getAuthenticatedSession()
-        return try await DeveloperPortalProxy.shared.listProvisioningProfiles().map {
-            ["identifier": $0.identifier ?? "", "name": $0.name, "bundleID": $0.bundleIdentifier,
-             "team": $0.teamName, "created": $0.creationDate, "expiry": $0.expirationDate,
-             "devices": $0.deviceIDs.count, "free": $0.isFreeProvisioningProfile]
-        }
+        return try await DeveloperPortalProxy.shared.listProvisioningProfiles().map(profileRow)
     }
 
     static func sourcePreview(urlString: String) async throws -> [String: Any] {
@@ -950,15 +970,15 @@ enum V3BackendCommands {
         return text
     }
 
-    static func sidesignSet(json: String) throws {
-        guard let data = json.data(encoding: .utf8),
+    static func sidesignSet(json: String) async throws {
+        guard let data = json.data(using: .utf8),
               let config = try? JSONDecoder().decode(SideSignHeaders.self, from: data) else {
             throw V3SideStoreServiceError.invalidRequest
         }
         await SideSignConfigManager.shared.saveConfig(config)
     }
 
-    static func sidesignImport(token: String) throws {
+    static func sidesignImport(token: String) async throws {
         guard UUID(uuidString: token) != nil, let group = Bundle.main.altstoreAppGroup,
               let defaults = UserDefaults(suiteName: group),
               let data = defaults.data(forKey: "V3SharedFile." + token) else {

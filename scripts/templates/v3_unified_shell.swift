@@ -1643,15 +1643,18 @@ struct V3DeveloperServicesView: View {
             simpleSection("App Groups", rows: groups.map { "\($0["name"] ?? "") · \($0["identifier"] ?? "")" })
             Section("Provisioning Profiles (\(profiles.count))") {
                 if loading { ProgressView() }
-                ForEach(profiles.compactMap { $0["identifier"] as? String }, id: \.self) { id in
-                    if let row = profiles.first(where: { ($0["identifier"] as? String) == id }) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(row["name"] as? String ?? "").font(.headline)
-                            Text((row["bundleID"] as? String ?? "") + " · " + (row["team"] as? String ?? ""))
+                ForEach(profiles.indices, id: \.self) { index in
+                    let row = profiles[index]
+                    let name = row["name"] as? String ?? row["profileName"] as? String ?? "Profile"
+                    let detail = row["bundleID"] as? String ?? row["bundleIdentifier"] as? String ?? ""
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(name).font(.headline)
+                        if !detail.isEmpty {
+                            Text(detail)
                                 .font(.caption).foregroundColor(.secondary)
                         }
-                        .padding(.vertical, 2)
                     }
+                    .padding(.vertical, 2)
                 }
             }
         }
