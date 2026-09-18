@@ -953,6 +953,392 @@ struct V3AccountSettings: View {
 }
 
 
+
+struct V3HeadlessSettingsPanelView: View {
+    let title: String
+    let key: String
+
+    @State private var snapshot: [String: Any] = [:]
+    @State private var boolValues: [String: Bool] = [:]
+    @State private var stringValues: [String: String] = [:]
+    @State private var integerValues: [String: String] = [:]
+    @State private var optionValues: [String: String] = [:]
+    @State private var jsonText = ""
+    @State private var anisetteSource = ""
+    @State private var loading = false
+    @State private var error: String?
+    @State private var notice: String?
+
+    private var mode: String { snapshot["mode"] as? String ?? "info" }
+    private var sections: [[String: Any]] { snapshot["sections"] as? [[String: Any]] ?? [] }
+
+    var body: some View {
+        Group {
+            if snapshot.isEmpty && loading {
+                ProgressView("Loading…")
+            } else {
+                content
+            }
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+        .refreshable { await load() }
+        .alert("SideStore", isPresented: Binding(
+            get: { error != nil || notice != nil },
+            set: { shown in if !shown { error = nil; notice = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(error ?? notice ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch mode {
+        case "json":
+            Form {
+                Section {
+                    TextEditor(text: $jsonText)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(minHeight: 360)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } header: {
+                    Text("Raw JSON")
+                } footer: {
+                    Text("The host edits presentation only. SideStore validates and persists the existing SideSign configuration.")
+                }
+                Section {
+                    Button("Save") {
+                        Task {
+                            await command([
+                                "action": "saveRaw",
+                                "json": jsonText
+                            ])
+                        }
+                    }
+                    .disabled(loading || jsonText.isEmpty)
+
+                    Button("Reset to Defaults", role: .destructive) {
+                        Task { await command(["action": "reset"]) }
+                    }
+                    .disabled(loading)
+                }
+            }
+
+        case "anisette":
+            anisetteView
+
+        case "log":
+            ScrollView {
+                Text(snapshot["text"] as? String ?? "No log output.")
+                    .font(.system(.caption2, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+            }
+
+        default:
+            Form {
+                if let error {
+                    Section { Text(error).foregroundColor(.red).textSelection(.enabled) }
+                }
+                ForEach(Array(sections.enumerated()), id: \.offset) { _, section in
+                    let rows = section["rows"] as? [[String: Any]] ?? []
+                    Section(section["title"] as? String ?? "") {
+                        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                            rowView(row)
+                        }
+                    }
+                }
+                if snapshot["saveAction"] as? String != nil {
+                    Section {
+                        Button {
+                            Task { await saveForm() }
+                        } label: {
+                            if loading { ProgressView() }
+                            else { Text("Save Changes") }
+                        }
+                        .disabled(loading)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rowView(_ row: [String: Any]) -> some View {
+        let type = row["type"] as? String ?? "info"
+        let rowKey = row["key"] as? String ?? ""
+        let rowTitle = row["title"] as? String ?? rowKey
+        let subtitle = row["subtitle"] as? String
+
+        switch type {
+        case "bool":
+            Toggle(isOn: Binding(
+                get: { boolValues[rowKey] ?? boolValue(row["value"]) },
+                set: { boolValues[rowKey] = $0 }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(rowTitle)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle).font(.caption).foregroundColor(.secondary)
+                    }
+                }
+            }
+
+        case "text":
+            VStack(alignment: .leading, spacing: 5) {
+                Text(rowTitle).font(.subheadline)
+                TextField(rowTitle, text: Binding(
+                    get: { stringValues[rowKey] ?? stringValue(row["value"]) },
+                    set: { stringValues[rowKey] = $0 }
+                ))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle).font(.caption).foregroundColor(.secondary)
+                }
+            }
+
+        case "integer":
+            VStack(alignment: .leading, spacing: 5) {
+                Text(rowTitle).font(.subheadline)
+                TextField(rowTitle, text: Binding(
+                    get: { integerValues[rowKey] ?? String(intValue(row["value"])) },
+                    set: { integerValues[rowKey] = $0.filter(\.isNumber) }
+                ))
+                .keyboardType(.numberPad)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle).font(.caption).foregroundColor(.secondary)
+                }
+            }
+
+        case "option":
+            Picker(rowTitle, selection: Binding(
+                get: { optionValues[rowKey] ?? stringValue(row["value"]) },
+                set: { optionValues[rowKey] = $0 }
+            )) {
+                ForEach(row["options"] as? [String] ?? [], id: \.self) {
+                    Text($0).tag($0)
+                }
+            }
+
+        default:
+            HStack(alignment: .top) {
+                Text(rowTitle)
+                Spacer()
+                Text(stringValue(row["value"]))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.trailing)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private var anisetteView: some View {
+        Form {
+            if let error {
+                Section { Text(error).foregroundColor(.red).textSelection(.enabled) }
+            }
+
+            Section("Active Server") {
+                let active = snapshot["active"] as? String ?? ""
+                let servers = snapshot["servers"] as? [[String: Any]] ?? []
+                if servers.isEmpty {
+                    Text("No Anisette servers are configured.")
+                        .foregroundColor(.secondary)
+                }
+                ForEach(Array(servers.enumerated()), id: \.offset) { _, server in
+                    let name = server["name"] as? String ?? "Server"
+                    let address = server["address"] as? String ?? ""
+                    let hidden = boolValue(server["hidden"])
+                    HStack {
+                        Button {
+                            Task { await command(["action": "select", "address": address]) }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text(name)
+                                    if address == active { Image(systemName: "checkmark.circle.fill") }
+                                }
+                                Text(address)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .disabled(hidden || loading)
+                        Spacer()
+                        Button {
+                            Task {
+                                await command([
+                                    "action": "toggleHidden",
+                                    "address": address,
+                                    "hidden": !hidden
+                                ])
+                            }
+                        } label: {
+                            Image(systemName: hidden ? "eye.slash" : "eye")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+
+            Section("Catalog Source") {
+                TextField("Catalog URL", text: $anisetteSource)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                Button("Sync from Source") {
+                    Task {
+                        await command([
+                            "action": "setSource",
+                            "source": anisetteSource
+                        ])
+                    }
+                }
+                .disabled(loading || anisetteSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button("Refresh Now") {
+                    Task { await command(["action": "sync"]) }
+                }
+                .disabled(loading)
+
+                Button("Reset Server Catalog") {
+                    Task { await command(["action": "reset"]) }
+                }
+                .disabled(loading)
+            }
+
+            Section("Authentication Data") {
+                Button("Reset adi.pb and Sign Out", role: .destructive) {
+                    Task {
+                        await command([
+                            "action": "resetAdi",
+                            "keepHeaders": true
+                        ])
+                    }
+                }
+                .disabled(loading)
+
+                if boolValue(snapshot["offline"]) {
+                    Text("Offline catalog: " + (snapshot["importedFileName"] as? String ?? "imported file"))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        guard !loading else { return }
+        loading = true
+        error = nil
+        defer { loading = false }
+        do {
+            let value = try await V3ServiceBridge.shared.request(operation: "settingsPanelSnapshot", target: key)
+            apply(value)
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func command(_ payload: [String: Any]) async {
+        guard !loading else { return }
+        loading = true
+        error = nil
+        defer { loading = false }
+        do {
+            let value = try await V3ServiceBridge.shared.request(
+                operation: "settingsPanelCommand",
+                target: key,
+                payload: payload
+            )
+            apply(value)
+            notice = "Updated."
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func saveForm() async {
+        var values: [String: Any] = [:]
+        boolValues.forEach { values[$0.key] = $0.value }
+        stringValues.forEach { values[$0.key] = $0.value }
+        integerValues.forEach {
+            if let value = Int($0.value) { values[$0.key] = value }
+        }
+        optionValues.forEach { values[$0.key] = $0.value }
+        await command(["action": "save", "values": values])
+    }
+
+    @MainActor
+    private func apply(_ value: [String: Any]) {
+        snapshot = value
+        boolValues.removeAll()
+        stringValues.removeAll()
+        integerValues.removeAll()
+        optionValues.removeAll()
+
+        if let json = value["json"] as? String { jsonText = json }
+        if let source = value["source"] as? String { anisetteSource = source }
+
+        for section in value["sections"] as? [[String: Any]] ?? [] {
+            for row in section["rows"] as? [[String: Any]] ?? [] {
+                guard let rowKey = row["key"] as? String else { continue }
+                switch row["type"] as? String {
+                case "bool":
+                    boolValues[rowKey] = boolValue(row["value"])
+                case "text":
+                    stringValues[rowKey] = stringValue(row["value"])
+                case "integer":
+                    integerValues[rowKey] = String(intValue(row["value"]))
+                case "option":
+                    optionValues[rowKey] = stringValue(row["value"])
+                default:
+                    break
+                }
+            }
+        }
+    }
+
+    private func boolValue(_ value: Any?) -> Bool {
+        if let value = value as? Bool { return value }
+        return (value as? NSNumber)?.boolValue ?? false
+    }
+
+    private func intValue(_ value: Any?) -> Int {
+        if let value = value as? Int { return value }
+        return (value as? NSNumber)?.intValue ?? 0
+    }
+
+    private func stringValue(_ value: Any?) -> String {
+        switch value {
+        case let value as String: return value
+        case let value as NSNumber: return value.stringValue
+        case let value as Date: return value.formatted(date: .abbreviated, time: .shortened)
+        case .none: return ""
+        default: return String(describing: value!)
+        }
+    }
+}
+
 struct V3SignInView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @Environment(\.dismiss) private var dismiss
