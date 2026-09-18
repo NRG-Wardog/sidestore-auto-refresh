@@ -3,7 +3,7 @@ name: LiveContainer embedded SideStore build
 on:
   workflow_dispatch:
   push:
-    branches: [fix/combined-refresh-build-and-runtime]
+    branches: [fix/combined-refresh-build-and-runtime, feat/v3-headless-sidestore-ui]
 
 permissions:
   contents: read
