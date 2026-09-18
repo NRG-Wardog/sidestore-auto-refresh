@@ -954,6 +954,429 @@ struct V3AccountSettings: View {
 
 
 
+
+private enum V3DeveloperForm: Identifiable {
+    case appID
+    case appGroup
+    case renameGroup(id: String, current: String)
+    case device
+    case renameDevice(id: String, current: String)
+
+    var id: String {
+        switch self {
+        case .appID: return "appID"
+        case .appGroup: return "appGroup"
+        case .renameGroup(let id, _): return "renameGroup-" + id
+        case .device: return "device"
+        case .renameDevice(let id, _): return "renameDevice-" + id
+        }
+    }
+}
+
+struct V3DeveloperServicesView: View {
+    @State private var data: [String: Any] = [:]
+    @State private var loading = false
+    @State private var error: String?
+    @State private var form: V3DeveloperForm?
+    @State private var confirm: [String: Any]?
+
+    private var team: [String: Any] { data["team"] as? [String: Any] ?? [:] }
+    private var appIDs: [[String: Any]] { data["appIDs"] as? [[String: Any]] ?? [] }
+    private var profiles: [[String: Any]] { data["profiles"] as? [[String: Any]] ?? [] }
+    private var appGroups: [[String: Any]] { data["appGroups"] as? [[String: Any]] ?? [] }
+    private var devices: [[String: Any]] { data["devices"] as? [[String: Any]] ?? [] }
+    private var certificates: [[String: Any]] { data["certificates"] as? [[String: Any]] ?? [] }
+
+    var body: some View {
+        Form {
+            if loading && data.isEmpty {
+                Section { HStack { Spacer(); ProgressView("Loading Developer Portal…"); Spacer() } }
+            }
+            if let error {
+                Section { Text(error).foregroundColor(.red).textSelection(.enabled) }
+            }
+
+            if !team.isEmpty {
+                Section("Developer Account") {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(team["name"] as? String ?? "Developer Team").font(.headline)
+                            Text("Team ID: " + (team["id"] as? String ?? ""))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Text(team["type"] as? String ?? "")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            Section {
+                if appIDs.isEmpty { Text("No App IDs registered.").foregroundColor(.secondary) }
+                ForEach(Array(appIDs.enumerated()), id: \.offset) { _, app in
+                    let id = app["id"] as? String ?? ""
+                    let name = app["name"] as? String ?? "App ID"
+                    let bundle = app["bundleID"] as? String ?? ""
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                            Text(bundle).font(.caption).foregroundColor(.secondary).textSelection(.enabled)
+                        }
+                        Spacer()
+                        Menu {
+                            Button("Generate Provisioning Profile") {
+                                Task { await command(["action": "generateProfile", "appID": id]) }
+                            }
+                            Button("Delete", role: .destructive) {
+                                confirm = ["action": "deleteAppID", "id": id, "title": "Delete App ID?", "name": name]
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                    }
+                }
+                Button {
+                    form = .appID
+                } label: {
+                    Label("Register App ID", systemImage: "plus")
+                }
+            } header: {
+                Text("App IDs (\(appIDs.count))")
+            }
+
+            Section {
+                if profiles.isEmpty { Text("No provisioning profiles.").foregroundColor(.secondary) }
+                ForEach(Array(profiles.enumerated()), id: \.offset) { _, profile in
+                    let id = profile["id"] as? String ?? ""
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text(profile["name"] as? String ?? "Profile")
+                            Spacer()
+                            if let date = profile["expires"] as? Date {
+                                Text(date, style: .date).font(.caption).foregroundColor(.secondary)
+                            }
+                        }
+                        Text(profile["bundleID"] as? String ?? "")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        HStack {
+                            Text(profile["uuid"] as? String ?? "")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .textSelection(.enabled)
+                            Spacer()
+                            Button(role: .destructive) {
+                                confirm = [
+                                    "action": "deleteProfile",
+                                    "id": id,
+                                    "title": "Delete Provisioning Profile?",
+                                    "name": profile["name"] as? String ?? "Profile"
+                                ]
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(id.isEmpty)
+                        }
+                    }
+                }
+                if !profiles.isEmpty {
+                    Button("Delete All Profiles", role: .destructive) {
+                        confirm = [
+                            "action": "deleteAllProfiles",
+                            "title": "Delete All Profiles?",
+                            "name": "\(profiles.count) provisioning profiles"
+                        ]
+                    }
+                }
+            } header: {
+                Text("Provisioning Profiles (\(profiles.count))")
+            }
+
+            Section {
+                if certificates.isEmpty { Text("No portal certificates.").foregroundColor(.secondary) }
+                ForEach(Array(certificates.enumerated()), id: \.offset) { _, certificate in
+                    let serial = certificate["serial"] as? String ?? ""
+                    let name = certificate["name"] as? String ?? "Certificate"
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                            Text(serial).font(.caption2).foregroundColor(.secondary).textSelection(.enabled)
+                            if let date = certificate["expires"] as? Date {
+                                Text("Expires " + date.formatted(date: .abbreviated, time: .omitted))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Button(role: .destructive) {
+                            confirm = [
+                                "action": "revokeCertificate",
+                                "serial": serial,
+                                "title": "Revoke Certificate?",
+                                "name": name
+                            ]
+                        } label: {
+                            Image(systemName: "xmark.seal")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            } header: {
+                Text("Certificates (\(certificates.count))")
+            }
+
+            Section {
+                if appGroups.isEmpty { Text("No App Groups.").foregroundColor(.secondary) }
+                ForEach(Array(appGroups.enumerated()), id: \.offset) { _, group in
+                    let id = group["id"] as? String ?? ""
+                    let name = group["name"] as? String ?? "App Group"
+                    let identifier = group["groupIdentifier"] as? String ?? ""
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                            Text(identifier).font(.caption).foregroundColor(.secondary).textSelection(.enabled)
+                        }
+                        Spacer()
+                        Menu {
+                            Button("Rename") { form = .renameGroup(id: id, current: name) }
+                            Button("Delete", role: .destructive) {
+                                confirm = ["action": "deleteAppGroup", "id": id, "title": "Delete App Group?", "name": name]
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                    }
+                }
+                Button {
+                    form = .appGroup
+                } label: {
+                    Label("Create App Group", systemImage: "plus")
+                }
+            } header: {
+                Text("App Groups (\(appGroups.count))")
+            }
+
+            Section {
+                if devices.isEmpty { Text("No registered devices.").foregroundColor(.secondary) }
+                ForEach(Array(devices.enumerated()), id: \.offset) { _, device in
+                    let id = device["id"] as? String ?? ""
+                    let name = device["name"] as? String ?? "Device"
+                    let status = device["status"] as? String ?? ""
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                            Text((device["type"] as? String ?? "") + (status == "d" ? " • Disabled" : ""))
+                                .font(.caption)
+                                .foregroundColor(status == "d" ? .red : .secondary)
+                            Text(id).font(.caption2).foregroundColor(.secondary).textSelection(.enabled)
+                        }
+                        Spacer()
+                        Menu {
+                            Button("Rename") { form = .renameDevice(id: id, current: name) }
+                            if status != "d" {
+                                Button("Disable") {
+                                    confirm = ["action": "disableDevice", "id": id, "title": "Disable Device?", "name": name]
+                                }
+                            }
+                            Button("Delete", role: .destructive) {
+                                confirm = ["action": "deleteDevice", "id": id, "title": "Delete Device?", "name": name]
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                    }
+                }
+                Button {
+                    form = .device
+                } label: {
+                    Label("Register Device", systemImage: "plus")
+                }
+            } header: {
+                Text("Registered Devices (\(devices.count))")
+            }
+        }
+        .navigationTitle("Developer Services")
+        .navigationBarTitleDisplayMode(.inline)
+        .refreshable { await load(force: true) }
+        .task { await load(force: false) }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await load(force: true) }
+                } label: {
+                    if loading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
+                }
+                .disabled(loading)
+            }
+        }
+        .sheet(item: $form) { form in
+            V3DeveloperServiceForm(form: form) { payload in
+                self.form = nil
+                Task { await command(payload) }
+            }
+        }
+        .alert(
+            confirm?["title"] as? String ?? "Confirm",
+            isPresented: Binding(
+                get: { confirm != nil },
+                set: { shown in if !shown { confirm = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { confirm = nil }
+            Button("Continue", role: .destructive) {
+                guard var payload = confirm else { return }
+                payload.removeValue(forKey: "title")
+                payload.removeValue(forKey: "name")
+                confirm = nil
+                Task { await command(payload) }
+            }
+        } message: {
+            Text(confirm?["name"] as? String ?? "")
+        }
+    }
+
+    @MainActor
+    private func load(force: Bool) async {
+        guard !loading else { return }
+        loading = true
+        error = nil
+        defer { loading = false }
+        do {
+            if force {
+                data = try await V3ServiceBridge.shared.request(
+                    operation: "developerServicesCommand",
+                    payload: ["action": "refresh"]
+                )
+            } else {
+                data = try await V3ServiceBridge.shared.request(operation: "developerServicesSnapshot")
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func command(_ payload: [String: Any]) async {
+        guard !loading else { return }
+        loading = true
+        error = nil
+        defer { loading = false }
+        do {
+            data = try await V3ServiceBridge.shared.request(
+                operation: "developerServicesCommand",
+                payload: payload
+            )
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+}
+
+private struct V3DeveloperServiceForm: View {
+    let form: V3DeveloperForm
+    let submit: ([String: Any]) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name = ""
+    @State private var identifier = ""
+    @State private var deviceType = "iPhone"
+
+    var body: some View {
+        NavigationView {
+            Form {
+                switch form {
+                case .appID:
+                    Section("App ID") {
+                        TextField("Name", text: $name)
+                        TextField("Bundle ID (com.example.app)", text: $identifier)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                case .appGroup:
+                    Section("App Group") {
+                        TextField("Name", text: $name)
+                        TextField("group.com.example.shared", text: $identifier)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                case .renameGroup(_, let current), .renameDevice(_, let current):
+                    Section("Name") {
+                        TextField("Name", text: $name)
+                            .onAppear { if name.isEmpty { name = current } }
+                    }
+                case .device:
+                    Section("Device") {
+                        TextField("Name", text: $name)
+                        TextField("UDID", text: $identifier)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Picker("Type", selection: $deviceType) {
+                            ForEach(["iPhone", "iPad", "Apple TV", "Apple Watch", "Mac", "Vision Pro"], id: \.self) {
+                                Text($0).tag($0)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        submit(payload)
+                        dismiss()
+                    }
+                    .disabled(!valid)
+                }
+            }
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
+    }
+
+    private var title: String {
+        switch form {
+        case .appID: return "Register App ID"
+        case .appGroup: return "Create App Group"
+        case .renameGroup: return "Rename App Group"
+        case .device: return "Register Device"
+        case .renameDevice: return "Rename Device"
+        }
+    }
+
+    private var valid: Bool {
+        switch form {
+        case .appID, .appGroup, .device:
+            return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                   !identifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .renameGroup, .renameDevice:
+            return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private var payload: [String: Any] {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedIdentifier = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch form {
+        case .appID:
+            return ["action": "createAppID", "name": trimmedName, "bundleID": trimmedIdentifier]
+        case .appGroup:
+            return ["action": "createAppGroup", "name": trimmedName, "groupIdentifier": trimmedIdentifier]
+        case .renameGroup(let id, _):
+            return ["action": "renameAppGroup", "id": id, "name": trimmedName]
+        case .device:
+            return ["action": "registerDevice", "name": trimmedName, "identifier": trimmedIdentifier, "type": deviceType]
+        case .renameDevice(let id, _):
+            return ["action": "renameDevice", "id": id, "name": trimmedName]
+        }
+    }
+}
+
 struct V3HeadlessSettingsPanelView: View {
     let title: String
     let key: String
