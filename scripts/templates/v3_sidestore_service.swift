@@ -20,6 +20,609 @@ private final class V3ServiceCallbackGate: @unchecked Sendable {
 }
 // V3_NATIVE_CALLBACK_GATE_END
 
+
+private enum V3HeadlessFlowError: Error {
+    case invalidResponse
+    case staleResponse
+}
+
+@MainActor
+private final class V3HeadlessInteractionSession {
+    let id = UUID().uuidString
+    private(set) var revision = 0
+    private(set) var phase = "starting"
+    private(set) var isTerminal = false
+    private var state: [String: Any] = [:]
+    private var challengeID: String?
+    private var responder: (([String: Any]) -> Void)?
+    private var canceller: (() -> Void)?
+
+    init(title: String) {
+        state = ["phase": "starting", "title": title, "message": "Starting…"]
+    }
+
+    func snapshot() -> [String: Any] {
+        var value = state
+        value["sessionID"] = id
+        value["revision"] = revision
+        value["phase"] = phase
+        return value
+    }
+
+    func setRunning(_ message: String) {
+        guard !isTerminal else { return }
+        revision += 1
+        phase = "running"
+        state = ["phase": phase, "message": bounded(message)]
+    }
+
+    func complete(_ fields: [String: Any] = [:]) {
+        guard !isTerminal else { return }
+        revision += 1
+        phase = "completed"
+        isTerminal = true
+        state = ["phase": phase, "message": "Completed", "fields": fields]
+        clearPending()
+    }
+
+    func fail(_ error: Error) {
+        guard !isTerminal else { return }
+        revision += 1
+        phase = "failed"
+        isTerminal = true
+        state = [
+            "phase": phase,
+            "message": bounded((error as NSError).localizedDescription, max: 2_048)
+        ]
+        clearPending()
+    }
+
+    func cancel() {
+        guard !isTerminal else { return }
+        let cancel = canceller
+        clearPending()
+        revision += 1
+        phase = "cancelled"
+        isTerminal = true
+        state = ["phase": phase, "message": "Cancelled"]
+        cancel?()
+    }
+
+    func respond(_ payload: [String: Any]) throws {
+        guard !isTerminal,
+              phase == "requiresInput",
+              let expected = challengeID,
+              payload["challengeID"] as? String == expected,
+              let responder else {
+            throw V3HeadlessFlowError.staleResponse
+        }
+
+        self.responder = nil
+        self.canceller = nil
+        self.challengeID = nil
+        setRunning("Continuing…")
+        responder(payload)
+    }
+
+    func ask<T>(
+        kind: String,
+        title: String,
+        message: String = "",
+        fields: [String: Any] = [:],
+        decode: @escaping ([String: Any]) throws -> T
+    ) async throws -> T {
+        guard !isTerminal, responder == nil else { throw V3HeadlessFlowError.invalidResponse }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let token = UUID().uuidString
+            challengeID = token
+            responder = { payload in
+                do { continuation.resume(returning: try decode(payload)) }
+                catch { continuation.resume(throwing: error) }
+            }
+            canceller = { continuation.resume(throwing: OperationError.cancelled) }
+            revision += 1
+            phase = "requiresInput"
+            var next: [String: Any] = [
+                "phase": phase,
+                "kind": kind,
+                "title": bounded(title),
+                "message": bounded(message),
+                "challengeID": token,
+                "fields": fields
+            ]
+            next["sessionID"] = id
+            state = next
+        }
+    }
+
+    private func clearPending() {
+        challengeID = nil
+        responder = nil
+        canceller = nil
+    }
+
+    private func bounded(_ value: String, max: Int = 4_096) -> String {
+        String(value.prefix(max))
+    }
+}
+
+private final class V3HeadlessPipelineHandler: PipelineExecutionHandler,
+                                               PreflightChecksHandler,
+                                               EntitlementsReviewHandler,
+                                               ExtensionRemovalHandler,
+                                               UnsupportedVersionHandler,
+                                               InstallAppHandler,
+                                               UserCustomizationHandler,
+                                               @unchecked Sendable {
+    var preflightChecksHandler: PreflightChecksHandler { self }
+    var entitlementsReviewHandler: EntitlementsReviewHandler { self }
+    var extensionRemovalHandler: ExtensionRemovalHandler { self }
+    var unsupportedVersionHandler: UnsupportedVersionHandler { self }
+    var installAppHandler: InstallAppHandler { self }
+    var userCustomizationHandler: UserCustomizationHandler { self }
+
+    let isResignActive: Bool
+    private let session: V3HeadlessInteractionSession
+
+    init(session: V3HeadlessInteractionSession, isResignActive: Bool = false) {
+        self.session = session
+        self.isResignActive = isResignActive
+    }
+
+    @MainActor
+    func resolveBundleIDMismatch(targetID: String, activeEffectiveID: String) async -> Bool {
+        (try? await session.ask(
+            kind: "bundleIDMismatch",
+            title: "Bundle ID Mismatch",
+            message: "The app bundle identifier differs from the active app.",
+            fields: ["targetID": targetID, "activeEffectiveID": activeEffectiveID]
+        ) { payload in
+            switch payload["action"] as? String {
+            case "proceed": return true
+            case "cancel": return false
+            default: throw V3HeadlessFlowError.invalidResponse
+            }
+        }) ?? false
+    }
+
+    @MainActor
+    func reviewPermissions(_ permissions: [ALTEntitlement], for app: AppProtocol, mode: PermissionReviewMode) async throws {
+        let permissionNames = permissions.map { String(describing: $0) }
+        let accepted: Bool = try await session.ask(
+            kind: "permissionsReview",
+            title: "Review Permissions",
+            message: "Review the permissions requested by \(app.name).",
+            fields: [
+                "appName": app.name,
+                "bundleID": app.bundleIdentifier,
+                "mode": String(describing: mode),
+                "permissions": permissionNames
+            ]
+        ) { payload in
+            switch payload["action"] as? String {
+            case "continue": return true
+            case "cancel": throw OperationError.cancelled
+            default: throw V3HeadlessFlowError.invalidResponse
+            }
+        }
+        if !accepted { throw OperationError.cancelled }
+    }
+
+    @MainActor
+    func selectAppExtensionsToRemove(
+        appBundle: ALTApplication,
+        localAppExtensions: [ALTApplication],
+        excessExtensions: Set<ALTApplication>
+    ) async throws -> ExtensionRemovalDecision {
+        let extensions = appBundle.appExtensions.map {
+            ["bundleID": $0.bundleIdentifier, "name": $0.name]
+        }
+        let excess = excessExtensions.map(\.bundleIdentifier)
+        return try await session.ask(
+            kind: "extensionRemoval",
+            title: "App Extensions",
+            message: "Choose how SideStore should handle this app's extensions.",
+            fields: [
+                "appName": appBundle.name,
+                "extensions": extensions,
+                "excessBundleIDs": excess,
+                "activeLimitIncludesExtensions": UserDefaults.standard.activeAppLimitIncludesExtensions
+            ]
+        ) { payload in
+            switch payload["action"] as? String {
+            case "keepMainProfile": return .keepAll(useMainProfile: true)
+            case "keepSeparateProfiles": return .keepAll(useMainProfile: false)
+            case "removeAll": return .removeAll
+            case "removeSelected":
+                let ids = Set(payload["bundleIDs"] as? [String] ?? [])
+                return .removeSelected(Set(appBundle.appExtensions.filter { ids.contains($0.bundleIdentifier) }))
+            case "cancel": throw OperationError.cancelled
+            default: throw V3HeadlessFlowError.invalidResponse
+            }
+        }
+    }
+
+    @MainActor
+    func resolveUnsupportediOSVersion(errorDescription: String, appName: String, compatibleVersion: String) async throws -> Bool {
+        try await session.ask(
+            kind: "unsupportedVersion",
+            title: "Unsupported iOS Version",
+            message: errorDescription,
+            fields: ["appName": appName, "compatibleVersion": compatibleVersion]
+        ) { payload in
+            switch payload["action"] as? String {
+            case "useCompatible": return true
+            case "cancel": return false
+            default: throw V3HeadlessFlowError.invalidResponse
+            }
+        }
+    }
+
+    func requestBackgroundSuspension() async {
+        _ = try? await session.ask(
+            kind: "backgroundSuspension",
+            title: "Finish Operation",
+            message: "SideStore must briefly finish its backend installation step.",
+            fields: [:]
+        ) { payload in
+            guard payload["action"] as? String == "continue" else { throw OperationError.cancelled }
+            return true
+        }
+    }
+
+    func suspendToHomeScreen() async {
+        await CellularRefreshManager.shared.turnOnDataIfNeeded()
+        await MainActor.run {
+            _ = UIApplication.shared.perform(#selector(NSXPCConnection.suspend))
+        }
+    }
+
+    func isAppInForeground() async -> Bool {
+        await MainActor.run { UIApplication.shared.applicationState == .active }
+    }
+
+    @MainActor
+    func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID: String, appendTeamID: Bool)? {
+        try await session.ask(
+            kind: "bundleIDCustomization",
+            title: "App ID Customization",
+            message: "Confirm or edit the bundle identifier.",
+            fields: ["bundleID": initialBundleID, "appendTeamID": true]
+        ) { payload in
+            switch payload["action"] as? String {
+            case "confirm":
+                let raw = (payload["bundleID"] as? String ?? initialBundleID).trimmingCharacters(in: .whitespacesAndNewlines)
+                return (raw.isEmpty ? initialBundleID : raw, payload["appendTeamID"] as? Bool ?? true)
+            case "cancel": return nil
+            default: throw V3HeadlessFlowError.invalidResponse
+            }
+        }
+    }
+
+    @MainActor
+    func resolveAppGroupMismatch(originalGroup: String, correctedGroup: String) async throws -> AppGroupResolution {
+        try await session.ask(
+            kind: "appGroupMismatch",
+            title: "App Group Discrepancy",
+            message: "Choose which app-group identifier to use.",
+            fields: ["originalGroup": originalGroup, "correctedGroup": correctedGroup]
+        ) { payload in
+            switch payload["action"] as? String {
+            case "correct": return .correctAndProceed(correctedGroup)
+            case "keep": return .keepOriginal(originalGroup)
+            case "cancel": throw OperationError.cancelled
+            default: throw V3HeadlessFlowError.invalidResponse
+            }
+        }
+    }
+}
+
+@MainActor
+private final class V3HeadlessSignInFlow: NSObject, SignInHandler, AnisetteServerHandler {
+    let session = V3HeadlessInteractionSession(title: "Sign In")
+    private var task: Task<Void, Never>?
+    private var operation: SignInOperation?
+    private var activePipelineProgress: Progress?
+    private var lastCredentialError: String?
+
+    var id: String { session.id }
+    var isTerminal: Bool { session.isTerminal }
+    func snapshot() -> [String: Any] { session.snapshot() }
+
+    func start() {
+        guard task == nil else { return }
+        session.setRunning("Checking saved authentication…")
+        task = Task { @MainActor in
+            do {
+                let context = StandaloneOperationContext(
+                    steps: .signIn,
+                    dbBackgroundContext: DatabaseManager.shared.persistentContainer.newBackgroundContext()
+                )
+                let operation = try SignInOperation(
+                    context: context,
+                    signInHandler: self,
+                    anisetteServerHandler: self
+                )
+                self.operation = operation
+                let result = try await operation.execute()
+                self.operation = nil
+                session.complete([
+                    "teamID": result.team.identifier,
+                    "teamName": result.team.name,
+                    "teamType": String(describing: result.team.type)
+                ])
+            } catch {
+                self.operation = nil
+                if Task.isCancelled || error is CancellationError {
+                    session.cancel()
+                } else {
+                    session.fail(error)
+                }
+            }
+        }
+    }
+
+    func cancel() {
+        operation?.cancel()
+        activePipelineProgress?.cancel()
+        task?.cancel()
+        session.cancel()
+    }
+
+    @MainActor
+    func credentials() async throws -> (String, String) {
+        var fields: [String: Any] = [
+            "appleID": AuthManager.shared.currentAppleID ?? ""
+        ]
+        if let lastCredentialError, !lastCredentialError.isEmpty {
+            fields["error"] = String(lastCredentialError.prefix(2_048))
+        }
+        self.lastCredentialError = nil
+        return try await session.ask(
+            kind: "credentials",
+            title: "Sign In",
+            message: "Enter the Apple ID credentials SideStore should use.",
+            fields: fields
+        ) { payload in
+            if payload["action"] as? String == "cancel" { throw OperationError.cancelled }
+            guard payload["action"] as? String == "submitCredentials",
+                  let appleID = payload["appleID"] as? String,
+                  let password = payload["password"] as? String,
+                  !appleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !password.isEmpty else { throw V3HeadlessFlowError.invalidResponse }
+            return (appleID.trimmingCharacters(in: .whitespacesAndNewlines), password)
+        }
+    }
+
+    @MainActor
+    func handleSignInResult(_ result: Result<(ALTAccount, ALTAppleAPISession), Error>) async {
+        switch result {
+        case .success:
+            lastCredentialError = nil
+        case .failure(let error):
+            lastCredentialError = (error as NSError).localizedDescription
+        }
+    }
+
+    @MainActor
+    func verificationCode(for request: TwoFactorRequest) async throws -> TwoFactorResponse {
+        var fields: [String: Any] = [:]
+        var kind = "verificationCode"
+        var title = "Two-Factor Authentication"
+
+        switch request {
+        case .selectDeliveryMethod(let preferredMode, let phoneNumbers):
+            kind = "verificationMethod"
+            fields["preferredMode"] = preferredMode.rawValue
+            fields["phoneNumbers"] = phoneNumbers.map { ["id": $0.id, "number": $0.number] }
+        case .trustedDevice(let error):
+            fields["mode"] = TwoFactorDeliveryMode.trustedDevice.rawValue
+            if let error, !error.isEmpty { fields["error"] = String(error.prefix(2_048)) }
+        case .sms(let phoneNumbers, let activeID, let error):
+            fields["mode"] = TwoFactorDeliveryMode.sms.rawValue
+            fields["phoneNumbers"] = phoneNumbers.map { ["id": $0.id, "number": $0.number] }
+            fields["activeID"] = activeID
+            if let error, !error.isEmpty { fields["error"] = String(error.prefix(2_048)) }
+        case .voice(let phoneNumbers, let activeID, let error):
+            fields["mode"] = TwoFactorDeliveryMode.voice.rawValue
+            fields["phoneNumbers"] = phoneNumbers.map { ["id": $0.id, "number": $0.number] }
+            fields["activeID"] = activeID
+            if let error, !error.isEmpty { fields["error"] = String(error.prefix(2_048)) }
+        }
+
+        if kind == "verificationCode" { title = "Verification Code" }
+        return try await session.ask(
+            kind: kind,
+            title: title,
+            message: kind == "verificationMethod"
+                ? "Choose how to receive the verification code."
+                : "Enter the six-digit verification code or choose another delivery option.",
+            fields: fields
+        ) { payload in
+            switch payload["action"] as? String {
+            case "submitCode":
+                guard let code = payload["code"] as? String, code.count == 6 else {
+                    throw V3HeadlessFlowError.invalidResponse
+                }
+                return .verificationCode(code)
+            case "trustedDevice":
+                return .requestTrustedDevice
+            case "sms":
+                guard let phoneID = payload["phoneID"] as? String else { throw V3HeadlessFlowError.invalidResponse }
+                return .requestSMS(phoneID: phoneID)
+            case "voice":
+                guard let phoneID = payload["phoneID"] as? String else { throw V3HeadlessFlowError.invalidResponse }
+                return .requestVoice(phoneID: phoneID)
+            case "cancel":
+                return .cancel
+            default:
+                throw V3HeadlessFlowError.invalidResponse
+            }
+        }
+    }
+
+    @MainActor
+    func accountRepair(url: URL, message: String) async -> AccountRepairDecision {
+        (try? await session.ask(
+            kind: "accountRepair",
+            title: "Account Repair Required",
+            message: message,
+            fields: [
+                "developerURL": url.absoluteString,
+                "appleAccountURL": AppConstants.URLs.appleAccount.absoluteString
+            ]
+        ) { payload in
+            switch payload["action"] as? String {
+            case "proceed": return AccountRepairDecision.proceed
+            case "cancel": return AccountRepairDecision.cancel
+            default: throw V3HeadlessFlowError.invalidResponse
+            }
+        }) ?? .cancel
+    }
+
+    @MainActor
+    func resolveTeam(_ teams: [ALTTeam]) async throws -> ALTTeam {
+        try await session.ask(
+            kind: "teamSelection",
+            title: "Select Developer Team",
+            message: "Choose the Apple Developer team to use.",
+            fields: [
+                "teams": teams.map {
+                    ["id": $0.identifier, "name": $0.name, "type": String(describing: $0.type)]
+                }
+            ]
+        ) { payload in
+            if payload["action"] as? String == "cancel" { throw OperationError.cancelled }
+            guard payload["action"] as? String == "selectTeam",
+                  let teamID = payload["teamID"] as? String,
+                  let team = teams.first(where: { $0.identifier == teamID }) else {
+                throw V3HeadlessFlowError.invalidResponse
+            }
+            return team
+        }
+    }
+
+    @MainActor
+    func resolveProvisioningError(_ error: Error) async -> ProvisioningErrorDecision {
+        (try? await session.ask(
+            kind: "provisioningDecision",
+            title: "Developer Portal Error",
+            message: (error as NSError).localizedDescription,
+            fields: [:]
+        ) { payload in
+            switch payload["action"] as? String {
+            case "retry": return ProvisioningErrorDecision.retry
+            case "cancel": return ProvisioningErrorDecision.cancel
+            default: throw V3HeadlessFlowError.invalidResponse
+            }
+        }) ?? .cancel
+    }
+
+    @MainActor
+    func resolvePostAuth() async {
+        _ = try? await session.ask(
+            kind: "postAuth",
+            title: "Authentication Complete",
+            message: "Continue to finish SideStore account setup.",
+            fields: [:]
+        ) { payload in
+            guard payload["action"] as? String == "continue" else { throw OperationError.cancelled }
+            return true
+        }
+    }
+
+    @MainActor
+    func resolveRevocation(certificates: [ALTX509Certificate], teamType: ALTTeamType) async throws -> RevokeDecision {
+        try await session.ask(
+            kind: "revocationDecision",
+            title: "Signing Certificates",
+            message: "Choose whether SideStore should revoke existing iOS development certificates.",
+            fields: [
+                "teamType": String(describing: teamType),
+                "certificates": certificates.map {
+                    [
+                        "serial": $0.serialNumber,
+                        "name": $0.name,
+                        "machineName": $0.machineName ?? ""
+                    ]
+                }
+            ]
+        ) { payload in
+            switch payload["action"] as? String {
+            case "keepExisting":
+                return .keepExisting
+            case "revokeSelected":
+                let serials = Set(payload["serials"] as? [String] ?? [])
+                return .revokeSelected(certificates.filter { serials.contains($0.serialNumber) })
+            case "cancel":
+                throw OperationError.cancelled
+            default:
+                throw V3HeadlessFlowError.invalidResponse
+            }
+        }
+    }
+
+    @MainActor
+    func resolveResign(mismatchReason: CodeSignValidationReason, context: StandaloneOperationContext) async throws -> Bool {
+        let shouldResign: Bool = try await session.ask(
+            kind: "resignDecision",
+            title: "Resign SideStore",
+            message: "The running SideStore signature no longer matches the active signing state.",
+            fields: ["reason": String(describing: mismatchReason)]
+        ) { payload in
+            switch payload["action"] as? String {
+            case "resignNow": return true
+            case "later": return false
+            case "cancel": throw OperationError.cancelled
+            default: throw V3HeadlessFlowError.invalidResponse
+            }
+        }
+        guard shouldResign else { return false }
+        guard let app = InstalledApp.fetchAltStore(in: DatabaseManager.shared.viewContext) else {
+            throw V3HeadlessFlowError.invalidResponse
+        }
+
+        let handler = V3HeadlessPipelineHandler(session: session, isResignActive: true)
+        return try await withCheckedThrowingContinuation { continuation in
+            let group = AppManager.shared.pipelineRunner.performSingleOperation(
+                .install(app),
+                handler: handler,
+                context: context
+            ) { result in
+                switch result {
+                case .success:
+                    continuation.resume(returning: true)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+            self.activePipelineProgress = group.progress
+        }
+    }
+
+    @MainActor
+    func complete() async {
+        activePipelineProgress = nil
+    }
+
+    @MainActor
+    func warnOutdatedAnisetteServer() async throws -> Bool {
+        try await session.ask(
+            kind: "anisetteWarning",
+            title: "Outdated Anisette Server",
+            message: "This Anisette server is outdated and may increase account risk.",
+            fields: [:]
+        ) { payload in
+            switch payload["action"] as? String {
+            case "continue": return true
+            case "cancel": return false
+            default: throw V3HeadlessFlowError.invalidResponse
+            }
+        }
+    }
+}
+
 @MainActor
 @objc(V3SideStoreService)
 final class V3SideStoreService: NSObject {
