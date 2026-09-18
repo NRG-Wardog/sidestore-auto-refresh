@@ -268,8 +268,10 @@ precondition(near(scrolledSection, CGRect(x: 0, y: -262, width: 390, height: 325
                       "V3CustomizationsView", "V3HealthView", "V3BackupsView",
                       "V3SideJITView", "V3ReleaseTrackHostView", "V3DiagnosticsView",
                       "V3LogsView", "V3ExperimentalView", "V3SettingsStore",
-                      "V3OperationSheet", "signInPresented"):
+                      "V3OperationSheet", "signInPresented", "V3SignInLink",
+                      "needsSignIn", "Begin Sign In"):
             self.assertIn(token, source)
+        self.assertIn('Button("Submit")', source)
         for operation in ("authBegin", "authPoll", "authRespond", "authCancel",
                           "opStart", "opPoll", "opAnswer", "opCancel",
                           "certList", "certSetActive", "certDelete", "certPortalList",
