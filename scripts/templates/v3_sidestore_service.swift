@@ -731,6 +731,7 @@ final class V3SideStoreService: NSObject {
     private var completed: [String: (data: Data, deadline: Date)] = [:]
     private var mutationID: String?
     private var signInFlow: V3HeadlessSignInFlow?
+    private var operationFlow: V3HeadlessOperationFlow?
     private var finishPanel: (() -> Void)?
     static var presenter: UIViewController {
         if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }),
@@ -787,12 +788,18 @@ final class V3SideStoreService: NSObject {
             "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire])); return }
         let nonMutatingOperations: Set<String> = [
             "snapshot", "catalog", "appIcon", "backupResult", "certificatesSnapshot",
-            "signInState", "signInRespond", "cancelSignIn"
+            "signInState", "signInRespond", "cancelSignIn",
+            "operationState", "operationRespond", "cancelOperation"
         ]
         let mutation = !nonMutatingOperations.contains(operation)
         if mutation, operation != "beginSignIn", let flow = signInFlow, !flow.isTerminal {
             reply(encode(["version": 1, "id": id, "error": "busy",
                 "failure": CombinedFailure(operation: operation, stage: .authentication, code: .busy, id: id, retryable: true).wire]))
+            return
+        }
+        if mutation, let flow = operationFlow, !flow.isTerminal {
+            reply(encode(["version": 1, "id": id, "error": "busy",
+                "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire]))
             return
         }
         guard !mutation || (mutationID == nil && completed.count < 512) else {
@@ -823,6 +830,7 @@ final class V3SideStoreService: NSObject {
                 switch operation {
                 case "snapshot": stage = .serviceReadiness
                 case "beginSignIn", "signInState", "signInRespond", "cancelSignIn", "signOut", "syncAppIDs": stage = .authentication
+                case "operationState", "operationRespond", "cancelOperation": stage = .command
                 case "install", "installURL", "installSharedIPA", "update", "activate": stage = .installation
                 case "refreshApp": stage = .refreshVerification
                 default: stage = .command
@@ -887,6 +895,21 @@ final class V3SideStoreService: NSObject {
             return flow.snapshot()
         case "cancelSignIn":
             guard let flow = signInFlow, flow.id == target else { throw ServiceError.notFound }
+            flow.cancel()
+            return flow.snapshot()
+        case "operationState":
+            guard let flow = operationFlow, flow.id == target else { throw ServiceError.notFound }
+            return flow.snapshot()
+        case "operationRespond":
+            guard let flow = operationFlow, flow.id == target,
+                  let data = request["payload"] as? Data,
+                  let payload = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
+                throw ServiceError.invalidRequest
+            }
+            try flow.session.respond(payload)
+            return flow.snapshot()
+        case "cancelOperation":
+            guard let flow = operationFlow, flow.id == target else { throw ServiceError.notFound }
             flow.cancel()
             return flow.snapshot()
         case "appIcon":
