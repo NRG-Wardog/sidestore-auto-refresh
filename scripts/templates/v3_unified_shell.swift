@@ -228,6 +228,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var requiresConnectionRetry = false
     var installedAppCount: Int { installedApps.count }
     var isStale: Bool { !connected || (updatedAt.map { Date().timeIntervalSince($0) > 120 } ?? true) }
+    var needsSignIn: Bool { account == "Not signed in" }
     func reload(manual: Bool = true) {
         guard !loading, presentation == nil, manual || !requiresConnectionRetry else { return }
         if manual { requiresConnectionRetry = false }
@@ -850,12 +851,16 @@ struct V3AccountSettings: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     var body: some View {
         Section("Account and Signing") {
-            HStack {
-                Label("Apple ID", systemImage: "person.crop.circle.fill")
-                Spacer()
-                Text(status.account)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+            if status.needsSignIn {
+                V3SignInLink(title: "Sign In with Apple ID")
+            } else {
+                HStack {
+                    Label("Apple ID", systemImage: "person.crop.circle.fill")
+                    Spacer()
+                    Text(status.account)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
             }
             HStack {
                 Label("Team", systemImage: "person.2.fill")
@@ -1275,8 +1280,11 @@ struct V3PromptSection: View {
                         .disableAutocorrection(true)
                 }
             }
-            if isMulti {
-                ForEach(options.filter { $0["id"] != "keep" && $0["id"] != "keepAll" }, id: \.self) { option in
+            if fieldDefs.count > 0 && options.isEmpty {
+                Button("Submit") { submit(choice: "") }
+                    .buttonStyle(.borderedProminent)
+            }
+            if isMulti {                ForEach(options.filter { $0["id"] != "keep" && $0["id"] != "keepAll" }, id: \.self) { option in
                     Button {
                         toggle(option["id"] ?? "")
                     } label: {
@@ -1418,6 +1426,18 @@ final class V3AuthStore: ObservableObject {
     }
 }
 
+struct V3SignInLink: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    let title: String
+    var body: some View {
+        NavigationLink {
+            V3SignInView().environmentObject(status)
+        } label: {
+            Label(title, systemImage: "person.badge.key.fill")
+        }
+    }
+}
+
 struct V3SignInView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @StateObject private var auth = V3AuthStore()
@@ -1455,6 +1475,13 @@ struct V3SignInView: View {
                 }
             }
             if let prompt = auth.prompt {
+                if auth.attempts > 1 && (prompt["kind"] as? String == "credentials") {
+                    Section {
+                        Text("That was not accepted. Check the Apple ID and password, then submit again.")
+                            .font(.footnote)
+                            .foregroundColor(.orange)
+                    }
+                }
                 V3PromptSection(prompt: prompt) { answer in
                     auth.answer(promptID: prompt["id"] as? String ?? "", answer: answer)
                 }
@@ -1513,6 +1540,11 @@ struct V3CertificatesView: View {
             if !message.isEmpty {
                 Section {
                     Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled)
+                }
+            }
+            if status.needsSignIn {
+                Section {
+                    V3SignInLink(title: "Sign In to Manage Certificates")
                 }
             }
             Section("On This Device (\(local.count))") {
@@ -1632,6 +1664,11 @@ struct V3DeveloperServicesView: View {
         List {
             if !message.isEmpty {
                 Section { Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled) }
+            }
+            if status.needsSignIn {
+                Section {
+                    V3SignInLink(title: "Sign In to Load Developer Data")
+                }
             }
             Section("Actions") {
                 Button { status.syncAppIDs() } label: { Label("Sync App IDs", systemImage: "arrow.triangle.2.circlepath") }
@@ -2112,10 +2149,16 @@ struct V3CustomizationsView: View {
 }
 
 struct V3HealthView: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
     @State private var rows: [(String, String)] = []
     @State private var message = ""
     var body: some View {
         List {
+            if status.needsSignIn {
+                Section {
+                    V3SignInLink(title: "Sign In to Check Account Health")
+                }
+            }
             if !message.isEmpty {
                 Section { Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled) }
             }
