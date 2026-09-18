@@ -347,7 +347,7 @@ precondition(V3WireContract.decodeRequest(encode(legacyValue), now: now) == nil)
 print("V3 headless wire contract PASS")
 ''')
             executable = directory / "headless-wire-tests"
-            compiled = subprocess.run([compiler, "-parse-as-library", str(program), "-o", str(executable)], capture_output=True, text=True)
+            compiled = subprocess.run([compiler, str(program), "-o", str(executable)], capture_output=True, text=True)
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -358,7 +358,7 @@ print("V3 headless wire contract PASS")
         if not compiler:
             self.skipTest("Swift compiler unavailable")
         source = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
-        gate = source[source.index("@MainActor\nfinal class V3PromptCenter"):]
+        gate = source[source.index("final class V3PromptCenter {"):]
         gate = gate[:gate.index("\n}\n") + len("\n}\n")]
         program = "import Foundation\n" + gate + r'''
 @main struct PromptGateTests {
