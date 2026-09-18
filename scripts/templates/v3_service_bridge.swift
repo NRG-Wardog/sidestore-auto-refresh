@@ -28,8 +28,8 @@ public final class V3ServiceBridge {
         try Task.checkCancellation()
         try await connect()
         let id = UUID().uuidString
-        let readOperations: Set<String> = ["snapshot", "catalog", "appIcon", "backupResult", "certificatesSnapshot", "signInState"]
-        let interactiveControlOperations: Set<String> = ["signInRespond", "cancelSignIn"]
+        let readOperations: Set<String> = ["snapshot", "catalog", "appIcon", "backupResult", "certificatesSnapshot", "signInState", "operationState"]
+        let interactiveControlOperations: Set<String> = ["signInRespond", "cancelSignIn", "operationRespond", "cancelOperation"]
         let mutation = !readOperations.contains(operation) && !interactiveControlOperations.contains(operation)
         if mutation {
             guard !isMutating, RefreshHandler.shared.v3RefreshToken == nil else {
