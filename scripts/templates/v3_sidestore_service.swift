@@ -1019,17 +1019,8 @@ final class V3SideStoreService: NSObject {
             }, "nextCursor": fetched.count > 50 ? offset + 50 : -1]
         case "refreshSources":
             try await callback { done in AppManager.shared.updateAllSources(completion: done) }
-        case "addSource":
-            guard let url = URL(string: target), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
-                  url.host != nil, url.user == nil, url.password == nil else { throw ServiceError.invalidRequest }
-            let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
-            let source = try await AppManager.shared.fetchSource(sourceURL: url, managedObjectContext: background)
-            try await AppManager.shared.add(source, presentingViewController: Self.presenter)
-        case "removeSource":
-            let query = NSFetchRequest<Source>(entityName: "Source")
-            query.predicate = NSPredicate(format: "identifier == %@", target)
-            guard let source = try context.fetch(query).first else { throw ServiceError.notFound }
-            try await AppManager.shared.remove(source, presentingViewController: Self.presenter)
+        case "addSource", "removeSource":
+            return try await beginHeadlessOperation(operation, target: target)
         case "signOut":
             // Preserve reusable certificate and anisette state, matching upgrade preservation.
             AuthManager.shared.signOut(keepCertificate: true, keepAnisetteData: true)
@@ -1046,67 +1037,241 @@ final class V3SideStoreService: NSObject {
             case "verboseOperations": UserDefaults.standard.isVerboseOperationsLoggingEnabled = value
             default: throw ServiceError.invalidRequest
             }
+        case "install", "installURL", "installSharedIPA", "refreshApp",
+             "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "jit":
+            return try await beginHeadlessOperation(operation, target: target)
+        default: throw ServiceError.invalidRequest
+        }
+        return try snapshot()
+    }
+
+    private func beginHeadlessOperation(_ operation: String, target: String) async throws -> [String: Any] {
+        guard operationFlow == nil || operationFlow?.isTerminal == true else { throw ServiceError.busy }
+
+        let titles: [String: String] = [
+            "addSource": "Add Source",
+            "removeSource": "Remove Source",
+            "install": "Install App",
+            "installURL": "Install App",
+            "installSharedIPA": "Install / Sideload App",
+            "refreshApp": "Refresh App",
+            "update": "Update App",
+            "activate": "Activate App",
+            "deactivate": "Deactivate App",
+            "remove": "Remove from Library",
+            "delete": "Delete App",
+            "backup": "Backup App",
+            "restore": "Restore Backup",
+            "jit": "Enable JIT"
+        ]
+        let flow = V3HeadlessOperationFlow(title: titles[operation] ?? "SideStore Operation")
+        operationFlow = flow
+
+        switch operation {
+        case "addSource":
+            guard let url = URL(string: target),
+                  ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
+                  url.host != nil, url.user == nil, url.password == nil else {
+                throw ServiceError.invalidRequest
+            }
+            flow.start { _, flow in
+                let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+                let source = try await AppManager.shared.fetchSource(sourceURL: url, managedObjectContext: background)
+                let sourceInfo = try await background.perform {
+                    (source.name, source.identifier, source.sourceURL.absoluteString)
+                }
+                let confirmed: Bool = try await flow.session.ask(
+                    kind: "sourceAddConfirmation",
+                    title: "Add Source",
+                    message: "Only add sources that you trust.",
+                    fields: [
+                        "name": sourceInfo.0,
+                        "identifier": sourceInfo.1,
+                        "url": sourceInfo.2
+                    ]
+                ) { payload in
+                    switch payload["action"] as? String {
+                    case "confirm": return true
+                    case "cancel": throw OperationError.cancelled
+                    default: throw V3HeadlessFlowError.invalidResponse
+                    }
+                }
+                guard confirmed else { throw OperationError.cancelled }
+                try await AppManager.shared.add(source, presentingViewController: nil, confirmed: true)
+                return ["operation": operation]
+            }
+
+        case "removeSource":
+            let query = NSFetchRequest<Source>(entityName: "Source")
+            query.predicate = NSPredicate(format: "identifier == %@", target)
+            guard let source = try DatabaseManager.shared.viewContext.fetch(query).first else {
+                throw ServiceError.notFound
+            }
+            let sourceName = source.name
+            let sourceID = source.identifier
+            guard sourceID != Source.altStoreIdentifier else { throw ServiceError.unsupported }
+            flow.start { _, flow in
+                _ = try await flow.session.ask(
+                    kind: "sourceRemoveConfirmation",
+                    title: "Remove Source",
+                    message: "Installed apps will remain, but they will no longer receive updates from this source.",
+                    fields: ["name": sourceName, "identifier": sourceID]
+                ) { payload in
+                    guard payload["action"] as? String == "confirm" else {
+                        throw OperationError.cancelled
+                    }
+                    return true
+                }
+                try await AppManager.shared.remove(source, presentingViewController: nil, confirmed: true)
+                return ["operation": operation]
+            }
+
         case "install", "installURL", "installSharedIPA":
             let installTarget: InstallTarget
-            var scopedURL: URL?
-            defer { scopedURL?.stopAccessingSecurityScopedResource() }
             if operation == "install" {
                 let app: StoreApp = try object(target)
                 guard app.latestSupportedVersion != nil else { throw ServiceError.unsupported }
                 installTarget = .app(app)
             } else if operation == "installSharedIPA" {
-                guard UUID(uuidString: target) != nil, let group = Bundle.main.altstoreAppGroup,
+                guard UUID(uuidString: target) != nil,
+                      let group = Bundle.main.altstoreAppGroup,
                       let defaults = UserDefaults(suiteName: group),
-                      let bookmark = defaults.data(forKey: "V3SharedIPA." + target) else { throw ServiceError.invalidRequest }
+                      let bookmark = defaults.data(forKey: "V3SharedIPA." + target) else {
+                    throw ServiceError.invalidRequest
+                }
                 defaults.removeObject(forKey: "V3SharedIPA." + target)
                 var stale = false
-                let url = try URL(resolvingBookmarkData: bookmark, options: .withoutUI, relativeTo: nil, bookmarkDataIsStale: &stale)
-                guard !stale, url.isFileURL, url.pathExtension.lowercased() == "ipa" else { throw ServiceError.invalidRequest }
-                if url.startAccessingSecurityScopedResource() { scopedURL = url }
+                let url = try URL(
+                    resolvingBookmarkData: bookmark,
+                    options: .withoutUI,
+                    relativeTo: nil,
+                    bookmarkDataIsStale: &stale
+                )
+                guard !stale, url.isFileURL, url.pathExtension.lowercased() == "ipa" else {
+                    throw ServiceError.invalidRequest
+                }
+                flow.retainSecurityScopedURL(url)
                 installTarget = .url(url)
             } else {
-                guard let url = URL(string: target), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
-                      url.host != nil, url.user == nil, url.password == nil else { throw ServiceError.invalidRequest }
+                guard let url = URL(string: target),
+                      ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
+                      url.host != nil, url.user == nil, url.password == nil else {
+                    throw ServiceError.invalidRequest
+                }
                 installTarget = .url(url)
             }
-            try await callback { done in
-                let group = AppManager.shared.install(installTarget, presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
-                cancellations[id] = { group.cancel(); group.progress.cancel() }
-            }
-        case "refreshApp":
-            let app: InstalledApp = try object(target)
-            guard app.isActive, app.bundleIdentifier != StoreApp.altstoreAppID else { throw ServiceError.unsupported }
-            let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
-            let group = RefreshGroup(context: StandaloneOperationContext(steps: .signIn, dbBackgroundContext: background))
-            try await callback { done in
-                group.completionHandler = { results in
-                    guard let result = results[app.bundleIdentifier] else { done(.failure(ServiceError.notFound)); return }
-                    done(result.map { _ in () })
+
+            flow.start { handler, flow in
+                if case .app(let app) = installTarget,
+                   let storeApp = app as? StoreApp,
+                   let source = storeApp.source,
+                   try await !source.isAdded() {
+                    let sourceName = source.name
+                    let sourceID = source.identifier
+                    _ = try await flow.session.ask(
+                        kind: "sourceAddConfirmation",
+                        title: "Add Required Source",
+                        message: "This source must be added before the app can be installed.",
+                        fields: [
+                            "name": sourceName,
+                            "identifier": sourceID,
+                            "url": source.sourceURL.absoluteString
+                        ]
+                    ) { payload in
+                        guard payload["action"] as? String == "confirm" else {
+                            throw OperationError.cancelled
+                        }
+                        return true
+                    }
+                    try await AppManager.shared.add(source, presentingViewController: nil, confirmed: true)
                 }
-                cancellations[id] = { group.cancel(); group.progress.cancel() }
-                AppManager.shared.refresh([app], presentingViewController: Self.presenter, group: group)
+
+                try await self.callback { done in
+                    let group = AppManager.shared.install(
+                        installTarget,
+                        presentingViewController: nil,
+                        pipelineHandler: handler
+                    ) { result in
+                        done(result.map { _ in () })
+                    }
+                    flow.track(group.progress) {
+                        group.cancel()
+                        group.progress.cancel()
+                    }
+                }
+                return ["operation": operation]
             }
-        case "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "jit":
+
+        case "refreshApp", "update", "activate", "deactivate", "remove", "delete", "backup", "restore":
             let app: InstalledApp = try object(target)
-            if ["deactivate", "remove", "delete"].contains(operation), app.bundleIdentifier == StoreApp.altstoreAppID { throw ServiceError.unsupported }
-            try await callback { done in
-                let finished: (Result<InstalledApp, Error>) -> Void = { result in done(result.map { _ in () }) }
-                switch operation {
-                case "update":
-                    let progress = AppManager.shared.update(app, presentingViewController: Self.presenter, completionHandler: finished)
-                    cancellations[id] = { progress.cancel() }
-                case "activate": AppManager.shared.activate(app, presentingViewController: Self.presenter, completionHandler: finished)
-                case "deactivate": AppManager.shared.deactivate(app, presentingViewController: Self.presenter, completionHandler: finished)
-                case "remove": AppManager.shared.removeApp(app, presentingViewController: Self.presenter, completionHandler: done)
-                case "delete": AppManager.shared.deleteApp(app, presentingViewController: Self.presenter, completionHandler: finished)
-                case "backup": AppManager.shared.backup(app, presentingViewController: Self.presenter, completionHandler: finished)
-                case "restore": AppManager.shared.restore(app, presentingViewController: Self.presenter, completionHandler: finished)
-                default: AppManager.shared.enableJIT(for: app, completionHandler: done)
+            if operation == "refreshApp" {
+                guard app.isActive, app.bundleIdentifier != StoreApp.altstoreAppID else {
+                    throw ServiceError.unsupported
                 }
             }
-        default: throw ServiceError.invalidRequest
+            if ["deactivate", "remove", "delete"].contains(operation),
+               app.bundleIdentifier == StoreApp.altstoreAppID {
+                throw ServiceError.unsupported
+            }
+
+            let pipelineOperation: AppOperation
+            switch operation {
+            case "refreshApp":
+                pipelineOperation = .refresh(app)
+            case "update":
+                guard let version = app.storeApp?.latestSupportedVersion else {
+                    throw ServiceError.notFound
+                }
+                pipelineOperation = .update(version, customBundleIdentifier: app.customBundleIdentifier)
+            case "activate":
+                pipelineOperation = .activate(app)
+            case "deactivate":
+                pipelineOperation = .deactivate(app)
+            case "remove":
+                pipelineOperation = .removeApp(app)
+            case "delete":
+                pipelineOperation = .deleteApp(app)
+            case "backup":
+                pipelineOperation = .backup(app)
+            case "restore":
+                pipelineOperation = .restore(app)
+            default:
+                throw ServiceError.invalidRequest
+            }
+
+            flow.start { handler, flow in
+                let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+                let operationContext = StandaloneOperationContext(steps: .signIn, dbBackgroundContext: background)
+                try await self.callback { done in
+                    let group = AppManager.shared.pipelineRunner.performSingleOperation(
+                        pipelineOperation,
+                        handler: handler,
+                        context: operationContext
+                    ) { result in
+                        done(result.map { _ in () })
+                    }
+                    flow.track(group.progress) {
+                        group.cancel()
+                        group.progress.cancel()
+                    }
+                }
+                return ["operation": operation]
+            }
+
+        case "jit":
+            let app: InstalledApp = try object(target)
+            flow.start { _, _ in
+                try await self.callback { done in
+                    AppManager.shared.enableJIT(for: app, completionHandler: done)
+                }
+                return ["operation": operation]
+            }
+
+        default:
+            throw ServiceError.invalidRequest
         }
-        return try snapshot()
+
+        return flow.snapshot()
     }
 
     private func object<T: NSManagedObject>(_ identifier: String) throws -> T {
