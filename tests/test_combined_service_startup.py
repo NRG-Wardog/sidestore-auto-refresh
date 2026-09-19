@@ -307,3 +307,33 @@ class StartupPatchTests(unittest.TestCase):
                 before = self.snapshot(root)
                 with self.assertRaises(SystemExit): self.apply(roots)
                 self.assertEqual(before, self.snapshot(root))
+
+
+class ReadinessRegressionTests(unittest.TestCase):
+    def test_structured_failures_are_preserved_not_rewrapped(self):
+        handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        self.assertIn("CombinedFailure.preserving(underlying", handler)
+        self.assertIn("Never double-wrap", handler)
+
+    def test_startup_markers_carry_correlation(self):
+        handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        startup = (ROOT / "scripts/patch_combined_service_startup.py").read_text(encoding="utf-8")
+        for marker in ("PROCESS_LAUNCH_BEGIN", "PROCESS_LAUNCHED", "XPC_CONNECTED",
+                       "APPLICATION_READY", "PROCESS_EXITED", "START_FAILED",
+                       "SNAPSHOT_READY", "READINESS_TIMEOUT", "READINESS_INVALID_RESPONSE"):
+            self.assertIn(marker, handler + startup)
+        self.assertIn("id.uuidString", handler)
+
+    def test_reconnect_and_mutation_safety_invariants(self):
+        handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        connection = (ROOT / "scripts/templates/combined_service_connection.swift").read_text(encoding="utf-8")
+        self.assertIn("if attemptID == nil { begin() }", connection)
+        self.assertGreaterEqual(handler.count("launchID == id"), 4)
+        self.assertIn("attemptID == id", connection)
+        self.assertIn("extensionProcess?._kill(15)", handler)
+        self.assertIn("guard v3RefreshToken == nil", handler)
+        self.assertIn("v3RefreshToken = token", handler)
+
+
+if __name__ == "__main__":
+    unittest.main()

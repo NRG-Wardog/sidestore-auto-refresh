@@ -400,3 +400,58 @@ print("V3 headless wire contract PASS")
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("V3 prompt gate PASS", result.stdout)
+
+
+class GsaPreparedTreeTests(unittest.TestCase):
+    def test_gsa_connection_close_in_prepared_tree(self):
+        side = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        if not side:
+            self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the pinned source checkout")
+        auth = Path(side) / "Dependencies/SideSign/Sources/DeveloperPortal/Authentication.swift"
+        text = auth.read_text(encoding="utf-8")
+        hits = [m.start() for m in re.finditer(r'"Connection": "close"', text)]
+        self.assertEqual(len(hits), 2)
+        enclosing = []
+        for position in hits:
+            before = text[:position]
+            found = [m.group(2) for m in re.finditer(r"func\s+(\w+)\s*\(", before)][-1]
+            enclosing.append(found)
+        self.assertEqual(enclosing, ["sendAuthenticationRequest", "makeTwoFactorAuthRequest"])
+        self.assertEqual(len(re.findall(r"URLRequest\(", text)), 2)
+
+    def test_no_builder_patch_modifies_sidesign_auth(self):
+        scripts = (ROOT / "scripts").glob("*.py")
+        for script in scripts:
+            content = script.read_text(encoding="utf-8")
+            self.assertNotIn("DeveloperPortal/Authentication", content)
+        medic = (ROOT / "scripts/combined_build_evidence.py").read_text(encoding="utf-8")
+        self.assertNotIn("Dependencies/SideSign", medic)
+
+    def test_auth_is_single_flight_without_retry_loops(self):
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        self.assertIn("if let current = activeID { cancel(id: current) }", runtime)
+        auth = runtime.split("final class V3OperationCenter")[0]
+        self.assertNotIn("while ", auth)
+        for marker in ("[V3_AUTH] BEGIN", "[V3_AUTH] PROMPT", "[V3_AUTH] TERMINAL",
+                       "[V3_AUTH] CANCEL", "[V3_OP] PROMPT", "[V3_OP] TERMINAL"):
+            self.assertIn(marker, runtime)
+
+    def test_host_starts_auth_only_from_user_flow(self):
+        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertEqual(host.count('"authBegin"'), 1)
+
+    def test_shipped_failure_preservation(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable")
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            program = directory / "main.swift"
+            program.write_text((ROOT / "scripts/templates/combined_failure.swift").read_text() + "\n"
+                               + 'let id = UUID().uuidString\nlet known = CombinedFailure(operation: "connect", stage: .serviceReadiness, code: .timedOut, id: id, retryable: true)\nlet kept = CombinedFailure.preserving(known, operation: "connect", stage: .serviceReadiness, id: id)\nprecondition(kept.stage == .serviceReadiness && kept.code == .timedOut)\nprecondition(kept.correlationID == id && kept.retryable == true)\nlet invalid = CombinedFailure(operation: "connect", stage: .serviceReadiness, code: .invalidResponse, id: id)\nlet keptInvalid = CombinedFailure.preserving(invalid, operation: "connect", stage: .command, id: UUID().uuidString)\nprecondition(keptInvalid.stage == .serviceReadiness && keptInvalid.code == .invalidResponse)\nprecondition(keptInvalid.correlationID == id)\nlet plain = NSError(domain: NSCocoaErrorDomain, code: 42)\nlet wrapped = CombinedFailure.preserving(plain, operation: "connect", stage: .serviceReadiness, code: .failed, id: id)\nprecondition(wrapped.stage == .serviceReadiness && wrapped.code == .failed)\nprecondition(wrapped.correlationID == id && wrapped.underlyingCode == 42)\nlet cancelled = CombinedFailure.preserving(CancellationError(), operation: "connect", stage: .serviceReadiness, id: id)\nprecondition(cancelled.code == .failed)\nprint("V3 failure preservation PASS")')
+            executable = directory / "preserve-tests"
+            compiled = subprocess.run([compiler, str(program), "-o", str(executable)], capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3 failure preservation PASS", result.stdout)

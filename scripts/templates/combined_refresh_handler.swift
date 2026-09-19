@@ -88,6 +88,7 @@ class RefreshHandler: NSObject {
     private func launchEmbeddedSideStore(id: UUID, bookmark: Data) throws {
         guard let ext = extensionProcess else { throw NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError) }
         launchID = id
+        NSLog("[V3_SERVICE_START] PROCESS_LAUNCH_BEGIN id=%@", id.uuidString)
         let callbacks = CombinedServiceCallbacks(owner: self, identity: id)
         guard let listener = startAnonymousListener(callbacks) else {
             throw CombinedFailure(operation: "connect", stage: .xpcConnection, code: .unavailable, id: id.uuidString, retryable: true)
@@ -119,12 +120,14 @@ class RefreshHandler: NSObject {
                 let pid = ext.pid(forRequestIdentifier: uuid)
                 guard pid > 0 else { self.failed(id, stage: .extensionLaunch); return }
                 self.sideStorePid = pid
+                NSLog("[V3_SERVICE_START] PROCESS_LAUNCHED id=%@ pid=%d", id.uuidString, pid)
                 self.service.signal(.launched, attempt: id)
             }
         }
     }
     fileprivate func accepted(_ incoming: NSXPCConnection, id: UUID) {
         guard launchID == id, connection == nil else { incoming.invalidate(); return }
+        NSLog("[V3_SERVICE_START] XPC_CONNECTED id=%@", id.uuidString)
         connection = incoming
         incoming.remoteObjectInterface = NSXPCInterface(with: RefreshClient.self)
         client = incoming.remoteObjectProxyWithErrorHandler { [weak self] error in
@@ -138,6 +141,7 @@ class RefreshHandler: NSObject {
     fileprivate func applicationReady(_ id: UUID) {
         // finishedLaunching may be repeated; one readiness probe owns this launch.
         guard launchID == id, readinessTask == nil else { return }
+        NSLog("[V3_SERVICE_START] APPLICATION_READY id=%@", id.uuidString)
         readinessTask = Task { @MainActor in
             do {
                 try await awaitServiceReady(id)
@@ -154,14 +158,19 @@ class RefreshHandler: NSObject {
     }
     fileprivate func failed(_ id: UUID, stage: CombinedFailure.Stage, code: CombinedFailure.Code = .failed, underlying: Error? = nil) {
         guard launchID == id || service.attemptID == id else { return }
-        let failure = CombinedFailure(operation: refreshContinuation == nil ? "connect" : "refresh",
-            stage: stage, code: code, id: refreshRunID ?? id.uuidString, underlying: underlying,
+        // Never double-wrap: an already structured failure (e.g. the readiness
+        // probe's timedOut/invalidResponse) keeps its stage, code, retryable
+        // flag and correlation ID instead of degrading to failed/redacted.
+        let failure = CombinedFailure.preserving(underlying, operation: refreshContinuation == nil ? "connect" : "refresh",
+            stage: stage, code: code, id: refreshRunID ?? id.uuidString,
             retryable: refreshContinuation == nil && code == .interrupted ? true : nil)
+        NSLog("[V3_SERVICE_START] START_FAILED id=%@ stage=%@ code=%@", id.uuidString, failure.stage.rawValue, failure.code.rawValue)
         finishRefreshContinuation(.failure(failure))
         service.fail(id, failure)
     }
     private func retire(_ id: UUID) {
         guard launchID == id else { return }
+        NSLog("[V3_SERVICE_START] PROCESS_EXITED id=%@", id.uuidString)
         launchID = nil
         if launchRequestPending == id { retiringRequestPending = id; launchRequestPending = nil }
         readinessTask?.cancel(); readinessTask = nil
