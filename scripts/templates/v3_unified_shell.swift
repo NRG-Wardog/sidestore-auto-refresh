@@ -2556,6 +2556,7 @@ final class V3SetupStore: ObservableObject {
     @Published var pairing = V3SetupStepState()
     @Published var account = V3SetupStepState()
     @Published var network = V3SetupStepState()
+    @Published var tunnel = V3SetupStepState()
     @Published var background = V3SetupStepState()
     @Published var schedule = V3SetupStepState()
     @Published var verification = V3SetupStepState()
@@ -2574,8 +2575,18 @@ final class V3SetupStore: ObservableObject {
         UserDefaults(suiteName: "group.com.SideStore.SideStore")
     }
 
+    // Setup Complete requires every required item: pairing, signed-in account
+    // with team, acceptable network and tunnel, available Background App
+    // Refresh, an enabled schedule, and a test verified in this assistant
+    // session. Developer Mode stays advisory and never gates.
     var isComplete: Bool {
-        account.state == "complete" && pairing.state == "complete" && verification.state == "complete"
+        pairing.state == "complete" &&
+        account.state == "complete" &&
+        network.state == "complete" &&
+        tunnel.state == "complete" &&
+        background.state == "complete" &&
+        schedule.state == "complete" &&
+        verification.state == "complete"
     }
 
     func recalculate(status: V3SideStoreStatusStore) async {
@@ -2593,17 +2604,22 @@ final class V3SetupStore: ObservableObject {
         } else {
             account = V3SetupStepState(state: "complete", detail: status.account)
         }
-        network = V3SetupStepState(state: "checking", detail: "Checking Wi-Fi and tunnel…")
+        network = V3SetupStepState(state: "checking", detail: "Checking Wi-Fi…")
         let wifi = await LiveContainerNetworkPreflight.wifiAvailable()
         if !wifi {
             network = V3SetupStepState(state: "failed", detail: "Wi-Fi unavailable")
+            tunnel = V3SetupStepState(state: "unavailable", detail: "Needs Wi-Fi first")
             NSLog("[V3_SETUP] STATUS step=network state=failed")
-        } else if LiveContainerNetworkPreflight.hasTunnelInterface() {
-            network = V3SetupStepState(state: "complete", detail: "Wi-Fi available, tunnel interface present")
-            NSLog("[V3_SETUP] STATUS step=network state=ready")
         } else {
-            network = V3SetupStepState(state: "actionRequired", detail: "Wi-Fi available, tunnel not present")
-            NSLog("[V3_SETUP] STATUS step=network state=action_required")
+            network = V3SetupStepState(state: "complete", detail: "Wi-Fi available")
+            NSLog("[V3_SETUP] STATUS step=network state=ready")
+            if LiveContainerNetworkPreflight.hasTunnelInterface() {
+                tunnel = V3SetupStepState(state: "complete", detail: "Tunnel interface present (not a CoreDevice proof)")
+                NSLog("[V3_SETUP] STATUS step=tunnel state=ready")
+            } else {
+                tunnel = V3SetupStepState(state: "actionRequired", detail: "Tunnel not present")
+                NSLog("[V3_SETUP] STATUS step=tunnel state=action_required")
+            }
         }
         switch UIApplication.shared.backgroundRefreshStatus {
         case .available:
@@ -2636,36 +2652,15 @@ final class V3SetupStore: ObservableObject {
     }
 
     private func refreshVerificationRow() {
-        guard let manifest = verificationManifest(),
-              let runID = manifest["run_id"] as? String,
-              let results = manifest["results"] as? [[String: Any]], !results.isEmpty else {
-            if verification.state != "running" {
-                verification = V3SetupStepState(state: "actionRequired", detail: "No verified refresh yet")
-            }
-            return
+        // History display only. A past manifest updates the timestamp row but
+        // never satisfies the current setup test; only checkTestResult() may
+        // mark verification complete, and only for a new fully-covered run.
+        if let manifest = verificationManifest(),
+           let date = manifest["date"] as? Date {
+            lastVerified = date
         }
-        _ = runID
-        if results.allSatisfy({ $0["success"] as? Bool == true }) {
-            verification = V3SetupStepState(state: "complete", detail: "Refresh verified")
-            if let date = manifest["date"] as? Date {
-                lastVerified = date
-            }
-        } else {
-            var detail = "Refresh reported failures"
-            if let failed = results.first(where: { $0["success"] as? Bool != true }) {
-                recordFailure(operation: "refresh", stage: "", code: "", correlation: runID, retryable: "")
-                if let message = failed["error"] as? String, !message.isEmpty {
-                    detail = message
-                }
-                if let failure = failed["failure"] as? [String: Any] {
-                    recordFailure(operation: failure["operation"] as? String ?? "refresh",
-                                  stage: failure["stage"] as? String ?? "",
-                                  code: failure["code"] as? String ?? "",
-                                  correlation: failure["correlationID"] as? String ?? runID,
-                                  retryable: (failure["retryable"] as? Bool).map { $0 ? "true" : "false" } ?? "")
-                }
-            }
-            verification = V3SetupStepState(state: "failed", detail: detail)
+        if verification.state == "checking" {
+            verification = V3SetupStepState(state: "actionRequired", detail: "No verified refresh in this session yet")
         }
     }
 
@@ -2685,6 +2680,13 @@ final class V3SetupStore: ObservableObject {
                           correlation: failure.correlationID,
                           retryable: failure.retryable.map { $0 ? "true" : "false" } ?? "")
             verification = V3SetupStepState(state: "failed", detail: technical)
+        } else if let native = error as NSError? {
+            // No stage/code is invented for generic errors, but the available
+            // domain and code travel with the message instead of being dropped.
+            recordFailure(operation: operation, stage: "", code: "",
+                          correlation: "", retryable: "")
+            verification = V3SetupStepState(state: "failed",
+                detail: error.localizedDescription + " (\(native.domain) \(native.code))")
         } else {
             verification = V3SetupStepState(state: "failed", detail: error.localizedDescription)
         }
@@ -2718,13 +2720,39 @@ final class V3SetupStore: ObservableObject {
     }
 
     private func checkTestResult() async -> Bool {
+        // The current setup test requires a NEW run ID plus the authoritative
+        // complete-result contract: every expected app present exactly once.
+        // A partial manifest (for example two expected apps but one result)
+        // never verifies, no matter how old or new it is.
         guard let manifest = verificationManifest(),
               let runID = manifest["run_id"] as? String,
               runID != baselineRunID,
-              let results = manifest["results"] as? [[String: Any]], !results.isEmpty else {
+              CombinedVerification.hasCompleteTerminalResults(manifest, runID: runID) else {
             return false
         }
-        refreshVerificationRow()
+        let results = manifest["results"] as? [[String: Any]] ?? []
+        if results.allSatisfy({ $0["success"] as? Bool == true }) {
+            verification = V3SetupStepState(state: "complete", detail: "Refresh verified")
+            if let date = manifest["date"] as? Date {
+                lastVerified = date
+            }
+        } else {
+            var detail = "Refresh reported failures"
+            if let failed = results.first(where: { $0["success"] as? Bool != true }) {
+                recordFailure(operation: "refresh", stage: "", code: "", correlation: runID, retryable: "")
+                if let message = failed["error"] as? String, !message.isEmpty {
+                    detail = message
+                }
+                if let failure = failed["failure"] as? [String: Any] {
+                    recordFailure(operation: failure["operation"] as? String ?? "refresh",
+                                  stage: failure["stage"] as? String ?? "",
+                                  code: failure["code"] as? String ?? "",
+                                  correlation: failure["correlationID"] as? String ?? runID,
+                                  retryable: (failure["retryable"] as? Bool).map { $0 ? "true" : "false" } ?? "")
+                }
+            }
+            verification = V3SetupStepState(state: "failed", detail: detail)
+        }
         testRunning = false
         if verification.state == "complete" {
             NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=verified")
@@ -2795,9 +2823,11 @@ struct V3SetupAssistantView: View {
                          destination: AnyView(V3SignInView().environmentObject(status)))
             }
             Section("Network") {
-                setupRow(icon: "wifi", title: "Wi-Fi / Tunnel",
+                setupRow(icon: "wifi", title: "Wi-Fi",
                          state: setup.network, destination: nil)
-                if setup.network.state == "actionRequired" {
+                setupRow(icon: "network", title: "VPN Tunnel",
+                         state: setup.tunnel, destination: nil)
+                if setup.tunnel.state == "actionRequired" {
                     Button {
                         openLocalVPN()
                     } label: {
@@ -2885,7 +2915,9 @@ struct V3SetupAssistantView: View {
     @ViewBuilder
     private func setupRow(icon: String, title: String, state: V3SetupStepState, destination: AnyView?) -> some View {
         if let destination {
-            NavigationLink(destination: destination) {
+            NavigationLink(destination: destination.onDisappear {
+                Task { await setup.recalculate(status: status) }
+            }) {
                 rowContent(icon: icon, title: title, state: state, linked: true)
             }
         } else {
@@ -2966,6 +2998,17 @@ private struct V3HomeView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @AppStorage("liveContainerAutoRefreshHealthState", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var refreshState = "UNKNOWN"
     private let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
+    // The banner is a nudge, not acceptance: it hides only when account,
+    // pairing, schedule, Background App Refresh and at least one verified
+    // refresh are all in place. Acceptance itself stays in V3SetupStore.
+    private var setupIncomplete: Bool {
+        if status.needsSignIn || status.pairing == "Pairing file required" { return true }
+        if let defaults, !defaults.bool(forKey: "liveContainerAutoRefreshEnabled") { return true }
+        if UIApplication.shared.backgroundRefreshStatus != .available { return true }
+        let verifiedID = defaults?.dictionary(forKey: "liveContainerAutoRefreshVerification")?["run_id"] as? String
+        if verifiedID?.isEmpty != false { return true }
+        return false
+    }
     var body: some View {
         NavigationView {
             List {
@@ -3063,7 +3106,7 @@ private struct V3HomeView: View {
                     .padding(.vertical, 4)
                 }
                 
-                if status.needsSignIn || status.pairing == "Pairing file required" {
+                if setupIncomplete {
                     Section {
                         Button {
                             NSLog("[V3_SETUP] OPEN source=home")
