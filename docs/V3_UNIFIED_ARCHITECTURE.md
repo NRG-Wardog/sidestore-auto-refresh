@@ -217,7 +217,6 @@ termination/reconnect and cancellation. CI cannot establish those outcomes.
 Issue 18's integrated build evidence is not proof of successful on-device login.
 
 ## Operational evidence: authentication path and readiness propagation
-
 Authentication reaches Apple's GrandSlam through the pinned SideSign
 implementation, not a second stack: the headless sign-in handler drives the
 upstream `SignInOperation` with its `SignInHandler`/`AnisetteServerHandler`
@@ -245,3 +244,49 @@ a retryable timeout rather than a false success. Connection attempts coalesce
 into one startup, late callbacks from retired processes are rejected by
 attempt guards, retiring kills the failed process before replacement, and no
 mutation can begin before readiness succeeds.
+
+## Issue #12: Setup Assistant (onboarding only)
+
+`V3SetupAssistantView` (with `V3SetupStore`) is a host-owned SwiftUI flow
+that guides a fresh install to a usable state. It creates no scheduler,
+authentication stack, database, Keychain entry, or persisted completion
+flag: every row is re-derived from authoritative runtime state whenever the
+screen opens, the app returns from background or Settings, or an underlying
+action completes. Leaving halfway, cancelling sign-in or pickers, losing the
+service connection, or rerunning cannot corrupt SideStore state, because the
+assistant only reads state and invokes existing user-driven actions.
+
+Automatically checked (authoritative): app running, pairing presence from
+the SideStore snapshot, account/team from the snapshot, Wi-Fi path and
+tunnel interface via `LiveContainerNetworkPreflight`, Background App Refresh
+via `UIApplication`, scheduler configuration and verification manifest from
+shared defaults. Advisory only: Developer Mode guidance (no private API to
+query it; never blocks) and CoreDevice (reported as verified only after a
+successful refresh - interface presence alone is never called ready).
+
+User-driven actions reuse existing flows: pairing import uses the existing
+host picker plus `pairingImportData`; sign-in routes into the existing v3
+authentication state machine (no credentials or codes are persisted by the
+assistant); LocalDevVPN opens via the official `localdevvpn://enable`
+deep link with re-check on return (no polling, no monitor); refresh
+scheduling navigates to the existing Refresh Manager; the test refresh posts
+the same `LiveContainerAutoRefreshRunNow` notification as Refresh All and is
+marked successful only when a new run ID appears with complete terminal
+results - never on tap, launch, handoff, or scheduling.
+
+Entry points: Settings -> Setup Assistant, a Home banner shown only while
+account or pairing is missing, the `setup` deep-link host (sets a flag, runs
+no mutation), and the "Set Up LiveContainer + SideStore" App Intent, which
+only stores a pending flag and opens the app. The shortcut carries no
+credentials, identifiers, pairing, network, or signing material and the app
+works fully without it.
+
+Failures preserve their structured cause (operation, stage, code,
+correlation, retryable) through `CombinedFailure`, including the
+service-readiness preservation behavior; unknown errors stay sanitized but
+are never collapsed into a bare success or a generic failure. "Copy Setup
+Diagnostics" emits product/iOS versions, pairing/account/team/Wi-Fi/VPN/
+CoreDevice/BAR/schedule state, last verified refresh, and the last
+structured failure only - no secrets or pairing contents. Console markers
+(`[V3_SETUP]` open/status/action/test-refresh/failure) carry states and
+correlation only.

@@ -34,6 +34,7 @@ struct V3UnifiedTabs: View {
         .accessibilityIdentifier("V3_UNIFIED_SHELL_V1")
         .task {
             status.reload(manual: false)
+            routePendingSetup()
             if let pending = UserDefaults.standard.string(forKey: "V3PendingSideStoreURL"), let url = URL(string: pending) {
                 UserDefaults.standard.removeObject(forKey: "V3PendingSideStoreURL")
                 if url.isFileURL {
@@ -42,7 +43,10 @@ struct V3UnifiedTabs: View {
                 } else { dispatchURL(url) }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in status.reload(manual: false) }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            status.reload(manual: false)
+            routePendingSetup()
+        }
         .onReceive(monitor) { _ in status.reload(manual: false) }
         .onOpenURL(perform: dispatchURL)
         .sheet(isPresented: $status.installPickerPresented, onDismiss: {
@@ -61,11 +65,21 @@ struct V3UnifiedTabs: View {
             NavigationView { V3SignInView().environmentObject(status) }
                 .navigationViewStyle(StackNavigationViewStyle())
         }
+        .sheet(isPresented: $status.setupPresented) {
+            NavigationView { V3SetupAssistantView().environmentObject(status) }
+                .navigationViewStyle(StackNavigationViewStyle())
+        }
         .alert("SideStore", isPresented: Binding(get: { status.error != nil }, set: { if !$0 { status.error = nil } })) {
             Button("Copy Diagnostics") { UIPasteboard.general.string = status.error }
             Button("Retry Connection") { status.reload() }
             Button("OK", role: .cancel) { status.error = nil }
         } message: { Text(status.error ?? "") }
+    }
+    private func routePendingSetup() {
+        guard LCUtils.appGroupUserDefault.bool(forKey: "V3PendingSetupAssistant") else { return }
+        LCUtils.appGroupUserDefault.removeObject(forKey: "V3PendingSetupAssistant")
+        NSLog("[V3_SETUP] OPEN source=shortcut")
+        status.setupPresented = true
     }
     private func dispatchURL(_ url: URL) {
         if ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
@@ -123,6 +137,9 @@ struct V3UnifiedTabs: View {
             switch url.host?.lowercased() {
             case "livecontainer-launch", "install", "open-web-page", "open-url": sharedModel.selectedTab = .apps
             case "certificate": sharedModel.selectedTab = .settings
+            case "setup":
+                NSLog("[V3_SETUP] OPEN source=deep-link")
+                status.setupPresented = true
             case "refresh":
                 sharedModel.selectedTab = .home
                 status.refreshPresented = true
@@ -219,6 +236,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published var refreshPresented = false
     @Published var installPickerPresented = false
     @Published var signInPresented = false
+    @Published var setupPresented = false
     @Published private(set) var loading = false
     @Published private(set) var connected = false
     @Published private(set) var requiresConnectionRetry = false
@@ -850,6 +868,14 @@ struct V3CatalogView: View {
 struct V3AccountSettings: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     var body: some View {
+        Section("Setup") {
+            Button {
+                NSLog("[V3_SETUP] OPEN source=settings")
+                status.setupPresented = true
+            } label: {
+                Label("Setup Assistant", systemImage: "list.clipboard.fill")
+            }
+        }
         Section("Account and Signing") {
             if status.needsSignIn {
                 V3SignInLink(title: "Sign In with Apple ID")
@@ -2519,6 +2545,422 @@ struct V3RefreshDetailView: View {
     }
 }
 
+struct V3SetupStepState: Equatable {
+    var state = "checking"
+    var detail = ""
+}
+
+@MainActor
+final class V3SetupStore: ObservableObject {
+    @Published var device = V3SetupStepState()
+    @Published var pairing = V3SetupStepState()
+    @Published var account = V3SetupStepState()
+    @Published var network = V3SetupStepState()
+    @Published var background = V3SetupStepState()
+    @Published var schedule = V3SetupStepState()
+    @Published var verification = V3SetupStepState()
+    @Published var failureOperation = ""
+    @Published var failureStage = ""
+    @Published var failureCode = ""
+    @Published var failureCorrelation = ""
+    @Published var failureRetryable = ""
+    @Published var testRunning = false
+    @Published var lastVerified: Date?
+    @Published var diagnostics = ""
+    private var testTask: Task<Void, Never>?
+    private var baselineRunID: String?
+
+    private var groupDefaults: UserDefaults? {
+        UserDefaults(suiteName: "group.com.SideStore.SideStore")
+    }
+
+    var isComplete: Bool {
+        account.state == "complete" && pairing.state == "complete" && verification.state == "complete"
+    }
+
+    func recalculate(status: V3SideStoreStatusStore) async {
+        NSLog("[V3_SETUP] STATUS recalculating")
+        device = V3SetupStepState(state: "complete", detail: "App running")
+        if status.pairing == "Pairing file available" {
+            pairing = V3SetupStepState(state: "complete", detail: "Pairing file available")
+        } else {
+            pairing = V3SetupStepState(state: "actionRequired", detail: "No pairing file yet")
+        }
+        if status.needsSignIn {
+            account = V3SetupStepState(state: "actionRequired", detail: "Not signed in")
+        } else if status.team == "No active team" {
+            account = V3SetupStepState(state: "warning", detail: "Signed in without an active team")
+        } else {
+            account = V3SetupStepState(state: "complete", detail: status.account)
+        }
+        network = V3SetupStepState(state: "checking", detail: "Checking Wi-Fi and tunnel…")
+        let wifi = await LiveContainerNetworkPreflight.wifiAvailable()
+        if !wifi {
+            network = V3SetupStepState(state: "failed", detail: "Wi-Fi unavailable")
+            NSLog("[V3_SETUP] STATUS step=network state=failed")
+        } else if LiveContainerNetworkPreflight.hasTunnelInterface() {
+            network = V3SetupStepState(state: "complete", detail: "Wi-Fi available, tunnel interface present")
+            NSLog("[V3_SETUP] STATUS step=network state=ready")
+        } else {
+            network = V3SetupStepState(state: "actionRequired", detail: "Wi-Fi available, tunnel not present")
+            NSLog("[V3_SETUP] STATUS step=network state=action_required")
+        }
+        switch UIApplication.shared.backgroundRefreshStatus {
+        case .available:
+            background = V3SetupStepState(state: "complete", detail: "Background App Refresh available")
+        case .denied:
+            background = V3SetupStepState(state: "warning", detail: "Background App Refresh denied")
+        case .restricted:
+            background = V3SetupStepState(state: "warning", detail: "Background App Refresh restricted")
+        @unknown default:
+            background = V3SetupStepState(state: "warning", detail: "Background App Refresh state unknown")
+        }
+        NSLog("[V3_SETUP] STATUS step=background state=\(background.state)")
+        if let defaults = groupDefaults, defaults.bool(forKey: "liveContainerAutoRefreshEnabled") {
+            let frequency = defaults.string(forKey: "liveContainerAutoRefreshFrequency") ?? "interval"
+            var summary = "Scheduled refresh enabled (\(frequency))"
+            if let deadline = defaults.object(forKey: "liveContainerAutoRefreshTargetDeadline") as? Date {
+                summary += ", next expected " + deadline.formatted(date: .abbreviated, time: .shortened)
+            }
+            schedule = V3SetupStepState(state: "complete", detail: summary)
+        } else {
+            schedule = V3SetupStepState(state: "actionRequired", detail: "Scheduled refresh disabled")
+        }
+        NSLog("[V3_SETUP] STATUS step=schedule state=\(schedule.state)")
+        refreshVerificationRow()
+        NSLog("[V3_SETUP] STATUS step=account state=\(account.state) step=pairing state=\(pairing.state)")
+    }
+
+    private func verificationManifest() -> [String: Any]? {
+        groupDefaults?.dictionary(forKey: "liveContainerAutoRefreshVerification")
+    }
+
+    private func refreshVerificationRow() {
+        guard let manifest = verificationManifest(),
+              let runID = manifest["run_id"] as? String,
+              let results = manifest["results"] as? [[String: Any]], !results.isEmpty else {
+            if verification.state != "running" {
+                verification = V3SetupStepState(state: "actionRequired", detail: "No verified refresh yet")
+            }
+            return
+        }
+        _ = runID
+        if results.allSatisfy({ $0["success"] as? Bool == true }) {
+            verification = V3SetupStepState(state: "complete", detail: "Refresh verified")
+            if let date = manifest["date"] as? Date {
+                lastVerified = date
+            }
+        } else {
+            var detail = "Refresh reported failures"
+            if let failed = results.first(where: { $0["success"] as? Bool != true }) {
+                recordFailure(operation: "refresh", stage: "", code: "", correlation: runID, retryable: "")
+                if let message = failed["error"] as? String, !message.isEmpty {
+                    detail = message
+                }
+                if let failure = failed["failure"] as? [String: Any] {
+                    recordFailure(operation: failure["operation"] as? String ?? "refresh",
+                                  stage: failure["stage"] as? String ?? "",
+                                  code: failure["code"] as? String ?? "",
+                                  correlation: failure["correlationID"] as? String ?? runID,
+                                  retryable: (failure["retryable"] as? Bool).map { $0 ? "true" : "false" } ?? "")
+                }
+            }
+            verification = V3SetupStepState(state: "failed", detail: detail)
+        }
+    }
+
+    func recordFailure(operation: String, stage: String, code: String, correlation: String, retryable: String) {
+        failureOperation = operation
+        failureStage = stage
+        failureCode = code
+        failureCorrelation = correlation
+        failureRetryable = retryable
+        NSLog("[V3_SETUP] FAILURE operation=%@ stage=%@ code=%@ correlation=%@", operation, stage, code, correlation)
+    }
+
+    func recordError(_ error: Error, operation: String) {
+        if let failure = error as? CombinedFailure {
+            let technical = failure.technicalDetails
+            recordFailure(operation: operation, stage: failure.stage.rawValue, code: failure.code.rawValue,
+                          correlation: failure.correlationID,
+                          retryable: failure.retryable.map { $0 ? "true" : "false" } ?? "")
+            verification = V3SetupStepState(state: "failed", detail: technical)
+        } else {
+            verification = V3SetupStepState(state: "failed", detail: error.localizedDescription)
+        }
+    }
+
+    func runTestRefresh() {
+        guard !testRunning else { return }
+        testRunning = true
+        baselineRunID = verificationManifest()?["run_id"] as? String
+        verification = V3SetupStepState(state: "running", detail: "Test refresh running…")
+        NSLog("[V3_SETUP] TEST_REFRESH_START")
+        NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil)
+        testTask = Task {
+            do {
+                let deadline = Date().addingTimeInterval(600)
+                while !Task.isCancelled && Date() < deadline {
+                    try await Task.sleep(nanoseconds: 2_000_000_000)
+                    try Task.checkCancellation()
+                    if await checkTestResult() { return }
+                }
+                if !Task.isCancelled {
+                    verification = V3SetupStepState(state: "warning", detail: "No verified result yet. Check Refresh Manager for progress.")
+                    NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=timeout")
+                }
+            } catch {
+                recordError(error, operation: "refresh")
+                NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=error")
+            }
+            testRunning = false
+        }
+    }
+
+    private func checkTestResult() async -> Bool {
+        guard let manifest = verificationManifest(),
+              let runID = manifest["run_id"] as? String,
+              runID != baselineRunID,
+              let results = manifest["results"] as? [[String: Any]], !results.isEmpty else {
+            return false
+        }
+        refreshVerificationRow()
+        testRunning = false
+        if verification.state == "complete" {
+            NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=verified")
+        } else {
+            NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=failed")
+        }
+        return true
+    }
+
+    func cancelTest() {
+        testTask?.cancel()
+        testTask = nil
+        testRunning = false
+    }
+
+    func buildDiagnostics(status: V3SideStoreStatusStore) {
+        var lines: [String] = ["Setup Assistant"]
+        lines.append("Product: " + (Bundle.main.object(forInfoDictionaryKey: "LCProductLine") as? String ?? "unknown"))
+        lines.append("iOS: " + UIDevice.current.systemVersion)
+        lines.append("Pairing: " + (status.pairing == "Pairing file available" ? "available" : "missing"))
+        lines.append("Account: " + (status.needsSignIn ? "signed out" : "signed in"))
+        lines.append("Team: " + status.team)
+        lines.append("Wi-Fi: " + (network.state == "failed" ? "unavailable" : "available"))
+        lines.append("VPN interface: " + (LiveContainerNetworkPreflight.hasTunnelInterface() ? "present" : "absent"))
+        lines.append("CoreDevice: " + (verification.state == "complete" ? "verified" : "not checked"))
+        switch UIApplication.shared.backgroundRefreshStatus {
+        case .available: lines.append("Background App Refresh: available")
+        case .denied: lines.append("Background App Refresh: denied")
+        case .restricted: lines.append("Background App Refresh: restricted")
+        @unknown default: lines.append("Background App Refresh: unknown")
+        }
+        lines.append("Refresh schedule: " + schedule.detail)
+        if let date = lastVerified {
+            lines.append("Last verified refresh: " + date.formatted(date: .abbreviated, time: .shortened))
+        } else {
+            lines.append("Last verified refresh: none")
+        }
+        if !failureOperation.isEmpty {
+            lines.append("Last structured failure: operation=\(failureOperation) stage=\(failureStage) code=\(failureCode) correlation=\(failureCorrelation) retryable=\(failureRetryable)")
+        }
+        diagnostics = lines.joined(separator: "\n")
+    }
+}
+
+struct V3SetupAssistantView: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var setup = V3SetupStore()
+    @State private var vpnWorking = false
+    var body: some View {
+        List {
+            Section("Device") {
+                setupRow(icon: "app.badge.checkmark", title: "App Running",
+                         state: setup.device, destination: nil)
+                setupRow(icon: "graduationcap", title: "Developer Mode",
+                         state: V3SetupStepState(state: "warning", detail: "Guidance only: keep Developer Mode on in iOS Settings. Setup continues regardless."),
+                         destination: nil)
+            }
+            Section("Pairing") {
+                setupRow(icon: "link", title: "Pairing File",
+                         state: setup.pairing,
+                         destination: AnyView(V3PairingView().environmentObject(status)))
+            }
+            Section("Apple Account") {
+                setupRow(icon: "person.crop.circle", title: "Apple ID",
+                         state: setup.account,
+                         destination: AnyView(V3SignInView().environmentObject(status)))
+            }
+            Section("Network") {
+                setupRow(icon: "wifi", title: "Wi-Fi / Tunnel",
+                         state: setup.network, destination: nil)
+                if setup.network.state == "actionRequired" {
+                    Button {
+                        openLocalVPN()
+                    } label: {
+                        Label(vpnWorking ? "Opening LocalDevVPN…" : "Open / Enable LocalDevVPN", systemImage: "network")
+                    }
+                    .disabled(vpnWorking)
+                }
+                setupRow(icon: "cpu", title: "CoreDevice",
+                         state: coredeviceState(), destination: nil)
+            }
+            Section("Background Refresh") {
+                setupRow(icon: "clock.arrow.circlepath", title: "Background App Refresh",
+                         state: setup.background, destination: nil)
+                if setup.background.state == "warning" {
+                    Button {
+                        openSystemSettings()
+                    } label: {
+                        Label("Open Settings", systemImage: "gearshape")
+                    }
+                }
+            }
+            Section("Automatic Refresh") {
+                setupRow(icon: "calendar.badge.clock", title: "Schedule",
+                         state: setup.schedule,
+                         destination: AnyView(V3RefreshDetailView()))
+            }
+            Section("Verification") {
+                setupRow(icon: "checkmark.seal", title: "Test Refresh",
+                         state: setup.verification, destination: nil)
+                if setup.verification.state == "failed" && !setup.failureOperation.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("operation=\(setup.failureOperation) stage=\(setup.failureStage) code=\(setup.failureCode)")
+                            .font(.caption2).foregroundColor(.secondary).textSelection(.enabled)
+                        Text("correlation=\(setup.failureCorrelation) retryable=\(setup.failureRetryable)")
+                            .font(.caption2).foregroundColor(.secondary).textSelection(.enabled)
+                    }
+                }
+                if setup.testRunning {
+                    Button("Cancel Test", role: .cancel) { setup.cancelTest() }
+                } else if setup.verification.state != "complete" {
+                    Button {
+                        setup.runTestRefresh()
+                    } label: {
+                        Label("Run Test Refresh", systemImage: "arrow.clockwise")
+                    }
+                }
+                if let date = setup.lastVerified {
+                    Text("Last verified " + date.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            if setup.isComplete {
+                Section("Setup Complete") {
+                    Label("Ready to use", systemImage: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    Text("Account, pairing and a verified refresh are all in place.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    Button("Done") { dismiss() }
+                }
+            }
+            Section("Diagnostics") {
+                Button("Copy Setup Diagnostics") {
+                    setup.buildDiagnostics(status: status)
+                    UIPasteboard.general.string = setup.diagnostics
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Setup Assistant")
+        .task { await setup.recalculate(status: status) }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                Task { await setup.recalculate(status: status) }
+            }
+        }
+    }
+    private func coredeviceState() -> V3SetupStepState {
+        if setup.verification.state == "complete" {
+            return V3SetupStepState(state: "complete", detail: "Verified by successful refresh")
+        }
+        return V3SetupStepState(state: "unavailable", detail: "Checked after a successful refresh")
+    }
+    @ViewBuilder
+    private func setupRow(icon: String, title: String, state: V3SetupStepState, destination: AnyView?) -> some View {
+        if let destination {
+            NavigationLink(destination: destination) {
+                rowContent(icon: icon, title: title, state: state, linked: true)
+            }
+        } else {
+            rowContent(icon: icon, title: title, state: state, linked: false)
+        }
+    }
+    private func rowContent(icon: String, title: String, state: V3SetupStepState, linked: Bool) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: stateIcon(state.state))
+                .foregroundColor(stateColor(state.state))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                Text(state.detail.isEmpty ? stateLabel(state.state) : state.detail)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            if linked {
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(title + ", " + stateLabel(state.state))
+    }
+    private func stateIcon(_ state: String) -> String {
+        switch state {
+        case "complete": return "checkmark.circle.fill"
+        case "actionRequired": return "exclamationmark.circle.fill"
+        case "checking", "running": return "clock.arrow.circlepath"
+        case "warning": return "exclamationmark.triangle.fill"
+        case "failed": return "xmark.circle.fill"
+        default: return "minus.circle"
+        }
+    }
+    private func stateColor(_ state: String) -> Color {
+        switch state {
+        case "complete": return .green
+        case "actionRequired": return .orange
+        case "warning": return .yellow
+        case "failed": return .red
+        default: return .secondary
+        }
+    }
+    private func stateLabel(_ state: String) -> String {
+        switch state {
+        case "complete": return "Ready"
+        case "actionRequired": return "Action required"
+        case "checking": return "Checking"
+        case "running": return "Running"
+        case "warning": return "Warning"
+        case "failed": return "Failed"
+        default: return "Unavailable"
+        }
+    }
+    private func openLocalVPN() {
+        NSLog("[V3_SETUP] ACTION step=network action=open")
+        vpnWorking = true
+        defer { vpnWorking = false }
+        guard UIApplication.shared.applicationState == .active,
+              let scheme = UserDefaults.lcAppUrlScheme(), !scheme.isEmpty,
+              var components = URLComponents(string: "localdevvpn://enable") else { return }
+        components.queryItems = [URLQueryItem(name: "scheme", value: scheme)]
+        if let url = components.url { UIApplication.shared.open(url) }
+    }
+    private func openSystemSettings() {
+        NSLog("[V3_SETUP] ACTION step=background action=open-settings")
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
+        }
+    }
+}
+
 private struct V3HomeView: View {
     @EnvironmentObject private var sharedModel: SharedModel
     @EnvironmentObject private var status: V3SideStoreStatusStore
@@ -2621,6 +3063,23 @@ private struct V3HomeView: View {
                     .padding(.vertical, 4)
                 }
                 
+                if status.needsSignIn || status.pairing == "Pairing file required" {
+                    Section {
+                        Button {
+                            NSLog("[V3_SETUP] OPEN source=home")
+                            status.setupPresented = true
+                        } label: {
+                            HStack {
+                                Label("Finish Setup", systemImage: "list.clipboard.fill")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+
                 Section("Status & Identity") {
                     NavigationLink {
                         V3SignInView().environmentObject(status)

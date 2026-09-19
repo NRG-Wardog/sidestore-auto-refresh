@@ -296,5 +296,70 @@ precondition(near(scrolledSection, CGRect(x: 0, y: -262, width: 390, height: 325
             self.assertIn(f'"{operation}"', source)
 
 
+class V3SetupAssistantTests(unittest.TestCase):
+    def test_deep_link_opens_setup_without_mutation(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        index = source.index('case "setup":')
+        end = source.index("\n", source.index("status.setupPresented = true", index))
+        block = source[index:end]
+        self.assertIn("status.setupPresented = true", block)
+        for token in ("perform(", ".request(operation", "NotificationCenter.default.post",
+                      "stageSharedIPA", "authBegin", "signIn"):
+            self.assertNotIn(token, block)
+
+    def test_setup_entry_points(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertIn(".sheet(isPresented: $status.setupPresented)", source)
+        self.assertIn("V3SetupAssistantView", source)
+        self.assertIn("routePendingSetup()", source)
+        self.assertIn('"V3PendingSetupAssistant"', source)
+        self.assertIn("final class V3SetupStore", source)
+        self.assertIn("struct V3SetupAssistantView", source)
+
+    def test_no_second_scheduler_or_auth_stack(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        for token in ("BGTask", "requestRefreshNow", "AutoRefreshScheduler.schedule",
+                      "SignInOperation(", "AuthManager", "Keychain",
+                      "AppManager.shared.install", "AppManager.shared.refresh",
+                      "AppManager.shared.update"):
+            self.assertNotIn(token, source)
+        self.assertEqual(source.count("SecureField"), 3)
+
+    def test_setup_markers_and_diagnostics_privacy(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        for marker in ("[V3_SETUP] OPEN", "[V3_SETUP] STATUS", "[V3_SETUP] ACTION",
+                       "[V3_SETUP] TEST_REFRESH_START", "[V3_SETUP] TEST_REFRESH_TERMINAL",
+                       "[V3_SETUP] FAILURE"):
+            self.assertIn(marker, source)
+        diagnostics = source[source.index("func buildDiagnostics"):]
+        diagnostics = diagnostics[:diagnostics.index("\n    }\n")]
+        for secret in ("password", "token", "secret", "private", "credential", "authToken"):
+            self.assertNotIn(secret, diagnostics)
+
+    def test_verified_refresh_semantics(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertIn("runID != baselineRunID", source)
+        self.assertIn("allSatisfy", source)
+        self.assertIn("Task.checkCancellation", source)
+        self.assertIn("Copy Setup Diagnostics", source)
+
+    def test_setup_intent_is_safe_and_gated(self):
+        intent = (ROOT / "scripts/templates/v3_setup_intent.swift").read_text(encoding="utf-8")
+        self.assertIn("struct V3SetupAssistantIntent: AppIntent", intent)
+        self.assertIn("openAppWhenRun", intent)
+        self.assertIn('"V3PendingSetupAssistant"', intent)
+        self.assertIn("#if canImport(AppIntents)", intent)
+        self.assertIn("@available(iOS 16.0, *)", intent)
+        code = "\n".join(line for line in intent.splitlines()
+                         if not line.strip().startswith("//"))
+        for token in ("password", "deviceID", "pairing", "token", "URL(string:"):
+            self.assertNotIn(token, code)
+
+    def test_patch_installs_setup_intent(self):
+        patch = (ROOT / "scripts/patch_v3_unified_shell.py").read_text(encoding="utf-8")
+        self.assertIn("V3SetupAssistantIntent.swift", patch)
+        self.assertIn("v3 setup intent is missing", patch)
+
+
 if __name__ == "__main__":
     unittest.main()
