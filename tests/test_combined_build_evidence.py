@@ -20,3 +20,12 @@ class CandidateEvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError): evidence.macho_uuid(header + struct.pack('<II', 0x1b, 7))
         with self.assertRaises(ValueError): evidence.macho_uuid(header + command[:-1])
         self.assertIsNone(evidence.macho_uuid(b'not Mach-O'))
+
+    def test_release_product_lines_are_accepted(self):
+        for product in ("v2", "v3", "v3.0.1", "v3.10.2"):
+            self.assertTrue(product in ('v2', 'v3') or
+                            __import__('re').fullmatch(r'v3\.\d+(\.\d+)*', product) is not None)
+        for product in ("v4", "v3.x", "latest", ""):
+            self.assertFalse(product in ('v2', 'v3') or
+                             __import__('re').fullmatch(r'v3\.\d+(\.\d+)*', product) is not None)
+        self.assertEqual('Combined LC+SS ' + 'v3.0.1', 'Combined LC+SS v3.0.1')

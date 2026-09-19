@@ -26,13 +26,15 @@ def macho_uuid(data):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('mode', choices=['identity', 'collect'])
-    parser.add_argument('--product', required=True, choices=['v2', 'v3'])
+    parser.add_argument('--product', required=True)
     parser.add_argument('--ipa', type=Path)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--source', type=Path)
     parser.add_argument('--side-source', type=Path)
     parser.add_argument('paths', nargs='+', type=Path)
     args = parser.parse_args()
+    if args.product not in ('v2', 'v3') and not re.fullmatch(r'v3\.\d+(\.\d+)*', args.product):
+        parser.error("argument --product: invalid choice (choose from 'v2', 'v3', or a 'v3.x[.y]' release line)")
     commit = os.environ['GITHUB_SHA']
     if not re.fullmatch('[0-9a-f]{40}', commit): raise ValueError('immutable builder SHA required')
     run = 'https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['GITHUB_RUN_ID']
@@ -82,7 +84,7 @@ def main():
         paths += ['LiveContainerSwiftUI/Views/AppList/LCAppBanner/' + name for name in
                   ('LCAppBanner.swift', 'LCAppBannerView.swift', 'LCAppBannerViewController.swift')]
         paths += ['.lc-app-layout.json', '.combined-service-startup.json']
-        if args.product == 'v3':
+        if args.product == 'v3' or args.product.startswith('v3.'):
             paths += ['LiveContainerSwiftUI/Views/V3UnifiedShell.swift']
         for name in paths:
             data = (args.source / name).read_bytes()
