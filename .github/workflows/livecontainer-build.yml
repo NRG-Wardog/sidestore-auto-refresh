@@ -282,7 +282,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 builder/scripts/combined_build_evidence.py identity --product v3 \
+          python3 builder/scripts/combined_build_evidence.py identity --product v3.0.1 \
             "$RUNNER_TEMP/livecontainer-derived-data/Build/Products/Release-iphoneos/LiveContainer.app" \
             "$RUNNER_TEMP/embedded-sidestore-derived-data/Build/Products/Release-iphoneos/SideStore.app"
           python3 builder/scripts/package_livecontainer_combined.py \
@@ -293,7 +293,7 @@ jobs:
           python3 builder/scripts/patch_combined_refresh_contract.py --verify-ipa artifacts/LiveContainer-SideStore-AutoRefresh.ipa \
             2>&1 | tee artifacts/logs/runtime-contract-verification.log
           printf 'builder_commit=%s\n' "$GITHUB_SHA" > artifacts/builder-commit.txt
-          python3 builder/scripts/combined_build_evidence.py collect --product v3 \
+          python3 builder/scripts/combined_build_evidence.py collect --product v3.0.1 \
             --ipa artifacts/LiveContainer-SideStore-AutoRefresh.ipa --output artifacts/debug-evidence --source work/LiveContainer --side-source work/EmbeddedSideStore \
             "$RUNNER_TEMP/livecontainer-derived-data/Build/Products/Release-iphoneos" \
             "$RUNNER_TEMP/embedded-sidestore-derived-data/Build/Products/Release-iphoneos"

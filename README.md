@@ -94,12 +94,15 @@ These screenshots show the earlier standalone SideStore v1.0.2 interface. The cu
 
 | What you want | Use | Download |
 | --- | --- | --- |
+| Unified LiveContainer + SideStore (**Recommended**) | **Unified v3.0.1** | **[Download unified IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v3.0.1/LiveContainer-SideStore-AutoRefresh.ipa)** |
 | LiveContainer with the modified SideStore built in | **Combined v2.1.1** | **[Download combined IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v2.1.1/LiveContainer-SideStore-AutoRefresh.ipa)** |
 | SideStore only, with normal separately installed sideloaded apps | **Standalone v1.0.4** | **[Download standalone IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.4/SideStore.ipa)** |
 
-If you want LiveContainer, install **v2.1.1**. SideStore is already embedded inside it, so do not install a separate SideStore copy for the same combined setup.
+If you want LiveContainer, install **Unified v3.0.1**. SideStore is already embedded inside it, so do not install a separate SideStore copy for the same combined setup.
 
-**Combined:** [v2.1.1 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.1)
+**Unified:** [v3.0.1 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.0.1)
+
+**Combined:** [v2.1.1 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.1) (previous combined line, still available)
 
 **Standalone:** [v1.0.4 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.4)
 
