@@ -82,6 +82,7 @@ final class V3AuthCenter {
             if interval > 0 { try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000)) }
             V3HeadlessRuntime.shared.auth.expire(id: id)
         }
+        debugLog("[V3_AUTH] BEGIN session=\(id)")
         return ["session": id, "state": "working"]
     }
 
@@ -100,13 +101,16 @@ final class V3AuthCenter {
             let result = try await operation.execute()
             sessions[id]?.prompt = nil
             sessions[id]?.terminal = ["state": "completed", "team": result.team.name, "teamID": result.team.identifier]
+            debugLog("[V3_AUTH] TERMINAL session=\(id) state=completed")
         } catch {
             sessions[id]?.prompt = nil
             if error is CancellationError {
                 sessions[id]?.terminal = ["state": "cancelled"]
+                debugLog("[V3_AUTH] TERMINAL session=\(id) state=cancelled")
             } else {
                 let failure = CombinedFailure.capture(error, operation: "signIn", stage: .authentication, id: id)
                 sessions[id]?.terminal = ["state": "failed", "stage": failure.stage.rawValue, "code": failure.code.rawValue]
+                debugLog("[V3_AUTH] TERMINAL session=\(id) state=failed stage=\(failure.stage.rawValue) code=\(failure.code.rawValue)")
             }
         }
     }
@@ -143,6 +147,7 @@ final class V3AuthCenter {
         session.prompt = nil
         sessions[id] = session
         if activeID == id { activeID = nil }
+        debugLog("[V3_AUTH] CANCEL session=\(id)")
         return true
     }
 }
@@ -166,6 +171,7 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
                               fields: fields, options: options, destructive: destructive)
         guard let promptID = prompt["id"] as? String else { throw CancellationError() }
         center.sessions[sessionID]?.prompt = prompt
+        debugLog("[V3_AUTH] PROMPT session=\(sessionID) kind=\(kind) attempts=\(center.sessions[sessionID]?.attempts ?? 0)")
         defer { center.sessions[sessionID]?.prompt = nil }
         return try await center.promptsParked(promptID: promptID)
     }
@@ -334,6 +340,7 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
                               fields: fields, options: options, destructive: destructive)
         guard let promptID = prompt["id"] as? String else { throw CancellationError() }
         center.sessions[sessionID]?.prompt = prompt
+        debugLog("[V3_OP] PROMPT session=\(sessionID) kind=\(kind)")
         defer { center.sessions[sessionID]?.prompt = nil }
         return try await V3HeadlessRuntime.shared.prompts.park(promptID: promptID)
     }
@@ -461,12 +468,16 @@ final class V3OperationCenter {
             try await driver.run()
             sessions[id]?.prompt = nil
             sessions[id]?.terminal = ["state": "completed"]
+            debugLog("[V3_OP] TERMINAL session=\(id) kind=\(driver.kind) state=completed")
         } catch {
             sessions[id]?.prompt = nil
             if error is CancellationError {
                 sessions[id]?.terminal = ["state": "cancelled"]
+                debugLog("[V3_OP] TERMINAL session=\(id) kind=\(driver.kind) state=cancelled")
             } else {
-                sessions[id]?.terminal = terminalFailure(id: id, kind: driver.kind, error: error)
+                let terminal = terminalFailure(id: id, kind: driver.kind, error: error)
+                sessions[id]?.terminal = terminal
+                debugLog("[V3_OP] TERMINAL session=\(id) kind=\(driver.kind) state=\(terminal["state"] as? String ?? "") stage=\(terminal["stage"] as? String ?? "") code=\(terminal["code"] as? String ?? "")")
             }
         }
     }

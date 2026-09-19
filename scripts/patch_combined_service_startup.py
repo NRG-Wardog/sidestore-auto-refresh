@@ -70,11 +70,18 @@ def patch(live, side, product):
         var ready = false
         var pending = false
         var invalid = false
+        var lastSnapshotError = ""
         while Date() < until {
             try Task.checkCancellation()
             guard launchID == id else { throw CancellationError() }
-            if ready { return }
-            if invalid { throw CombinedFailure(operation: "connect", stage: .serviceReadiness, code: .invalidResponse, id: id.uuidString) }
+            if ready {
+                NSLog("[V3_SERVICE_START] SNAPSHOT_READY id=%@", id.uuidString)
+                return
+            }
+            if invalid {
+                NSLog("[V3_SERVICE_START] READINESS_INVALID_RESPONSE id=%@ error=%@", id.uuidString, lastSnapshotError)
+                throw CombinedFailure(operation: "connect", stage: .serviceReadiness, code: .invalidResponse, id: id.uuidString)
+            }
             if !pending, let client {
                 let requestID = UUID().uuidString
                 let message: [String: Any] = ["version": 1, "id": requestID, "operation": "snapshot", "target": "", "deadline": Date().addingTimeInterval(30)]
@@ -87,12 +94,15 @@ def patch(live, side, product):
                         guard response.count <= V3WireContract.responseLimit,
                               let result = try? PropertyListSerialization.propertyList(from: response, format: nil) as? [String: Any],
                               result["id"] as? String == requestID else { invalid = true; return }
+                        if let replyError = result["error"] as? String { lastSnapshotError = replyError }
+                        else if result["ok"] as? Bool != true { lastSnapshotError = "missing-ok" }
                         ready = result["ok"] as? Bool == true
                     }
                 }
             }
             try await Task.sleep(nanoseconds: 200_000_000)
         }
+        NSLog("[V3_SERVICE_START] READINESS_TIMEOUT id=%@ lastError=%@", id.uuidString, lastSnapshotError)
         throw CombinedFailure(operation: "connect", stage: .serviceReadiness, code: .timedOut, id: id.uuidString, retryable: true)
 ''' if product == "v3" else '''
         // v2 has no command catalog. App launch readiness is distinct from database readiness,

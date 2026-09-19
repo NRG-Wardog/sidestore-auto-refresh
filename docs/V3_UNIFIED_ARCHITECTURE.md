@@ -202,7 +202,6 @@ action and preserves reusable certificate/Anisette configuration using the
 upstream options. No normal upgrade requires invoking a diagnostics reset.
 
 ## Validation and physical-device acceptance
-
 The workflow runs repository tests, patch replay, Swift parsing, host and embedded
 source builds, Rust/CoreDevice tests, IPA packaging and executable markers.
 The IPA artifact contains verification JSON, builder commit and upstream-auth
@@ -216,3 +215,33 @@ LiveProcess/Return controls, manual/scheduled refresh with the computer
 disconnected, host-replacement reconciliation, VPN failure/recovery, process
 termination/reconnect and cancellation. CI cannot establish those outcomes.
 Issue 18's integrated build evidence is not proof of successful on-device login.
+
+## Operational evidence: authentication path and readiness propagation
+
+Authentication reaches Apple's GrandSlam through the pinned SideSign
+implementation, not a second stack: the headless sign-in handler drives the
+upstream `SignInOperation` with its `SignInHandler`/`AnisetteServerHandler`
+protocols, and every credential, 2FA, team, repair, revocation and
+provisioning decision crosses to the host as data. The pinned SideSign tree
+carries the official `Connection: close` fix in both GrandSlam request
+builders (`sendAuthenticationRequest` for initial auth and
+`makeTwoFactorAuthRequest` for trusted-device, SMS, voice and code
+submission); no builder patch modifies those sources. Auth sessions are
+single-flight per service process (a new begin cancels the previous one),
+every retry is user-driven, and auth/open-operation prompts are logged with
+session, kind, attempt and terminal stage/code only - never credentials,
+codes, tokens or headers.
+
+Readiness failures preserve their structured codes: `failed()` forwards an
+already structured `CombinedFailure` (for example the probe's
+`serviceReadiness/timedOut` or `invalidResponse`) instead of re-wrapping it
+into `failed/redacted`. Correlation IDs remain stable across the attempt.
+Startup transitions emit correlated `[V3_SERVICE_START]` markers from process
+launch through XPC connect, application ready, snapshot ready (or database
+not ready / malformed snapshot / timeout) to process exit, plus `[V3_AUTH]`
+and `[V3_OP]` session markers. The readiness probe polls the snapshot for 30
+seconds before timing out; a persistent database failure still terminates as
+a retryable timeout rather than a false success. Connection attempts coalesce
+into one startup, late callbacks from retired processes are rejected by
+attempt guards, retiring kills the failed process before replacement, and no
+mutation can begin before readiness succeeds.

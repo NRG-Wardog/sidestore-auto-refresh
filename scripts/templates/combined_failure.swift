@@ -174,8 +174,13 @@ public struct CombinedFailure: Error, LocalizedError {
         return CombinedFailure(operation: operation, stage: stage, code: code, id: expectedID,
             underlying: NSError(domain: domain, code: number), retryable: value["retryable"] as? Bool)
     }
-    public static func capture(_ error: Error, operation: String, stage: Stage, id: String) -> CombinedFailure {
-        if let known = error as? CombinedFailure { return known }
+    public static func preserving(_ error: Error?, operation: String, stage: Stage, code: Code = .failed, id: String, retryable: Bool? = nil) -> CombinedFailure {
+        if let known = error as? CombinedFailure {
+            return known
+        }
+        return CombinedFailure(operation: operation, stage: stage, code: code, id: id, underlying: error, retryable: retryable)
+    }
+    public static func capture(_ error: Error, operation: String, stage: Stage, id: String) -> CombinedFailure {        if let known = error as? CombinedFailure { return known }
         var cause = error as NSError
         var resolved = stage
         var nativeCode: Int?
