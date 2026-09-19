@@ -414,7 +414,7 @@ class GsaPreparedTreeTests(unittest.TestCase):
         enclosing = []
         for position in hits:
             before = text[:position]
-            found = [m.group(2) for m in re.finditer(r"func\s+(\w+)\s*\(", before)][-1]
+            found = [m.group(1) for m in re.finditer(r"func\s+(\w+)\s*\(", before)][-1]
             enclosing.append(found)
         self.assertEqual(enclosing, ["sendAuthenticationRequest", "makeTwoFactorAuthRequest"])
         self.assertEqual(len(re.findall(r"URLRequest\(", text)), 2)
