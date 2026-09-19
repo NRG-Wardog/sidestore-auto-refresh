@@ -311,6 +311,10 @@ enum LiveContainerAutoRefreshScheduler {
         }
         guard let runID = beginRun(source: source, manual: manual) else {
             print("[LIVE_CONTAINER_REFRESH] RUN_COALESCED source=\(source)")
+            if manual {
+                record(source: source, result: "coalesced", detail: "A refresh is already running. Wait for it to finish before retrying.")
+                notify(title: "Refresh already running", body: "A refresh is already running. Wait for it to finish before retrying.", kind: "coalesced")
+            }
             finish(true)
             return
         }
