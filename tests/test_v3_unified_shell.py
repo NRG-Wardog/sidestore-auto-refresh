@@ -3,6 +3,7 @@ from pathlib import Path
 import importlib.util
 import re
 import shutil
+import subprocess
 import tempfile
 import unittest
 from typing import Tuple
