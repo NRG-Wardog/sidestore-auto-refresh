@@ -361,5 +361,71 @@ class V3SetupAssistantTests(unittest.TestCase):
         self.assertIn("v3 setup intent is missing", patch)
 
 
+class V3SetupAcceptanceTests(unittest.TestCase):
+    def test_setup_complete_requires_everything(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        block = source[source.index("var isComplete: Bool"):source.index("var isComplete: Bool") + 800]
+        for required in ('pairing.state == "complete"', 'account.state == "complete"',
+                         'network.state == "complete"', 'tunnel.state == "complete"',
+                         'background.state == "complete"', 'schedule.state == "complete"',
+                         'verification.state == "complete"'):
+            self.assertIn(required, block)
+
+    def test_history_never_satisfies_current_test(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertEqual(source.count('detail: "Refresh verified"'), 1)
+        check = source[source.index("private func checkTestResult"):
+                      source.index("private func checkTestResult") + 3000]
+        self.assertIn('detail: "Refresh verified"', check)
+        self.assertIn("runID != baselineRunID", check)
+        self.assertIn("hasCompleteTerminalResults", check)
+
+    def test_partial_manifest_does_not_verify(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable")
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            program = directory / "main.swift"
+            program.write_text((ROOT / "scripts/templates/combined_failure.swift").read_text() + "\n"
+                               + 'let runID = UUID().uuidString\nlet partial: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2",\n    "run_id": runID, "expected_ids": ["A", "B"],\n    "results": [["bundle_id": "A", "success": true]]]\nprecondition(!CombinedVerification.hasCompleteTerminalResults(partial, runID: runID))\nlet short: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2",\n    "run_id": runID, "expected_ids": ["A"],\n    "results": [["bundle_id": "A", "success": true]]]\nprecondition(CombinedVerification.hasCompleteTerminalResults(short, runID: runID))\nlet mismatch: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2",\n    "run_id": UUID().uuidString, "expected_ids": ["A"],\n    "results": [["bundle_id": "A", "success": true]]]\nprecondition(!CombinedVerification.hasCompleteTerminalResults(mismatch, runID: runID))\nprint("V3 manifest coverage PASS")')
+            executable = directory / "manifest-coverage-tests"
+            compiled = subprocess.run([compiler, str(program), "-o", str(executable)], capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3 manifest coverage PASS", result.stdout)
+
+    def test_state_refreshes_after_child_flows_return(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertIn("destination.onDisappear", source)
+        self.assertIn("await setup.recalculate(status: status)", source)
+        self.assertIn("V3PairingView().environmentObject(status)", source)
+        self.assertIn("V3SignInView().environmentObject(status)", source)
+        self.assertIn("V3RefreshDetailView()", source)
+
+    def test_home_banner_reflects_full_setup(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertIn("setupIncomplete", source)
+        self.assertIn("liveContainerAutoRefreshEnabled", source)
+        self.assertIn("backgroundRefreshStatus != .available", source)
+        self.assertIn("liveContainerAutoRefreshVerification", source)
+
+    def test_tunnel_presence_never_proves_coredevice(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertIn("not a CoreDevice proof", source)
+        coredevice = source[source.index("private func coredeviceState"):]
+        coredevice = coredevice[:coredevice.index("\n    }\n")]
+        self.assertIn('verification.state == "complete"', coredevice)
+
+    def test_generic_errors_keep_structure(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        start = source.index("func recordError")
+        record = source[start:start + 1500]
+        self.assertIn("failure.technicalDetails", record)
+        self.assertIn("native.domain", record)
+        self.assertIn("native.code", record)
+
+
 if __name__ == "__main__":
     unittest.main()

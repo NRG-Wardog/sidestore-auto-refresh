@@ -251,10 +251,21 @@ mutation can begin before readiness succeeds.
 that guides a fresh install to a usable state. It creates no scheduler,
 authentication stack, database, Keychain entry, or persisted completion
 flag: every row is re-derived from authoritative runtime state whenever the
-screen opens, the app returns from background or Settings, or an underlying
-action completes. Leaving halfway, cancelling sign-in or pickers, losing the
+screen opens, the app returns from background or Settings, a child flow
+(pairing, sign-in, refresh schedule) is dismissed, or an underlying action
+completes. Leaving halfway, cancelling sign-in or pickers, losing the
 service connection, or rerunning cannot corrupt SideStore state, because the
 assistant only reads state and invokes existing user-driven actions.
+
+Setup Complete requires pairing, a signed-in account with team, acceptable
+Wi-Fi and tunnel state, available Background App Refresh, an enabled
+schedule, and a refresh verified in the current assistant session.
+Developer Mode stays advisory and never gates. A historical manifest feeds
+only the "last verified" history row: the acceptance step records its
+baseline run ID and completes solely for a new run ID whose manifest
+satisfies the authoritative `CombinedVerification.hasCompleteTerminalResults`
+contract (every expected app present exactly once), so a partial manifest
+with two expected apps and one result never verifies.
 
 Automatically checked (authoritative): app running, pairing presence from
 the SideStore snapshot, account/team from the snapshot, Wi-Fi path and
