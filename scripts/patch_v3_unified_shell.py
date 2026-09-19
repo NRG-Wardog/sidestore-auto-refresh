@@ -15,6 +15,7 @@ import tempfile
 
 MARKER = "V3_UNIFIED_SHELL_V1_BEGIN"
 TEMPLATE = Path(__file__).with_name("templates") / "v3_unified_shell.swift"
+INTENT_TEMPLATE = Path(__file__).with_name("templates") / "v3_setup_intent.swift"
 
 
 def die(message: str) -> None:
@@ -51,6 +52,12 @@ def patch_host(root: Path) -> None:
     if shell.exists() and shell.read_text(encoding="utf-8") != expected:
         die("existing v3 shell differs from the current template")
     shell.write_text(expected, encoding="utf-8")
+
+    intent = root / "LiveContainerSwiftUI/App/V3SetupAssistantIntent.swift"
+    expected_intent = INTENT_TEMPLATE.read_text(encoding="utf-8")
+    if intent.exists() and intent.read_text(encoding="utf-8") != expected_intent:
+        die("existing v3 setup intent differs from the current template")
+    intent.write_text(expected_intent, encoding="utf-8")
 
     settings = root / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"
     text = settings.read_text(encoding="utf-8")
@@ -121,12 +128,16 @@ def verify(live: Path, side: Path) -> None:
         die("v3 host files are missing")
     shell = required[0].read_text(encoding="utf-8")
     for token in (MARKER, "V3SideStoreStatusStore", "V3SourcesView", "LCEmbeddedSideStoreRefreshView", "LCTabIdentifier.settings",
-                  "V3SignInView", "V3CertificatesView", "V3PromptSection", "V3PairingView", "V3AuthStore"):
+                  "V3SignInView", "V3CertificatesView", "V3PromptSection", "V3PairingView", "V3AuthStore",
+                  "V3SetupAssistantView", "V3SetupStore", "setupPresented"):
         if token not in shell:
             die(f"v3 shell is missing {token}")
     for forbidden in ("V3RemoteServiceView", "Self.presenter", "presentingViewController: Self.presenter"):
         if forbidden in shell:
             die(f"v3 shell still embeds SideStore UI: {forbidden}")
+    intent = live / "LiveContainerSwiftUI/App/V3SetupAssistantIntent.swift"
+    if not intent.exists() or "V3SetupAssistantIntent" not in intent.read_text(encoding="utf-8"):
+        die("v3 setup intent is missing")
     if "V3UnifiedShell()" not in required[1].read_text(encoding="utf-8"):
         die("v3 shell is not the application root")
     app_list = (live / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift").read_text(encoding="utf-8")
@@ -144,6 +155,7 @@ def patch(live: Path, side: Path) -> None:
     # Validate the complete transaction on disposable copies before touching inputs.
     paths = (
         ("LiveContainerSwiftUI/Utilities/Shared.swift", "LiveContainerSwiftUI/App/LiveContainerSwiftUIApp.swift",
+         "LiveContainerSwiftUI/App/V3SetupAssistantIntent.swift",
          "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift",
          "LiveContainerSwiftUI/Views/V3UnifiedShell.swift"),
         ("AltStore/AppDelegate.swift",))
