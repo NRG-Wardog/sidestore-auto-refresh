@@ -136,6 +136,8 @@ extension LiveContainerAutoRefreshScheduler {
         let coalesced = BGTask()
         await execute(source: "manual", task: coalesced)
         precondition(coalesced.completions == [true] && LiveContainerRefreshBridge.calls == 0)
+        precondition(defaults.string(forKey: lastResultKey) == "coalesced")
+        precondition(UNUserNotificationCenter.shared.requests.count == 1)
 
         clearTestState()
         let ended = BGTask()
