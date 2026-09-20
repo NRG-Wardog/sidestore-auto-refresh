@@ -109,6 +109,8 @@ jobs:
             python3 builder/scripts/patch_embedded_sidestore_startup.py work/LiveContainer work/EmbeddedSideStore
             python3 builder/scripts/patch_guest_return.py work/LiveContainer
             python3 builder/scripts/patch_guest_return.py work/LiveContainer
+            python3 builder/scripts/patch_multitask_dock.py work/LiveContainer
+            python3 builder/scripts/patch_multitask_dock.py work/LiveContainer
             python3 builder/scripts/patch_app_layout.py --v3-grid work/LiveContainer
             python3 builder/scripts/patch_app_layout.py --v3-grid work/LiveContainer
             python3 builder/scripts/patch_v3_unified_shell.py work/LiveContainer work/EmbeddedSideStore
