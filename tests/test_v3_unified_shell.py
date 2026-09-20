@@ -433,7 +433,8 @@ class V3RefreshFeedbackTests(unittest.TestCase):
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         start = source.index("struct V3TargetedRefreshSection")
         block = source[start:start + 1200]
-        self.assertIn("V3SideStoreStatusStore?", block)
+        self.assertIn("V3StatusStoreKey", source)
+        self.assertIn("@Environment(\\.v3StatusStore)", block)
         self.assertIn("if let status", block)
 
     def test_first_launch_notification_prompt(self):

@@ -32,6 +32,7 @@ struct V3UnifiedTabs: View {
             LCSettingsView().tabItem { Label("Settings", systemImage: "gearshape.fill") }.tag(LCTabIdentifier.settings)
         }
         .environmentObject(status)
+        .environment(\.v3StatusStore, status)
         .accessibilityIdentifier("V3_UNIFIED_SHELL_V1")
         .task {
             status.reload(manual: false)
@@ -522,8 +523,7 @@ struct V3AppActions: View {
     private func action(_ operation: String, _ title: String) { status.perform(operation, target: app.identifier, title: title) }
 }
 
-struct V3SideStoreAppDetail: View {
-    @EnvironmentObject private var status: V3SideStoreStatusStore
+struct V3SideStoreAppDetail: View {    @EnvironmentObject private var status: V3SideStoreStatusStore
     let identifier: String
     private var app: V3SideStoreApp? { status.installedApps.first { $0.identifier == identifier } }
     var body: some View {
@@ -1050,11 +1050,22 @@ struct V3BoolSettingRow: View {
     }
 }
 
+private struct V3StatusStoreKey: EnvironmentKey {
+    static var defaultValue: V3SideStoreStatusStore? { nil }
+}
+
+extension EnvironmentValues {
+    var v3StatusStore: V3SideStoreStatusStore? {
+        get { self[V3StatusStoreKey.self] }
+        set { self[V3StatusStoreKey.self] = newValue }
+    }
+}
+
 struct V3TargetedRefreshSection: View {
-    // Optional on purpose: programmatic navigation links can evaluate their
-    // destination outside the inherited environment on some iOS versions.
-    // A missing store must hide this section, never trap the host app.
-    @EnvironmentObject private var status: V3SideStoreStatusStore?
+    // Custom key with a nil default: programmatic navigation links can
+    // evaluate their destination outside the inherited environment on some
+    // iOS versions. A missing store must hide this section, never trap.
+    @Environment(\.v3StatusStore) private var status
     var body: some View {
         if let status,
            let target = status.refreshTarget,
