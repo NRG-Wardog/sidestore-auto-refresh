@@ -428,5 +428,21 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         self.assertIn("native.code", record)
 
 
+class V3RefreshFeedbackTests(unittest.TestCase):
+    def test_targeted_section_survives_missing_store(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        start = source.index("struct V3TargetedRefreshSection")
+        block = source[start:start + 1200]
+        self.assertIn("V3SideStoreStatusStore?", block)
+        self.assertIn("if let status", block)
+
+    def test_first_launch_notification_prompt(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertIn('"V3NotificationsPromptShown"', source)
+        self.assertIn("Stay Informed About Refreshes", source)
+        self.assertIn("requestNotificationPermission", source)
+        self.assertIn("Allow Refresh Notifications", source)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -22,6 +22,7 @@ struct V3UnifiedTabs: View {
     @EnvironmentObject private var sharedModel: SharedModel
     @StateObject private var status = V3SideStoreStatusStore()
     @State private var selectedInstallURL: URL?
+    @State private var showNotificationsPrompt = false
     private let monitor = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     var body: some View {
         TabView(selection: $sharedModel.selectedTab) {
@@ -35,6 +36,10 @@ struct V3UnifiedTabs: View {
         .task {
             status.reload(manual: false)
             routePendingSetup()
+            if !UserDefaults.standard.bool(forKey: "V3NotificationsPromptShown") {
+                UserDefaults.standard.set(true, forKey: "V3NotificationsPromptShown")
+                showNotificationsPrompt = true
+            }
             if let pending = UserDefaults.standard.string(forKey: "V3PendingSideStoreURL"), let url = URL(string: pending) {
                 UserDefaults.standard.removeObject(forKey: "V3PendingSideStoreURL")
                 if url.isFileURL {
@@ -74,6 +79,14 @@ struct V3UnifiedTabs: View {
             Button("Retry Connection") { status.reload() }
             Button("OK", role: .cancel) { status.error = nil }
         } message: { Text(status.error ?? "") }
+        .alert("Stay Informed About Refreshes", isPresented: $showNotificationsPrompt) {
+            Button("Allow Notifications") {
+                Task { await LiveContainerAutoRefreshScheduler.requestNotificationPermission() }
+            }
+            Button("Later", role: .cancel) {}
+        } message: {
+            Text("LiveContainer can notify you when a refresh starts, completes, or needs attention. Nothing runs differently if you skip this.")
+        }
     }
     private func routePendingSetup() {
         guard LCUtils.appGroupUserDefault.bool(forKey: "V3PendingSetupAssistant") else { return }
@@ -1038,9 +1051,14 @@ struct V3BoolSettingRow: View {
 }
 
 struct V3TargetedRefreshSection: View {
-    @EnvironmentObject private var status: V3SideStoreStatusStore
+    // Optional on purpose: programmatic navigation links can evaluate their
+    // destination outside the inherited environment on some iOS versions.
+    // A missing store must hide this section, never trap the host app.
+    @EnvironmentObject private var status: V3SideStoreStatusStore?
     var body: some View {
-        if let target = status.refreshTarget, let app = status.installedApps.first(where: { $0.identifier == target }) {
+        if let status,
+           let target = status.refreshTarget,
+           let app = status.installedApps.first(where: { $0.identifier == target }) {
             Section("Selected App") {
                 HStack {
                     Label(app.name, systemImage: "app.fill")
@@ -2849,6 +2867,16 @@ struct V3SetupAssistantView: View {
                     }
                 }
             }
+            Section("Notifications") {
+                Text("Refresh start, completion and deadline warnings arrive as notifications.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Button {
+                    Task { await LiveContainerAutoRefreshScheduler.requestNotificationPermission() }
+                } label: {
+                    Label("Allow Refresh Notifications", systemImage: "bell.fill")
+                }
+            }
             Section("Automatic Refresh") {
                 setupRow(icon: "calendar.badge.clock", title: "Schedule",
                          state: setup.schedule,
@@ -3216,7 +3244,7 @@ private struct V3HomeView: View {
                         }
                     }
                     NavigationLink(isActive: $status.refreshPresented) {
-                        V3RefreshDetailView()
+                        V3RefreshDetailView().environmentObject(status)
                     } label: {
                         Label("Open Refresh Manager", systemImage: "arrow.clockwise")
                     }
