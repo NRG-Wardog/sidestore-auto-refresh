@@ -104,6 +104,8 @@ If you want LiveContainer, install **Unified v3.0.1**. SideStore is already embe
 
 **Combined:** [v2.1.1 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.1) (previous combined line, still available)
 
+The next unified line, v3.0.2, is under development and not yet published. Its current scope and validation state are tracked in [v3.0.2 release notes](docs/RELEASE_NOTES_v3.0.2.md). v3.0.1 remains the recommended download.
+
 **Standalone:** [v1.0.4 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.4)
 
 ## What's new in v1.0.4 and v2.1.1?
