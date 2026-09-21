@@ -209,19 +209,23 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
         case .selectDeliveryMethod(let preferredMode, let phoneNumbers):
             mode = preferredMode.rawValue
             phones = phoneNumbers.map { ["id": $0.id, "number": $0.number] }
+            debugLog("[V3_AUTH] 2FA_DELIVERY_SELECTED mode=\(mode) phone_count=\(phoneNumbers.count)")
         case .trustedDevice(let error):
             mode = TwoFactorDeliveryMode.trustedDevice.rawValue
             failure = error ?? ""
+            debugLog("[V3_AUTH] 2FA_DELIVERY_SELECTED mode=trustedDevice")
         case .sms(let phoneNumbers, let selectedID, let error):
             mode = TwoFactorDeliveryMode.sms.rawValue
             phones = phoneNumbers.map { ["id": $0.id, "number": $0.number] }
             activeID = selectedID
             failure = error ?? ""
+            debugLog("[V3_AUTH] 2FA_DELIVERY_SELECTED mode=sms phone_id=\(selectedID) phone_count=\(phoneNumbers.count)")
         case .voice(let phoneNumbers, let selectedID, let error):
             mode = TwoFactorDeliveryMode.voice.rawValue
             phones = phoneNumbers.map { ["id": $0.id, "number": $0.number] }
             activeID = selectedID
             failure = error ?? ""
+            debugLog("[V3_AUTH] 2FA_DELIVERY_SELECTED mode=voice phone_id=\(selectedID) phone_count=\(phoneNumbers.count)")
         }
         if let requestError = request.error, !requestError.isEmpty { failure = requestError }
         var actionOptions: [[String: String]] = [["id": "code", "label": "Submit Code"],
@@ -242,10 +246,19 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
         switch answer["action"] {
         case "code":
             guard let code = answer["code"], !code.isEmpty else { throw CancellationError() }
+            debugLog("[V3_AUTH] 2FA_CODE_SUBMITTED")
             return .verificationCode(code)
-        case "trustedDevice": return .requestTrustedDevice
-        case "sms": return .requestSMS(phoneID: answer["phoneID"] ?? activeID)
-        case "voice": return .requestVoice(phoneID: answer["phoneID"] ?? activeID)
+        case "trustedDevice":
+            debugLog("[V3_AUTH] 2FA_DELIVERY_REQUESTED mode=trustedDevice")
+            return .requestTrustedDevice
+        case "sms":
+            let phoneID = answer["phoneID"] ?? activeID
+            debugLog("[V3_AUTH] 2FA_DELIVERY_REQUESTED mode=sms phone_id=\(phoneID)")
+            return .requestSMS(phoneID: phoneID)
+        case "voice":
+            let phoneID = answer["phoneID"] ?? activeID
+            debugLog("[V3_AUTH] 2FA_DELIVERY_REQUESTED mode=voice phone_id=\(phoneID)")
+            return .requestVoice(phoneID: phoneID)
         default: throw CancellationError()
         }
     }

@@ -19,6 +19,49 @@ REQUIRED_SCRIPTS = {
     "adapt_sidestore_070_pairing.py",
     "adapt_sidestore_070_signing.py",
 }
+LIVE_CONTAINER_SCRIPTS = {
+    "patch_livecontainer_autorefresh.py",
+    "patch_embedded_sidestore_startup.py",
+    "patch_v3_unified_shell.py",
+    "patch_v3_service.py",
+    "patch_combined_refresh_contract.py",
+    "patch_embedded_keychain.py",
+    "patch_guest_return.py",
+    "patch_multitask_dock.py",
+    "patch_dead10cc_fix.py",
+    "patch_combined_refresh_contract.py",
+    "patch_combined_transport.py",
+    "patch_combined_service_startup.py",
+    "patch_refresh_result_bridge.py",
+    "patch_app_layout.py",
+    "patch_embedded_sidestore_startup.py",
+    "patch_local_idevice_package.py",
+    "patch_combined_service_startup.py",
+    "combined_build_evidence.py",
+    "run_issue25_rendering.py",
+    "patch_app_layout.py",
+    "audit_ipa_signing.py",
+    "patch_guest_return.py",
+    "patch_combined_transport.py",
+    "patch_combined_service_startup.py",
+    "patch_refresh_result_bridge.py",
+    "patch_background_automation.py",
+    "patch_combined_refresh_contract.py",
+    "patch_embedded_sidestore_startup.py",
+    "patch_local_idevice_package.py",
+    "patch_v3_service.py",
+    "patch_combined_service_startup.py",
+    "combined_build_evidence.py",
+    "run_issue25_rendering.py",
+    "patch_app_layout.py",
+    "package_livecontainer_combined.py",
+    "audit_ipa_signing.py",
+    "patch_guest_return.py",
+    "patch_combined_transport.py",
+    "patch_refresh_result_bridge.py",
+    "patch_embedded_sidestore_startup.py",
+    "patch_local_idevice_package.py",
+}
 LIVE_CONTAINER_SCRIPT = "patch_livecontainer_autorefresh.py"
 LIVE_CONTAINER_STARTUP_SCRIPT = "patch_embedded_sidestore_startup.py"
 COMBINED_REFRESH_SCRIPT = "patch_combined_refresh_contract.py"
@@ -66,16 +109,12 @@ class RepositoryTests(unittest.TestCase):
         self.assertTrue((ROOT / "README.md").is_file())
         self.assertTrue((ROOT / "LICENSE").is_file())
         self.assertTrue((ROOT / "CONTRIBUTING.md").is_file())
-        self.assertTrue((ROOT / "SECURITY.md").is_file())
         self.assertTrue((ROOT / "docs" / "VERIFICATION.md").is_file())
+        self.assertTrue((ROOT / "SECURITY.md").is_file())
         self.assertTrue(WORKFLOW.is_file())
         self.assertEqual(
             {path.name for path in SCRIPTS.glob("*.py")},
-                REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
-                                 COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, 'audit_ipa_signing.py', 'patch_guest_return.py',
-                                 'patch_multitask_dock.py',
-                                 'package_livecontainer_combined.py', 'patch_combined_transport.py', 'patch_refresh_result_bridge.py',
-                            APP_LAYOUT_SCRIPT, V3_UNIFIED_SHELL_SCRIPT, "patch_v3_service.py", "patch_combined_service_startup.py", "combined_build_evidence.py", "run_issue25_rendering.py"},
+                REQUIRED_SCRIPTS | LIVE_CONTAINER_SCRIPTS,
         )
 
     def test_patch_scripts_parse_and_are_idempotent(self):

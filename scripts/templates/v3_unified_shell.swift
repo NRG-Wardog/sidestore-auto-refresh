@@ -796,6 +796,13 @@ struct V3CatalogView: View {
                         Section("Actions") {
                             if let installed = status.installedApps.first(where: { $0.identifier == app.installedID }) {
                                 V3AppActions(app: installed)
+                                if app.canInstall && installed.version != app.version {
+                                    Button {
+                                        status.perform("update", target: installed.identifier, title: "Update " + app.name)
+                                    } label: {
+                                        Label("Update to " + app.version, systemImage: "arrow.down.app.fill")
+                                    }
+                                }
                             } else {
                                 Button {
                                     status.perform("install", target: app.id, title: "Install " + app.name)
