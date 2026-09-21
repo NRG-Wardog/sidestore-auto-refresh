@@ -125,6 +125,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case .signing: return "SideStore could not sign the application."
         case .installation: return "SideStore could not complete the application installation."
         case .refreshVerification: return "Refresh completion could not be verified from the installation results."
+        case .network: return "Network error during the \(operation) operation."
         case .command: return "SideStore could not complete the requested \(operation) command (\(code.rawValue))."
         }
     }
@@ -136,7 +137,7 @@ public struct CombinedFailure: Error, LocalizedError {
             return "Check that the installed combined package retains LiveProcess and its extension registration. Do not reset SideStore or guest data."
         case .authentication, .signing: return "Review Account and Signing, then explicitly retry. Never share credentials or private keys."
         case .installation, .refreshVerification: return "Reload authoritative app status and expiration before retrying. Completion may be uncertain."
-        case .endpointSelection, .heartbeat, .coreDevice, .cdTunnel, .rsdDiscovery, .rsdService, .lockdownConnection, .uniqueDeviceID:
+        case .endpointSelection, .heartbeat, .coreDevice, .cdTunnel, .rsdDiscovery, .rsdService, .lockdownConnection, .uniqueDeviceID, .network:
             return "Check LocalDevVPN and the device connection, then retry explicitly. This failure alone does not prove invalid pairing."
         default: return "Reconnect explicitly and reload authoritative status before repeating a mutation."
         }
