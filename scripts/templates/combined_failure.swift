@@ -70,6 +70,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case hostContainer, storagePreparation, bookmarkCreation, extensionDiscovery, extensionLaunch
         case xpcConnection, serviceReadiness, command, authentication, signing, installation, refreshVerification
         case endpointSelection, heartbeat, coreDevice, cdTunnel, rsdDiscovery, rsdService, lockdownConnection, uniqueDeviceID, pairing
+        case network
     }
     public enum Code: String, CaseIterable {
         case unavailable, invalidConfiguration, permissionDenied, timedOut, cancelled, interrupted

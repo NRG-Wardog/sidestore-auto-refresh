@@ -333,6 +333,17 @@ final class V3SideStoreService: NSObject {
             try await callback { done in
                 AppManager.shared.install(.url(URL(string: target)!), presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
             }
+        case "authBegin":
+            try await callback { done in
+                AppManager.shared.signIn(presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
+            }
+        case "authPoll":
+            // Poll for auth status - just return current auth state
+            let snapshot = try await snapshot()
+            return ["state": snapshot["account"] as? String ?? "Not signed in", "team": snapshot["team"] ?? ""]
+        case "authRespond":
+            // Auth response handling is done via signIn callback
+            return [:]
         case "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "jit":
             let app: InstalledApp = try object(target)
             if ["deactivate", "remove", "delete"].contains(operation), app.bundleIdentifier == StoreApp.altstoreAppID { throw ServiceError.unsupported }
