@@ -731,12 +731,14 @@ struct V3CatalogApp: Identifiable {
     let id: String, name: String, version: String, developer: String, description: String, installedID: String
     let canInstall: Bool
     let downloadURL: String
+    let installedVersion: String?
     init?(_ row: [String: Any]) {
         guard let id = row["identifier"] as? String, let name = row["name"] as? String else { return nil }
         self.id = id; self.name = name; version = row["version"] as? String ?? ""
         developer = row["developer"] as? String ?? ""; description = row["description"] as? String ?? ""
         installedID = row["installedID"] as? String ?? ""; canInstall = row["canInstall"] as? Bool ?? false
         downloadURL = row["downloadURL"] as? String ?? ""
+        installedVersion = row["installedVersion"] as? String
     }
 }
 

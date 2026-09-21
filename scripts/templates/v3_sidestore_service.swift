@@ -250,7 +250,8 @@ final class V3SideStoreService: NSObject {
                  "iconURL": app.iconURL.absoluteString,
                  "downloadURL": app.latestSupportedVersion?.downloadURL.absoluteString ?? "",
                  "canInstall": app.latestSupportedVersion != nil,
-                 "installedID": app.installedApp?.objectID.uriRepresentation().absoluteString ?? ""] as [String: Any]
+                 "installedID": app.installedApp?.objectID.uriRepresentation().absoluteString ?? "",
+                 "installedVersion": app.installedApp?.version] as [String: Any]
             }, "nextCursor": fetched.count > 50 ? offset + 50 : -1]
         case "refreshSources":
             try await callback { done in AppManager.shared.updateAllSources(completion: done) }
