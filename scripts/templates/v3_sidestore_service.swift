@@ -328,6 +328,10 @@ final class V3SideStoreService: NSObject {
                 cancellations[id] = { group.cancel(); group.progress.cancel() }
                 AppManager.shared.refresh([app], presentingViewController: Self.presenter, group: group)
             }
+        case "opStart":
+            try await callback { done in
+                AppManager.shared.install(.url(URL(string: target)!), presentingViewController: Self.presenter) { result in done(result.map { _ in () }) }
+            }
         case "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "jit":
             let app: InstalledApp = try object(target)
             if ["deactivate", "remove", "delete"].contains(operation), app.bundleIdentifier == StoreApp.altstoreAppID { throw ServiceError.unsupported }
