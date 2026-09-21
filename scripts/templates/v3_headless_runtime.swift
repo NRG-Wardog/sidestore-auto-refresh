@@ -66,6 +66,7 @@ final class V3AuthCenter {
         var attempts = 0
         var terminal: [String: Any]?
         var deadline = Date.distantFuture
+        var previousFailure: [String: Any]?
     }
 
     var sessions: [String: Session] = [:]
@@ -99,6 +100,7 @@ final class V3AuthCenter {
             let handler = V3HeadlessAuthHandler(sessionID: id)
             let operation = try SignInOperation(context: context, signInHandler: handler, anisetteServerHandler: handler)
             let result = try await operation.execute()
+            await handler.handleSignInResult(.success(result))
             sessions[id]?.prompt = nil
             sessions[id]?.terminal = ["state": "completed", "team": result.team.name, "teamID": result.team.identifier]
             debugLog("[V3_AUTH] TERMINAL session=\(id) state=completed")
@@ -109,7 +111,9 @@ final class V3AuthCenter {
                 debugLog("[V3_AUTH] TERMINAL session=\(id) state=cancelled")
             } else {
                 let failure = CombinedFailure.capture(error, operation: "signIn", stage: .authentication, id: id)
+                let failureWire = failure.wire
                 sessions[id]?.terminal = ["state": "failed", "stage": failure.stage.rawValue, "code": failure.code.rawValue]
+                sessions[id]?.previousFailure = failureWire
                 debugLog("[V3_AUTH] TERMINAL session=\(id) state=failed stage=\(failure.stage.rawValue) code=\(failure.code.rawValue)")
             }
         }
@@ -119,7 +123,11 @@ final class V3AuthCenter {
         guard let session = sessions[id] else { return nil }
         if let terminal = session.terminal { return terminal.merging(["session": id]) { current, _ in current } }
         if let prompt = session.prompt {
-            return ["session": id, "state": "awaitingPrompt", "attempts": session.attempts, "prompt": prompt]
+            var reply: [String: Any] = ["session": id, "state": "awaitingPrompt", "attempts": session.attempts, "prompt": prompt]
+            if let previousFailure = session.previousFailure {
+                reply["previousFailure"] = previousFailure
+            }
+            return reply
         }
         return ["session": id, "state": "working", "attempts": session.attempts]
     }
@@ -129,6 +137,11 @@ final class V3AuthCenter {
         sessions[id]?.attempts += 1
         guard V3HeadlessRuntime.shared.prompts.answer(promptID: promptID, answer: answer) else {
             return ["session": id, "state": "promptExpired"]
+        }
+        // Clear previous failure on successful response to credentials prompt
+        if let prompt = sessions[id]?.prompt,
+           prompt["kind"] as? String == "credentials" {
+            sessions[id]?.previousFailure = nil
         }
         return poll(id: id)
     }
@@ -245,7 +258,15 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
         } catch { return .cancel }
     }
 
-    func handleSignInResult(_ result: Result<(ALTAccount, ALTAppleAPISession), Error>) async {}
+    func handleSignInResult(_ result: Result<(ALTAccount, ALTAppleAPISession), Error>) async {
+        if case .failure(let error) = result {
+            let failure = CombinedFailure.capture(error, operation: "signIn", stage: .authentication, id: sessionID)
+            V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure = failure.wire
+            debugLog("[V3_AUTH] ATTEMPT_FAILED session=\(sessionID) stage=\(failure.stage.rawValue) code=\(failure.code.rawValue) correlation=\(failure.correlationID)")
+        } else {
+            V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure = nil
+        }
+    }
 
     func resolveTeam(_ teams: [ALTTeam]) async throws -> ALTTeam {
         let answer = try await ask(kind: "team", title: "Select Team", message: "Choose the development team used for signing.",

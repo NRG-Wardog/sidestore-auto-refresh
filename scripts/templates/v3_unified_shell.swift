@@ -1528,6 +1528,35 @@ final class V3AuthStore: ObservableObject {
         }
     }
 
+    static func failureMessage(from failure: [String: Any]) -> String {
+        let code = failure["code"] as? String ?? ""
+        let stage = failure["stage"] as? String ?? ""
+        switch code {
+        case "invalidCredentials": return "Apple did not accept the Apple ID or password. Check them and try again."
+        case "rateLimited": return "Too many authentication attempts. Apple is temporarily rate-limiting requests."
+        case "serviceUnavailable": return "Apple's authentication service is temporarily unavailable. Try again later."
+        case "anisetteFailure": return "Authentication could not obtain valid Anisette data."
+        case "networkFailure": return "Authentication could not reach the required Apple service."
+        case "accountRepairRequired": return "Account repair is required. Open the Apple Developer account to resolve."
+        default:
+            let messages = ["authentication": "Apple ID sign-in failed.",
+                           "anisette": "Anisette authentication infrastructure failure.",
+                           "network": "Network error during authentication.",
+                           "accountRepair": "Account repair required."]
+            return messages[stage] ?? "Apple ID sign-in failed."
+        }
+    }
+
+    static func failureDetails(from failure: [String: Any]) -> String {
+        let stage = failure["stage"] as? String ?? ""
+        let code = failure["code"] as? String ?? ""
+        let correlation = failure["correlationID"] as? String ?? ""
+        let underlyingDomain = failure["underlyingDomain"] as? String ?? ""
+        let underlyingCode = failure["underlyingCode"] as? Int ?? 0
+        let retryable = failure["retryable"] as? Bool ?? false
+        return "stage=\(stage) code=\(code) correlation=\(correlation) underlying=\(underlyingDomain)/\(underlyingCode) retryable=\(retryable ? "yes" : "no")"
+    }
+
     func answer(promptID: String, answer: [String: String]) {
         guard let session else { return }
         Task {
@@ -1603,11 +1632,16 @@ struct V3SignInView: View {
                 }
             }
             if let prompt = auth.prompt {
-                if auth.attempts > 1 && (prompt["kind"] as? String == "credentials") {
+                if let previousFailure = prompt["previousFailure"] as? [String: Any] {
                     Section {
-                        Text("That was not accepted. Check the Apple ID and password, then submit again.")
-                            .font(.footnote)
-                            .foregroundColor(.orange)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(V3AuthStore.failureMessage(from: previousFailure))
+                                .font(.footnote)
+                                .foregroundColor(.orange)
+                            Text(V3AuthStore.failureDetails(from: previousFailure))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
                 V3PromptSection(prompt: prompt) { answer in
