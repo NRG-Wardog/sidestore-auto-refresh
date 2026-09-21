@@ -100,7 +100,8 @@ final class V3AuthCenter {
             let handler = V3HeadlessAuthHandler(sessionID: id)
             let operation = try SignInOperation(context: context, signInHandler: handler, anisetteServerHandler: handler)
             let result = try await operation.execute()
-            await handler.handleSignInResult(.success(result))
+            let account = result.team.account ?? ALTAccount(appleID: "", identifier: result.team.identifier)
+            await handler.handleSignInResult(.success((account, result.session)))
             sessions[id]?.prompt = nil
             sessions[id]?.terminal = ["state": "completed", "team": result.team.name, "teamID": result.team.identifier]
             debugLog("[V3_AUTH] TERMINAL session=\(id) state=completed")
