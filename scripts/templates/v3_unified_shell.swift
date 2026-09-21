@@ -3103,17 +3103,19 @@ private struct V3HomeView: View {
                                         .foregroundColor(.secondary)
                                 }
                             }
-                            Spacer()
-                            Button {
-                                status.reload()
-                            } label: {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 14, weight: .semibold))
-                            }
-                            .buttonStyle(.bordered)
-                            .buttonBorderShape(.capsule)
-                            .disabled(status.loading)
-                        }
+Spacer()
+            Button {
+                status.reload()
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 14, weight: .semibold))
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .disabled(status.loading)
+            .accessibilityLabel("Reload Status")
+            .accessibilityHint("Reloads the latest SideStore connection and account status. This does not refresh installed apps.")
+            }
                         
                         Divider()
                         
