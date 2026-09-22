@@ -11,10 +11,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
+SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
 
 
 def runtime():
     return RUNTIME.read_text(encoding="utf-8")
+
+
+def shell():
+    return SHELL.read_text(encoding="utf-8")
 
 
 class V3TwoFactorTests(unittest.TestCase):
@@ -71,6 +76,39 @@ class V3TwoFactorTests(unittest.TestCase):
         self.assertIn("2FA_DELIVERY_SELECTED", text)
         self.assertIn("2FA_DELIVERY_REQUESTED", text)
         self.assertIn("2FA_CODE_SUBMITTED", text)
+
+    # --- SideSign integration wiring (verifies the actual upstream call path) ---
+    def test_verification_code_maps_to_sidesign_request(self):
+        text = runtime()
+        # The handler returns SideSign's TwoFactorResponse enum cases.
+        # These directly map to SideSign.makeTwoFactorAuthRequest internally.
+        self.assertIn("TwoFactorResponse", text)
+        self.assertIn(".requestTrustedDevice", text)
+        self.assertIn(".requestSMS(phoneID:", text)
+        self.assertIn(".requestVoice(phoneID:", text)
+        self.assertIn(".verificationCode(", text)
+
+    def test_host_twofactor_ui_renders_delivery_methods(self):
+        text = shell()
+        # The host prompt renders the delivery method buttons and phone selection
+        self.assertIn("Step 1 - Choose how Apple sends your code", text)
+        self.assertIn("trustedDevice", text)
+        self.assertIn("sms", text)
+        self.assertIn("voice", text)
+        self.assertIn("phoneID", text)
+
+    def test_host_twofactor_ui_renders_code_submission(self):
+        text = shell()
+        self.assertIn("Step 2 - Enter the code you received", text)
+        self.assertIn("Submit Code", text)
+        self.assertIn("binding(\"code\")", text)
+
+    def test_delivery_mode_selected_before_request(self):
+        # The prompt includes the active mode in fields, which the handler
+        # reads to know which delivery method the user chose.
+        text = runtime()
+        self.assertIn('"key": "mode"', text)
+        self.assertIn('"value": mode', text)
 
 
 if __name__ == "__main__":

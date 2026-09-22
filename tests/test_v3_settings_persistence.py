@@ -57,6 +57,47 @@ class SettingsPersistenceTests(unittest.TestCase):
                 or key in (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
             self.assertTrue(found, key)
 
+    # --- Persistence mechanism verification ---
+    def test_dock_preference_init_reads_back_from_store(self):
+        source = (ROOT / "scripts/patch_multitask_dock.py").read_text(encoding="utf-8")
+        # The init reads the persisted value and applies it once.
+        # This ensures write -> relaunch -> read works.
+        # The patch uses KEY variable which expands to LCMultitaskDockStartsCollapsed
+        self.assertIn('LCUtils.appGroupUserDefault.bool(forKey: "{KEY}")', source)
+        self.assertIn("MULTITASK_DOCK_START_COLLAPSED_V1", source)
+
+    def test_grid_size_uses_app_storage_with_app_group(self):
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        # LCGridSize is defined with storageKey and uses appGroupUserDefault
+        self.assertIn('LCGridSize.storageKey', shell)
+        self.assertIn('store: LCUtils.appGroupUserDefault', shell)
+
+    def test_show_app_labels_uses_app_storage_with_app_group(self):
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertIn('"LCShowAppLabels"', shell)
+        self.assertIn('store: LCUtils.appGroupUserDefault', shell)
+
+    def test_guest_return_uses_lc_user_defaults(self):
+        guest = (ROOT / "scripts/patch_guest_return.py").read_text(encoding="utf-8")
+        # Guest return settings use UserDefaults.lc() which is the app-group store
+        self.assertIn("UserDefaults.lc()", guest)
+        self.assertIn("LCGuestReturnStartsCollapsed", guest)
+
+    def test_hide_collapsed_dock_uses_app_group(self):
+        # LCHideCollapsedDock is defined in the patched LCMultitaskSettingView.swift
+        source = (ROOT / "scripts/patch_multitask_dock.py").read_text(encoding="utf-8")
+        self.assertIn('"LCHideCollapsedDock"', source)
+        self.assertIn('store: LCUtils.appGroupUserDefault', source)
+
+    def test_no_standard_userdefaults_for_lc_settings(self):
+        # LC settings must use LCUtils.appGroupUserDefault, not standard UserDefaults
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        for key in ("LCGridSize", "LCShowAppLabels", "LCHideCollapsedDock"):
+            # Ensure they don't use UserDefaults.standard
+            self.assertNotIn(f"UserDefaults.standard.{key}", shell)
+            self.assertNotIn(f'UserDefaults.standard.string(forKey: "{key}")', shell)
+            self.assertNotIn(f'UserDefaults.standard.bool(forKey: "{key}")', shell)
+
 
 if __name__ == "__main__":
     unittest.main()

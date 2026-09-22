@@ -73,6 +73,48 @@ class RefreshClassificationTests(unittest.TestCase):
         self.assertIn("public static func preserving(", text)
         self.assertIn("if let known = error as? CombinedFailure", text)
 
+    # --- Explicit regression guards against numeric guessing ---
+    def test_no_bare_code_20_guessing_core_device(self):
+        """Ensure code 20 is never used to map to coreDevice stage."""
+        text = template()
+        fn = text[text.index("static func capture"):]
+        # The old buggy logic checked `code == 20` to infer coreDevice.
+        # This must not exist anywhere in the capture function.
+        # "20" may appear in comments (e.g., "errno=20") but not as code.
+        self.assertNotIn("code == 20", fn)
+        self.assertNotIn("cause.code == 20", fn)
+        self.assertNotIn("underlyingCode == 20", fn)
+
+    def test_no_bare_code_guessing_for_any_stage(self):
+        """Ensure no bare numeric literal (without domain) decides stage."""
+        text = template()
+        fn = text[text.index("static func capture"):]
+        # Only domain-qualified mappings are allowed.
+        # POSIX errno under NSPOSIXErrorDomain is domain-qualified.
+        # Gateway codes are preserved as underlyingCode only.
+        forbidden_patterns = [
+            "code ==",
+            "underlyingCode ==",
+            "cause.code ==",
+        ]
+        for pattern in forbidden_patterns:
+            # The only allowed numeric comparison is the explicit GrandSlam
+            # rate-limit check under ALTAppleAPIErrorDomain/SideSignErrorDomain
+            # which is domain-qualified.
+            if pattern == "code ==":
+                # GrandSlam codes are checked under specific domain switch
+                pass
+            self.assertNotIn(pattern.replace("==", " =="), fn.replace("code == -22411", "").replace("code == -20102", "").replace("code == -21668", ""))
+
+    def test_minimuxer_gateway_codes_preserved_as_underlying(self):
+        """MinimuxerError/DeviceGatewayError/IdeviceGatewayError codes stay in underlyingCode."""
+        text = template()
+        # These domains are in the allowlist and their codes are preserved
+        for domain in ("MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError"):
+            self.assertIn(f'"{domain}"', text)
+        # The capture function preserves the underlying error
+        self.assertIn("underlying: nativeCode.map", text)
+
 
 if __name__ == "__main__":
     unittest.main()

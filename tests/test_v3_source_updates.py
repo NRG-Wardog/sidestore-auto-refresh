@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
 SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
+RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
 
 
 def shell():
@@ -62,6 +63,54 @@ class V3SourceUpdateTests(unittest.TestCase):
         text = shell()
         self.assertIn("hasUpdate", text)
         self.assertIn('Button("Update")', text)
+
+    # --- Comprehensive update flow verification ---
+    def test_catalog_includes_installed_id_and_version(self):
+        text = service()
+        # The catalog response includes both installedID and installedVersion
+        self.assertIn('"installedID"', text)
+        self.assertIn('"installedVersion"', text)
+        self.assertIn('app.installedApp?.version', text)
+
+    def test_update_button_only_when_can_install_and_version_differs(self):
+        text = shell()
+        # Update button requires canInstall AND version difference
+        self.assertIn("app.canInstall && installed.version != app.version", text)
+
+    def test_update_calls_opStart_with_kind_update(self):
+        text = shell()
+        # Update action routes through opStart with kind "update"
+        self.assertIn('status.perform("update"', text)
+        # Verify the service handles opStart with update kind
+        runtime = RUNTIME.read_text(encoding="utf-8")
+        self.assertIn('case "update"', runtime)
+
+    def test_update_uses_existing_appmanager_update(self):
+        runtime = RUNTIME.read_text(encoding="utf-8")
+        # The update operation uses the pipeline runner with .update operation
+        self.assertIn(".update(appVersion", runtime)
+        self.assertIn("performSingleOperation", runtime)
+
+    def test_source_unavailable_shows_unavailable_version(self):
+        text = service()
+        # When source is unavailable, version shows "Unavailable"
+        self.assertIn('"Unavailable"', text)
+
+    def test_missing_download_url_disables_install(self):
+        text = shell()
+        self.assertIn("app.downloadURL.isEmpty", text)
+        self.assertIn(".disabled(!app.canInstall", text)
+
+    def test_can_install_requires_latest_supported_version(self):
+        text = service()
+        self.assertIn('"canInstall": app.latestSupportedVersion != nil', text)
+
+    def test_update_pipeline_error_surfaces_structured_failure(self):
+        # The CombinedFailure.capture in V3OperationCenter.terminalFailure
+        # ensures errors are structured with stage/installation
+        runtime = RUNTIME.read_text(encoding="utf-8")
+        self.assertIn('"update": stage = .installation', runtime)
+        self.assertIn("terminalFailure", runtime)
 
 
 if __name__ == "__main__":
