@@ -1538,11 +1538,24 @@ final class V3AuthStore: ObservableObject {
     }
 
     static func failureMessage(from failure: [String: Any]) -> String {
+        // The service classifies the real typed error into a display kind.
+        // Only show password guidance for proven invalid credentials.
+        switch failure["kind"] as? String {
+        case "invalidCredentials": return "Apple did not accept the Apple ID or password. Check them and try again."
+        case "invalidCode": return "The previous verification code was not accepted. Continue to try again with a new code."
+        case "rateLimited": return "Too many authentication attempts. Apple is temporarily rate-limiting requests. Wait before trying again."
+        case "serviceUnavailable": return "Apple's authentication service did not return a valid response. Try again later."
+        case "anisetteFailure", "anisette": return "Authentication could not obtain valid Anisette data."
+        case "networkFailure", "network": return "Authentication could not reach the required Apple service. Check the connection and try again."
+        case "accountRepairRequired": return "Apple requires attention on this account before signing in."
+        case "unknown", nil: break
+        default: break
+        }
         let code = failure["code"] as? String ?? ""
         let stage = failure["stage"] as? String ?? ""
         switch code {
         case "invalidCredentials": return "Apple did not accept the Apple ID or password. Check them and try again."
-        case "rateLimited": return "Too many authentication attempts. Apple is temporarily rate-limiting requests."
+        case "rateLimited": return "Too many authentication attempts. Apple is temporarily rate-limiting requests. Wait before trying again."
         case "serviceUnavailable": return "Apple's authentication service is temporarily unavailable. Try again later."
         case "anisetteFailure": return "Authentication could not obtain valid Anisette data."
         case "networkFailure": return "Authentication could not reach the required Apple service."
@@ -1557,13 +1570,14 @@ final class V3AuthStore: ObservableObject {
     }
 
     static func failureDetails(from failure: [String: Any]) -> String {
+        let kind = failure["kind"] as? String ?? ""
         let stage = failure["stage"] as? String ?? ""
         let code = failure["code"] as? String ?? ""
         let correlation = failure["correlationID"] as? String ?? ""
         let underlyingDomain = failure["underlyingDomain"] as? String ?? ""
         let underlyingCode = failure["underlyingCode"] as? Int ?? 0
         let retryable = failure["retryable"] as? Bool ?? false
-        return "stage=\(stage) code=\(code) correlation=\(correlation) underlying=\(underlyingDomain)/\(underlyingCode) retryable=\(retryable ? "yes" : "no")"
+        return "kind=\(kind) stage=\(stage) code=\(code) correlation=\(correlation) underlying=\(underlyingDomain)/\(underlyingCode) retryable=\(retryable ? "yes" : "no")"
     }
 
     func answer(promptID: String, answer: [String: String]) {
@@ -3112,19 +3126,19 @@ private struct V3HomeView: View {
                                         .foregroundColor(.secondary)
                                 }
                             }
-Spacer()
-            Button {
-                status.reload()
-            } label: {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 14, weight: .semibold))
-            }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
-            .disabled(status.loading)
-            .accessibilityLabel("Reload Status")
-            .accessibilityHint("Reloads the latest SideStore connection and account status. This does not refresh installed apps.")
-            }
+                            Spacer()
+                            Button {
+                                status.reload()
+                            } label: {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            .buttonStyle(.bordered)
+                            .buttonBorderShape(.capsule)
+                            .disabled(status.loading)
+                            .accessibilityLabel("Reload Status")
+                            .accessibilityHint("Reloads the latest SideStore connection and account status. This does not refresh installed apps.")
+                            }
                         
                         Divider()
                         

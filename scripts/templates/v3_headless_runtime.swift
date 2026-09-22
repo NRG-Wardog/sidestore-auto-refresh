@@ -55,6 +55,69 @@ func v3Prompt(id: String = UUID().uuidString, kind: String, title: String, messa
     return prompt
 }
 
+// MARK: - Authentication failure classification (typed, no string guessing)
+
+// Privacy-safe display kind for the previous authentication attempt failure.
+// Only the kind string plus CombinedFailure scalar fields cross the bridge.
+// Never credentials, tokens, 2FA codes, DSID, headers, or response bodies.
+enum V3AuthFailureKind: String {
+    case invalidCredentials
+    case invalidCode
+    case rateLimited
+    case serviceUnavailable
+    case anisette
+    case network
+    case accountRepairRequired
+    case unknown
+}
+
+// Classifies the actual typed error from SignInOperation.authenticationLoop().
+// Returns nil for cancellation-class results, which must clear any stored
+// failure instead of being displayed. Evidence for each mapping is the pinned
+// SideSign source (Sources/DeveloperPortal/Authentication.swift,
+// Sources/Models/Errors.swift, Sources/Constants.swift):
+// - incorrectCredentials: GrandSlam ec -22406
+// - appSpecificPasswordRequired: GrandSlam ec -20101 / -20209
+// - tooManyAttempts: GrandSlam ec -21668 / -20102 / -22411, or HTTP 429
+// - incorrectVerificationCode: wrong 2FA code (returns to credentials prompt)
+// - invalidAnisetteData: Anisette infrastructure failure
+// - accountRepairRequired: Apple requires account attention
+// - ServerError.badServerResponse / invalidResponseFormat / missingKey: the
+//   Apple endpoint did not return a valid auth response (e.g. HTTP 5xx with an
+//   empty body, which SideSign reports without a status code)
+// - ServerError.underlyingError with a GrandSlam rate-limit code: rateLimited
+// - URLError (any code): network reachability failure
+// Anything else is honestly reported as unknown.
+func v3ClassifyAuthError(_ error: Error) -> V3AuthFailureKind? {
+    if error is CancellationError { return nil }
+    if let portal = error as? DeveloperPortalError {
+        switch portal {
+        case .incorrectCredentials: return .invalidCredentials
+        case .appSpecificPasswordRequired: return .invalidCredentials
+        case .tooManyAttempts: return .rateLimited
+        case .incorrectVerificationCode: return .invalidCode
+        case .invalidAnisetteData: return .anisette
+        case .accountRepairRequired: return .accountRepairRequired
+        case .userCancelled: return nil
+        default: return .unknown
+        }
+    }
+    if let server = error as? ServerError {
+        switch server {
+        case .badServerResponse, .invalidResponseFormat, .missingKey:
+            return .serviceUnavailable
+        case .underlyingError(let code, _):
+            // GrandSlam rate-limit codes (Sources/Constants.swift).
+            if code == -22411 || code == -20102 || code == -21668 {
+                return .rateLimited
+            }
+            return .unknown
+        }
+    }
+    if (error as NSError).domain == NSURLErrorDomain { return .network }
+    return .unknown
+}
+
 // MARK: - Authentication state machine
 
 @MainActor
@@ -273,12 +336,19 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
     }
 
     func handleSignInResult(_ result: Result<(ALTAccount, ALTAppleAPISession), Error>) async {
-        if case .failure(let error) = result {
-            let failure = CombinedFailure.capture(error, operation: "signIn", stage: .authentication, id: sessionID)
-            V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure = failure.wire
-            debugLog("[V3_AUTH] ATTEMPT_FAILED session=\(sessionID) stage=\(failure.stage.rawValue) code=\(failure.code.rawValue) correlation=\(failure.correlationID)")
-        } else {
+        switch result {
+        case .success:
             V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure = nil
+        case .failure(let error):
+            guard let kind = v3ClassifyAuthError(error) else {
+                V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure = nil
+                return
+            }
+            let failure = CombinedFailure.capture(error, operation: "signIn", stage: .authentication, id: sessionID)
+            var wire = failure.wire
+            wire["kind"] = kind.rawValue
+            V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure = wire
+            debugLog("[V3_AUTH] ATTEMPT_FAILED session=\(sessionID) kind=\(kind.rawValue) stage=\(failure.stage.rawValue) code=\(failure.code.rawValue) correlation=\(failure.correlationID)")
         }
     }
 
