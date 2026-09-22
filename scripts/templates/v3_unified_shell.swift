@@ -798,7 +798,13 @@ struct V3CatalogView: View {
                         Section("Actions") {
                             if let installed = status.installedApps.first(where: { $0.identifier == app.installedID }) {
                                 V3AppActions(app: installed)
-                                if app.canInstall && installed.version != app.version {
+                                // The update decision is SideStore's, not a host string
+                                // comparison: InstalledApp.hasUpdate orders versions with
+                                // SemanticVersion (major.minor.patch, then pre-release/build
+                                // on beta tracks). A raw version-string inequality check
+                                // would also offer downgrades (e.g. installed 0.4.30
+                                // against source 0.4.26), so it must never gate this button.
+                                if installed.hasUpdate {
                                     Button {
                                         status.perform("update", target: installed.identifier, title: "Update " + app.name)
                                     } label: {

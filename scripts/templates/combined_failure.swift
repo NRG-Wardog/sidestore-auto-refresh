@@ -100,7 +100,7 @@ public struct CombinedFailure: Error, LocalizedError {
         self.retryable = retryable
     }
     private static let operations: Set<String> = ["connect", "status", "command", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit"]
-    private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork"]
+    private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "HTTPStatus"]
     public var message: String {
         if code == .cancelled { return "The \(operation) request was cancelled. Its result may need reconciliation." }
         if code == .timedOut { return "The \(operation) request timed out during \(stage.rawValue)." }
@@ -123,7 +123,17 @@ public struct CombinedFailure: Error, LocalizedError {
         case .pairing: return "Pairing parsing, validation, or a concrete device trust check failed."
         case .authentication: return "SideStore could not complete account authentication."
         case .signing: return "SideStore could not sign the application."
-        case .installation: return "SideStore could not complete the application installation."
+        case .installation:
+            // Apple-side application verification rejections carry fixed installd
+            // codes. These describe profile/identity rejection, never an account
+            // ban, and they do not imply a pairing or LocalDevVPN problem.
+            if underlyingCode == 0xE8008024 {
+                return "iOS reports that the provisioning profile is banned during application verification. Recreating pairing or changing LocalDevVPN settings is unlikely to address this specific error."
+            }
+            if underlyingCode == 0xE8008018 {
+                return "iOS reports that the identity used to sign the executable is no longer valid. The app must be re-signed with a current signing identity."
+            }
+            return "SideStore could not complete the application installation."
         case .refreshVerification: return "Refresh completion could not be verified from the installation results."
         case .network: return "Network error during the \(operation) operation."
         case .command: return "SideStore could not complete the requested \(operation) command (\(code.rawValue))."
@@ -189,45 +199,103 @@ public struct CombinedFailure: Error, LocalizedError {
         var cause = error as NSError
         var resolved = stage
         var nativeCode: Int?
+        var nativeDomain: String?
+        var ppqLocked = false
         // Only an allowlisted stage is inspected locally. No arbitrary userInfo is serialized.
         for _ in 0..<5 {
             // Domain-specific classification. Only map a numeric code to a
             // stage when the (domain, code) pair has an established meaning.
             // Otherwise preserve the caller stage and keep the underlying
             // domain/code for diagnostics. Unknown stays unknown.
-            switch cause.domain {
-            case "com.SideStore.Authentication":
-                resolved = .authentication
-            case "ALTAppleAPIErrorDomain", "ALTServerErrorDomain", "GrandSlamErrorDomain", "SideSignErrorDomain":
-                resolved = .authentication
-            case "NSPOSIXErrorDomain":
-                // POSIX error domains carry standard errno values.
-                resolved = .network
-            case "NSURLErrorDomain":
-                resolved = .network
-            default:
-                break
+            // Application-verification evidence below is more specific than
+            // these generic domain mappings, so once found it locks them out;
+            // explicit upstream stage markers still win.
+            if !ppqLocked {
+                switch cause.domain {
+                case "com.SideStore.Authentication":
+                    resolved = .authentication
+                case "ALTAppleAPIErrorDomain", "ALTServerErrorDomain", "GrandSlamErrorDomain", "SideSignErrorDomain":
+                    resolved = .authentication
+                case "NSPOSIXErrorDomain":
+                    // POSIX error domains carry standard errno values.
+                    resolved = .network
+                case "NSURLErrorDomain":
+                    resolved = .network
+                default:
+                    break
+                }
+            }
+            // Apple-side installation rejection (InstallationProxy/installd
+            // application verification). The hex installer codes are matched
+            // case-insensitively alongside the verification marker; the stage
+            // is installation and the numeric code is preserved with the
+            // cause's own allowlisted domain (never a fabricated one).
+            // 0xE8008024: provisioning profile banned. 0xE8008018: signing
+            // identity no longer valid. Neither implies pairing, network,
+            // CoreDevice, or account-ban conditions.
+            let fingerprint = cause.localizedDescription.lowercased()
+            if fingerprint.contains("applicationverificationfailed") {
+                if fingerprint.contains("e8008024") {
+                    resolved = .installation
+                    nativeCode = 0xE8008024
+                    if nativeDomain == nil, domains.contains(cause.domain) { nativeDomain = cause.domain }
+                    ppqLocked = true
+                } else if fingerprint.contains("e8008018") {
+                    resolved = .installation
+                    nativeCode = 0xE8008018
+                    if nativeDomain == nil, domains.contains(cause.domain) { nativeDomain = cause.domain }
+                    ppqLocked = true
+                }
             }
             // Explicit stage marker from upstream
             if let name = cause.userInfo["LCStructuredFailureStageV1"] as? String, let found = Stage(rawValue: name) { resolved = found }
             // Upstream gateway/Minimuxer typed errors carry a reason string. Inspect only
             // our fixed machine tokens locally; never forward the reason itself.
+            // A preserved numeric code keeps the domain it was actually observed
+            // in: gateway tokens stay in their gateway domain, HTTP statuses use
+            // the fixed HTTPStatus domain, and POSIX errnos stay in
+            // NSPOSIXErrorDomain. No unrelated code is ever relabelled as a
+            // gateway error.
             let tokens = cause.localizedDescription.split(whereSeparator: { $0.isWhitespace })
             for (index, token) in tokens.enumerated() {
                 if token.hasPrefix("lc_stage="), let found = Stage(rawValue: String(token.dropFirst(9))) { resolved = found }
-                if token.hasPrefix("lc_native_code=") { nativeCode = Int(token.dropFirst(15)) }
+                guard !ppqLocked else { continue }
+                if token.hasPrefix("lc_native_code="), let code = Int(token.dropFirst(15)) {
+                    nativeCode = code
+                    if ["MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError"].contains(cause.domain) {
+                        nativeDomain = cause.domain
+                    }
+                }
                 // HTTP status in "HTTP 503" form (tokens are whitespace-split).
                 if (token == "HTTP" || token == "http"), index + 1 < tokens.count,
-                   let code = Int(tokens[index + 1]) { nativeCode = code }
+                   let code = Int(tokens[index + 1]) {
+                    nativeCode = code
+                    nativeDomain = "HTTPStatus"
+                }
                 // POSIX errno in "errno=20" / "errno:20" form.
                 if token.hasPrefix("errno=") || token.hasPrefix("errno:") {
-                    if let code = Int(token.dropFirst(6)) { nativeCode = code }
+                    if let code = Int(token.dropFirst(6)) {
+                        nativeCode = code
+                        nativeDomain = "NSPOSIXErrorDomain"
+                    }
                 }
             }
             if let next = cause.userInfo[NSUnderlyingErrorKey] as? NSError { cause = next } else { break }
         }
+        let underlying: NSError
+        if let code = nativeCode {
+            if let domain = nativeDomain {
+                underlying = NSError(domain: domain, code: code)
+            } else if domains.contains(cause.domain) {
+                underlying = NSError(domain: cause.domain, code: code)
+            } else {
+                underlying = NSError(domain: "redacted", code: code)
+            }
+        } else {
+            underlying = cause
+        }
         return CombinedFailure(operation: operation, stage: resolved,
             code: error is CancellationError ? .cancelled : .failed, id: id,
-            underlying: nativeCode.map { NSError(domain: "DeviceGatewayError", code: $0) } ?? cause)
+            underlying: underlying)
     }
 }

@@ -39,11 +39,65 @@ class RefreshClassificationTests(unittest.TestCase):
         self.assertNotIn("code == 35", fn)
         self.assertNotIn("code == -22411", fn)
 
+    def test_no_invented_gateway_domain(self):
+        text = template()
+        fn = text[text.index("static func capture"):]
+        # A preserved numeric code must keep the domain it was observed in.
+        # The old `NSError(domain: "DeviceGatewayError", code: ...)` fallback
+        # relabelled unrelated codes (HTTP statuses, POSIX errnos) as gateway
+        # errors and must never return.
+        self.assertNotIn('NSError(domain: "DeviceGatewayError"', fn)
+
+    def test_http_status_uses_fixed_safe_domain(self):
+        text = template()
+        fn = text[text.index("static func capture"):]
+        self.assertIn('nativeDomain = "HTTPStatus"', fn)
+        self.assertIn('"HTTPStatus"', text)
+
+    def test_posix_errno_keeps_posix_domain(self):
+        text = template()
+        fn = text[text.index("static func capture"):]
+        self.assertIn('nativeDomain = "NSPOSIXErrorDomain"', fn)
+
+    def test_gateway_token_keeps_gateway_domain(self):
+        text = template()
+        fn = text[text.index("static func capture"):]
+        # lc_native_code= claims the gateway domain only when the error itself
+        # comes from a gateway path.
+        self.assertIn("MinimuxerError", fn)
+        self.assertIn("IdeviceGatewayError", fn)
+
+    def test_unknown_error_gains_no_fake_domain(self):
+        text = template()
+        fn = text[text.index("static func capture"):]
+        # Without an extracted machine code the cause passes through untouched,
+        # so an allowlist-external domain still decodes as "redacted".
+        self.assertIn("underlying = cause", fn)
+        self.assertIn('NSError(domain: "redacted", code: code)', fn)
+
+    def test_application_verification_failure_detected(self):
+        text = template()
+        fn = text[text.index("static func capture"):]
+        self.assertIn("applicationverificationfailed", fn)
+        self.assertIn("e8008024", fn)
+        self.assertIn("e8008018", fn)
+        self.assertIn("0xE8008024", fn)
+        self.assertIn("0xE8008018", fn)
+
+    def test_ppq_messages_are_clear_and_honest(self):
+        text = template()
+        self.assertIn("provisioning profile is banned during application verification", text)
+        self.assertIn("identity used to sign the executable is no longer valid", text)
+        self.assertIn("unlikely to address this specific error", text)
+        # Never claim an account ban.
+        self.assertNotIn("banned your account", text)
+        self.assertNotIn("Apple banned", text)
+
     def test_underlying_domain_preserved_not_redacted(self):
         text = template()
         for domain in ("MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError",
                        "NSPOSIXErrorDomain", "NSURLErrorDomain", "Foundation",
-                       "CoreData", "CFNetwork"):
+                       "CoreData", "CFNetwork", "HTTPStatus"):
             self.assertIn('"%s"' % domain, text)
 
     def test_explicit_stage_markers_honored(self):
@@ -61,7 +115,8 @@ class RefreshClassificationTests(unittest.TestCase):
         text = template()
         fn = text[text.index("static func capture"):]
         # The default branch must not reassign the caller stage.
-        self.assertIn("default:\n                break", fn)
+        self.assertIn("default:", fn)
+        self.assertIn("underlying = cause", fn)
 
     def test_network_stage_exists_with_copy(self):
         text = template()
@@ -112,8 +167,10 @@ class RefreshClassificationTests(unittest.TestCase):
         # These domains are in the allowlist and their codes are preserved
         for domain in ("MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError"):
             self.assertIn(f'"{domain}"', text)
-        # The capture function preserves the underlying error
-        self.assertIn("underlying: nativeCode.map", text)
+        # The capture function preserves the underlying error with its own
+        # domain instead of inventing a new one.
+        fn = text[text.index("static func capture"):]
+        self.assertIn("underlying = NSError(domain: domain, code: code)", fn)
 
 
 if __name__ == "__main__":

@@ -71,6 +71,26 @@ class V3TwoFactorTests(unittest.TestCase):
                           "jsonPayload", "answer[\"code\"]"):
             self.assertNotIn(forbidden, logs)
 
+    def test_no_phone_identifiers_in_diagnostics(self):
+        # Phone IDs/numbers are user-specific metadata: never logged, even
+        # though the phoneID value itself is still forwarded functionally to
+        # SideSign (see test_sms_request_with_phone_id). Only the mode and the
+        # phone count may appear in diagnostics.
+        text = runtime()
+        fn = text[text.index("func verificationCode"):]
+        fn = fn[:fn.index("func accountRepair")]
+        logs = "\n".join(line for line in fn.splitlines() if "debugLog" in line)
+        self.assertNotIn("phone_id", logs)
+        self.assertNotIn("phoneID=", logs)
+        self.assertNotIn("selectedID)", logs)
+        # The allowed shape is mode (+ count for selection), nothing else.
+        for line in logs.splitlines():
+            if "2FA_DELIVERY_SELECTED" in line and ("mode=sms" in line or "mode=voice" in line):
+                self.assertIn("phone_count=", line)
+            if "2FA_DELIVERY_REQUESTED" in line:
+                self.assertNotIn("phone_count=", line)
+                self.assertNotIn("phone", line)
+
     def test_delivery_diagnostics_present(self):
         text = runtime()
         self.assertIn("2FA_DELIVERY_SELECTED", text)

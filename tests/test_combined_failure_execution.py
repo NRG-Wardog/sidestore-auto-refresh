@@ -103,9 +103,84 @@ func query() throws -> String {
     precondition(decoded.stage == .uniqueDeviceID)
    }
   }
-  mode = 3; let result = try query(); precondition(result == "live-response")
-  precondition(plistFrees == 2)
-  print("Actual query ownership and redaction PASS")
+   mode = 3; let result = try query(); precondition(result == "live-response")
+   precondition(plistFrees == 2)
+   print("Actual query ownership and redaction PASS")
+  }
+ }
+ ''')
+
+    def test_capture_preserves_honest_domains_and_classifies_ppq(self):
+        common = (ROOT / 'scripts/templates/combined_failure.swift').read_text(encoding='utf-8')
+        self.execute(common + '''
+func debugLog(_ value: String) {}
+@main struct Tests {
+ static func main() throws {
+  let id = UUID().uuidString
+  // 1. POSIX errno keeps its own domain and the network stage from the domain.
+  do {
+   let error = NSError(domain: "NSPOSIXErrorDomain", code: 20,
+       userInfo: [NSLocalizedDescriptionKey: "recv failed errno=20"])
+   let failure = CombinedFailure.capture(error, operation: "install", stage: .command, id: id)
+   precondition(failure.stage == .network, "posix stage")
+   precondition(failure.underlyingDomain == "NSPOSIXErrorDomain", "posix domain: \\\\(failure.underlyingDomain)")
+   precondition(failure.underlyingCode == 20, "posix code")
+  }
+  // 2. An HTTP status is never relabelled as a gateway error.
+  do {
+   let error = NSError(domain: "NSURLErrorDomain", code: -1001,
+       userInfo: [NSLocalizedDescriptionKey: "HTTP 503 Service Unavailable"])
+   let failure = CombinedFailure.capture(error, operation: "install", stage: .command, id: id)
+   precondition(failure.stage == .network, "http stage")
+   precondition(failure.underlyingDomain == "HTTPStatus", "http domain: \\\\(failure.underlyingDomain)")
+   precondition(failure.underlyingCode == 503, "http code")
+  }
+  // 3. A real gateway native code stays in its gateway domain.
+  do {
+   let error = NSError(domain: "DeviceGatewayError", code: 1,
+       userInfo: [NSLocalizedDescriptionKey: "transport failed lc_native_code=77"])
+   let failure = CombinedFailure.capture(error, operation: "install", stage: .command, id: id)
+   precondition(failure.stage == .command, "gateway stage")
+   precondition(failure.underlyingDomain == "DeviceGatewayError", "gateway domain")
+   precondition(failure.underlyingCode == 77, "gateway code")
+  }
+  // 4. An unknown error gains no fake domain and keeps the caller stage.
+  do {
+   let error = NSError(domain: "com.example.mystery", code: 20,
+       userInfo: [NSLocalizedDescriptionKey: "mystery failure"])
+   let failure = CombinedFailure.capture(error, operation: "refresh", stage: .command, id: id)
+   precondition(failure.stage == .command, "unknown stage")
+   precondition(failure.underlyingDomain == "redacted", "unknown domain: \\\\(failure.underlyingDomain)")
+   precondition(failure.underlyingCode == 20, "unknown code")
+  }
+  // 5. ApplicationVerificationFailed 0xE8008024 is an installation failure
+  // describing profile rejection, not pairing/network/CoreDevice trouble.
+  do {
+   let error = NSError(domain: "IdeviceGatewayError", code: 0,
+       userInfo: [NSLocalizedDescriptionKey: "ApplicationVerificationFailed: Failed to verify code signature of /Payload/App.app : 0xE8008024 (The provisioning profile is banned.)"])
+   let failure = CombinedFailure.capture(error, operation: "install", stage: .command, id: id)
+   precondition(failure.stage == .installation, "ppq stage")
+   precondition(failure.stage != .pairing && failure.stage != .network && failure.stage != .coreDevice, "ppq not misclassified")
+   precondition(failure.underlyingDomain == "IdeviceGatewayError", "ppq domain")
+   precondition(failure.underlyingCode == 0xE8008024, "ppq code")
+   precondition(failure.message.contains("provisioning profile is banned"), "ppq message")
+   precondition(!failure.message.lowercased().contains("account"), "no account-ban claim")
+   let decoded = CombinedFailure.fromEncodedString(failure.encodedString, expectedID: id)!
+   precondition(decoded.stage == .installation && decoded.underlyingCode == 0xE8008024, "ppq wire")
+  }
+  // 6. ApplicationVerificationFailed 0xE8008018 is a signing-identity rejection
+  // that keeps an honest (redacted) domain when the source domain is unknown.
+  do {
+   let error = NSError(domain: "com.apple.installd", code: 0,
+       userInfo: [NSLocalizedDescriptionKey: "ApplicationVerificationFailed: 0xE8008018 (The identity used to sign the executable is no longer valid.)"])
+   let failure = CombinedFailure.capture(error, operation: "install", stage: .command, id: id)
+   precondition(failure.stage == .installation, "ppq8018 stage")
+   precondition(failure.stage != .pairing && failure.stage != .network && failure.stage != .coreDevice, "ppq8018 not misclassified")
+   precondition(failure.underlyingDomain == "redacted", "ppq8018 domain: \\\\(failure.underlyingDomain)")
+   precondition(failure.underlyingCode == 0xE8008018, "ppq8018 code")
+   precondition(failure.message.contains("signing identity"), "ppq8018 message")
+  }
+  print("Capture honesty and PPQ PASS")
  }
 }
 ''')
