@@ -1281,7 +1281,27 @@ enum V3BackendCommands {
                 "pairing": PairingFileManager.shared.fetchPairingFile() == nil ? "Pairing file required" : "Pairing file available",
                 "anisette": anisette,
                 "sidesign": ["configured": SideSignConfigManager.shared.hasConfigFile()],
-                "service": ["ready": DatabaseManager.shared.isStarted]]
+                "service": ["ready": DatabaseManager.shared.isStarted],
+                "certificateState": certificateState()]
+    }
+
+    // Facts about the certificate the refresh/signing pipeline actually uses
+    // (CertificateManager.activeCertificate). Suffixes only cross XPC: never
+    // full serials, keys, passwords, or blobs. The LiveContainer JIT-Less
+    // copy is compared host-side, where LCUtils can read it.
+    static func certificateState() -> [String: Any] {
+        guard let active = CertificateManager.shared.activeCertificate else {
+            return ["active": false]
+        }
+        var state: [String: Any] = [
+            "active": true,
+            "serialSuffix": String(active.serialNumber.suffix(4)),
+            "team": DatabaseManager.shared.activeTeam()?.identifier ?? "",
+        ]
+        if let expiry = active.certificate.x509.expiryDate {
+            state["expiry"] = expiry
+        }
+        return state
     }
 
     static func accountExport(password: String, includeApplePassword: Bool) throws -> String {

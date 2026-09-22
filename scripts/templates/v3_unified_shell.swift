@@ -2537,6 +2537,7 @@ struct V3CustomizationsView: View {
 struct V3HealthView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @State private var rows: [(String, String)] = []
+    @State private var certRows: [(String, String)] = []
     @State private var message = ""
     @State private var checking = false
     var body: some View {
@@ -2563,6 +2564,19 @@ struct V3HealthView: View {
                 Button(checking ? "Checking..." : "Re-check") { Task { await reload() } }
                     .disabled(checking)
             }
+            Section("Certificates") {
+                ForEach(certRows, id: \.0) { row in
+                    HStack {
+                        Text(row.0)
+                        Spacer()
+                        Text(row.1).foregroundColor(.secondary).multilineTextAlignment(.trailing)
+                    }
+                    .font(.subheadline)
+                }
+                Text("The refresh pipeline signs with the SideStore active certificate, never the JIT-Less copy. If the copy predates the current certificate, re-import it under Settings; a Revoked copy does not imply the SideStore certificate is revoked.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Health Check")
@@ -2585,8 +2599,54 @@ struct V3HealthView: View {
                 result.append(("SideSign Configured", (sidesign["configured"] as? Bool ?? false) ? "Yes" : "No"))
             }
             rows = result
+            certRows = certComparison(service: reply["certificateState"] as? [String: Any] ?? [:])
             message = ""
         } catch { message = error.localizedDescription }
+    }
+    // Compares the SideStore pipeline certificate (service facts) against the
+    // LiveContainer JIT-Less copy (host facts: presence, team via local p12
+    // parse, last import date). Teams compare in full; serials stay suffixes
+    // and no key material is ever read. A "same team" verdict does not prove
+    // serial identity: if JIT-Less Diagnose still reports Revoked while
+    // SideStore reports Active, the copy predates the current certificate
+    // and must be re-imported.
+    private func certComparison(service: [String: Any]) -> [(String, String)] {
+        let active = service["active"] as? Bool ?? false
+        let serialSuffix = service["serialSuffix"] as? String ?? ""
+        let team = service["team"] as? String ?? ""
+        let expiry = service["expiry"] as? Date
+        var result: [(String, String)] = []
+        result.append(("SideStore Active", active ? "Yes" : "No"))
+        if active {
+            if !serialSuffix.isEmpty { result.append(("Active Serial", "…" + serialSuffix)) }
+            if !team.isEmpty { result.append(("Active Team", "…" + String(team.suffix(4)))) }
+            if let expiry { result.append(("Active Expiry", expiry.formatted(date: .abbreviated, time: .omitted))) }
+        }
+        let lcPresent = LCUtils.certificateData() != nil
+        result.append(("JIT-Less Copy", lcPresent ? "Imported" : "Not imported"))
+        var lcTeam = ""
+        if lcPresent,
+           let nsData = LCUtils.certificateData(),
+           let password = LCSharedUtils.certificatePassword(),
+           let parsed = LCUtils.getCertTeamId(withKeyData: nsData as Data, password: password) {
+            lcTeam = parsed
+            result.append(("Copy Team", "…" + String(parsed.suffix(4))))
+        }
+        if let lastUpdate = LCUtils.appGroupUserDefault.object(forKey: "LCCertificateUpdateDate") as? Date {
+            result.append(("Copy Imported", lastUpdate.formatted(date: .abbreviated, time: .shortened)))
+        }
+        let verdict: String
+        if !active {
+            verdict = "unknown: SideStore has no active certificate"
+        } else if !lcPresent || lcTeam.isEmpty {
+            verdict = "unknown: no comparable JIT-Less copy"
+        } else if lcTeam == team, !team.isEmpty {
+            verdict = "yes: same team"
+        } else {
+            verdict = "no: different teams"
+        }
+        result.append(("Certificate State Match", verdict))
+        return result
     }
 }
 
