@@ -178,6 +178,35 @@ class DockPatchTests(unittest.TestCase):
             # Rotation/layout paths never touch collapse state.
             self.assertNotIn("collapseManuallyOverridden", dock[dock.index("deviceOrientationDidChange"):])
 
+    def test_session_end_handles_guest_patched_shape(self):
+        # patch_guest_return.py runs first in CI and replaces removeRunningApp
+        # wholesale, collapsing the empty branch to one line. The dock patch
+        # must handle that shape instead of dying on anchor drift.
+        guest_remove = '''    @objc public func removeRunningApp(_ appUUID: String) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { self.removeRunningApp(appUUID) }
+            return
+        }
+        self.apps.removeAll { $0.appUUID == appUUID }
+        if self.apps.isEmpty { self.hideDock() }
+        else if self.isVisible { self.updateDockFrame() }
+    }
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            live = fixture(Path(directory))
+            dock_path = live / "MultitaskSupport/MultitaskDockView.swift"
+            dock = dock_path.read_text(encoding="utf-8")
+            start = dock.index("    @objc public func removeRunningApp(")
+            end = dock.index("    private func updateDockFrame", start)
+            dock_path.write_text(dock[:start] + guest_remove + dock[end:], encoding="utf-8")
+            patch.patch(live)
+            patched = dock_path.read_text(encoding="utf-8")
+            self.assertIn("collapseManuallyOverridden = false", patched)
+            self.assertIn(patch.SESSION_MARKER, patched)
+            before = snapshot(Path(directory))
+            patch.patch(live)
+            self.assertEqual(before, snapshot(Path(directory)))
+
     def test_no_continuous_reapplication(self):
         with tempfile.TemporaryDirectory() as directory:
             live = fixture(Path(directory))

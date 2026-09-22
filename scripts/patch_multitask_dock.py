@@ -104,15 +104,35 @@ def apply_dock_session(text: str) -> str:
         '                }\n'
         '                self.showDock()\n',
         "session start")
-    text = replace_once(
-        text,
-        '            if self.apps.isEmpty {\n                self.hideDock()\n',
-        f'            if self.apps.isEmpty {{\n'
-        f'                // {SESSION_MARKER}: session over; the next session\n'
-        '                // re-reads the persisted preference.\n'
-        '                self.collapseManuallyOverridden = false\n'
-        '                self.hideDock()\n',
-        "session end")
+    # Session end: two shapes exist. patch_guest_return.py (which runs first)
+    # replaces removeRunningApp wholesale, collapsing the empty branch to a
+    # single line. Handle both; anything else is anchor drift.
+    end_upstream = ('            if self.apps.isEmpty {\n'
+                    '                self.hideDock()\n')
+    end_guest = '        if self.apps.isEmpty { self.hideDock() }\n'
+    if end_upstream in text:
+        text = replace_once(
+            text,
+            end_upstream,
+            f'            if self.apps.isEmpty {{\n'
+            f'                // {SESSION_MARKER}: session over; the next session\n'
+            '                // re-reads the persisted preference.\n'
+            '                self.collapseManuallyOverridden = false\n'
+            '                self.hideDock()\n',
+            "session end")
+    elif end_guest in text:
+        text = replace_once(
+            text,
+            end_guest,
+            f'        if self.apps.isEmpty {{\n'
+            f'            // {SESSION_MARKER}: session over; the next session\n'
+            '            // re-reads the persisted preference.\n'
+            '            self.collapseManuallyOverridden = false\n'
+            '            self.hideDock()\n'
+            '        }\n',
+            "session end (guest-patched shape)")
+    else:
+        die("session end: expected one anchor, found 0")
     return text
 
 
