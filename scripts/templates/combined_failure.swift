@@ -191,27 +191,20 @@ public struct CombinedFailure: Error, LocalizedError {
         var nativeCode: Int?
         // Only an allowlisted stage is inspected locally. No arbitrary userInfo is serialized.
         for _ in 0..<5 {
-            // Domain-specific classification
+            // Domain-specific classification. Only map a numeric code to a
+            // stage when the (domain, code) pair has an established meaning.
+            // Otherwise preserve the caller stage and keep the underlying
+            // domain/code for diagnostics. Unknown stays unknown.
             switch cause.domain {
             case "com.SideStore.Authentication":
                 resolved = .authentication
             case "ALTAppleAPIErrorDomain", "ALTServerErrorDomain", "GrandSlamErrorDomain", "SideSignErrorDomain":
                 resolved = .authentication
-            case "NSCocoaErrorDomain":
-                if cause.code == 134301 { resolved = .storagePreparation } // CoreData migration error
             case "NSPOSIXErrorDomain":
+                // POSIX error domains carry standard errno values.
                 resolved = .network
             case "NSURLErrorDomain":
                 resolved = .network
-            case "NSOSStatusErrorDomain":
-                if cause.code == -9809 { resolved = .pairing } // errSSLPeerHandshakeFail
-            case "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError":
-                if cause.code == 20 { resolved = .coreDevice } // ENOTDIR / CoreDevice path issue
-                else if cause.code == 22 { resolved = .cdTunnel } // EINVAL / invalid argument
-                else if cause.code == 35 { resolved = .rsdDiscovery } // EAGAIN / resource temporarily unavailable
-                else { resolved = .coreDevice }
-            case "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork":
-                resolved = .command
             default:
                 break
             }
@@ -220,23 +213,15 @@ public struct CombinedFailure: Error, LocalizedError {
             // Upstream gateway/Minimuxer typed errors carry a reason string. Inspect only
             // our fixed machine tokens locally; never forward the reason itself.
             let tokens = cause.localizedDescription.split(whereSeparator: { $0.isWhitespace })
-            for token in tokens {
+            for (index, token) in tokens.enumerated() {
                 if token.hasPrefix("lc_stage="), let found = Stage(rawValue: String(token.dropFirst(9))) { resolved = found }
                 if token.hasPrefix("lc_native_code=") { nativeCode = Int(token.dropFirst(15)) }
-                // HTTP status codes
-                if token.hasPrefix("HTTP/") || token.hasPrefix("http/") {
-                    let parts = token.split(separator: "/")
-                    if parts.count > 1, let code = Int(parts[1].split(separator: " ").first ?? "") {
-                        nativeCode = code
-                    }
-                }
-                // POSIX errno
+                // HTTP status in "HTTP 503" form (tokens are whitespace-split).
+                if (token == "HTTP" || token == "http"), index + 1 < tokens.count,
+                   let code = Int(tokens[index + 1]) { nativeCode = code }
+                // POSIX errno in "errno=20" / "errno:20" form.
                 if token.hasPrefix("errno=") || token.hasPrefix("errno:") {
                     if let code = Int(token.dropFirst(6)) { nativeCode = code }
-                }
-                // HTTP status codes in various formats
-                if token.hasPrefix("status=") || token.hasPrefix("httpStatus=") {
-                    if let code = Int(token.dropFirst(7)) { nativeCode = code }
                 }
             }
             if let next = cause.userInfo[NSUnderlyingErrorKey] as? NSError { cause = next } else { break }
