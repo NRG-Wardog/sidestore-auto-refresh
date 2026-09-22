@@ -80,6 +80,9 @@ struct V3UnifiedTabs: View {
             Button("Retry Connection") { status.reload() }
             Button("OK", role: .cancel) { status.error = nil }
         } message: { Text(status.error ?? "") }
+        .alert("SideStore", isPresented: Binding(get: { status.notice != nil }, set: { if !$0 { status.notice = nil } })) {
+            Button("OK", role: .cancel) { status.notice = nil }
+        } message: { Text(status.notice ?? "") }
         .alert("Stay Informed About Refreshes", isPresented: $showNotificationsPrompt) {
             Button("Allow Notifications") {
                 Task { await LiveContainerAutoRefreshScheduler.requestNotificationPermission() }
@@ -244,6 +247,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var sources: [V3SideStoreSource] = []
     @Published private(set) var settings: [String: Bool] = [:]
     @Published var error: String?
+    @Published var notice: String?
     @Published var presentation: V3OperationRequest?
     @Published var sourceURL = ""
     @Published var refreshTarget: String?
@@ -311,50 +315,60 @@ final class V3SideStoreStatusStore: ObservableObject {
     func signOut() {
         loading = true
         Task {
-            defer { loading = false }
             do {
-                _ = try await V3ServiceBridge.shared.request(operation: "signOut")
+                // The service answers every one of these mutations with a
+                // fresh snapshot: accept it directly, then release the busy
+                // state BEFORE reload(). Calling reload() while loading is
+                // still true trips its guard and the UI keeps stale state.
+                accept(try await V3ServiceBridge.shared.request(operation: "signOut"))
+                loading = false
+                notice = "Signed out successfully."
                 reload()
-            } catch { failed(error) }
+            } catch { loading = false; failed(error) }
         }
     }
     func jit(target: String) {
         loading = true
         Task {
-            defer { loading = false }
             do {
-                _ = try await V3ServiceBridge.shared.request(operation: "jit", target: target)
+                accept(try await V3ServiceBridge.shared.request(operation: "jit", target: target))
+                loading = false
+                notice = "JIT enabled."
                 reload()
-            } catch { failed(error) }
+            } catch { loading = false; failed(error) }
         }
     }
     func syncAppIDs() {
         loading = true
         Task {
-            defer { loading = false }
             do {
-                _ = try await V3ServiceBridge.shared.request(operation: "syncAppIDs")
+                accept(try await V3ServiceBridge.shared.request(operation: "syncAppIDs"))
+                loading = false
+                notice = "App IDs synced."
                 reload()
-            } catch { failed(error) }
+            } catch { loading = false; failed(error) }
         }
     }
     func clearCache() {
         loading = true
         Task {
-            defer { loading = false }
             do {
-                _ = try await V3ServiceBridge.shared.request(operation: "clearCache")
-            } catch { failed(error) }
+                accept(try await V3ServiceBridge.shared.request(operation: "clearCache"))
+                loading = false
+                notice = "Download cache cleared."
+                reload()
+            } catch { loading = false; failed(error) }
         }
     }
     func refreshSources() {
         loading = true
         Task {
-            defer { loading = false }
             do {
-                _ = try await V3ServiceBridge.shared.request(operation: "refreshSources")
+                accept(try await V3ServiceBridge.shared.request(operation: "refreshSources"))
+                loading = false
+                notice = "Sources updated."
                 reload()
-            } catch { failed(error) }
+            } catch { loading = false; failed(error) }
         }
     }
     func stageSharedFile(_ data: Data) -> String? {
@@ -382,7 +396,11 @@ final class V3SideStoreStatusStore: ObservableObject {
             let data = try bookmark ?? url.bookmarkData(options: URL.BookmarkCreationOptions(rawValue: 1 << 11),
                                                        includingResourceValuesForKeys: nil, relativeTo: nil)
             LCUtils.appGroupUserDefault.set(data, forKey: "V3SharedIPA." + token)
-            perform("installSharedIPA", target: token, title: title)
+            // Present on the next main-queue turn: asking SwiftUI for a
+            // fullScreenCover synchronously from the picker's onDismiss can be
+            // dropped, leaving the user on Apps with no acknowledgement after
+            // choosing an IPA.
+            Task { @MainActor in self.perform("installSharedIPA", target: token, title: title) }
         } catch { self.error = error.localizedDescription }
     }
 }
@@ -595,6 +613,9 @@ struct V3SourcesView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @State private var preview: [String: Any]?
     @State private var previewBusy = false
+    @State private var addBusy = false
+    @State private var removeBusy = false
+    @State private var notice = ""
     @State private var removeCandidate: V3SideStoreSource?
     private var savedGuestSources: [String] {
         (UserDefaults.standard.stringArray(forKey: "LCAltStoreSourceURLs") ?? [])
@@ -603,6 +624,13 @@ struct V3SourcesView: View {
     var body: some View {
         NavigationView {
             List {
+                if !notice.isEmpty {
+                    Section {
+                        Text(notice)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                }
                 Section("Add Source") {
                     HStack {
                         Image(systemName: "link")
@@ -632,9 +660,9 @@ struct V3SourcesView: View {
                         Button {
                             Task { await confirmAdd(url: preview["url"] as? String ?? status.sourceURL) }
                         } label: {
-                            Label((preview["alreadyAdded"] as? Bool ?? false) ? "Already Added" : "Confirm Add Source", systemImage: "checkmark.circle.fill")
+                            Label((preview["alreadyAdded"] as? Bool ?? false) ? "Already Added" : (addBusy ? "Adding Source..." : "Confirm Add Source"), systemImage: "checkmark.circle.fill")
                         }
-                        .disabled(preview["alreadyAdded"] as? Bool ?? false)
+                        .disabled((preview["alreadyAdded"] as? Bool ?? false) || addBusy)
                     }
                 }
                 Section("Sources (\(status.sources.count))") {
@@ -720,17 +748,25 @@ struct V3SourcesView: View {
         } catch { status.error = error.localizedDescription }
     }
     private func confirmAdd(url: String) async {
+        addBusy = true
+        notice = ""
+        defer { addBusy = false }
         do {
             _ = try await V3ServiceBridge.shared.request(operation: "sourceAddConfirmed", target: url)
             preview = nil
             status.sourceURL = ""
+            notice = "Source added."
             status.reload()
         } catch { status.error = error.localizedDescription }
     }
     private func confirmRemove(id: String) async {
         removeCandidate = nil
+        removeBusy = true
+        notice = "Removing source..."
+        defer { removeBusy = false }
         do {
             _ = try await V3ServiceBridge.shared.request(operation: "sourceRemoveConfirmed", target: id)
+            notice = "Source removed."
             status.reload()
         } catch { status.error = error.localizedDescription }
     }
@@ -955,10 +991,16 @@ struct V3AccountSettings: View {
                         .foregroundColor(.secondary)
                 }
             }
-            NavigationLink {
-                V3SignInView().environmentObject(status)
-            } label: {
-                Label("Sign In / Re-authenticate", systemImage: "person.badge.key.fill")
+            // Re-authenticate and Sign Out exist only for a signed-in account.
+            // When signed out, the section above already offers Sign In, so a
+            // second sign-in row and a meaningless Sign Out must not appear.
+            if !status.needsSignIn {
+                NavigationLink {
+                    V3SignInView().environmentObject(status)
+                } label: {
+                    Label("Re-authenticate", systemImage: "person.badge.key.fill")
+                }
+                .accessibilityHint("Sign in again with the current account")
             }
             Button {
                 status.syncAppIDs()
@@ -967,10 +1009,12 @@ struct V3AccountSettings: View {
             }
             link("Certificates", icon: "doc.text") { V3CertificatesView().environmentObject(status) }
             link("Developer Services", icon: "wrench.and.screwdriver") { V3DeveloperServicesView().environmentObject(status) }
-            Button(role: .destructive) {
-                status.signOut()
-            } label: {
-                Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+            if !status.needsSignIn {
+                Button(role: .destructive) {
+                    status.signOut()
+                } label: {
+                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                }
             }
         }
 
@@ -1069,7 +1113,12 @@ struct V3BoolSettingRow: View {
                 _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
                     payload: ["key": key, "type": "bool", "bool": newValue])
                 status.reload()
-            } catch { status.error = error.localizedDescription }
+            } catch {
+                // The toggle already flipped optimistically: roll it back so
+                // the control reflects the authoritative persisted value.
+                value = !newValue
+                status.error = error.localizedDescription
+            }
         }
     }
 }
@@ -1126,6 +1175,7 @@ struct V3OperationSheet: View {
     @State private var message = ""
     @State private var task: Task<Void, Never>?
     @State private var started = false
+    @State private var copied = false
     private var retryAllowed: Bool { request.operation != "installSharedIPA" }
     var body: some View {
         NavigationView {
@@ -1169,8 +1219,13 @@ struct V3OperationSheet: View {
                             .font(.footnote)
                             .textSelection(.enabled)
                         HStack {
-                            Button("Copy Diagnostics") {
+                            Button(copied ? "Copied" : "Copy Diagnostics") {
                                 UIPasteboard.general.string = message
+                                copied = true
+                                Task {
+                                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                    copied = false
+                                }
                             }
                             .font(.caption)
                             Spacer()
@@ -1216,10 +1271,16 @@ struct V3OperationSheet: View {
         case "awaitingPrompt": return "Needs your input"
         case "failed": return "Failed"
         case "cancelled": return "Cancelled"
-        default: return progress > 0 ? "\(Int(progress * 100))%" : "Working..."
+        default: return progress > 0 ? "\(Int(progress * 100))%" : (session == nil ? "Preparing..." : "Working...")
         }
     }
     private func reset() {
+        task?.cancel()
+        task = nil
+        // started must clear here: Retry calls reset() then start(), and
+        // start() refuses to run while started is still true, which made
+        // Retry a silent no-op after a failure.
+        started = false
         session = nil; state = "working"; progress = 0; prompt = nil; sourceOffer = nil; message = ""
     }
     private func start() {
@@ -1264,9 +1325,12 @@ struct V3OperationSheet: View {
         prompt = reply["prompt"] as? [String: Any]
         switch state {
         case "completed":
+            // Terminal success stays visible until the user presses Done.
+            // Auto-dismissing here made successful fast operations look like
+            // nothing happened.
+            if message.isEmpty { message = request.title + " completed successfully." }
             recordRefresh("completed", "The operation completed. Reload the app list to confirm the result.")
             status.reload()
-            dismiss()
         case "cancelled":
             // A backend cancellation the user did not request (the Done
             // button already dismisses locally) stays visible as a terminal
@@ -1349,6 +1413,7 @@ struct V3PromptSection: View {
     let onAnswer: ([String: String]) -> Void
     @State private var fields: [String: String] = [:]
     @State private var selected: Set<String> = []
+    @State private var copiedDetails = false
     private var kind: String { prompt["kind"] as? String ?? "" }
     private var title: String { prompt["title"] as? String ?? "Input Needed" }
     private var message: String { prompt["message"] as? String ?? "" }
@@ -1437,7 +1502,9 @@ struct V3PromptSection: View {
                 }
             } else {
             ForEach(fieldDefs, id: \.self) { field in
-                if field["key"] == "mode" || field["key"] == "activeID" || field["key"] == "phoneID" || field["key"] == "url" || field["key"] == "serials" {
+                // The "technical" field is diagnostics-only output: it renders
+                // as selectable caption text below, never as an editable field.
+                if field["key"] == "mode" || field["key"] == "activeID" || field["key"] == "phoneID" || field["key"] == "url" || field["key"] == "serials" || field["key"] == "technical" {
                     if let value = field["value"], !value.isEmpty, field["key"] == "url" {
                         Text(value)
                             .font(.caption)
@@ -1455,6 +1522,28 @@ struct V3PromptSection: View {
             if fieldDefs.count > 0 && options.isEmpty {
                 Button("Submit") { submit(choice: "") }
                     .buttonStyle(.borderedProminent)
+            }
+            // Safe technical diagnostics travel separately from the
+            // user-facing message and can be copied without the prompt text.
+            if let technical = fieldDefs.first(where: { $0["key"] == "technical" }),
+               let value = technical["value"], !value.isEmpty {
+                Text("Technical details")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+                Text(value)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+                Button(copiedDetails ? "Copied" : "Copy Details") {
+                    UIPasteboard.general.string = value
+                    copiedDetails = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        copiedDetails = false
+                    }
+                }
+                .font(.caption)
             }
             if isMulti {
                 ForEach(options.filter { $0["id"] != "keep" && $0["id"] != "keepAll" }, id: \.self) { option in
@@ -1756,12 +1845,19 @@ struct V3CertificatesView: View {
     @State private var loading = true
     @State private var portalLoaded = false
     @State private var message = ""
+    @State private var notice = ""
+    @State private var busy = ""
     @State private var confirm: (String, String)?
     var body: some View {
         List {
             if !message.isEmpty {
                 Section {
                     Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled)
+                }
+            }
+            if !notice.isEmpty {
+                Section {
+                    Text(notice).font(.footnote).foregroundColor(.secondary)
                 }
             }
             if status.needsSignIn {
@@ -1787,12 +1883,14 @@ struct V3CertificatesView: View {
                         }
                         HStack {
                             if !cert.active {
-                                Button("Set Active") { setActive(serial: cert.serial) }
+                                Button(busy == cert.serial ? "Working..." : "Set Active") { setActive(serial: cert.serial) }
                                     .font(.caption)
+                                    .disabled(!busy.isEmpty)
                             }
                             Spacer()
                             Button("Delete", role: .destructive) { confirm = ("delete", cert.serial) }
                                 .font(.caption)
+                                .disabled(!busy.isEmpty)
                         }
                     }
                     .padding(.vertical, 4)
@@ -1800,7 +1898,8 @@ struct V3CertificatesView: View {
             }
             Section("Developer Portal") {
                 if !portalLoaded {
-                    Button("Load Portal Certificates") { Task { await loadPortal() } }
+                    Button(busy == "portal" ? "Loading Portal Certificates..." : "Load Portal Certificates") { Task { await loadPortal() } }
+                        .disabled(!busy.isEmpty)
                 } else {
                     ForEach(portal) { cert in
                         VStack(alignment: .leading, spacing: 4) {
@@ -1812,10 +1911,12 @@ struct V3CertificatesView: View {
                             }
                             Button("Revoke", role: .destructive) { confirm = ("revoke", cert.serial) }
                                 .font(.caption)
+                                .disabled(!busy.isEmpty)
                         }
                         .padding(.vertical, 4)
                     }
                     Button("Request New Certificate") { confirm = ("create", "") }
+                        .disabled(!busy.isEmpty)
                 }
             }
         }
@@ -1841,6 +1942,9 @@ struct V3CertificatesView: View {
         } catch { message = error.localizedDescription }
     }
     private func loadPortal() async {
+        busy = "portal"
+        notice = ""
+        defer { busy = "" }
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "certPortalList")
             portal = (reply["certificates"] as? [[String: Any]] ?? []).compactMap(V3CertificateRow.init)
@@ -1849,16 +1953,23 @@ struct V3CertificatesView: View {
         } catch { message = error.localizedDescription }
     }
     private func setActive(serial: String) {
+        busy = serial
+        notice = ""
         Task {
+            defer { busy = "" }
             do {
                 _ = try await V3ServiceBridge.shared.request(operation: "certSetActive", target: serial)
                 status.reload()
                 await reload()
+                notice = "Active certificate updated."
             } catch { message = error.localizedDescription }
         }
     }
     private func runConfirmed(action: String, serial: String) async {
         confirm = nil
+        busy = action + serial
+        notice = ""
+        defer { busy = "" }
         do {
             switch action {
             case "delete": _ = try await V3ServiceBridge.shared.request(operation: "certDelete", target: serial)
@@ -1869,6 +1980,11 @@ struct V3CertificatesView: View {
             await reload()
             portalLoaded = false
             message = ""
+            switch action {
+            case "delete": notice = "Certificate deleted."
+            case "revoke": notice = "Certificate revoked."
+            default: notice = "Certificate requested."
+            }
         } catch { message = error.localizedDescription }
     }
 }
@@ -1894,7 +2010,9 @@ struct V3DeveloperServicesView: View {
             }
             Section("Actions") {
                 Button { status.syncAppIDs() } label: { Label("Sync App IDs", systemImage: "arrow.triangle.2.circlepath") }
-                Button("Reload Developer Data") { Task { await reload() } }
+                    .disabled(status.loading)
+                Button(loading ? "Loading Developer Data..." : "Reload Developer Data") { Task { await reload() } }
+                    .disabled(loading)
             }
             simpleSection("Teams", rows: teams.map { "\($0["name"] ?? "") (\($0["identifier"] ?? ""))" })
             simpleSection("Devices", rows: devices.map { "\($0["name"] ?? "") · \($0["identifier"] ?? "")" })
@@ -2061,30 +2179,44 @@ final class V3SettingsStore: ObservableObject {
         } catch { message = error.localizedDescription }
     }
     func setBool(_ key: String, _ value: Bool) {
+        // Optimistic local state must not survive a failed save: restore the
+        // previous value so the control never claims an inactive setting.
+        let previous = bools[key]
         bools[key] = value
         Task {
             do {
                 _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
                     payload: ["key": key, "type": "bool", "bool": value])
-            } catch { message = error.localizedDescription }
+            } catch {
+                if let previous { bools[key] = previous } else { bools.removeValue(forKey: key) }
+                message = error.localizedDescription
+            }
         }
     }
     func setString(_ key: String, _ value: String) {
+        let previous = strings[key]
         strings[key] = value
         Task {
             do {
                 _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
                     payload: ["key": key, "type": "string", "string": value])
-            } catch { message = error.localizedDescription }
+            } catch {
+                if let previous { strings[key] = previous } else { strings.removeValue(forKey: key) }
+                message = error.localizedDescription
+            }
         }
     }
     func setInt(_ key: String, _ value: Int) {
+        let previous = ints[key]
         ints[key] = value
         Task {
             do {
                 _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
                     payload: ["key": key, "type": "int", "int": value])
-            } catch { message = error.localizedDescription }
+            } catch {
+                if let previous { ints[key] = previous } else { ints.removeValue(forKey: key) }
+                message = error.localizedDescription
+            }
         }
     }
 }
@@ -2175,10 +2307,15 @@ struct V3AnisetteView: View {
     @StateObject private var store = V3SettingsStore()
     @State private var servers: [V3AnisetteServerRow] = []
     @State private var message = ""
+    @State private var notice = ""
+    @State private var remoteBusy = false
     var body: some View {
         List {
             if !message.isEmpty {
                 Section { Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled) }
+            }
+            if !notice.isEmpty {
+                Section { Text(notice).font(.footnote).foregroundColor(.secondary) }
             }
             if !store.message.isEmpty {
                 Section { Text(store.message).font(.footnote).foregroundColor(.red) }
@@ -2204,9 +2341,11 @@ struct V3AnisetteView: View {
                     .padding(.vertical, 2)
                 }
                 HStack {
-                    Button("Sync with Remote") { Task { await remote("anisetteSync") } }
+                    Button(remoteBusy ? "Working..." : "Sync with Remote") { Task { await remote("anisetteSync") } }
+                        .disabled(remoteBusy)
                     Spacer()
                     Button("Reset to Defaults", role: .destructive) { Task { await remote("anisetteReset") } }
+                        .disabled(remoteBusy)
                 }
                 .font(.caption)
             }
@@ -2233,10 +2372,14 @@ struct V3AnisetteView: View {
         } catch { message = error.localizedDescription }
     }
     private func remote(_ operation: String) async {
+        remoteBusy = true
+        notice = ""
+        defer { remoteBusy = false }
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: operation)
             servers = (reply["servers"] as? [[String: Any]] ?? []).compactMap(V3AnisetteServerRow.init)
             message = ""
+            notice = operation == "anisetteReset" ? "Anisette servers reset." : "Anisette servers synced."
         } catch { message = error.localizedDescription }
     }
 }
@@ -2245,6 +2388,8 @@ struct V3SideSignView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @State private var config = ""
     @State private var message = ""
+    @State private var notice = ""
+    @State private var busy = false
     @State private var pickerPresented = false
     @State private var shareItems: [Any]?
     var body: some View {
@@ -2252,20 +2397,27 @@ struct V3SideSignView: View {
             if !message.isEmpty {
                 Section { Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled) }
             }
+            if !notice.isEmpty {
+                Section { Text(notice).font(.footnote).foregroundColor(.secondary) }
+            }
             Section("Configuration JSON") {
                 TextEditor(text: $config)
                     .font(.system(.caption, design: .monospaced))
                     .frame(minHeight: 220)
                 HStack {
-                    Button("Save") { Task { await save() } }
+                    Button(busy ? "Saving..." : "Save") { Task { await save() } }
+                        .disabled(busy)
                     Spacer()
                     Button("Reset to Defaults", role: .destructive) { Task { await remote("sidesignReset") } }
+                        .disabled(busy)
                 }
                 .font(.caption)
             }
             Section("Import / Export") {
                 Button("Import from File") { pickerPresented = true }
+                    .disabled(busy)
                 Button("Export to File") { Task { await exportConfig() } }
+                    .disabled(busy)
                 Text("The picker belongs to this screen; the service only parses and stores the file.")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -2292,20 +2444,31 @@ struct V3SideSignView: View {
         } catch { message = error.localizedDescription }
     }
     private func save() async {
+        busy = true
+        notice = ""
+        defer { busy = false }
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "sidesignSet", payload: ["config": config])
             config = reply["config"] as? String ?? config
             message = ""
+            notice = "Configuration saved."
         } catch { message = error.localizedDescription }
     }
     private func remote(_ operation: String) async {
+        busy = true
+        notice = ""
+        defer { busy = false }
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: operation)
             config = reply["config"] as? String ?? config
             message = ""
+            notice = "Configuration reset."
         } catch { message = error.localizedDescription }
     }
     private func importFile(_ url: URL) async {
+        busy = true
+        notice = ""
+        defer { busy = false }
         do {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -2314,6 +2477,7 @@ struct V3SideSignView: View {
             let reply = try await V3ServiceBridge.shared.request(operation: "sidesignImport", target: token)
             config = reply["config"] as? String ?? config
             message = ""
+            notice = "Configuration imported."
         } catch { message = error.localizedDescription }
     }
     private func exportConfig() async {
@@ -2374,6 +2538,7 @@ struct V3HealthView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @State private var rows: [(String, String)] = []
     @State private var message = ""
+    @State private var checking = false
     var body: some View {
         List {
             if status.needsSignIn {
@@ -2395,7 +2560,8 @@ struct V3HealthView: View {
                 }
             }
             Section {
-                Button("Re-check") { Task { await reload() } }
+                Button(checking ? "Checking..." : "Re-check") { Task { await reload() } }
+                    .disabled(checking)
             }
         }
         .listStyle(.insetGrouped)
@@ -2403,6 +2569,8 @@ struct V3HealthView: View {
         .task { await reload() }
     }
     private func reload() async {
+        checking = true
+        defer { checking = false }
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
             var result: [(String, String)] = []
@@ -2431,6 +2599,8 @@ struct V3BackupsView: View {
     @State private var shareItems: [Any]?
     @State private var message = ""
     @State private var importedEmail = ""
+    @State private var exportBusy = false
+    @State private var importBusy = false
     var body: some View {
         List {
             if !message.isEmpty {
@@ -2459,11 +2629,12 @@ struct V3BackupsView: View {
                 SecureField("File Password", text: $exportPassword)
                     .textFieldStyle(.roundedBorder)
                 Toggle("Include Apple Password", isOn: $includeApple)
-                Button("Export Account File") { Task { await exportAccount() } }
-                    .disabled(exportPassword.isEmpty)
+                Button(exportBusy ? "Exporting..." : "Export Account File") { Task { await exportAccount() } }
+                    .disabled(exportPassword.isEmpty || exportBusy || importBusy)
             }
             Section("Import Account") {
-                Button("Select Backup File") { pickerPresented = true }
+                Button(importBusy ? "Importing..." : "Select Backup File") { pickerPresented = true }
+                    .disabled(exportBusy || importBusy)
                 SecureField("File Password", text: $importPassword)
                     .textFieldStyle(.roundedBorder)
                 if !importedEmail.isEmpty {
@@ -2487,6 +2658,8 @@ struct V3BackupsView: View {
         }
     }
     private func exportAccount() async {
+        exportBusy = true
+        defer { exportBusy = false }
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "accountExport",
                 payload: ["password": exportPassword, "includeApple": includeApple])
@@ -2502,6 +2675,8 @@ struct V3BackupsView: View {
         } catch { message = error.localizedDescription }
     }
     private func importAccount(_ url: URL) async {
+        importBusy = true
+        defer { importBusy = false }
         do {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -2612,6 +2787,7 @@ struct V3DiagnosticsView: View {
 struct V3LogsView: View {
     @State private var tail = ""
     @State private var message = ""
+    @State private var copied = false
     var body: some View {
         List {
             if !message.isEmpty {
@@ -2619,7 +2795,14 @@ struct V3LogsView: View {
             }
             Section {
                 Button("Reload Logs") { Task { await reload() } }
-                Button("Copy Logs") { UIPasteboard.general.string = tail }
+                Button(copied ? "Copied" : "Copy Logs") {
+                    UIPasteboard.general.string = tail
+                    copied = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        copied = false
+                    }
+                }
             }
             Section("Operation Logs") {
                 Text(String(tail.suffix(120_000)))
@@ -2926,6 +3109,7 @@ struct V3SetupAssistantView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var setup = V3SetupStore()
     @State private var vpnWorking = false
+    @State private var copiedDiagnostics = false
     var body: some View {
         List {
             Section("Device") {
@@ -3024,9 +3208,14 @@ struct V3SetupAssistantView: View {
                 }
             }
             Section("Diagnostics") {
-                Button("Copy Setup Diagnostics") {
+                Button(copiedDiagnostics ? "Copied" : "Copy Setup Diagnostics") {
                     setup.buildDiagnostics(status: status)
                     UIPasteboard.general.string = setup.diagnostics
+                    copiedDiagnostics = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        copiedDiagnostics = false
+                    }
                 }
             }
         }
@@ -3167,13 +3356,12 @@ private struct V3HomeView: View {
                             Button {
                                 status.reload()
                             } label: {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                                    .font(.system(size: 14, weight: .semibold))
+                                Label("Reload Status", systemImage: "arrow.triangle.2.circlepath")
+                                    .font(.caption.weight(.semibold))
                             }
                             .buttonStyle(.bordered)
                             .buttonBorderShape(.capsule)
                             .disabled(status.loading)
-                            .accessibilityLabel("Reload Status")
                             .accessibilityHint("Reloads the latest SideStore connection and account status. This does not refresh installed apps.")
                             }
                         

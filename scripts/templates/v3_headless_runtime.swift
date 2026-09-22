@@ -118,6 +118,105 @@ func v3ClassifyAuthError(_ error: Error) -> V3AuthFailureKind? {
     return .unknown
 }
 
+// MARK: - Provisioning failure guidance (typed, never numeric)
+
+// User-facing message plus what Retry means for a concrete
+// DeveloperPortalError. The bridged NSError integer (e.g.
+// SideSign.DeveloperPortalError 20) is never a stable semantic identifier,
+// so classification switches on the typed cases only; the numeric code
+// travels exclusively inside the separate technical details. Associated
+// values are never forwarded (they can carry raw portal payloads).
+// The switch is compiler-checked: @unknown default stays honest instead of
+// inventing a cause.
+func v3ProvisioningGuidance(_ error: DeveloperPortalError) -> (message: String, hint: String) {
+    switch error {
+    case .unknown:
+        return ("The developer portal request failed for an unknown reason.",
+                "You can retry; if it keeps failing, check the connection and try again later.")
+    case .invalidParameters:
+        return ("The provisioning request was malformed.",
+                "Retry will repeat the same failure. Check the app configuration before trying again.")
+    case .incorrectCredentials:
+        return ("Apple did not accept the Apple ID or password.",
+                "Signing in again with the correct credentials is required before retrying.")
+    case .noTeams:
+        return ("No Apple Developer team is available for this account.",
+                "Join or create a developer team for this Apple ID before retrying.")
+    case .appSpecificPasswordRequired:
+        return ("This account needs an app-specific password for provisioning.",
+                "Create one for this Apple ID, then sign in again before retrying.")
+    case .invalidDeviceID:
+        return ("This device could not be identified for registration.",
+                "Retry will repeat the same failure until the device identifier issue is resolved.")
+    case .deviceAlreadyRegistered:
+        return ("This device is already registered with the selected developer team.",
+                "No action is needed for the device itself; retry continues provisioning.")
+    case .invalidCertificateRequest:
+        return ("Apple rejected the development certificate request.",
+                "Check the team certificates before retrying.")
+    case .certificateDoesNotExist:
+        return ("The selected development certificate no longer exists on the Apple Developer account.",
+                "Choose or create a current certificate before retrying.")
+    case .invalidAppIDName:
+        return ("An App ID name was rejected as invalid.",
+                "Fix the app identifier configuration before retrying.")
+    case .invalidBundleIdentifier:
+        return ("An app bundle identifier was rejected as invalid.",
+                "Fix the bundle identifier before retrying.")
+    case .bundleIdentifierUnavailable:
+        return ("Apple could not register this app identifier for the selected team.",
+                "Use a different identifier or team before retrying.")
+    case .appIDDoesNotExist:
+        return ("A required App ID no longer exists on the developer team.",
+                "Recreate the App ID or sync app data before retrying.")
+    case .maximumAppIDLimitReached:
+        return ("The Apple Developer account has reached its App ID limit.",
+                "Remove an unused App ID before retrying.")
+    case .invalidAppGroup:
+        return ("An app group value was rejected as invalid.",
+                "Fix the app group configuration before retrying.")
+    case .appGroupDoesNotExist:
+        return ("A required app group does not exist on the developer team.",
+                "Recreate the app group before retrying.")
+    case .invalidProvisioningProfileIdentifier:
+        return ("Apple rejected the provisioning profile identifier.",
+                "Check the provisioning configuration before retrying.")
+    case .provisioningProfileDoesNotExist:
+        return ("The required provisioning profile no longer exists.",
+                "Create the missing provisioning profile before retrying.")
+    case .requiresTwoFactorAuthentication:
+        return ("Two-factor authentication is required to continue.",
+                "Complete two-factor authentication, then retry.")
+    case .userCancelled:
+        return ("Provisioning was cancelled.",
+                "Run the operation again when ready.")
+    case .incorrectVerificationCode:
+        return ("The verification code was not accepted.",
+                "Enter a fresh verification code when asked, then retry.")
+    case .authenticationHandshakeFailed:
+        return ("The authentication handshake with Apple failed.",
+                "Check the account sign-in state before retrying.")
+    case .invalidAnisetteData:
+        return ("Valid Anisette data could not be obtained.",
+                "You can retry; if it keeps failing, check the Anisette servers.")
+    case .tooManyCertificates:
+        return ("The developer team has reached its development certificate limit.",
+                "Revoke an unused certificate under Certificates before retrying.")
+    case .tooManyAttempts:
+        return ("Apple is temporarily limiting authentication or developer portal requests.",
+                "Wait before trying again.")
+    case .accountRepairRequired:
+        return ("Apple requires attention on this account before provisioning can continue.",
+                "Resolve the account issue with Apple before retrying.")
+    case .invalid2FAResponse:
+        return ("The two-factor authentication response was not valid.",
+                "Start sign-in again so a fresh verification can complete.")
+    @unknown default:
+        return ("The developer portal request failed for an unknown reason.",
+                "You can retry; if it keeps failing, check the connection and try again later.")
+    }
+}
+
 // MARK: - Authentication state machine
 
 @MainActor
@@ -362,10 +461,29 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
     }
 
     func resolveProvisioningError(_ error: Error) async -> ProvisioningErrorDecision {
+        // Cancellation is terminal, never a prompt. Everything else is
+        // classified from the actual typed error: the message comes from the
+        // concrete DeveloperPortalError case; the bridged domain/code travel
+        // only inside the separate technical details.
+        if error is CancellationError { return .cancel }
+        if let portal = error as? DeveloperPortalError {
+            if case .userCancelled = portal { return .cancel }
+            let guidance = v3ProvisioningGuidance(portal)
+            return await askProvisioningRetry(message: guidance.message, hint: guidance.hint, error: error)
+        }
+        return await askProvisioningRetry(
+            message: "Provisioning could not be completed because of an unexpected failure.",
+            hint: "You can retry; if it keeps failing, check the account, team, and certificates before trying again.",
+            error: error)
+    }
+
+    private func askProvisioningRetry(message: String, hint: String, error: Error) async -> ProvisioningErrorDecision {
         let native = error as NSError
+        let technical = "domain=\(native.domain) code=\(native.code) area=provisioning correlation=\(sessionID)"
         do {
             let answer = try await ask(kind: "provisioningError", title: "Provisioning Needs Attention",
-                                       message: "Provisioning reported an issue (\(native.domain) \(native.code)). Retry or cancel.",
+                                       message: message + "\n\n" + hint,
+                                       fields: [["key": "technical", "label": "Technical details", "secure": "false", "value": technical]],
                                        options: [["id": "retry", "label": "Retry"], ["id": "cancel", "label": "Cancel"]])
             return answer["choice"] == "retry" ? .retry : .cancel
         } catch { return .cancel }

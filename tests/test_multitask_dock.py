@@ -18,6 +18,7 @@ final class MultitaskDockManager: NSObject {
     @Published var isVisible: Bool = false
     @Published @objc var isCollapsed: Bool = false
     @Published var isDockHidden: Bool = false
+    @Published var settingsChanged: Bool = false
 
     override init() {
         super.init()
@@ -29,6 +30,30 @@ final class MultitaskDockManager: NSObject {
         DispatchQueue.main.async {
             self.isCollapsed.toggle()
             self.updateDockFrame()
+        }
+    }
+
+    @objc public func addRunningApp(_ appName: String, appUUID: String, view: UIView?) {
+        DispatchQueue.main.async {
+            self.apps.append(appModel)
+
+            if self.apps.count == 1 {
+                self.showDock()
+            } else if self.isVisible {
+                self.updateDockFrame()
+            }
+        }
+    }
+
+    @objc public func removeRunningApp(_ appUUID: String) {
+        DispatchQueue.main.async {
+            self.apps.removeAll { $0.appUUID == appUUID }
+
+            if self.apps.isEmpty {
+                self.hideDock()
+            } else if self.isVisible {
+                self.updateDockFrame()
+            }
         }
     }
 
@@ -131,6 +156,27 @@ class DockPatchTests(unittest.TestCase):
             self.assertIn("@Published @objc var isCollapsed: Bool = false", dock)
             # The persisted preference is read once at creation.
             self.assertIn('isCollapsed = LCUtils.appGroupUserDefault.bool(forKey: "LCMultitaskDockStartsCollapsed")', dock)
+
+    def test_session_reapplies_preference_without_fighting_user(self):
+        with tempfile.TemporaryDirectory() as directory:
+            live = fixture(Path(directory))
+            patch.patch(live)
+            dock = (live / "MultitaskSupport/MultitaskDockView.swift").read_text(encoding="utf-8")
+            # One reader, called at creation and at each fresh session.
+            self.assertIn("func applyStartCollapsedPreference()", dock)
+            self.assertIn("applyStartCollapsedPreference()", dock[dock.index("override init()"):])
+            self.assertIn("if !self.collapseManuallyOverridden", dock)
+            # Manual toggle marks the session overridden; session end clears it.
+            toggle = dock[dock.index("func toggleDockCollapse"):]
+            toggle = toggle[:toggle.index("\n    }", toggle.index("isCollapsed.toggle")) + 6]
+            self.assertIn("collapseManuallyOverridden = true", toggle)
+            self.assertIn("collapseManuallyOverridden = false", dock)
+            # The applied value is logged for field diagnosis (boolean only).
+            self.assertIn('NSLog("[LC_DOCK] apply collapsed=%d"', dock)
+            # Hide-collapsed-dock behavior is untouched.
+            self.assertNotIn("LCHideCollapsedDock", dock)
+            # Rotation/layout paths never touch collapse state.
+            self.assertNotIn("collapseManuallyOverridden", dock[dock.index("deviceOrientationDidChange"):])
 
     def test_no_continuous_reapplication(self):
         with tempfile.TemporaryDirectory() as directory:
