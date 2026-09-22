@@ -1297,10 +1297,8 @@ enum V3BackendCommands {
             "active": true,
             "serialSuffix": String(active.serialNumber.suffix(4)),
             "team": DatabaseManager.shared.activeTeam()?.identifier ?? "",
+            "expiry": active.certificate.x509.expiryDate,
         ]
-        if let expiry = active.certificate.x509.expiryDate {
-            state["expiry"] = expiry
-        }
         return state
     }
 
