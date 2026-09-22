@@ -180,6 +180,17 @@ func debugLog(_ value: String) {}
    precondition(failure.underlyingCode == 0xE8008018, "ppq8018 code")
    precondition(failure.message.contains("signing identity"), "ppq8018 message")
   }
+  // 7. An unknown install error stays an honest generic installation
+  // failure: caller installation stage, generic message, redacted domain.
+  do {
+   let error = NSError(domain: "com.example.mystery", code: 20,
+       userInfo: [NSLocalizedDescriptionKey: "mystery install failure"])
+   let failure = CombinedFailure.capture(error, operation: "install", stage: .installation, id: id)
+   precondition(failure.stage == .installation, "unknown install stage")
+   precondition(failure.message == "SideStore could not complete the application installation.", "unknown install message")
+   precondition(failure.underlyingDomain == "redacted", "unknown install domain")
+   precondition(!failure.message.contains("pairing"), "unknown install message has no pairing claim")
+  }
   print("Capture honesty and PPQ PASS")
  }
 }

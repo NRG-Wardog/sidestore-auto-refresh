@@ -640,8 +640,17 @@ final class V3OperationCenter {
         case "refreshApp": stage = .refreshVerification
         default: stage = .command
         }
+        // The structured failure crosses XPC as scalars only: the user-facing
+        // message plus the fixed wire vocabulary (stage, code, correlation,
+        // underlying domain/code, retryable). No arbitrary userInfo, file
+        // paths, or auth secrets ever leave the SideStore process.
+        // The session id is the end-to-end correlation identifier.
         let failure = CombinedFailure.capture(error, operation: kind, stage: stage, id: id)
-        return ["state": "failed", "stage": failure.stage.rawValue, "code": failure.code.rawValue]
+        var terminal: [String: Any] = ["state": "failed", "stage": failure.stage.rawValue,
+            "code": failure.code.rawValue, "message": failure.message,
+            "technical": failure.technicalDetails, "failure": failure.wire]
+        if let retryable = failure.retryable { terminal["retryable"] = retryable }
+        return terminal
     }
 
     private struct V3OpDriver: @unchecked Sendable {

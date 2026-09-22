@@ -282,7 +282,13 @@ final class V3SideStoreStatusStore: ObservableObject {
         connected = true
     }
     func perform(_ operation: String, target: String = "", title: String, value: Bool? = nil) {
-        guard presentation == nil else { return }
+        // A second operation while one is presented must explain itself
+        // instead of silently doing nothing (which looks like the first tap
+        // was ignored and invites blind retries).
+        guard presentation == nil else {
+            self.error = "Another operation is already running. Finish or cancel it before starting a new one."
+            return
+        }
         switch operation {
         case "signOut": signOut()
         case "syncAppIDs": syncAppIDs()
@@ -361,7 +367,10 @@ final class V3SideStoreStatusStore: ObservableObject {
         return token
     }
     func stageSharedIPA(_ url: URL, bookmark: Data? = nil, title: String) {
-        guard presentation == nil else { return }
+        guard presentation == nil else {
+            self.error = "Another operation is already running. Finish or cancel it before installing another app."
+            return
+        }
         do {
             guard url.isFileURL, url.pathExtension.lowercased() == "ipa" else {
                 throw NSError(domain: "V3IPASelection", code: 1,
@@ -1240,8 +1249,13 @@ struct V3OperationSheet: View {
             try Task.checkCancellation()
             let reply = try await V3ServiceBridge.shared.request(operation: "opPoll", target: id)
             apply(reply)
-            guard let current = reply["state"] as? String,
-                  current == "working" || current == "awaitingPrompt" else { return }
+            // A reply without a readable state must surface as an explicit
+            // failure; it must never stall the sheet silently.
+            guard let current = reply["state"] as? String else {
+                throw NSError(domain: "V3Operation", code: 2,
+                              userInfo: [NSLocalizedDescriptionKey: "The service returned an unreadable operation state."])
+            }
+            guard current == "working" || current == "awaitingPrompt" else { return }
         }
     }
     private func apply(_ reply: [String: Any]) {
@@ -1254,7 +1268,11 @@ struct V3OperationSheet: View {
             status.reload()
             dismiss()
         case "cancelled":
-            dismiss()
+            // A backend cancellation the user did not request (the Done
+            // button already dismisses locally) stays visible as a terminal
+            // result with an explicit message instead of silently returning
+            // to the app list.
+            message = "The operation was cancelled before it finished. Run it again if the cancellation was not intended."
         case "waitingForAuthentication":
             status.signInPresented = true
             message = "Sign in first, then run this action again."
@@ -1263,12 +1281,25 @@ struct V3OperationSheet: View {
                            "name": reply["sourceName"] as? String ?? "Unknown source"]
             prompt = nil
         case "failed":
-            var detail = "The operation failed."
-            if let stage = reply["stage"] as? String, let code = reply["code"] as? String {
-                detail += " (\(stage): \(code))"
+            // A structured backend failure carries the user-facing message
+            // plus fixed diagnostics (operation, stage, code, correlation,
+            // underlying domain/code, retryable). Both are shown and both are
+            // copied by Copy Diagnostics. Anything else keeps the legacy
+            // stage/code rendering instead of going silent.
+            if let text = reply["message"] as? String, !text.isEmpty {
+                if let technical = reply["technical"] as? String, !technical.isEmpty {
+                    message = text + "\n\nDiagnostics:\n" + technical
+                } else {
+                    message = text
+                }
+            } else {
+                var detail = "The operation failed."
+                if let stage = reply["stage"] as? String, let code = reply["code"] as? String {
+                    detail += " (\(stage): \(code))"
+                }
+                message = detail
             }
-            message = detail
-            recordRefresh("failed", detail)
+            recordRefresh("failed", message)
         default: break
         }
     }

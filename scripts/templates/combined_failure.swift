@@ -153,7 +153,17 @@ public struct CombinedFailure: Error, LocalizedError {
         }
     }
     public var technicalDetails: String {
-        "schema=1 operation=\(operation) stage=\(stage.rawValue) code=\(code.rawValue) correlation=\(correlationID) underlying_domain=\(underlyingDomain) underlying_code=\(underlyingCode) retryable=\(retryable.map(String.init) ?? "unknown")"
+        "schema=1 operation=\(operation) stage=\(stage.rawValue) code=\(code.rawValue) correlation=\(correlationID) underlying_domain=\(underlyingDomain) underlying_code=\(underlyingCode) retryable=\(retryable.map(String.init) ?? "unknown")" + installVerdict
+    }
+    // Bounded machine classification for Apple-side application verification
+    // rejections (InstallationProxy/installd). Only the two fixed installd
+    // codes produce a token; every other failure keeps the existing
+    // diagnostics byte-identical. Never an account-ban claim.
+    private var installVerdict: String {
+        guard stage == .installation else { return "" }
+        if underlyingCode == 0xE8008024 { return " installVerdict=profileBanned" }
+        if underlyingCode == 0xE8008018 { return " installVerdict=signingIdentityRejected" }
+        return ""
     }
     public var errorDescription: String? { message + "\n" + recovery + "\n" + technicalDetails }
     public var wire: [String: Any] {
