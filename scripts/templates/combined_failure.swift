@@ -68,13 +68,14 @@ public enum CombinedVerification {
 public struct CombinedFailure: Error, LocalizedError {
     public enum Stage: String, CaseIterable {
         case hostContainer, storagePreparation, bookmarkCreation, extensionDiscovery, extensionLaunch
-        case xpcConnection, serviceReadiness, command, authentication, signing, installation, refreshVerification
+        case xpcConnection, serviceReadiness, command, authentication, signing, filePreparation, installation, refreshVerification
         case endpointSelection, heartbeat, coreDevice, cdTunnel, rsdDiscovery, rsdService, lockdownConnection, uniqueDeviceID, pairing
         case network
     }
     public enum Code: String, CaseIterable {
         case unavailable, invalidConfiguration, permissionDenied, timedOut, cancelled, interrupted
         case notReady, busy, invalidResponse, unsupported, failed, missingResult, staleResult
+        case invalidToken, missingFile, emptyFile, invalidPackage, fileAccess, stagingFailed
     }
     public let operation: String
     public let stage: Stage
@@ -100,7 +101,8 @@ public struct CombinedFailure: Error, LocalizedError {
         self.retryable = retryable
     }
     private static let operations: Set<String> = ["connect", "status", "command", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit"]
-    private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "HTTPStatus"]
+    private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "HTTPStatus"]
+    private static let verificationDomains: Set<String> = ["ALTServerErrorDomain", "ALTErrorDomain", "IdeviceGatewayError", "DeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy"]
     public var message: String {
         if code == .cancelled { return "The \(operation) request was cancelled. Its result may need reconciliation." }
         if code == .timedOut { return "The \(operation) request timed out during \(stage.rawValue)." }
@@ -123,14 +125,23 @@ public struct CombinedFailure: Error, LocalizedError {
         case .pairing: return "Pairing parsing, validation, or a concrete device trust check failed."
         case .authentication: return "SideStore could not complete account authentication."
         case .signing: return "SideStore could not sign the application."
+        case .filePreparation:
+            switch code {
+            case .invalidToken: return "The staged IPA reference is invalid. Select the file again."
+            case .missingFile: return "The staged IPA is no longer available. Select it again."
+            case .emptyFile: return "The selected IPA is empty and could not be installed."
+            case .invalidPackage: return "The selected file is not a valid IPA app package."
+            case .fileAccess: return "The selected IPA could not be read. Check file access and select it again."
+            default: return "The selected IPA could not be prepared for installation. Select it again."
+            }
         case .installation:
             // Apple-side application verification rejections carry fixed installd
             // codes. These describe profile/identity rejection, never an account
             // ban, and they do not imply a pairing or LocalDevVPN problem.
-            if underlyingCode == 0xE8008024 {
+            if hasApplicationVerificationEvidence && underlyingCode == 0xE8008024 {
                 return "iOS reports that the provisioning profile is banned during application verification. Recreating pairing or changing LocalDevVPN settings is unlikely to address this specific error."
             }
-            if underlyingCode == 0xE8008018 {
+            if hasApplicationVerificationEvidence && underlyingCode == 0xE8008018 {
                 return "iOS reports that the identity used to sign the executable is no longer valid. The app must be re-signed with a current signing identity."
             }
             return "SideStore could not complete the application installation."
@@ -146,6 +157,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case .extensionDiscovery:
             return "Check that the installed combined package retains LiveProcess and its extension registration. Do not reset SideStore or guest data."
         case .authentication, .signing: return "Review Account and Signing, then explicitly retry. Never share credentials or private keys."
+        case .filePreparation: return "Choose the IPA again. SideStore will copy it into private shared staging before starting installation."
         case .installation, .refreshVerification: return "Reload authoritative app status and expiration before retrying. Completion may be uncertain."
         case .endpointSelection, .heartbeat, .coreDevice, .cdTunnel, .rsdDiscovery, .rsdService, .lockdownConnection, .uniqueDeviceID, .network:
             return "Check LocalDevVPN and the device connection, then retry explicitly. This failure alone does not prove invalid pairing."
@@ -160,10 +172,13 @@ public struct CombinedFailure: Error, LocalizedError {
     // codes produce a token; every other failure keeps the existing
     // diagnostics byte-identical. Never an account-ban claim.
     private var installVerdict: String {
-        guard stage == .installation else { return "" }
+        guard hasApplicationVerificationEvidence else { return "" }
         if underlyingCode == 0xE8008024 { return " installVerdict=profileBanned" }
         if underlyingCode == 0xE8008018 { return " installVerdict=signingIdentityRejected" }
         return ""
+    }
+    private var hasApplicationVerificationEvidence: Bool {
+        ["install", "update"].contains(operation) && stage == .installation && verificationDomains.contains(underlyingDomain)
     }
     public var errorDescription: String? { message + "\n" + recovery + "\n" + technicalDetails }
     public var wire: [String: Any] {
@@ -206,8 +221,17 @@ public struct CombinedFailure: Error, LocalizedError {
     }
     public static func capture(_ error: Error, operation: String, stage: Stage, id: String) -> CombinedFailure {
         if let known = error as? CombinedFailure { return known }
+        if let refreshError = error as? CombinedRefreshVerificationError {
+            let code: Code = refreshError == .missingResult ? .missingResult : .staleResult
+            return CombinedFailure(operation: operation, stage: .refreshVerification, code: code, id: id)
+        }
+        if let fileFailure = error as? CombinedIPAFileError {
+            return CombinedFailure(operation: operation, stage: .filePreparation,
+                                  code: fileFailure.combinedCode, id: id, underlying: fileFailure)
+        }
         var cause = error as NSError
         var resolved = stage
+        var resolvedCode: Code = error is CancellationError ? .cancelled : .failed
         var nativeCode: Int?
         var nativeDomain: String?
         var ppqLocked = false
@@ -223,8 +247,6 @@ public struct CombinedFailure: Error, LocalizedError {
             if !ppqLocked {
                 switch cause.domain {
                 case "com.SideStore.Authentication":
-                    resolved = .authentication
-                case "ALTAppleAPIErrorDomain", "ALTServerErrorDomain", "GrandSlamErrorDomain", "SideSignErrorDomain":
                     resolved = .authentication
                 case "NSPOSIXErrorDomain":
                     // POSIX error domains carry standard errno values.
@@ -244,7 +266,10 @@ public struct CombinedFailure: Error, LocalizedError {
             // identity no longer valid. Neither implies pairing, network,
             // CoreDevice, or account-ban conditions.
             let fingerprint = cause.localizedDescription.lowercased()
-            if fingerprint.contains("applicationverificationfailed") {
+            let installContext = ["install", "installURL", "installSharedIPA", "update"].contains(operation)
+                && stage == .installation
+            let typedVerificationSource = verificationDomains.contains(cause.domain)
+            if installContext && typedVerificationSource && fingerprint.contains("applicationverificationfailed") {
                 if fingerprint.contains("e8008024") {
                     resolved = .installation
                     nativeCode = 0xE8008024
@@ -305,7 +330,52 @@ public struct CombinedFailure: Error, LocalizedError {
             underlying = cause
         }
         return CombinedFailure(operation: operation, stage: resolved,
-            code: error is CancellationError ? .cancelled : .failed, id: id,
+            code: resolvedCode, id: id,
             underlying: underlying)
+    }
+}
+
+public enum CombinedRefreshVerificationError: Error, Equatable {
+    case missingResult
+    case staleResult
+}
+
+public struct CombinedIPAFileError: Error, LocalizedError, CustomNSError {
+    public enum Problem: String, Equatable {
+        case invalidToken, missingFile, emptyFile, invalidPackage, fileAccess, stagingFailed
+    }
+    public let problem: Problem
+    public static let errorDomain = "V3IPAFileErrorDomain"
+    public var errorCode: Int {
+        switch problem {
+        case .invalidToken: return 1
+        case .missingFile: return 2
+        case .emptyFile: return 3
+        case .invalidPackage: return 4
+        case .fileAccess: return 5
+        case .stagingFailed: return 6
+        }
+    }
+    public var errorUserInfo: [String: Any] { [NSLocalizedDescriptionKey: errorDescription ?? "IPA file preparation failed."] }
+    public init(_ problem: Problem) { self.problem = problem }
+    public var combinedCode: CombinedFailure.Code {
+        switch problem {
+        case .invalidToken: return .invalidToken
+        case .missingFile: return .missingFile
+        case .emptyFile: return .emptyFile
+        case .invalidPackage: return .invalidPackage
+        case .fileAccess: return .fileAccess
+        case .stagingFailed: return .stagingFailed
+        }
+    }
+    public var errorDescription: String? {
+        switch problem {
+        case .invalidToken: return "The staged IPA reference is invalid."
+        case .missingFile: return "The staged IPA is no longer available."
+        case .emptyFile: return "The selected IPA is empty."
+        case .invalidPackage: return "The selected file is not a valid IPA app package."
+        case .fileAccess: return "The selected IPA could not be read."
+        case .stagingFailed: return "The selected IPA could not be staged."
+        }
     }
 }

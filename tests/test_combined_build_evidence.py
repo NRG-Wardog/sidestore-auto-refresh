@@ -22,10 +22,11 @@ class CandidateEvidenceTests(unittest.TestCase):
         self.assertIsNone(evidence.macho_uuid(b'not Mach-O'))
 
     def test_release_product_lines_are_accepted(self):
-        for product in ("v2", "v3", "v3.0.1", "v3.10.2"):
+        pattern = r'v3\.\d+(\.\d+)*(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?'
+        for product in ("v2", "v3", "v3.0.1", "v3.10.2", "v3.0.3-rc"):
             self.assertTrue(product in ('v2', 'v3') or
-                            __import__('re').fullmatch(r'v3\.\d+(\.\d+)*', product) is not None)
+                            __import__('re').fullmatch(pattern, product) is not None)
         for product in ("v4", "v3.x", "latest", ""):
             self.assertFalse(product in ('v2', 'v3') or
-                             __import__('re').fullmatch(r'v3\.\d+(\.\d+)*', product) is not None)
+                             __import__('re').fullmatch(pattern, product) is not None)
         self.assertEqual('Combined LC+SS ' + 'v3.0.1', 'Combined LC+SS v3.0.1')

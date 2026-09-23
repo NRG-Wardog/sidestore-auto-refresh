@@ -9,25 +9,82 @@ import SideSign
 
 // Parked continuations resume from cancellation callbacks that run off-actor,
 // so this center stays non-isolated and guards its boxes with a lock.
-final class V3PromptCenter {
+final class V3PromptCenter: @unchecked Sendable {
     private let lock = NSLock()
-    private var boxes: [String: CheckedContinuation<[String: String], Error>] = [:]
+    private final class Pending {
+        var continuation: CheckedContinuation<[String: String], Error>?
+        var result: Result<[String: String], Error>?
+    }
+    private var boxes: [String: Pending] = [:]
+    var pendingCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return boxes.count
+    }
 
-    func park(promptID: String) async throws -> [String: String] {
+    func park(promptID: String, onReady: (@MainActor () -> Void)? = nil) async throws -> [String: String] {
         try Task.checkCancellation()
+        let pending = Pending()
+        lock.lock()
+        guard boxes[promptID] == nil else {
+            lock.unlock()
+            throw NSError(domain: "V3Prompt", code: 1)
+        }
+        boxes[promptID] = pending
+        lock.unlock()
+        defer {
+            lock.lock()
+            if boxes[promptID] === pending { boxes.removeValue(forKey: promptID) }
+            lock.unlock()
+        }
         return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: String], Error>) in
-                self.lock.withLock { self.boxes[promptID] = continuation }
+                self.lock.lock()
+                let result = pending.result
+                if case nil = result { pending.continuation = continuation }
+                self.lock.unlock()
+                if let result { continuation.resume(with: result) }
+                else if let onReady {
+                    Task { @MainActor in
+                        guard self.isWaiting(promptID: promptID, pending: pending) else { return }
+                        onReady()
+                    }
+                }
             }
         }, onCancel: {
-            self.lock.withLock { self.boxes.removeValue(forKey: promptID) }?.resume(throwing: CancellationError())
+            self.settle(promptID: promptID, pending: pending, result: .failure(CancellationError()))
         })
     }
 
     func answer(promptID: String, answer: [String: String]) -> Bool {
-        guard let continuation = lock.withLock({ boxes.removeValue(forKey: promptID) }) else { return false }
-        continuation.resume(returning: answer)
+        lock.lock()
+        let pending = boxes[promptID]
+        lock.unlock()
+        guard let pending else { return false }
+        return settle(promptID: promptID, pending: pending, result: .success(answer))
+    }
+
+    @discardableResult
+    private func settle(promptID: String, pending: Pending, result: Result<[String: String], Error>) -> Bool {
+        lock.lock()
+        guard boxes[promptID] === pending, case nil = pending.result else {
+            lock.unlock()
+            return false
+        }
+        pending.result = result
+        let continuation = pending.continuation
+        pending.continuation = nil
+        lock.unlock()
+        continuation?.resume(with: result)
         return true
+    }
+
+    private func isWaiting(promptID: String, pending: Pending) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard boxes[promptID] === pending else { return false }
+        if case nil = pending.result { return true }
+        return false
     }
 }
 
@@ -60,8 +117,9 @@ func v3Prompt(id: String = UUID().uuidString, kind: String, title: String, messa
 // Privacy-safe display kind for the previous authentication attempt failure.
 // Only the kind string plus CombinedFailure scalar fields cross the bridge.
 // Never credentials, tokens, 2FA codes, DSID, headers, or response bodies.
-enum V3AuthFailureKind: String {
+enum V3AuthFailureKind: String, Equatable {
     case invalidCredentials
+    case appSpecificPasswordRequired
     case invalidCode
     case rateLimited
     case serviceUnavailable
@@ -93,7 +151,7 @@ func v3ClassifyAuthError(_ error: Error) -> V3AuthFailureKind? {
     if let portal = error as? DeveloperPortalError {
         switch portal {
         case .incorrectCredentials: return .invalidCredentials
-        case .appSpecificPasswordRequired: return .invalidCredentials
+        case .appSpecificPasswordRequired: return .appSpecificPasswordRequired
         case .tooManyAttempts: return .rateLimited
         case .incorrectVerificationCode: return .invalidCode
         case .invalidAnisetteData: return .anisette
@@ -143,8 +201,8 @@ func v3ProvisioningGuidance(_ error: DeveloperPortalError) -> (message: String, 
         return ("No Apple Developer team is available for this account.",
                 "Join or create a developer team for this Apple ID before retrying.")
     case .appSpecificPasswordRequired:
-        return ("This account needs an app-specific password for provisioning.",
-                "Create one for this Apple ID, then sign in again before retrying.")
+        return ("Apple requires an app-specific password for this authentication path.",
+                "Create an app-specific password for this Apple ID, then use it for this sign-in path.")
     case .invalidDeviceID:
         return ("This device could not be identified for registration.",
                 "Retry will repeat the same failure until the device identifier issue is resolved.")
@@ -226,16 +284,22 @@ final class V3AuthCenter {
         var watchdog: Task<Void, Never>?
         var prompt: [String: Any]?
         var attempts = 0
-        var terminal: [String: Any]?
+        var terminal = V3TerminalResponse()
         var deadline = Date.distantFuture
         var previousFailure: [String: Any]?
+        var terminalAt: Date?
     }
 
     var sessions: [String: Session] = [:]
     private var activeID: String?
 
-    func begin(deadline: Date) -> [String: Any] {
-        if let current = activeID { cancel(id: current) }
+    func begin(deadline: Date) async -> [String: Any] {
+        cleanupSessions()
+        if let current = activeID {
+            let oldTask = sessions[current]?.task
+            _ = cancel(id: current)
+            if let oldTask { await oldTask.value }
+        }
         let id = UUID().uuidString
         sessions[id] = Session(deadline: deadline)
         activeID = id
@@ -255,6 +319,7 @@ final class V3AuthCenter {
             sessions[id]?.watchdog?.cancel()
             sessions[id]?.watchdog = nil
             if activeID == id { activeID = nil }
+            cleanupSessions()
         }
         do {
             let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
@@ -265,26 +330,28 @@ final class V3AuthCenter {
             let account = result.team.account ?? ALTAccount(appleID: "", identifier: result.team.identifier)
             await handler.handleSignInResult(.success((account, result.session)))
             sessions[id]?.prompt = nil
-            sessions[id]?.terminal = ["state": "completed", "team": result.team.name, "teamID": result.team.identifier]
+            finish(id: id, response: ["state": "completed", "team": result.team.name, "teamID": result.team.identifier])
             debugLog("[V3_AUTH] TERMINAL session=\(id) state=completed")
         } catch {
             sessions[id]?.prompt = nil
             if error is CancellationError {
-                sessions[id]?.terminal = ["state": "cancelled"]
+                finish(id: id, response: ["state": "cancelled"])
                 debugLog("[V3_AUTH] TERMINAL session=\(id) state=cancelled")
             } else {
                 let failure = CombinedFailure.capture(error, operation: "signIn", stage: .authentication, id: id)
                 let failureWire = failure.wire
-                sessions[id]?.terminal = ["state": "failed", "stage": failure.stage.rawValue, "code": failure.code.rawValue]
-                sessions[id]?.previousFailure = failureWire
+                if finish(id: id, response: ["state": "failed", "stage": failure.stage.rawValue, "code": failure.code.rawValue]) {
+                    sessions[id]?.previousFailure = failureWire
+                }
                 debugLog("[V3_AUTH] TERMINAL session=\(id) state=failed stage=\(failure.stage.rawValue) code=\(failure.code.rawValue)")
             }
         }
     }
 
     func poll(id: String) -> [String: Any]? {
+        cleanupSessions()
         guard let session = sessions[id] else { return nil }
-        if let terminal = session.terminal { return terminal.merging(["session": id]) { current, _ in current } }
+        if let terminal = session.terminal.value { return terminal.merging(["session": id]) { current, _ in current } }
         if let prompt = session.prompt {
             var reply: [String: Any] = ["session": id, "state": "awaitingPrompt", "attempts": session.attempts, "prompt": prompt]
             if let previousFailure = session.previousFailure {
@@ -296,11 +363,12 @@ final class V3AuthCenter {
     }
 
     func respond(id: String, promptID: String, answer: [String: String]) -> [String: Any]? {
-        guard sessions[id] != nil else { return nil }
-        sessions[id]?.attempts += 1
+        guard let session = sessions[id], case nil = session.terminal.value,
+              session.prompt?["id"] as? String == promptID else { return nil }
         guard V3HeadlessRuntime.shared.prompts.answer(promptID: promptID, answer: answer) else {
             return ["session": id, "state": "promptExpired"]
         }
+        sessions[id]?.attempts += 1
         // Clear previous failure on successful response to credentials prompt
         if let prompt = sessions[id]?.prompt,
            prompt["kind"] as? String == "credentials" {
@@ -310,7 +378,7 @@ final class V3AuthCenter {
     }
 
     func expire(id: String) {
-        guard sessions[id]?.terminal == nil else { return }
+        guard let session = sessions[id], case nil = session.terminal.value else { return }
         cancel(id: id)
     }
 
@@ -319,12 +387,35 @@ final class V3AuthCenter {
         guard var session = sessions[id] else { return false }
         session.task?.cancel()
         session.watchdog?.cancel()
-        if session.terminal == nil { session.terminal = ["state": "cancelled"] }
+        if session.terminal.setIfEmpty(["state": "cancelled"]) { session.terminalAt = Date() }
         session.prompt = nil
         sessions[id] = session
         if activeID == id { activeID = nil }
+        cleanupSessions()
         debugLog("[V3_AUTH] CANCEL session=\(id)")
         return true
+    }
+
+    @discardableResult
+    private func finish(id: String, response: [String: Any]) -> Bool {
+        guard var session = sessions[id], session.terminal.setIfEmpty(response) else { return false }
+        session.terminalAt = Date()
+        sessions[id] = session
+        cleanupSessions()
+        return true
+    }
+
+    private func cleanupSessions(now: Date = Date()) {
+        let expired = sessions.compactMap { id, session in
+            session.task == nil && session.terminal.value != nil &&
+                session.terminalAt.map { now.timeIntervalSince($0) > 600 } == true ? id : nil
+        }
+        for id in expired where id != activeID { sessions.removeValue(forKey: id) }
+        let completed = sessions.filter { $0.value.task == nil && $0.value.terminal.value != nil && $0.key != activeID }
+            .sorted { ($0.value.terminalAt ?? .distantPast) < ($1.value.terminalAt ?? .distantPast) }
+        if completed.count > 256 {
+            for (id, _) in completed.prefix(completed.count - 256) { sessions.removeValue(forKey: id) }
+        }
     }
 }
 
@@ -335,7 +426,7 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
 
     private func center() throws -> V3AuthCenter {
         let center = V3HeadlessRuntime.shared.auth
-        guard center.sessions[sessionID] != nil else { throw CancellationError() }
+        guard let session = center.sessions[sessionID], session.terminal.isEmpty else { throw CancellationError() }
         return center
     }
 
@@ -346,10 +437,16 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
         let prompt = v3Prompt(kind: kind, title: title, message: message,
                               fields: fields, options: options, destructive: destructive)
         guard let promptID = prompt["id"] as? String else { throw CancellationError() }
-        center.sessions[sessionID]?.prompt = prompt
-        debugLog("[V3_AUTH] PROMPT session=\(sessionID) kind=\(kind) attempts=\(center.sessions[sessionID]?.attempts ?? 0)")
-        defer { center.sessions[sessionID]?.prompt = nil }
-        return try await center.promptsParked(promptID: promptID)
+        defer {
+            if center.sessions[sessionID]?.prompt?["id"] as? String == promptID {
+                center.sessions[sessionID]?.prompt = nil
+            }
+        }
+        return try await center.promptsParked(promptID: promptID) {
+            guard center.sessions[sessionID]?.terminal.isEmpty == true else { return }
+            center.sessions[sessionID]?.prompt = prompt
+            debugLog("[V3_AUTH] PROMPT session=\(sessionID) kind=\(kind) attempts=\(center.sessions[sessionID]?.attempts ?? 0)")
+        }
     }
 
     func credentials() async throws -> (String, String) {
@@ -435,6 +532,7 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
     }
 
     func handleSignInResult(_ result: Result<(ALTAccount, ALTAppleAPISession), Error>) async {
+        guard V3HeadlessRuntime.shared.auth.sessions[sessionID]?.terminal.isEmpty == true else { return }
         switch result {
         case .success:
             V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure = nil
@@ -527,8 +625,8 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
 }
 
 extension V3AuthCenter {
-    func promptsParked(promptID: String) async throws -> [String: String] {
-        try await V3HeadlessRuntime.shared.prompts.park(promptID: promptID)
+    func promptsParked(promptID: String, onReady: @escaping @MainActor () -> Void) async throws -> [String: String] {
+        try await V3HeadlessRuntime.shared.prompts.park(promptID: promptID, onReady: onReady)
     }
 }
 
@@ -551,7 +649,7 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
 
     private func center() throws -> V3OperationCenter {
         let center = V3HeadlessRuntime.shared.operations
-        guard center.sessions[sessionID] != nil else { throw CancellationError() }
+        guard let session = center.sessions[sessionID], session.terminal.isEmpty else { throw CancellationError() }
         return center
     }
 
@@ -562,10 +660,16 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
         let prompt = v3Prompt(kind: kind, title: title, message: message,
                               fields: fields, options: options, destructive: destructive)
         guard let promptID = prompt["id"] as? String else { throw CancellationError() }
-        center.sessions[sessionID]?.prompt = prompt
-        debugLog("[V3_OP] PROMPT session=\(sessionID) kind=\(kind)")
-        defer { center.sessions[sessionID]?.prompt = nil }
-        return try await V3HeadlessRuntime.shared.prompts.park(promptID: promptID)
+        defer {
+            if center.sessions[sessionID]?.prompt?["id"] as? String == promptID {
+                center.sessions[sessionID]?.prompt = nil
+            }
+        }
+        return try await V3HeadlessRuntime.shared.prompts.park(promptID: promptID) {
+            guard center.sessions[sessionID]?.terminal.isEmpty == true else { return }
+            center.sessions[sessionID]?.prompt = prompt
+            debugLog("[V3_OP] PROMPT session=\(sessionID) kind=\(kind)")
+        }
     }
 
     func resolveBundleIDMismatch(targetID: String, activeEffectiveID: String) async -> Bool {
@@ -652,22 +756,50 @@ final class V3OperationCenter {
         var watchdog: Task<Void, Never>?
         var prompt: [String: Any]?
         var group: RefreshGroup?
-        var terminal: [String: Any]?
+        var terminal = V3TerminalResponse()
         var deadline = Date.distantFuture
+        var terminalAt: Date?
+        var ipaToken: String?
     }
 
     var sessions: [String: Session] = [:]
+    private var mutationRegistry = V3OperationMutationRegistry()
 
-    func start(kind: String, target: String, value: Bool?, deadline: Date) async -> [String: Any] {
+    func start(kind: String, target: String, value: Bool?, sessionID requestedID: String,
+               deadline: Date) async -> [String: Any] {
         _ = value
-        let id = UUID().uuidString
+        cleanupSessions()
+        guard let parsedID = UUID(uuidString: requestedID), parsedID.uuidString == requestedID else {
+            return ["state": "failed", "code": "invalidConfiguration",
+                    "message": "The operation attempt identifier is invalid."]
+        }
+        let id = requestedID
+        if sessions[id] != nil { return terminalReply(id: id) }
         sessions[id] = Session(deadline: deadline)
+        switch mutationRegistry.begin(id) {
+        case .cancelledBeforeStart:
+            finish(id: id, response: ["state": "cancelled"])
+            return terminalReply(id: id)
+        case .busy:
+            let failure = CombinedFailure(operation: kind, stage: .command, code: .busy, id: id, retryable: true)
+            finish(id: id, response: ["state": "failed", "stage": failure.stage.rawValue,
+                "code": failure.code.rawValue, "message": failure.message,
+                "technical": failure.technicalDetails, "failure": failure.wire, "retryable": true])
+            return terminalReply(id: id)
+        case .started:
+            break
+        }
+        if kind == "installSharedIPA" { sessions[id]?.ipaToken = target }
         guard AuthManager.shared.isAuthenticated else {
-            sessions[id]?.terminal = ["state": "waitingForAuthentication"]
-            return ["session": id, "state": "waitingForAuthentication"]
+            finish(id: id, response: ["state": "waitingForAuthentication"])
+            mutationRegistry.finish(id)
+            return terminalReply(id: id)
         }
         do {
             let driver = try await makeDriver(id: id, kind: kind, target: target)
+            guard sessions[id]?.terminal.isEmpty == true, mutationRegistry.activeID == id else {
+                return terminalReply(id: id)
+            }
             sessions[id]?.task = Task { @MainActor in await self.drive(id: id, driver: driver) }
             sessions[id]?.watchdog = Task { @MainActor in
                 let interval = deadline.timeIntervalSinceNow
@@ -675,7 +807,8 @@ final class V3OperationCenter {
                 self.expire(id: id)
             }
         } catch {
-            sessions[id]?.terminal = terminalFailure(id: id, kind: kind, error: error)
+            finish(id: id, response: terminalFailure(id: id, kind: kind, error: error))
+            mutationRegistry.finish(id)
             return terminalReply(id: id)
         }
         return ["session": id, "state": "working"]
@@ -686,28 +819,31 @@ final class V3OperationCenter {
             sessions[id]?.task = nil
             sessions[id]?.watchdog?.cancel()
             sessions[id]?.watchdog = nil
+            mutationRegistry.finish(id)
+            cleanupSessions()
         }
         do {
             try await driver.run()
             sessions[id]?.prompt = nil
-            sessions[id]?.terminal = ["state": "completed"]
+            finish(id: id, response: ["state": "completed"])
             debugLog("[V3_OP] TERMINAL session=\(id) kind=\(driver.kind) state=completed")
         } catch {
             sessions[id]?.prompt = nil
             if error is CancellationError {
-                sessions[id]?.terminal = ["state": "cancelled"]
+                finish(id: id, response: ["state": "cancelled"])
                 debugLog("[V3_OP] TERMINAL session=\(id) kind=\(driver.kind) state=cancelled")
             } else {
                 let terminal = terminalFailure(id: id, kind: driver.kind, error: error)
-                sessions[id]?.terminal = terminal
+                finish(id: id, response: terminal)
                 debugLog("[V3_OP] TERMINAL session=\(id) kind=\(driver.kind) state=\(terminal["state"] as? String ?? "") stage=\(terminal["stage"] as? String ?? "") code=\(terminal["code"] as? String ?? "")")
             }
         }
     }
 
     func poll(id: String) -> [String: Any]? {
+        cleanupSessions()
         guard let session = sessions[id] else { return nil }
-        if let terminal = session.terminal { return terminal.merging(["session": id]) { current, _ in current } }
+        if let terminal = session.terminal.value { return terminal.merging(["session": id]) { current, _ in current } }
         var reply: [String: Any] = ["session": id, "state": "working"]
         if let progress = session.group?.progress.fractionCompleted, progress.isFinite {
             reply["progress"] = progress
@@ -720,7 +856,8 @@ final class V3OperationCenter {
     }
 
     func answer(id: String, promptID: String, answer: [String: String]) -> [String: Any]? {
-        guard sessions[id] != nil else { return nil }
+        guard let session = sessions[id], case nil = session.terminal.value,
+              session.prompt?["id"] as? String == promptID else { return nil }
         guard V3HeadlessRuntime.shared.prompts.answer(promptID: promptID, answer: answer) else {
             return ["session": id, "state": "promptExpired"]
         }
@@ -728,20 +865,72 @@ final class V3OperationCenter {
     }
 
     func expire(id: String) {
-        guard sessions[id]?.terminal == nil else { return }
+        guard let session = sessions[id], case nil = session.terminal.value else { return }
         _ = cancel(id: id)
     }
 
     @discardableResult
     func cancel(id: String) -> Bool {
         guard var session = sessions[id] else { return false }
+        guard case nil = session.terminal.value else { return true }
         session.task?.cancel()
         session.watchdog?.cancel()
         session.group?.cancel()
-        if session.terminal == nil { session.terminal = ["state": "cancelled"] }
+        session.terminal.setIfEmpty(["state": "cancelled"])
+        session.terminalAt = Date()
         session.prompt = nil
         sessions[id] = session
+        V3SideStoreService.shared.cancellations[id]?()
+        if session.task == nil { mutationRegistry.finish(id) }
+        cleanupSessions()
         return true
+    }
+
+    func cancelAndWait(id: String) async -> Bool {
+        guard let parsedID = UUID(uuidString: id), parsedID.uuidString == id else { return false }
+        guard let session = sessions[id] else {
+            _ = mutationRegistry.cancel(id)
+            cleanupSessions()
+            return true
+        }
+        let task = session.task
+        guard cancel(id: id) else { return false }
+        if let task { await task.value }
+        return true
+    }
+
+    func cleanupIPA(token: String) throws {
+        let canonical = try V3IPAStaging.canonicalToken(token)
+        guard !sessions.values.contains(where: {
+            $0.ipaToken == canonical && $0.terminal.isEmpty
+        }) else { throw V3SideStoreServiceError.busy }
+        guard let group = Bundle.main.altstoreAppGroup,
+              let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else {
+            throw CombinedIPAFileError(.fileAccess)
+        }
+        try V3IPAStaging.cleanup(token: canonical, containerRoot: root)
+    }
+
+    private func finish(id: String, response: [String: Any]) {
+        guard var session = sessions[id] else { return }
+        if session.terminal.setIfEmpty(response) {
+            session.terminalAt = Date()
+            sessions[id] = session
+            cleanupSessions()
+        }
+    }
+
+    private func cleanupSessions(now: Date = Date()) {
+        let expired = sessions.compactMap { id, session in
+            id != mutationRegistry.activeID && session.task == nil && session.terminal.value != nil &&
+                session.terminalAt.map { now.timeIntervalSince($0) > 600 } == true ? id : nil
+        }
+        for id in expired { sessions.removeValue(forKey: id) }
+        let completed = sessions.filter { $0.key != mutationRegistry.activeID && $0.value.task == nil && $0.value.terminal.value != nil }
+            .sorted { ($0.value.terminalAt ?? .distantPast) < ($1.value.terminalAt ?? .distantPast) }
+        if completed.count > 256 {
+            for (id, _) in completed.prefix(completed.count - 256) { sessions.removeValue(forKey: id) }
+        }
     }
 
     private func terminalReply(id: String) -> [String: Any] {
@@ -815,27 +1004,20 @@ final class V3OperationCenter {
             return V3OpDriver(kind: kind) {
                 let group = RefreshGroup(context: baseContext)
                 self.sessions[id]?.group = group
-                group.completionHandler = { [weak self] results in
-                    Task { @MainActor in
-                        guard let self, self.sessions[id] != nil else { return }
-                        guard let result = results[app.bundleIdentifier] else {
-                            self.sessions[id]?.terminal = ["state": "failed", "stage": "refreshVerification", "code": "unavailable"]
-                            return
-                        }
-                        if case .failure(let error) = result {
-                            self.sessions[id]?.terminal = self.terminalFailure(id: id, kind: kind, error: error)
-                        }
-                    }
-                }
                 V3SideStoreService.shared.cancellations[id] = { group.cancel(); group.progress.cancel() }
                 do {
                     try await AppManager.shared.pipelineRunner.perform([.refresh(app)], handler: handler, group: group)
                 } catch {
                     group.context.error = error
                     group.set(.failure(error), forAppWithBundleIdentifier: app.bundleIdentifier)
-                    group.completionHandler?([app.bundleIdentifier: .failure(error)])
                     throw error
                 }
+                // PipelineRunner.perform returns only after every app result is
+                // recorded. Its completion callback is an observer and cannot
+                // race drive() into writing a second terminal result.
+                _ = try V3RefreshResultVerifier.verified(expectedBundleID: app.bundleIdentifier,
+                    results: group.results, bundleIdentifier: { $0.bundleIdentifier })
+                try Task.checkCancellation()
             }
         case "activate", "deactivate", "delete", "backup", "restore":
             let app: InstalledApp = try v3Resolve(target)
@@ -898,18 +1080,17 @@ final class V3OperationCenter {
             return .app(app)
         }
         if kind == "installSharedIPA" {
-            guard UUID(uuidString: target) != nil, let group = Bundle.main.altstoreAppGroup,
-                  let defaults = UserDefaults(suiteName: group),
-                  let bookmark = defaults.data(forKey: "V3SharedIPA." + target) else {
-                throw V3SideStoreServiceError.invalidRequest
+            let token = try V3IPAStaging.canonicalToken(target)
+            guard let group = Bundle.main.altstoreAppGroup,
+                  let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else {
+                throw CombinedIPAFileError(.fileAccess)
             }
-            defaults.removeObject(forKey: "V3SharedIPA." + target)
-            var stale = false
-            let url = try URL(resolvingBookmarkData: bookmark, options: .withoutUI, relativeTo: nil, bookmarkDataIsStale: &stale)
-            guard !stale, url.isFileURL, url.pathExtension.lowercased() == "ipa" else {
-                throw V3SideStoreServiceError.invalidRequest
+            let metadata = try V3IPAStaging.inspect(token: token, containerRoot: root) { url in
+                try Self.readAppMetadata(from: url, packageType: .ipa)
             }
-            return try await ipaTarget(url: url, scoped: true)
+            let file = try V3IPAStaging.resolve(token: token, containerRoot: root)
+            return .app(AnyApp(name: metadata.name, bundleIdentifier: metadata.bundleIdentifier,
+                               url: file, storeApp: nil))
         }
         guard let url = URL(string: target), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
               url.host != nil, url.user == nil, url.password == nil else {
@@ -944,7 +1125,9 @@ final class V3OperationCenter {
         }
         if scoped, localURL.startAccessingSecurityScopedResource() { scopedURL = localURL }
         let packageType = PackageType(url: localURL) ?? .ipa
-        let (bundleIdentifier, appName) = try Self.readAppMetadata(from: localURL, packageType: packageType)
+        let (bundleIdentifier, appName): (String, String)
+        do { (bundleIdentifier, appName) = try Self.readAppMetadata(from: localURL, packageType: packageType) }
+        catch { throw CombinedIPAFileError(.invalidPackage) }
         return .app(AnyApp(name: appName, bundleIdentifier: bundleIdentifier, url: localURL, storeApp: nil))
     }
 

@@ -76,7 +76,8 @@ class HostComparisonTests(unittest.TestCase):
         view = view[:view.index("struct V3BackupsView")]
         self.assertIn('Section("Certificates")', view)
         self.assertIn("certRows", view)
-        self.assertIn("Certificate State Match", view)
+        self.assertIn("Team Match", view)
+        self.assertIn("its revoked state alone does not cause a SideStore refresh failure", view)
 
     def test_lc_facts_come_from_lcutils(self):
         fn = self.comparison()
@@ -103,8 +104,8 @@ class HostComparisonTests(unittest.TestCase):
         view = text[text.index("struct V3HealthView"):]
         view = view[:view.index("struct V3BackupsView")]
         self.assertIn("never the JIT-Less copy", view)
-        self.assertIn("re-import it under Settings", view)
-        self.assertIn("does not imply the SideStore certificate is revoked", view)
+        self.assertIn("Re-import it under Settings", view)
+        self.assertIn("does not cause a SideStore refresh failure", view)
 
 
 if __name__ == "__main__":

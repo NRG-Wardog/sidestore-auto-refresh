@@ -8,7 +8,7 @@ the real structured failure.
 Covers:
  1. first-attempt failure is visibly terminal, never a silent dismiss
  2. picker cancellation stays a clean cancel, not an install failure
- 3. IPA parse errors reach the installation terminal path (not dropped)
+    3. staged-file failures reach a pre-install file-preparation terminal path
  4. signing/provisioning errors are preserved, never mislabelled
  5. transport errors keep their stage via explicit markers/domains
  6. InstallationProxy failures land in the installation stage
@@ -83,19 +83,31 @@ class InstallFirstAttemptTests(unittest.TestCase):
         self.assertIn("Another operation is already running", text)
 
     def test_picker_cancellation_is_a_clean_cancel(self):
-        # Cancelling the document picker resolves with nil and the sheet
-        # onDismiss no-ops; no error is raised and no install is attempted.
+        # Cancelling the picker does not stage a file or create a session.
         text = shell()
         self.assertIn("func documentPickerWasCancelled", text)
         self.assertIn("finish(nil)", text)
-        self.assertIn("if let url = selectedInstallURL", text)
+        self.assertIn("if let token = selectedInstallToken", text)
+        self.assertIn("if let url {", text)
+        self.assertIn("presentImmediately: false", text)
 
     def test_file_selection_failure_shows_alert(self):
         text = shell()
         fn = text[text.index("func stageSharedIPA"):]
         fn = fn[:fn.index("struct V3SideStoreApp")]
         self.assertIn("self.error =", fn)
-        self.assertIn("V3IPASelection", fn)
+        self.assertIn("V3IPAStaging.stage", fn)
+        self.assertIn("CombinedIPAFileError", fn)
+        self.assertNotIn("localizedDescription) }", fn)
+
+    def test_file_preparation_failures_are_not_installation_proxy_failures(self):
+        text = runtime()
+        staging = (ROOT / "scripts/templates/v3_ipa_staging.swift").read_text(encoding="utf-8")
+        self.assertIn("CombinedIPAFileError(.missingFile)", staging)
+        self.assertIn("CombinedIPAFileError(.emptyFile)", staging)
+        self.assertIn("CombinedIPAFileError(.invalidPackage)", staging)
+        self.assertIn("CombinedFailure(operation: operation, stage: .filePreparation", FAILURE.read_text(encoding="utf-8"))
+        self.assertIn("V3IPAStaging.inspect(token: token", text)
 
 
 class InstallStructuredFailureTests(unittest.TestCase):
@@ -130,13 +142,13 @@ class InstallStructuredFailureTests(unittest.TestCase):
         self.assertIn("The operation failed.", sheet)
 
     def test_ipa_parse_errors_reach_terminal_path(self):
-        # IPA parsing throws OperationError.invalidApp out of readAppMetadata;
-        # the install driver lets it propagate into terminalFailure (stage
-        # installation) instead of dropping it.
+        # The staged path validates its archive and maps malformed input to a
+        # pre-install file error before the pipeline can start.
         text = runtime()
         self.assertIn("OperationError.invalidApp", text)
         self.assertIn("readAppMetadata", text)
-        self.assertIn("try await self.single(id: id, operation: .install(app)", text)
+        self.assertIn("V3IPAStaging.inspect(token: token", text)
+        self.assertIn("catch { throw CombinedIPAFileError(.invalidPackage) }", text)
 
     def test_pipeline_errors_are_preserved_not_relabelled(self):
         # The gate forwards the native pipeline result untouched; the drive
@@ -195,14 +207,18 @@ class InstallPrivacyAndSafetyTests(unittest.TestCase):
             self.assertNotIn(forbidden, fn)
 
     def test_no_automatic_install_retry(self):
-        # Exactly one opStart call site drives the sheet; failures stay
-        # terminal until the user acts. installSharedIPA offers no Retry
-        # button because its staged bookmark is single-use.
+        # Each attempt has an explicit generation and session ID. Retry waits
+        # for cancellation acknowledgement and task completion before start.
         sheet = operation_sheet()
         self.assertEqual(sheet.count('operation: "opStart"'), 1)
+        self.assertIn('"session": generation.uuidString', sheet)
+        self.assertIn('request(operation: "opCancel"', sheet)
+        self.assertIn("await oldTask?.value", sheet)
+        self.assertIn("private var retryAllowed", sheet)
+        self.assertNotIn('request.operation != "installSharedIPA"', sheet)
         for forbidden in ("Timer.", "DispatchQueue.main.asyncAfter", "Task.sleep(nanoseconds: 5"):
             self.assertNotIn(forbidden, sheet)
-        self.assertIn('request.operation != "installSharedIPA"', sheet)
+        self.assertNotIn('"V3SharedIPA."', shell())
 
     def test_single_flight_mutation_gates_intact(self):
         self.assertIn("mutationID", service())

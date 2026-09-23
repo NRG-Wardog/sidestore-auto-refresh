@@ -423,13 +423,19 @@ class GsaPreparedTreeTests(unittest.TestCase):
         scripts = (ROOT / "scripts").glob("*.py")
         for script in scripts:
             content = script.read_text(encoding="utf-8")
+            if script.name == "patch_sidesign_privacy.py":
+                self.assertIn('LOGGING = Path("Sources/Logging.swift")', content)
+                self.assertNotIn("Authentication.swift", content)
+                continue
             self.assertNotIn("DeveloperPortal/Authentication", content)
         medic = (ROOT / "scripts/combined_build_evidence.py").read_text(encoding="utf-8")
         self.assertNotIn("Dependencies/SideSign", medic)
 
     def test_auth_is_single_flight_without_retry_loops(self):
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
-        self.assertIn("if let current = activeID { cancel(id: current) }", runtime)
+        self.assertIn("if let current = activeID {", runtime)
+        self.assertIn("if let oldTask { await oldTask.value }", runtime)
+        self.assertIn("func cancelAndWait(id: String) async -> Bool", runtime)
         auth = runtime.split("final class V3OperationCenter")[0]
         self.assertNotIn("while ", auth)
         for marker in ("[V3_AUTH] BEGIN", "[V3_AUTH] PROMPT", "[V3_AUTH] TERMINAL",

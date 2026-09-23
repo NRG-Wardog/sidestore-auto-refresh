@@ -121,7 +121,7 @@ func debugLog(_ value: String) {}
   do {
    let error = NSError(domain: "NSPOSIXErrorDomain", code: 20,
        userInfo: [NSLocalizedDescriptionKey: "recv failed errno=20"])
-   let failure = CombinedFailure.capture(error, operation: "install", stage: .command, id: id)
+    let failure = CombinedFailure.capture(error, operation: "install", stage: .installation, id: id)
    precondition(failure.stage == .network, "posix stage")
    precondition(failure.underlyingDomain == "NSPOSIXErrorDomain", "posix domain: \\\\(failure.underlyingDomain)")
    precondition(failure.underlyingCode == 20, "posix code")
@@ -130,7 +130,7 @@ func debugLog(_ value: String) {}
   do {
    let error = NSError(domain: "NSURLErrorDomain", code: -1001,
        userInfo: [NSLocalizedDescriptionKey: "HTTP 503 Service Unavailable"])
-   let failure = CombinedFailure.capture(error, operation: "install", stage: .command, id: id)
+   let failure = CombinedFailure.capture(error, operation: "install", stage: .installation, id: id)
    precondition(failure.stage == .network, "http stage")
    precondition(failure.underlyingDomain == "HTTPStatus", "http domain: \\\\(failure.underlyingDomain)")
    precondition(failure.underlyingCode == 503, "http code")
@@ -139,7 +139,7 @@ func debugLog(_ value: String) {}
   do {
    let error = NSError(domain: "DeviceGatewayError", code: 1,
        userInfo: [NSLocalizedDescriptionKey: "transport failed lc_native_code=77"])
-   let failure = CombinedFailure.capture(error, operation: "install", stage: .command, id: id)
+   let failure = CombinedFailure.capture(error, operation: "install", stage: .installation, id: id)
    precondition(failure.stage == .command, "gateway stage")
    precondition(failure.underlyingDomain == "DeviceGatewayError", "gateway domain")
    precondition(failure.underlyingCode == 77, "gateway code")
@@ -176,7 +176,7 @@ func debugLog(_ value: String) {}
    let failure = CombinedFailure.capture(error, operation: "install", stage: .command, id: id)
    precondition(failure.stage == .installation, "ppq8018 stage")
    precondition(failure.stage != .pairing && failure.stage != .network && failure.stage != .coreDevice, "ppq8018 not misclassified")
-   precondition(failure.underlyingDomain == "redacted", "ppq8018 domain: \\\\(failure.underlyingDomain)")
+   precondition(failure.underlyingDomain == "com.apple.installd", "ppq8018 domain: \\\\(failure.underlyingDomain)")
    precondition(failure.underlyingCode == 0xE8008018, "ppq8018 code")
    precondition(failure.message.contains("signing identity"), "ppq8018 message")
   }
@@ -190,6 +190,31 @@ func debugLog(_ value: String) {}
    precondition(failure.message == "SideStore could not complete the application installation.", "unknown install message")
    precondition(failure.underlyingDomain == "redacted", "unknown install domain")
    precondition(!failure.message.contains("pairing"), "unknown install message has no pairing claim")
+  }
+  // 8. Verification tokens are not enough without a typed installer domain
+  // and install/update context. Refresh failure codes stay refresh failures.
+  do {
+   let error = NSError(domain: "com.example.mystery", code: 20,
+       userInfo: [NSLocalizedDescriptionKey: "ApplicationVerificationFailed 0xE8008024 unrelated text"])
+   let failure = CombinedFailure.capture(error, operation: "refresh", stage: .refreshVerification, id: id)
+   precondition(failure.stage == .refreshVerification, "unrelated refresh was reclassified")
+   precondition(!failure.technicalDetails.contains("installVerdict="), "unrelated refresh got PPQ verdict")
+  }
+  do {
+   let error = NSError(domain: "IdeviceGatewayError", code: 0,
+       userInfo: [NSLocalizedDescriptionKey: "ApplicationVerificationFailed 0xE8008024"])
+   let failure = CombinedFailure.capture(error, operation: "install", stage: .command, id: id)
+   precondition(failure.stage == .command, "non-install stage was reclassified")
+   precondition(!failure.technicalDetails.contains("installVerdict="), "non-install stage got PPQ verdict")
+  }
+  // 9. Broad SideSign/server domains preserve the caller's signing/install context.
+  do {
+   let signing = CombinedFailure.capture(NSError(domain: "SideSignErrorDomain", code: 20),
+       operation: "install", stage: .signing, id: id)
+   precondition(signing.stage == .signing, "SideSign provisioning was sent to credentials")
+   let install = CombinedFailure.capture(NSError(domain: "ALTServerErrorDomain", code: 20),
+       operation: "install", stage: .installation, id: id)
+   precondition(install.stage == .installation, "ALTServer error was sent to credentials")
   }
   print("Capture honesty and PPQ PASS")
  }

@@ -127,10 +127,21 @@ def build_v3_app(output: Path, live: Path, source: Path | None) -> tuple[Path, s
     instrumented = "import SwiftUI\n" + section.replace(anchor, anchor + ".background(FixtureGeometryProbe(id: app.identifier))")
     generated = build / "V3InstalledAppsSection.swift"
     generated.write_text(instrumented)
-    sources = [live / "LiveContainerSwiftUI/Models/AppLayoutStyle.swift", generated,
+    header_start = text.index("struct V3HomeServiceHeader: View {")
+    header_end = text.index("private struct V3HomeView: View {", header_start)
+    header = text[header_start:header_end]
+    label_anchor = ".fixedSize(horizontal: true, vertical: false)\n                    .frame(maxWidth: .infinity, alignment: .center)"
+    if header.count(label_anchor) != 1:
+        raise RuntimeError("Reload Status label probe anchor drift; inspect generated Home header")
+    header = header.replace(label_anchor,
+        ".fixedSize(horizontal: true, vertical: false)\n                    .background(FixtureGeometryProbe(id: \"reload-label\"))\n                    .frame(maxWidth: .infinity, alignment: .center)", 1)
+    generated_header = build / "V3HomeServiceHeader.swift"
+    generated_header.write_text("import SwiftUI\n" + header)
+    sources = [live / "LiveContainerSwiftUI/Models/AppLayoutStyle.swift", generated, generated_header,
                ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift"]
     hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     hashes["original-V3InstalledAppsSection"] = hashlib.sha256(section.encode()).hexdigest()
+    hashes["original-V3HomeServiceHeader"] = hashlib.sha256(text[header_start:header_end].encode()).hexdigest()
     bundle = build / "Issue25Rendering.app"
     bundle.mkdir(exist_ok=True)
     bundle_id = "org.sidestore.layout.fixture.v3native"

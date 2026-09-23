@@ -3,8 +3,9 @@
 
 Separate from LCGuestReturnStartsCollapsed (guest Return control) and from
 LCHideCollapsedDock (which only hides an already-collapsed dock). The
-preference is applied once when a new multitask dock is created; manual
-expand/collapse afterwards always wins and layout/rotation never resets it.
+preference is applied on the show queue immediately before the first frame of
+each fresh multitasking session; manual expand/collapse afterwards wins, and
+layout/rotation never reapplies it.
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ SESSION_MARKER = "MULTITASK_DOCK_SESSION_APPLY_V1"
 
 DOCK_VIEW = "MultitaskSupport/MultitaskDockView.swift"
 SETTINGS_VIEW = "LiveContainerSwiftUI/Views/Settings/LCMultitaskSettingView.swift"
+SESSION_HELPER = Path(__file__).with_name("templates") / "multitask_dock_session_state.swift"
 
 PROP_LINE = f'    @AppStorage("{KEY}", store: LCUtils.appGroupUserDefault) var dockStartsCollapsed = false\n'
 TOGGLE_LINE = '                Toggle(isOn: $dockStartsCollapsed) {\n'
@@ -36,7 +38,7 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 def apply_dock_init(text: str) -> str:
-    """Apply the persisted start-collapsed default once at dock creation."""
+    """Trace singleton initialization without relying on an init-time write."""
     if MARKER in text:
         if text.count(MARKER) != 1:
             die("previous dock init patch is partial or duplicated")
@@ -44,66 +46,80 @@ def apply_dock_init(text: str) -> str:
     old = "    override init() {\n        super.init()\n"
     new = ("    override init() {\n"
            "        super.init()\n"
-           f"        // {MARKER}: apply the persisted start-collapsed\n"
-           "        // preference once at creation. Never re-applied on layout, rotation or\n"
-           "        // activation, so manual expand/collapse always wins afterwards.\n"
-           "        applyStartCollapsedPreference()\n")
+           f"        // {MARKER}: record the selected preference and initial singleton state.\n"
+           f'        NSLog("[LC_DOCK] INIT stored_preference=%d apps_count=%ld isCollapsed=%d", '
+           f'LCUtils.appGroupUserDefault.bool(forKey: "{KEY}") ? 1 : 0, self.apps.count, self.isCollapsed ? 1 : 0)\n')
     return replace_once(text, old, new, "dock manager init")
 
 
 def apply_dock_session(text: str) -> str:
-    """Re-apply the preference at each fresh multitask session.
-
-    The dock manager is a process-wide singleton, so init() runs once while
-    multitask sessions come and go. Re-reading the preference when the first
-    app of a session arrives (and only then) makes the setting take effect
-    without fighting manual expand/collapse, layout, or rotation. A device
-    log line records the applied value for field diagnosis.
-    """
+    """Apply persisted state at the final showDock first-frame boundary."""
     if SESSION_MARKER in text:
         if text.count(SESSION_MARKER) != 4:
             die("previous dock session patch is partial or duplicated")
         return text
     if "collapseManuallyOverridden" in text:
         die("unexpected pre-existing session state")
+    helper = SESSION_HELPER.read_text(encoding="utf-8")
+    if "import Combine\n" not in text:
+        die("dock imports changed")
+    text = replace_once(text, "import Combine\n", "import Combine\n\n" + helper + "\n", "session state helper")
     text = replace_once(
         text,
         '    @Published var settingsChanged: Bool = false\n',
         '    @Published var settingsChanged: Bool = false\n'
-        f'    // {SESSION_MARKER}: manual override flag for one multitask session.\n'
-        '    private var collapseManuallyOverridden = false\n',
-        "session override flag")
-    text = replace_once(
-        text,
-        '    @objc public func addRunningApp(',
-        f'    // {SESSION_MARKER}: single reader of the persisted preference.\n'
-        '    // Called at creation and at each fresh multitask session; a manual\n'
-        '    // expand/collapse within a session wins until the session ends.\n'
-        '    func applyStartCollapsedPreference() {\n'
-        f'        isCollapsed = LCUtils.appGroupUserDefault.bool(forKey: "{KEY}")\n'
-        '        NSLog("[LC_DOCK] apply collapsed=%d", isCollapsed ? 1 : 0)\n'
-        '    }\n'
-        '\n'
-        '    @objc public func addRunningApp(',
-        "preference reader")
+        f'    // {SESSION_MARKER}: one session identity survives singleton reuse.\n'
+        '    private var collapseStartState = LCMultitaskDockSessionState()\n'
+        '    private var pendingCollapseSessionID: String?\n',
+        "session state")
     if text.count("            self.isCollapsed.toggle()\n") != 1:
         die("toggle anchor is not unique")
     text = text.replace(
         "            self.isCollapsed.toggle()\n",
-        f"            self.collapseManuallyOverridden = true\n"
+        f"            self.collapseStartState.userDidToggle()\n"
+        '            NSLog("[LC_DOCK] MANUAL_TOGGLE session=%@ apps_count=%ld collapsed_before=%d", self.collapseStartState.sessionID ?? "none", self.apps.count, self.isCollapsed ? 1 : 0)\n'
         "            self.isCollapsed.toggle()\n",
         1)
     text = replace_once(
         text,
         '            if self.apps.count == 1 {\n                self.showDock()\n',
         f'            if self.apps.count == 1 {{\n'
-        f'                // {SESSION_MARKER}: fresh session re-reads the persisted\n'
-        '                // preference unless the user already overrode it.\n'
-        '                if !self.collapseManuallyOverridden {\n'
-        '                    self.applyStartCollapsedPreference()\n'
-        '                }\n'
+        f'                // {SESSION_MARKER}: snapshot the preference for this fresh app session.\n'
+        f'                let stored = LCUtils.appGroupUserDefault.bool(forKey: "{KEY}")\n'
+        '                let sessionID = self.collapseStartState.begin(storedPreference: stored)\n'
+        '                self.pendingCollapseSessionID = sessionID\n'
+        '                NSLog("[LC_DOCK] SESSION_BEGIN id=%@ stored_preference=%d apps_count=%ld collapsed_before_show=%d", sessionID, stored ? 1 : 0, self.apps.count, self.isCollapsed ? 1 : 0)\n'
         '                self.showDock()\n',
         "session start")
+
+    show_anchor = '''        DispatchQueue.main.async {
+            self.isVisible = true
+'''
+    show_replacement = f'''        DispatchQueue.main.async {{
+            // {SESSION_MARKER}: apply the fresh-session value on the actual show queue,
+            // after setupDockView and immediately before the first frame calculation.
+            if let sessionID = self.pendingCollapseSessionID {{
+                let stored = self.collapseStartState.preference(for: sessionID) ?? false
+                NSLog("[LC_DOCK] SHOW session=%@ stored_preference=%d apps_count=%ld isCollapsed_inside_show=%d", sessionID, stored ? 1 : 0, self.apps.count, self.isCollapsed ? 1 : 0)
+                if let initial = self.collapseStartState.applyBeforeFirstFrame(sessionID: sessionID) {{
+                    self.isCollapsed = initial
+                }}
+                self.pendingCollapseSessionID = nil
+            }}
+            self.isVisible = true
+'''
+    text = replace_once(text, show_anchor, show_replacement, "showDock first-frame preference")
+    text = replace_once(
+        text,
+        "            self.updateDockFrame(animated: false)",
+        '            NSLog("[LC_DOCK] BEFORE_FIRST_FRAME session=%@ apps_count=%ld isCollapsed=%d", self.collapseStartState.sessionID ?? "none", self.apps.count, self.isCollapsed ? 1 : 0)\n'
+        "            self.updateDockFrame(animated: false)",
+        "pre-frame diagnostic")
+
+    setup_anchor = '            let dockView = AnyView(MultitaskDockSwiftView()\n'
+    setup_replacement = ('            NSLog("[LC_DOCK] SETUP_VIEW apps_count=%ld isCollapsed=%d", self.apps.count, self.isCollapsed ? 1 : 0)\n'
+                         + setup_anchor)
+    text = replace_once(text, setup_anchor, setup_replacement, "hosting view diagnostic")
     # Session end: two shapes exist. patch_guest_return.py (which runs first)
     # replaces removeRunningApp wholesale, collapsing the empty branch to a
     # single line. Handle both; anything else is anchor drift.
@@ -117,7 +133,9 @@ def apply_dock_session(text: str) -> str:
             f'            if self.apps.isEmpty {{\n'
             f'                // {SESSION_MARKER}: session over; the next session\n'
             '                // re-reads the persisted preference.\n'
-            '                self.collapseManuallyOverridden = false\n'
+            '                NSLog("[LC_DOCK] SESSION_END id=%@ apps_count=%ld isCollapsed=%d", self.collapseStartState.sessionID ?? "none", self.apps.count, self.isCollapsed ? 1 : 0)\n'
+            '                self.collapseStartState.end()\n'
+            '                self.pendingCollapseSessionID = nil\n'
             '                self.hideDock()\n',
             "session end")
     elif end_guest in text:
@@ -127,7 +145,9 @@ def apply_dock_session(text: str) -> str:
             f'        if self.apps.isEmpty {{\n'
             f'            // {SESSION_MARKER}: session over; the next session\n'
             '            // re-reads the persisted preference.\n'
-            '            self.collapseManuallyOverridden = false\n'
+            '            NSLog("[LC_DOCK] SESSION_END id=%@ apps_count=%ld isCollapsed=%d", self.collapseStartState.sessionID ?? "none", self.apps.count, self.isCollapsed ? 1 : 0)\n'
+            '            self.collapseStartState.end()\n'
+            '            self.pendingCollapseSessionID = nil\n'
             '            self.hideDock()\n'
             '        }\n',
             "session end (guest-patched shape)")
@@ -158,7 +178,7 @@ def apply_settings(text: str) -> str:
                   '                    Text("lc.settings.hideCollapsedDock".loc)\n'
                   '                }\n'
                   '            } footer: {\n'
-                  '                Text("Start Dock Collapsed applies once when a new multitask dock is created; expanding it afterwards always wins, and rotation or layout updates never reset it. Hide Collapsed Dock only controls whether the already-collapsed dock stays visible.")\n'
+                   '                Text("Start Dock Collapsed applies when a fresh multitasking session first presents the dock; expanding it afterwards always wins, and rotation or layout updates never reset it. Hide Collapsed Dock only controls whether the already-collapsed dock stays visible.")\n'
                   '            }\n')
     return replace_once(text, old_toggle, new_toggle, "settings dock section")
 

@@ -206,7 +206,7 @@ final class V3SideStoreService: NSObject {
             return try snapshot()
         case "authBegin":
             guard let deadline = request["deadline"] as? Date else { throw ServiceError.invalidRequest }
-            return V3HeadlessRuntime.shared.auth.begin(deadline: deadline)
+            return await V3HeadlessRuntime.shared.auth.begin(deadline: deadline)
         case "authPoll":
             guard let reply = V3HeadlessRuntime.shared.auth.poll(id: target) else { throw ServiceError.invalidRequest }
             return reply
@@ -218,14 +218,15 @@ final class V3SideStoreService: NSObject {
             }
             return reply
         case "authCancel":
-            guard V3HeadlessRuntime.shared.auth.cancel(id: target) else { throw ServiceError.invalidRequest }
+            guard await V3HeadlessRuntime.shared.auth.cancelAndWait(id: target) else { throw ServiceError.invalidRequest }
             return [:]
         case "opStart":
             guard let kind = payload["kind"] as? String,
+                  let session = payload["session"] as? String,
                   let deadline = request["deadline"] as? Date else { throw ServiceError.invalidRequest }
             let opTarget = payload["target"] as? String ?? target
             return await V3HeadlessRuntime.shared.operations.start(kind: kind, target: opTarget,
-                value: payload["value"] as? Bool, deadline: deadline)
+                value: payload["value"] as? Bool, sessionID: session, deadline: deadline)
         case "opPoll":
             guard let reply = V3HeadlessRuntime.shared.operations.poll(id: target) else { throw ServiceError.invalidRequest }
             return reply
@@ -237,7 +238,10 @@ final class V3SideStoreService: NSObject {
             }
             return reply
         case "opCancel":
-            guard V3HeadlessRuntime.shared.operations.cancel(id: target) else { throw ServiceError.invalidRequest }
+            guard await V3HeadlessRuntime.shared.operations.cancelAndWait(id: target) else { throw ServiceError.invalidRequest }
+            return [:]
+        case "ipaCleanup":
+            try V3HeadlessRuntime.shared.operations.cleanupIPA(token: target)
             return [:]
         case "certList":
             return ["certificates": V3BackendCommands.certificates()]

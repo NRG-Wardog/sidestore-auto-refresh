@@ -44,15 +44,14 @@ class SheetLifecycleTests(unittest.TestCase):
         self.assertIn("completed successfully", completed)
         self.assertNotIn("dismiss()", completed)
 
-    def test_retry_resets_started_flag(self):
+    def test_retry_cancels_and_awaits_the_old_session(self):
         sheet = operation_sheet()
-        reset = sheet[sheet.index("private func reset"):]
-        reset = reset[:reset.index("\n    }\n") + 6]
-        self.assertIn("started = false", reset)
-        self.assertIn("Retry", sheet)
-        retry = sheet[sheet.index('"Retry"') - 400:sheet.index('"Retry"') + 200]
-        self.assertIn("reset()", retry)
-        self.assertIn("start()", retry)
+        retry = sheet[sheet.index("private func retry()"):sheet.index("private func cancelAttempt()")]
+        self.assertIn("attempt.supersede()", retry)
+        self.assertIn('operation: "opCancel"', retry)
+        self.assertIn("await oldTask?.value", retry)
+        self.assertIn("attempt.begin()", retry)
+        self.assertIn("attempt.transitionInFlight", sheet)
 
     def test_preparing_state_before_session(self):
         sheet = operation_sheet()
@@ -76,8 +75,11 @@ class InstallHandoffTests(unittest.TestCase):
         text = shell()
         fn = text[text.index("func stageSharedIPA"):]
         fn = fn[:fn.index("struct V3SideStoreApp")]
-        self.assertIn("Task { @MainActor in", fn)
-        self.assertIn('perform("installSharedIPA"', fn)
+        self.assertIn("V3IPAStaging.stage", fn)
+        self.assertIn("presentStagedIPA", fn)
+        picker = text[text.index(".sheet(isPresented: $status.installPickerPresented"):]
+        self.assertIn("presentImmediately: false", picker)
+        self.assertIn("status.presentStagedIPA(token", picker)
 
     def test_install_button_disabled_while_busy(self):
         text = shell()
@@ -177,6 +179,7 @@ class ProvisioningClassificationTests(unittest.TestCase):
     def test_key_messages(self):
         fn = self.guidance()
         self.assertIn("Apple did not accept the Apple ID or password.", fn)
+        self.assertIn("Apple requires an app-specific password for this authentication path.", fn)
         self.assertIn("No Apple Developer team is available", fn)
         self.assertIn("already registered with the selected developer team", fn)
         self.assertIn("reached its development certificate limit", fn)
@@ -247,20 +250,25 @@ class CertificatesFeedbackTests(unittest.TestCase):
 
 
 class SettingsRollbackTests(unittest.TestCase):
-    def test_store_restores_previous_on_failure(self):
+    def test_all_setting_types_reload_authoritative_and_guard_stale_failures(self):
         text = shell()
         store = text[text.index("final class V3SettingsStore"):]
         store = store[:store.index("struct V3ToggleRow")]
-        self.assertIn("let previous = bools[key]", store)
-        self.assertIn("let previous = strings[key]", store)
-        self.assertIn("let previous = ints[key]", store)
-        self.assertIn("removeValue(forKey: key)", store)
+        for kind in ("bool", "string", "int"):
+            self.assertIn(f'type: "{kind}"', store)
+            self.assertIn(f'type: "{kind}", generation: generation', store)
+        self.assertIn("writeGenerations.begin(key)", store)
+        self.assertIn("writeGenerations.isCurrent(generation, for: key)", store)
+        self.assertIn('request(operation: "settingsGet")', store)
+        self.assertIn("private var writeGenerations = V3SettingsWriteGeneration()", store)
 
     def test_bool_row_rolls_back_toggle(self):
         text = shell()
         row = text[text.index("struct V3BoolSettingRow"):]
         row = row[:row.index("private struct V3StatusStoreKey")]
-        self.assertIn("value = !newValue", row)
+        self.assertIn("writeGenerations.begin(key)", row)
+        self.assertIn('request(operation: "settingsGet")', row)
+        self.assertNotIn("value = !newValue", row)
 
 
 class CopyFeedbackTests(unittest.TestCase):
@@ -271,8 +279,40 @@ class CopyFeedbackTests(unittest.TestCase):
 class ReloadLabelTests(unittest.TestCase):
     def test_reload_status_is_visible_text(self):
         text = shell()
-        home = text[text.index("private struct V3HomeView"):]
-        self.assertIn('Label("Reload Status"', home)
+        start = text.index("struct V3HomeServiceHeader")
+        end = text.index("private struct V3HomeView", start)
+        header = text[start:end]
+        self.assertIn('Label("Reload Status"', header)
+        self.assertIn('.lineLimit(1)', header)
+        self.assertIn('.fixedSize(horizontal: true, vertical: false)', header)
+        self.assertIn('.accessibilityHint("Reloads the latest SideStore connection and account status.', header)
+
+    def test_simulator_harness_renders_reload_status_on_narrow_phone_and_tablet(self):
+        renderer = (ROOT / "scripts/run_issue25_rendering.py").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift").read_text(encoding="utf-8")
+        self.assertIn('"reload-status-phone-width-320"', harness)
+        self.assertIn('"reload-status-tablet-width-1024"', harness)
+        self.assertIn("reload-label", renderer)
+        self.assertIn("generated_header", renderer)
+        self.assertIn('V3HomeServiceHeader(isConnected: true', harness)
+
+
+class RefreshAllFeedbackTests(unittest.TestCase):
+    def test_refresh_all_reads_scheduler_state_and_keeps_terminal_visible(self):
+        text = shell()
+        start = text.index("struct V3RefreshAllButton")
+        end = text.index("struct V3InstallButton", start)
+        view = text[start:end]
+        for state in ("Starting Refresh...", "Refreshing...", "Verifying...", "completed", "failed"):
+            self.assertIn(state, view)
+        self.assertIn('"Refresh did not start."', view)
+        self.assertIn('liveContainerAutoRefreshActiveRequestID', view)
+        self.assertIn('liveContainerAutoRefreshVerification', view)
+        self.assertIn("CombinedVerification.hasCompleteTerminalResults", view)
+        self.assertIn('Button("Dismiss")', view)
+        self.assertIn('Button(copied ? "Copied" : "Copy Diagnostics")', view)
+        self.assertIn(".disabled(isBusy || isTerminal || !activeRun.isEmpty", view)
+        self.assertNotIn("%", view)
 
 
 class MiscBusyStateTests(unittest.TestCase):

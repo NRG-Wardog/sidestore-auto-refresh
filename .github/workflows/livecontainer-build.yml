@@ -3,7 +3,7 @@ name: LiveContainer embedded SideStore build
 on:
   workflow_dispatch:
   push:
-    branches: [fix/combined-refresh-build-and-runtime]
+    branches: [fix/combined-refresh-build-and-runtime, fix/v3.0.3-auth-errors]
 
 permissions:
   contents: read
@@ -92,6 +92,7 @@ jobs:
           LIVE_CONTAINER_TEST_SOURCE: ${{ github.workspace }}/work/LiveContainer
           SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore
           EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore
+          SIDESIGN_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore/Dependencies/SideSign
         shell: bash
         run: |
           set -euo pipefail
@@ -257,7 +258,11 @@ jobs:
           git -C work/EmbeddedSideStore diff --exit-code -- \
             SideStore/Core/Auth SideStore/Core/Anisette \
             SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift
-          git -C work/EmbeddedSideStore/Dependencies/SideSign diff --exit-code
+          SIDESIGN=work/EmbeddedSideStore/Dependencies/SideSign
+          python3 builder/scripts/patch_sidesign_privacy.py "$SIDESIGN"
+          python3 builder/scripts/patch_sidesign_privacy.py "$SIDESIGN"
+          git -C "$SIDESIGN" diff --check
+          test "$(git -C "$SIDESIGN" diff --name-only)" = "Sources/Logging.swift"
 
       - name: Build host and embedded SideStore source targets
         shell: bash
@@ -286,21 +291,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 builder/scripts/combined_build_evidence.py identity --product v3.0.2 \
+          python3 builder/scripts/combined_build_evidence.py identity --product v3.0.3-rc \
             "$RUNNER_TEMP/livecontainer-derived-data/Build/Products/Release-iphoneos/LiveContainer.app" \
             "$RUNNER_TEMP/embedded-sidestore-derived-data/Build/Products/Release-iphoneos/SideStore.app"
           python3 builder/scripts/package_livecontainer_combined.py \
             --root work/LiveContainer \
             --host "$RUNNER_TEMP/livecontainer-derived-data/Build/Products/Release-iphoneos/LiveContainer.app" \
             --side "$RUNNER_TEMP/embedded-sidestore-derived-data/Build/Products/Release-iphoneos/SideStore.app" \
-            --output artifacts/LiveContainer-SideStore-AutoRefresh.ipa 2>&1 | tee artifacts/logs/combined-packaging.log
-          python3 builder/scripts/patch_combined_refresh_contract.py --verify-ipa artifacts/LiveContainer-SideStore-AutoRefresh.ipa \
+            --output artifacts/LiveContainer-SideStore-v3.0.3-rc.ipa 2>&1 | tee artifacts/logs/combined-packaging.log
+          python3 builder/scripts/patch_combined_refresh_contract.py --verify-ipa artifacts/LiveContainer-SideStore-v3.0.3-rc.ipa \
             2>&1 | tee artifacts/logs/runtime-contract-verification.log
           printf 'builder_commit=%s\n' "$GITHUB_SHA" > artifacts/builder-commit.txt
-          python3 builder/scripts/combined_build_evidence.py collect --product v3.0.2 \
-            --ipa artifacts/LiveContainer-SideStore-AutoRefresh.ipa --output artifacts/debug-evidence --source work/LiveContainer --side-source work/EmbeddedSideStore \
+          python3 builder/scripts/combined_build_evidence.py collect --product v3.0.3-rc \
+            --ipa artifacts/LiveContainer-SideStore-v3.0.3-rc.ipa --output artifacts/debug-evidence --source work/LiveContainer --side-source work/EmbeddedSideStore \
             "$RUNNER_TEMP/livecontainer-derived-data/Build/Products/Release-iphoneos" \
             "$RUNNER_TEMP/embedded-sidestore-derived-data/Build/Products/Release-iphoneos"
+          python3 builder/scripts/verify_candidate_ipa.py \
+            --ipa artifacts/LiveContainer-SideStore-v3.0.3-rc.ipa \
+            --provenance artifacts/debug-evidence/candidate-provenance.json \
+            --product v3.0.3-rc \
+            --output artifacts/candidate-package-verification.json
 
       - name: Verify embedded CoreDevice transport executable
         shell: bash
@@ -309,7 +319,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import zipfile
-          ipa = Path('artifacts/LiveContainer-SideStore-AutoRefresh.ipa')
+          ipa = Path('artifacts/LiveContainer-SideStore-v3.0.3-rc.ipa')
           embedded = 'Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore'
           with zipfile.ZipFile(ipa) as archive:
               executable = archive.read(embedded)
@@ -327,12 +337,14 @@ jobs:
       - name: Upload combined LiveContainer IPA
         uses: actions/upload-artifact@v4
         with:
-          name: LiveContainer-SideStore-AutoRefresh-IPA
+          name: LiveContainer-SideStore-v3.0.3-rc-IPA
           path: |
-            artifacts/LiveContainer-SideStore-AutoRefresh.ipa
-            artifacts/LiveContainer-SideStore-AutoRefresh.verification.json
-            artifacts/LiveContainer-SideStore-AutoRefresh.runtime-verification.json
+            artifacts/LiveContainer-SideStore-v3.0.3-rc.ipa
+            artifacts/LiveContainer-SideStore-v3.0.3-rc.verification.json
+            artifacts/LiveContainer-SideStore-v3.0.3-rc.runtime-verification.json
             artifacts/builder-commit.txt
+            artifacts/debug-evidence/candidate-provenance.json
+            artifacts/candidate-package-verification.json
             artifacts/logs/upstream-auth-provenance.txt
           if-no-files-found: error
           compression-level: 0

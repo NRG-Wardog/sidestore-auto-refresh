@@ -43,14 +43,14 @@ class V3SourceUpdateTests(unittest.TestCase):
 
     def test_update_shown_only_when_versions_differ(self):
         text = shell()
-        self.assertIn("Update to ", text)
         # The update action is gated on SideStore's authoritative update
-        # decision, never on a host version-string comparison.
-        self.assertIn("installed.hasUpdate", text)
+        # decision in one shared action view.
+        self.assertIn("if app.hasUpdate", text)
+        self.assertEqual(text.count('Button("Update")'), 1)
 
     def test_update_uses_existing_pipeline(self):
         text = shell()
-        self.assertIn('status.perform("update"', text)
+        self.assertIn('action("update", "Update " + app.name)', text)
         # No duplicate signing/install implementation in the host.
         self.assertNotIn("ALTSigner", text)
         self.assertNotIn("CodeSignValidator", text)
@@ -77,7 +77,8 @@ class V3SourceUpdateTests(unittest.TestCase):
                           "installed.version == app.version",
                           "app.version == installed.version"):
             self.assertNotIn(forbidden, view)
-        self.assertIn("if installed.hasUpdate {", view)
+        self.assertNotIn("if installed.hasUpdate {", view)
+        self.assertIn("V3AppActions(app: installed)", view)
 
     def test_malformed_source_handled(self):
         shell_text = shell()
@@ -105,12 +106,13 @@ class V3SourceUpdateTests(unittest.TestCase):
     def test_update_button_only_when_backend_reports_update(self):
         text = shell()
         # The Update button appears exactly when SideStore reports an update.
-        self.assertIn("if installed.hasUpdate {", text)
+        self.assertIn("if app.hasUpdate", text)
+        self.assertNotIn('Label("Update to "', text)
 
     def test_update_calls_opStart_with_kind_update(self):
         text = shell()
-        # Update action routes through opStart with kind "update"
-        self.assertIn('status.perform("update"', text)
+        # The single V3AppActions update button dispatches the existing kind.
+        self.assertIn('if app.hasUpdate { Button("Update") { action("update"', text)
         # Verify the service handles opStart with update kind
         runtime = RUNTIME.read_text(encoding="utf-8")
         self.assertIn('case "update"', runtime)

@@ -33,8 +33,8 @@ def main():
     parser.add_argument('--side-source', type=Path)
     parser.add_argument('paths', nargs='+', type=Path)
     args = parser.parse_args()
-    if args.product not in ('v2', 'v3') and not re.fullmatch(r'v3\.\d+(\.\d+)*', args.product):
-        parser.error("argument --product: invalid choice (choose from 'v2', 'v3', or a 'v3.x[.y]' release line)")
+    if args.product not in ('v2', 'v3') and not re.fullmatch(r'v3\.\d+(\.\d+)*(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?', args.product):
+        parser.error("argument --product: invalid choice (choose from 'v2', 'v3', or a 'v3.x[.y][-candidate]' release line)")
     commit = os.environ['GITHUB_SHA']
     if not re.fullmatch('[0-9a-f]{40}', commit): raise ValueError('immutable builder SHA required')
     run = 'https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['GITHUB_RUN_ID']
@@ -102,9 +102,12 @@ def main():
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
             generated['embedded/' + name] = hashlib.sha256(data).hexdigest()
-    evidence = dict(identity, schema=1, physical_device_execution=False,
+    ipa_size = args.ipa.stat().st_size
+    ipa_sha256 = hashlib.sha256(args.ipa.read_bytes()).hexdigest()
+    evidence = dict(identity, schema=1, candidate_product_version=args.product,
+        physical_device_execution=False,
         verification_scope='Static package identity, error protocol, UUID and dSYM matching; not runtime validation',
-        ipa=args.ipa.name, sha256=hashlib.sha256(args.ipa.read_bytes()).hexdigest(),
+        ipa=args.ipa.name, ipa_size_bytes=ipa_size, sha256=ipa_sha256, raw_ipa_sha256=ipa_sha256,
         framework_uuids=binaries, dsym_uuids=symbols, generated_source_sha256=generated,
         dependencies={key: os.environ[key] for key in ('LIVE_CONTAINER_REF', 'EMBEDDED_SIDESTORE_REF', 'MINIMUXER_REF', 'SIDESIGN_REF', 'SIDESIGN_GSA_FIX', 'IDEVICE_REF', 'JKTCP_REF')})
     (args.output / 'candidate-provenance.json').write_text(json.dumps(evidence, indent=2) + '\n')

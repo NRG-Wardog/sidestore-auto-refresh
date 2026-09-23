@@ -16,6 +16,7 @@ enum LiveContainerAutoRefreshScheduler {
     static let lastTaskKey = "liveContainerAutoRefreshLastTaskTrigger"
     static let lastAttemptKey = "liveContainerAutoRefreshLastAttempt"
     static let activeRunKey = "liveContainerAutoRefreshActiveRunID"
+    static let activeManualRequestKey = "liveContainerAutoRefreshActiveRequestID"
     static let retryCountKey = "liveContainerAutoRefreshRetryCount"
     static let hostHandoffKey = "liveContainerAutoRefreshHostHandoff"
     static let hostHandoffRunKey = "liveContainerAutoRefreshHostHandoffRunID"
@@ -114,13 +115,18 @@ enum LiveContainerAutoRefreshScheduler {
         print("[LIVE_CONTAINER_REFRESH] MISSED_BACKGROUND_REFRESH deadline=\(deadline.timeIntervalSince1970)")
     }
 
-    private static func beginRun(source: String, manual: Bool) -> UUID? {
+    private static func beginRun(source: String, manual: Bool, requestID: String? = nil) -> UUID? {
         guard activeRun == nil else { return nil }
         if !manual, let last = defaults.object(forKey: lastAttemptKey) as? Date,
            Date().timeIntervalSince(last) < coalescingWindow { return nil }
         let id = UUID()
         activeRun = id
         defaults.set(id.uuidString, forKey: activeRunKey)
+        if manual, let requestID, UUID(uuidString: requestID) != nil {
+            defaults.set(requestID, forKey: activeManualRequestKey)
+        } else {
+            defaults.removeObject(forKey: activeManualRequestKey)
+        }
         defaults.set(id.uuidString, forKey: expectedRunKey)
         defaults.set(Date(), forKey: lastAttemptKey)
         defaults.removeObject(forKey: verificationKey)
@@ -145,6 +151,7 @@ enum LiveContainerAutoRefreshScheduler {
         guard activeRun == id else { return }
         activeRun = nil
         defaults.removeObject(forKey: activeRunKey)
+        defaults.removeObject(forKey: activeManualRequestKey)
         if defaults.string(forKey: expectedRunKey) == id.uuidString {
             defaults.removeObject(forKey: expectedRunKey)
         }
@@ -282,7 +289,7 @@ enum LiveContainerAutoRefreshScheduler {
         return true
     }
 
-    private static func execute(source: String, task: BGTask? = nil,
+    private static func execute(source: String, task: BGTask? = nil, manualRequestID: String? = nil,
                                 gate: LiveContainerRefreshCompletionGate = LiveContainerRefreshCompletionGate()) async {
         guard !gate.isFinished, !Task.isCancelled else { return }
         let manual = source == "manual" || source == "alarm_action" || source == "vpn_return"
@@ -309,7 +316,7 @@ enum LiveContainerAutoRefreshScheduler {
             finish(true)
             return
         }
-        guard let runID = beginRun(source: source, manual: manual) else {
+        guard let runID = beginRun(source: source, manual: manual, requestID: manualRequestID) else {
             print("[LIVE_CONTAINER_REFRESH] RUN_COALESCED source=\(source)")
             if manual {
                 record(source: source, result: "coalesced", detail: "A refresh is already running. Wait for it to finish before retrying.")
@@ -437,11 +444,11 @@ enum LiveContainerAutoRefreshScheduler {
     }
 
     static func requestRefreshNow() async { await execute(source: "alarm_action") }
-    static func runNow() {
+    static func runNow(requestID: String? = nil) {
         Task { @MainActor in
             await requestNotificationPermission()
             verifyPendingHostHandoff()
-            await execute(source: "manual")
+            await execute(source: "manual", manualRequestID: requestID)
         }
     }
 

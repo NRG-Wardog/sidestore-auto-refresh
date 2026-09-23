@@ -10,7 +10,7 @@ enum V3WireContract {
     static let operations: Set<String> = ["snapshot", "catalog", "appIcon", "cancel", "refreshSources",
         "signOut", "syncAppIDs", "clearCache", "jit", "backupResult",
         "authBegin", "authPoll", "authRespond", "authCancel",
-        "opStart", "opPoll", "opAnswer", "opCancel",
+        "opStart", "opPoll", "opAnswer", "opCancel", "ipaCleanup",
         "certList", "certSetActive", "certDelete", "certPortalList", "certRevoke", "certCreate",
         "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles",
         "sourcePreview", "sourceAddConfirmed", "sourceRemoveConfirmed",
@@ -19,7 +19,7 @@ enum V3WireContract {
         "sidesignGet", "sidesignSet", "sidesignReset", "sidesignImport", "sidesignExport",
         "logTail", "healthSnapshot", "accountExport", "accountImport"]
     static let readOperations: Set<String> = ["snapshot", "catalog", "appIcon",
-        "authPoll", "opPoll", "certList", "certPortalList",
+        "authPoll", "opPoll", "opCancel", "ipaCleanup", "authCancel", "certList", "certPortalList",
         "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles",
         "sourcePreview", "settingsGet",
         "anisetteList", "sidesignGet", "sidesignExport", "logTail", "healthSnapshot"]

@@ -47,7 +47,7 @@ class V3AuthErrorTests(unittest.TestCase):
 
     def test_typed_classification_covers_all_kinds(self):
         text = runtime()
-        for kind in ("invalidCredentials", "invalidCode", "rateLimited",
+        for kind in ("invalidCredentials", "appSpecificPasswordRequired", "invalidCode", "rateLimited",
                      "serviceUnavailable", "anisette", "network",
                      "accountRepairRequired", "unknown"):
             self.assertIn(kind, text)
@@ -86,6 +86,8 @@ class V3AuthErrorTests(unittest.TestCase):
         text = shell()
         self.assertIn('"invalidCredentials"', text)
         self.assertIn("Check them and try again", text)
+        self.assertIn('case "appSpecificPasswordRequired": return "Apple requires an app-specific password for this authentication path."', text)
+        self.assertNotIn("appSpecificPasswordRequired: return \"Apple did not accept the Apple ID or password", text)
 
     def test_no_sensitive_fields_in_prompt(self):
         text = runtime()

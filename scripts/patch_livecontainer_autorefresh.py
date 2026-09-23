@@ -121,8 +121,9 @@ def patch_host_delegate(root: Path) -> None:
         NotificationCenter.default.addObserver(forName: Notification.Name("LiveContainerAutoRefreshScheduleChanged"), object: nil, queue: .main) { _ in
             Task { @MainActor in LiveContainerAutoRefreshScheduler.scheduleChanged() }
         }
-        NotificationCenter.default.addObserver(forName: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil, queue: .main) { _ in
-            Task { @MainActor in LiveContainerAutoRefreshScheduler.runNow() }
+        NotificationCenter.default.addObserver(forName: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil, queue: .main) { notification in
+            let requestID = notification.userInfo?["requestID"] as? String
+            Task { @MainActor in LiveContainerAutoRefreshScheduler.runNow(requestID: requestID) }
         }
         NotificationCenter.default.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { _ in
             Task { @MainActor in LiveContainerAutoRefreshScheduler.recoverAfterLaunchOrResume() }

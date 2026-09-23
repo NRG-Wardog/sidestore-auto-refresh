@@ -12,6 +12,18 @@ import sys
 
 
 MARKER = "DEAD10CC_FIX_E98699A"
+TRANSITION_MARKER = "DEAD10CC_TRANSITION_GATE_V1"
+TRANSITION_HELPER = '''// DEAD10CC_TRANSITION_GATE_V1
+// DEAD10CC_TRANSITION_GATE_BEGIN
+typedef struct { int handled; } LCDead10ccTransitionGate;
+static int LCDead10ccClaimBackgroundTransition(LCDead10ccTransitionGate *gate) {
+    return __atomic_exchange_n(&gate->handled, 1, __ATOMIC_ACQ_REL) == 0;
+}
+static void LCDead10ccResetBackgroundTransition(LCDead10ccTransitionGate *gate) {
+    __atomic_store_n(&gate->handled, 0, __ATOMIC_RELEASE);
+}
+// DEAD10CC_TRANSITION_GATE_END
+'''
 
 
 def die(message: str) -> None:
@@ -33,8 +45,16 @@ def patch_dead10cc(live_root: Path) -> None:
     if MARKER in text:
         return
 
-    # The current initDead10ccFix only registers one notification based on mode.
-    # Upstream fix e98699a registers BOTH notifications for both modes.
+    text = replace_once(text, "@import Foundation;\n", "@import Foundation;\n\n" + TRANSITION_HELPER,
+                        "background transition gate helper")
+    text = replace_once(text, "@interface Dead10ccFix : NSObject\n",
+        "@interface Dead10ccFix : NSObject {\n"
+        "@private\n"
+        "    LCDead10ccTransitionGate _backgroundTransitionGate;\n"
+        "}\n", "background transition gate storage")
+
+    # Scope remains the original guest processes. Both notifications are
+    # registered there because either one can report the same transition.
     old_init = '''void initDead10ccFix(void) {
 
     if(NSUserDefaults.isLiveProcess) {
@@ -48,15 +68,15 @@ def patch_dead10cc(live_root: Path) -> None:
 
     new_init = '''void initDead10ccFix(void) {
 
-    // DEAD10CC_FIX_E98699A: register BOTH background notifications regardless of mode.
-    // Upstream fix e98699a "Fix #1491: 0xdead10cc regression" - either notification
-    // can fire depending on Scene API, so just register both.
+    // DEAD10CC_FIX_E98699A: retain the original guest-only scope while
+    // registering both notifications because either may report one transition.
+    if (!NSUserDefaults.isLiveProcess && !NSUserDefaults.isSharedApp) return;
     fix = [[Dead10ccFix alloc] init];
     [NSNotificationCenter.defaultCenter addObserver:fix selector:@selector(handleAppDidEnterBackground:) name:NSExtensionHostDidEnterBackgroundNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:fix selector:@selector(handleAppDidEnterBackground:) name:@"UIApplicationDidEnterBackgroundNotification" object:nil];
-    
-    // Diagnostics
-    NSLog(@"[LC_GUEST_LIFECYCLE] DEAD10CC_FIX_E98699A registered both background observers");
+    [NSNotificationCenter.defaultCenter addObserver:fix selector:@selector(handleAppWillEnterForeground:) name:@"UIApplicationWillEnterForegroundNotification" object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:fix selector:@selector(handleAppWillEnterForeground:) name:@"NSExtensionHostDidBecomeActiveNotification" object:nil];
+    NSLog(@"[LC_GUEST_LIFECYCLE] DEAD10CC_FIX_E98699A registered both observers in guest process");
 }'''
 
     text = replace_once(text, old_init, new_init, "initDead10ccFix both observers")
@@ -78,9 +98,24 @@ def patch_dead10cc(live_root: Path) -> None:
     new_handle2 = '''- (void)handleAppDidEnterBackground:(NSNotification *)notification {
     NSString* src = [notification.name isEqualToString:NSExtensionHostDidEnterBackgroundNotification] ? @"extension_host" : @"uiapplication";
     NSLog(@"[LC_GUEST_LIFECYCLE] BACKGROUND source=%@", src);
+    if (!LCDead10ccClaimBackgroundTransition(&_backgroundTransitionGate)) {
+        NSLog(@"[LC_GUEST_LIFECYCLE] BACKGROUND_DUPLICATE source=%@", src);
+        return;
+    }
     if(!_methodInited) {'''
 
     text = replace_once(text, old_handle2, new_handle2, "diagnostics notification source")
+
+    old_foreground = '''- (void)handleAppDidEnterBackground:(NSNotification *)notification {
+    NSString* src = [notification.name isEqualToString:NSExtensionHostDidEnterBackgroundNotification] ? @"extension_host" : @"uiapplication";'''
+    new_foreground = '''- (void)handleAppWillEnterForeground:(NSNotification *)notification {
+    LCDead10ccResetBackgroundTransition(&_backgroundTransitionGate);
+    NSLog(@"[LC_GUEST_LIFECYCLE] FOREGROUND_RESET source=%@", notification.name);
+}
+
+- (void)handleAppDidEnterBackground:(NSNotification *)notification {
+    NSString* src = [notification.name isEqualToString:NSExtensionHostDidEnterBackgroundNotification] ? @"extension_host" : @"uiapplication";'''
+    text = replace_once(text, old_foreground, new_foreground, "foreground transition reset")
 
     # Add diagnostics to _terminateWithStatus
     old_terminate = '''- (void)_terminateWithStatus:(int)status {
@@ -103,11 +138,16 @@ def verify(live_root: Path) -> None:
     
     required = [
         MARKER,
+        TRANSITION_MARKER,
         "NSExtensionHostDidEnterBackgroundNotification",
         "UIApplicationDidEnterBackgroundNotification",
+        "UIApplicationWillEnterForegroundNotification",
+        "NSExtensionHostDidBecomeActiveNotification",
         "LC_GUEST_LIFECYCLE",
         "BACKGROUND source=",
-        "DEAD10CC_FIX_E98699A registered both background observers",
+        "BACKGROUND_DUPLICATE source=",
+        "FOREGROUND_RESET source=",
+        "DEAD10CC_FIX_E98699A registered both observers in guest process",
         "PROCESS_INTERRUPTED pid=",
     ]
     missing = [needle for needle in required if needle not in text]

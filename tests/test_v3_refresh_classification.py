@@ -15,12 +15,22 @@ def template():
 
 
 class RefreshClassificationTests(unittest.TestCase):
-    def test_auth_domains_classified_by_domain(self):
+    def test_only_typed_auth_context_maps_to_authentication(self):
         text = template()
         self.assertIn('"com.SideStore.Authentication"', text)
-        self.assertIn('"ALTAppleAPIErrorDomain"', text)
-        self.assertIn('"GrandSlamErrorDomain"', text)
-        self.assertIn('"SideSignErrorDomain"', text)
+        capture = text[text.index("static func capture"):]
+        self.assertNotIn('case "ALTAppleAPIErrorDomain"', capture)
+        self.assertNotIn('case "ALTServerErrorDomain"', capture)
+        self.assertNotIn('case "GrandSlamErrorDomain"', capture)
+        self.assertNotIn('case "SideSignErrorDomain"', capture)
+        self.assertIn("error as? CombinedRefreshVerificationError", capture)
+
+    def test_ppq_requires_installer_domain_operation_and_install_stage(self):
+        text = template()
+        capture = text[text.index("static func capture"):]
+        self.assertIn("let installContext = [\"install\", \"installURL\", \"installSharedIPA\", \"update\"]", capture)
+        self.assertIn("typedVerificationSource = verificationDomains.contains(cause.domain)", capture)
+        self.assertIn("&& fingerprint.contains(\"applicationverificationfailed\")", capture)
 
     def test_network_domains_classified_by_domain(self):
         text = template()

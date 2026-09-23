@@ -67,15 +67,22 @@ def patch(live, side):
 '''))
     def host(s):
         # Shared startup/refresh responsibilities are installed by the combined startup adapter.
-        return s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_service_bridge.swift").read_text(encoding="utf-8")
+        return s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + \
+            (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8") + \
+            (TEMPLATES / "v3_service_bridge.swift").read_text(encoding="utf-8")
     edit(live, "SideStoreSupport/SideStore.swift", host)
     # The shared combined-startup adapter owns structured refresh error/result encoding.
-    edit(side, "AltStore/AppDelegate.swift", lambda s: s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8") + (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8"))
+    edit(side, "AltStore/AppDelegate.swift", lambda s: s +
+         (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") +
+         (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8") +
+         (TEMPLATES / "v3_ipa_staging.swift").read_text(encoding="utf-8") +
+         (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8") +
+         (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8"))
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
         "        NavigationView {\n            ScrollView {", "        NavigationView {\n            ScrollView {\n                V3InstalledAppsSection(query: searchContext.debouncedQuery)"))
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
         '            .navigationTitle("lc.appList.myApps".loc)\n            .toolbar {',
-        '            .navigationTitle("My Apps")\n            .toolbar {\n                ToolbarItem(placement: .primaryAction) { V3RefreshAllButton() }'))
+        '            .navigationTitle("My Apps")\n            .toolbar {'))
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
         '''                                Button("lc.appList.installFromIpa".loc, systemImage: "doc.badge.plus", action: {
                                     choosingIPA = true

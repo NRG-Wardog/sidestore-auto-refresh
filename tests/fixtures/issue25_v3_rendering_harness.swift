@@ -35,6 +35,9 @@ struct V3SideStoreApp: Identifiable {
     let loading = false
     func reload() {}
 }
+struct V3RefreshAllButton: View {
+    var body: some View { Button("Refresh All") {} }
+}
 struct V3SideStoreAppDetail: View {
     let identifier: String
     var body: some View { Text(identifier) }
@@ -94,10 +97,14 @@ struct V3RenderingScreen: View {
         NavigationView {
             ScrollViewReader { reader in
                 ScrollView {
-                    V3InstalledAppsSection(query: state.query)
-                        .background(FixtureGeometryProbe(id: "content"))
-                        .background(FixtureScrollMarker(state: state))
-                        .coordinateSpace(name: "v3-content")
+                    VStack(alignment: .leading, spacing: 0) {
+                        V3HomeServiceHeader(isConnected: true, isLoading: false, onReload: {})
+                            .background(FixtureGeometryProbe(id: "home-header"))
+                        V3InstalledAppsSection(query: state.query)
+                            .background(FixtureGeometryProbe(id: "content"))
+                            .background(FixtureScrollMarker(state: state))
+                    }
+                    .coordinateSpace(name: "v3-content")
                 }
                 .background(FixtureGeometryProbe(id: "viewport"))
                 .coordinateSpace(name: "v3-viewport")
@@ -236,6 +243,35 @@ struct V3RenderingScreen: View {
         }
         return nil
     }
+    func measureHomeHeader(_ name: String) async {
+        let samples = await freshSamples()
+        let headers = samples.filter { $0.id == "home-header" }
+        let labels = samples.filter { $0.id == "reload-label" }
+        let viewports = samples.filter { $0.id == "viewport" }
+        guard headers.count == 1, labels.count == 1, viewports.count == 1 else {
+            check(false, "\(name): missing fresh Home/Reload Status geometry")
+            measurements.append(["case": name, "headerProbeCount": headers.count,
+                                 "reloadLabelProbeCount": labels.count, "passed": false])
+            return
+        }
+        let header = headers[0]
+        let label = labels[0]
+        let viewportBounds = viewports[0].viewport
+        check(valid(header.content), "\(name): invalid Home header bounds")
+        check(valid(label.content), "\(name): invalid Reload Status label bounds")
+        check(contains(header.content, label.content), "\(name): Reload Status escaped its dedicated row")
+        check(contains(viewportBounds, header.viewport), "\(name): Home header was clipped by the phone/tablet viewport")
+        check(contains(viewportBounds, label.viewport), "\(name): Reload Status was clipped by the phone/tablet viewport")
+        measurements.append(["case": name, "headerBounds": rect(header.content),
+                             "reloadStatusLabelBounds": rect(label.content),
+                             "viewportBounds": rect(viewportBounds), "passed": true])
+    }
+    func saveScreenshot(_ name: String) {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let renderer = UIGraphicsImageRenderer(bounds: host.view.bounds)
+        let screenshot = renderer.image { context in host.view.layer.render(in: context.cgContext) }
+        try? screenshot.pngData()?.write(to: documents.appendingPathComponent("\(suite)-\(name).png"))
+    }
     func measure(_ name: String) async {
         let expected = status.installedApps.filter { state.query.isEmpty || $0.name.localizedCaseInsensitiveContains(state.query) || $0.bundleID.localizedCaseInsensitiveContains(state.query) }
         let identities = expected.map(\.identifier)
@@ -270,7 +306,9 @@ struct V3RenderingScreen: View {
                 let cell = observation.cell
                 measuredViewport = observation.viewport
                 measuredContent = observation.content.content
-                let cells = observation.samples.filter { $0.id != "content" && $0.id != "viewport" }
+                let cells = observation.samples.filter {
+                    !["content", "viewport", "home-header", "reload-label"].contains($0.id)
+                }
                 check(Set(cells.map(\.id)).count == cells.count, "\(name): duplicate native cell probes")
                 check(Set(cells.map(\.id)).isSubset(of: Set(identities)), "\(name): unexpected native cell identity")
                 check(scroll.contentSize.width <= scroll.bounds.width + 0.5,
@@ -297,7 +335,8 @@ struct V3RenderingScreen: View {
         }
         if identities.isEmpty {
             let samples = await freshSamples()
-            check(samples.filter { $0.id != "content" && $0.id != "viewport" }.isEmpty, "\(name): empty collection retained native cells")
+            check(samples.filter { !["content", "viewport", "home-header", "reload-label"].contains($0.id) }.isEmpty,
+                  "\(name): empty collection retained native cells")
             if let probe = samples.first(where: { $0.id == "viewport" }), let content = samples.first(where: { $0.id == "content" }) {
                 measuredViewport = viewport(scroll, probe: probe.viewport)
                 measuredContent = content.content
@@ -349,6 +388,18 @@ struct V3RenderingScreen: View {
         host.didMove(toParent: parent)
         window.makeKeyAndVisible()
         await resize(min(window.bounds.width, 390))
+        await measureHomeHeader("home-header-initial")
+        if suite == "phone" {
+            await resize(320)
+            await measureHomeHeader("reload-status-phone-width-320")
+            saveScreenshot("reload-status-phone-width-320")
+            await resize(min(window.bounds.width, 390))
+        } else {
+            await resize(min(window.bounds.width, 1024))
+            await measureHomeHeader("reload-status-tablet-width-1024")
+            saveScreenshot("reload-status-tablet-width-1024")
+            await resize(min(window.bounds.width, 390))
+        }
         await measure(cold ? "native-cold-grid" : "native-initial-list")
         if !cold {
             for layout in ["grid", "compactList", "list", "grid", "list", "compactList", "grid"] {
@@ -387,10 +438,7 @@ struct V3RenderingScreen: View {
             await settle()
             await measure("native-repopulate")
         }
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let renderer = UIGraphicsImageRenderer(bounds: host.view.bounds)
-        let screenshot = renderer.image { context in host.view.layer.render(in: context.cgContext) }
-        try? screenshot.pngData()?.write(to: documents.appendingPathComponent("\(suite)-native-\(cold ? "cold" : "suite").png"))
+        saveScreenshot("native-\(cold ? "cold" : "suite")")
         let report: [String: Any] = ["schemaVersion": 1, "mode": "v3-native", "phase": cold ? "cold" : "suite", "deviceClass": suite,
                                    "os": UIDevice.current.systemVersion, "passed": failures.isEmpty, "failures": failures, "measurements": measurements,
                                    "evidenceKind": "production V3InstalledAppsSection with non-layout-affecting background geometry probes and controlled app/status dependencies",

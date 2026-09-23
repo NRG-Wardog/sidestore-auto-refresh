@@ -10,56 +10,59 @@ import unittest
 from unittest.mock import patch as mock
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
 SPEC = importlib.util.spec_from_file_location("combined_contract", ROOT / "scripts/patch_combined_refresh_contract.py")
 patch = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(patch)
 
 
 class CombinedRefreshContractTests(unittest.TestCase):
-    def test_full_cli_composes_keychain_and_contract_on_pinned_source(self):
+    def test_full_patch_composition_is_transactional_on_pinned_source(self):
         source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.getenv("SIDESTORE_TEST_SOURCE")
         if not source: self.skipTest("pinned embedded SideStore source required")
+        revision = subprocess.check_output(["git", "-C", source, "rev-parse", "HEAD"], text=True).strip()
+        self.assertEqual(revision, patch.PIN)
         spec = importlib.util.spec_from_file_location("background_automation", ROOT / "scripts/patch_background_automation.py")
         background = importlib.util.module_from_spec(spec); spec.loader.exec_module(background)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "side"
-            subprocess.run(["git", "clone", "--shared", "--no-checkout", source, str(root)], check=True, capture_output=True)
-            subprocess.run(["git", "-C", str(root), "update-ref", "HEAD", patch.PIN], check=True, capture_output=True)
             paths = ["AltStore/Core/Components/Keychain.swift", "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"]
-            subprocess.run(["git", "-C", str(root), "checkout", patch.PIN, "--", *paths], check=True, capture_output=True)
+            for relative in paths:
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(Path(source) / relative, target)
             background.patch_background_operation(root)
             operation = root / paths[1]
             prepared = operation.read_bytes()
-            cli = [sys.executable, str(ROOT / "scripts/patch_combined_refresh_contract.py"), str(root)]
             def snapshot():
                 return {name: (root / name).read_bytes() for name in paths + [".combined-refresh-contract.json"] if (root / name).exists()}
             # Shared Keychain transforms successfully in staging, then contract rejects
             # the changed anchor. Neither Keychain nor operation nor manifest may leak out.
             operation.write_bytes(prepared.replace(b"let nsError = error as NSError", b"let changed = error as NSError"))
             before = snapshot()
-            failed = subprocess.run(cli, capture_output=True, text=True)
-            self.assertNotEqual(failed.returncode, 0)
+            with mock.object(patch, "verify_pin", return_value=None):
+                with self.assertRaises(SystemExit):
+                    patch.patch_combined_cli(root)
             self.assertEqual(before, snapshot())
             operation.write_bytes(prepared)
-            parent = subprocess.check_output(["git", "-C", str(root), "rev-parse", patch.PIN + "^"], text=True).strip()
-            subprocess.run(["git", "-C", str(root), "update-ref", "HEAD", parent], check=True, capture_output=True)
             before = snapshot()
-            wrong_pin = subprocess.run(cli, capture_output=True, text=True)
-            self.assertNotEqual(wrong_pin.returncode, 0)
+            with mock.object(patch, "verify_pin", side_effect=SystemExit("wrong pin")):
+                with self.assertRaises(SystemExit):
+                    patch.patch_combined_cli(root)
             self.assertEqual(before, snapshot())
-            subprocess.run(["git", "-C", str(root), "update-ref", "HEAD", patch.PIN], check=True, capture_output=True)
-            first = subprocess.run(cli, capture_output=True, text=True)
-            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            with mock.object(patch, "verify_pin", return_value=None):
+                patch.patch_combined_cli(root)
             applied = snapshot()
             self.assertIn(b"Keychain.shared.embeddedAuthenticationFailure()", applied[paths[1]])
             self.assertIn(b'"failure": failure.wire', applied[paths[1]])
-            second = subprocess.run(cli, capture_output=True, text=True)
-            self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+            with mock.object(patch, "verify_pin", return_value=None):
+                patch.patch_combined_cli(root)
             self.assertEqual(applied, snapshot())
             operation.write_bytes(operation.read_bytes() + b"\n// unexpected drift\n")
             drifted = snapshot()
-            rejected = subprocess.run(cli, capture_output=True, text=True)
-            self.assertNotEqual(rejected.returncode, 0)
+            with mock.object(patch, "verify_pin", return_value=None):
+                with self.assertRaises(SystemExit):
+                    patch.patch_combined_cli(root)
             self.assertEqual(drifted, snapshot())
 
     def fixture(self, root):

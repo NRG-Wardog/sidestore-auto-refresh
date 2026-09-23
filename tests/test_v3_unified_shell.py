@@ -132,7 +132,10 @@ class V3UnifiedShellTests(unittest.TestCase):
         self.assertIn('Button("Install / Sideload App")', source)
         self.assertIn('UIDocumentPickerViewController(forOpeningContentTypes:', source)
         self.assertIn('func documentPickerWasCancelled', source)
-        self.assertIn('status.stageSharedIPA(url, title: "Install / Sideload App")', source)
+        self.assertIn('status.stageSharedIPA(url, title: "Install / Sideload App",', source)
+        self.assertIn("presentImmediately: false", source)
+        self.assertIn("V3IPAStaging.stage(sourceURL: url", source)
+        self.assertNotIn('"V3SharedIPA."', source)
         self.assertIn('perform("installSharedIPA", target: token', source)
         self.assertIn('"opStart"', source)
         self.assertIn('"kind": request.operation', source)
@@ -169,9 +172,12 @@ class V3UnifiedShellTests(unittest.TestCase):
         source = (ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift").read_text(encoding="utf-8")
         screen = source.split("struct V3RenderingScreen: View {", 1)[1].split("@MainActor final class V3RenderingRunner", 1)[0]
         self.assertIn('V3InstalledAppsSection(query: state.query)\n'
-                      '                        .background(FixtureGeometryProbe(id: "content"))\n'
-                      '                        .background(FixtureScrollMarker(state: state))\n'
-                      '                        .coordinateSpace(name: "v3-content")', screen)
+                      '                            .background(FixtureGeometryProbe(id: "content"))\n'
+                      '                            .background(FixtureScrollMarker(state: state))', screen)
+        self.assertIn('.coordinateSpace(name: "v3-content")', screen)
+        self.assertIn('V3HomeServiceHeader(isConnected: true', screen)
+        self.assertIn('"reload-status-phone-width-320"', source)
+        self.assertIn('"reload-status-tablet-width-1024"', source)
         self.assertIn('}\n                .background(FixtureGeometryProbe(id: "viewport"))\n'
                       '                .coordinateSpace(name: "v3-viewport")', screen)
         for modifier in (".frame(", ".padding(", ".offset(", ".scaleEffect(", ".ignoresSafeArea("):
