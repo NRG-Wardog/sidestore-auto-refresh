@@ -123,7 +123,10 @@ struct V3UnifiedTabs: View {
         if url.scheme?.lowercased() == "sidestore", url.host?.lowercased() == "appbackupresponse" {
             let result = url.path.lowercased() == "/success" ? "success" : "failure"
             Task {
-                do { _ = try await V3ServiceBridge.shared.request(operation: "backupResult", target: result) }
+                do {
+                    _ = try await V3ServiceBridge.shared.request(operation: "backupResult", target: result)
+                    status.reload()
+                }
                 catch { status.error = error.localizedDescription }
             }
             return
@@ -3232,6 +3235,7 @@ struct V3BackupsView: View {
                 payload: ["password": importPassword])
             importedEmail = reply["email"] as? String ?? ""
             message = ""
+            status.reload()
         } catch { message = error.localizedDescription }
     }
 }
