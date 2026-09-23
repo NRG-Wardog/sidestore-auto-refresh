@@ -435,6 +435,8 @@ class GsaPreparedTreeTests(unittest.TestCase):
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
         self.assertIn("if let current = activeID {", runtime)
         self.assertIn("if let oldTask { await oldTask.value }", runtime)
+        auth = runtime.split("final class V3OperationCenter")[0]
+        self.assertIn("func cancelAndWait(id: String) async -> Bool", auth)
         self.assertIn("func cancelAndWait(id: String) async -> Bool", runtime)
         auth = runtime.split("final class V3OperationCenter")[0]
         self.assertNotIn("while ", auth)

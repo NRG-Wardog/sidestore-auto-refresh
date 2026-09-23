@@ -395,6 +395,15 @@ final class V3AuthCenter {
         return true
     }
 
+    func cancelAndWait(id: String) async -> Bool {
+        guard let parsed = UUID(uuidString: id), parsed.uuidString == id,
+              let session = sessions[id] else { return false }
+        let task = session.task
+        guard cancel(id: id) else { return false }
+        if let task { await task.value }
+        return true
+    }
+
     @discardableResult
     private func finish(id: String, response: [String: Any]) -> Bool {
         guard var session = sessions[id], session.terminal.setIfEmpty(response) else { return false }
@@ -442,9 +451,9 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
             }
         }
         return try await center.promptsParked(promptID: promptID) {
-            guard center.sessions[sessionID]?.terminal.isEmpty == true else { return }
-            center.sessions[sessionID]?.prompt = prompt
-            debugLog("[V3_AUTH] PROMPT session=\(sessionID) kind=\(kind) attempts=\(center.sessions[sessionID]?.attempts ?? 0)")
+            guard center.sessions[self.sessionID]?.terminal.isEmpty == true else { return }
+            center.sessions[self.sessionID]?.prompt = prompt
+            debugLog("[V3_AUTH] PROMPT session=\(self.sessionID) kind=\(kind) attempts=\(center.sessions[self.sessionID]?.attempts ?? 0)")
         }
     }
 
@@ -665,9 +674,9 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
             }
         }
         return try await V3HeadlessRuntime.shared.prompts.park(promptID: promptID) {
-            guard center.sessions[sessionID]?.terminal.isEmpty == true else { return }
-            center.sessions[sessionID]?.prompt = prompt
-            debugLog("[V3_OP] PROMPT session=\(sessionID) kind=\(kind)")
+            guard center.sessions[self.sessionID]?.terminal.isEmpty == true else { return }
+            center.sessions[self.sessionID]?.prompt = prompt
+            debugLog("[V3_OP] PROMPT session=\(self.sessionID) kind=\(kind)")
         }
     }
 
