@@ -594,7 +594,10 @@ final class V3SideStoreStatusStore: ObservableObject {
         Task { @MainActor in
             await Task.yield()
             guard self.presentation == nil else {
-                self.error = "Another operation is already running. The selected IPA is ready after it finishes."
+                let cleaned = await self.cleanupStagedIPA(token)
+                if cleaned {
+                    self.error = "Another operation is already running. The selected IPA was discarded; choose it again after the current operation finishes."
+                }
                 return
             }
             self.perform("installSharedIPA", target: token, title: title)

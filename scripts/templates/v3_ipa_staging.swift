@@ -71,6 +71,15 @@ enum V3IPAStaging {
         }
     }
 
+    private static func removePartial(_ file: URL?, directory: URL?, fileManager: FileManager) {
+        guard let file, let directory,
+              file.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL,
+              let values = try? file.resourceValues(forKeys: [.isSymbolicLinkKey]),
+              values.isSymbolicLink != true,
+              file.resolvingSymlinksInPath().standardizedFileURL == file.standardizedFileURL else { return }
+        try? fileManager.removeItem(at: file)
+    }
+
     static func stage(sourceURL: URL, bookmark: Data? = nil, containerRoot: URL,
                       fileManager: FileManager = .default) throws -> String {
         var source = sourceURL
@@ -90,13 +99,20 @@ enum V3IPAStaging {
 
         let scoped = source.startAccessingSecurityScopedResource()
         defer { if scoped { source.stopAccessingSecurityScopedResource() } }
+        var partialDirectory: URL?
+        var partialDestination: URL?
         do {
             let sourceValues = try source.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
             guard sourceValues.isRegularFile == true else { throw CombinedIPAFileError(.fileAccess) }
             guard (sourceValues.fileSize ?? 0) > 0 else { throw CombinedIPAFileError(.emptyFile) }
             let directory = try ensureDirectory(containerRoot: containerRoot, fileManager: fileManager)
+            partialDirectory = directory
             let token = UUID().uuidString.lowercased()
             let destination = try url(token: token, directory: directory)
+            guard !fileManager.fileExists(atPath: destination.path) else {
+                throw CombinedIPAFileError(.stagingFailed)
+            }
+            partialDestination = destination
             let coordinator = NSFileCoordinator(filePresenter: nil)
             var coordinationError: NSError?
             let copyStatus = CopyStatus()
@@ -107,10 +123,13 @@ enum V3IPAStaging {
             guard coordinationError == nil, !copyStatus.didFail else { throw CombinedIPAFileError(.stagingFailed) }
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
             try requireRegularNonEmptyFile(destination, fileManager: fileManager)
+            partialDestination = nil
             return token
         } catch let error as CombinedIPAFileError {
+            removePartial(partialDestination, directory: partialDirectory, fileManager: fileManager)
             throw error
         } catch {
+            removePartial(partialDestination, directory: partialDirectory, fileManager: fileManager)
             throw CombinedIPAFileError(.stagingFailed)
         }
     }
