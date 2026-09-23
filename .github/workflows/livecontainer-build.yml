@@ -259,10 +259,17 @@ jobs:
             SideStore/Core/Auth SideStore/Core/Anisette \
             SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift
           SIDESIGN=work/EmbeddedSideStore/Dependencies/SideSign
-          python3 builder/scripts/patch_sidesign_privacy.py "$SIDESIGN"
-          python3 builder/scripts/patch_sidesign_privacy.py "$SIDESIGN"
+          SIDESTORE=work/EmbeddedSideStore
+          python3 builder/scripts/patch_sidesign_privacy.py "$SIDESIGN" "$SIDESTORE"
+          python3 builder/scripts/patch_sidesign_privacy.py "$SIDESIGN" "$SIDESTORE"
           git -C "$SIDESIGN" diff --check
           test "$(git -C "$SIDESIGN" diff --name-only)" = "Sources/Logging.swift"
+          git -C "$SIDESTORE" diff --check
+          expected_side_logging=$(printf '%s\n' \
+            'SideStore/Core/Logging/OperationLogging.swift' \
+            'SideStore/Core/Logging/SideStoreLogging.swift' | sort)
+          actual_side_logging=$(git -C "$SIDESTORE" diff --name-only -- SideStore/Core/Logging | sort)
+          test "$actual_side_logging" = "$expected_side_logging"
 
       - name: Build host and embedded SideStore source targets
         shell: bash
