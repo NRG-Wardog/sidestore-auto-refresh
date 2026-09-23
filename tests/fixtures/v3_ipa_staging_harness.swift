@@ -62,7 +62,7 @@ struct IPAStagingHarness {
 
         let sibling = root.appendingPathComponent("keep.txt")
         try Data("keep".utf8).write(to: sibling)
-        for invalid in ("../keep.txt", "/tmp/keep.txt", "not-a-uuid", UUID().uuidString.uppercased()) {
+        for invalid in ["../keep.txt", "/tmp/keep.txt", "not-a-uuid", UUID().uuidString.uppercased()] {
             do {
                 _ = try V3IPAStaging.resolve(token: invalid, containerRoot: root)
                 preconditionFailure("invalid token resolved: \(invalid)")

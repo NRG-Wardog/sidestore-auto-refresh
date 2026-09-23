@@ -253,6 +253,8 @@ public struct CombinedFailure: Error, LocalizedError {
                     resolved = .network
                 case "NSURLErrorDomain":
                     resolved = .network
+                case "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError":
+                    resolved = .command
                 default:
                     break
                 }

@@ -144,7 +144,7 @@ class DockPatchTests(unittest.TestCase):
             source = Path(directory) / "main.swift"
             executable = Path(directory) / "dock-session-tests"
             source.write_text(helper + "\n" + harness, encoding="utf-8")
-            compiled = subprocess.run([compiler, str(source), "-o", str(executable)],
+            compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
                                       capture_output=True, text=True)
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
             result = subprocess.run([str(executable)], capture_output=True, text=True)
