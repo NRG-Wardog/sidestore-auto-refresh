@@ -359,7 +359,7 @@ print("V3 headless wire contract PASS")
         if not compiler:
             self.skipTest("Swift compiler unavailable")
         source = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
-        gate = source[source.index("final class V3PromptCenter {"):]
+        gate = source[source.index("final class V3PromptCenter: @unchecked Sendable {"):]
         gate = gate[:gate.index("\n}\n") + len("\n}\n")]
         program = "import Foundation\n" + gate + r'''
 @main struct PromptGateTests {

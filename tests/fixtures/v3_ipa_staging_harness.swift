@@ -20,7 +20,8 @@ struct IPAStagingHarness {
         let durableToken = try V3IPAStaging.stage(sourceURL: picked, containerRoot: root)
         try fm.removeItem(at: picked)
         let durable = try V3IPAStaging.resolve(token: durableToken, containerRoot: root)
-        precondition(try Data(contentsOf: durable) == bytes)
+        let stagedBytes = try Data(contentsOf: durable)
+        precondition(stagedBytes == bytes)
 
         // Invalid archives keep an honest pre-install classification.
         let invalidToken = try V3IPAStaging.stage(sourceURL: durable, containerRoot: root)
@@ -35,7 +36,8 @@ struct IPAStagingHarness {
 
         // A failed attempt can retry with the same staged bytes; cleanup occurs
         // only when the attempt lifecycle is finally acknowledged.
-        precondition(try Data(contentsOf: V3IPAStaging.resolve(token: invalidToken, containerRoot: root)) == bytes)
+        let retryBytes = try Data(contentsOf: V3IPAStaging.resolve(token: invalidToken, containerRoot: root))
+        precondition(retryBytes == bytes)
         try V3IPAStaging.cleanup(token: invalidToken, containerRoot: root)
         do {
             _ = try V3IPAStaging.resolve(token: invalidToken, containerRoot: root)
@@ -68,7 +70,8 @@ struct IPAStagingHarness {
                 precondition(error.problem == .invalidToken)
             }
         }
-        precondition(try String(contentsOf: sibling, encoding: .utf8) == "keep",
+        let siblingContents = try String(contentsOf: sibling, encoding: .utf8)
+        precondition(siblingContents == "keep",
                      "invalid token traversed outside staging")
         print("V3_IPA_STAGING_PASS")
     }

@@ -178,7 +178,7 @@ public struct CombinedFailure: Error, LocalizedError {
         return ""
     }
     private var hasApplicationVerificationEvidence: Bool {
-        ["install", "update"].contains(operation) && stage == .installation && verificationDomains.contains(underlyingDomain)
+        ["install", "update"].contains(operation) && stage == .installation && Self.verificationDomains.contains(underlyingDomain)
     }
     public var errorDescription: String? { message + "\n" + recovery + "\n" + technicalDetails }
     public var wire: [String: Any] {
@@ -231,7 +231,7 @@ public struct CombinedFailure: Error, LocalizedError {
         }
         var cause = error as NSError
         var resolved = stage
-        var resolvedCode: Code = error is CancellationError ? .cancelled : .failed
+        let resolvedCode: Code = error is CancellationError ? .cancelled : .failed
         var nativeCode: Int?
         var nativeDomain: String?
         var ppqLocked = false

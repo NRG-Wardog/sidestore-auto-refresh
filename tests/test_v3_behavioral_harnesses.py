@@ -18,10 +18,12 @@ class V3BehavioralHarnessTests(unittest.TestCase):
             main = Path(temporary) / "main.swift"
             executable = Path(temporary) / "behavior"
             main.write_text(source, encoding="utf-8")
-            subprocess.run([SWIFTC, "-parse-as-library", str(main), "-o", str(executable)],
-                           check=True, capture_output=True, text=True)
-            result = subprocess.run([str(executable)], check=True, capture_output=True,
+            compiled = subprocess.run([SWIFTC, "-parse-as-library", str(main), "-o", str(executable)],
+                                      capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True,
                                     text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(marker, result.stdout)
 
     def test_operation_refresh_and_settings_state_machines_execute(self):

@@ -5,6 +5,13 @@ import Foundation
 enum V3IPAStaging {
     private static let directoryComponents = ["Library", "Application Support", "LiveContainer", "V3IPAStaging"]
 
+    private final class CopyStatus: @unchecked Sendable {
+        private let lock = NSLock()
+        private var failed = false
+        func markFailed() { lock.withLock { failed = true } }
+        var didFail: Bool { lock.withLock { failed } }
+    }
+
     static func canonicalToken(_ token: String) throws -> String {
         guard token.utf8.count == 36,
               let value = UUID(uuidString: token),
@@ -92,12 +99,12 @@ enum V3IPAStaging {
             let destination = try url(token: token, directory: directory)
             let coordinator = NSFileCoordinator(filePresenter: nil)
             var coordinationError: NSError?
-            var copyFailed = false
+            let copyStatus = CopyStatus()
             coordinator.coordinate(readingItemAt: source, options: [], error: &coordinationError) { readableURL in
                 do { try fileManager.copyItem(at: readableURL, to: destination) }
-                catch { copyFailed = true }
+                catch { copyStatus.markFailed() }
             }
-            guard coordinationError == nil, !copyFailed else { throw CombinedIPAFileError(.stagingFailed) }
+            guard coordinationError == nil, !copyStatus.didFail else { throw CombinedIPAFileError(.stagingFailed) }
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
             try requireRegularNonEmptyFile(destination, fileManager: fileManager)
             return token

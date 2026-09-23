@@ -144,9 +144,11 @@ class DockPatchTests(unittest.TestCase):
             source = Path(directory) / "main.swift"
             executable = Path(directory) / "dock-session-tests"
             source.write_text(helper + "\n" + harness, encoding="utf-8")
-            subprocess.run([compiler, str(source), "-o", str(executable)], check=True,
-                           capture_output=True, text=True)
-            result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
+            compiled = subprocess.run([compiler, str(source), "-o", str(executable)],
+                                      capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("DOCK_SESSION_BEHAVIOR_PASS", result.stdout)
 
     def test_patch_applies_and_is_idempotent(self):

@@ -11,7 +11,7 @@ import SideSign
 // so this center stays non-isolated and guards its boxes with a lock.
 final class V3PromptCenter: @unchecked Sendable {
     private let lock = NSLock()
-    private final class Pending {
+    private final class Pending: @unchecked Sendable {
         var continuation: CheckedContinuation<[String: String], Error>?
         var result: Result<[String: String], Error>?
     }
@@ -25,24 +25,23 @@ final class V3PromptCenter: @unchecked Sendable {
     func park(promptID: String, onReady: (@MainActor () -> Void)? = nil) async throws -> [String: String] {
         try Task.checkCancellation()
         let pending = Pending()
-        lock.lock()
-        guard boxes[promptID] == nil else {
-            lock.unlock()
-            throw NSError(domain: "V3Prompt", code: 1)
+        let installed = lock.withLock { () -> Bool in
+            guard boxes[promptID] == nil else { return false }
+            boxes[promptID] = pending
+            return true
         }
-        boxes[promptID] = pending
-        lock.unlock()
+        guard installed else { throw NSError(domain: "V3Prompt", code: 1) }
         defer {
-            lock.lock()
-            if boxes[promptID] === pending { boxes.removeValue(forKey: promptID) }
-            lock.unlock()
+            lock.withLock {
+                if boxes[promptID] === pending { boxes.removeValue(forKey: promptID) }
+            }
         }
         return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: String], Error>) in
-                self.lock.lock()
-                let result = pending.result
-                if case nil = result { pending.continuation = continuation }
-                self.lock.unlock()
+                let result = self.lock.withLock { () -> Result<[String: String], Error>? in
+                    if case nil = pending.result { pending.continuation = continuation }
+                    return pending.result
+                }
                 if let result { continuation.resume(with: result) }
                 else if let onReady {
                     Task { @MainActor in
