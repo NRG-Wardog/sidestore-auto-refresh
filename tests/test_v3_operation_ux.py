@@ -282,9 +282,10 @@ class ReloadLabelTests(unittest.TestCase):
         start = text.index("struct V3HomeServiceHeader")
         end = text.index("private struct V3HomeView", start)
         header = text[start:end]
-        self.assertIn('Label("Reload Status"', header)
+        self.assertIn('Text("Reload Status")', header)
         self.assertIn('.lineLimit(1)', header)
-        self.assertIn('.fixedSize(horizontal: true, vertical: false)', header)
+        self.assertIn('.minimumScaleFactor(0.8)', header)
+        self.assertIn('.fixedSize(horizontal: false, vertical: true)', header)
         self.assertIn('.accessibilityHint("Reloads the latest SideStore connection and account status.', header)
 
     def test_simulator_harness_renders_reload_status_on_narrow_phone_and_tablet(self):
@@ -292,6 +293,7 @@ class ReloadLabelTests(unittest.TestCase):
         harness = (ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift").read_text(encoding="utf-8")
         self.assertIn('"reload-status-phone-width-320"', harness)
         self.assertIn('"reload-status-tablet-width-1024"', harness)
+        self.assertIn('"reload-status-accessibility-phone-width-320"', harness)
         self.assertIn("reload-label", renderer)
         self.assertIn("generated_header", renderer)
         self.assertIn('V3HomeServiceHeader(isConnected: true', harness)

@@ -3905,11 +3905,16 @@ struct V3HomeServiceHeader: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             Button(action: onReload) {
-                Label("Reload Status", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                Label {
+                    Text("Reload Status")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                }
+                .font(.caption.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .center)
             }
             .buttonStyle(.bordered)
             .buttonBorderShape(.capsule)

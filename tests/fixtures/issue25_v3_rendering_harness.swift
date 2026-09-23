@@ -418,6 +418,10 @@ struct V3RenderingScreen: View {
                 await measure("native-resize-\(Int(width))")
                 await resize(width, category: .accessibilityExtraExtraExtraLarge)
                 await measure("native-accessibility-\(Int(width))")
+                if suite == "phone" && width == 320 {
+                    await measureHomeHeader("reload-status-accessibility-phone-width-320")
+                    saveScreenshot("reload-status-accessibility-phone-width-320")
+                }
             }
             await resize(min(window.bounds.width, 844), height: 320)
             await measure("native-landscape-shaped-window")
