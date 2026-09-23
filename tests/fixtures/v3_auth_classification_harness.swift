@@ -39,7 +39,7 @@ struct AuthClassificationHarness {
 
         let validPPQ = CombinedFailure.capture(
             NSError(domain: "IdeviceGatewayError", code: 0,
-                userInfo: [NSLocalizedDescriptionKey: "ApplicationVerificationFailed 0xE8008024"]),
+                userInfo: [NSLocalizedDescriptionKey: "ApplicationVerificationFailed: Failed to verify code signature of /Payload/App.app: 0xE8008024 (The provisioning profile is banned.)"]),
             operation: "install", stage: .installation, id: id)
         precondition(validPPQ.stage == .installation && validPPQ.underlyingCode == 0xE8008024)
         precondition(validPPQ.technicalDetails.contains("installVerdict=profileBanned"))
