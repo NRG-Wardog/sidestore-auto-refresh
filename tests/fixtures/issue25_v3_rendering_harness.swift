@@ -375,6 +375,7 @@ struct V3RenderingScreen: View {
         await settle()
     }
     func run() async {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         if cold {
             check(UserDefaults.standard.string(forKey: "LCAppLayoutStyle") == "grid", "native cold launch lost Grid preference")
         } else {
