@@ -235,16 +235,27 @@ public struct CombinedFailure: Error, LocalizedError {
         var nativeCode: Int?
         var nativeDomain: String?
         var ppqLocked = false
+        var explicitStageMarker = false
         // Only an allowlisted stage is inspected locally. No arbitrary userInfo is serialized.
         for _ in 0..<5 {
+            let fingerprint = cause.localizedDescription.lowercased()
+            let tokens = cause.localizedDescription.split(whereSeparator: { $0.isWhitespace })
+            if let name = cause.userInfo["LCStructuredFailureStageV1"] as? String,
+               let found = Stage(rawValue: name) {
+                resolved = found
+                explicitStageMarker = true
+            } else if let token = tokens.first(where: { $0.hasPrefix("lc_stage=") }),
+                      let found = Stage(rawValue: String(token.dropFirst(9))) {
+                resolved = found
+                explicitStageMarker = true
+            }
             // Domain-specific classification. Only map a numeric code to a
             // stage when the (domain, code) pair has an established meaning.
             // Otherwise preserve the caller stage and keep the underlying
             // domain/code for diagnostics. Unknown stays unknown.
-            // Application-verification evidence below is more specific than
-            // these generic domain mappings, so once found it locks them out;
-            // explicit upstream stage markers still win.
-            if !ppqLocked {
+            // Explicit stage markers from SideStore's pipeline take precedence
+            // over a broader gateway domain.
+            if !ppqLocked && !explicitStageMarker {
                 switch cause.domain {
                 case "com.SideStore.Authentication":
                     resolved = .authentication
@@ -267,25 +278,33 @@ public struct CombinedFailure: Error, LocalizedError {
             // 0xE8008024: provisioning profile banned. 0xE8008018: signing
             // identity no longer valid. Neither implies pairing, network,
             // CoreDevice, or account-ban conditions.
-            let fingerprint = cause.localizedDescription.lowercased()
             let installContext = ["install", "installURL", "installSharedIPA", "update"].contains(operation)
-                && stage == .installation
+                && (stage == .installation || stage == .command)
+            let explicitContextAllowsVerification = !explicitStageMarker || resolved == .command || resolved == .installation
             let typedVerificationSource = verificationDomains.contains(cause.domain)
-            if installContext && typedVerificationSource && fingerprint.contains("applicationverificationfailed") {
-                if fingerprint.contains("e8008024") {
+            let profileRejectionEvidence = fingerprint.contains("e8008024")
+                && fingerprint.contains("applicationverificationfailed")
+                && fingerprint.contains("provisioning profile")
+                && (fingerprint.contains("banned") || fingerprint.contains("revoked")
+                    || fingerprint.contains("invalid") || fingerprint.contains("failed to verify"))
+            let signingIdentityEvidence = fingerprint.contains("e8008018")
+                && fingerprint.contains("applicationverificationfailed")
+                && fingerprint.contains("identity used to sign")
+                && (fingerprint.contains("no longer valid") || fingerprint.contains("invalid")
+                    || fingerprint.contains("expired") || fingerprint.contains("revoked"))
+            if installContext && explicitContextAllowsVerification && typedVerificationSource {
+                if profileRejectionEvidence {
                     resolved = .installation
                     nativeCode = 0xE8008024
                     if nativeDomain == nil, domains.contains(cause.domain) { nativeDomain = cause.domain }
                     ppqLocked = true
-                } else if fingerprint.contains("e8008018") {
+                } else if signingIdentityEvidence {
                     resolved = .installation
                     nativeCode = 0xE8008018
                     if nativeDomain == nil, domains.contains(cause.domain) { nativeDomain = cause.domain }
                     ppqLocked = true
                 }
             }
-            // Explicit stage marker from upstream
-            if let name = cause.userInfo["LCStructuredFailureStageV1"] as? String, let found = Stage(rawValue: name) { resolved = found }
             // Upstream gateway/Minimuxer typed errors carry a reason string. Inspect only
             // our fixed machine tokens locally; never forward the reason itself.
             // A preserved numeric code keeps the domain it was actually observed
@@ -293,9 +312,7 @@ public struct CombinedFailure: Error, LocalizedError {
             // the fixed HTTPStatus domain, and POSIX errnos stay in
             // NSPOSIXErrorDomain. No unrelated code is ever relabelled as a
             // gateway error.
-            let tokens = cause.localizedDescription.split(whereSeparator: { $0.isWhitespace })
             for (index, token) in tokens.enumerated() {
-                if token.hasPrefix("lc_stage="), let found = Stage(rawValue: String(token.dropFirst(9))) { resolved = found }
                 guard !ppqLocked else { continue }
                 if token.hasPrefix("lc_native_code="), let code = Int(token.dropFirst(15)) {
                     nativeCode = code
