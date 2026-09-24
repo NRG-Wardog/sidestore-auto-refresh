@@ -96,6 +96,8 @@ class InstallStateMachineTests(unittest.TestCase):
         self.assertIn(".sheet(isPresented: pickerBinding", text)
         self.assertIn("status.installPickerSheetDidDismiss(attemptID: attemptID)", text)
         self.assertIn("status.finishInstallCleanup(attemptID: request.installAttemptID)", text)
+        acknowledge = text[text.index("private func acknowledgeAndDismiss"):text.index("private func openRecoveryDestination")]
+        self.assertLess(acknowledge.index("status.finishInstallCleanup"), acknowledge.index("status.reload()"))
 
     def test_install_button_disabled_while_busy(self):
         text = shell()

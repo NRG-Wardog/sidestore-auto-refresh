@@ -2190,9 +2190,8 @@ struct V3OperationSheet: View {
                     stagedIPACleaned = await status.cleanupStagedIPA(request.target)
                 }
                 if cleaning { _ = status.finishInstallCleanup(attemptID: request.installAttemptID) }
-            } else {
-                status.reload()
             }
+            status.reload()
             dismiss()
         }
     }
