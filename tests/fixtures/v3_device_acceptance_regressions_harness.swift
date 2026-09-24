@@ -28,7 +28,7 @@ struct V3DeviceAcceptanceRegressionsHarness {
         // before a file is selected; there is no newly presented SwiftUI cover
         // that must present a nested sheet.
         var attempt = V3InstallAttemptState()
-        var pickerPresenter = V3InstallPickerPresentationState()
+        let pickerPresenter = V3InstallPickerPresentationCoordinator()
         var snapshotLoading = true
         let attemptID = attempt.beginPicker()!
         let firstDecision = pickerPresenter.request(attemptID: attemptID,
@@ -71,7 +71,7 @@ struct V3DeviceAcceptanceRegressionsHarness {
         // The request remains queued until the real viewDidAppear event; it is
         // not lost and does not need a timer or a second user tap.
         var delayedMachine = V3InstallAttemptState()
-        var delayedPresenter = V3InstallPickerPresentationState()
+        let delayedPresenter = V3InstallPickerPresentationCoordinator()
         let delayedID = delayedMachine.beginPicker()!
         precondition(delayedPresenter.request(attemptID: delayedID,
             presenterReady: false, presenterBusy: false) == .queued)
@@ -90,7 +90,7 @@ struct V3DeviceAcceptanceRegressionsHarness {
         // completion. That race also dismisses the pending native picker and
         // releases the attempt without waiting for a second tap.
         var earlyCancelMachine = V3InstallAttemptState()
-        var earlyCancelPresenter = V3InstallPickerPresentationState()
+        let earlyCancelPresenter = V3InstallPickerPresentationCoordinator()
         let earlyCancelID = earlyCancelMachine.beginPicker()!
         precondition(earlyCancelPresenter.request(attemptID: earlyCancelID,
             presenterReady: true, presenterBusy: false) == .present(earlyCancelID))
@@ -116,7 +116,7 @@ struct V3DeviceAcceptanceRegressionsHarness {
         finishAcknowledgedAttempt(&afterStart, attemptID: firstID)
         precondition(afterStart.isIdle)
         let secondID = afterStart.beginPicker()!
-        var retryPresenter = V3InstallPickerPresentationState()
+        let retryPresenter = V3InstallPickerPresentationCoordinator()
         precondition(retryPresenter.request(attemptID: secondID,
             presenterReady: true, presenterBusy: false) == .present(secondID),
             "immediate retry after a Wi-Fi failure did not present the picker")
@@ -143,7 +143,7 @@ struct V3DeviceAcceptanceRegressionsHarness {
         finishAcknowledgedAttempt(&beforeStart, attemptID: preflightID)
         let afterPreflight = beforeStart.beginPicker()
         precondition(afterPreflight != nil, "pre-opStart failure poisoned the picker")
-        var afterPreflightPresenter = V3InstallPickerPresentationState()
+        let afterPreflightPresenter = V3InstallPickerPresentationCoordinator()
         precondition(afterPreflightPresenter.request(attemptID: afterPreflight!,
             presenterReady: true, presenterBusy: false) == .present(afterPreflight!))
         precondition(afterPreflightPresenter.didPresent(attemptID: afterPreflight!))
@@ -217,7 +217,7 @@ struct V3DeviceAcceptanceRegressionsHarness {
 
         // CASE F: An occupied UIKit presenter rejects this attempt explicitly,
         // resets its local state, and accepts the next attempt after dismissal.
-        var interruptedPresenter = V3InstallPickerPresentationState()
+        let interruptedPresenter = V3InstallPickerPresentationCoordinator()
         var presentationFailure = V3InstallAttemptState()
         let failedPresentationID = presentationFailure.beginPicker()!
         let rejected = interruptedPresenter.request(attemptID: failedPresentationID,
@@ -232,7 +232,7 @@ struct V3DeviceAcceptanceRegressionsHarness {
         // A UIKit request that is accepted but never reaches didPresent also
         // rolls back, rather than leaving attempt_not_idle latched.
         var didNotPresent = V3InstallAttemptState()
-        var didNotPresentCoordinator = V3InstallPickerPresentationState()
+        let didNotPresentCoordinator = V3InstallPickerPresentationCoordinator()
         let didNotPresentID = didNotPresent.beginPicker()!
         precondition(didNotPresentCoordinator.request(attemptID: didNotPresentID,
             presenterReady: true, presenterBusy: false) == .present(didNotPresentID))
@@ -245,7 +245,7 @@ struct V3DeviceAcceptanceRegressionsHarness {
         // backend-independent attempt state and the direct picker coordinator
         // reusable for a sixth first-tap presentation.
         var repeatedMachine = V3InstallAttemptState()
-        var repeatedPresenter = V3InstallPickerPresentationState()
+        let repeatedPresenter = V3InstallPickerPresentationCoordinator()
         for index in 0..<5 {
             let id = repeatedMachine.beginPicker()!
             precondition(repeatedPresenter.request(attemptID: id,

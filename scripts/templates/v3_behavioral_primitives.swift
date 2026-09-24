@@ -27,7 +27,7 @@ enum V3InstallPipelineParity {
 // Coordinates a direct root-owned UIKit picker. If the anchor is not in the
 // window hierarchy yet, the attempt remains queued until UIKit reports that
 // the anchor appeared; it is never converted into a nested SwiftUI sheet.
-struct V3InstallPickerPresentationState {
+final class V3InstallPickerPresentationCoordinator {
     enum Phase: String, Equatable { case idle, queued, presenting, presented, dismissing, awaitingDismissal }
     enum Decision: Equatable {
         case present(UUID)
@@ -40,8 +40,8 @@ struct V3InstallPickerPresentationState {
     private(set) var phase: Phase = .idle
     private(set) var attemptID: UUID?
 
-    mutating func request(attemptID: UUID, presenterReady: Bool,
-                          presenterBusy: Bool) -> Decision {
+    func request(attemptID: UUID, presenterReady: Bool,
+                 presenterBusy: Bool) -> Decision {
         guard phase == .idle else { return .rejected(attemptID, "presenter_busy") }
         self.attemptID = attemptID
         guard presenterReady else {
@@ -56,7 +56,7 @@ struct V3InstallPickerPresentationState {
         return .present(attemptID)
     }
 
-    mutating func presenterBecameReady(isBusy: Bool) -> Decision {
+    func presenterBecameReady(isBusy: Bool) -> Decision {
         switch phase {
         case .queued:
             guard let attemptID else { return .none }
@@ -75,21 +75,21 @@ struct V3InstallPickerPresentationState {
     }
 
     @discardableResult
-    mutating func didPresent(attemptID id: UUID) -> Bool {
+    func didPresent(attemptID id: UUID) -> Bool {
         guard attemptID == id, phase == .presenting else { return false }
         phase = .presented
         return true
     }
 
     @discardableResult
-    mutating func beginDismissal(attemptID id: UUID) -> Bool {
+    func beginDismissal(attemptID id: UUID) -> Bool {
         guard attemptID == id, phase == .presenting || phase == .presented else { return false }
         phase = .dismissing
         return true
     }
 
     @discardableResult
-    mutating func didDismiss(attemptID id: UUID, presenterIsClear: Bool) -> Bool {
+    func didDismiss(attemptID id: UUID, presenterIsClear: Bool) -> Bool {
         guard attemptID == id, phase == .dismissing || phase == .presented else { return false }
         guard presenterIsClear else {
             phase = .awaitingDismissal
@@ -100,13 +100,13 @@ struct V3InstallPickerPresentationState {
     }
 
     @discardableResult
-    mutating func fail(attemptID id: UUID) -> Bool {
+    func fail(attemptID id: UUID) -> Bool {
         guard attemptID == id, phase != .idle else { return false }
         reset()
         return true
     }
 
-    private mutating func reset() {
+    private func reset() {
         phase = .idle
         attemptID = nil
     }

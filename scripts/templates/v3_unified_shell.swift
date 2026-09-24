@@ -237,7 +237,7 @@ struct V3InstallPickerPresenter: UIViewControllerRepresentable {
     final class Coordinator: NSObject, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
         private weak var anchor: V3InstallPickerAnchorController?
         private weak var status: V3SideStoreStatusStore?
-        private var presentation = V3InstallPickerPresentationState()
+        private let presentation = V3InstallPickerPresentationCoordinator()
         private var picker: UIDocumentPickerViewController?
         private var selectionStaged = false
         private var isDetaching = false
@@ -286,7 +286,7 @@ struct V3InstallPickerPresenter: UIViewControllerRepresentable {
             handle(presentation.presenterBecameReady(isBusy: hasPresentedController()))
         }
 
-        private func handle(_ decision: V3InstallPickerPresentationState.Decision) {
+        private func handle(_ decision: V3InstallPickerPresentationCoordinator.Decision) {
             switch decision {
             case .present(let attemptID): presentPicker(attemptID: attemptID)
             case .rejected(let attemptID, let reason):

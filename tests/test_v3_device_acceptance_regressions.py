@@ -58,7 +58,9 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
         self.assertIn(".fullScreenCover(item: $status.presentation", shell)
         self.assertNotIn(".sheet(isPresented: pickerBinding", shell)
         self.assertNotIn("V3FullScreenCoverHost", shell)
-        self.assertIn("V3InstallPickerPresentationState", shell)
+        self.assertIn("V3InstallPickerPresentationCoordinator", shell)
+        self.assertIn("final class V3InstallPickerPresentationCoordinator",
+                      (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
         self.assertIn("presentation.didPresent(attemptID: attemptID)", shell)
         self.assertIn("status?.installPickerDidDisappear(attemptID: attemptID)", shell)
         self.assertIn("func resetInstallUI(attemptID: UUID", shell)
