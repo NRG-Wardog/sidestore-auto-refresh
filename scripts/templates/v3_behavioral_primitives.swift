@@ -368,14 +368,6 @@ struct V3OperationFailureDetails {
     var recoveryDestination: String? {
         if stage == CombinedFailure.Stage.authentication.rawValue { return "signIn" }
         if stage == CombinedFailure.Stage.filePreparation.rawValue { return "ipa" }
-        if sourceStep == CombinedFailure.SourceStep.provisioningProfileFetch.rawValue {
-            return "certificates"
-        }
-        if sourceStep == CombinedFailure.SourceStep.certificateValidation.rawValue ||
-           safeCause == CombinedFailure.SafeCause.certificateUnavailable.rawValue ||
-           safeCause == CombinedFailure.SafeCause.provisioningProfileUnavailable.rawValue {
-            return "certificates"
-        }
         if stage == CombinedFailure.Stage.network.rawValue ||
            stage == CombinedFailure.Stage.xpcConnection.rawValue ||
            stage == CombinedFailure.Stage.extensionLaunch.rawValue ||
@@ -389,6 +381,14 @@ struct V3OperationFailureDetails {
            safeCause == CombinedFailure.SafeCause.wifiUnavailable.rawValue ||
            safeCause == CombinedFailure.SafeCause.localDevVPNUnavailable.rawValue {
             return "setup"
+        }
+        if sourceStep == CombinedFailure.SourceStep.provisioningProfileFetch.rawValue {
+            return "certificates"
+        }
+        if sourceStep == CombinedFailure.SourceStep.certificateValidation.rawValue ||
+           safeCause == CombinedFailure.SafeCause.certificateUnavailable.rawValue ||
+           safeCause == CombinedFailure.SafeCause.provisioningProfileUnavailable.rawValue {
+            return "certificates"
         }
         return nil
     }

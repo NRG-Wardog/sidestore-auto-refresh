@@ -48,8 +48,9 @@ class V3BehavioralHarnessTests(unittest.TestCase):
 
     def test_zero_excess_extensions_skip_prompt_behavior_executes(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_extension_removal_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run(helper + "\n" + harness, "V3_ZERO_EXTENSION_PROMPT_PASS")
+        self.compile_and_run(failure + "\n" + helper + "\n" + harness, "V3_ZERO_EXTENSION_PROMPT_PASS")
 
     def test_signing_retry_preserves_stage_and_start_failure_is_distinct(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")

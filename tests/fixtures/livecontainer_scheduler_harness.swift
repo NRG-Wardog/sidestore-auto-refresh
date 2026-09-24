@@ -109,7 +109,14 @@ extension LiveContainerAutoRefreshScheduler {
         let omitted = BGTask()
         await execute(source: "manual", task: omitted)
         precondition(omitted.completions == [false])
-        precondition(defaults.string(forKey: lastErrorKey) == "verification_manifest_incomplete")
+        precondition(defaults.string(forKey: lastErrorKey) ==
+                     "Refresh failed during refreshVerification, but no safe underlying cause was available.")
+        let omittedFailure = defaults.dictionary(forKey: currentRunFailureKey)!
+        precondition(omittedFailure["operation"] as? String == "refresh")
+        precondition(omittedFailure["stage"] as? String == "refreshVerification")
+        precondition(omittedFailure["code"] as? String == "missingResult")
+        precondition(omittedFailure["correlation"] as? String == omittedFailure["run_id"] as? String)
+        precondition(omittedFailure["retryable"] as? String == "unknown")
 
         for stage in [CombinedFailure.Stage.authentication, .signing, .installation, .uniqueDeviceID] {
             clearTestState()
