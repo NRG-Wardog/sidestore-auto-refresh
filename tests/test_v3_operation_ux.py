@@ -310,7 +310,7 @@ class RefreshAllFeedbackTests(unittest.TestCase):
         self.assertIn("attempt.markDidNotStart()", view)
         self.assertIn('liveContainerAutoRefreshRunLedger', view)
         self.assertIn("V3RefreshAllAttemptState.record", view)
-        self.assertIn("attempt.observe(record)", view)
+        self.assertIn("attempt.observe(record, schedulerHealth: health, activeRunID: activeRun)", view)
         self.assertNotIn("active.isEmpty", view)
         self.assertNotIn('liveContainerAutoRefreshVerification', view)
         self.assertIn('Button("Dismiss")', view)

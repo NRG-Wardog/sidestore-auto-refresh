@@ -175,7 +175,7 @@ class DockPatchTests(unittest.TestCase):
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
             result = subprocess.run([str(executable)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("DOCK_SESSION_BEHAVIOR_PASS", result.stdout)
+            self.assertIn("DOCK_FIRST_PRESENTED_VIEW_BEHAVIOR_PASS", result.stdout)
 
     def test_patch_applies_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as directory:
