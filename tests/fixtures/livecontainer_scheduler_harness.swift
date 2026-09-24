@@ -138,7 +138,7 @@ extension LiveContainerAutoRefreshScheduler {
         LiveContainerRefreshBridge.resultRetryable = false
         await execute(source: "manual", task: BGTask())
         precondition(defaults.object(forKey: nextRetryKey) == nil)
-        precondition(defaults.dictionary(forKey: currentRunFailureKey)?["retryable"] as? String == "false")
+        precondition(defaults.dictionary(forKey: currentRunFailureKey)?["retryable"] as? Bool == false)
         let mixedRun = UUID().uuidString
         defaults.set(["version": 2, "schema": "LiveContainerRefreshManifestV2",
                       "run_id": mixedRun, "expected_ids": ["first", "second"], "results": [
