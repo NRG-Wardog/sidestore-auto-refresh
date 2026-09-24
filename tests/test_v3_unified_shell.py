@@ -132,7 +132,7 @@ class V3UnifiedShellTests(unittest.TestCase):
         self.assertIn('Button("Install with SideStore", systemImage: "arrow.down.app")', source)
         self.assertIn('UIDocumentPickerViewController(forOpeningContentTypes:', source)
         self.assertIn('func documentPickerWasCancelled', source)
-        self.assertIn('status.stagePickerIPA(url, attemptID: attemptID)', source)
+        self.assertIn('status?.stagePickerIPA(url, attemptID: attemptID)', source)
         self.assertIn('status.stageSharedIPA(selected, bookmark: bookmark, title: "Install shared app")', source)
         self.assertIn("V3IPAStaging.stage(sourceURL: url", source)
         self.assertNotIn('"V3SharedIPA."', source)

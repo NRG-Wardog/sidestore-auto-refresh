@@ -86,12 +86,13 @@ class InstallFirstAttemptTests(unittest.TestCase):
         # Cancelling the picker does not stage a file or create a session.
         text = shell()
         self.assertIn("func documentPickerWasCancelled", text)
-        self.assertIn("finish(nil)", text)
+        self.assertIn("dismissPicker(controller, attemptID: attemptID)", text)
         self.assertIn("func cancelInstallPicker(attemptID: UUID)", text)
         self.assertIn("func installPickerDidDisappear(attemptID: UUID)", text)
         self.assertNotIn("selectedInstallToken", text)
-        self.assertIn("status.stagePickerIPA(url, attemptID: attemptID)", text)
-        self.assertIn("status.cancelInstallPicker(attemptID: attemptID)", text)
+        self.assertIn("status?.stagePickerIPA(url, attemptID: attemptID)", text)
+        self.assertIn("status?.cancelInstallPicker(attemptID: attemptID)", text)
+        self.assertNotIn(".sheet(isPresented: pickerBinding", text)
 
     def test_local_and_url_install_inputs_share_one_downstream_driver(self):
         text = runtime()
@@ -113,7 +114,9 @@ class InstallFirstAttemptTests(unittest.TestCase):
         self.assertIn("self.error =", fn)
         self.assertIn("V3IPAStaging.stage", fn)
         self.assertIn("CombinedIPAFileError", fn)
-        self.assertNotIn("localizedDescription) }", fn)
+        self.assertIn("pendingPickerError = (attemptID, failure.localizedDescription)", fn)
+        self.assertIn("if let pending = pendingPickerError", text)
+        self.assertIn("error = pending.message", text)
 
     def test_file_preparation_failures_are_not_installation_proxy_failures(self):
         text = runtime()

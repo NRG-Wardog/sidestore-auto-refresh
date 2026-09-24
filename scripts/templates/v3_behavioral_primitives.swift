@@ -24,6 +24,94 @@ enum V3InstallPipelineParity {
     }
 }
 
+// Coordinates a direct root-owned UIKit picker. If the anchor is not in the
+// window hierarchy yet, the attempt remains queued until UIKit reports that
+// the anchor appeared; it is never converted into a nested SwiftUI sheet.
+struct V3InstallPickerPresentationState {
+    enum Phase: String, Equatable { case idle, queued, presenting, presented, dismissing, awaitingDismissal }
+    enum Decision: Equatable {
+        case present(UUID)
+        case queued
+        case dismissed(UUID)
+        case rejected(UUID, String)
+        case none
+    }
+
+    private(set) var phase: Phase = .idle
+    private(set) var attemptID: UUID?
+
+    mutating func request(attemptID: UUID, presenterReady: Bool,
+                          presenterBusy: Bool) -> Decision {
+        guard phase == .idle else { return .rejected(attemptID, "presenter_busy") }
+        self.attemptID = attemptID
+        guard presenterReady else {
+            phase = .queued
+            return .queued
+        }
+        guard !presenterBusy else {
+            phase = .queued
+            return .rejected(attemptID, "presentation_active")
+        }
+        phase = .presenting
+        return .present(attemptID)
+    }
+
+    mutating func presenterBecameReady(isBusy: Bool) -> Decision {
+        switch phase {
+        case .queued:
+            guard let attemptID else { return .none }
+            guard !isBusy else {
+                return .rejected(attemptID, "presentation_active")
+            }
+            phase = .presenting
+            return .present(attemptID)
+        case .awaitingDismissal:
+            guard !isBusy, let attemptID else { return .none }
+            reset()
+            return .dismissed(attemptID)
+        default:
+            return .none
+        }
+    }
+
+    @discardableResult
+    mutating func didPresent(attemptID id: UUID) -> Bool {
+        guard attemptID == id, phase == .presenting else { return false }
+        phase = .presented
+        return true
+    }
+
+    @discardableResult
+    mutating func beginDismissal(attemptID id: UUID) -> Bool {
+        guard attemptID == id, phase == .presenting || phase == .presented else { return false }
+        phase = .dismissing
+        return true
+    }
+
+    @discardableResult
+    mutating func didDismiss(attemptID id: UUID, presenterIsClear: Bool) -> Bool {
+        guard attemptID == id, phase == .dismissing || phase == .presented else { return false }
+        guard presenterIsClear else {
+            phase = .awaitingDismissal
+            return false
+        }
+        reset()
+        return true
+    }
+
+    @discardableResult
+    mutating func fail(attemptID id: UUID) -> Bool {
+        guard attemptID == id, phase != .idle else { return false }
+        reset()
+        return true
+    }
+
+    private mutating func reset() {
+        phase = .idle
+        attemptID = nil
+    }
+}
+
 struct V3InstallAttemptState {
     enum Phase: String, Equatable {
         case idle, pickerPresented, staging, waitingForPickerDismissal, waitingForReload
@@ -37,6 +125,7 @@ struct V3InstallAttemptState {
     private(set) var title: String?
     private(set) var backendSessionID: String?
     private(set) var terminalOutcome: String?
+    private(set) var operationViewDidAppear = false
 
     var isIdle: Bool { phase == .idle }
     var hasActiveAttempt: Bool { !isIdle }
@@ -100,6 +189,24 @@ struct V3InstallAttemptState {
         return true
     }
 
+    // A presentation can be discarded only before a backend session has been
+    // issued, or after the caller has separately confirmed a terminal result.
+    @discardableResult
+    mutating func resetBeforeBackend(attemptID id: UUID) -> Bool {
+        guard attemptID == id else { return false }
+        switch phase {
+        case .pickerPresented, .staging, .waitingForPickerDismissal,
+             .waitingForReload, .readyToPresentOperation:
+            reset()
+            return true
+        case .operationPresented where !operationViewDidAppear && backendSessionID == nil:
+            reset()
+            return true
+        default:
+            return false
+        }
+    }
+
     mutating func reloadFinished() {
         guard phase == .waitingForReload else { return }
         phase = .readyToPresentOperation
@@ -111,17 +218,36 @@ struct V3InstallAttemptState {
               let attemptID, let token, let title else { return nil }
         let operationID = UUID()
         self.operationID = operationID
+        operationViewDidAppear = false
         phase = .operationPresented
         return V3InstallPresentationRequest(attemptID: attemptID, operationID: operationID,
                                             token: token, title: title)
     }
 
     @discardableResult
+    mutating func markOperationViewDidAppear(attemptID id: UUID, operationID: UUID) -> Bool {
+        guard attemptID == id, self.operationID == operationID,
+              phase == .operationPresented || phase == .operationStarted else { return false }
+        operationViewDidAppear = true
+        return true
+    }
+
+    @discardableResult
     mutating func backendStarted(attemptID id: UUID, operationID: UUID, sessionID: String) -> Bool {
+        guard attemptID == id, self.operationID == operationID,
+              phase == .operationPresented, backendSessionID == sessionID,
+              UUID(uuidString: sessionID) != nil else { return false }
+        backendSessionID = sessionID
+        phase = .operationStarted
+        return true
+    }
+
+    @discardableResult
+    mutating func backendStartRequested(attemptID id: UUID, operationID: UUID,
+                                        sessionID: String) -> Bool {
         guard attemptID == id, self.operationID == operationID,
               phase == .operationPresented, UUID(uuidString: sessionID) != nil else { return false }
         backendSessionID = sessionID
-        phase = .operationStarted
         return true
     }
 
@@ -139,6 +265,7 @@ struct V3InstallAttemptState {
         guard attemptID == id, self.operationID == operationID, phase == .terminal else { return false }
         backendSessionID = nil
         terminalOutcome = nil
+        operationViewDidAppear = true
         phase = .operationPresented
         return true
     }
@@ -165,6 +292,7 @@ struct V3InstallAttemptState {
         title = nil
         backendSessionID = nil
         terminalOutcome = nil
+        operationViewDidAppear = false
     }
 }
 

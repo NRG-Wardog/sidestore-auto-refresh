@@ -38,9 +38,9 @@ def status_store():
 class SheetLifecycleTests(unittest.TestCase):
     def test_failure_recovery_dismiss_route_lives_on_cover_owner(self):
         text = shell()
-        cover = text[text.index(".fullScreenCover(isPresented: Binding("):]
+        cover = text[text.index(".fullScreenCover(item: $status.presentation"):]
         cover = cover[:cover.index(".sheet(isPresented: $status.signInPresented")]
-        self.assertIn("status.hostCoverDidDismiss()", cover)
+        self.assertIn("status.operationCoverDidDismiss()", cover)
         self.assertIn("operationSheetDidDismiss()", cover)
         self.assertLess(text.index("private func operationSheetDidDismiss"),
                         text.index("struct V3RefreshAllButton"))
@@ -83,7 +83,7 @@ class SheetLifecycleTests(unittest.TestCase):
 
 
 class InstallStateMachineTests(unittest.TestCase):
-    def test_single_cover_handoff_waits_for_picker_and_reload(self):
+    def test_root_picker_lifecycle_and_single_reusable_operation_cover(self):
         text = shell()
         fn = text[text.index("func stageSharedIPA"):]
         fn = fn[:fn.index("struct V3SideStoreApp")]
@@ -91,20 +91,24 @@ class InstallStateMachineTests(unittest.TestCase):
         self.assertIn("installAttempt.staged", fn)
         self.assertIn("drainInstallPresentation(trigger:", fn)
         self.assertNotIn("asyncAfter", text)
-        self.assertIn(".fullScreenCover(isPresented: Binding(", text)
-        self.assertIn("status.requestHostCoverDismissal(request.id)", text)
-        self.assertIn("V3FullScreenCoverHost().environmentObject(status)", text)
-        self.assertIn(".sheet(isPresented: pickerBinding", text)
-        self.assertIn("status.installPickerSheetDidDismiss(attemptID: attemptID)", text)
-        self.assertIn("status.finishInstallCleanup(attemptID: request.installAttemptID)", text)
+        self.assertIn("V3InstallPickerPresenter(status: status)", text)
+        self.assertIn("anchor.present(documentPicker, animated: true)", text)
+        self.assertIn(".fullScreenCover(item: $status.presentation", text)
+        self.assertNotIn(".sheet(isPresented: pickerBinding", text)
+        self.assertIn("func resetInstallUI(attemptID: UUID", text)
+        self.assertIn("func retryInstallCancellation()", text)
         acknowledge = text[text.index("private func acknowledgeAndDismiss"):text.index("private func openRecoveryDestination")]
-        self.assertLess(acknowledge.index("status.finishInstallCleanup"), acknowledge.index("status.reload()"))
+        self.assertLess(acknowledge.index("status.resetInstallUI"), acknowledge.index("status.reload()"))
 
-    def test_install_button_disabled_while_busy(self):
+    def test_install_button_routes_every_tap_through_exact_reason_logging(self):
         text = shell()
         view = text[text.index("struct V3InstallButton"):]
         view = view[:view.index("\n}\n") + 3]
-        self.assertIn("presentation != nil", view)
+        self.assertIn("status.beginInstallPicker()", view)
+        store = status_store()
+        self.assertIn('NSLog("[V3_INSTALL_UI] tap")', store)
+        self.assertIn('tap_rejected reason=presentation_active', store)
+        self.assertIn('tap_rejected reason=attempt_not_idle phase=%@', store)
 
     def test_extension_prompt_uses_zero_excess_no_prompt_policy(self):
         source = runtime()

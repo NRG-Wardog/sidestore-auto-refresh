@@ -23,21 +23,36 @@ struct V3DeviceAcceptanceRegressionsHarness {
         let token = UUID().uuidString.lowercased()
         let title = "Install / Sideload App with SideStore"
 
-        // CASE A: A foreground snapshot, child document-picker dismissal, and
-        // its onDismiss callback may interleave in either order. The install
-        // remains owned by the same full-screen host cover until one request is
-        // materialized, and it is presented exactly once.
+        // CASE A: On a fresh root, the first tap asks the root UIKit anchor to
+        // present the document picker directly. The picker is visibly active
+        // before a file is selected; there is no newly presented SwiftUI cover
+        // that must present a nested sheet.
         var attempt = V3InstallAttemptState()
+        var pickerPresenter = V3InstallPickerPresentationState()
         var snapshotLoading = true
-        let hostCoverID = attempt.beginPicker()!
-        precondition(attempt.phase == .pickerPresented)
-        precondition(attempt.beginStaging(attemptID: hostCoverID))
-        precondition(attempt.staged(attemptID: hostCoverID, token: token, title: title,
+        let attemptID = attempt.beginPicker()!
+        let firstDecision = pickerPresenter.request(attemptID: attemptID,
+            presenterReady: true, presenterBusy: false)
+        precondition(firstDecision == .present(attemptID),
+                     "first user tap did not directly request the root picker")
+        precondition(pickerPresenter.didPresent(attemptID: attemptID))
+        precondition(pickerPresenter.phase == .presented,
+                     "picker presentation coordinator did not reach visible state")
+
+        // The status reload can finish while UIKit still owns the picker
+        // dismissal transaction. Operation presentation waits for both signals.
+        precondition(attempt.beginStaging(attemptID: attemptID))
+        precondition(attempt.staged(attemptID: attemptID, token: token, title: title,
                                     waitsForPickerDismissal: true, isLoading: snapshotLoading))
-        // Reload completes just before UIKit reports sheet dismissal.
         attempt.reloadFinished()
-        precondition(attempt.phase == .waitingForPickerDismissal)
-        precondition(attempt.pickerDidDisappear(attemptID: hostCoverID, isLoading: snapshotLoading))
+        precondition(attempt.phase == .waitingForPickerDismissal,
+                     "an early reload event incorrectly consumed the picker handoff")
+        precondition(pickerPresenter.beginDismissal(attemptID: attemptID))
+        precondition(!pickerPresenter.didDismiss(attemptID: attemptID, presenterIsClear: false),
+                     "picker dismissal completed while UIKit still owned a presenter")
+        precondition(pickerPresenter.presenterBecameReady(isBusy: false) == .dismissed(attemptID),
+                     "the root lifecycle did not release the delayed picker dismissal")
+        precondition(attempt.pickerDidDisappear(attemptID: attemptID, isLoading: snapshotLoading))
         var operation = attempt.takeReadyOperation(isLoading: snapshotLoading,
                                                     hasActiveOperationPresentation: false)
         precondition(operation == nil, "loading must retain, not reject, the selected IPA")
@@ -46,52 +61,78 @@ struct V3DeviceAcceptanceRegressionsHarness {
         precondition(attempt.phase == .readyToPresentOperation)
         operation = attempt.takeReadyOperation(isLoading: snapshotLoading,
                                                hasActiveOperationPresentation: false)
-        precondition(operation?.attemptID == hostCoverID && operation?.token == token &&
+        precondition(operation?.attemptID == attemptID && operation?.token == token &&
                      operation?.title == title,
                      "selection/reload ordering lost the attempt or token")
         precondition(attempt.takeReadyOperation(isLoading: false,
             hasActiveOperationPresentation: false) == nil, "selection presented more than once")
-        precondition(attempt.attemptID == hostCoverID,
-                     "operation handoff replaced the root host cover identity")
 
-        // Also reproduce the opposite race: picker dismissal happens while the
-        // status reload is still active, and reload completion is delayed.
-        var reverse = V3InstallAttemptState()
-        let reverseID = reverse.beginPicker()!
-        precondition(reverse.beginStaging(attemptID: reverseID))
-        precondition(reverse.staged(attemptID: reverseID, token: UUID().uuidString,
-            title: title, waitsForPickerDismissal: true, isLoading: true))
-        precondition(reverse.pickerDidDisappear(attemptID: reverseID, isLoading: true))
-        precondition(reverse.phase == .waitingForReload)
-        precondition(reverse.takeReadyOperation(isLoading: true,
-            hasActiveOperationPresentation: false) == nil)
-        reverse.reloadFinished()
-        precondition(reverse.takeReadyOperation(isLoading: false,
-            hasActiveOperationPresentation: false) != nil,
-            "late snapshot completion did not resume the queued first attempt")
+        // CASE B: UIKit delays the anchor's first presentation transaction.
+        // The request remains queued until the real viewDidAppear event; it is
+        // not lost and does not need a timer or a second user tap.
+        var delayedMachine = V3InstallAttemptState()
+        var delayedPresenter = V3InstallPickerPresentationState()
+        let delayedID = delayedMachine.beginPicker()!
+        precondition(delayedPresenter.request(attemptID: delayedID,
+            presenterReady: false, presenterBusy: false) == .queued)
+        precondition(delayedMachine.phase == .pickerPresented)
+        precondition(delayedPresenter.presenterBecameReady(isBusy: false) == .present(delayedID))
+        precondition(delayedPresenter.didPresent(attemptID: delayedID))
+        precondition(delayedPresenter.phase == .presented,
+                     "delayed UIKit presentation did not open the first picker")
+        precondition(delayedPresenter.beginDismissal(attemptID: delayedID))
+        precondition(delayedPresenter.didDismiss(attemptID: delayedID, presenterIsClear: true))
+        precondition(delayedMachine.cancelPicker(attemptID: delayedID))
+        precondition(delayedMachine.beginPicker() != nil,
+                     "picker cancellation did not make the next tap reusable")
 
-        // CASE B: Failure after opStart -> acknowledge -> cleanup -> immediate
-        // second picker/operation works without an app restart.
+        // Cancellation can arrive before UIKit calls the anchor's presentation
+        // completion. That race also dismisses the pending native picker and
+        // releases the attempt without waiting for a second tap.
+        var earlyCancelMachine = V3InstallAttemptState()
+        var earlyCancelPresenter = V3InstallPickerPresentationState()
+        let earlyCancelID = earlyCancelMachine.beginPicker()!
+        precondition(earlyCancelPresenter.request(attemptID: earlyCancelID,
+            presenterReady: true, presenterBusy: false) == .present(earlyCancelID))
+        precondition(earlyCancelPresenter.beginDismissal(attemptID: earlyCancelID))
+        precondition(earlyCancelPresenter.didDismiss(attemptID: earlyCancelID,
+            presenterIsClear: true))
+        precondition(earlyCancelMachine.cancelPicker(attemptID: earlyCancelID))
+        precondition(earlyCancelMachine.beginPicker() != nil)
+
+        // CASE C: A Wi-Fi/precondition failure after opStart is acknowledged;
+        // the next direct picker and operation start with fresh identities.
         var afterStart = V3InstallAttemptState()
         let firstID = afterStart.beginPicker()!
         stageAndPresent(&afterStart, attemptID: firstID, token: UUID().uuidString, title: title)
         let firstOperation = afterStart.operationID!
+        let firstSession = UUID().uuidString
+        precondition(afterStart.backendStartRequested(attemptID: firstID,
+            operationID: firstOperation, sessionID: firstSession))
         precondition(afterStart.backendStarted(attemptID: firstID, operationID: firstOperation,
-                                               sessionID: UUID().uuidString))
+                                               sessionID: firstSession))
         precondition(afterStart.recordTerminal(attemptID: firstID, operationID: firstOperation,
                                                outcome: "connectionFailure"))
         finishAcknowledgedAttempt(&afterStart, attemptID: firstID)
         precondition(afterStart.isIdle)
         let secondID = afterStart.beginPicker()!
+        var retryPresenter = V3InstallPickerPresentationState()
+        precondition(retryPresenter.request(attemptID: secondID,
+            presenterReady: true, presenterBusy: false) == .present(secondID),
+            "immediate retry after a Wi-Fi failure did not present the picker")
+        precondition(retryPresenter.didPresent(attemptID: secondID))
         stageAndPresent(&afterStart, attemptID: secondID, token: UUID().uuidString, title: title)
         let secondOperation = afterStart.operationID!
         precondition(secondID != firstID && secondOperation != firstOperation)
+        let secondSession = UUID().uuidString
+        precondition(afterStart.backendStartRequested(attemptID: secondID,
+            operationID: secondOperation, sessionID: secondSession))
         precondition(afterStart.backendStarted(attemptID: secondID, operationID: secondOperation,
-                                               sessionID: UUID().uuidString))
+                                               sessionID: secondSession))
         precondition(afterStart.phase == .operationStarted)
 
-        // CASE C: A prerequisite failure before opStart is terminal and still
-        // returns to reusable idle after acknowledgement.
+        // CASE D: A preflight failure before opStart is terminal and returns to
+        // idle after acknowledgement.
         var beforeStart = V3InstallAttemptState()
         let preflightID = beforeStart.beginPicker()!
         stageAndPresent(&beforeStart, attemptID: preflightID, token: UUID().uuidString, title: title)
@@ -102,19 +143,45 @@ struct V3DeviceAcceptanceRegressionsHarness {
         finishAcknowledgedAttempt(&beforeStart, attemptID: preflightID)
         let afterPreflight = beforeStart.beginPicker()
         precondition(afterPreflight != nil, "pre-opStart failure poisoned the picker")
+        var afterPreflightPresenter = V3InstallPickerPresentationState()
+        precondition(afterPreflightPresenter.request(attemptID: afterPreflight!,
+            presenterReady: true, presenterBusy: false) == .present(afterPreflight!))
+        precondition(afterPreflightPresenter.didPresent(attemptID: afterPreflight!))
 
-        // CASE D is covered above; additionally ensure an opStart success with
-        // a later failure receives the same cleanup/reuse transition.
+        // A pipeline failure after opStart receives the same reset contract.
         var postStart = V3InstallAttemptState()
         let postID = postStart.beginPicker()!
         stageAndPresent(&postStart, attemptID: postID, token: UUID().uuidString, title: title)
         let postOperation = postStart.operationID!
+        let postSession = UUID().uuidString
+        precondition(postStart.backendStartRequested(attemptID: postID,
+            operationID: postOperation, sessionID: postSession))
         precondition(postStart.backendStarted(attemptID: postID, operationID: postOperation,
-                                              sessionID: UUID().uuidString))
+                                              sessionID: postSession))
         precondition(postStart.recordTerminal(attemptID: postID, operationID: postOperation,
                                               outcome: "failed"))
         finishAcknowledgedAttempt(&postStart, attemptID: postID)
         precondition(postStart.beginPicker() != nil, "post-opStart failure poisoned the picker")
+
+        // A Retry whose second opStart fails remains a terminal result; Done
+        // clears that retry generation and the following picker still opens.
+        var retryStartFails = V3InstallAttemptState()
+        let retryID = retryStartFails.beginPicker()!
+        stageAndPresent(&retryStartFails, attemptID: retryID,
+                        token: UUID().uuidString, title: title)
+        let originalOperation = retryStartFails.operationID!
+        precondition(retryStartFails.recordTerminal(attemptID: retryID,
+            operationID: originalOperation, outcome: "signing_failed"))
+        precondition(retryStartFails.prepareRetry(attemptID: retryID,
+            operationID: originalOperation))
+        let retrySession = UUID().uuidString
+        precondition(retryStartFails.backendStartRequested(attemptID: retryID,
+            operationID: originalOperation, sessionID: retrySession))
+        precondition(retryStartFails.recordTerminal(attemptID: retryID,
+            operationID: originalOperation, outcome: "retry_start_failed"))
+        finishAcknowledgedAttempt(&retryStartFails, attemptID: retryID)
+        precondition(retryStartFails.beginPicker() != nil,
+                     "retry-start failure poisoned the next picker")
 
         // CASE E: Picker cancellation clears all staged/request state.
         var pickerCancelled = V3InstallAttemptState()
@@ -133,19 +200,132 @@ struct V3DeviceAcceptanceRegressionsHarness {
         precondition(stagingFailed.beginPicker() != nil,
                      "a failed stage left a stale picker attempt")
 
-        // CASE F: Operation cancellation has a terminal outcome and the same
-        // cleanup transition as failure and success.
+        // An interruption after choosing the file but before the operation
+        // cover appears clears the staged token and returns to idle.
+        var interrupted = V3InstallAttemptState()
+        let interruptedID = interrupted.beginPicker()!
+        stageAndPresent(&interrupted, attemptID: interruptedID,
+                        token: UUID().uuidString, title: title)
+        precondition(interrupted.token != nil,
+                     "operation presentation failure did not retain a staged token for cleanup")
+        precondition(!interrupted.operationViewDidAppear && interrupted.backendSessionID == nil)
+        precondition(interrupted.resetBeforeBackend(attemptID: interruptedID),
+                     "pre-opStart presentation interruption did not reset safely")
+        precondition(interrupted.isIdle && interrupted.token == nil)
+        precondition(interrupted.beginPicker() != nil,
+                     "presentation interruption poisoned the following attempt")
+
+        // CASE F: An occupied UIKit presenter rejects this attempt explicitly,
+        // resets its local state, and accepts the next attempt after dismissal.
+        var interruptedPresenter = V3InstallPickerPresentationState()
+        var presentationFailure = V3InstallAttemptState()
+        let failedPresentationID = presentationFailure.beginPicker()!
+        let rejected = interruptedPresenter.request(attemptID: failedPresentationID,
+            presenterReady: true, presenterBusy: true)
+        precondition(rejected == .rejected(failedPresentationID, "presentation_active"))
+        precondition(interruptedPresenter.fail(attemptID: failedPresentationID))
+        precondition(presentationFailure.resetBeforeBackend(attemptID: failedPresentationID))
+        let recoveredPresentationID = presentationFailure.beginPicker()!
+        precondition(interruptedPresenter.request(attemptID: recoveredPresentationID,
+            presenterReady: true, presenterBusy: false) == .present(recoveredPresentationID))
+
+        // A UIKit request that is accepted but never reaches didPresent also
+        // rolls back, rather than leaving attempt_not_idle latched.
+        var didNotPresent = V3InstallAttemptState()
+        var didNotPresentCoordinator = V3InstallPickerPresentationState()
+        let didNotPresentID = didNotPresent.beginPicker()!
+        precondition(didNotPresentCoordinator.request(attemptID: didNotPresentID,
+            presenterReady: true, presenterBusy: false) == .present(didNotPresentID))
+        precondition(didNotPresentCoordinator.fail(attemptID: didNotPresentID))
+        precondition(didNotPresent.resetBeforeBackend(attemptID: didNotPresentID))
+        precondition(didNotPresent.beginPicker() != nil,
+                     "a picker that never reached didPresent blocked the next tap")
+
+        // CASE G: Five alternating failed/cancelled attempts leave both the
+        // backend-independent attempt state and the direct picker coordinator
+        // reusable for a sixth first-tap presentation.
+        var repeatedMachine = V3InstallAttemptState()
+        var repeatedPresenter = V3InstallPickerPresentationState()
+        for index in 0..<5 {
+            let id = repeatedMachine.beginPicker()!
+            precondition(repeatedPresenter.request(attemptID: id,
+                presenterReady: true, presenterBusy: false) == .present(id))
+            precondition(repeatedPresenter.didPresent(attemptID: id))
+            if index.isMultiple(of: 2) {
+                precondition(repeatedPresenter.beginDismissal(attemptID: id))
+                precondition(repeatedPresenter.didDismiss(attemptID: id, presenterIsClear: true))
+                precondition(repeatedMachine.cancelPicker(attemptID: id))
+            } else {
+                stageAndPresent(&repeatedMachine, attemptID: id,
+                    token: UUID().uuidString, title: title)
+                let opID = repeatedMachine.operationID!
+                precondition(repeatedMachine.recordTerminal(attemptID: id,
+                    operationID: opID, outcome: "failed"))
+                finishAcknowledgedAttempt(&repeatedMachine, attemptID: id)
+                precondition(repeatedPresenter.beginDismissal(attemptID: id))
+                precondition(repeatedPresenter.didDismiss(attemptID: id, presenterIsClear: true))
+            }
+            precondition(repeatedMachine.isIdle && repeatedPresenter.phase == .idle)
+        }
+        let sixthID = repeatedMachine.beginPicker()!
+        precondition(repeatedPresenter.request(attemptID: sixthID,
+            presenterReady: true, presenterBusy: false) == .present(sixthID),
+            "sixth first tap did not open after repeated failure/cancellation")
+        precondition(repeatedPresenter.didPresent(attemptID: sixthID))
+
+        // Confirmed operation cancellation and success use the same reusable
+        // terminal reset contract.
         var operationCancelled = V3InstallAttemptState()
         let cancelID = operationCancelled.beginPicker()!
         stageAndPresent(&operationCancelled, attemptID: cancelID, token: UUID().uuidString, title: title)
         let cancelOperationID = operationCancelled.operationID!
+        let cancelSession = UUID().uuidString
+        precondition(operationCancelled.backendStartRequested(attemptID: cancelID,
+            operationID: cancelOperationID, sessionID: cancelSession))
         precondition(operationCancelled.backendStarted(attemptID: cancelID,
-            operationID: cancelOperationID, sessionID: UUID().uuidString))
+            operationID: cancelOperationID, sessionID: cancelSession))
         precondition(operationCancelled.recordTerminal(attemptID: cancelID,
             operationID: cancelOperationID, outcome: "cancelled"))
         finishAcknowledgedAttempt(&operationCancelled, attemptID: cancelID)
         precondition(operationCancelled.beginPicker() != nil,
                      "operation cancellation did not return to idle")
+
+        // An unconfirmed backend cancellation must not reset the attempt or
+        // permit a duplicate mutation. A confirmed cancellation then resets it.
+        var cancellationUncertain = V3InstallAttemptState()
+        let uncertainID = cancellationUncertain.beginPicker()!
+        stageAndPresent(&cancellationUncertain, attemptID: uncertainID,
+                        token: UUID().uuidString, title: title)
+        let uncertainOperation = cancellationUncertain.operationID!
+        let uncertainSession = UUID().uuidString
+        precondition(cancellationUncertain.backendStartRequested(attemptID: uncertainID,
+            operationID: uncertainOperation, sessionID: uncertainSession))
+        precondition(cancellationUncertain.backendStarted(attemptID: uncertainID,
+            operationID: uncertainOperation, sessionID: uncertainSession))
+        precondition(!cancellationUncertain.resetBeforeBackend(attemptID: uncertainID),
+                     "an active backend mutation was reset without cancellation confirmation")
+        precondition(cancellationUncertain.beginPicker() == nil,
+                     "a second mutation started while backend cancellation was uncertain")
+        precondition(cancellationUncertain.recordTerminal(attemptID: uncertainID,
+            operationID: uncertainOperation, outcome: "cancelled"))
+        finishAcknowledgedAttempt(&cancellationUncertain, attemptID: uncertainID)
+        precondition(cancellationUncertain.beginPicker() != nil)
+
+        // Cleanup RPC failure does not retain stale UI ownership. The token is
+        // attempted for cleanup, then the terminal UI still becomes reusable.
+        var cleanupFailed = V3InstallAttemptState()
+        let cleanupID = cleanupFailed.beginPicker()!
+        stageAndPresent(&cleanupFailed, attemptID: cleanupID,
+                        token: UUID().uuidString, title: title)
+        let cleanupOperation = cleanupFailed.operationID!
+        precondition(cleanupFailed.recordTerminal(attemptID: cleanupID,
+            operationID: cleanupOperation, outcome: "failed"))
+        precondition(cleanupFailed.beginCleanup(attemptID: cleanupID))
+        let stagedCleanupRPCSucceeded = false
+        _ = stagedCleanupRPCSucceeded
+        precondition(cleanupFailed.finishCleanup(attemptID: cleanupID))
+        precondition(cleanupFailed.beginPicker() != nil,
+                     "a staged-file cleanup failure wedged the next attempt")
 
         // Success is acknowledged through the identical reusable cleanup path.
         var succeeded = V3InstallAttemptState()
@@ -153,8 +333,11 @@ struct V3DeviceAcceptanceRegressionsHarness {
         stageAndPresent(&succeeded, attemptID: successID,
                         token: UUID().uuidString, title: title)
         let successOperationID = succeeded.operationID!
+        let successSession = UUID().uuidString
+        precondition(succeeded.backendStartRequested(attemptID: successID,
+            operationID: successOperationID, sessionID: successSession))
         precondition(succeeded.backendStarted(attemptID: successID,
-            operationID: successOperationID, sessionID: UUID().uuidString))
+            operationID: successOperationID, sessionID: successSession))
         precondition(succeeded.recordTerminal(attemptID: successID,
             operationID: successOperationID, outcome: "completed"))
         finishAcknowledgedAttempt(&succeeded, attemptID: successID)

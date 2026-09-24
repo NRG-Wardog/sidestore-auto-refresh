@@ -49,19 +49,30 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
         self.assertIn("return try await ipaTarget(url: url, scoped: false)", resolver)
         self.assertIn("return .app(AnyApp", resolver)
 
-    def test_install_presentation_uses_one_host_cover_and_owns_picker_dismissal(self):
+    def test_picker_is_presented_directly_from_the_root_uikit_anchor(self):
         shell = (TEMPLATES / "v3_unified_shell.swift").read_text(encoding="utf-8")
         self.assertNotIn("selectedInstallToken", shell)
-        self.assertIn(".fullScreenCover(isPresented: Binding(", shell)
-        self.assertIn("get: { status.hostCoverID != nil }", shell)
-        self.assertIn("status.requestHostCoverDismissal(coverID)", shell)
-        self.assertIn("V3FullScreenCoverHost().environmentObject(status)", shell)
-        self.assertIn("V3InstallAttemptHost(attemptID: attemptID)", shell)
-        self.assertIn("status.installPickerSheetDidDismiss(attemptID: attemptID)", shell)
+        self.assertIn("V3InstallPickerPresenter(status: status)", shell)
+        self.assertIn("anchor.present(documentPicker, animated: true)", shell)
+        self.assertIn("UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: true)", shell)
+        self.assertIn(".fullScreenCover(item: $status.presentation", shell)
+        self.assertNotIn(".sheet(isPresented: pickerBinding", shell)
+        self.assertNotIn("V3FullScreenCoverHost", shell)
+        self.assertIn("V3InstallPickerPresentationState", shell)
+        self.assertIn("presentation.didPresent(attemptID: attemptID)", shell)
+        self.assertIn("status?.installPickerDidDisappear(attemptID: attemptID)", shell)
+        self.assertIn("func resetInstallUI(attemptID: UUID", shell)
+        for marker in ("[V3_INSTALL_UI] tap", "begin_attempt result=started",
+                       "tap_rejected reason=presentation_active", "tap_rejected reason=attempt_not_idle",
+                       "picker_present_requested", "picker_did_present", "picker_selected",
+                       "picker_dismissed", "staged", "operation_present_requested",
+                       "operation_did_present", "terminal", "reset_to_idle"):
+            self.assertIn(marker, shell)
+        self.assertIn("operationCoverDidDismiss", shell)
+        self.assertIn("retryInstallCancellation", shell)
         self.assertIn("status.installTerminal(attemptID: request.installAttemptID", shell)
-        self.assertIn("status.finishInstallCleanup(attemptID: request.installAttemptID)", shell)
         self.assertIn('drainInstallPresentation(trigger: "snapshot_finished")', shell)
-        self.assertIn('drainInstallPresentation(trigger: "picker_did_disappear")', shell)
+        self.assertIn('drainInstallPresentation(trigger: "picker_did_dismiss")', shell)
         self.assertNotIn("installHandoff", shell)
         self.assertNotIn("installPickerDidDismiss", shell)
         self.assertNotIn("presentImmediately", shell)
