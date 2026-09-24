@@ -138,7 +138,7 @@ extension LiveContainerAutoRefreshScheduler {
         LiveContainerRefreshBridge.resultRetryable = false
         await execute(source: "manual", task: BGTask())
         precondition(defaults.object(forKey: nextRetryKey) == nil)
-        precondition(defaults.string(forKey: lastErrorKey)!.contains("retryable=false"))
+        precondition(defaults.dictionary(forKey: currentRunFailureKey)?["retryable"] as? String == "false")
         let mixedRun = UUID().uuidString
         defaults.set(["version": 2, "schema": "LiveContainerRefreshManifestV2",
                       "run_id": mixedRun, "expected_ids": ["first", "second"], "results": [
@@ -152,9 +152,12 @@ extension LiveContainerAutoRefreshScheduler {
             LiveContainerRefreshBridge.staleFailure = stale
             LiveContainerRefreshBridge.malformedFailure = !stale
             await execute(source: "manual", task: BGTask())
-            let error = defaults.string(forKey: lastErrorKey)!
-            precondition(error.contains("stage=refreshVerification") && error.contains("code=missingResult"))
-            precondition(!error.contains("SECRET_TOKEN") && !error.contains("stage=signing"))
+            let terminal = defaults.dictionary(forKey: currentRunFailureKey)!
+            precondition(terminal["stage"] as? String == "refreshVerification" &&
+                         terminal["code"] as? String == "missingResult")
+            precondition((terminal["safe_message"] as? String ?? "").contains("no safe underlying cause"))
+            precondition(!String(describing: terminal).contains("SECRET_TOKEN") &&
+                         !String(describing: terminal).contains("stage=signing"))
         }
 
         clearTestState()
