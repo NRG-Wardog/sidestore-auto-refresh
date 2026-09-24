@@ -194,7 +194,7 @@ struct V3UnifiedTabs: View {
 }
 
 @MainActor
-private final class V3InstallPickerAnchorController: UIViewController {
+final class V3InstallPickerAnchorController: UIViewController {
     var onDidAppear: (() -> Void)?
 
     override func loadView() {
