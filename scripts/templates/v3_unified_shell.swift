@@ -54,10 +54,16 @@ struct V3UnifiedTabs: View {
         }
         .onReceive(monitor) { _ in status.reload(manual: false) }
         .onOpenURL(perform: dispatchURL)
-        .fullScreenCover(item: $status.hostCoverID, onDismiss: {
+        .fullScreenCover(isPresented: Binding(
+            get: { status.hostCoverID != nil },
+            set: { presented in
+                guard !presented, let coverID = status.hostCoverID else { return }
+                status.requestHostCoverDismissal(coverID)
+            }
+        ), onDismiss: {
             status.hostCoverDidDismiss()
             operationSheetDidDismiss()
-        }) { _ in
+        }) {
             V3FullScreenCoverHost().environmentObject(status)
         }
         .sheet(isPresented: $status.signInPresented, onDismiss: { status.reload() }) {
@@ -792,7 +798,7 @@ final class V3SideStoreStatusStore: ObservableObject {
                 Task { _ = await cleanupStagedIPA(token) }
                 installAttempt.cancelPicker(attemptID: attemptID)
                 if hostCoverID == attemptID { hostCoverID = nil }
-                error = "The selected IPA could not be queued for presentation. Choose it again."
+                self.error = "The selected IPA could not be queued for presentation. Choose it again."
                 return nil
             }
             NSLog("[V3_INSTALL_STATE] attempt=%@ phase=%@ token_suffix=%@ loading=%d",
@@ -804,11 +810,11 @@ final class V3SideStoreStatusStore: ObservableObject {
         } catch let failure as CombinedIPAFileError {
             _ = installAttempt.failStaging(attemptID: attemptID)
             if hostCoverID == attemptID { hostCoverID = nil }
-            error = failure.localizedDescription
+            self.error = failure.localizedDescription
         } catch {
             _ = installAttempt.failStaging(attemptID: attemptID)
             if hostCoverID == attemptID { hostCoverID = nil }
-            error = CombinedIPAFileError(.stagingFailed).localizedDescription
+            self.error = CombinedIPAFileError(.stagingFailed).localizedDescription
         }
         return nil
     }
@@ -890,6 +896,10 @@ final class V3SideStoreStatusStore: ObservableObject {
         if presentation != nil { presentation = nil }
         hostCoverID = nil
         drainDeferredReload()
+    }
+    func requestHostCoverDismissal(_ coverID: UUID) {
+        guard hostCoverID == coverID else { return }
+        hostCoverID = nil
     }
     func cleanupStagedIPA(_ token: String) async -> Bool {
         do {
@@ -2192,6 +2202,7 @@ struct V3OperationSheet: View {
                 if cleaning { _ = status.finishInstallCleanup(attemptID: request.installAttemptID) }
             }
             status.reload()
+            status.requestHostCoverDismissal(request.id)
             dismiss()
         }
     }

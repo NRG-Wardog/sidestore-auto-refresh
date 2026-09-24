@@ -52,7 +52,9 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
     def test_install_presentation_uses_one_host_cover_and_owns_picker_dismissal(self):
         shell = (TEMPLATES / "v3_unified_shell.swift").read_text(encoding="utf-8")
         self.assertNotIn("selectedInstallToken", shell)
-        self.assertIn(".fullScreenCover(item: $status.hostCoverID", shell)
+        self.assertIn(".fullScreenCover(isPresented: Binding(", shell)
+        self.assertIn("get: { status.hostCoverID != nil }", shell)
+        self.assertIn("status.requestHostCoverDismissal(coverID)", shell)
         self.assertIn("V3FullScreenCoverHost().environmentObject(status)", shell)
         self.assertIn("V3InstallAttemptHost(attemptID: attemptID)", shell)
         self.assertIn("status.installPickerSheetDidDismiss(attemptID: attemptID)", shell)

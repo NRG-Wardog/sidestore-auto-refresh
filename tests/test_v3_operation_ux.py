@@ -38,7 +38,7 @@ def status_store():
 class SheetLifecycleTests(unittest.TestCase):
     def test_failure_recovery_dismiss_route_lives_on_cover_owner(self):
         text = shell()
-        cover = text[text.index(".fullScreenCover(item: $status.hostCoverID"):]
+        cover = text[text.index(".fullScreenCover(isPresented: Binding("):]
         cover = cover[:cover.index(".sheet(isPresented: $status.signInPresented")]
         self.assertIn("status.hostCoverDidDismiss()", cover)
         self.assertIn("operationSheetDidDismiss()", cover)
@@ -91,7 +91,8 @@ class InstallStateMachineTests(unittest.TestCase):
         self.assertIn("installAttempt.staged", fn)
         self.assertIn("drainInstallPresentation(trigger:", fn)
         self.assertNotIn("asyncAfter", text)
-        self.assertIn(".fullScreenCover(item: $status.hostCoverID", text)
+        self.assertIn(".fullScreenCover(isPresented: Binding(", text)
+        self.assertIn("status.requestHostCoverDismissal(request.id)", text)
         self.assertIn("V3FullScreenCoverHost().environmentObject(status)", text)
         self.assertIn(".sheet(isPresented: pickerBinding", text)
         self.assertIn("status.installPickerSheetDidDismiss(attemptID: attemptID)", text)
