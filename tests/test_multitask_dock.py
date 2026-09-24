@@ -34,6 +34,7 @@ final class MultitaskDockManager: NSObject {
             let dockView = AnyView(MultitaskDockSwiftView()
                 .environmentObject(self))
             self.hostingController = UIHostingController(rootView: dockView)
+            self.hostingController?.view.backgroundColor = .clear
         }
     }
 
@@ -79,11 +80,36 @@ final class MultitaskDockManager: NSObject {
         }
     }
 
+    @objc public func hideDock() {
+        guard isVisible, let hostingController = hostingController else { return }
+        DispatchQueue.main.async {
+            UIView.animate(withDuration: 0.3) {
+                hostingController.view.alpha = 0
+            } completion: { _ in
+                self.isVisible = false
+                hostingController.view.transform = .identity
+            }
+        }
+    }
+
     private func updateDockFrame(animated: Bool = true) {
     }
 
     private func deviceOrientationDidChange() {
         if self.isVisible { updateDockFrame() }
+    }
+}
+
+struct MultitaskDockSwiftView: View {
+    @EnvironmentObject var dockManager: MultitaskDockManager
+    var body: some View {
+        VStack {
+            if dockManager.isCollapsed {
+                CollapsedDockView(isHidden: dockManager.isDockHidden)
+            } else {
+                Text("expanded")
+            }
+        }
     }
 }
 '''
@@ -186,43 +212,54 @@ class DockPatchTests(unittest.TestCase):
                 patch.patch(live)
             self.assertEqual(before, snapshot(Path(directory)))
 
-    def test_default_expanded_pref_starts_collapsed(self):
+    def test_preference_sets_is_collapsed_before_the_first_host_mount(self):
         with tempfile.TemporaryDirectory() as directory:
             live = fixture(Path(directory))
             patch.patch(live)
             dock = (live / "MultitaskSupport/MultitaskDockView.swift").read_text(encoding="utf-8")
-            # No init-time write races setupDockView/showDock; the final show
-            # queue applies the stored value immediately before the first frame.
+            # Apply the setting before refreshing the SwiftUI root and mounting
+            # it, so the first body evaluation chooses the expected view branch.
             self.assertIn("@Published @objc var isCollapsed: Bool = false", dock)
             self.assertIn("collapseStartState.begin(storedPreference: stored)", dock)
             self.assertIn("applyBeforeFirstFrame(sessionID: sessionID)", dock)
-            self.assertLess(dock.index("applyBeforeFirstFrame(sessionID: sessionID)"),
-                            dock.index("self.updateDockFrame(animated: false)"))
+            self.assertIn("self.isCollapsed = initial", dock)
+            self.assertIn("if dockManager.renderedDockMode == .collapsedDockView", dock)
+            self.assertIn("hostingController.rootView = AnyView(MultitaskDockSwiftView().environmentObject(self))", dock)
+            self.assertLess(dock.index("self.isCollapsed = initial"), dock.index("hostingController.rootView = AnyView"))
+            first_show = dock.index("self.showDock()", dock.index("FIRST_VIEW_SELECTED"))
+            self.assertLess(dock.index("hostingController.rootView = AnyView"), first_show)
 
     def test_session_reapplies_preference_without_fighting_user(self):
         with tempfile.TemporaryDirectory() as directory:
             live = fixture(Path(directory))
             patch.patch(live)
             dock = (live / "MultitaskSupport/MultitaskDockView.swift").read_text(encoding="utf-8")
-            # The final show queue reads session state immediately before the
-            # first frame, after setupDockView's queued initialization.
-            self.assertIn("pendingCollapseSessionID", dock)
-            self.assertIn("collapseStartState.preference(for: sessionID)", dock)
+            # A fresh session applies the setting before its root view can mount.
+            self.assertIn("!self.collapseStartState.isActiveSession", dock)
             self.assertIn("applyBeforeFirstFrame(sessionID: sessionID)", dock)
             setup = dock[dock.index("private func setupDockView"):dock.index("private func updateDockFrame")]
-            show = dock[dock.index("@objc public func showDock"):dock.index("private func updateDockFrame")]
+            show = dock[dock.index("@objc public func showDock"):dock.index("@objc public func hideDock")]
             self.assertIn("SETUP_VIEW", setup)
-            self.assertLess(show.index("SHOW session="), show.index("BEFORE_FIRST_FRAME"))
+            self.assertIn("SHOW session=", show)
+            first_show = dock.index("self.showDock()", dock.index("FIRST_VIEW_SELECTED"))
+            self.assertLess(dock.index("FIRST_VIEW_SELECTED"), first_show)
+            self.assertIn("FIRST_PRESENTED_VIEW", dock)
+            self.assertIn("MULTITASK_DOCK_SETUP_PRESENT_V1", dock)
+            self.assertIn("MULTITASK_DOCK_SESSION_RECOVERY_V1", dock)
+            self.assertLess(dock.index("self.isCollapsed = initial"), first_show)
             # Manual toggle marks the session overridden; session teardown resets it.
             toggle = dock[dock.index("func toggleDockCollapse"):]
             toggle = toggle[:toggle.index("\n    }", toggle.index("isCollapsed.toggle")) + 6]
             self.assertIn("collapseStartState.userDidToggle()", toggle)
             self.assertIn("collapseStartState.end()", dock)
             for marker in ("stored_preference=", "SESSION_BEGIN id=", "apps_count=", "collapsed_before_show=",
-                           "isCollapsed_inside_show=", "BEFORE_FIRST_FRAME"):
+                           "FIRST_VIEW_SELECTED", "FIRST_PRESENTED_VIEW", "BEFORE_FIRST_FRAME",
+                           "CollapsedDockView", "renderedDockMode"):
                 self.assertIn(marker, dock)
-            # Hide-collapsed-dock behavior is untouched.
+            # Hidden-dock and Guest Return states are separate from this setting.
             self.assertNotIn("LCHideCollapsedDock", dock)
+            self.assertIn("self.isDockHidden = false", dock)
+            self.assertIn("MULTITASK_DOCK_RESHOW_AFTER_TRANSITION_V1", dock)
             # Rotation/layout paths never touch collapse state.
             self.assertNotIn("collapseManuallyOverridden", dock[dock.index("deviceOrientationDidChange"):])
 
@@ -260,12 +297,29 @@ class DockPatchTests(unittest.TestCase):
             live = fixture(Path(directory))
             patch.patch(live)
             dock = (live / "MultitaskSupport/MultitaskDockView.swift").read_text(encoding="utf-8")
-            # Initial preference is applied only at the one-shot first-frame boundary.
+            # The persisted bool is applied once before first presentation.
             self.assertIn("@Published @objc var isCollapsed: Bool = false", dock)
             self.assertEqual(dock.count("self.isCollapsed = initial"), 1)
             self.assertEqual(dock.count("self.collapseStartState.userDidToggle()"), 1)
             self.assertEqual(dock.count("isCollapsed.toggle()"), 1)
             self.assertNotIn("applyStartCollapsedPreference", dock)
+
+    def test_first_presented_view_behavior_executes(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable")
+        helper = (ROOT / "scripts/templates/multitask_dock_session_state.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/multitask_dock_session_harness.swift").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "dock-session.swift"
+            executable = Path(directory) / "dock-session"
+            source.write_text(helper + "\n" + harness, encoding="utf-8")
+            build = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
+                                   capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("DOCK_FIRST_PRESENTED_VIEW_BEHAVIOR_PASS", result.stdout)
 
     def test_hide_collapsed_dock_untouched(self):
         with tempfile.TemporaryDirectory() as directory:

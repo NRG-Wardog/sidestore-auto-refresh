@@ -345,7 +345,9 @@ class V3SetupAssistantTests(unittest.TestCase):
 
     def test_verified_refresh_semantics(self):
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        self.assertIn("runID != baselineRunID", source)
+        self.assertIn("testRequestID", source)
+        self.assertIn("V3RefreshAllAttemptState.record(in: ledger, requestID: requestID)", source)
+        self.assertIn('runRecord["state"]', source)
         self.assertIn("allSatisfy", source)
         self.assertIn("Task.checkCancellation", source)
         self.assertIn("Copy Setup Diagnostics", source)
@@ -384,7 +386,9 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         check = source[source.index("private func checkTestResult"):
                       source.index("private func checkTestResult") + 3000]
         self.assertIn('detail: "Refresh verified"', check)
-        self.assertIn("runID != baselineRunID", check)
+        self.assertIn("testRequestID", check)
+        self.assertIn("V3RefreshAllAttemptState.record(in: ledger, requestID: requestID)", check)
+        self.assertIn('runState == "completed" || runState == "failed"', check)
         self.assertIn("hasCompleteTerminalResults", check)
 
     def test_partial_manifest_does_not_verify(self):

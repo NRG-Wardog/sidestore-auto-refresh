@@ -38,20 +38,25 @@ struct UNAuthorizationOptions: OptionSet {
 }
 struct UNNotificationSettings { var authorizationStatus: UNAuthorizationStatus = .authorized }
 struct UNNotificationSound { static let `default` = Self() }
-class UNMutableNotificationContent { var title = ""; var body = ""; var sound: UNNotificationSound? }
+class UNMutableNotificationContent { var title = ""; var body = ""; var sound: UNNotificationSound?; var userInfo: [AnyHashable: Any] = [:] }
 class UNTimeIntervalNotificationTrigger { init(timeInterval: TimeInterval, repeats: Bool) {} }
 class UNNotificationRequest {
     let identifier: String; let content: UNMutableNotificationContent
     init(identifier: String, content: UNMutableNotificationContent, trigger: UNTimeIntervalNotificationTrigger?) { self.identifier = identifier; self.content = content }
 }
-class UNUserNotificationCenter {
+@MainActor class UNUserNotificationCenter {
     static let shared = UNUserNotificationCenter()
     static func current() -> UNUserNotificationCenter { shared }
     var requests: [UNNotificationRequest] = []
+    var onAdd: (@MainActor (UNNotificationRequest) -> Void)?
     func notificationSettings() async -> UNNotificationSettings { UNNotificationSettings() }
     func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool { true }
     func getNotificationSettings(_ completion: (UNNotificationSettings) -> Void) { completion(UNNotificationSettings()) }
-    func add(_ request: UNNotificationRequest, withCompletionHandler completion: ((Error?) -> Void)? = nil) { requests.append(request); completion?(nil) }
+    func add(_ request: UNNotificationRequest, withCompletionHandler completion: ((Error?) -> Void)? = nil) {
+        requests.append(request)
+        onAdd?(request)
+        completion?(nil)
+    }
     func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {}
 }
 class FakeAppInfo { func bundlePath() -> String? { nil }; func bundleIdentifier() -> String { "test.guest" } }
@@ -82,12 +87,14 @@ enum LiveContainerRefreshBridge {
             var wire = CombinedFailure(operation: "refresh", stage: stage, id: staleFailure ? UUID().uuidString : run,
                 underlying: NSError(domain: "DeviceGatewayError", code: 77), retryable: resultRetryable).wire
             if malformedFailure { wire["stage"] = "SECRET_TOKEN" }
-            defaults.set(["run_id": run, "expected_ids": ["spotify"], "results": [
+            defaults.set(["version": 2, "schema": "LiveContainerRefreshManifestV2",
+                          "run_id": run, "expected_ids": ["spotify"], "results": [
                 ["bundle_id": "spotify", "success": false, "failure": wire, "error": "SECRET_TOKEN private-server-response"] as [String: Any]]],
                 forKey: "liveContainerAutoRefreshVerification")
             return
         }
-        defaults.set(["run_id": defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? "",
+        defaults.set(["version": 2, "schema": "LiveContainerRefreshManifestV2",
+                      "run_id": defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? "",
                       "expected_ids": incomplete ? ["spotify", "other"] : ["spotify"],
                       "results": [["bundle_id": "spotify", "success": true]]],
                      forKey: "liveContainerAutoRefreshVerification")

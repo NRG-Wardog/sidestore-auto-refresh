@@ -307,10 +307,12 @@ class RefreshAllFeedbackTests(unittest.TestCase):
         view = text[start:end]
         for state in ("Starting Refresh...", "Refreshing...", "Verifying...", "completed", "failed"):
             self.assertIn(state, view)
-        self.assertIn('"Refresh did not start."', view)
-        self.assertIn('liveContainerAutoRefreshActiveRequestID', view)
-        self.assertIn('liveContainerAutoRefreshVerification', view)
-        self.assertIn("CombinedVerification.hasCompleteTerminalResults", view)
+        self.assertIn("attempt.markDidNotStart()", view)
+        self.assertIn('liveContainerAutoRefreshRunLedger', view)
+        self.assertIn("V3RefreshAllAttemptState.record", view)
+        self.assertIn("attempt.observe(record)", view)
+        self.assertNotIn("active.isEmpty", view)
+        self.assertNotIn('liveContainerAutoRefreshVerification', view)
         self.assertIn('Button("Dismiss")', view)
         self.assertIn('Button(copied ? "Copied" : "Copy Diagnostics")', view)
         self.assertIn(".disabled(isBusy || isTerminal || !activeRun.isEmpty", view)

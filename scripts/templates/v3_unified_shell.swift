@@ -202,14 +202,16 @@ struct V3RefreshAllButton: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @AppStorage("liveContainerAutoRefreshActiveRunID", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var activeRun = ""
     @AppStorage("liveContainerAutoRefreshHealthState", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var health = "UNKNOWN"
-    @State private var phase = "idle"
-    @State private var requestID = ""
-    @State private var runID = ""
+    @State private var attempt = V3RefreshAllAttemptState()
     @State private var message = ""
     @State private var diagnostics = ""
     @State private var copied = false
     @State private var monitor: Task<Void, Never>?
     private let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
+
+    private var phase: String { attempt.phase.rawValue }
+    private var requestID: String { attempt.requestID }
+    private var runID: String { attempt.runID }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -266,110 +268,100 @@ struct V3RefreshAllButton: View {
     }
 
     private func start() {
-        guard phase == "idle", !isBusy, !isTerminal, activeRun.isEmpty,
+        guard attempt.phase == .idle, !isBusy, !isTerminal, activeRun.isEmpty,
               status.presentation == nil, !status.loading else { return }
-        requestID = UUID().uuidString
-        runID = ""
-        phase = "starting"
+        let newRequestID = UUID().uuidString
+        attempt.begin(requestID: newRequestID)
         message = "Starting Refresh..."
-        diagnostics = "manual_refresh_request=\(requestID)\nstate=starting"
-        let expectedRequest = requestID
+        diagnostics = "manual_refresh_request=\(newRequestID)\nstate=starting"
         NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil,
-                                        userInfo: ["requestID": expectedRequest])
-        monitor = Task { @MainActor in await monitorRun(requestID: expectedRequest) }
+                                        userInfo: ["requestID": newRequestID])
+        monitor = Task { @MainActor in await monitorRun(requestID: newRequestID) }
     }
 
     private func monitorRun(requestID expectedRequest: String) async {
         let startDeadline = Date().addingTimeInterval(20)
         while !Task.isCancelled && Date() < startDeadline {
-            if defaults?.string(forKey: "liveContainerAutoRefreshActiveRequestID") == expectedRequest,
-               let active = defaults?.string(forKey: "liveContainerAutoRefreshActiveRunID"), !active.isEmpty {
-                runID = active
-                phase = "refreshing"
-                message = "Refreshing..."
-                break
+            if let record = runRecord(requestID: expectedRequest) {
+                _ = attempt.observe(record, schedulerHealth: health, activeRunID: activeRun)
+                renderAttempt(record)
+                if attempt.isTerminal { return }
+                if !attempt.runID.isEmpty { break }
             }
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
         guard !Task.isCancelled else { return }
-        if runID.isEmpty {
-            finishFailure(message: "Refresh did not start.", health: health)
+        if attempt.runID.isEmpty {
+            attempt.markDidNotStart()
+            renderFailure(health: health)
             return
         }
 
         let finishDeadline = Date().addingTimeInterval(600)
         while !Task.isCancelled && Date() < finishDeadline {
             inspectSchedulerState()
-            if phase == "completed" || phase == "failed" { return }
+            if attempt.isTerminal { return }
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
-        if !Task.isCancelled && phase != "completed" && phase != "failed" {
-            finishFailure(message: "Refresh did not reach a verified terminal result.", health: health)
+        if !Task.isCancelled && !attempt.isTerminal {
+            attempt.markTimedOut()
+            renderFailure(health: health)
         }
     }
 
     private func inspectSchedulerState() {
-        guard !runID.isEmpty, let defaults else { return }
-        let active = defaults.string(forKey: "liveContainerAutoRefreshActiveRunID") ?? ""
-        let manifest = defaults.dictionary(forKey: "liveContainerAutoRefreshVerification") ?? [:]
-        guard manifest["run_id"] as? String == runID else {
-            let terminalFailureStates: Set<String> = ["REFRESH_FAILED", "WIFI_UNAVAILABLE", "VPN_UNAVAILABLE",
-                "REFRESH_INTERRUPTED", "GUEST_SIGNATURE_INVALID", "HOST_REFRESH_FAILED", "REFRESH_DEADLINE_MISSED"]
-            if active.isEmpty, terminalFailureStates.contains(health) {
-                finishFailure(message: "Refresh failed before it produced a complete verified result. Check Refresh History for details.", health: health)
-            } else if active == runID {
-                phase = phase == "verifying" ? "verifying" : "refreshing"
-                message = phase == "verifying" ? "Verifying..." : "Refreshing..."
-            } else if active.isEmpty && health == "HOST_REFRESH_AWAITING_RELAUNCH" {
-                finishFailure(message: "The host refresh is waiting for LiveContainer to relaunch, so success is not verified yet.", health: health)
-            } else {
-                phase = "verifying"
-                message = "Verifying..."
-            }
-            return
-        }
+        guard !attempt.isTerminal, !runID.isEmpty,
+              let record = runRecord(requestID: requestID, runID: runID) else { return }
+        _ = attempt.observe(record, schedulerHealth: health, activeRunID: activeRun)
+        renderAttempt(record)
+    }
 
-        guard CombinedVerification.hasCompleteTerminalResults(manifest, runID: runID),
-              let results = manifest["results"] as? [[String: Any]] else {
-            phase = "verifying"
+    private func runRecord(requestID: String, runID: String? = nil) -> [String: Any]? {
+        guard let defaults,
+              let ledger = defaults.dictionary(forKey: "liveContainerAutoRefreshRunLedger") else { return nil }
+        return V3RefreshAllAttemptState.record(in: ledger, requestID: requestID, runID: runID)
+    }
+
+    private func renderAttempt(_ record: [String: Any]) {
+        switch attempt.phase {
+        case .starting:
+            message = "Starting Refresh..."
+        case .refreshing:
+            message = "Refreshing..."
+        case .verifying:
             message = "Verifying..."
-            return
-        }
-        if let failed = results.first(where: { $0["success"] as? Bool != true }) {
-            let safeMessage = failed["error"] as? String
-            var lines = ["manual_refresh_run=\(runID)", "health=\(health)", "state=failed"]
-            if let failure = failed["failure"] as? [String: Any] {
-                lines.append("operation=\(failure["operation"] as? String ?? "refresh") stage=\(failure["stage"] as? String ?? "unknown") code=\(failure["code"] as? String ?? "unknown")")
-                lines.append("correlation=\(failure["correlationID"] as? String ?? runID)")
-                lines.append("underlying_domain=\(failure["underlyingDomain"] as? String ?? "redacted") underlying_code=\(failure["underlyingCode"] as? Int ?? 0)")
-            }
-            diagnostics = lines.joined(separator: "\n")
-            phase = "failed"
-            message = safeMessage?.isEmpty == false ? (safeMessage ?? "Refresh failed.") : "Refresh failed for one or more installed apps."
-            return
-        }
-        if ["REFRESH_SUCCEEDED", "HOST_REFRESH_VERIFIED"].contains(health) && active.isEmpty {
-            phase = "completed"
-            message = "Refresh completed. All installed-app results were verified."
-            diagnostics = "manual_refresh_run=\(runID)\nhealth=\(health)\nstate=completed\nverified_app_count=\(results.count)"
-        } else {
-            phase = "verifying"
-            message = "Verifying..."
+        case .completed:
+            let manifest = record["manifest"] as? [String: Any] ?? [:]
+            let results = manifest["results"] as? [[String: Any]] ?? []
+            message = attempt.terminalMessage
+            diagnostics = "manual_refresh_request=\(requestID)\nrun_id=\(runID)\nstate=completed\nverified_app_count=\(results.count)"
+        case .failed:
+            renderFailure(health: record["health"] as? String ?? health, record: record)
+        case .idle:
+            break
         }
     }
 
-    private func finishFailure(message: String, health: String) {
-        phase = "failed"
-        self.message = message
-        diagnostics = "manual_refresh_request=\(requestID)\nrun_id=\(runID.isEmpty ? "not_started" : runID)\nhealth=\(health)\nstate=failed"
+    private func renderFailure(health: String, record: [String: Any]? = nil) {
+        guard !isTerminal || phase == "failed" else { return }
+        message = attempt.terminalMessage.isEmpty ? "Refresh failed. Check Refresh History for details." : attempt.terminalMessage
+        var lines = ["manual_refresh_request=\(requestID)", "run_id=\(runID.isEmpty ? "not_started" : runID)",
+                     "health=\(health)", "state=failed"]
+        if let manifest = record?["manifest"] as? [String: Any],
+           let results = manifest["results"] as? [[String: Any]],
+           let failed = results.first(where: { $0["success"] as? Bool != true }),
+           let failure = failed["failure"] as? [String: Any] {
+            lines.append("operation=\(failure["operation"] as? String ?? "refresh") stage=\(failure["stage"] as? String ?? "unknown") code=\(failure["code"] as? String ?? "unknown")")
+            lines.append("correlation=\(failure["correlationID"] as? String ?? runID)")
+            lines.append("underlying_domain=\(failure["underlyingDomain"] as? String ?? "redacted") underlying_code=\(failure["underlyingCode"] as? Int ?? 0)")
+        }
+        diagnostics = lines.joined(separator: "\n")
     }
 
     private func acknowledge() {
         monitor?.cancel()
         monitor = nil
-        phase = "idle"
-        requestID = ""
-        runID = ""
+        attempt.acknowledge()
         message = ""
         diagnostics = ""
         copied = false
@@ -3439,7 +3431,8 @@ final class V3SetupStore: ObservableObject {
     @Published var lastVerified: Date?
     @Published var diagnostics = ""
     private var testTask: Task<Void, Never>?
-    private var baselineRunID: String?
+    private var testRequestID: String?
+    private var testRunID: String?
 
     private var groupDefaults: UserDefaults? {
         UserDefaults(suiteName: "group.com.SideStore.SideStore")
@@ -3565,10 +3558,13 @@ final class V3SetupStore: ObservableObject {
     func runTestRefresh() {
         guard !testRunning else { return }
         testRunning = true
-        baselineRunID = verificationManifest()?["run_id"] as? String
+        let requestID = UUID().uuidString
+        testRequestID = requestID
+        testRunID = nil
         verification = V3SetupStepState(state: "running", detail: "Test refresh running…")
         NSLog("[V3_SETUP] TEST_REFRESH_START")
-        NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil)
+        NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil,
+                                        userInfo: ["requestID": requestID])
         testTask = Task {
             do {
                 let deadline = Date().addingTimeInterval(600)
@@ -3590,18 +3586,26 @@ final class V3SetupStore: ObservableObject {
     }
 
     private func checkTestResult() async -> Bool {
-        // The current setup test requires a NEW run ID plus the authoritative
-        // complete-result contract: every expected app present exactly once.
-        // A partial manifest (for example two expected apps but one result)
-        // never verifies, no matter how old or new it is.
-        guard let manifest = verificationManifest(),
-              let runID = manifest["run_id"] as? String,
-              runID != baselineRunID,
+        guard let requestID = testRequestID,
+              let ledger = groupDefaults?.dictionary(forKey: "liveContainerAutoRefreshRunLedger"),
+              let runRecord = V3RefreshAllAttemptState.record(in: ledger, requestID: requestID),
+              let runID = runRecord["run_id"] as? String else { return false }
+        if let testRunID, testRunID != runID { return false }
+        testRunID = runID
+        let runState = runRecord["state"] as? String ?? ""
+        guard runState == "completed" || runState == "failed" else { return false }
+        let manifest = runRecord["manifest"] as? [String: Any] ?? [:]
+        guard manifest["run_id"] as? String == runID,
               CombinedVerification.hasCompleteTerminalResults(manifest, runID: runID) else {
+            if runState == "failed" {
+                verification = V3SetupStepState(state: "failed", detail: runRecord["message"] as? String ?? "Refresh failed")
+                testRunning = false
+                return true
+            }
             return false
         }
         let results = manifest["results"] as? [[String: Any]] ?? []
-        if results.allSatisfy({ $0["success"] as? Bool == true }) {
+        if runState == "completed" && results.allSatisfy({ $0["success"] as? Bool == true }) {
             verification = V3SetupStepState(state: "complete", detail: "Refresh verified")
             if let date = manifest["date"] as? Date {
                 lastVerified = date
@@ -3636,6 +3640,8 @@ final class V3SetupStore: ObservableObject {
         testTask?.cancel()
         testTask = nil
         testRunning = false
+        testRequestID = nil
+        testRunID = nil
     }
 
     func buildDiagnostics(status: V3SideStoreStatusStore) {

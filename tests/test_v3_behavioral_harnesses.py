@@ -32,6 +32,13 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         harness = (ROOT / "tests/fixtures/v3_release_behavior_harness.swift").read_text(encoding="utf-8")
         self.compile_and_run(helper + "\n" + failure + "\n" + harness, "V3_RELEASE_BEHAVIOR_PASS")
 
+    def test_refresh_all_request_correlation_terminal_order_and_absorbing_states_execute(self):
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_refresh_all_attempt_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run(helper + "\n" + failure + "\n" + harness,
+                             "V3_REFRESH_ALL_REQUEST_TERMINAL_PASS")
+
     def test_picker_staging_file_lifetime_and_path_validation_execute(self):
         helper = (ROOT / "scripts/templates/v3_ipa_staging.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")

@@ -1,5 +1,10 @@
 import Foundation
 
+enum LCMultitaskDockRenderedMode: Equatable {
+    case expandedDockView
+    case collapsedDockView
+}
+
 // The dock singleton outlives multitasking sessions. This model owns the
 // one-time first-frame preference and the user override for each fresh session.
 struct LCMultitaskDockSessionState {
@@ -7,6 +12,13 @@ struct LCMultitaskDockSessionState {
     private var storedPreference = false
     private var initialPreferenceApplied = false
     private(set) var manuallyOverridden = false
+    private(set) var wasPresented = false
+
+    var isActiveSession: Bool { sessionID != nil }
+
+    static func renderedMode(isCollapsed: Bool) -> LCMultitaskDockRenderedMode {
+        isCollapsed ? .collapsedDockView : .expandedDockView
+    }
 
     mutating func begin(storedPreference: Bool) -> String {
         let id = UUID().uuidString
@@ -14,12 +26,14 @@ struct LCMultitaskDockSessionState {
         self.storedPreference = storedPreference
         initialPreferenceApplied = false
         manuallyOverridden = false
+        wasPresented = false
         return id
     }
 
-    func preference(for id: String) -> Bool? {
-        guard sessionID == id else { return nil }
-        return storedPreference
+    mutating func markPresented(sessionID id: String) -> Bool {
+        guard sessionID == id, initialPreferenceApplied, !wasPresented else { return false }
+        wasPresented = true
+        return true
     }
 
     mutating func applyBeforeFirstFrame(sessionID id: String) -> Bool? {
@@ -37,5 +51,6 @@ struct LCMultitaskDockSessionState {
         sessionID = nil
         initialPreferenceApplied = false
         manuallyOverridden = false
+        wasPresented = false
     }
 }

@@ -14,6 +14,7 @@ extension LiveContainerAutoRefreshScheduler {
         LiveContainerNetworkPreflight.checks = 0
         BGTaskScheduler.shared.requests = []
         UNUserNotificationCenter.shared.requests = []
+        UNUserNotificationCenter.shared.onAdd = nil
     }
     static func exercise() async {
         clearTestState()
@@ -42,11 +43,46 @@ extension LiveContainerAutoRefreshScheduler {
 
         clearTestState()
         let successful = BGTask()
+        var completionNotificationObservedAfterCommit = false
+        UNUserNotificationCenter.shared.onAdd = { notification in
+            guard notification.content.title == "Refresh completed",
+                  let runID = notification.content.userInfo["run_id"] as? String,
+                  let requestID = notification.content.userInfo["request_id"] as? String,
+                  let terminal = runLedger()[runID] else { return }
+            completionNotificationObservedAfterCommit =
+                defaults.string(forKey: activeRunKey) == nil &&
+                defaults.string(forKey: activeManualRequestKey) == nil &&
+                terminal["run_id"] as? String == runID &&
+                terminal["request_id"] as? String == requestID &&
+                terminal["state"] as? String == "completed" &&
+                (terminal["manifest"] as? [String: Any])?["run_id"] as? String == runID
+        }
         await execute(source: "manual", task: successful)
         precondition(LiveContainerRefreshBridge.calls == 1 && successful.completions == [true])
         precondition(defaults.string(forKey: lastResultKey) == "verified")
         precondition(defaults.string(forKey: activeRunKey) == nil)
         precondition(defaults.string(forKey: expectedRunKey) == nil)
+        precondition(completionNotificationObservedAfterCommit,
+                     "success notification preceded the same run's terminal commit and ownership clear")
+
+        // Manager Manual Refresh and a later Home Refresh All keep distinct
+        // request/run identities; the old successful manifest cannot satisfy the new request.
+        clearTestState()
+        let managerRequest = UUID().uuidString
+        await execute(source: "manual", manualRequestID: managerRequest)
+        let managerRecord = runLedger().values.first { $0["request_id"] as? String == managerRequest }!
+        let managerRun = managerRecord["run_id"] as! String
+        let homeRequest = UUID().uuidString
+        let oldManifest = managerRecord["manifest"] as! [String: Any]
+        defaults.set(oldManifest, forKey: verificationKey)
+        await execute(source: "manual", manualRequestID: homeRequest)
+        let homeRecord = runLedger().values.first { $0["request_id"] as? String == homeRequest }!
+        let homeRun = homeRecord["run_id"] as! String
+        precondition(homeRun != managerRun, "new manual request reused an earlier run ID")
+        precondition(homeRecord["state"] as? String == "completed")
+        precondition((homeRecord["manifest"] as? [String: Any])?["run_id"] as? String == homeRun,
+                     "old manifest satisfied the new request")
+        precondition(runLedger()[managerRun]?["state"] as? String == "completed")
 
         clearTestState()
         LiveContainerRefreshBridge.fails = true
@@ -83,7 +119,8 @@ extension LiveContainerAutoRefreshScheduler {
         precondition(defaults.object(forKey: nextRetryKey) == nil)
         precondition(defaults.string(forKey: lastErrorKey)!.contains("retryable=false"))
         let mixedRun = UUID().uuidString
-        defaults.set(["run_id": mixedRun, "expected_ids": ["first", "second"], "results": [
+        defaults.set(["version": 2, "schema": "LiveContainerRefreshManifestV2",
+                      "run_id": mixedRun, "expected_ids": ["first", "second"], "results": [
             ["bundle_id": "first", "success": false, "failure": CombinedFailure(operation: "refresh", stage: .uniqueDeviceID, id: mixedRun).wire],
             ["bundle_id": "second", "success": false, "failure": CombinedFailure(operation: "refresh", stage: .authentication, id: mixedRun).wire]]],
             forKey: verificationKey)
@@ -128,8 +165,15 @@ extension LiveContainerAutoRefreshScheduler {
         verifyPendingHostHandoff()
         precondition(defaults.bool(forKey: hostHandoffKey), "stale handoff mutated current state")
         precondition(defaults.string(forKey: uncertainMutationKey) == currentRun)
+        defaults.set(["run_id": currentRun, "version": 2, "schema": "LiveContainerRefreshManifestV2",
+                      "expected_ids": ["fixture.app"],
+                      "results": [["bundle_id": "fixture.app", "success": true]]], forKey: verificationKey)
+        saveRunRecord(["run_id": currentRun, "request_id": UUID().uuidString,
+                       "source": "manual", "state": "verifying",
+                       "started_at": Date().timeIntervalSince1970], runID: currentRun)
         precondition(markVerified(runID: currentRun, source: "manual", detail: "current authoritative result"))
         precondition(defaults.string(forKey: uncertainMutationKey) == nil)
+        precondition(runLedger()[currentRun]?["state"] as? String == "completed")
 
         clearTestState()
         activeRun = UUID()
