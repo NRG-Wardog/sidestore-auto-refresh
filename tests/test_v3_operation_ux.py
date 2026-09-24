@@ -65,9 +65,27 @@ class SheetLifecycleTests(unittest.TestCase):
         self.assertIn("attempt.begin()", retry)
         self.assertIn("attempt.transitionInFlight", sheet)
 
-    def test_preparing_state_before_session(self):
+    def test_broad_backend_phase_before_pipeline_reports_a_step(self):
+        runtime_source = runtime()
+        self.assertIn('"phase": V3OperationPhase.working.rawValue', runtime_source)
+        self.assertIn('"phaseLabel": V3OperationPhase.working.label', runtime_source)
+
+    def test_operation_phase_and_progress_use_backend_values_with_ui_clamp(self):
         sheet = operation_sheet()
-        self.assertIn("Preparing...", sheet)
+        runtime_source = runtime()
+        self.assertIn('"phase": phase.rawValue, "phaseLabel": phase.label', runtime_source)
+        self.assertIn("session.phase.recordPipelineStep(step, downloadUsesNetwork: downloadUsesNetwork)", runtime_source)
+        self.assertIn("setPhase(sessionID: sessionID, phase: .downloadingIPA)", runtime_source)
+        self.assertIn("V3NormalizedProgress.clamp(progress)", runtime_source)
+        self.assertIn("operationPhase = V3OperationPhase(rawValue: rawPhase) ?? .working", sheet)
+        self.assertIn("operationPhase.label", sheet)
+        self.assertIn("V3NormalizedProgress.displayValue(progress, state: state)", sheet)
+        self.assertIn('Text("Progress")', sheet)
+        self.assertIn('Text(hasProgress || state == "completed" ?', sheet)
+        apply = sheet[sheet.index("private func apply"):]
+        completed = apply[apply.index('case "completed":'):]
+        completed = completed[:completed.index('case "cancelled":')]
+        self.assertIn("progress = 1", completed)
 
     def test_cancelled_is_terminal_and_visible(self):
         sheet = operation_sheet()

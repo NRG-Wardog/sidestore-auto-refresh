@@ -11,7 +11,8 @@ MARKER = "LC_SERVICE_CONNECTION_V1"
 OUTPUTS = {(0, name) for name in ("SideStoreSupport/SideStore.swift", "LiveContainer/LCContainerStorage.h",
     "LiveContainer/LCBootstrap.m", "SideStoreSupport/XPCServer.h", "SideStoreSupport/XPCServer.m",
     "SideStoreSupport/SideStoreClient.swift", "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift")} | {
-    (1, "AltStore/AppDelegate.swift"), (1, "SideStore/Core/Operations/PipelineExecutor.swift")}
+    (1, "AltStore/AppDelegate.swift"), (1, "SideStore/Core/Operations/PipelineExecutor.swift"),
+    (1, "SideStore/Core/Operations/PipelineRunner.swift")}
 
 SIGNING_CAUSE_HELPER = '''
 // LC_SIGNING_CAUSE_CLASSIFIER_V1: only typed upstream errors gain a semantic cause.
@@ -93,11 +94,28 @@ def replace(text, old, new):
     return text.replace(old, new, 1)
 
 
-def patch_pipeline_executor(text):
+def patch_pipeline_executor(text, product="v3"):
     if "LC_SIGNING_CAUSE_CLASSIFIER_V1" in text or "LC_STRUCTURED_FAILURE_V1" in text:
         raise SystemExit("pinned pipeline already contains the structured signing adapter")
+    if product == "v3":
+        text = replace(text, "        do {\n            switch step {", '''        // V3_PIPELINE_PHASE_REPORTING_V1: report the authoritative step before it runs.
+        if let headlessHandler = context.handler as? V3HeadlessPipelineHandler {
+            await headlessHandler.recordPipelinePhase(step,
+                downloadUsesNetwork: downloadingApp.url?.isFileURL == false)
+        }
+        do {
+            switch step {''')
     return replace(text, "            result = error\n            throw error",
                    PIPELINE_FAILURE_HANDLER) + SIGNING_CAUSE_HELPER
+
+
+def patch_pipeline_runner(text):
+    marker = "V3_PROGRESS_BASELINE_FIX_V1"
+    if marker in text:
+        raise SystemExit("pinned runner already contains the progress baseline fix")
+    return replace(text, "        group.progress.completedUnitCount = 1",
+        "        // V3_PROGRESS_BASELINE_FIX_V1: child weights already span the full total.\n"
+        "        group.progress.completedUnitCount = 0")
 
 
 def patch(live, side, product):
@@ -245,7 +263,9 @@ extension SideStoreClient {
 '''
     edit(live, "SideStoreSupport/SideStoreClient.swift", client)
     edit(side, "AltStore/AppDelegate.swift", lambda s: s + template("combined_failure.swift"))
-    edit(side, "SideStore/Core/Operations/PipelineExecutor.swift", patch_pipeline_executor)
+    edit(side, "SideStore/Core/Operations/PipelineExecutor.swift",
+         lambda s: patch_pipeline_executor(s, product))
+    edit(side, "SideStore/Core/Operations/PipelineRunner.swift", patch_pipeline_runner)
     edit(live, "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", lambda s: replace(s,
         "                if sharedModel.developerMode {", '''                Section("Build Candidate") {
                     Text("Product: " + (Bundle.main.object(forInfoDictionaryKey: "LCProductLine") as? String ?? "unknown"))

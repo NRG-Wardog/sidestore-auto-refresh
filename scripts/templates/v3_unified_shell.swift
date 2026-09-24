@@ -1922,6 +1922,8 @@ struct V3OperationSheet: View {
     @State private var uncertainSessionID: String?
     @State private var state = "working"
     @State private var progress = 0.0
+    @State private var hasProgress = false
+    @State private var operationPhase = V3OperationPhase.working
     @State private var prompt: [String: Any]?
     @State private var sourceOffer: [String: String]?
     @State private var message = ""
@@ -1958,23 +1960,32 @@ struct V3OperationSheet: View {
     }
     private var isTransitioning: Bool { attempt.transitionInFlight }
     private var isRunning: Bool { ["working", "awaitingPrompt", "cancelling"].contains(state) }
+    private var displayProgress: Double { V3NormalizedProgress.displayValue(progress, state: state) }
+    private var progressPercent: Int { V3NormalizedProgress.percent(progress, state: state) }
     var body: some View {
         NavigationView {
             List {
                 Section {
                     HStack {
-                        if state == "working" || state == "awaitingPrompt" {
-                            ProgressView(value: progress > 0 ? progress : nil)
-                                .frame(maxWidth: .infinity)
-                        } else if state == "completed" {
-                            Label("Completed", systemImage: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                        }
-                    }
-                    HStack {
                         Text("Status")
                         Spacer()
-                        Text(statusText).foregroundColor(.secondary)
+                        if state == "completed" {
+                            Label("Completed", systemImage: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                        } else {
+                            Text(statusText).foregroundColor(.secondary)
+                        }
+                    }
+                    if isRunning || state == "completed" {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Progress")
+                                Spacer()
+                                Text(hasProgress || state == "completed" ? "\(progressPercent)%" : "—")
+                                    .foregroundColor(.secondary)
+                            }
+                            ProgressView(value: hasProgress || state == "completed" ? displayProgress : nil)
+                        }
                     }
                 }
                 if let prompt {
@@ -2103,7 +2114,7 @@ struct V3OperationSheet: View {
         case "failed": return "Failed"
         case "cancelled": return "Cancelled"
         case "requiresSource": return "Source required"
-        default: return progress > 0 ? "\(Int(progress * 100))%" : (startedGeneration == nil ? "Preparing..." : "Working...")
+        default: return isTransitioning ? "Waiting for previous attempt..." : operationPhase.label
         }
     }
     private func start() {
@@ -2113,6 +2124,9 @@ struct V3OperationSheet: View {
     private func startAttempt(generation: UUID) {
         guard attempt.generation == generation, startedGeneration != generation else { return }
         startedGeneration = generation
+        progress = 0
+        hasProgress = false
+        operationPhase = .working
         task = Task { await run(generation: generation) }
     }
     private func run(generation: UUID) async {
@@ -2217,13 +2231,21 @@ struct V3OperationSheet: View {
             status.installTerminal(attemptID: request.installAttemptID,
                 operationID: request.id, outcome: nextState)
         }
-        progress = reply["progress"] as? Double ?? progress
+        if let rawProgress = reply["progress"] as? Double {
+            progress = V3NormalizedProgress.clamp(rawProgress)
+            hasProgress = true
+        }
+        if let rawPhase = reply["phase"] as? String {
+            operationPhase = V3OperationPhase(rawValue: rawPhase) ?? .working
+        }
         let oldPromptID = prompt?["id"] as? String
         let nextPrompt = reply["prompt"] as? [String: Any]
         prompt = nextPrompt
         if oldPromptID != (nextPrompt?["id"] as? String) { promptSubmitting = false }
         switch state {
         case "completed":
+            progress = 1
+            hasProgress = true
             // Terminal success stays visible until the user presses Done.
             // Auto-dismissing here made successful fast operations look like
             // nothing happened.

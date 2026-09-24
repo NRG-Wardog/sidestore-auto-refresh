@@ -1,5 +1,100 @@
 import Foundation
 
+// Operation phases are fed by PipelineExecutor's actual PipelineStep callback.
+// Unknown steps intentionally collapse to Working... rather than inferring a
+// stage from progress percentages.
+enum V3OperationPhase: String, Equatable, CaseIterable {
+    case working
+    case preparing
+    case preparingIPA
+    case downloadingIPA
+    case verifying
+    case preparingSigning
+    case fetchingProvisioningProfile
+    case signing
+    case preparingInstallation
+    case transferringToDevice
+    case installing
+    case refreshing
+    case deleting
+    case backingUp
+    case restoring
+    case updating
+    case cleaningUp
+
+    var label: String {
+        switch self {
+        case .working: return "Working..."
+        case .preparing: return "Preparing..."
+        case .preparingIPA: return "Preparing IPA..."
+        case .downloadingIPA: return "Downloading IPA..."
+        case .verifying: return "Verifying..."
+        case .preparingSigning: return "Preparing signing..."
+        case .fetchingProvisioningProfile: return "Fetching provisioning profile..."
+        case .signing: return "Signing..."
+        case .preparingInstallation: return "Preparing installation..."
+        case .transferringToDevice: return "Transferring to device..."
+        case .installing: return "Installing..."
+        case .refreshing: return "Refreshing..."
+        case .deleting: return "Removing app..."
+        case .backingUp: return "Backing up..."
+        case .restoring: return "Restoring..."
+        case .updating: return "Updating app..."
+        case .cleaningUp: return "Cleaning up..."
+        }
+    }
+
+    static func forPipelineStep(_ step: String, downloadUsesNetwork: Bool = false) -> Self? {
+        switch step {
+        case "userCustomization", "preflightChecks", "cacheApp": return .preparing
+        case "downloadApp": return downloadUsesNetwork ? .downloadingIPA : .preparingIPA
+        case "verifyApp", "verifyCertificate": return .verifying
+        case "updateAppCertificate": return .preparingSigning
+        case "fetchProvisioningProfiles": return .fetchingProvisioningProfile
+        case "embedSigningCert", "resignApp", "cacheSigningCert": return .signing
+        case "stageApp", "stageBackupApp", "changeAppIcon", "removeAppExtensions",
+             "prepareAppExtensionBundleIDs", "createIPA", "exportResignedIPA":
+            return .preparingInstallation
+        case "sendApp": return .transferringToDevice
+        case "installApp": return .installing
+        case "refreshApp": return .refreshing
+        case "uninstallApp", "removeApp": return .deleting
+        case "backupAppData": return .backingUp
+        case "restoreAppData": return .restoring
+        case "deactivateApp", "markAppInactive": return .updating
+        case "removeBackupData", "cleanStagedApp": return .cleaningUp
+        default: return nil
+        }
+    }
+}
+
+struct V3OperationPhaseTracker: Equatable {
+    private(set) var phase: V3OperationPhase = .working
+
+    mutating func recordPipelineStep(_ step: String, downloadUsesNetwork: Bool = false) {
+        phase = V3OperationPhase.forPipelineStep(step, downloadUsesNetwork: downloadUsesNetwork) ?? .working
+    }
+
+    mutating func record(_ phase: V3OperationPhase) {
+        self.phase = phase
+    }
+}
+
+enum V3NormalizedProgress {
+    static func clamp(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        return min(max(value, 0), 1)
+    }
+
+    static func displayValue(_ value: Double, state: String) -> Double {
+        state == "completed" ? 1 : clamp(value)
+    }
+
+    static func percent(_ value: Double, state: String) -> Int {
+        Int((displayValue(value, state: state) * 100).rounded())
+    }
+}
+
 // A picker selection survives dismissal and any in-flight snapshot reload.
 // The picker and operation occupy one host-owned cover, so SwiftUI never has to
 // race two unrelated root presentations.

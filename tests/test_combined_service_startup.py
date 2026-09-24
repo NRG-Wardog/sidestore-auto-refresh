@@ -262,7 +262,8 @@ class StartupPatchTests(unittest.TestCase):
         roots = (directory / "live", directory / "side")
         paths = (["SideStoreSupport/" + name for name in ("SideStore.swift", "SideStoreClient.swift", "XPCServer.m", "XPCServer.h", "XPCClient.m")] +
                  ["LiveContainer/LCBootstrap.m", "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"],
-                 ["AltStore/AppDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift"])
+                 ["AltStore/AppDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift",
+                  "SideStore/Core/Operations/PipelineRunner.swift"])
         for source, root, pin, files in zip((live_source, side_source), roots, startup.PINS, paths):
             for name in files:
                 path = root / name; path.parent.mkdir(parents=True, exist_ok=True)
@@ -310,6 +311,20 @@ class StartupPatchTests(unittest.TestCase):
 
 
 class ReadinessRegressionTests(unittest.TestCase):
+    def test_pipeline_phase_hook_is_v3_only(self):
+        source = """        do {
+            switch step {
+            default: break
+            }
+            result = error
+            throw error"""
+        generated_v2 = startup.patch_pipeline_executor(source, product="v2")
+        generated_v3 = startup.patch_pipeline_executor(source, product="v3")
+        self.assertNotIn("V3_PIPELINE_PHASE_REPORTING_V1", generated_v2)
+        self.assertIn("V3_PIPELINE_PHASE_REPORTING_V1", generated_v3)
+        self.assertIn("await headlessHandler.recordPipelinePhase(step,", generated_v3)
+        self.assertIn("downloadUsesNetwork: downloadingApp.url?.isFileURL == false", generated_v3)
+
     def test_generated_pinned_sidesign_errors_keep_typed_signing_semantics(self):
         compiler = shutil.which("swiftc")
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
@@ -332,6 +347,15 @@ class ReadinessRegressionTests(unittest.TestCase):
         generated_pipeline = startup.patch_pipeline_executor(original_pipeline)
         self.assertIn("lcSafeSigningCause(error)", generated_pipeline)
         self.assertIn('sourceStep = "provisioningProfileFetch"', generated_pipeline)
+        self.assertIn("V3_PIPELINE_PHASE_REPORTING_V1", generated_pipeline)
+        self.assertIn("await headlessHandler.recordPipelinePhase(step)", generated_pipeline)
+        original_runner = subprocess.check_output([
+            "git", "-C", embedded, "show",
+            startup.PINS[1] + ":SideStore/Core/Operations/PipelineRunner.swift"], text=True)
+        generated_runner = startup.patch_pipeline_runner(original_runner)
+        self.assertIn("V3_PROGRESS_BASELINE_FIX_V1", generated_runner)
+        self.assertIn("group.progress.completedUnitCount = 0", generated_runner)
+        self.assertNotIn("group.progress.completedUnitCount = 1", generated_runner)
         helper = generated_pipeline[generated_pipeline.index("// LC_SIGNING_CAUSE_CLASSIFIER_V1"):]
         failure_model = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         behavioral_model = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")

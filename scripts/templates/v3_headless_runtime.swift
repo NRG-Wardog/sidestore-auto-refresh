@@ -735,6 +735,14 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
         debugLog("[V3_OP] DELETE_NATIVE_UNINSTALL_SUCCEEDED session=\(sessionID)")
     }
 
+    // Called by PipelineExecutor immediately before it executes the concrete
+    // pipeline step. This reflects backend state, never progress ranges.
+    func recordPipelinePhase(_ step: PipelineStep, downloadUsesNetwork: Bool) {
+        guard let center = try? center() else { return }
+        center.recordPipelineStep(sessionID: sessionID, step: String(describing: step),
+                                  downloadUsesNetwork: downloadUsesNetwork)
+    }
+
     func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID: String, appendTeamID: Bool)? {
         let answer = try await ask(kind: "bundleIDOverride", title: "Customize Bundle ID",
                                    message: "Optionally customize the bundle identifier used for signing.",
@@ -774,6 +782,7 @@ final class V3OperationCenter {
         var watchdog: Task<Void, Never>?
         var prompt: [String: Any]?
         var group: RefreshGroup?
+        var phase = V3OperationPhaseTracker()
         var terminal = V3TerminalResponse()
         var deadline = Date.distantFuture
         var terminalAt: Date?
@@ -831,7 +840,9 @@ final class V3OperationCenter {
             mutationRegistry.finish(id)
             return terminalReply(id: id)
         }
-        return ["session": id, "state": "working"]
+        return ["session": id, "state": "working",
+                "phase": V3OperationPhase.working.rawValue,
+                "phaseLabel": V3OperationPhase.working.label]
     }
 
     private func drive(id: String, driver: V3OpDriver) async {
@@ -864,15 +875,33 @@ final class V3OperationCenter {
         cleanupSessions()
         guard let session = sessions[id] else { return nil }
         if let terminal = session.terminal.value { return terminal.merging(["session": id]) { current, _ in current } }
-        var reply: [String: Any] = ["session": id, "state": "working"]
+        let phase = session.phase.phase
+        var reply: [String: Any] = ["session": id, "state": "working",
+                                    "phase": phase.rawValue, "phaseLabel": phase.label]
         if let progress = session.group?.progress.fractionCompleted, progress.isFinite {
-            reply["progress"] = progress
+            let normalized = V3NormalizedProgress.clamp(progress)
+            if normalized != progress {
+                debugLog("[V3_OP] PROGRESS_CLAMP session=\(id) out_of_range=1")
+            }
+            reply["progress"] = normalized
         }
         if let prompt = session.prompt {
             reply["state"] = "awaitingPrompt"
             reply["prompt"] = prompt
         }
         return reply
+    }
+
+    func recordPipelineStep(sessionID: String, step: String, downloadUsesNetwork: Bool) {
+        guard var session = sessions[sessionID], session.terminal.isEmpty else { return }
+        session.phase.recordPipelineStep(step, downloadUsesNetwork: downloadUsesNetwork)
+        sessions[sessionID] = session
+    }
+
+    func setPhase(sessionID: String, phase: V3OperationPhase) {
+        guard var session = sessions[sessionID], session.terminal.isEmpty else { return }
+        session.phase.record(phase)
+        sessions[sessionID] = session
     }
 
     func answer(id: String, promptID: String, answer: [String: String]) -> [String: Any]? {
@@ -1243,10 +1272,10 @@ final class V3OperationCenter {
               url.host != nil, url.user == nil, url.password == nil else {
             throw V3SideStoreServiceError.invalidRequest
         }
-        return try await ipaTarget(url: url, scoped: false)
+        return try await ipaTarget(url: url, scoped: false, sessionID: id)
     }
 
-    private func ipaTarget(url: URL, scoped: Bool) async throws -> InstallTarget {
+    private func ipaTarget(url: URL, scoped: Bool, sessionID: String) async throws -> InstallTarget {
         var localURL = url
         var scopedURL: URL?
         defer { scopedURL?.stopAccessingSecurityScopedResource() }
@@ -1256,6 +1285,7 @@ final class V3OperationCenter {
             }
             let temporaryDirectory = FileManager.default.uniqueTemporaryURL()
             try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+            V3HeadlessRuntime.shared.operations.setPhase(sessionID: sessionID, phase: .downloadingIPA)
             localURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
                 let downloadTask = URLSession.shared.downloadTask(with: url) { (fileURL, response, error) in
                     do {
