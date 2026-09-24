@@ -179,6 +179,9 @@ public struct CombinedFailure: Error, LocalizedError {
     private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "HTTPStatus"]
     private static let verificationDomains: Set<String> = ["ALTServerErrorDomain", "ALTErrorDomain", "IdeviceGatewayError", "DeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy"]
     public var message: String {
+        if operation == "delete", code == .timedOut {
+            return "SideStore could not confirm that the deleted app disappeared from its installed library."
+        }
         if code == .cancelled { return "The \(operation) request was cancelled. Its result may need reconciliation." }
         if code == .timedOut { return "The \(operation) request timed out during \(stage.rawValue)." }
         if let safeCause {
@@ -186,7 +189,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .networkConnectionLost: return "The network connection was lost during \(operation)."
             case .networkTimedOut: return "The network request timed out during \(operation)."
             case .networkUnavailable: return "A network connection was unavailable during \(operation)."
-            case .signingNetworkConnectionLost: return "The signing flow lost its connection while contacting the provisioning service."
+            case .signingNetworkConnectionLost: return "The connection to the provisioning service was interrupted during signing."
             case .signingNetworkTimedOut: return "The provisioning service did not respond during signing."
             case .signingNetworkUnavailable: return "The signing flow could not reach the provisioning service."
             case .developerPortalRejectedRequest: return "Apple's Developer Portal rejected a provisioning request during signing."
@@ -264,7 +267,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .networkConnectionLost, .networkTimedOut, .networkUnavailable:
                 return "Reconnect, check LocalDevVPN if enabled, and retry when the connection is stable."
             case .signingNetworkConnectionLost, .signingNetworkTimedOut, .signingNetworkUnavailable:
-                return "Check the network and LocalDevVPN, then retry signing. The failure occurred while contacting the provisioning service."
+                return "Your current connection may still be healthy. Retry once. If this happens again, open Connection Check."
             case .developerPortalRejectedRequest, .developerPortalInvalidResponse:
                 return "Check Account & Signing and Certificates. If it repeats, keep these diagnostics for support before retrying."
             case .provisioningProfileUnavailable, .certificateUnavailable:
@@ -276,6 +279,8 @@ public struct CombinedFailure: Error, LocalizedError {
             }
         }
         switch stage {
+        case .command where operation == "delete" && code == .timedOut:
+            return "Reload the installed app list and verify the deletion before trying another delete."
         case .hostContainer, .storagePreparation, .bookmarkCreation:
             return "Keep existing data intact. Return to the host, check available storage, and use Retry Connection. Copy these diagnostics if it fails again."
         case .extensionDiscovery:

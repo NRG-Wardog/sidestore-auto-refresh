@@ -21,7 +21,6 @@ struct V3UnifiedShell: View {
 struct V3UnifiedTabs: View {
     @EnvironmentObject private var sharedModel: SharedModel
     @StateObject private var status = V3SideStoreStatusStore()
-    @State private var selectedInstallToken: String?
     @State private var showNotificationsPrompt = false
     private let monitor = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     var body: some View {
@@ -56,15 +55,15 @@ struct V3UnifiedTabs: View {
         .onReceive(monitor) { _ in status.reload(manual: false) }
         .onOpenURL(perform: dispatchURL)
         .sheet(isPresented: $status.installPickerPresented, onDismiss: {
-            if let token = selectedInstallToken {
-                selectedInstallToken = nil
-                status.presentStagedIPA(token, title: "Install / Sideload App")
-            }
+            status.installPickerDidDismiss()
         }) {
             V3IPADocumentPicker { url in
                 if let url {
-                    selectedInstallToken = status.stageSharedIPA(url, title: "Install / Sideload App",
-                                                                 presentImmediately: false)
+                    NSLog("[V3_INSTALL_HANDOFF] PICKER_SELECTION received=true")
+                    _ = status.stageSharedIPA(url, title: "Install / Sideload App",
+                                              presentImmediately: false)
+                } else {
+                    NSLog("[V3_INSTALL_HANDOFF] PICKER_SELECTION received=false")
                 }
                 status.installPickerPresented = false
             }
@@ -78,6 +77,10 @@ struct V3UnifiedTabs: View {
         }
         .sheet(isPresented: $status.setupPresented) {
             NavigationView { V3SetupAssistantView().environmentObject(status) }
+                .navigationViewStyle(StackNavigationViewStyle())
+        }
+        .sheet(isPresented: $status.connectionPresented) {
+            NavigationView { V3ConnectionView().environmentObject(status) }
                 .navigationViewStyle(StackNavigationViewStyle())
         }
         .sheet(isPresented: $status.certificatesPresented) {
@@ -115,6 +118,7 @@ struct V3UnifiedTabs: View {
         case "certificates": status.certificatesPresented = true
         case "ipa": status.installPickerPresented = true
         case "setup": status.setupPresented = true
+        case "connection": status.connectionPresented = true
         default: break
         }
     }
@@ -314,6 +318,7 @@ struct V3RefreshAllButton: View {
         attempt.begin(requestID: newRequestID)
         message = "Starting Refresh..."
         diagnostics = "manual_refresh_request=\(newRequestID)\nstate=starting"
+        print("[V3_HOME_REFRESH] REQUEST request_id=\(newRequestID) origin=home health=\(health) active_run_id=\(activeRun.isEmpty ? "none" : activeRun)")
         NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil,
                                         userInfo: ["requestID": newRequestID, "origin": "home"])
         monitor = Task { @MainActor in await monitorRun(requestID: newRequestID) }
@@ -400,9 +405,21 @@ struct V3RefreshAllButton: View {
         } else {
             diagnostics = [
                 "schema=1",
+                "request_id=\(requestID)",
                 "manual_refresh_request=\(requestID)",
                 "run_id=\(runID.isEmpty ? "not_started" : runID)",
                 "state=failed",
+                "operation=refresh",
+                "stage=refreshVerification",
+                "code=unknown",
+                "source_step=unknown",
+                "correlation=\(runID.isEmpty ? "unknown" : runID)",
+                "underlying_domain=redacted",
+                "underlying_code=unknown",
+                "retryable=unknown",
+                "safe_cause=unknown",
+                "origin=unknown",
+                "network_preflight=unknown",
                 "safe_message=\(message)",
                 "health=\(health)"
             ].joined(separator: "\n")
@@ -433,6 +450,7 @@ struct V3RefreshAllButton: View {
         case "certificates": status.certificatesPresented = true
         case "ipa": status.installPickerPresented = true
         case "setup": status.setupPresented = true
+        case "connection": status.connectionPresented = true
         default: break
         }
     }
@@ -475,7 +493,12 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published var error: String?
     @Published var notice: String?
     @Published var presentation: V3OperationRequest? {
-        didSet { if presentation == nil { drainDeferredReload() } }
+        didSet {
+            if presentation == nil {
+                drainDeferredReload()
+                drainInstallPresentation(trigger: "operation_dismissed")
+            }
+        }
     }
     @Published var sourceURL = ""
     @Published var refreshTarget: String?
@@ -483,12 +506,14 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published var installPickerPresented = false
     @Published var signInPresented = false
     @Published var setupPresented = false
+    @Published var connectionPresented = false
     @Published var certificatesPresented = false
     @Published var operationRecoveryDestination: String?
     @Published private(set) var loading = false
     @Published private(set) var connected = false
     @Published private(set) var requiresConnectionRetry = false
     private var deferredReloadManual: Bool?
+    private var installHandoff = V3InstallPresentationHandoff()
     var installedAppCount: Int { installedApps.count }
     var isStale: Bool { !connected || (updatedAt.map { Date().timeIntervalSince($0) > 120 } ?? true) }
     var needsSignIn: Bool { account == "Not signed in" }
@@ -503,7 +528,11 @@ final class V3SideStoreStatusStore: ObservableObject {
         if manual { requiresConnectionRetry = false }
         loading = true
         Task {
-            defer { loading = false; drainDeferredReload() }
+            defer {
+                loading = false
+                drainInstallPresentation(trigger: "snapshot_finished")
+                drainDeferredReload()
+            }
             do {
                 accept(try await V3ServiceBridge.shared.request(operation: "snapshot"))
             } catch { connected = false; requiresConnectionRetry = true; self.error = error.localizedDescription }
@@ -634,14 +663,25 @@ final class V3SideStoreStatusStore: ObservableObject {
     @discardableResult
     func stageSharedIPA(_ url: URL, bookmark: Data? = nil, title: String,
                         presentImmediately: Bool = true) -> String? {
-        guard presentation == nil, !loading else {
+        guard presentation == nil, !installHandoff.hasPendingRequest else {
             self.error = "Another operation is already running. Finish or cancel it before installing another app."
+            NSLog("[V3_INSTALL_HANDOFF] STAGE_REJECTED presentation_active=%d pending=%d",
+                  presentation == nil ? 0 : 1, installHandoff.hasPendingRequest ? 1 : 0)
             return nil
         }
         do {
             guard let container = LCSharedUtils.appGroupPath() else { throw CombinedIPAFileError(.fileAccess) }
             let token = try V3IPAStaging.stage(sourceURL: url, bookmark: bookmark, containerRoot: container)
-            if presentImmediately { presentStagedIPA(token, title: title) }
+            guard installHandoff.stage(token: token, title: title,
+                                       waitsForPickerDismissal: !presentImmediately) else {
+                Task { _ = await cleanupStagedIPA(token) }
+                self.error = "The selected IPA could not be queued for presentation. Choose it again."
+                NSLog("[V3_INSTALL_HANDOFF] STAGE_REJECTED reason=handoff_state")
+                return nil
+            }
+            NSLog("[V3_INSTALL_HANDOFF] STAGED token_suffix=%@ picker_dismissal_required=%d loading=%d",
+                  String(token.suffix(8)), presentImmediately ? 0 : 1, loading ? 1 : 0)
+            drainInstallPresentation(trigger: "ipa_staged")
             return token
         } catch let failure as CombinedIPAFileError {
             self.error = failure.localizedDescription
@@ -650,22 +690,31 @@ final class V3SideStoreStatusStore: ObservableObject {
         }
         return nil
     }
-    func presentStagedIPA(_ token: String, title: String) {
-        do { _ = try V3IPAStaging.canonicalToken(token) }
-        catch { self.error = CombinedIPAFileError(.invalidToken).localizedDescription; return }
-        // The file has already been durably copied. Yield until a picker sheet
-        // is dismissed before presenting the operation sheet.
-        Task { @MainActor in
-            await Task.yield()
-            guard self.presentation == nil else {
-                let cleaned = await self.cleanupStagedIPA(token)
-                if cleaned {
-                    self.error = "Another operation is already running. The selected IPA was discarded; choose it again after the current operation finishes."
-                }
-                return
+    func installPickerDidDismiss() {
+        NSLog("[V3_INSTALL_HANDOFF] PICKER_DISMISSED pending=%d loading=%d presentation_active=%d",
+              installHandoff.hasPendingRequest ? 1 : 0, loading ? 1 : 0,
+              presentation == nil ? 0 : 1)
+        installHandoff.pickerDidDismiss()
+        drainInstallPresentation(trigger: "picker_dismissed")
+    }
+
+    private func drainInstallPresentation(trigger: String) {
+        guard let request = installHandoff.takeIfReady(
+            isLoading: loading, hasActivePresentation: presentation != nil
+        ) else {
+            if installHandoff.hasPendingRequest {
+                NSLog("[V3_INSTALL_HANDOFF] WAITING trigger=%@ loading=%d picker_presented=%d presentation_active=%d",
+                      trigger, loading ? 1 : 0, installPickerPresented ? 1 : 0,
+                      presentation == nil ? 0 : 1)
             }
-            self.perform("installSharedIPA", target: token, title: title)
+            return
         }
+        NSLog("[V3_INSTALL_HANDOFF] PRESENTATION_READY trigger=%@ token_suffix=%@",
+              trigger, String(request.token.suffix(8)))
+        presentation = V3OperationRequest(operation: "installSharedIPA", target: request.token,
+                                          title: request.title)
+        NSLog("[V3_INSTALL_HANDOFF] FULL_SCREEN_COVER_REQUESTED token_suffix=%@",
+              String(request.token.suffix(8)))
     }
     func cleanupStagedIPA(_ token: String) async -> Bool {
         do {
@@ -1496,6 +1545,7 @@ struct V3OperationSheet: View {
         case "signIn": return "Open Account & Signing"
         case "certificates": return "Open Certificates"
         case "ipa": return "Choose IPA Again"
+        case "connection": return "Open Connection Check"
         case "setup": return "Open Connection Check"
         default: return nil
         }
@@ -1600,7 +1650,13 @@ struct V3OperationSheet: View {
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .interactiveDismissDisabled(true)
-        .task { start() }
+        .task {
+            if request.operation == "installSharedIPA" {
+                NSLog("[V3_INSTALL_HANDOFF] OPERATION_UI_APPEARED token_suffix=%@",
+                      String(request.target.suffix(8)))
+            }
+            start()
+        }
         .onDisappear {
             if !isDismissing {
                 isDismissing = true
@@ -3750,7 +3806,7 @@ final class V3SetupStore: ObservableObject {
         testRequestID = requestID
         testRunID = nil
         verification = V3SetupStepState(state: "running", detail: "Test refresh running…")
-        NSLog("[V3_SETUP] TEST_REFRESH_START")
+        NSLog("[V3_SETUP] TEST_REFRESH_START request_id=%@ origin=setupAssistant", requestID)
         NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil,
                                         userInfo: ["requestID": requestID, "origin": "setupAssistant"])
         testTask = Task {

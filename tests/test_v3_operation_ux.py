@@ -44,7 +44,7 @@ class SheetLifecycleTests(unittest.TestCase):
         self.assertLess(text.index("private func operationSheetDidDismiss"),
                         text.index("struct V3RefreshAllButton"))
         route = text[text.index("private func operationSheetDidDismiss"):text.index("private func dispatchURL")]
-        for destination in ("signIn", "certificates", "ipa", "setup"):
+        for destination in ("signIn", "certificates", "ipa", "setup", "connection"):
             self.assertIn('case "' + destination + '"', route)
 
     def test_success_stays_visible_until_done(self):
@@ -87,10 +87,12 @@ class InstallHandoffTests(unittest.TestCase):
         fn = text[text.index("func stageSharedIPA"):]
         fn = fn[:fn.index("struct V3SideStoreApp")]
         self.assertIn("V3IPAStaging.stage", fn)
-        self.assertIn("presentStagedIPA", fn)
+        self.assertIn("installHandoff.stage", fn)
+        self.assertIn("drainInstallPresentation(trigger:", fn)
+        self.assertNotIn("Task.yield()", fn)
         picker = text[text.index(".sheet(isPresented: $status.installPickerPresented"):]
         self.assertIn("presentImmediately: false", picker)
-        self.assertIn("status.presentStagedIPA(token", picker)
+        self.assertIn("status.installPickerDidDismiss()", picker)
 
     def test_install_button_disabled_while_busy(self):
         text = shell()

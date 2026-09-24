@@ -87,9 +87,23 @@ class InstallFirstAttemptTests(unittest.TestCase):
         text = shell()
         self.assertIn("func documentPickerWasCancelled", text)
         self.assertIn("finish(nil)", text)
-        self.assertIn("if let token = selectedInstallToken", text)
+        self.assertIn("func installPickerDidDismiss()", text)
+        self.assertNotIn("selectedInstallToken", text)
         self.assertIn("if let url {", text)
         self.assertIn("presentImmediately: false", text)
+
+    def test_local_and_url_install_inputs_share_one_downstream_driver(self):
+        text = runtime()
+        start = text.index("private func makeDriver")
+        end = text.index("private func resolveInstallTarget", start)
+        drivers = text[start:end]
+        self.assertIn('kind == "installSharedIPA" ? .localIPA', drivers)
+        self.assertIn('kind == "installURL" ? .remoteURL', drivers)
+        self.assertIn("makeInstallDriver(id: id, kind: kind, route: route, app: app", drivers)
+        shared = drivers[drivers.index("private func makeInstallDriver"):]
+        self.assertIn("V3InstallPipelineParity.makeOperation(route: route, app)", shared)
+        self.assertIn("AppOperation.install($0)", shared)
+        self.assertEqual(shared.count("self.single(id: id, operation: built.operation"), 1)
 
     def test_file_selection_failure_shows_alert(self):
         text = shell()

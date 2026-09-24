@@ -1,5 +1,107 @@
 import Foundation
 
+// A picker selection survives the sheet transition and any in-flight snapshot
+// reload. The view may hand off only after UIKit reports dismissal and the
+// host is free to present the operation cover.
+struct V3InstallPresentationRequest: Equatable {
+    let token: String
+    let title: String
+}
+
+// Local IPA, URL, and catalog installs all converge on the same AppOperation
+// builder after resolution has produced an AppProtocol value.
+enum V3InstallInputRoute: String, Equatable { case localIPA, remoteURL, catalog }
+
+enum V3InstallPipelineParity {
+    static func makeOperation<ResolvedApp, Operation>(
+        route: V3InstallInputRoute,
+        _ resolvedApp: ResolvedApp,
+        build: (ResolvedApp) -> Operation
+    ) -> (route: V3InstallInputRoute, operation: Operation) {
+        (route, build(resolvedApp))
+    }
+}
+
+struct V3InstallPresentationHandoff {
+    private(set) var pending: V3InstallPresentationRequest?
+    private var pickerDismissed = true
+
+    var hasPendingRequest: Bool { pending != nil }
+
+    @discardableResult
+    mutating func stage(token: String, title: String, waitsForPickerDismissal: Bool) -> Bool {
+        guard pending == nil, UUID(uuidString: token) != nil,
+              !title.isEmpty, title.utf8.count <= 160 else { return false }
+        pending = V3InstallPresentationRequest(token: token, title: title)
+        pickerDismissed = !waitsForPickerDismissal
+        return true
+    }
+
+    mutating func pickerDidDismiss() {
+        guard pending != nil else { return }
+        pickerDismissed = true
+    }
+
+    mutating func takeIfReady(isLoading: Bool, hasActivePresentation: Bool) -> V3InstallPresentationRequest? {
+        guard pickerDismissed, !isLoading, !hasActivePresentation else { return nil }
+        let request = pending
+        pending = nil
+        pickerDismissed = true
+        return request
+    }
+}
+
+// Deletion completion is based on SideStore's pipeline/native uninstall result
+// plus its persisted app-library state. Progress and a host-side list update do
+// not establish success on their own.
+struct V3DeleteCompletionContract {
+    enum BackendResult: Equatable { case pending, succeeded, failed }
+    enum Terminal: Equatable { case completed, failed }
+
+    private(set) var terminal: Terminal?
+
+    mutating func resolve(backend: BackendResult, nativeUninstallSucceeded: Bool,
+                          appStillInAuthoritativeLibrary: Bool, deadlineExpired: Bool,
+                          progress: Double) -> Terminal? {
+        _ = progress // Progress is deliberately never a success signal.
+        guard terminal == nil else { return terminal }
+        if backend == .failed {
+            terminal = .failed
+        } else if !appStillInAuthoritativeLibrary &&
+                    (backend == .succeeded || (backend == .pending && nativeUninstallSucceeded && deadlineExpired)) {
+            terminal = .completed
+        } else if deadlineExpired {
+            terminal = .failed
+        }
+        return terminal
+    }
+}
+
+final class V3DeleteNativeSuccessRegistry: @unchecked Sendable {
+    static let shared = V3DeleteNativeSuccessRegistry()
+    private let lock = NSLock()
+    private var sessions: Set<String> = []
+
+    func record(sessionID: String) {
+        guard UUID(uuidString: sessionID) != nil else { return }
+        lock.lock()
+        sessions.insert(sessionID)
+        lock.unlock()
+    }
+
+    func contains(sessionID: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return sessions.contains(sessionID)
+    }
+
+    func remove(sessionID: String) {
+        lock.lock()
+        sessions.remove(sessionID)
+        lock.unlock()
+    }
+}
+
 // Shared state primitives used by the UI/backend and executable regression
 // harnesses. These types deliberately carry no paths, credentials, or logs.
 struct V3OperationAttemptState {
@@ -281,13 +383,35 @@ enum V3RefreshAllFailureDiagnostics {
         let failure = record["failure"] as? [String: Any]
         let failureMatchesRun = failure?["operation"] as? String == "refresh" &&
             failure?["correlationID"] as? String == runID
+        let manifest = record["manifest"] as? [String: Any] ?? [:]
+        func safeIDs(_ key: String) -> String {
+            guard let values = manifest[key] as? [String] else { return "unknown" }
+            let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+            return values.prefix(64).map { value in
+                String(value.filter { character in
+                    character.unicodeScalars.allSatisfy { allowed.contains($0) }
+                }.prefix(160))
+            }.joined(separator: ",")
+        }
+        func recordScalar(_ key: String) -> String {
+            let value = (record[key] as? String ?? "unknown")
+            return String(value.filter { $0.isASCII && $0 != "\n" && $0 != "\r" }.prefix(80))
+        }
         if !failureMatchesRun {
             return [
-                "schema=1", "manual_refresh_request=\(requestID)", "run_id=\(runID)",
+                "schema=1", "request_id=\(requestID)", "manual_refresh_request=\(requestID)", "run_id=\(runID)",
                 "state=failed", "operation=refresh", "stage=refreshVerification",
                 "code=staleResult", "correlation=\(runID)",
                 "underlying_domain=redacted", "underlying_code=unknown",
                 "retryable=unknown", "safe_cause=unknown", "source_step=unknown",
+                "source=\(recordScalar("source"))", "origin=\(recordScalar("origin"))",
+                "network_preflight=\(recordScalar("network_preflight"))",
+                "active_run_id=\(recordScalar("active_run_id"))", "health=\(recordScalar("health"))",
+                "terminal_ledger_state=failed", "manifest_run_id=\(recordScalar("manifest_run_id"))",
+                "target_app_ids=\(safeIDs("requested_ids"))",
+                "requested_app_ids=\(safeIDs("requested_ids"))",
+                "attempted_app_ids=\(safeIDs("expected_ids"))",
+                "skipped_app_ids=\(safeIDs("skipped_ids"))",
                 "safe_message=Refresh failed during refreshVerification, but no safe underlying cause was available."
             ].joined(separator: "\n")
         }
@@ -301,9 +425,21 @@ enum V3RefreshAllFailureDiagnostics {
             .replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: " ")
         return [
             "schema=1",
+            "request_id=\(requestID)",
             "manual_refresh_request=\(requestID)",
             "run_id=\(runID)",
             "state=failed",
+            "source=\(recordScalar("source"))",
+            "origin=\(recordScalar("origin"))",
+            "network_preflight=\(recordScalar("network_preflight"))",
+            "active_run_id=\(recordScalar("active_run_id"))",
+            "health=\(recordScalar("health"))",
+            "terminal_ledger_state=failed",
+            "manifest_run_id=\(recordScalar("manifest_run_id"))",
+            "target_app_ids=\(safeIDs("requested_ids"))",
+            "requested_app_ids=\(safeIDs("requested_ids"))",
+            "attempted_app_ids=\(safeIDs("expected_ids"))",
+            "skipped_app_ids=\(safeIDs("skipped_ids"))",
             "operation=\(scalar("operation", "refresh"))",
             "stage=\(scalar("stage", "unknown"))",
             "code=\(scalar("code", "unknown"))",
@@ -368,6 +504,11 @@ struct V3OperationFailureDetails {
     var recoveryDestination: String? {
         if stage == CombinedFailure.Stage.authentication.rawValue { return "signIn" }
         if stage == CombinedFailure.Stage.filePreparation.rawValue { return "ipa" }
+        if safeCause == CombinedFailure.SafeCause.signingNetworkConnectionLost.rawValue ||
+           safeCause == CombinedFailure.SafeCause.signingNetworkTimedOut.rawValue ||
+           safeCause == CombinedFailure.SafeCause.signingNetworkUnavailable.rawValue {
+            return "connection"
+        }
         if stage == CombinedFailure.Stage.network.rawValue ||
            stage == CombinedFailure.Stage.xpcConnection.rawValue ||
            stage == CombinedFailure.Stage.extensionLaunch.rawValue ||
@@ -380,7 +521,7 @@ struct V3OperationFailureDetails {
            safeCause == CombinedFailure.SafeCause.signingNetworkUnavailable.rawValue ||
            safeCause == CombinedFailure.SafeCause.wifiUnavailable.rawValue ||
            safeCause == CombinedFailure.SafeCause.localDevVPNUnavailable.rawValue {
-            return "setup"
+            return "connection"
         }
         if sourceStep == CombinedFailure.SourceStep.provisioningProfileFetch.rawValue {
             return "certificates"
@@ -398,12 +539,21 @@ struct V3OperationFailureDetails {
         case "signIn": return "Open Account & Signing"
         case "ipa": return "Choose IPA Again"
         case "certificates": return "Open Certificates"
-        case "setup": return "Open Connection Check"
+        case "connection": return "Open Connection Check"
         default: return nil
         }
     }
 
     var recommendedAction: String {
+        switch safeCause {
+        case CombinedFailure.SafeCause.signingNetworkConnectionLost.rawValue:
+            return "Your current connection may still be healthy. Retry once. If this happens again, open Connection Check."
+        case CombinedFailure.SafeCause.signingNetworkTimedOut.rawValue:
+            return "The provisioning service timed out for this request. Retry once. If it happens again, open Connection Check."
+        case CombinedFailure.SafeCause.signingNetworkUnavailable.rawValue:
+            return "The provisioning service could not be reached for this request. Retry once. If it happens again, open Connection Check."
+        default: break
+        }
         switch recoveryDestination {
         case "signIn": return "Open Account & Signing and complete the required account step."
         case "ipa": return "Choose the IPA again so SideStore can stage a fresh copy."

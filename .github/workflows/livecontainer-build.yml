@@ -145,6 +145,7 @@ jobs:
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift
             swiftc -frontend -parse work/LiveContainer/SideStoreSupport/SideStore.swift
             swiftc -frontend -parse work/EmbeddedSideStore/SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift
+            swiftc -frontend -parse work/EmbeddedSideStore/SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift
             swiftc -frontend -parse work/EmbeddedSideStore/SideStore/Utils/iostreams/ConsoleLog.swift
             swiftc -frontend -parse work/EmbeddedSideStore/AltStore/AppDelegate.swift
             swiftc -frontend -parse work/EmbeddedSideStore/AltStore/Core/Model/DatabaseManager/DatabaseManager.swift

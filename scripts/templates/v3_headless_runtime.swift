@@ -730,6 +730,11 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
     func suspendToHomeScreen() async {}
     func isAppInForeground() async -> Bool { false }
 
+    func recordNativeUninstallSucceeded() {
+        V3DeleteNativeSuccessRegistry.shared.record(sessionID: sessionID)
+        debugLog("[V3_OP] DELETE_NATIVE_UNINSTALL_SUCCEEDED session=\(sessionID)")
+    }
+
     func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID: String, appendTeamID: Bool)? {
         let answer = try await ask(kind: "bundleIDOverride", title: "Customize Bundle ID",
                                    message: "Optionally customize the bundle identifier used for signing.",
@@ -986,9 +991,9 @@ final class V3OperationCenter {
         let baseContext = StandaloneOperationContext(steps: .signIn, dbBackgroundContext: background)
         switch kind {
         case "install", "installURL", "installSharedIPA":
-            let target = try await resolveInstallTarget(kind: kind, target: target)
+            let installTarget = try await resolveInstallTarget(kind: kind, target: target)
             let app: AppProtocol
-            switch target {
+            switch installTarget {
             case .app(let protocolApp):
                 app = protocolApp
                 if let storeApp = protocolApp.storeApp, let source = storeApp.source {
@@ -999,9 +1004,10 @@ final class V3OperationCenter {
             case .url(_):
                 throw V3SideStoreServiceError.invalidRequest
             }
-            return V3OpDriver(kind: kind) {
-                try await self.single(id: id, operation: .install(app), handler: handler, context: baseContext)
-            }
+            let route: V3InstallInputRoute = kind == "installSharedIPA" ? .localIPA :
+                (kind == "installURL" ? .remoteURL : .catalog)
+            return makeInstallDriver(id: id, kind: kind, route: route, app: app,
+                                     handler: handler, context: baseContext)
         case "update":
             let app: InstalledApp = try v3Resolve(target)
             guard app.bundleIdentifier != StoreApp.altstoreAppID else { throw V3SideStoreServiceError.unsupported }
@@ -1034,16 +1040,21 @@ final class V3OperationCenter {
                     results: group.results, bundleIdentifier: { $0.bundleIdentifier })
                 try Task.checkCancellation()
             }
-        case "activate", "deactivate", "delete", "backup", "restore":
+        case "delete":
             let app: InstalledApp = try v3Resolve(target)
-            if ["deactivate", "delete"].contains(kind), app.bundleIdentifier == StoreApp.altstoreAppID {
+            guard app.bundleIdentifier != StoreApp.altstoreAppID else { throw V3SideStoreServiceError.unsupported }
+            return V3OpDriver(kind: kind) {
+                try await self.deleteAndReconcile(id: id, app: app, handler: handler, context: baseContext)
+            }
+        case "activate", "deactivate", "backup", "restore":
+            let app: InstalledApp = try v3Resolve(target)
+            if kind == "deactivate", app.bundleIdentifier == StoreApp.altstoreAppID {
                 throw V3SideStoreServiceError.unsupported
             }
             let operation: AppOperation
             switch kind {
             case "activate": operation = .activate(app)
             case "deactivate": operation = .deactivate(app)
-            case "delete": operation = .deleteApp(app)
             case "backup": operation = .backup(app)
             default: operation = .restore(app)
             }
@@ -1086,6 +1097,127 @@ final class V3OperationCenter {
             }
         })
         try Task.checkCancellation()
+    }
+
+    private func deleteAndReconcile(id: String, app: InstalledApp,
+                                    handler: V3HeadlessPipelineHandler,
+                                    context: StandaloneOperationContext) async throws {
+        let callback = V3DeleteBackendResultBox()
+        let bundleIdentifier = app.bundleIdentifier
+        let group = AppManager.shared.pipelineRunner.performSingleOperation(
+            .deleteApp(app), handler: handler, context: context
+        ) { result in
+            switch result {
+            case .success: callback.record(.success(()))
+            case .failure(let error): callback.record(.failure(error))
+            }
+        }
+        guard var session = sessions[id], session.terminal.isEmpty else {
+            group.cancel()
+            group.progress.cancel()
+            throw CancellationError()
+        }
+        session.group = group
+        sessions[id] = session
+        V3SideStoreService.shared.cancellations[id] = { group.cancel(); group.progress.cancel() }
+        defer {
+            V3DeleteNativeSuccessRegistry.shared.remove(sessionID: id)
+            V3SideStoreService.shared.cancellations[id] = nil
+        }
+
+        let deadline = Date().addingTimeInterval(30)
+        var missingCallbackReconcileDeadline: Date?
+        var lastLibraryPresence: Bool?
+        var contract = V3DeleteCompletionContract()
+        debugLog("[V3_OP] DELETE_RECONCILE_START session=\(id)")
+        while !Task.isCancelled {
+            try Task.checkCancellation()
+            let backendResult = callback.result
+            if case .failure(let error)? = backendResult { throw error }
+            let appIsPresent = try await authoritativeLibraryContains(bundleIdentifier: bundleIdentifier)
+            let nativeUninstallSucceeded = V3DeleteNativeSuccessRegistry.shared.contains(sessionID: id)
+            if lastLibraryPresence != appIsPresent {
+                lastLibraryPresence = appIsPresent
+                debugLog("[V3_OP] DELETE_LIBRARY_RECONCILE session=\(id) app_present=\(appIsPresent)")
+            }
+            let backendState: V3DeleteCompletionContract.BackendResult
+            switch backendResult {
+            case .success?: backendState = .succeeded
+            case .failure?: backendState = .failed
+            case nil: backendState = .pending
+            }
+            let now = Date()
+            if !appIsPresent, backendState == .pending, nativeUninstallSucceeded,
+               missingCallbackReconcileDeadline == nil {
+                missingCallbackReconcileDeadline = now.addingTimeInterval(5)
+            }
+            let reconciliationExpired = now >= deadline ||
+                (missingCallbackReconcileDeadline.map { now >= $0 } ?? false)
+            let terminal = contract.resolve(
+                backend: backendState,
+                nativeUninstallSucceeded: nativeUninstallSucceeded,
+                appStillInAuthoritativeLibrary: appIsPresent,
+                deadlineExpired: reconciliationExpired,
+                progress: group.progress.fractionCompleted
+            )
+            switch terminal {
+            case .completed?:
+                let resolution = backendState == .succeeded ? "pipeline_callback" : "native_success_reconciled"
+                debugLog("[V3_OP] DELETE_RECONCILE_COMPLETED session=\(id) evidence=\(resolution)+library_absent")
+                return
+            case .failed?:
+                debugLog("[V3_OP] DELETE_RECONCILE_FAILED session=\(id) backend=\(backendState) native_uninstall=\(nativeUninstallSucceeded) library_present=\(appIsPresent)")
+                throw CombinedFailure(operation: "delete", stage: .command, code: .timedOut,
+                                      id: id, retryable: false)
+            case nil:
+                break
+            }
+            if reconciliationExpired { continue }
+            try await Task.sleep(nanoseconds: 250_000_000)
+        }
+        throw CancellationError()
+    }
+
+    private func authoritativeLibraryContains(bundleIdentifier: String) async throws -> Bool {
+        let context = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+        return try await context.perform {
+            let request = NSFetchRequest<NSFetchRequestResult>(entityName: "InstalledApp")
+            request.predicate = NSPredicate(format: "bundleIdentifier == %@", bundleIdentifier)
+            request.fetchLimit = 1
+            return try context.count(for: request) > 0
+        }
+    }
+
+    // The first convergence point for local IPA and URL installs is a resolved
+    // AppProtocol. Both then create the same .install operation and use the
+    // same PipelineRunner callback, prompt handler, and terminal result path.
+    private func makeInstallDriver(id: String, kind: String, route: V3InstallInputRoute,
+                                   app: AppProtocol, handler: V3HeadlessPipelineHandler,
+                                   context: StandaloneOperationContext) -> V3OpDriver {
+        let built = V3InstallPipelineParity.makeOperation(route: route, app) {
+            AppOperation.install($0)
+        }
+        debugLog("[V3_INSTALL_ROUTE] input=\(built.route.rawValue) convergence=AppProtocol pipeline=.install")
+        return V3OpDriver(kind: kind) {
+            try await self.single(id: id, operation: built.operation, handler: handler, context: context)
+        }
+    }
+
+    private final class V3DeleteBackendResultBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: Result<Void, Error>?
+
+        func record(_ result: Result<Void, Error>) {
+            lock.lock()
+            if stored == nil { stored = result }
+            lock.unlock()
+        }
+
+        var result: Result<Void, Error>? {
+            lock.lock()
+            defer { lock.unlock() }
+            return stored
+        }
     }
 
     private func resolveInstallTarget(kind: String, target: String) async throws -> InstallTarget {

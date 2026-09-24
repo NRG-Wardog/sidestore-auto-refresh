@@ -54,7 +54,7 @@ struct OperationRetryFailureHarness {
             operation: "install", stage: .signing, id: UUID().uuidString,
             retryable: true, safeCause: .signingNetworkConnectionLost,
             sourceStep: .provisioningProfileFetch))
-        precondition(signingNetwork.recoveryDestination == "setup")
+        precondition(signingNetwork.recoveryDestination == "connection")
         precondition(signingNetwork.retryDisposition == .allowed)
 
         // Separately model opStart returning busy before the second pipeline begins.

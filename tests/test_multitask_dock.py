@@ -244,15 +244,19 @@ class DockPatchTests(unittest.TestCase):
             self.assertIn("if dockManager.isCollapsed {", dock)
             self.assertIn("CollapsedDockView(isHidden: dockManager.isDockHidden)", dock)
             self.assertIn("hostingController.rootView = AnyView(MultitaskDockSwiftView().environmentObject(self).id(sessionID))", dock)
-            self.assertIn("FIRST_VIEW_SELECTED session=", dock)
+            self.assertIn("SESSION_PREPARED manager=", dock)
             self.assertIn("BODY_FIRST_RENDER", dock)
+            self.assertIn("BODY_EVALUATION_FIRST manager=", dock)
+            self.assertIn("BODY_BRANCH_SELECTED_FIRST manager=", dock)
+            self.assertIn("v3DockPresentationState.isReady", dock)
             self.assertIn(".onAppear { dockManager.v3RecordFirstRenderedDockView(.collapsedDockView) }", dock)
             self.assertIn(".onAppear { dockManager.v3RecordFirstRenderedDockView(.expandedDockView) }", dock)
             self.assertIn("BODY_FIRST_RENDER", dock)
-            self.assertIn("PRE_FIRST_MOUNT", dock)
+            self.assertIn("ROOT_REUSED_FOR_SESSION", dock)
             self.assertLess(dock.index("self.isCollapsed = initial"), dock.index("hostingController.rootView = AnyView"))
-            first_show = dock.index("self.showDock()", dock.index("FIRST_VIEW_SELECTED"))
-            self.assertLess(dock.index("hostingController.rootView = AnyView"), first_show)
+            first_show = dock.index("self.showDock()", dock.index("SESSION_PREPARED manager="))
+            self.assertLess(dock.index("SESSION_PREPARED manager="), first_show)
+            self.assertIn("v3DockPresentationState.begin(sessionID: sessionID)", dock)
 
     def test_session_reapplies_preference_without_fighting_user(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -264,10 +268,10 @@ class DockPatchTests(unittest.TestCase):
             self.assertIn("applyBeforeFirstFrame(sessionID: sessionID)", dock)
             setup = dock[dock.index("private func setupDockView"):dock.index("private func updateDockFrame")]
             show = dock[dock.index("@objc public func showDock"):dock.index("@objc public func hideDock")]
-            self.assertIn("SETUP_VIEW", setup)
-            self.assertIn("SHOW session=", show)
-            first_show = dock.index("self.showDock()", dock.index("FIRST_VIEW_SELECTED"))
-            self.assertLess(dock.index("FIRST_VIEW_SELECTED"), first_show)
+            self.assertIn("SETUP_ROOT_CREATE", setup)
+            self.assertIn("SHOW_BLOCK_EXECUTED", show)
+            first_show = dock.index("self.showDock()", dock.index("SESSION_PREPARED manager="))
+            self.assertLess(dock.index("SESSION_PREPARED manager="), first_show)
             self.assertIn("FIRST_PRESENTED_VIEW", dock)
             self.assertIn("MULTITASK_DOCK_SETUP_PRESENT_V1", dock)
             self.assertIn("MULTITASK_DOCK_SESSION_RECOVERY_V1", dock)
@@ -279,9 +283,12 @@ class DockPatchTests(unittest.TestCase):
             toggle = toggle[:toggle.index("\n    }", toggle.index("isCollapsed.toggle")) + 6]
             self.assertIn("collapseStartState.userDidToggle()", toggle)
             self.assertIn("collapseStartState.end()", dock)
-            for marker in ("stored_preference=", "SESSION_BEGIN id=", "apps_count=", "collapsed_before_show=",
-                           "FIRST_VIEW_SELECTED", "FIRST_PRESENTED_VIEW", "BEFORE_FIRST_FRAME",
-                           "CollapsedDockView", "renderedDockMode"):
+            for marker in ("stored_preference=", "SESSION_BEGIN manager=", "apps_count=", "isCollapsed_before_setup=",
+                           "FIRST_PRESENTED_VIEW", "BODY_EVALUATION_FIRST", "BEFORE_FIRST_FRAME",
+                           "BODY_BRANCH_SELECTED_FIRST",
+                           "CollapsedDockView", "renderedDockMode", "BEFORE_SETUP_DOCK_VIEW",
+                           "BEFORE_SHOW_BLOCK", "SHOW_BLOCK_ENTER", "SHOW_BLOCK_EXECUTED", "IS_COLLAPSED_PUBLISHED",
+                           "LCSharedUtils.appGroupID()"):
                 self.assertIn(marker, dock)
             # Hidden-dock and Guest Return states are separate from this setting.
             self.assertNotIn("LCHideCollapsedDock", dock)

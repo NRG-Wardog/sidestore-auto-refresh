@@ -177,6 +177,23 @@ def patch(live, side):
         // in a service scene. The process executes headless backend commands.
         _ = windowScene'''))
 
+    def delete_uninstall_evidence(s):
+        marker = "V3_DELETE_NATIVE_SUCCESS_EVIDENCE_V1"
+        if marker in s:
+            if s.count(marker) != 1 or "recordNativeUninstallSucceeded" not in s:
+                raise SystemExit("v3 service: delete uninstall evidence patch is partial")
+            return s
+        return replace(s,
+            "        try await removeApp(resignedBundleIdentifier)\n",
+            "        try await removeApp(resignedBundleIdentifier)\n"
+            "        // V3_DELETE_NATIVE_SUCCESS_EVIDENCE_V1: native uninstall succeeded; the service still verifies library absence.\n"
+            "        if let handler = self.context.handler as? V3HeadlessPipelineHandler {\n"
+            "            await handler.recordNativeUninstallSucceeded()\n"
+            "        }\n",
+            )
+    edit(side, "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift",
+         delete_uninstall_evidence)
+
     # Attach a remote scene to the existing service process, never a second DB owner.
     edit(live, "MultitaskSupport/AppSceneViewController.h", lambda s: replace(s,
         "- (void)setBackgroundNotificationEnabled:(bool)enabled;",

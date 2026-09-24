@@ -39,7 +39,8 @@ class ServicePatchTests(unittest.TestCase):
              "Utilities/Shared.swift", "Utilities/LCUtilsExtensions.swift", "App/LiveContainerSwiftUIApp.swift", "App/AppDelegate.swift")] +
             ["MultitaskSupport/AppSceneViewController." + suffix for suffix in ("h", "m")] +
             ["LiveContainer/LCBootstrap.m", "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
-            ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift"])
+            ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift",
+             "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift"])
         for source, root, pin, names in zip((live_source, side_source), roots, service.PINS, files):
             for name in names:
                 path = root / name
@@ -86,6 +87,9 @@ class ServicePatchTests(unittest.TestCase):
             self.assertIn("!isLiveProcess && sideStoreExist", (roots[0] / "LiveContainer/LCBootstrap.m").read_text(encoding="utf-8"))
             for name in ("ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"):
                 self.assertNotIn('set("builtinSideStore", forKey: "LCLaunchExtensionBundleID")', (roots[0] / name).read_text(encoding="utf-8"))
+            uninstall = (roots[1] / "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift").read_text(encoding="utf-8")
+            self.assertIn("V3_DELETE_NATIVE_SUCCESS_EVIDENCE_V1", uninstall)
+            self.assertIn("await handler.recordNativeUninstallSucceeded()", uninstall)
 
     def test_service_and_startup_adapters_compose_on_pinned_sources(self):
         startup = module("patch_combined_service_startup")

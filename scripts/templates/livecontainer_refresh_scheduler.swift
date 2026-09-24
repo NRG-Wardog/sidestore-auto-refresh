@@ -148,6 +148,14 @@ enum LiveContainerAutoRefreshScheduler {
         defaults.set(ledger, forKey: runLedgerKey)
     }
 
+    private static func recordNetworkPreflight(_ status: String, runID: String) {
+        guard var record = runLedger()[runID],
+              !["completed", "failed"].contains(record["state"] as? String ?? "") else { return }
+        record["network_preflight"] = status
+        record["updated_at"] = Date().timeIntervalSince1970
+        saveRunRecord(record, runID: runID)
+    }
+
     private static func publishRunState(_ state: String, runID: String, requestID: String?, origin: String? = nil) {
         var identity: [String: String] = ["run_id": runID, "state": state]
         if let requestID { identity["request_id"] = requestID }
@@ -199,6 +207,7 @@ enum LiveContainerAutoRefreshScheduler {
         defaults.set("REFRESH_IN_PROGRESS", forKey: healthStateKey)
         saveRunRecord(["run_id": runID, "request_id": correlatedRequestID ?? "", "origin": origin,
                        "source": source, "state": "running",
+                       "network_preflight": "pending",
                        "started_at": Date().timeIntervalSince1970,
                        "updated_at": Date().timeIntervalSince1970], runID: runID)
         defaults.set(runID, forKey: activeRunKey)
@@ -249,6 +258,15 @@ enum LiveContainerAutoRefreshScheduler {
 
     private static func verifyRefreshManifest(runID: String) -> (verified: Bool, hostHandoff: Bool, reason: String, failure: CombinedFailure?) {
         let pending = defaults.bool(forKey: hostHandoffKey)
+        if let manifest = defaults.dictionary(forKey: verificationKey), manifest["run_id"] as? String == runID {
+            let record = runLedger()[runID] ?? [:]
+            func ids(_ key: String) -> String {
+                ((manifest[key] as? [String]) ?? []).prefix(64).joined(separator: ",")
+            }
+            let requestID = record["request_id"] as? String ?? ""
+            let origin = record["origin"] as? String ?? "unknown"
+            print("[LIVE_CONTAINER_REFRESH] MANIFEST run_id=\(runID) request_id=\(requestID) origin=\(origin) requested_ids=\(ids("requested_ids")) expected_ids=\(ids("expected_ids")) skipped_ids=\(ids("skipped_ids"))")
+        }
         guard let manifest = defaults.dictionary(forKey: verificationKey) else {
             print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=manifest_missing run_id=\(runID)")
             return (false, pending, "SideStore returned without sharing installation results with LiveContainer. Refresh is unconfirmed. Review Refresh history, app expiration, and account status before an explicit retry.",
@@ -414,12 +432,17 @@ enum LiveContainerAutoRefreshScheduler {
         runRecord["state"] = "failed"
         runRecord["message"] = safeMessage
         runRecord["health"] = health
+        runRecord["active_run_id"] = "none"
+        runRecord["manifest_run_id"] = ((runRecord["manifest"] as? [String: Any])?["run_id"] as? String) ?? "unknown"
         runRecord["failure"] = structured.wire
         runRecord["terminal_at"] = Date().timeIntervalSince1970
         runRecord["updated_at"] = Date().timeIntervalSince1970
         saveRunRecord(runRecord, runID: runID)
         var terminalFailure: [String: Any] = [
             "run_id": runID, "request_id": requestValue, "origin": origin ?? "unknown",
+            "source": source, "network_preflight": runRecord["network_preflight"] as? String ?? "unknown",
+            "active_run_id": "none", "health": health,
+            "manifest_run_id": runRecord["manifest_run_id"] as? String ?? "unknown",
             "message": safeMessage, "safe_message": safeMessage, "failure": structured.wire
         ]
         for (wireKey, recordKey) in [
@@ -553,7 +576,10 @@ enum LiveContainerAutoRefreshScheduler {
             defaults.removeObject(forKey: uncertainMutationKey)
         }
         do {
+            print("[LIVE_CONTAINER_REFRESH] NETWORK_PREFLIGHT_START run_id=\(runID.uuidString) request_id=\(correlatedRequestID ?? "none") origin=\(correlatedOrigin ?? "unknown") source=\(source)")
             try await LiveContainerNetworkPreflight.check(allowForegroundActivation: manual && source != "vpn_return" && task == nil)
+            recordNetworkPreflight("passed", runID: runID.uuidString)
+            print("[LIVE_CONTAINER_REFRESH] NETWORK_PREFLIGHT_PASS run_id=\(runID.uuidString) request_id=\(correlatedRequestID ?? "none") origin=\(correlatedOrigin ?? "unknown")")
             try await performRefresh(runID: runID)
             markRunVerifying(runID: runID.uuidString,
                              manifest: defaults.dictionary(forKey: verificationKey))
@@ -603,6 +629,9 @@ enum LiveContainerAutoRefreshScheduler {
             }
         } catch {
             guard gate.claim() else { return } // Expiration already recorded the outcome.
+            if runLedger()[runID.uuidString]?["network_preflight"] as? String == "pending" {
+                recordNetworkPreflight("failed", runID: runID.uuidString)
+            }
             let nsError = error as NSError
             let count = defaults.integer(forKey: retryCountKey) + 1
             defaults.set(count, forKey: retryCountKey)
