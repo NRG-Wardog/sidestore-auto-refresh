@@ -3,6 +3,9 @@ import Combine
 import SideStoreSupport
 import UniformTypeIdentifiers
 import UIKit
+import CoreFoundation
+import CryptoKit
+import Security
 
 // V3_UNIFIED_SHELL_V1_BEGIN
 enum V3AppIdentity: Hashable {
@@ -1345,6 +1348,7 @@ struct V3SourcesView: View {
     @State private var addBusy = false
     @State private var removeBusy = false
     @State private var notice = ""
+    @State private var sourceFailure: V3SourceAddFailure?
     @State private var removeCandidate: V3SideStoreSource?
     private var savedGuestSources: [String] {
         (UserDefaults.standard.stringArray(forKey: "LCAltStoreSourceURLs") ?? [])
@@ -1358,6 +1362,25 @@ struct V3SourcesView: View {
                         Text(notice)
                             .font(.footnote)
                             .foregroundColor(.secondary)
+                    }
+                }
+                if let sourceFailure {
+                    Section("What happened") {
+                        Text(sourceFailure.whatHappened).font(.footnote)
+                    }
+                    Section("What you can do") {
+                        Text(sourceFailure.whatToDo).font(.footnote)
+                    }
+                    Section {
+                        DisclosureGroup("Technical details") {
+                            Text(sourceFailure.technicalDetails)
+                                .font(.caption2)
+                                .textSelection(.enabled)
+                        }
+                        Button("Copy Diagnostics") {
+                            UIPasteboard.general.string = sourceFailure.technicalDetails
+                        }
+                        .font(.caption)
                     }
                 }
                 Section("Add Source") {
@@ -1471,23 +1494,33 @@ struct V3SourcesView: View {
     private func previewSource() async {
         previewBusy = true
         defer { previewBusy = false }
+        sourceFailure = nil
+        notice = ""
         do {
             var row = try await V3ServiceBridge.shared.request(operation: "sourcePreview", target: status.sourceURL)
             row["url"] = status.sourceURL
             preview = row
-        } catch { status.error = error.localizedDescription }
+        } catch { sourceFailure = V3SourceAddFailure(error) }
     }
     private func confirmAdd(url: String) async {
         addBusy = true
         notice = ""
+        sourceFailure = nil
         defer { addBusy = false }
         do {
-            _ = try await V3ServiceBridge.shared.request(operation: "sourceAddConfirmed", target: url)
+            let result = try await V3ServiceBridge.shared.request(operation: "sourceAddConfirmed", target: url)
+            guard let message = V3SourceAddPersistencePolicy.confirmationMessage(result),
+                  let identifier = result["identifier"] as? String,
+                  let sources = result["sources"] as? [[String: Any]],
+                  sources.contains(where: { $0["identifier"] as? String == identifier }) else {
+                throw CombinedFailure(operation: "sourceAddConfirmed", stage: .command,
+                    code: .invalidResponse, id: UUID().uuidString, retryable: false)
+            }
+            status.accept(result)
             preview = nil
             status.sourceURL = ""
-            notice = "Source added."
-            status.reload()
-        } catch { status.error = error.localizedDescription }
+            notice = message
+        } catch { sourceFailure = V3SourceAddFailure(error) }
     }
     private func confirmRemove(id: String) async {
         removeCandidate = nil
@@ -1871,6 +1904,20 @@ struct V3BoolSettingRow: View {
         } catch {
             return false
         }
+    }
+}
+
+private struct V3SourceAddFailure {
+    let whatHappened: String
+    let whatToDo: String
+    let technicalDetails: String
+
+    init(_ error: Error) {
+        let failure = (error as? CombinedFailure) ?? CombinedFailure.capture(error,
+            operation: "sourceAddConfirmed", stage: .command, id: UUID().uuidString)
+        whatHappened = failure.safeMessage
+        whatToDo = "Check that the source URL is reachable and contains a valid source manifest, then preview it again."
+        technicalDetails = failure.technicalDetails
     }
 }
 
@@ -3712,12 +3759,20 @@ struct V3CustomizationsView: View {
     }
 }
 
+private struct V3PKCS12CertificateFacts {
+    let teamIdentifier: String
+    let identitySHA256: String
+}
+
 struct V3HealthView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @State private var rows: [(String, String)] = []
     @State private var certRows: [(String, String)] = []
     @State private var message = ""
+    @State private var notice = ""
+    @State private var syncIssue: V3JITLessCertificateSyncIssue?
     @State private var checking = false
+    @State private var syncingCertificate = false
     var body: some View {
         List {
             if status.needsSignIn {
@@ -3727,6 +3782,29 @@ struct V3HealthView: View {
             }
             if !message.isEmpty {
                 Section { Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled) }
+            }
+            if !notice.isEmpty {
+                Section { Text(notice).font(.footnote).foregroundColor(.green) }
+            }
+            if let syncIssue {
+                Section("What happened") {
+                    Text(syncIssue.whatHappened).font(.footnote)
+                }
+                Section("What you can do") {
+                    Text(syncIssue.whatToDo).font(.footnote)
+                    Button("Open Certificates") { status.certificatesPresented = true }
+                }
+                Section {
+                    DisclosureGroup("Technical details") {
+                        Text(syncIssue.technicalDetails)
+                            .font(.caption2)
+                            .textSelection(.enabled)
+                    }
+                    Button("Copy Diagnostics") {
+                        UIPasteboard.general.string = syncIssue.technicalDetails
+                    }
+                    .font(.caption)
+                }
             }
             Section("Health") {
                 ForEach(rows, id: \.0) { row in
@@ -3751,9 +3829,18 @@ struct V3HealthView: View {
                     }
                     .font(.subheadline)
                 }
-                Text("The refresh pipeline signs with the SideStore active certificate, never the JIT-Less copy. The copy is separate; its revoked state alone does not cause a SideStore refresh failure. Re-import it under Settings when JIT-Less signing needs the current certificate.")
+                Text("SideStore refresh uses its active certificate. LiveContainer JIT-Less signing uses a separate imported copy. A revoked copy does not make SideStore refresh use that certificate.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+            }
+            Section("JIT-Less Certificate") {
+                Text("Sync copies SideStore's current active certificate into LiveContainer's JIT-Less settings. The p12, password, team and identity are checked before writing; JIT-Less validation then checks revocation. A revoked or unverifiable certificate is not reported as repaired.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                Button(syncingCertificate ? "Checking Active Certificate..." : "Sync JIT-Less Certificate from SideStore") {
+                    Task { await syncJITLessCertificate() }
+                }
+                .disabled(syncingCertificate || checking)
             }
         }
         .listStyle(.insetGrouped)
@@ -3782,13 +3869,159 @@ struct V3HealthView: View {
             message = ""
         } catch { message = error.localizedDescription }
     }
+
+    private func syncJITLessCertificate() async {
+        guard !syncingCertificate, !checking else { return }
+        syncingCertificate = true
+        notice = ""
+        syncIssue = nil
+        defer { syncingCertificate = false }
+
+        do {
+            let health = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
+            let active = health["certificateState"] as? [String: Any] ?? [:]
+            let activeExists = active["active"] as? Bool == true
+            guard activeExists else { syncIssue = .noActiveCertificate; return }
+
+            guard let data = keychainData(account: "signingCertificate"), !data.isEmpty,
+                  let passwordData = keychainData(account: "signingCertificatePassword"),
+                  let password = String(data: passwordData, encoding: .utf8), !password.isEmpty else {
+                syncIssue = .keyMaterialUnavailable
+                return
+            }
+            guard let candidate = parsedCertificate(data: data, password: password) else {
+                syncIssue = .invalidPKCS12
+                return
+            }
+
+            let activeTeam = active["team"] as? String ?? ""
+            let activeFingerprint = active["certificateIdentitySHA256"] as? String ?? ""
+            let activeExpiry = active["expiry"] as? Date
+            let currentData = LCUtils.certificateData() as Data?
+            let currentPassword = LCSharedUtils.certificatePassword()
+            let current = currentData.flatMap { bytes in
+                currentPassword.flatMap { parsedCertificate(data: bytes, password: $0) }
+            }
+            let assessment = V3JITLessCertificateSyncAssessment.evaluate(
+                activeExists: true,
+                keyDataExists: !data.isEmpty,
+                passwordExists: !password.isEmpty,
+                p12Valid: true,
+                activeFingerprintMatches: !activeFingerprint.isEmpty &&
+                    activeFingerprint == candidate.identitySHA256,
+                teamMatches: !activeTeam.isEmpty && activeTeam == candidate.teamIdentifier,
+                activeExpired: activeExpiry.map { $0 <= Date() } ?? true,
+                alreadyCurrent: current?.identitySHA256 == candidate.identitySHA256)
+
+            switch assessment {
+            case .blocked(let issue):
+                syncIssue = issue
+                return
+            case .alreadyCurrent:
+                let validation = await validateCurrentJITLessCertificate()
+                if let issue = V3JITLessCertificateSyncAssessment.validationIssue(
+                    status: validation.status, hasError: validation.hasError) {
+                    syncIssue = issue
+                } else {
+                    notice = "The JIT-Less copy already matches SideStore's active certificate and validation succeeded."
+                    await reload()
+                }
+                return
+            case .sync:
+                break
+            }
+
+            let oldData = currentData
+            let oldPassword = currentPassword
+            let oldDate = LCUtils.appGroupUserDefault.object(forKey: "LCCertificateUpdateDate") as? Date
+            let updateDate = Date()
+            guard writeJITLessCertificate(data: data, password: password, updateDate: updateDate),
+                  let savedData = LCUtils.certificateData() as Data?, savedData == data,
+                  LCSharedUtils.certificatePassword() == password,
+                  LCUtils.appGroupUserDefault.object(forKey: "LCCertificateUpdateDate") as? Date == updateDate,
+                  let saved = parsedCertificate(data: savedData, password: password),
+                  saved.identitySHA256 == candidate.identitySHA256,
+                  saved.teamIdentifier == activeTeam else {
+                _ = writeJITLessCertificate(data: oldData, password: oldPassword, updateDate: oldDate)
+                syncIssue = .persistenceFailed
+                return
+            }
+
+            let validation = await validateCurrentJITLessCertificate()
+            if let issue = V3JITLessCertificateSyncAssessment.validationIssue(
+                status: validation.status, hasError: validation.hasError) {
+                _ = writeJITLessCertificate(data: oldData, password: oldPassword, updateDate: oldDate)
+                syncIssue = issue
+                return
+            }
+            notice = "The JIT-Less copy now matches SideStore's active certificate, and validation succeeded."
+            await reload()
+        } catch {
+            // Never display or log keychain/framework details from this path.
+            syncIssue = .validationUnavailable
+        }
+    }
+
+    private func keychainData(account: String) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecAttrService as String: "com.kdt.livecontainer",
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess else { return nil }
+        return item as? Data
+    }
+
+    private func parsedCertificate(data: Data, password: String) -> V3PKCS12CertificateFacts? {
+        var importedItems: CFArray?
+        let options = [kSecImportExportPassphrase as String: password] as CFDictionary
+        guard SecPKCS12Import(data as CFData, options, &importedItems) == errSecSuccess,
+              let item = (importedItems as? [[String: Any]])?.first,
+              let identity = item[kSecImportItemIdentity as String] as? SecIdentity else { return nil }
+        var certificate: SecCertificate?
+        guard SecIdentityCopyCertificate(identity, &certificate) == errSecSuccess,
+              let certificate,
+              let team = LCUtils.getCertTeamId(withKeyData: data as NSData, password: password) else { return nil }
+        let der = SecCertificateCopyData(certificate) as Data
+        let fingerprint = SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
+        return V3PKCS12CertificateFacts(teamIdentifier: team, identitySHA256: fingerprint)
+    }
+
+    private func validateCurrentJITLessCertificate() async -> (status: Int, hasError: Bool) {
+        await withCheckedContinuation { (continuation: CheckedContinuation<(Int, Bool), Never>) in
+            LCUtils.validateCertificate { status, _, _, error in
+                continuation.resume(returning: (Int(status), error != nil))
+            }
+        }
+    }
+
+    // CFPreferencesSetMultiple writes the three legacy keys in one defaults
+    // transaction, preserving the format read by LiveContainer and Diagnose.
+    private func writeJITLessCertificate(data: Data?, password: String?, updateDate: Date?) -> Bool {
+        guard let suite = LCSharedUtils.appGroupID() else { return false }
+        var values: [String: Any] = [:]
+        var removals: [String] = []
+        if let data { values["LCCertificateData"] = data } else { removals.append("LCCertificateData") }
+        if let password { values["LCCertificatePassword"] = password } else { removals.append("LCCertificatePassword") }
+        if let updateDate { values["LCCertificateUpdateDate"] = updateDate } else { removals.append("LCCertificateUpdateDate") }
+        CFPreferencesSetMultiple(values as CFDictionary, removals as CFArray,
+                                 suite as CFString, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        guard CFPreferencesAppSynchronize(suite as CFString) else { return false }
+        _ = LCUtils.appGroupUserDefault.synchronize()
+        return (LCUtils.certificateData() as Data?) == data &&
+            LCSharedUtils.certificatePassword() == password &&
+            (LCUtils.appGroupUserDefault.object(forKey: "LCCertificateUpdateDate") as? Date) == updateDate
+    }
+
     // Compares the SideStore pipeline certificate (service facts) against the
     // LiveContainer JIT-Less copy (host facts: presence, team via local p12
-    // parse, last import date). Teams compare in full; serials stay suffixes
-    // and no key material is ever read. A "same team" verdict does not prove
-    // serial identity: if JIT-Less Diagnose still reports Revoked while
-    // SideStore reports Active, the copy predates the current certificate
-    // and must be re-imported.
+    // parse, last import date). Team identity and the public certificate DER
+    // fingerprint are compared locally; private key material never enters the
+    // service response, diagnostics, or logs.
     private func certComparison(service: [String: Any]) -> [(String, String)] {
         let active = service["active"] as? Bool ?? false
         let serialSuffix = service["serialSuffix"] as? String ?? ""
@@ -3804,11 +4037,13 @@ struct V3HealthView: View {
         let lcPresent = LCUtils.certificateData() != nil
         result.append(("JIT-Less Copy", lcPresent ? "Imported" : "Not imported"))
         var lcTeam = ""
+        var lcFingerprint = ""
         if lcPresent,
            let nsData = LCUtils.certificateData(),
            let password = LCSharedUtils.certificatePassword(),
            let parsed = LCUtils.getCertTeamId(withKeyData: nsData as Data, password: password) {
-            lcTeam = parsed
+             lcTeam = parsed
+             lcFingerprint = parsedCertificate(data: nsData as Data, password: password)?.identitySHA256 ?? ""
             result.append(("Copy Team", "…" + String(parsed.suffix(4))))
         }
         if let lastUpdate = LCUtils.appGroupUserDefault.object(forKey: "LCCertificateUpdateDate") as? Date {
@@ -3825,6 +4060,16 @@ struct V3HealthView: View {
             verdict = "no: different teams"
         }
         result.append(("Team Match", verdict))
+        let activeFingerprint = service["certificateIdentitySHA256"] as? String ?? ""
+        let identityVerdict: String
+        if !active {
+            identityVerdict = "unknown: SideStore has no active certificate"
+        } else if activeFingerprint.isEmpty || lcFingerprint.isEmpty {
+            identityVerdict = "unknown: certificate identity could not be compared"
+        } else {
+            identityVerdict = activeFingerprint == lcFingerprint ? "yes: same certificate" : "no: different certificates"
+        }
+        result.append(("Certificate Identity Match", identityVerdict))
         return result
     }
 }

@@ -40,6 +40,7 @@ class ServicePatchTests(unittest.TestCase):
             ["MultitaskSupport/AppSceneViewController." + suffix for suffix in ("h", "m")] +
             ["LiveContainer/LCBootstrap.m", "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
             ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift",
+             "SideStore/Core/Operations/PipelineRunner.swift",
              "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift"])
         for source, root, pin, names in zip((live_source, side_source), roots, service.PINS, files):
             for name in names:

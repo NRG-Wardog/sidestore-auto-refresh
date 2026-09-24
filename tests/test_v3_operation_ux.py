@@ -274,9 +274,13 @@ class PromptTechnicalTests(unittest.TestCase):
 class SourcesFeedbackTests(unittest.TestCase):
     def test_add_busy_and_success(self):
         text = shell()
+        behavior = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         self.assertIn("addBusy", text)
         self.assertIn("Adding Source...", text)
-        self.assertIn("Source added.", text)
+        self.assertIn("V3SourceAddPersistencePolicy.confirmationMessage(result)", text)
+        self.assertIn('return "Source added."', behavior)
+        self.assertIn('return "Source already added."', behavior)
+        self.assertNotIn('notice = "Source added."', text)
 
     def test_remove_busy_and_success(self):
         text = shell()

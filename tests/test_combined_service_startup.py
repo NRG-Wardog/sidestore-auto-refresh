@@ -348,7 +348,8 @@ class ReadinessRegressionTests(unittest.TestCase):
         self.assertIn("lcSafeSigningCause(error)", generated_pipeline)
         self.assertIn('sourceStep = "provisioningProfileFetch"', generated_pipeline)
         self.assertIn("V3_PIPELINE_PHASE_REPORTING_V1", generated_pipeline)
-        self.assertIn("await headlessHandler.recordPipelinePhase(step)", generated_pipeline)
+        self.assertIn("await headlessHandler.recordPipelinePhase(step,", generated_pipeline)
+        self.assertIn("downloadUsesNetwork: downloadingApp.url?.isFileURL == false", generated_pipeline)
         original_runner = subprocess.check_output([
             "git", "-C", embedded, "show",
             startup.PINS[1] + ":SideStore/Core/Operations/PipelineRunner.swift"], text=True)

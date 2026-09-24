@@ -46,7 +46,7 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
         self.assertEqual(shared.count("operation: built.operation"), 1)
         resolver = runtime[runtime.index("private func resolveInstallTarget"):runtime.index("static func readAppMetadata")]
         self.assertIn("V3IPAStaging.inspect(token: token", resolver)
-        self.assertIn("return try await ipaTarget(url: url, scoped: false)", resolver)
+        self.assertIn("return try await ipaTarget(url: url, scoped: false, sessionID: id)", resolver)
         self.assertIn("return .app(AnyApp", resolver)
 
     def test_picker_is_presented_directly_from_the_root_uikit_anchor(self):

@@ -113,6 +113,7 @@ final class V3SideStoreService: NSObject {
                     case .notFound: code = .unavailable
                     case .invalidRequest: code = .invalidConfiguration
                     case .authRequired: code = .notReady
+                    case .persistenceUnverified: code = .failed
                     }
                     response["failure"] = CombinedFailure(operation: operation, stage: stage, code: code, id: id).wire
                 } else {
@@ -289,8 +290,15 @@ final class V3SideStoreService: NSObject {
         case "sourcePreview":
             return try await V3BackendCommands.sourcePreview(urlString: target)
         case "sourceAddConfirmed":
-            try await V3BackendCommands.sourceAddConfirmed(urlString: target)
-            return try snapshot()
+            let addResult = try await V3BackendCommands.sourceAddConfirmed(urlString: target)
+            var updated = try snapshot()
+            let persistedSources = try await V3BackendCommands.authoritativeSourceRows()
+            let sourceID = addResult["identifier"] as? String ?? ""
+            guard persistedSources.contains(where: { $0["identifier"] as? String == sourceID }) else {
+                throw V3SideStoreServiceError.persistenceUnverified
+            }
+            updated["sources"] = persistedSources
+            return updated.merging(addResult) { _, authoritative in authoritative }
         case "sourceRemoveConfirmed":
             try await V3BackendCommands.sourceRemoveConfirmed(identifier: target)
             return try snapshot()

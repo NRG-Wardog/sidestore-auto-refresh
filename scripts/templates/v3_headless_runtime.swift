@@ -1,5 +1,6 @@
 import Foundation
 import CoreData
+import CryptoKit
 import UIKit
 import SideSign
 
@@ -1350,7 +1351,7 @@ struct V3RequiresSourceError: Error {
 }
 
 enum V3SideStoreServiceError: String, Error {
-    case notReady, invalidRequest, notFound, unsupported, busy, authRequired
+    case notReady, invalidRequest, notFound, unsupported, busy, authRequired, persistenceUnverified
 }
 
 func v3Resolve<T: NSManagedObject>(_ identifier: String) throws -> T {
@@ -1452,8 +1453,7 @@ enum V3BackendCommands {
     }
 
     static func sourcePreview(urlString: String) async throws -> [String: Any] {
-        guard let url = URL(string: urlString), ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
-              url.host != nil, url.user == nil, url.password == nil else {
+        guard let url = V3SourceAddPersistencePolicy.validatedURL(urlString) else {
             throw V3SideStoreServiceError.invalidRequest
         }
         let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
@@ -1466,19 +1466,52 @@ enum V3BackendCommands {
                 "title": title, "message": "Make sure to only add sources that you trust."]
     }
 
-    static func sourceAddConfirmed(urlString: String) async throws {
-        guard let url = URL(string: urlString) else { throw V3SideStoreServiceError.invalidRequest }
+    static func sourceAddConfirmed(urlString: String) async throws -> [String: Any] {
+        guard let url = V3SourceAddPersistencePolicy.validatedURL(urlString) else {
+            throw V3SideStoreServiceError.invalidRequest
+        }
         let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
         let source = try await AppManager.shared.fetchSource(sourceURL: url, managedObjectContext: background)
-        guard try await !source.isAdded() else { return }
         let identifier = try await background.performAsync { source.identifier }
-        let existing = try await background.performAsync {
-            try background.fetch(NSFetchRequest<Source>(entityName: "Source")).contains { $0.identifier == identifier }
+        let wasPersisted = try await source.isAdded()
+        let decision = V3SourceAddPersistencePolicy.decision(sourceIsPersisted: wasPersisted)
+        if decision == .save {
+            // `fetchSource` inserts into this context. Do not use a fetch from
+            // the same context as a duplicate check: it sees that unsaved row.
+            try await background.performAsync { try background.save() }
         }
-        guard !existing else { return }
-        try await background.performAsync { try background.save() }
-        await MainActor.run {
-            NotificationCenter.default.post(name: AppManager.didAddSourceNotification, object: source)
+        let verificationContext = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+        let query = NSFetchRequest<Source>(entityName: "Source")
+        query.predicate = NSPredicate(format: "%K == %@", #keyPath(Source.identifier), identifier)
+        let authoritativeCount = try await verificationContext.performAsync {
+            try verificationContext.count(for: query)
+        }
+        guard let result = V3SourceAddPersistencePolicy.verifiedResult(
+            identifier: identifier, alreadyAdded: decision == .alreadyAdded,
+            authoritativeCount: authoritativeCount) else {
+            throw V3SideStoreServiceError.persistenceUnverified
+        }
+        if decision == .save {
+            let viewContext = DatabaseManager.shared.viewContext
+            let query = NSFetchRequest<Source>(entityName: "Source")
+            query.predicate = NSPredicate(format: "%K == %@", #keyPath(Source.identifier), identifier)
+            guard let persistedSource = try viewContext.performAndWait({ try viewContext.fetch(query).first }) else {
+                throw V3SideStoreServiceError.persistenceUnverified
+            }
+            NotificationCenter.default.post(name: AppManager.didAddSourceNotification, object: persistedSource)
+        }
+        return result
+    }
+
+    static func authoritativeSourceRows() async throws -> [[String: Any]] {
+        let context = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+        return try await context.performAsync {
+            try context.fetch(NSFetchRequest<Source>(entityName: "Source")).map { source in
+                ["identifier": source.identifier, "name": source.name,
+                 "subtitle": source.subtitle ?? "", "url": source.sourceURL.absoluteString,
+                 "appCount": source.apps.count,
+                 "canRemove": source.identifier != Source.altStoreIdentifier] as [String: Any]
+            }
         }
     }
 
@@ -1646,9 +1679,9 @@ enum V3BackendCommands {
     }
 
     // Facts about the certificate the refresh/signing pipeline actually uses
-    // (CertificateManager.activeCertificate). Suffixes only cross XPC: never
-    // full serials, keys, passwords, or blobs. The LiveContainer JIT-Less
-    // copy is compared host-side, where LCUtils can read it.
+    // (CertificateManager.activeCertificate). Only the serial suffix and a
+    // public certificate DER fingerprint cross XPC; no private key, p12, or
+    // password is returned. The LiveContainer JIT-Less copy stays host-side.
     static func certificateState() -> [String: Any] {
         guard let active = CertificateManager.shared.activeCertificate else {
             return ["active": false]
@@ -1659,6 +1692,10 @@ enum V3BackendCommands {
             "team": DatabaseManager.shared.activeTeam()?.identifier ?? "",
             "expiry": active.certificate.x509.expiryDate,
         ]
+        if let certificateDER = active.certificate.x509.data {
+            state["certificateIdentitySHA256"] = SHA256.hash(data: certificateDER)
+                .map { String(format: "%02x", $0) }.joined()
+        }
         return state
     }
 

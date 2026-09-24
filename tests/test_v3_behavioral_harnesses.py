@@ -34,8 +34,21 @@ class V3BehavioralHarnessTests(unittest.TestCase):
 
     def test_operation_pipeline_phase_and_progress_invariants_execute(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_operation_phase_progress_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run(helper + "\n" + harness, "V3_OPERATION_PHASE_PROGRESS_PASS")
+        self.compile_and_run(failure + "\n" + helper + "\n" + harness, "V3_OPERATION_PHASE_PROGRESS_PASS")
+
+    def test_source_add_persistence_and_duplicate_semantics_execute(self):
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_source_add_persistence_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run(failure + "\n" + helper + "\n" + harness, "V3_SOURCE_ADD_PERSISTENCE_PASS")
+
+    def test_jitless_certificate_sync_safety_and_validation_execute(self):
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_jitless_certificate_sync_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run(failure + "\n" + helper + "\n" + harness, "V3_JITLESS_CERTIFICATE_SYNC_PASS")
 
     def test_refresh_all_request_correlation_terminal_order_and_absorbing_states_execute(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")

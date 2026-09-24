@@ -95,6 +95,117 @@ enum V3NormalizedProgress {
     }
 }
 
+enum V3SourceAddDecision: Equatable { case save, alreadyAdded }
+
+enum V3SourceAddPersistencePolicy {
+    static func decision(sourceIsPersisted: Bool) -> V3SourceAddDecision {
+        sourceIsPersisted ? .alreadyAdded : .save
+    }
+
+    static func verifiedResult(identifier: String, alreadyAdded: Bool,
+                                authoritativeCount: Int) -> [String: Any]? {
+        guard !identifier.isEmpty, authoritativeCount == 1 else { return nil }
+        return ["identifier": identifier,
+                "added": !alreadyAdded,
+                "alreadyAdded": alreadyAdded,
+                "persistenceVerified": true]
+    }
+
+    static func confirmationMessage(_ result: [String: Any]) -> String? {
+        guard result["persistenceVerified"] as? Bool == true,
+              let identifier = result["identifier"] as? String, !identifier.isEmpty,
+              let added = result["added"] as? Bool,
+              let alreadyAdded = result["alreadyAdded"] as? Bool else { return nil }
+        if added && !alreadyAdded { return "Source added." }
+        if !added && alreadyAdded { return "Source already added." }
+        return nil
+    }
+
+    static func validatedURL(_ value: String) -> URL? {
+        guard let url = URL(string: value),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.host != nil, url.user == nil, url.password == nil else { return nil }
+        return url
+    }
+}
+
+enum V3JITLessCertificateSyncIssue: String, Equatable {
+    case noActiveCertificate
+    case keyMaterialUnavailable
+    case invalidPKCS12
+    case activeCertificateMismatch
+    case teamMismatch
+    case activeCertificateExpired
+    case activeCertificateRevoked
+    case validationUnavailable
+    case persistenceFailed
+
+    var whatHappened: String {
+        switch self {
+        case .noActiveCertificate: return "SideStore has no active signing certificate to copy."
+        case .keyMaterialUnavailable: return "SideStore's active certificate or matching password could not be read."
+        case .invalidPKCS12: return "SideStore's active certificate could not be opened with its stored password."
+        case .activeCertificateMismatch: return "The certificate keychain entry does not match SideStore's active certificate."
+        case .teamMismatch: return "The certificate does not match SideStore's active developer team."
+        case .activeCertificateExpired: return "SideStore's active certificate has expired."
+        case .activeCertificateRevoked: return "SideStore's active certificate is reported as revoked."
+        case .validationUnavailable: return "The active certificate could not be validated, so the JIT-Less copy was left unchanged."
+        case .persistenceFailed: return "LiveContainer could not verify the saved JIT-Less certificate."
+        }
+    }
+
+    var whatToDo: String {
+        switch self {
+        case .noActiveCertificate, .activeCertificateExpired, .activeCertificateRevoked,
+             .activeCertificateMismatch, .teamMismatch:
+            return "Open Certificates and resolve the current SideStore certificate before syncing again."
+        case .keyMaterialUnavailable, .invalidPKCS12, .validationUnavailable:
+            return "Keep the current JIT-Less copy and check SideStore Certificates and JIT-Less Diagnose."
+        case .persistenceFailed:
+            return "Open JIT-Less Diagnose and check the saved copy before relying on JIT-Less signing."
+        }
+    }
+
+    var technicalDetails: String {
+        "schema=1\noperation=jitlessCertificateSync\nstage=\(stage)\ncode=\(rawValue)\nretryable=false"
+    }
+
+    private var stage: String {
+        switch self {
+        case .noActiveCertificate, .activeCertificateExpired, .activeCertificateRevoked,
+             .activeCertificateMismatch, .teamMismatch: return "certificateValidation"
+        case .keyMaterialUnavailable, .invalidPKCS12: return "keychainRead"
+        case .validationUnavailable: return "certificateValidation"
+        case .persistenceFailed: return "certificatePersistence"
+        }
+    }
+}
+
+enum V3JITLessCertificateSyncAssessment: Equatable {
+    case sync
+    case alreadyCurrent
+    case blocked(V3JITLessCertificateSyncIssue)
+
+    static func evaluate(activeExists: Bool, keyDataExists: Bool, passwordExists: Bool,
+                         p12Valid: Bool, activeFingerprintMatches: Bool,
+                         teamMatches: Bool, activeExpired: Bool,
+                         alreadyCurrent: Bool) -> Self {
+        guard activeExists else { return .blocked(.noActiveCertificate) }
+        guard keyDataExists, passwordExists else { return .blocked(.keyMaterialUnavailable) }
+        guard p12Valid else { return .blocked(.invalidPKCS12) }
+        guard activeFingerprintMatches else { return .blocked(.activeCertificateMismatch) }
+        guard teamMatches else { return .blocked(.teamMismatch) }
+        guard !activeExpired else { return .blocked(.activeCertificateExpired) }
+        return alreadyCurrent ? .alreadyCurrent : .sync
+    }
+
+    static func validationIssue(status: Int, hasError: Bool) -> V3JITLessCertificateSyncIssue? {
+        if status == 1 { return .activeCertificateRevoked }
+        if status == 0 && !hasError { return nil }
+        return .validationUnavailable
+    }
+}
+
 // A picker selection survives dismissal and any in-flight snapshot reload.
 // The picker and operation occupy one host-owned cover, so SwiftUI never has to
 // race two unrelated root presentations.
