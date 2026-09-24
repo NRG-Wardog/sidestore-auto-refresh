@@ -107,6 +107,17 @@ struct V3UnifiedTabs: View {
         NSLog("[V3_SETUP] OPEN source=shortcut")
         status.setupPresented = true
     }
+    private func operationSheetDidDismiss() {
+        guard let destination = status.operationRecoveryDestination else { return }
+        status.operationRecoveryDestination = nil
+        switch destination {
+        case "signIn": status.signInPresented = true
+        case "certificates": status.certificatesPresented = true
+        case "ipa": status.installPickerPresented = true
+        case "setup": status.setupPresented = true
+        default: break
+        }
+    }
     private func dispatchURL(_ url: URL) {
         if ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
             status.perform("installURL", target: url.absoluteString, title: "Install shared app")
@@ -285,18 +296,6 @@ struct V3RefreshAllButton: View {
         }
         .accessibilityHint("Starts one manual refresh and shows scheduler state through verified completion or failure.")
     }
-    private func operationSheetDidDismiss() {
-        guard let destination = status.operationRecoveryDestination else { return }
-        status.operationRecoveryDestination = nil
-        switch destination {
-        case "signIn": status.signInPresented = true
-        case "certificates": status.certificatesPresented = true
-        case "ipa": status.installPickerPresented = true
-        case "setup": status.setupPresented = true
-        default: break
-        }
-    }
-
     private var isBusy: Bool { ["starting", "refreshing", "verifying"].contains(phase) }
     private var isTerminal: Bool { ["completed", "failed"].contains(phase) }
     private var buttonTitle: String {

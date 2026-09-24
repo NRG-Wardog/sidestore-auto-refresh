@@ -36,6 +36,17 @@ def status_store():
 
 
 class SheetLifecycleTests(unittest.TestCase):
+    def test_failure_recovery_dismiss_route_lives_on_cover_owner(self):
+        text = shell()
+        cover = text[text.index(".fullScreenCover(item: $status.presentation"):]
+        cover = cover[:cover.index(".sheet(isPresented: $status.signInPresented")]
+        self.assertIn("onDismiss: operationSheetDidDismiss", cover)
+        self.assertLess(text.index("private func operationSheetDidDismiss"),
+                        text.index("struct V3RefreshAllButton"))
+        route = text[text.index("private func operationSheetDidDismiss"):text.index("private func dispatchURL")]
+        for destination in ("signIn", "certificates", "ipa", "setup"):
+            self.assertIn('case "' + destination + '"', route)
+
     def test_success_stays_visible_until_done(self):
         sheet = operation_sheet()
         apply = sheet[sheet.index("private func apply"):]
