@@ -310,6 +310,76 @@ class StartupPatchTests(unittest.TestCase):
 
 
 class ReadinessRegressionTests(unittest.TestCase):
+    def test_generated_pinned_sidesign_errors_keep_typed_signing_semantics(self):
+        compiler = shutil.which("swiftc")
+        if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
+        side_sign = os.getenv("SIDESIGN_TEST_SOURCE")
+        embedded = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        if not side_sign or not embedded:
+            self.skipTest("pinned SideSign and SideStore sources are supplied by macOS CI")
+        errors_path = Path(side_sign) / "Sources/Models/Errors.swift"
+        pinned_errors = errors_path.read_text(encoding="utf-8")
+        self.assertIn("public enum ServerError", pinned_errors)
+        self.assertIn("case underlyingError(code: Int, message: String)", pinned_errors)
+        self.assertIn("public enum DeveloperPortalError", pinned_errors)
+        enum_start = pinned_errors.index("public enum DeveloperPortalError")
+        enum_end = pinned_errors.index("public enum SignerError", enum_start)
+        actual_side_sign_types = pinned_errors[enum_start:enum_end]
+
+        original_pipeline = subprocess.check_output([
+            "git", "-C", embedded, "show",
+            startup.PINS[1] + ":SideStore/Core/Operations/PipelineExecutor.swift"], text=True)
+        generated_pipeline = startup.patch_pipeline_executor(original_pipeline)
+        self.assertIn("lcSafeSigningCause(error)", generated_pipeline)
+        self.assertIn('sourceStep = "provisioningProfileFetch"', generated_pipeline)
+        helper = generated_pipeline[generated_pipeline.index("// LC_SIGNING_CAUSE_CLASSIFIER_V1"):]
+        failure_model = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        behavioral_model = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure_model = "\n".join(line for line in failure_model.splitlines()
+                                    if not line.startswith("import "))
+        behavioral_model = "\n".join(line for line in behavioral_model.splitlines()
+                                       if not line.startswith("import "))
+        source = """import Foundation
+import CoreFoundation
+enum Constants { static let defaultAccountRepairMessage = "" }
+""" + actual_side_sign_types + failure_model + behavioral_model + """
+@main struct SigningCauseTest {
+    static func main() {
+        precondition(lcSafeSigningCause(URLError(.networkConnectionLost)) == "signingNetworkConnectionLost")
+        precondition(lcSafeSigningCause(ServerError.underlyingError(code: -1005, message: "provider")) == "developerPortalRejectedRequest")
+        precondition(lcSafeSigningCause(DeveloperPortalError.certificateDoesNotExist(serial: "private")) == "certificateUnavailable")
+        precondition(lcSafeSigningCause(DeveloperPortalError.provisioningProfileDoesNotExist(identifier: "private")) == "provisioningProfileUnavailable")
+        precondition(lcSafeSigningCause(NSError(domain: "redacted", code: -1005)) == "unknownSigningCause",
+                     "numeric -1005 alone was classified as a network failure")
+        let runID = UUID().uuidString
+        let providerCause = lcSafeSigningCause(ServerError.underlyingError(code: -1005, message: "private response"))
+        let wrapped = NSError(domain: "PrivateSideSignDomain", code: -1005, userInfo: [
+            "LCStructuredFailureStageV1": "signing",
+            "LCStructuredFailureCauseV1": providerCause,
+            "LCStructuredFailureSourceV1": "provisioningProfileFetch",
+            NSUnderlyingErrorKey: NSError(domain: "PrivateProviderDomain", code: -1005)
+        ])
+        let captured = CombinedFailure.capture(wrapped, operation: "install", stage: .installation, id: runID)
+        let bridged = CombinedFailure.decode(captured.wire, expectedID: runID)!
+        let details = V3OperationFailureDetails(bridged)
+        precondition(bridged.stage == .signing && bridged.safeCause == .developerPortalRejectedRequest)
+        precondition(bridged.sourceStep == .provisioningProfileFetch && bridged.underlyingDomain == "redacted")
+        precondition(bridged.underlyingCode == -1005 && details.recoveryDestination == "certificates")
+        print("PINNED_SIDESIGN_TYPED_SIGNING_CAUSE_PASS")
+    }
+}
+""" + helper
+        with tempfile.TemporaryDirectory() as directory:
+            swift = Path(directory) / "main.swift"
+            executable = Path(directory) / "signing-cause"
+            swift.write_text(source, encoding="utf-8")
+            built = subprocess.run([compiler, "-parse-as-library", str(swift), "-o", str(executable)],
+                                   capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("PINNED_SIDESIGN_TYPED_SIGNING_CAUSE_PASS", result.stdout)
+
     def test_structured_failures_are_preserved_not_rewrapped(self):
         handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
         self.assertIn("CombinedFailure.preserving(underlying", handler)

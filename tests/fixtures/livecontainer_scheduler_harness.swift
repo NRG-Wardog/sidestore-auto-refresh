@@ -69,15 +69,17 @@ extension LiveContainerAutoRefreshScheduler {
         // request/run identities; the old successful manifest cannot satisfy the new request.
         clearTestState()
         let managerRequest = UUID().uuidString
-        await execute(source: "manual", manualRequestID: managerRequest)
+        await execute(source: "manual", manualRequestID: managerRequest, manualOrigin: "refreshManager")
         let managerRecord = runLedger().values.first { $0["request_id"] as? String == managerRequest }!
         let managerRun = managerRecord["run_id"] as! String
         let homeRequest = UUID().uuidString
         let oldManifest = managerRecord["manifest"] as! [String: Any]
         defaults.set(oldManifest, forKey: verificationKey)
-        await execute(source: "manual", manualRequestID: homeRequest)
+        await execute(source: "manual", manualRequestID: homeRequest, manualOrigin: "home")
         let homeRecord = runLedger().values.first { $0["request_id"] as? String == homeRequest }!
         let homeRun = homeRecord["run_id"] as! String
+        precondition(managerRecord["origin"] as? String == "refreshManager")
+        precondition(homeRecord["origin"] as? String == "home")
         precondition(homeRun != managerRun, "new manual request reused an earlier run ID")
         precondition(homeRecord["state"] as? String == "completed")
         precondition((homeRecord["manifest"] as? [String: Any])?["run_id"] as? String == homeRun,
@@ -91,6 +93,14 @@ extension LiveContainerAutoRefreshScheduler {
         precondition(failed.completions == [false])
         precondition(defaults.string(forKey: lastResultKey) == "failure")
         precondition(defaults.object(forKey: nextRetryKey) as? Date != nil)
+        let currentFailure = defaults.dictionary(forKey: currentRunFailureKey)!
+        precondition(currentFailure["run_id"] as? String == currentFailure["correlation"] as? String)
+        precondition(currentFailure["operation"] as? String == "refresh")
+        precondition(currentFailure["stage"] as? String == "command")
+        precondition(currentFailure["code"] as? String == "failed")
+        precondition(currentFailure["safe_message"] as? String ==
+                     "Refresh failed during command, but no safe underlying cause was available.")
+        precondition(currentFailure["retryable"] as? String == "unknown")
         precondition(UNUserNotificationCenter.shared.requests.contains { $0.content.title == "Refresh failed" })
 
         clearTestState()

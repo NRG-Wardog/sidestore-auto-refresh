@@ -13,11 +13,91 @@ OUTPUTS = {(0, name) for name in ("SideStoreSupport/SideStore.swift", "LiveConta
     "SideStoreSupport/SideStoreClient.swift", "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift")} | {
     (1, "AltStore/AppDelegate.swift"), (1, "SideStore/Core/Operations/PipelineExecutor.swift")}
 
+SIGNING_CAUSE_HELPER = '''
+// LC_SIGNING_CAUSE_CLASSIFIER_V1: only typed upstream errors gain a semantic cause.
+func lcSafeSigningCause(_ error: Error) -> String {
+    if let urlError = error as? URLError {
+        switch urlError.code {
+        case .networkConnectionLost: return "signingNetworkConnectionLost"
+        case .timedOut: return "signingNetworkTimedOut"
+        case .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost:
+            return "signingNetworkUnavailable"
+        default: break
+        }
+    }
+    let native = error as NSError
+    if native.domain == NSURLErrorDomain {
+        switch native.code {
+        case NSURLErrorNetworkConnectionLost: return "signingNetworkConnectionLost"
+        case NSURLErrorTimedOut: return "signingNetworkTimedOut"
+        case NSURLErrorNotConnectedToInternet, NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost:
+            return "signingNetworkUnavailable"
+        default: break
+        }
+    }
+    if let serverError = error as? ServerError {
+        switch serverError {
+        case .underlyingError: return "developerPortalRejectedRequest"
+        case .badServerResponse, .invalidResponseFormat, .missingKey:
+            return "developerPortalInvalidResponse"
+        }
+    }
+    if let portalError = error as? DeveloperPortalError {
+        switch portalError {
+        case .provisioningProfileDoesNotExist: return "provisioningProfileUnavailable"
+        case .certificateDoesNotExist: return "certificateUnavailable"
+        default: break
+        }
+    }
+    return "unknownSigningCause"
+}
+'''
+
+PIPELINE_FAILURE_HANDLER = r'''            result = error
+            // LC_STRUCTURED_FAILURE_V1: preserve step responsibility and the underlying error.
+            var stage: String
+            switch step {
+            case .resignApp, .fetchProvisioningProfiles, .verifyCertificate: stage = "signing"
+            case .sendApp, .installApp: stage = "installation"
+            default: stage = "command"
+            }
+            var sourceStep: String?
+            switch step {
+            case .fetchProvisioningProfiles: sourceStep = "provisioningProfileFetch"
+            case .verifyCertificate: sourceStep = "certificateValidation"
+            case .resignApp: sourceStep = "localCodeSigning"
+            default: break
+            }
+            if let operationError = error as? OperationError, operationError == .notAuthenticated { stage = "authentication" }
+            if let portalError = error as? DeveloperPortalError {
+                switch portalError {
+                case .incorrectCredentials, .appSpecificPasswordRequired, .requiresTwoFactorAuthentication,
+                     .incorrectVerificationCode, .authenticationHandshakeFailed, .invalidAnisetteData,
+                     .tooManyAttempts, .accountRepairRequired, .invalid2FAResponse: stage = "authentication"
+                default: break
+                }
+            }
+            let safeCause = stage == "signing" ? lcSafeSigningCause(error) : nil
+            let native = error as NSError
+            var failureInfo: [String: Any] = ["LCStructuredFailureStageV1": stage,
+                NSUnderlyingErrorKey: native, NSLocalizedDescriptionKey: native.localizedDescription]
+            if let safeCause { failureInfo["LCStructuredFailureCauseV1"] = safeCause }
+            if let sourceStep { failureInfo["LCStructuredFailureSourceV1"] = sourceStep }
+            throw NSError(domain: native.domain, code: native.code,
+                userInfo: failureInfo)'''
+
 
 def replace(text, old, new):
     if text.count(old) != 1:
         raise SystemExit("combined startup anchor drift: " + old[:90])
     return text.replace(old, new, 1)
+
+
+def patch_pipeline_executor(text):
+    if "LC_SIGNING_CAUSE_CLASSIFIER_V1" in text or "LC_STRUCTURED_FAILURE_V1" in text:
+        raise SystemExit("pinned pipeline already contains the structured signing adapter")
+    return replace(text, "            result = error\n            throw error",
+                   PIPELINE_FAILURE_HANDLER) + SIGNING_CAUSE_HELPER
 
 
 def patch(live, side, product):
@@ -165,28 +245,7 @@ extension SideStoreClient {
 '''
     edit(live, "SideStoreSupport/SideStoreClient.swift", client)
     edit(side, "AltStore/AppDelegate.swift", lambda s: s + template("combined_failure.swift"))
-    edit(side, "SideStore/Core/Operations/PipelineExecutor.swift", lambda s: replace(s,
-        "            result = error\n            throw error", '''            result = error
-            // LC_STRUCTURED_FAILURE_V1: preserve step responsibility and the underlying error.
-            var stage: String
-            switch step {
-            case .resignApp, .fetchProvisioningProfiles, .verifyCertificate: stage = "signing"
-            case .sendApp, .installApp: stage = "installation"
-            default: stage = "command"
-            }
-            if let operationError = error as? OperationError, operationError == .notAuthenticated { stage = "authentication" }
-            if let portalError = error as? DeveloperPortalError {
-                switch portalError {
-                case .incorrectCredentials, .appSpecificPasswordRequired, .requiresTwoFactorAuthentication,
-                     .incorrectVerificationCode, .authenticationHandshakeFailed, .invalidAnisetteData,
-                     .tooManyAttempts, .accountRepairRequired, .invalid2FAResponse: stage = "authentication"
-                default: break
-                }
-            }
-            let native = error as NSError
-            throw NSError(domain: native.domain, code: native.code,
-                userInfo: ["LCStructuredFailureStageV1": stage, NSUnderlyingErrorKey: native,
-                           NSLocalizedDescriptionKey: native.localizedDescription])'''))
+    edit(side, "SideStore/Core/Operations/PipelineExecutor.swift", patch_pipeline_executor)
     edit(live, "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", lambda s: replace(s,
         "                if sharedModel.developerMode {", '''                Section("Build Candidate") {
                     Text("Product: " + (Bundle.main.object(forInfoDictionaryKey: "LCProductLine") as? String ?? "unknown"))

@@ -39,6 +39,25 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         self.compile_and_run(helper + "\n" + failure + "\n" + harness,
                              "V3_REFRESH_ALL_REQUEST_TERMINAL_PASS")
 
+    def test_refresh_all_current_run_failure_and_target_policy_execute(self):
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_refresh_failure_correlation_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run(failure + "\n" + helper + "\n" + harness,
+                             "V3_REFRESH_FAILURE_CORRELATION_AND_TARGET_POLICY_PASS")
+
+    def test_zero_excess_extensions_skip_prompt_behavior_executes(self):
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_extension_removal_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run(helper + "\n" + harness, "V3_ZERO_EXTENSION_PROMPT_PASS")
+
+    def test_signing_retry_preserves_stage_and_start_failure_is_distinct(self):
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_operation_retry_failure_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run(helper + "\n" + failure + "\n" + harness,
+                             "V3_RETRY_SIGNING_STAGE_AND_START_FAILURE_PASS")
+
     def test_picker_staging_file_lifetime_and_path_validation_execute(self):
         helper = (ROOT / "scripts/templates/v3_ipa_staging.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")

@@ -103,11 +103,28 @@ final class MultitaskDockManager: NSObject {
 struct MultitaskDockSwiftView: View {
     @EnvironmentObject var dockManager: MultitaskDockManager
     var body: some View {
-        VStack {
-            if dockManager.isCollapsed {
-                CollapsedDockView(isHidden: dockManager.isDockHidden)
-            } else {
-                Text("expanded")
+        GeometryReader { _ in
+            VStack(spacing: 8) {
+                if dockManager.isCollapsed {
+                    CollapsedDockView(isHidden: dockManager.isDockHidden)
+                        .onTapGesture {
+                            dockManager.toggleDockCollapse()
+                        }
+                } else {
+                    VStack(spacing: 8) {
+                        CollapseButtonView()
+                            .onTapGesture {
+                                dockManager.toggleDockCollapse()
+                            }
+                        MinimizeAllButtonView()
+                            .onTapGesture {
+                                dockManager.minimizeAllWindows()
+                            }
+                        ForEach(dockManager.apps) { app in
+                            AppIconView(app: app)
+                        }
+                    }
+                }
             }
         }
     }
@@ -220,11 +237,19 @@ class DockPatchTests(unittest.TestCase):
             # Apply the setting before refreshing the SwiftUI root and mounting
             # it, so the first body evaluation chooses the expected view branch.
             self.assertIn("@Published @objc var isCollapsed: Bool = false", dock)
+            self.assertIn("self.isCollapsed = stored", dock)
             self.assertIn("collapseStartState.begin(storedPreference: stored)", dock)
             self.assertIn("applyBeforeFirstFrame(sessionID: sessionID)", dock)
             self.assertIn("self.isCollapsed = initial", dock)
-            self.assertIn("if dockManager.renderedDockMode == .collapsedDockView", dock)
-            self.assertIn("hostingController.rootView = AnyView(MultitaskDockSwiftView().environmentObject(self))", dock)
+            self.assertIn("if dockManager.isCollapsed {", dock)
+            self.assertIn("CollapsedDockView(isHidden: dockManager.isDockHidden)", dock)
+            self.assertIn("hostingController.rootView = AnyView(MultitaskDockSwiftView().environmentObject(self).id(sessionID))", dock)
+            self.assertIn("FIRST_VIEW_SELECTED session=", dock)
+            self.assertIn("BODY_FIRST_RENDER", dock)
+            self.assertIn(".onAppear { dockManager.v3RecordFirstRenderedDockView(.collapsedDockView) }", dock)
+            self.assertIn(".onAppear { dockManager.v3RecordFirstRenderedDockView(.expandedDockView) }", dock)
+            self.assertIn("BODY_FIRST_RENDER", dock)
+            self.assertIn("PRE_FIRST_MOUNT", dock)
             self.assertLess(dock.index("self.isCollapsed = initial"), dock.index("hostingController.rootView = AnyView"))
             first_show = dock.index("self.showDock()", dock.index("FIRST_VIEW_SELECTED"))
             self.assertLess(dock.index("hostingController.rootView = AnyView"), first_show)
@@ -247,6 +272,8 @@ class DockPatchTests(unittest.TestCase):
             self.assertIn("MULTITASK_DOCK_SETUP_PRESENT_V1", dock)
             self.assertIn("MULTITASK_DOCK_SESSION_RECOVERY_V1", dock)
             self.assertLess(dock.index("self.isCollapsed = initial"), first_show)
+            self.assertIn(".id(sessionID)", dock,
+                          "a reused hosting controller must build a fresh SwiftUI body for each dock session")
             # Manual toggle marks the session overridden; session teardown resets it.
             toggle = dock[dock.index("func toggleDockCollapse"):]
             toggle = toggle[:toggle.index("\n    }", toggle.index("isCollapsed.toggle")) + 6]
@@ -299,9 +326,10 @@ class DockPatchTests(unittest.TestCase):
             dock = (live / "MultitaskSupport/MultitaskDockView.swift").read_text(encoding="utf-8")
             # The persisted bool is applied once before first presentation.
             self.assertIn("@Published @objc var isCollapsed: Bool = false", dock)
-            self.assertEqual(dock.count("self.isCollapsed = initial"), 1)
+            self.assertEqual(dock.count("self.isCollapsed = initial"), 2)
             self.assertEqual(dock.count("self.collapseStartState.userDidToggle()"), 1)
             self.assertEqual(dock.count("isCollapsed.toggle()"), 1)
+            self.assertEqual(dock.count("applyBeforeFirstFrame(sessionID: sessionID)"), 2)
             self.assertNotIn("applyStartCollapsedPreference", dock)
 
     def test_first_presented_view_behavior_executes(self):
@@ -383,7 +411,7 @@ class DockPinnedSourceTests(unittest.TestCase):
             settings = (live / "LiveContainerSwiftUI/Views/Settings/LCMultitaskSettingView.swift").read_text(encoding="utf-8")
             self.assertIn('bool(forKey: "LCMultitaskDockStartsCollapsed")', dock)
             self.assertIn("Start Dock Collapsed", settings)
-            self.assertEqual(dock.count("self.isCollapsed = initial"), 1)
+            self.assertEqual(dock.count("self.isCollapsed = initial"), 2)
             self.assertEqual(dock.count("self.collapseStartState.userDidToggle()"), 1)
             compiler = shutil.which("swiftc")
             if compiler:

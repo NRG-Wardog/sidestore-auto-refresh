@@ -69,13 +69,19 @@ struct V3UnifiedTabs: View {
                 status.installPickerPresented = false
             }
         }
-        .fullScreenCover(item: $status.presentation) { V3OperationSheet(request: $0).environmentObject(status) }
+        .fullScreenCover(item: $status.presentation, onDismiss: operationSheetDidDismiss) {
+            V3OperationSheet(request: $0).environmentObject(status)
+        }
         .sheet(isPresented: $status.signInPresented, onDismiss: { status.reload() }) {
             NavigationView { V3SignInView().environmentObject(status) }
                 .navigationViewStyle(StackNavigationViewStyle())
         }
         .sheet(isPresented: $status.setupPresented) {
             NavigationView { V3SetupAssistantView().environmentObject(status) }
+                .navigationViewStyle(StackNavigationViewStyle())
+        }
+        .sheet(isPresented: $status.certificatesPresented) {
+            NavigationView { V3CertificatesView().environmentObject(status) }
                 .navigationViewStyle(StackNavigationViewStyle())
         }
         .alert("SideStore", isPresented: Binding(get: { status.error != nil }, set: { if !$0 { status.error = nil } })) {
@@ -205,6 +211,7 @@ struct V3RefreshAllButton: View {
     @State private var attempt = V3RefreshAllAttemptState()
     @State private var message = ""
     @State private var diagnostics = ""
+    @State private var terminalFailure: V3OperationFailureDetails?
     @State private var copied = false
     @State private var monitor: Task<Void, Never>?
     private let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
@@ -227,10 +234,33 @@ struct V3RefreshAllButton: View {
             .disabled(isBusy || isTerminal || !activeRun.isEmpty || status.presentation != nil || status.loading)
             .accessibilityValue(health.replacingOccurrences(of: "_", with: " ").lowercased())
             if phase == "completed" || phase == "failed" {
-                Text(message)
-                    .font(.footnote)
-                    .foregroundColor(phase == "completed" ? .green : .red)
-                    .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("What happened").font(.caption.weight(.semibold))
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundColor(phase == "completed" ? .green : .red)
+                        .textSelection(.enabled)
+                    if phase == "failed", let terminalFailure {
+                        Text("What you can do").font(.caption.weight(.semibold)).padding(.top, 4)
+                        Text(terminalFailure.recommendedAction).font(.footnote)
+                        HStack {
+                            if let destination = terminalFailure.recoveryDestination,
+                               let action = terminalFailure.recoveryActionTitle {
+                                Button(action) { openFailureRecovery(destination) }
+                            }
+                            if [.allowed, .unknown].contains(terminalFailure.retryDisposition) {
+                                Button(terminalFailure.retryDisposition == .unknown
+                                    ? "Retry (outcome unknown)" : "Retry") {
+                                        retryFailedAttempt()
+                                    }
+                                    .disabled(!activeRun.isEmpty || status.presentation != nil || status.loading)
+                            }
+                        }
+                    } else if phase == "failed", message == "Refresh did not start." {
+                        Button("Start Again") { acknowledge(); start() }
+                            .disabled(!activeRun.isEmpty || status.presentation != nil || status.loading)
+                    }
+                }
                 HStack {
                     Button(copied ? "Copied" : "Copy Diagnostics") {
                         UIPasteboard.general.string = diagnostics
@@ -255,6 +285,17 @@ struct V3RefreshAllButton: View {
         }
         .accessibilityHint("Starts one manual refresh and shows scheduler state through verified completion or failure.")
     }
+    private func operationSheetDidDismiss() {
+        guard let destination = status.operationRecoveryDestination else { return }
+        status.operationRecoveryDestination = nil
+        switch destination {
+        case "signIn": status.signInPresented = true
+        case "certificates": status.certificatesPresented = true
+        case "ipa": status.installPickerPresented = true
+        case "setup": status.setupPresented = true
+        default: break
+        }
+    }
 
     private var isBusy: Bool { ["starting", "refreshing", "verifying"].contains(phase) }
     private var isTerminal: Bool { ["completed", "failed"].contains(phase) }
@@ -275,7 +316,7 @@ struct V3RefreshAllButton: View {
         message = "Starting Refresh..."
         diagnostics = "manual_refresh_request=\(newRequestID)\nstate=starting"
         NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil,
-                                        userInfo: ["requestID": newRequestID])
+                                        userInfo: ["requestID": newRequestID, "origin": "home"])
         monitor = Task { @MainActor in await monitorRun(requestID: newRequestID) }
     }
 
@@ -333,8 +374,10 @@ struct V3RefreshAllButton: View {
         case .completed:
             let manifest = record["manifest"] as? [String: Any] ?? [:]
             let results = manifest["results"] as? [[String: Any]] ?? []
+            let skipped = manifest["skipped_ids"] as? [String] ?? []
             message = attempt.terminalMessage
-            diagnostics = "manual_refresh_request=\(requestID)\nrun_id=\(runID)\nstate=completed\nverified_app_count=\(results.count)"
+            terminalFailure = nil
+            diagnostics = "manual_refresh_request=\(requestID)\nrun_id=\(runID)\nstate=completed\nverified_app_count=\(results.count)\nskipped_app_count=\(skipped.count)"
         case .failed:
             renderFailure(health: record["health"] as? String ?? health, record: record)
         case .idle:
@@ -345,17 +388,26 @@ struct V3RefreshAllButton: View {
     private func renderFailure(health: String, record: [String: Any]? = nil) {
         guard !isTerminal || phase == "failed" else { return }
         message = attempt.terminalMessage.isEmpty ? "Refresh failed. Check Refresh History for details." : attempt.terminalMessage
-        var lines = ["manual_refresh_request=\(requestID)", "run_id=\(runID.isEmpty ? "not_started" : runID)",
-                     "health=\(health)", "state=failed"]
-        if let manifest = record?["manifest"] as? [String: Any],
-           let results = manifest["results"] as? [[String: Any]],
-           let failed = results.first(where: { $0["success"] as? Bool != true }),
-           let failure = failed["failure"] as? [String: Any] {
-            lines.append("operation=\(failure["operation"] as? String ?? "refresh") stage=\(failure["stage"] as? String ?? "unknown") code=\(failure["code"] as? String ?? "unknown")")
-            lines.append("correlation=\(failure["correlationID"] as? String ?? runID)")
-            lines.append("underlying_domain=\(failure["underlyingDomain"] as? String ?? "redacted") underlying_code=\(failure["underlyingCode"] as? Int ?? 0)")
+        terminalFailure = record.flatMap { value in
+            guard let wire = value["failure"] as? [String: Any],
+                  let failure = CombinedFailure.decode(wire, expectedID: runID),
+                  failure.operation == "refresh" else { return nil }
+            return V3OperationFailureDetails(failure)
         }
-        diagnostics = lines.joined(separator: "\n")
+        if let record, !runID.isEmpty,
+           let currentRunDiagnostics = V3RefreshAllFailureDiagnostics.text(
+               requestID: requestID, runID: runID, record: record) {
+            diagnostics = currentRunDiagnostics
+        } else {
+            diagnostics = [
+                "schema=1",
+                "manual_refresh_request=\(requestID)",
+                "run_id=\(runID.isEmpty ? "not_started" : runID)",
+                "state=failed",
+                "safe_message=\(message)",
+                "health=\(health)"
+            ].joined(separator: "\n")
+        }
     }
 
     private func acknowledge() {
@@ -364,7 +416,26 @@ struct V3RefreshAllButton: View {
         attempt.acknowledge()
         message = ""
         diagnostics = ""
+        terminalFailure = nil
         copied = false
+    }
+
+    private func retryFailedAttempt() {
+        guard phase == "failed", let terminalFailure,
+              [.allowed, .unknown].contains(terminalFailure.retryDisposition),
+              activeRun.isEmpty, status.presentation == nil, !status.loading else { return }
+        acknowledge()
+        start()
+    }
+
+    private func openFailureRecovery(_ destination: String) {
+        switch destination {
+        case "signIn": status.signInPresented = true
+        case "certificates": status.certificatesPresented = true
+        case "ipa": status.installPickerPresented = true
+        case "setup": status.setupPresented = true
+        default: break
+        }
     }
 }
 
@@ -413,6 +484,8 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published var installPickerPresented = false
     @Published var signInPresented = false
     @Published var setupPresented = false
+    @Published var certificatesPresented = false
+    @Published var operationRecoveryDestination: String?
     @Published private(set) var loading = false
     @Published private(set) var connected = false
     @Published private(set) var requiresConnectionRetry = false
@@ -1402,10 +1475,32 @@ struct V3OperationSheet: View {
     @State private var startedGeneration: UUID?
     @State private var isDismissing = false
     @State private var promptSubmitting = false
-    @State private var safeToRetry = true
+    @State private var failureContext = V3OperationRetryContext()
+    @State private var whatToDo = ""
+    @State private var technicalDetails = ""
+    @State private var recoveryDestination: String?
+    @State private var retryBlocked = false
     @State private var stagedIPACleaned = false
     @State private var copied = false
-    private var retryAllowed: Bool { safeToRetry && (["failed", "cancelled"].contains(state) || (state == "requiresSource" && sourceOffer != nil)) }
+    private var retryAllowed: Bool {
+        guard !retryBlocked else { return false }
+        if state == "requiresSource" { return sourceOffer != nil }
+        if state == "cancelled" { return true }
+        guard state == "failed", !isTransitioning else { return false }
+        return [.allowed, .unknown].contains(failureContext.retryDisposition)
+    }
+    private var retryButtonTitle: String {
+        failureContext.retryDisposition == .unknown ? "Retry (outcome unknown)" : "Retry"
+    }
+    private func recoveryActionTitle(for destination: String) -> String? {
+        switch destination {
+        case "signIn": return "Open Account & Signing"
+        case "certificates": return "Open Certificates"
+        case "ipa": return "Choose IPA Again"
+        case "setup": return "Open Connection Check"
+        default: return nil
+        }
+    }
     private var isTransitioning: Bool { attempt.transitionInFlight }
     private var isRunning: Bool { ["working", "awaitingPrompt", "cancelling"].contains(state) }
     var body: some View {
@@ -1447,13 +1542,40 @@ struct V3OperationSheet: View {
                     }
                 }
                 if !message.isEmpty {
-                    Section("Notice") {
+                    Section("What happened") {
                         Text(message)
                             .font(.footnote)
                             .textSelection(.enabled)
-                        HStack {
+                    }
+                    if !whatToDo.isEmpty {
+                        Section("What you can do") {
+                            Text(whatToDo).font(.footnote)
+                            if let destination = recoveryDestination,
+                               let action = recoveryActionTitle(for: destination) {
+                                Button(action) { openRecoveryDestination(destination) }
+                            }
+                            if retryAllowed {
+                                Button(isTransitioning ? "Waiting..." : retryButtonTitle) { retry() }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(isTransitioning)
+                            }
+                        }
+                    } else if retryAllowed {
+                        Section("What you can do") {
+                            Button(isTransitioning ? "Waiting..." : retryButtonTitle) { retry() }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(isTransitioning)
+                        }
+                    }
+                    if !technicalDetails.isEmpty {
+                        Section {
+                            DisclosureGroup("Technical details") {
+                                Text(technicalDetails)
+                                    .font(.caption2)
+                                    .textSelection(.enabled)
+                            }
                             Button(copied ? "Copied" : "Copy Diagnostics") {
-                                UIPasteboard.general.string = message
+                                UIPasteboard.general.string = technicalDetails
                                 copied = true
                                 Task {
                                     try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -1461,13 +1583,6 @@ struct V3OperationSheet: View {
                                 }
                             }
                             .font(.caption)
-                            Spacer()
-                            if retryAllowed {
-                                Button(isTransitioning ? "Waiting..." : "Retry") { retry() }
-                                    .font(.caption)
-                                    .buttonStyle(.borderedProminent)
-                                    .disabled(isTransitioning)
-                            }
                         }
                     }
                 }
@@ -1535,28 +1650,77 @@ struct V3OperationSheet: View {
         task = Task { await run(generation: generation) }
     }
     private func run(generation: UUID) async {
+        var backendSessionStarted = false
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "opStart",
                 payload: ["kind": request.operation, "target": request.target,
                           "session": generation.uuidString])
-            guard let id = reply["session"] as? String,
-                  attempt.bind(sessionID: id, generation: generation) else {
-                _ = try? await V3ServiceBridge.shared.request(operation: "opCancel", target: generation.uuidString)
+            if reply["failedToStart"] as? Bool == true {
+                handleStartFailure(reply, generation: generation)
+                return
+            }
+            guard let id = reply["session"] as? String else {
+                if reply["state"] as? String == "failed" {
+                    handleStartFailure(reply, generation: generation)
+                } else {
+                    let failure = CombinedFailure(operation: request.operation, stage: .command,
+                        code: .invalidResponse, id: generation.uuidString, retryable: false)
+                    failureContext.recordStartFailure(failure)
+                    presentCurrentFailure()
+                }
                 return
             }
             guard id == generation.uuidString else {
-                throw NSError(domain: "V3Operation", code: 1,
-                              userInfo: [NSLocalizedDescriptionKey: "The service returned a mismatched operation session."])
+                _ = try? await V3ServiceBridge.shared.request(operation: "opCancel", target: id)
+                let failure = CombinedFailure(operation: request.operation, stage: .command,
+                    code: .staleResult, id: generation.uuidString, retryable: false)
+                failureContext.recordStartFailure(failure)
+                presentCurrentFailure()
+                return
             }
+            guard attempt.bind(sessionID: id, generation: generation) else {
+                _ = try? await V3ServiceBridge.shared.request(operation: "opCancel", target: id)
+                return
+            }
+            backendSessionStarted = true
+            failureContext.operationStarted()
+            retryBlocked = false
             try await pollLoop(id: id, generation: generation)
         } catch {
             guard attempt.generation == generation, !attempt.isTerminal else { return }
-            _ = attempt.acceptStartFailure(generation: generation)
-            state = "failed"
-            message = "The operation could not start.\n\n" + error.localizedDescription
-            safeToRetry = true
-            recordRefresh("failed", message)
+            let failure = (error as? CombinedFailure) ?? CombinedFailure.capture(error,
+                operation: request.operation,
+                stage: backendSessionStarted ? .xpcConnection : .command,
+                id: generation.uuidString)
+            if backendSessionStarted {
+                failureContext.recordPipelineFailure(failure)
+            } else {
+                failureContext.recordStartFailure(failure)
+            }
+            presentCurrentFailure()
         }
+    }
+
+    private func handleStartFailure(_ reply: [String: Any], generation: UUID) {
+        guard attempt.generation == generation, !attempt.isTerminal else { return }
+        let failure = (reply["failure"] as? [String: Any]).flatMap {
+            CombinedFailure.decode($0, expectedID: generation.uuidString)
+        } ?? CombinedFailure(operation: request.operation,
+            stage: CombinedFailure.Stage(rawValue: reply["stage"] as? String ?? "") ?? .command,
+            code: CombinedFailure.Code(rawValue: reply["code"] as? String ?? "") ?? .failed,
+            id: generation.uuidString, retryable: reply["retryable"] as? Bool)
+        failureContext.recordStartFailure(failure)
+        presentCurrentFailure()
+    }
+
+    private func presentCurrentFailure() {
+        _ = attempt.acceptStartFailure(generation: attempt.generation)
+        state = "failed"
+        message = failureContext.whatHappened
+        whatToDo = failureContext.whatToDo
+        technicalDetails = failureContext.technicalDetails
+        recoveryDestination = failureContext.currentFailure?.recoveryDestination
+        recordRefresh("failed", message)
     }
     private func pollLoop(id: String, generation: UUID) async throws {
         while !Task.isCancelled {
@@ -1588,6 +1752,10 @@ struct V3OperationSheet: View {
             // Auto-dismissing here made successful fast operations look like
             // nothing happened.
             if message.isEmpty { message = request.title + " completed successfully." }
+            whatToDo = "Reload app status to confirm the installed app and signing state."
+            technicalDetails = ""
+            recoveryDestination = nil
+            failureContext.reset()
             recordRefresh("completed", "The operation completed. Reload the app list to confirm the result.")
             status.reload()
             if request.operation == "installSharedIPA", !stagedIPACleaned {
@@ -1599,33 +1767,33 @@ struct V3OperationSheet: View {
             // result with an explicit message instead of silently returning
             // to the app list.
             message = "The operation was cancelled before it finished. Run it again if the cancellation was not intended."
+            whatToDo = "Retry is safe because the backend confirmed that this attempt stopped."
+            technicalDetails = ""
+            recoveryDestination = nil
+            retryBlocked = false
         case "waitingForAuthentication":
             status.signInPresented = true
             message = "Sign in first, then run this action again."
+            whatToDo = "Open Account & Signing, complete sign-in, then start a new operation."
+            recoveryDestination = "signIn"
+            retryBlocked = true
         case "requiresSource":
             sourceOffer = ["id": reply["sourceID"] as? String ?? "",
                            "name": reply["sourceName"] as? String ?? "Unknown source"]
             prompt = nil
         case "failed":
-            // A structured backend failure carries the user-facing message
-            // plus fixed diagnostics (operation, stage, code, correlation,
-            // underlying domain/code, retryable). Both are shown and both are
-            // copied by Copy Diagnostics. Anything else keeps the legacy
-            // stage/code rendering instead of going silent.
-            if let text = reply["message"] as? String, !text.isEmpty {
-                if let technical = reply["technical"] as? String, !technical.isEmpty {
-                    message = text + "\n\nDiagnostics:\n" + technical
-                } else {
-                    message = text
-                }
-            } else {
-                var detail = "The operation failed."
-                if let stage = reply["stage"] as? String, let code = reply["code"] as? String {
-                    detail += " (\(stage): \(code))"
-                }
-                message = detail
-            }
-            safeToRetry = true
+            let failure = (reply["failure"] as? [String: Any]).flatMap {
+                CombinedFailure.decode($0, expectedID: sessionID)
+            } ?? CombinedFailure(operation: request.operation,
+                stage: CombinedFailure.Stage(rawValue: reply["stage"] as? String ?? "") ?? .command,
+                code: CombinedFailure.Code(rawValue: reply["code"] as? String ?? "") ?? .failed,
+                id: sessionID, retryable: reply["retryable"] as? Bool)
+            failureContext.recordPipelineFailure(failure)
+            retryBlocked = false
+            message = failureContext.whatHappened
+            whatToDo = failureContext.whatToDo
+            technicalDetails = failureContext.technicalDetails
+            recoveryDestination = failureContext.currentFailure?.recoveryDestination
             recordRefresh("failed", message)
         default: break
         }
@@ -1661,6 +1829,7 @@ struct V3OperationSheet: View {
     }
     private func retry() {
         guard retryAllowed, attempt.beginTransition() else { return }
+        failureContext.beginRetry()
         let oldTask = task
         let oldSession = attempt.supersede()
         let transitionGeneration = attempt.generation
@@ -1671,6 +1840,10 @@ struct V3OperationSheet: View {
         sourceOffer = nil
         progress = 0
         message = "Waiting for the previous attempt to stop..."
+        whatToDo = "The new attempt will start after the service confirms that the prior session stopped."
+        technicalDetails = failureContext.technicalDetails
+        recoveryDestination = nil
+        retryBlocked = false
         state = "working"
         Task { @MainActor in
             oldTask?.cancel()
@@ -1689,9 +1862,12 @@ struct V3OperationSheet: View {
                 await oldTask?.value
                 guard attempt.generation == transitionGeneration else { return }
                 attempt.endTransition()
-                safeToRetry = false
-                state = "failed"
-                message = "The previous attempt could not be confirmed as stopped. Retry is disabled to prevent a duplicate mutation. Reconnect before continuing."
+                let failure = (error as? CombinedFailure) ?? CombinedFailure.capture(error,
+                    operation: request.operation, stage: .xpcConnection,
+                    id: transitionGeneration.uuidString)
+                failureContext.recordStartFailure(failure)
+                retryBlocked = true
+                presentCurrentFailure()
             }
         }
     }
@@ -1715,15 +1891,23 @@ struct V3OperationSheet: View {
                 guard attempt.generation == transitionGeneration else { return }
                 uncertainSessionID = nil
                 state = "cancelled"
-                message = "The operation was cancelled and the backend confirmed that it stopped. Retry is safe."
-                safeToRetry = true
+                message = "The operation was cancelled and the backend confirmed that it stopped."
+                whatToDo = "You can safely start the operation again."
+                technicalDetails = ""
+                retryBlocked = false
                 status.reload()
             } catch {
                 await oldTask?.value
                 guard attempt.generation == transitionGeneration else { return }
                 state = "failed"
-                safeToRetry = false
-                message = "The service could not confirm cancellation. Retry is disabled to prevent a duplicate mutation. Reconnect and reload status before continuing."
+                let failure = (error as? CombinedFailure) ?? CombinedFailure.capture(error,
+                    operation: request.operation, stage: .xpcConnection,
+                    id: transitionGeneration.uuidString)
+                failureContext.recordPipelineFailure(failure)
+                retryBlocked = true
+                message = "SideStore could not confirm that the operation stopped. It may still be running."
+                whatToDo = "Reconnect and reload operation status before trying another mutation."
+                technicalDetails = failure.technicalDetails
             }
             attempt.endTransition()
         }
@@ -1745,8 +1929,9 @@ struct V3OperationSheet: View {
                     if uncertainSessionID != nil {
                         isDismissing = false
                         attempt.endTransition()
-                        safeToRetry = false
-                        message = "The service still cannot confirm that the previous operation stopped. Its staged IPA was kept safely. Reconnect and try Done again."
+                        retryBlocked = true
+                        message = "SideStore could not confirm that the previous operation stopped. The staged IPA was kept safely."
+                        whatToDo = "Reconnect before retrying or cleaning up the selected IPA."
                         return
                     }
                 }
@@ -1757,6 +1942,10 @@ struct V3OperationSheet: View {
             status.reload()
             dismiss()
         }
+    }
+    private func openRecoveryDestination(_ destination: String) {
+        status.operationRecoveryDestination = destination
+        acknowledgeAndDismiss()
     }
     private func recordRefresh(_ result: String, _ detail: String) {
         guard request.operation == "refreshApp" else { return }
@@ -3564,7 +3753,7 @@ final class V3SetupStore: ObservableObject {
         verification = V3SetupStepState(state: "running", detail: "Test refresh running…")
         NSLog("[V3_SETUP] TEST_REFRESH_START")
         NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil,
-                                        userInfo: ["requestID": requestID])
+                                        userInfo: ["requestID": requestID, "origin": "setupAssistant"])
         testTask = Task {
             do {
                 let deadline = Date().addingTimeInterval(600)

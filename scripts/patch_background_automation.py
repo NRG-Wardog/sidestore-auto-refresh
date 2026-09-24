@@ -1077,9 +1077,25 @@ def patch_background_operation(sidestore: Path) -> None:
 ''',
             '''            guard !self.isCancelled else { throw OperationError.cancelled }
 
+            let refreshDefaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
+            let expectedRunID = refreshDefaults?.string(forKey: "liveContainerAutoRefreshExpectedRunID")
+            let manualRunID = refreshDefaults?.string(forKey: "liveContainerAutoRefreshActiveManualOriginRunID")
+            let manualOrigin = refreshDefaults?.string(forKey: "liveContainerAutoRefreshActiveManualOrigin")
+            let isCorrelatedManualRun = expectedRunID != nil && expectedRunID == manualRunID &&
+                UUID(uuidString: expectedRunID ?? "") != nil &&
+                ["home", "refreshManager", "setupAssistant", "deadlineAlarm", "vpnReturn", "manualUnknown"].contains(manualOrigin ?? "")
+
+            let targetPlan = CombinedRefreshTargetPolicy.plan(
+                requestedIDs: self.installedApps.map { $0.bundleIdentifier },
+                runningIDs: self.runningApplications,
+                isCorrelatedManualRun: isCorrelatedManualRun)
+            let attemptedIDs = Set(targetPlan.attemptedIDs)
             let filteredApps = await dbContext.perform {
-                return self.installedApps.filter { !self.runningApplications.contains($0.bundleIdentifier) }
+                // User initiated host refresh follows the manager's full target policy.
+                // Scheduled background runs continue to skip apps currently in use.
+                return self.installedApps.filter { attemptedIDs.contains($0.bundleIdentifier) }
             }
+            debugLog("[AUTO_REFRESH] TARGET_POLICY run_id=\\(expectedRunID ?? "none") origin=\\(manualOrigin ?? "scheduled") mode=\\(isCorrelatedManualRun ? "manual_all_apps" : "background_skip_running") requested_count=\\(self.installedApps.count) attempted_count=\\(filteredApps.count)")
 ''',
             "pre-refresh cancellation check",
         )
@@ -1117,7 +1133,8 @@ def patch_background_operation(sidestore: Path) -> None:
                 self.refreshGroupLock.lock()
                 self.activeRefreshGroup = nil
                 self.refreshGroupLock.unlock()
-                self.persistAutomaticRefreshVerification(results: results)
+                self.persistAutomaticRefreshVerification(results: results,
+                    attemptedAppIDs: apps.map { $0.bundleIdentifier })
                 self.setProgress(100)
                 continuation.resume(returning: results)
             }
@@ -1141,7 +1158,8 @@ def patch_background_operation(sidestore: Path) -> None:
         debugLog("[AUTO_REFRESH] HOST_REFRESH_HANDOFF_STARTED run_id=\(refreshIdentifier)")
     }
 
-    private func persistAutomaticRefreshVerification(results: [String: Result<InstalledApp, Error>]) {
+    private func persistAutomaticRefreshVerification(results: [String: Result<InstalledApp, Error>],
+                                                     attemptedAppIDs: [String]) {
         let defaults = automaticRefreshDefaults()
         var serialized: [[String: Any]] = []
         for (bundleIdentifier, result) in results.sorted(by: { $0.key < $1.key }) {

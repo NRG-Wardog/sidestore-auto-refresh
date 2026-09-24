@@ -16,11 +16,13 @@ import sys
 
 PIN = "12377cf3b91d51739a33f14a302e5f522b238593"
 KEY = "LCMultitaskDockStartsCollapsed"
-MARKER = "MULTITASK_DOCK_START_COLLAPSED_V1"
+MARKER = "MULTITASK_DOCK_START_COLLAPSED_V3"
 SESSION_MARKER = "MULTITASK_DOCK_SESSION_APPLY_V2"
 RESHOW_MARKER = "MULTITASK_DOCK_RESHOW_AFTER_TRANSITION_V1"
 RECOVERY_MARKER = "MULTITASK_DOCK_SESSION_RECOVERY_V1"
 SETUP_PRESENT_MARKER = "MULTITASK_DOCK_SETUP_PRESENT_V1"
+PREF_BEFORE_MOUNT_MARKER = "MULTITASK_DOCK_PREF_BEFORE_MOUNT_V1"
+BODY_MARKER = "MULTITASK_DOCK_BODY_FIRST_RENDER_V1"
 
 DOCK_VIEW = "MultitaskSupport/MultitaskDockView.swift"
 SETTINGS_VIEW = "LiveContainerSwiftUI/Views/Settings/LCMultitaskSettingView.swift"
@@ -42,17 +44,22 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 def apply_dock_init(text: str) -> str:
-    """Trace singleton initialization without relying on an init-time write."""
+    """Initialize the manager's first root from the same shared preference."""
     if MARKER in text:
         if text.count(MARKER) != 1:
             die("previous dock init patch is partial or duplicated")
         return text
+    if ("MULTITASK_DOCK_START_COLLAPSED_V1" in text or
+            "MULTITASK_DOCK_START_COLLAPSED_V2" in text):
+        die("legacy dock initialization marker found; reapply to the clean pinned source")
     old = "    override init() {\n        super.init()\n"
     new = ("    override init() {\n"
            "        super.init()\n"
-           f"        // {MARKER}: record the selected preference and initial singleton state.\n"
+           f"        // {MARKER}: initialize before setupDockView can create its first SwiftUI root.\n"
+           f'        let stored = LCUtils.appGroupUserDefault.bool(forKey: "{KEY}")\n'
+           "        self.isCollapsed = stored\n"
            f'        NSLog("[LC_DOCK] INIT stored_preference=%d apps_count=%ld isCollapsed=%d", '
-           f'LCUtils.appGroupUserDefault.bool(forKey: "{KEY}") ? 1 : 0, self.apps.count, self.isCollapsed ? 1 : 0)\n')
+           'stored ? 1 : 0, self.apps.count, self.isCollapsed ? 1 : 0)\n')
     return replace_once(text, old, new, "dock manager init")
 
 
@@ -60,7 +67,8 @@ def apply_dock_session(text: str) -> str:
     """Select CollapsedDockView before a fresh session's first SwiftUI mount."""
     if SESSION_MARKER in text:
         if (text.count(SESSION_MARKER) != 4 or text.count(RESHOW_MARKER) != 1 or
-                text.count(RECOVERY_MARKER) != 1 or text.count(SETUP_PRESENT_MARKER) != 1):
+                text.count(RECOVERY_MARKER) != 1 or text.count(SETUP_PRESENT_MARKER) != 1 or
+                text.count(PREF_BEFORE_MOUNT_MARKER) != 1 or text.count(BODY_MARKER) != 1):
             die("previous dock session patch is partial or duplicated")
         return text
     if "MULTITASK_DOCK_SESSION_APPLY_V1" in text or "collapseManuallyOverridden" in text:
@@ -77,6 +85,13 @@ def apply_dock_session(text: str) -> str:
         '    private var collapseStartState = LCMultitaskDockSessionState()\n'
         '    var renderedDockMode: LCMultitaskDockRenderedMode {\n'
         '        LCMultitaskDockSessionState.renderedMode(isCollapsed: isCollapsed)\n'
+        '    }\n'
+        '    private var firstRenderedDockSessionID: String?\n'
+        '    func v3RecordFirstRenderedDockView(_ mode: LCMultitaskDockRenderedMode) {\n'
+        '        guard let sessionID = collapseStartState.sessionID, firstRenderedDockSessionID != sessionID else { return }\n'
+        '        firstRenderedDockSessionID = sessionID\n'
+        f'        // {BODY_MARKER}: emitted from the concrete SwiftUI branch on first appearance.\n'
+        '        NSLog("[LC_DOCK] BODY_FIRST_RENDER session=%@ isCollapsed=%d branch=%@", sessionID, isCollapsed ? 1 : 0, mode == .collapsedDockView ? "CollapsedDockView" : "ExpandedDockView")\n'
         '    }\n',
         "session state")
     if text.count("            self.isCollapsed.toggle()\n") != 1:
@@ -104,7 +119,7 @@ def apply_dock_session(text: str) -> str:
         '                if let initial = self.collapseStartState.applyBeforeFirstFrame(sessionID: sessionID) { self.isCollapsed = initial }\n'
         '                self.isDockHidden = false\n'
         '                if let hostingController = self.hostingController {\n'
-        '                    hostingController.rootView = AnyView(MultitaskDockSwiftView().environmentObject(self))\n'
+        '                    hostingController.rootView = AnyView(MultitaskDockSwiftView().environmentObject(self).id(sessionID))\n'
         '                }\n'
         f'                // {SESSION_MARKER}: this value controls the first-presented SwiftUI branch.\n'
         '                NSLog("[LC_DOCK] FIRST_VIEW_SELECTED session=%@ isCollapsed=%d rendered=%@", sessionID, self.isCollapsed ? 1 : 0, self.renderedDockMode == .collapsedDockView ? "CollapsedDockView" : "ExpandedDockView")\n'
@@ -131,10 +146,19 @@ def apply_dock_session(text: str) -> str:
     actual_presentation = '''            NSLog("[LC_DOCK] SHOW session=%@ apps_count=%ld isCollapsed=%d rendered=%@", self.collapseStartState.sessionID ?? "none", self.apps.count, self.isCollapsed ? 1 : 0, self.renderedDockMode == .collapsedDockView ? "CollapsedDockView" : "ExpandedDockView")
             self.isVisible = true
 '''
-    actual_presentation_replacement = '''            if let sessionID = self.collapseStartState.sessionID {
+    actual_presentation_replacement = f'''            // {PREF_BEFORE_MOUNT_MARKER}: re-read/apply before the host's first visible mount.
+            if !self.collapseStartState.isActiveSession {{
+                let stored = LCUtils.appGroupUserDefault.bool(forKey: "{KEY}")
+                _ = self.collapseStartState.begin(storedPreference: stored)
+                self.isDockHidden = false
+            }}
+            if let sessionID = self.collapseStartState.sessionID, !self.collapseStartState.wasPresented {{
+                if let initial = self.collapseStartState.applyBeforeFirstFrame(sessionID: sessionID) {{ self.isCollapsed = initial }}
+                hostingController.rootView = AnyView(MultitaskDockSwiftView().environmentObject(self).id(sessionID))
+                NSLog("[LC_DOCK] PRE_FIRST_MOUNT session=%@ isCollapsed=%d rendered=%@", sessionID, self.isCollapsed ? 1 : 0, self.renderedDockMode == .collapsedDockView ? "CollapsedDockView" : "ExpandedDockView")
                 let firstPresentation = self.collapseStartState.markPresented(sessionID: sessionID)
                 NSLog("[LC_DOCK] FIRST_PRESENTED_VIEW session=%@ first=%d isCollapsed=%d rendered=%@", sessionID, firstPresentation ? 1 : 0, self.isCollapsed ? 1 : 0, self.renderedDockMode == .collapsedDockView ? "CollapsedDockView" : "ExpandedDockView")
-            }
+            }}
             NSLog("[LC_DOCK] SHOW session=%@ apps_count=%ld isCollapsed=%d rendered=%@", self.collapseStartState.sessionID ?? "none", self.apps.count, self.isCollapsed ? 1 : 0, self.renderedDockMode == .collapsedDockView ? "CollapsedDockView" : "ExpandedDockView")
             self.isVisible = true
 '''
@@ -191,9 +215,29 @@ def apply_dock_session(text: str) -> str:
     if len(branch_indices) != 1:
         die("CollapsedDockView first-presented branch: expected one unique anchor")
     branch_index = branch_indices[0]
-    lines[branch_index] = lines[branch_index].replace(
-        "if dockManager.isCollapsed", "if dockManager.renderedDockMode == .collapsedDockView", 1)
+    # The existing direct state check is the acceptance branch. renderedDockMode
+    # stays diagnostic and cannot replace MultitaskDockManager.isCollapsed.
     text = "".join(lines)
+    text = replace_once(
+        text,
+        '                    CollapsedDockView(isHidden: dockManager.isDockHidden)\n',
+        '                    CollapsedDockView(isHidden: dockManager.isDockHidden)\n'
+        '                        .onAppear { dockManager.v3RecordFirstRenderedDockView(.collapsedDockView) }\n',
+        "collapsed body first-render marker")
+    text = replace_once(
+        text,
+        '                        ForEach(dockManager.apps) { app in\n'
+        '                            AppIconView(app: app)\n'
+        '                        }\n'
+        '                    }\n'
+        '                }\n',
+        '                        ForEach(dockManager.apps) { app in\n'
+        '                            AppIconView(app: app)\n'
+        '                        }\n'
+        '                    }\n'
+        '                    .onAppear { dockManager.v3RecordFirstRenderedDockView(.expandedDockView) }\n'
+        '                }\n',
+        "expanded body first-render marker")
     return text
 
 

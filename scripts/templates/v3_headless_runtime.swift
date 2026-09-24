@@ -697,20 +697,25 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
 
     func selectAppExtensionsToRemove(appBundle: ALTApplication, localAppExtensions: [ALTApplication],
                                      excessExtensions: Set<ALTApplication>) async throws -> ExtensionRemovalDecision {
-        let sorted = excessExtensions.sorted { $0.bundleIdentifier < $1.bundleIdentifier }
-        let answer = try await ask(kind: "extensions", title: "App Extensions",
-                                   message: "\(appBundle.bundleIdentifier) contains \(sorted.count) extension(s) that do not fit the active profile. Choose which to remove.",
-                                   options: [["id": "keepAll", "label": "Keep All"]] +
-                                       sorted.map { ["id": "remove:\($0.bundleIdentifier)", "label": "Remove \($0.bundleIdentifier)"] } +
-                                       [["id": "removeAll", "label": "Remove All"]])
-        switch answer["choice"] {
-        case "keepAll": return .keepAll(useMainProfile: false)
-        case "removeAll": return .removeAll
-        default:
-            let wanted = Set((answer["ids"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
-            let selected = Set(sorted.filter { wanted.contains($0.bundleIdentifier) })
-            guard !selected.isEmpty else { throw CancellationError() }
-            return .removeSelected(selected)
+        return try await V3ExtensionRemovalPromptPolicy.decide(
+            excessExtensions: excessExtensions,
+            whenEmpty: .keepAll(useMainProfile: false)
+        ) {
+            let sorted = excessExtensions.sorted { $0.bundleIdentifier < $1.bundleIdentifier }
+            let answer = try await self.ask(kind: "extensions", title: "App Extensions",
+                message: "\(appBundle.bundleIdentifier) contains \(sorted.count) extension(s) that do not fit the active profile. Choose which to remove.",
+                options: [["id": "keepAll", "label": "Keep All"]] +
+                    sorted.map { ["id": "remove:\($0.bundleIdentifier)", "label": "Remove \($0.bundleIdentifier)"] } +
+                    [["id": "removeAll", "label": "Remove All"]])
+            switch answer["choice"] {
+            case "keepAll": return .keepAll(useMainProfile: false)
+            case "removeAll": return .removeAll
+            default:
+                let wanted = Set((answer["ids"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+                let selected = Set(sorted.filter { wanted.contains($0.bundleIdentifier) })
+                guard !selected.isEmpty else { throw CancellationError() }
+                return .removeSelected(selected)
+            }
         }
     }
 
@@ -778,7 +783,7 @@ final class V3OperationCenter {
         _ = value
         cleanupSessions()
         guard let parsedID = UUID(uuidString: requestedID), parsedID.uuidString == requestedID else {
-            return ["state": "failed", "code": "invalidConfiguration",
+            return ["state": "failed", "failedToStart": true, "code": "invalidConfiguration",
                     "message": "The operation attempt identifier is invalid."]
         }
         let id = requestedID
@@ -790,7 +795,7 @@ final class V3OperationCenter {
             return terminalReply(id: id)
         case .busy:
             let failure = CombinedFailure(operation: kind, stage: .command, code: .busy, id: id, retryable: true)
-            finish(id: id, response: ["state": "failed", "stage": failure.stage.rawValue,
+            finish(id: id, response: ["state": "failed", "failedToStart": true, "stage": failure.stage.rawValue,
                 "code": failure.code.rawValue, "message": failure.message,
                 "technical": failure.technicalDetails, "failure": failure.wire, "retryable": true])
             return terminalReply(id: id)
@@ -815,7 +820,9 @@ final class V3OperationCenter {
                 self.expire(id: id)
             }
         } catch {
-            finish(id: id, response: terminalFailure(id: id, kind: kind, error: error))
+            var failure = terminalFailure(id: id, kind: kind, error: error)
+            failure["failedToStart"] = true
+            finish(id: id, response: failure)
             mutationRegistry.finish(id)
             return terminalReply(id: id)
         }

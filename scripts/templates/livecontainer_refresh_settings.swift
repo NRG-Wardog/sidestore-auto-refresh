@@ -252,7 +252,7 @@ struct LCEmbeddedSideStoreRefreshView: View {
     private func notifyManualRefresh() {
         let requestID = UUID().uuidString
         NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil,
-                                        userInfo: ["requestID": requestID])
+                                        userInfo: ["requestID": requestID, "origin": "refreshManager"])
     }
 
     private func deleteHistoryEntry(id: String) {

@@ -1,6 +1,25 @@
 import Foundation
 import CoreFoundation
 
+public struct CombinedRefreshTargetPlan: Equatable {
+    public let requestedIDs: [String]
+    public let attemptedIDs: [String]
+    public let skippedIDs: [String]
+}
+
+public enum CombinedRefreshTargetPolicy {
+    public static func plan(requestedIDs: [String], runningIDs: Set<String>,
+                            isCorrelatedManualRun: Bool) -> CombinedRefreshTargetPlan {
+        let attempted = isCorrelatedManualRun
+            ? requestedIDs
+            : requestedIDs.filter { !runningIDs.contains($0) }
+        let attemptedSet = Set(attempted)
+        return CombinedRefreshTargetPlan(requestedIDs: requestedIDs,
+            attemptedIDs: attempted,
+            skippedIDs: requestedIDs.filter { !attemptedSet.contains($0) })
+    }
+}
+
 // LC_REFRESH_METADATA_SANITIZED_V1: never forward arbitrary saved result dictionaries.
 public enum CombinedVerification {
     static let uncertainMutationKey = "liveContainerAutoRefreshUncertainMutationRunID"
@@ -17,6 +36,7 @@ public enum CombinedVerification {
               manifest["version"] as? Int == 2, manifest["schema"] as? String == "LiveContainerRefreshManifestV2",
               let expected = manifest["expected_ids"] as? [String], !expected.isEmpty, expected.count <= 1024,
               expected.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 512 }), Set(expected).count == expected.count,
+              targetCoverageIsValid(manifest, expected: expected),
               let entries = manifest["results"] as? [[String: Any]], entries.count == expected.count else { return false }
         var received = Set<String>()
         for entry in entries {
@@ -26,13 +46,28 @@ public enum CombinedVerification {
         }
         return received == Set(expected)
     }
+    private static func targetCoverageIsValid(_ manifest: [String: Any], expected: [String]) -> Bool {
+        guard manifest["requested_ids"] != nil || manifest["skipped_ids"] != nil else { return true }
+        guard let requested = manifest["requested_ids"] as? [String],
+              let skipped = manifest["skipped_ids"] as? [String],
+              !requested.isEmpty, requested.count <= 1024, skipped.count <= 1024,
+              requested.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 512 }),
+              skipped.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 512 }),
+              Set(requested).count == requested.count, Set(skipped).count == skipped.count else { return false }
+        let expectedSet = Set(expected), skippedSet = Set(skipped)
+        return expectedSet.isDisjoint(with: skippedSet) &&
+            expectedSet.union(skippedSet) == Set(requested)
+    }
     static func sanitized(_ payload: [String: Any], runID: String) -> [String: Any] {
         guard let manifest = payload["liveContainerAutoRefreshVerification"] as? [String: Any],
               manifest["run_id"] as? String == runID,
               let expected = manifest["expected_ids"] as? [String], expected.count <= 1024,
               expected.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 512 }),
+              targetCoverageIsValid(manifest, expected: expected),
               let entries = manifest["results"] as? [[String: Any]], entries.count <= 1024 else { return [:] }
         var result: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2", "run_id": runID, "expected_ids": expected]
+        if let requested = manifest["requested_ids"] as? [String] { result["requested_ids"] = requested }
+        if let skipped = manifest["skipped_ids"] as? [String] { result["skipped_ids"] = skipped }
         if let date = manifest["date"] as? Date { result["date"] = date }
         if let handoff = manifest["host_handoff"] as? Bool { result["host_handoff"] = handoff }
         result["results"] = entries.compactMap { entry -> [String: Any]? in
@@ -66,6 +101,41 @@ public enum CombinedVerification {
 
 // LC_STRUCTURED_FAILURE_V1: fixed vocabulary, no arbitrary userInfo/descriptions on the wire.
 public struct CombinedFailure: Error, LocalizedError {
+    public enum SafeCause: String, CaseIterable {
+        case networkConnectionLost
+        case networkTimedOut
+        case networkUnavailable
+        case signingNetworkConnectionLost
+        case signingNetworkTimedOut
+        case signingNetworkUnavailable
+        case developerPortalRejectedRequest
+        case developerPortalInvalidResponse
+        case provisioningProfileUnavailable
+        case certificateUnavailable
+        case wifiUnavailable
+        case localDevVPNUnavailable
+        case unknownSigningCause
+
+        fileprivate var inferredRetryable: Bool? {
+            switch self {
+            case .networkConnectionLost, .networkTimedOut, .networkUnavailable,
+                 .signingNetworkConnectionLost, .signingNetworkTimedOut, .signingNetworkUnavailable,
+                 .wifiUnavailable, .localDevVPNUnavailable:
+                return true
+            case .provisioningProfileUnavailable, .certificateUnavailable:
+                return false
+            case .developerPortalRejectedRequest, .developerPortalInvalidResponse:
+                return nil
+            case .unknownSigningCause:
+                return nil
+            }
+        }
+    }
+
+    public enum SourceStep: String, CaseIterable {
+        case provisioningProfileFetch, certificateValidation, localCodeSigning
+    }
+
     public enum Stage: String, CaseIterable {
         case hostContainer, storagePreparation, bookmarkCreation, extensionDiscovery, extensionLaunch
         case xpcConnection, serviceReadiness, command, authentication, signing, filePreparation, installation, refreshVerification
@@ -83,9 +153,12 @@ public struct CombinedFailure: Error, LocalizedError {
     public let correlationID: String
     public let underlyingDomain: String
     public let underlyingCode: Int
+    public let safeCause: SafeCause?
+    public let sourceStep: SourceStep?
     public let retryable: Bool?
     public init(operation: String, stage: Stage, code: Code = .failed, id: String,
-                underlying: Error? = nil, retryable: Bool? = nil) {
+                underlying: Error? = nil, retryable: Bool? = nil, safeCause: SafeCause? = nil,
+                sourceStep: SourceStep? = nil) {
         let normalized = ["snapshot": "status", "refreshApp": "refresh", "installURL": "install", "installSharedIPA": "install",
                           "addSource": "source", "removeSource": "source", "refreshSources": "source", "syncAppIDs": "signIn",
                           "authBegin": "signIn", "authPoll": "signIn", "authRespond": "signIn", "authCancel": "signIn",
@@ -98,7 +171,9 @@ public struct CombinedFailure: Error, LocalizedError {
         let domain = error?.domain ?? "none"
         underlyingDomain = Self.domains.contains(domain) ? domain : "redacted"
         underlyingCode = error?.code ?? 0
-        self.retryable = retryable
+        self.safeCause = safeCause
+        self.sourceStep = sourceStep
+        self.retryable = retryable ?? safeCause?.inferredRetryable
     }
     private static let operations: Set<String> = ["connect", "status", "command", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit"]
     private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "HTTPStatus"]
@@ -106,6 +181,23 @@ public struct CombinedFailure: Error, LocalizedError {
     public var message: String {
         if code == .cancelled { return "The \(operation) request was cancelled. Its result may need reconciliation." }
         if code == .timedOut { return "The \(operation) request timed out during \(stage.rawValue)." }
+        if let safeCause {
+            switch safeCause {
+            case .networkConnectionLost: return "The network connection was lost during \(operation)."
+            case .networkTimedOut: return "The network request timed out during \(operation)."
+            case .networkUnavailable: return "A network connection was unavailable during \(operation)."
+            case .signingNetworkConnectionLost: return "The signing flow lost its connection while contacting the provisioning service."
+            case .signingNetworkTimedOut: return "The provisioning service did not respond during signing."
+            case .signingNetworkUnavailable: return "The signing flow could not reach the provisioning service."
+            case .developerPortalRejectedRequest: return "Apple's Developer Portal rejected a provisioning request during signing."
+            case .developerPortalInvalidResponse: return "The provisioning service returned an invalid response during signing."
+            case .provisioningProfileUnavailable: return "A required provisioning profile is not available for this app."
+            case .certificateUnavailable: return "The selected signing certificate is not available."
+            case .wifiUnavailable: return "Wi-Fi was unavailable before refresh started."
+            case .localDevVPNUnavailable: return "LocalDevVPN was unavailable before refresh started."
+            case .unknownSigningCause: return "SideStore could not sign the selected app. The exact underlying cause could not be safely identified."
+            }
+        }
         switch stage {
         case .hostContainer: return "SideStore could not start because the authoritative host container is unavailable."
         case .storagePreparation: return "SideStore could not start because its existing data storage could not be prepared."
@@ -124,7 +216,19 @@ public struct CombinedFailure: Error, LocalizedError {
         case .uniqueDeviceID: return "The device connection opened, but the UniqueDeviceID request failed."
         case .pairing: return "Pairing parsing, validation, or a concrete device trust check failed."
         case .authentication: return "SideStore could not complete account authentication."
-        case .signing: return "SideStore could not sign the application."
+        case .signing:
+            switch sourceStep {
+            case .provisioningProfileFetch:
+                return "SideStore could not retrieve the provisioning profile required for signing. The exact underlying cause could not be safely identified."
+            case .certificateValidation:
+                return "SideStore could not validate the signing certificate. The exact underlying cause could not be safely identified."
+            case .localCodeSigning:
+                return "SideStore could not sign the app locally. The exact underlying cause could not be safely identified."
+            case nil: break
+            }
+            return underlyingDomain == "redacted" && underlyingCode != 0
+                ? "SideStore could not sign the application. The exact underlying cause could not be safely identified."
+                : "SideStore could not sign the application."
         case .filePreparation:
             switch code {
             case .invalidToken: return "The staged IPA reference is invalid. Select the file again."
@@ -147,10 +251,30 @@ public struct CombinedFailure: Error, LocalizedError {
             return "SideStore could not complete the application installation."
         case .refreshVerification: return "Refresh completion could not be verified from the installation results."
         case .network: return "Network error during the \(operation) operation."
-        case .command: return "SideStore could not complete the requested \(operation) command (\(code.rawValue))."
+        case .command:
+            if underlyingDomain == "redacted" && underlyingCode != 0 {
+                return "SideStore could not start or complete the requested \(operation) action. The exact underlying cause could not be safely identified."
+            }
+            return "SideStore could not start or complete the requested \(operation) action."
         }
     }
     public var recovery: String {
+        if let safeCause {
+            switch safeCause {
+            case .networkConnectionLost, .networkTimedOut, .networkUnavailable:
+                return "Reconnect, check LocalDevVPN if enabled, and retry when the connection is stable."
+            case .signingNetworkConnectionLost, .signingNetworkTimedOut, .signingNetworkUnavailable:
+                return "Check the network and LocalDevVPN, then retry signing. The failure occurred while contacting the provisioning service."
+            case .developerPortalRejectedRequest, .developerPortalInvalidResponse:
+                return "Check Account & Signing and Certificates. If it repeats, keep these diagnostics for support before retrying."
+            case .provisioningProfileUnavailable, .certificateUnavailable:
+                return "Open Certificates and select or create a current signing certificate/profile before retrying."
+            case .wifiUnavailable, .localDevVPNUnavailable:
+                return "Restore the indicated connection prerequisite, then start a new refresh."
+            case .unknownSigningCause:
+                return "Check Account & Signing and Certificates. The exact underlying cause was not safely identified; keep these diagnostics before trying again."
+            }
+        }
         switch stage {
         case .hostContainer, .storagePreparation, .bookmarkCreation:
             return "Keep existing data intact. Return to the host, check available storage, and use Retry Connection. Copy these diagnostics if it fails again."
@@ -164,8 +288,17 @@ public struct CombinedFailure: Error, LocalizedError {
         default: return "Reconnect explicitly and reload authoritative status before repeating a mutation."
         }
     }
+    public var safeMessage: String {
+        if operation == "refresh", safeCause == nil {
+            return "Refresh failed during \(stage.rawValue), but no safe underlying cause was available."
+        }
+        if underlyingDomain == "redacted", underlyingCode != 0, safeCause == nil {
+            return message + " The exact underlying cause could not be safely identified."
+        }
+        return message
+    }
     public var technicalDetails: String {
-        "schema=1 operation=\(operation) stage=\(stage.rawValue) code=\(code.rawValue) correlation=\(correlationID) underlying_domain=\(underlyingDomain) underlying_code=\(underlyingCode) retryable=\(retryable.map(String.init) ?? "unknown")" + installVerdict
+        "schema=1 operation=\(operation) stage=\(stage.rawValue) code=\(code.rawValue) correlation=\(correlationID) underlying_domain=\(underlyingDomain) underlying_code=\(underlyingCode) retryable=\(retryable.map(String.init) ?? "unknown") source_step=\(sourceStep?.rawValue ?? "unknown") safe_cause=\(safeCause?.rawValue ?? "unknown")" + installVerdict
     }
     // Bounded machine classification for Apple-side application verification
     // rejections (InstallationProxy/installd). Only the two fixed installd
@@ -184,6 +317,8 @@ public struct CombinedFailure: Error, LocalizedError {
     public var wire: [String: Any] {
         var result: [String: Any] = ["version": 1, "operation": operation, "stage": stage.rawValue, "code": code.rawValue,
             "correlationID": correlationID, "underlyingDomain": underlyingDomain, "underlyingCode": underlyingCode]
+        if let safeCause { result["safeCause"] = safeCause.rawValue }
+        if let sourceStep { result["sourceStep"] = sourceStep.rawValue }
         if let retryable { result["retryable"] = retryable }
         return result
     }
@@ -198,7 +333,7 @@ public struct CombinedFailure: Error, LocalizedError {
         return decode(value, expectedID: expectedID)
     }
     public static func decode(_ value: [String: Any], expectedID: String) -> CombinedFailure? {
-        guard Set(value.keys).isSubset(of: ["version", "operation", "stage", "code", "correlationID", "underlyingDomain", "underlyingCode", "retryable"]),
+        guard Set(value.keys).isSubset(of: ["version", "operation", "stage", "code", "correlationID", "underlyingDomain", "underlyingCode", "retryable", "safeCause", "sourceStep"]),
               let version = value["version"] as? NSNumber, CFGetTypeID(version) != CFBooleanGetTypeID(),
               value["version"] as? Int == 1, value["correlationID"] as? String == expectedID,
               let operation = value["operation"] as? String, operations.contains(operation),
@@ -207,11 +342,22 @@ public struct CombinedFailure: Error, LocalizedError {
               let domain = value["underlyingDomain"] as? String, domains.contains(domain) || domain == "redacted",
               let numberValue = value["underlyingCode"] as? NSNumber, CFGetTypeID(numberValue) != CFBooleanGetTypeID(),
               let number = value["underlyingCode"] as? Int else { return nil }
+        let safeCause: SafeCause?
+        if let rawCause = value["safeCause"] {
+            guard let causeName = rawCause as? String, let cause = SafeCause(rawValue: causeName) else { return nil }
+            safeCause = cause
+        } else { safeCause = nil }
+        let sourceStep: SourceStep?
+        if let rawStep = value["sourceStep"] {
+            guard let stepName = rawStep as? String, let step = SourceStep(rawValue: stepName) else { return nil }
+            sourceStep = step
+        } else { sourceStep = nil }
         if let retry = value["retryable"] {
             guard let bool = retry as? NSNumber, CFGetTypeID(bool) == CFBooleanGetTypeID() else { return nil }
         }
         return CombinedFailure(operation: operation, stage: stage, code: code, id: expectedID,
-            underlying: NSError(domain: domain, code: number), retryable: value["retryable"] as? Bool)
+            underlying: NSError(domain: domain, code: number), retryable: value["retryable"] as? Bool,
+            safeCause: safeCause, sourceStep: sourceStep)
     }
     public static func preserving(_ error: Error?, operation: String, stage: Stage, code: Code = .failed, id: String, retryable: Bool? = nil) -> CombinedFailure {
         if let known = error as? CombinedFailure {
@@ -234,6 +380,8 @@ public struct CombinedFailure: Error, LocalizedError {
         let resolvedCode: Code = error is CancellationError ? .cancelled : .failed
         var nativeCode: Int?
         var nativeDomain: String?
+        var safeCause: SafeCause?
+        var sourceStep: SourceStep?
         var ppqLocked = false
         var explicitStageMarker = false
         // Only an allowlisted stage is inspected locally. No arbitrary userInfo is serialized.
@@ -248,6 +396,14 @@ public struct CombinedFailure: Error, LocalizedError {
                       let found = Stage(rawValue: String(token.dropFirst(9))) {
                 resolved = found
                 explicitStageMarker = true
+            }
+            if let name = cause.userInfo["LCStructuredFailureCauseV1"] as? String,
+               let found = SafeCause(rawValue: name) {
+                safeCause = found
+            }
+            if let name = cause.userInfo["LCStructuredFailureSourceV1"] as? String,
+               let found = SourceStep(rawValue: name) {
+                sourceStep = found
             }
             // Domain-specific classification. Only map a numeric code to a
             // stage when the (domain, code) pair has an established meaning.
@@ -348,9 +504,20 @@ public struct CombinedFailure: Error, LocalizedError {
         } else {
             underlying = cause
         }
+        if safeCause == nil && (resolved == .signing || resolved == .network) && cause.domain == NSURLErrorDomain {
+            switch cause.code {
+            case NSURLErrorNetworkConnectionLost:
+                safeCause = resolved == .signing ? .signingNetworkConnectionLost : .networkConnectionLost
+            case NSURLErrorTimedOut:
+                safeCause = resolved == .signing ? .signingNetworkTimedOut : .networkTimedOut
+            case NSURLErrorNotConnectedToInternet, NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost:
+                safeCause = resolved == .signing ? .signingNetworkUnavailable : .networkUnavailable
+            default: break
+            }
+        }
         return CombinedFailure(operation: operation, stage: resolved,
             code: resolvedCode, id: id,
-            underlying: underlying)
+            underlying: underlying, safeCause: safeCause, sourceStep: sourceStep)
     }
 }
 

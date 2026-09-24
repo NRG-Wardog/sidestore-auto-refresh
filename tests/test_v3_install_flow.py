@@ -133,13 +133,21 @@ class InstallStructuredFailureTests(unittest.TestCase):
 
     def test_host_renders_structured_failure(self):
         sheet = operation_sheet()
-        self.assertIn('reply["message"]', sheet)
-        self.assertIn('reply["technical"]', sheet)
-        self.assertIn("Diagnostics:", sheet)
+        self.assertIn('(reply["failure"] as? [String: Any])', sheet)
+        self.assertIn("CombinedFailure.decode", sheet)
+        self.assertIn("failureContext.recordPipelineFailure(failure)", sheet)
+        self.assertIn('Section("What happened")', sheet)
+        self.assertIn('Section("What you can do")', sheet)
+        self.assertIn('DisclosureGroup("Technical details")', sheet)
+        self.assertIn("Copy Diagnostics", sheet)
 
-    def test_host_keeps_legacy_rendering_as_fallback(self):
+    def test_missing_failure_payload_has_safe_structured_fallback(self):
         sheet = operation_sheet()
-        self.assertIn("The operation failed.", sheet)
+        self.assertIn('CombinedFailure(operation: request.operation,', sheet)
+        self.assertIn("The operation could not start, so the app pipeline did not run.",
+                      (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+        self.assertIn("exact underlying cause could not be safely identified",
+                      FAILURE.read_text(encoding="utf-8"))
 
     def test_ipa_parse_errors_reach_terminal_path(self):
         # The staged path validates its archive and maps malformed input to a
@@ -151,14 +159,17 @@ class InstallStructuredFailureTests(unittest.TestCase):
         self.assertIn("catch { throw CombinedIPAFileError(.invalidPackage) }", text)
 
     def test_pipeline_errors_are_preserved_not_relabelled(self):
-        # The gate forwards the native pipeline result untouched; the drive
-        # terminal path classifies via CombinedFailure.capture, which never
-        # invents signing/provisioning/pairing stages without evidence.
+        # The gate forwards the native pipeline result untouched. Signing and
+        # provisioning stage evidence is added at the typed PipelineExecutor
+        # boundary; the generic capture layer does not map broad SideSign domains.
         text = runtime()
         self.assertIn("gate.settle(result.map { _ in () })", text)
         failure = FAILURE.read_text(encoding="utf-8")
         capture = failure[failure.index("static func capture"):]
-        self.assertNotIn(".signing", capture)
+        for domain in ("SideSignErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain"):
+            self.assertNotIn('case "' + domain + '"', capture)
+        self.assertIn('cause.userInfo["LCStructuredFailureStageV1"]', capture)
+        self.assertIn('cause.userInfo["LCStructuredFailureCauseV1"]', capture)
 
     def test_unknown_install_error_stays_honest(self):
         text = runtime()

@@ -84,7 +84,7 @@ class CombinedRefreshContractTests(unittest.TestCase):
             file = self.fixture(root)
             self.apply(root)
             result = file.read_text()
-            self.assertIn('"expected_ids": installedApps.map', result)
+            self.assertIn('"expected_ids": expectedIDs, "requested_ids": requestedIDs, "skipped_ids": skippedIDs', result)
             self.assertIn('"version": 2', result)
             self.assertIn('"schema": "LiveContainerRefreshManifestV2"', result)
             self.assertNotIn('"error": error.localizedDescription', result)
@@ -128,7 +128,13 @@ enum StoreApp { static let altstoreAppID = "fixture.host" }
     var installedApps = [InstalledApp()]
     var refreshIdentifier = UUID().uuidString
     func debugLog(_ message: String) { logs.append(message) }
-    func record(_ error: Error) { persistAutomaticRefreshVerification(results: ["fixture.app": .failure(error)]) }
+    func record(_ error: Error) {
+        persistAutomaticRefreshVerification(results: ["fixture.app": .failure(error)],
+            attemptedAppIDs: ["fixture.app"])
+    }
+    func record(_ results: [String: Result<InstalledApp, Error>], attemptedAppIDs: [String]) {
+        persistAutomaticRefreshVerification(results: results, attemptedAppIDs: attemptedAppIDs)
+    }
 ''' + helper + r'''
 }
 @main struct Test {
@@ -137,6 +143,19 @@ enum StoreApp { static let altstoreAppID = "fixture.host" }
         defer { defaults.removePersistentDomain(forName: testSuite) }
         let run = UUID().uuidString
         defaults.set(run, forKey: "liveContainerAutoRefreshExpectedRunID")
+        let targetProbe = Operation()
+        targetProbe.installedApps.append(InstalledApp(bundleIdentifier: "running.app", name: "Running"))
+        targetProbe.record(["fixture.app": .success(InstalledApp())], attemptedAppIDs: ["fixture.app"])
+        let skippedManifest = defaults.dictionary(forKey: "liveContainerAutoRefreshVerification")!
+        precondition(skippedManifest["expected_ids"] as? [String] == ["fixture.app"])
+        precondition(skippedManifest["requested_ids"] as? [String] == ["fixture.app", "running.app"])
+        precondition(skippedManifest["skipped_ids"] as? [String] == ["running.app"])
+        precondition(CombinedVerification.hasCompleteTerminalResults(skippedManifest, runID: run))
+        var incompleteCoverage = skippedManifest
+        incompleteCoverage["skipped_ids"] = [String]()
+        precondition(!CombinedVerification.hasCompleteTerminalResults(incompleteCoverage, runID: run),
+                     "a requested app omitted by the engine was treated as verified")
+        defaults.removeObject(forKey: "liveContainerAutoRefreshVerification")
         for stage in [CombinedFailure.Stage.authentication, .signing, .installation, .uniqueDeviceID] {
             logs = []
             let native = NSError(domain: "DeviceGatewayError", code: 77,

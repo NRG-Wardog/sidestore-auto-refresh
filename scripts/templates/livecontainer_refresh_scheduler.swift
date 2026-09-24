@@ -17,7 +17,10 @@ enum LiveContainerAutoRefreshScheduler {
     static let lastAttemptKey = "liveContainerAutoRefreshLastAttempt"
     static let activeRunKey = "liveContainerAutoRefreshActiveRunID"
     static let activeManualRequestKey = "liveContainerAutoRefreshActiveRequestID"
+    static let activeManualOriginKey = "liveContainerAutoRefreshActiveManualOrigin"
+    static let activeManualOriginRunKey = "liveContainerAutoRefreshActiveManualOriginRunID"
     static let retryCountKey = "liveContainerAutoRefreshRetryCount"
+    static let currentRunFailureKey = "liveContainerAutoRefreshCurrentRunFailure"
     static let hostHandoffKey = "liveContainerAutoRefreshHostHandoff"
     static let hostHandoffRunKey = "liveContainerAutoRefreshHostHandoffRunID"
     static let hostHandoffStartedKey = "liveContainerAutoRefreshHostHandoffStartedAt"
@@ -65,7 +68,7 @@ enum LiveContainerAutoRefreshScheduler {
     }
 
     private static func notify(title: String, body: String, kind: String,
-                               runID: String? = nil, requestID: String? = nil) {
+                               runID: String? = nil, requestID: String? = nil, origin: String? = nil) {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
             guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
@@ -79,6 +82,7 @@ enum LiveContainerAutoRefreshScheduler {
             var identity: [String: String] = ["kind": kind]
             if let runID { identity["run_id"] = runID }
             if let requestID { identity["request_id"] = requestID }
+            if let origin { identity["origin"] = origin }
             content.userInfo = identity
             center.add(UNNotificationRequest(identifier: "LiveContainerAutoRefresh.\(kind)", content: content, trigger: nil)) { error in
                 if let error {
@@ -144,9 +148,10 @@ enum LiveContainerAutoRefreshScheduler {
         defaults.set(ledger, forKey: runLedgerKey)
     }
 
-    private static func publishRunState(_ state: String, runID: String, requestID: String?) {
+    private static func publishRunState(_ state: String, runID: String, requestID: String?, origin: String? = nil) {
         var identity: [String: String] = ["run_id": runID, "state": state]
         if let requestID { identity["request_id"] = requestID }
+        if let origin { identity["origin"] = origin }
         NotificationCenter.default.post(name: Notification.Name(runStateChangedNotification), object: nil,
                                          userInfo: identity)
     }
@@ -156,25 +161,43 @@ enum LiveContainerAutoRefreshScheduler {
         return uuid.uuidString
     }
 
-    private static func beginRun(source: String, manual: Bool, requestID: String? = nil) -> UUID? {
+    private static func canonicalManualOrigin(_ value: String?, source: String) -> String {
+        let allowed: Set<String> = ["home", "refreshManager", "setupAssistant", "deadlineAlarm", "vpnReturn", "manualUnknown"]
+        if let value, allowed.contains(value) { return value }
+        switch source {
+        case "alarm_action": return "deadlineAlarm"
+        case "vpn_return": return "vpnReturn"
+        default: return "manualUnknown"
+        }
+    }
+
+    private static func beginRun(source: String, manual: Bool, requestID: String? = nil,
+                                 manualOrigin: String? = nil) -> UUID? {
         guard activeRun == nil else { return nil }
         if !manual, let last = defaults.object(forKey: lastAttemptKey) as? Date,
            Date().timeIntervalSince(last) < coalescingWindow { return nil }
         let id = UUID()
         let runID = id.uuidString
         let correlatedRequestID = manual ? (canonicalRequestID(requestID) ?? UUID().uuidString) : nil
+        let origin = manual ? canonicalManualOrigin(manualOrigin, source: source) : source
         activeRun = id
         if let correlatedRequestID {
             defaults.set(correlatedRequestID, forKey: activeManualRequestKey)
+            defaults.set(origin, forKey: activeManualOriginKey)
+            defaults.set(runID, forKey: activeManualOriginRunKey)
         } else {
             defaults.removeObject(forKey: activeManualRequestKey)
+            defaults.removeObject(forKey: activeManualOriginKey)
+            defaults.removeObject(forKey: activeManualOriginRunKey)
         }
         defaults.set(runID, forKey: expectedRunKey)
         defaults.set(Date(), forKey: lastAttemptKey)
         defaults.removeObject(forKey: verificationKey)
+        defaults.removeObject(forKey: currentRunFailureKey)
+        defaults.removeObject(forKey: lastErrorKey)
         defaults.set(false, forKey: hostVerifiedKey)
         defaults.set("REFRESH_IN_PROGRESS", forKey: healthStateKey)
-        saveRunRecord(["run_id": runID, "request_id": correlatedRequestID ?? "",
+        saveRunRecord(["run_id": runID, "request_id": correlatedRequestID ?? "", "origin": origin,
                        "source": source, "state": "running",
                        "started_at": Date().timeIntervalSince1970,
                        "updated_at": Date().timeIntervalSince1970], runID: runID)
@@ -189,10 +212,10 @@ enum LiveContainerAutoRefreshScheduler {
         } else {
             defaults.removeObject(forKey: hostBaselineKey)
         }
-        print("[LIVE_CONTAINER_REFRESH] RUN_BEGIN source=\(source) run_id=\(runID) request_id=\(correlatedRequestID ?? "none")")
-        publishRunState("running", runID: runID, requestID: correlatedRequestID)
+        print("[LIVE_CONTAINER_REFRESH] RUN_BEGIN source=\(source) origin=\(origin) run_id=\(runID) request_id=\(correlatedRequestID ?? "none")")
+        publishRunState("running", runID: runID, requestID: correlatedRequestID, origin: origin)
         notify(title: "Refresh started", body: "Checking SideStore refresh requirements. Success is not yet confirmed.",
-               kind: "started", runID: runID, requestID: correlatedRequestID)
+               kind: "started", runID: runID, requestID: correlatedRequestID, origin: origin)
         return id
     }
 
@@ -202,6 +225,10 @@ enum LiveContainerAutoRefreshScheduler {
         if defaults.string(forKey: activeRunKey) == id.uuidString {
             defaults.removeObject(forKey: activeRunKey)
             defaults.removeObject(forKey: activeManualRequestKey)
+        }
+        if defaults.string(forKey: activeManualOriginRunKey) == id.uuidString {
+            defaults.removeObject(forKey: activeManualOriginKey)
+            defaults.removeObject(forKey: activeManualOriginRunKey)
         }
         if defaults.string(forKey: expectedRunKey) == id.uuidString {
             defaults.removeObject(forKey: expectedRunKey)
@@ -224,18 +251,22 @@ enum LiveContainerAutoRefreshScheduler {
         let pending = defaults.bool(forKey: hostHandoffKey)
         guard let manifest = defaults.dictionary(forKey: verificationKey) else {
             print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=manifest_missing run_id=\(runID)")
-            return (false, pending, "SideStore returned without sharing installation results with LiveContainer. Refresh is unconfirmed. Review Refresh history, app expiration, and account status before an explicit retry.", nil)
+            return (false, pending, "SideStore returned without sharing installation results with LiveContainer. Refresh is unconfirmed. Review Refresh history, app expiration, and account status before an explicit retry.",
+                    CombinedFailure(operation: "refresh", stage: .refreshVerification, code: .missingResult, id: runID))
         }
         guard manifest["run_id"] as? String == runID else {
             print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=run_mismatch expected_run=\(runID)")
-            return (false, pending, "LiveContainer received results for a different refresh attempt. This attempt could not be verified. Review Refresh history and app expiration; explicitly retry only after the previous attempt finishes.", nil)
+            return (false, pending, "LiveContainer received results for a different refresh attempt. This attempt could not be verified. Review Refresh history and app expiration; explicitly retry only after the previous attempt finishes.",
+                    CombinedFailure(operation: "refresh", stage: .refreshVerification, code: .staleResult, id: runID))
         }
         guard let results = manifest["results"] as? [[String: Any]], !results.isEmpty else {
             print("[LIVE_CONTAINER_REFRESH] VERIFICATION_FAILED reason=results_empty run_id=\(runID)")
-            return (false, pending, "SideStore returned no app installation results. No successful refresh was confirmed. Review eligible apps, account status, and Refresh history before an explicit retry.", nil)
+            return (false, pending, "SideStore returned no app installation results. No successful refresh was confirmed. Review eligible apps, account status, and Refresh history before an explicit retry.",
+                    CombinedFailure(operation: "refresh", stage: .refreshVerification, code: .missingResult, id: runID))
         }
         guard CombinedVerification.hasCompleteTerminalResults(manifest, runID: runID) else {
-            return (false, pending, "verification_manifest_incomplete", nil)
+            return (false, pending, "SideStore returned incomplete installation results. No successful refresh was confirmed.",
+                    CombinedFailure(operation: "refresh", stage: .refreshVerification, code: .missingResult, id: runID))
         }
         let failedResults = results.filter { ($0["success"] as? Bool) != true }
         if !failedResults.isEmpty {
@@ -254,6 +285,27 @@ enum LiveContainerAutoRefreshScheduler {
         return pending ? (false, true, "host_handoff_awaiting_relaunch", nil) : (true, false, "verified_installed_app_records", nil)
     }
 
+    private static func structuredRefreshFailure(_ error: Error, runID: String) -> CombinedFailure {
+        if let failure = error as? CombinedFailure {
+            guard failure.operation == "refresh", failure.correlationID == runID else {
+                return CombinedFailure(operation: "refresh", stage: .refreshVerification,
+                                       code: .staleResult, id: runID)
+            }
+            return failure
+        }
+        let native = error as NSError
+        if native.domain == "LiveContainerRefresh.Network" {
+            let cause: CombinedFailure.SafeCause = native.code == 1 ? .wifiUnavailable : .localDevVPNUnavailable
+            return CombinedFailure(operation: "refresh", stage: .network, id: runID,
+                                   underlying: native, retryable: true, safeCause: cause)
+        }
+        if native.domain == "LiveContainerRefresh.Verification" {
+            return CombinedFailure(operation: "refresh", stage: .refreshVerification,
+                                   code: .missingResult, id: runID, underlying: native)
+        }
+        return CombinedFailure.capture(error, operation: "refresh", stage: .command, id: runID)
+    }
+
     private static func markRunVerifying(runID: String, manifest: [String: Any]? = nil) {
         guard var record = runLedger()[runID],
               !["completed", "failed"].contains(record["state"] as? String ?? "") else { return }
@@ -266,7 +318,9 @@ enum LiveContainerAutoRefreshScheduler {
         record["updated_at"] = Date().timeIntervalSince1970
         saveRunRecord(record, runID: runID)
         let requestID = record["request_id"] as? String
-        publishRunState("verifying", runID: runID, requestID: requestID?.isEmpty == true ? nil : requestID)
+        let origin = record["origin"] as? String
+        publishRunState("verifying", runID: runID, requestID: requestID?.isEmpty == true ? nil : requestID,
+                        origin: origin)
     }
 
     @discardableResult
@@ -295,8 +349,12 @@ enum LiveContainerAutoRefreshScheduler {
 
         let requestValue = runRecord["request_id"] as? String ?? ""
         let requestID = requestValue.isEmpty ? nil : requestValue
+        let origin = runRecord["origin"] as? String
+        let skippedCount = (manifest["skipped_ids"] as? [String])?.count ?? 0
+        let terminalDetail = skippedCount == 0 ? detail :
+            "Refresh completed for the verified app targets; \(skippedCount) running app(s) were skipped."
         runRecord["state"] = "completed"
-        runRecord["message"] = detail
+        runRecord["message"] = terminalDetail
         runRecord["terminal_at"] = Date().timeIntervalSince1970
         runRecord["updated_at"] = Date().timeIntervalSince1970
         saveRunRecord(runRecord, runID: runID)
@@ -312,16 +370,18 @@ enum LiveContainerAutoRefreshScheduler {
         if let deadline = defaults.object(forKey: deadlineKey) as? Date {
             defaults.set(deadline, forKey: satisfiedDeadlineKey)
         }
-        record(source: source, result: "verified", detail: detail)
+        record(source: source, result: "verified", detail: terminalDetail)
         cancelDeadlineProtection()
-        publishRunState("completed", runID: runID, requestID: requestID)
-        notify(title: "Refresh completed", body: detail, kind: "verified", runID: runID, requestID: requestID)
+        publishRunState("completed", runID: runID, requestID: requestID, origin: origin)
+        notify(title: "Refresh completed", body: terminalDetail, kind: "verified", runID: runID,
+               requestID: requestID, origin: origin)
         return true
     }
 
     @discardableResult
     private static func markFailed(runID: String, source: String, health: String,
-                                   message: String, result: String = "failure") -> Bool {
+                                   failure: CombinedFailure? = nil, message: String? = nil,
+                                   result: String = "failure") -> Bool {
         guard var runRecord = runLedger()[runID],
               !["completed", "failed"].contains(runRecord["state"] as? String ?? ""),
               activeRun == nil || activeRun?.uuidString == runID else { return false }
@@ -337,17 +397,47 @@ enum LiveContainerAutoRefreshScheduler {
 
         let requestValue = runRecord["request_id"] as? String ?? ""
         let requestID = requestValue.isEmpty ? nil : requestValue
+        let origin = runRecord["origin"] as? String
+        let suppliedFailureMatches = failure.map {
+            $0.operation == "refresh" && $0.correlationID == runID
+        } ?? true
+        let structured: CombinedFailure
+        if let failure, suppliedFailureMatches {
+            structured = failure
+        } else if failure != nil {
+            structured = CombinedFailure(operation: "refresh", stage: .refreshVerification,
+                                         code: .staleResult, id: runID)
+        } else {
+            structured = CombinedFailure(operation: "refresh", stage: .refreshVerification, id: runID)
+        }
+        let safeMessage = String(((suppliedFailureMatches ? message : nil) ?? structured.safeMessage).prefix(2048))
         runRecord["state"] = "failed"
-        runRecord["message"] = String(message.prefix(2048))
+        runRecord["message"] = safeMessage
         runRecord["health"] = health
+        runRecord["failure"] = structured.wire
         runRecord["terminal_at"] = Date().timeIntervalSince1970
         runRecord["updated_at"] = Date().timeIntervalSince1970
         saveRunRecord(runRecord, runID: runID)
+        var terminalFailure: [String: Any] = [
+            "run_id": runID, "request_id": requestValue, "origin": origin ?? "unknown",
+            "message": safeMessage, "safe_message": safeMessage, "failure": structured.wire
+        ]
+        for (wireKey, recordKey) in [
+            ("operation", "operation"), ("stage", "stage"), ("code", "code"),
+            ("correlationID", "correlation"), ("underlyingDomain", "underlying_domain"),
+            ("underlyingCode", "underlying_code"), ("safeCause", "safe_cause"),
+            ("sourceStep", "source_step")
+        ] {
+            if let value = structured.wire[wireKey] { terminalFailure[recordKey] = value }
+        }
+        terminalFailure["retryable"] = structured.retryable.map { $0 as Any } ?? "unknown"
+        defaults.set(terminalFailure, forKey: currentRunFailureKey)
         defaults.set(health, forKey: healthStateKey)
-        defaults.set(String(message.prefix(2048)), forKey: lastErrorKey)
-        record(source: source, result: result, detail: message)
-        publishRunState("failed", runID: runID, requestID: requestID)
-        notify(title: "Refresh failed", body: message, kind: "failed", runID: runID, requestID: requestID)
+        defaults.set(safeMessage, forKey: lastErrorKey)
+        record(source: source, result: result, detail: safeMessage)
+        publishRunState("failed", runID: runID, requestID: requestID, origin: origin)
+        notify(title: "Refresh failed", body: safeMessage, kind: "failed", runID: runID,
+               requestID: requestID, origin: origin)
         return true
     }
 
@@ -417,6 +507,7 @@ enum LiveContainerAutoRefreshScheduler {
     }
 
     private static func execute(source: String, task: BGTask? = nil, manualRequestID: String? = nil,
+                                manualOrigin: String? = nil,
                                 gate: LiveContainerRefreshCompletionGate = LiveContainerRefreshCompletionGate()) async {
         guard !gate.isFinished, !Task.isCancelled else { return }
         let manual = source == "manual" || source == "alarm_action" || source == "vpn_return"
@@ -443,7 +534,8 @@ enum LiveContainerAutoRefreshScheduler {
             finish(true)
             return
         }
-        guard let runID = beginRun(source: source, manual: manual, requestID: manualRequestID) else {
+        guard let runID = beginRun(source: source, manual: manual, requestID: manualRequestID,
+                                   manualOrigin: manualOrigin) else {
             print("[LIVE_CONTAINER_REFRESH] RUN_COALESCED source=\(source)")
             if manual {
                 record(source: source, result: "coalesced", detail: "A refresh is already running. Wait for it to finish before retrying.")
@@ -455,6 +547,7 @@ enum LiveContainerAutoRefreshScheduler {
         defer { schedule() }
         let correlatedRequestValue = defaults.string(forKey: activeManualRequestKey) ?? ""
         let correlatedRequestID = correlatedRequestValue.isEmpty ? nil : correlatedRequestValue
+        let correlatedOrigin = runLedger()[runID.uuidString]?["origin"] as? String
         if manual, defaults.string(forKey: uncertainMutationKey) != nil {
             record(source: source, result: "explicit_retry", detail: "Previous mutation completion was uncertain. This user-requested attempt will reload SideStore's authoritative app state.")
             defaults.removeObject(forKey: uncertainMutationKey)
@@ -470,9 +563,10 @@ enum LiveContainerAutoRefreshScheduler {
                 endRun(runID)
                 defaults.set("HOST_REFRESH_AWAITING_RELAUNCH", forKey: healthStateKey)
                 record(source: source, result: "host_handoff_awaiting_relaunch", detail: verification.reason)
-                publishRunState("verifying", runID: runID.uuidString, requestID: correlatedRequestID)
+                publishRunState("verifying", runID: runID.uuidString, requestID: correlatedRequestID, origin: correlatedOrigin)
                 notify(title: "Host refresh awaiting verification", body: "Reopen LiveContainer to check that its installed profile renewed.",
-                       kind: "host_handoff", runID: runID.uuidString, requestID: correlatedRequestID)
+                       kind: "host_handoff", runID: runID.uuidString, requestID: correlatedRequestID,
+                       origin: correlatedOrigin)
                 // Completion of this handler is not a claim of refresh success.
                 task?.setTaskCompleted(success: false)
             } else if verification.verified {
@@ -481,16 +575,22 @@ enum LiveContainerAutoRefreshScheduler {
                 guard gate.claim() else { return }
                 if guestsValid {
                     guard markVerified(runID: runID.uuidString, source: source, detail: "All requested installed-app results were confirmed.") else {
+                        let failure = CombinedFailure(operation: "refresh", stage: .refreshVerification,
+                            code: .missingResult, id: runID.uuidString)
                         _ = markFailed(runID: runID.uuidString, source: source, health: "REFRESH_FAILED",
-                                       message: "The verified refresh result could not be committed to its run record.")
+                                       failure: failure,
+                                       message: "Refresh failed during refreshVerification, but no safe underlying cause was available.")
                         task?.setTaskCompleted(success: false)
                         return
                     }
                     print("[LIVE_CONTAINER_REFRESH] REFRESH_RESULT run_id=\(runID.uuidString) success=true verified=true")
                     task?.setTaskCompleted(success: true)
                 } else {
+                    let failure = CombinedFailure(operation: "refresh", stage: .refreshVerification,
+                        code: .failed, id: runID.uuidString)
                     _ = markFailed(runID: runID.uuidString, source: source, health: "GUEST_SIGNATURE_INVALID",
-                                   message: "A guest could not be verified. Host refresh does not re-sign every guest.",
+                                   failure: failure,
+                                   message: "Refresh failed during refreshVerification because an installed guest signature did not verify.",
                                    result: "guest_signature_invalid")
                     notify(title: "Guest signature needs attention", body: "Open the affected guest in LiveContainer to check its signing status.",
                            kind: "guest_invalid", runID: runID.uuidString, requestID: correlatedRequestID)
@@ -519,11 +619,14 @@ enum LiveContainerAutoRefreshScheduler {
                 defaults.removeObject(forKey: nextRetryKey)
                 defaults.set(true, forKey: retryExhaustedKey)
             }
-            let networkState = nsError.domain == "LiveContainerRefresh.Network"
-                ? (nsError.code == 1 ? "WIFI_UNAVAILABLE" : "VPN_UNAVAILABLE") : "REFRESH_FAILED"
+            let failure = structuredRefreshFailure(error, runID: runID.uuidString)
+            let networkState = failure.safeCause == .wifiUnavailable ? "WIFI_UNAVAILABLE" :
+                (failure.safeCause == .localDevVPNUnavailable ? "VPN_UNAVAILABLE" :
+                 (failure.stage == .network ? "REFRESH_FAILED" : "REFRESH_FAILED"))
+            let safeMessage = failure.safeMessage
             _ = markFailed(runID: runID.uuidString, source: source, health: networkState,
-                           message: error.localizedDescription)
-            print("[LIVE_CONTAINER_REFRESH] REFRESH_RESULT run_id=\(runID.uuidString) success=false verified=false error_domain=\(nsError.domain) error_code=\(nsError.code) error=\(error.localizedDescription)")
+                           failure: failure, message: safeMessage)
+            print("[LIVE_CONTAINER_REFRESH] REFRESH_RESULT run_id=\(runID.uuidString) success=false verified=false \(failure.technicalDetails)")
             task?.setTaskCompleted(success: false)
         }
     }
@@ -544,8 +647,10 @@ enum LiveContainerAutoRefreshScheduler {
                 } else { defaults.set(true, forKey: retryExhaustedKey) }
                 let detail = "iOS ended the background execution window; refresh was not verified."
                 if let id = activeRun?.uuidString ?? defaults.string(forKey: activeRunKey) {
+                    let failure = CombinedFailure(operation: "refresh", stage: .refreshVerification,
+                        code: .timedOut, id: id, retryable: true)
                     _ = markFailed(runID: id, source: source, health: "REFRESH_INTERRUPTED",
-                                   message: detail, result: "expired")
+                                   failure: failure, message: detail, result: "expired")
                 } else {
                     defaults.set("REFRESH_INTERRUPTED", forKey: healthStateKey)
                     record(source: source, result: "expired", detail: detail)
@@ -564,9 +669,14 @@ enum LiveContainerAutoRefreshScheduler {
             defaults.set(interruptedRunID, forKey: uncertainMutationKey)
             defaults.removeObject(forKey: activeRunKey)
             defaults.removeObject(forKey: activeManualRequestKey)
+            defaults.removeObject(forKey: activeManualOriginKey)
+            defaults.removeObject(forKey: activeManualOriginRunKey)
             defaults.removeObject(forKey: expectedRunKey)
             if !markFailed(runID: interruptedRunID, source: "relaunch", health: "REFRESH_INTERRUPTED",
-                           message: "The previous process ended before recording completion.", result: "interrupted") {
+                           failure: CombinedFailure(operation: "refresh", stage: .refreshVerification,
+                               code: .interrupted, id: interruptedRunID, retryable: true),
+                           message: "Refresh was interrupted when LiveContainer closed before its result was recorded.",
+                           result: "interrupted") {
                 defaults.set("REFRESH_INTERRUPTED", forKey: healthStateKey)
                 record(source: "relaunch", result: "interrupted", detail: "The previous process ended before recording completion.")
             }
@@ -591,12 +701,14 @@ enum LiveContainerAutoRefreshScheduler {
         }
     }
 
-    static func requestRefreshNow() async { await execute(source: "alarm_action", manualRequestID: UUID().uuidString) }
-    static func runNow(requestID: String? = nil) {
+    static func requestRefreshNow() async {
+        await execute(source: "alarm_action", manualRequestID: UUID().uuidString, manualOrigin: "deadlineAlarm")
+    }
+    static func runNow(requestID: String? = nil, origin: String? = nil) {
         Task { @MainActor in
             await requestNotificationPermission()
             verifyPendingHostHandoff()
-            await execute(source: "manual", manualRequestID: requestID)
+            await execute(source: "manual", manualRequestID: requestID, manualOrigin: origin)
         }
     }
 

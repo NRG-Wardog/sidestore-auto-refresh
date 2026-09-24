@@ -153,6 +153,19 @@ enum V3RefreshResultVerifier {
     }
 }
 
+// The install pipeline may call the handler even when there is nothing to
+// remove. Keep this branch executable so a zero-item prompt cannot regress.
+enum V3ExtensionRemovalPromptPolicy {
+    static func decide<Element: Hashable, Decision>(
+        excessExtensions: Set<Element>,
+        whenEmpty: Decision,
+        prompt: () async throws -> Decision
+    ) async rethrows -> Decision {
+        guard !excessExtensions.isEmpty else { return whenEmpty }
+        return try await prompt()
+    }
+}
+
 enum V3RefreshAllPhase: String {
     case idle, starting, refreshing, verifying, completed, failed
 }
@@ -201,11 +214,20 @@ struct V3RefreshAllAttemptState {
                 return true
             }
             phase = .completed
-            terminalMessage = "Refresh completed. All installed-app results were verified."
+            let skippedCount = ((record["manifest"] as? [String: Any])?["skipped_ids"] as? [String])?.count ?? 0
+            terminalMessage = skippedCount == 0
+                ? "Refresh completed. All requested app results were verified."
+                : "Refresh completed. Results for this run were verified; \(skippedCount) running app(s) were skipped."
         case "failed":
             phase = .failed
+            guard let failure = record["failure"] as? [String: Any],
+                  failure["operation"] as? String == "refresh",
+                  failure["correlationID"] as? String == runID else {
+                terminalMessage = "Refresh failed during refreshVerification, but no safe underlying cause was available."
+                return true
+            }
             terminalMessage = (record["message"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                ?? "Refresh failed. Check Refresh History for details."
+                ?? "Refresh failed during refreshVerification, but no safe underlying cause was available."
         default:
             return false
         }
@@ -246,5 +268,223 @@ struct V3RefreshAllAttemptState {
         guard let manifest, CombinedVerification.hasCompleteTerminalResults(manifest, runID: runID),
               let results = manifest["results"] as? [[String: Any]] else { return false }
         return results.allSatisfy { $0["success"] as? Bool == true }
+    }
+}
+
+enum V3RefreshAllFailureDiagnostics {
+    static func text(requestID: String, runID: String,
+                     record: [String: Any]) -> String? {
+        guard UUID(uuidString: requestID) != nil, UUID(uuidString: runID) != nil,
+              record["request_id"] as? String == requestID,
+              record["run_id"] as? String == runID,
+              record["state"] as? String == "failed" else { return nil }
+        let failure = record["failure"] as? [String: Any]
+        let failureMatchesRun = failure?["operation"] as? String == "refresh" &&
+            failure?["correlationID"] as? String == runID
+        if !failureMatchesRun {
+            return [
+                "schema=1", "manual_refresh_request=\(requestID)", "run_id=\(runID)",
+                "state=failed", "operation=refresh", "stage=refreshVerification",
+                "code=staleResult", "correlation=\(runID)",
+                "underlying_domain=redacted", "underlying_code=unknown",
+                "retryable=unknown", "safe_cause=unknown", "source_step=unknown",
+                "safe_message=Refresh failed during refreshVerification, but no safe underlying cause was available."
+            ].joined(separator: "\n")
+        }
+        guard let failure else { return nil }
+        func scalar(_ key: String, _ fallback: String) -> String {
+            guard let value = failure[key] as? String else { return fallback }
+            return value.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: " ")
+        }
+        let retryable = (failure["retryable"] as? Bool).map { $0 ? "true" : "false" } ?? "unknown"
+        let safeMessage = (record["message"] as? String ?? "Refresh failed during command, but no safe underlying cause was available.")
+            .replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: " ")
+        return [
+            "schema=1",
+            "manual_refresh_request=\(requestID)",
+            "run_id=\(runID)",
+            "state=failed",
+            "operation=\(scalar("operation", "refresh"))",
+            "stage=\(scalar("stage", "unknown"))",
+            "code=\(scalar("code", "unknown"))",
+            "correlation=\(scalar("correlationID", runID))",
+            "underlying_domain=\(scalar("underlyingDomain", "redacted"))",
+            "underlying_code=\((failure["underlyingCode"] as? Int).map { String($0) } ?? "unknown")",
+            "retryable=\(retryable)",
+            "safe_cause=\(scalar("safeCause", "unknown"))",
+            "source_step=\(scalar("sourceStep", "unknown"))",
+            "safe_message=\(safeMessage)"
+        ].joined(separator: "\n")
+    }
+}
+
+enum V3RetryDisposition: Equatable {
+    case allowed
+    case unknown
+    case prerequisite
+    case blocked
+}
+
+struct V3OperationFailureDetails {
+    let operation: String
+    let stage: String
+    let code: String
+    let correlation: String
+    let underlyingDomain: String
+    let underlyingCode: Int
+    let retryable: Bool?
+    let safeCause: String?
+    let sourceStep: String?
+    let whatHappened: String
+    let whatToDo: String
+    let technical: String
+
+    init(_ failure: CombinedFailure) {
+        operation = failure.operation
+        stage = failure.stage.rawValue
+        code = failure.code.rawValue
+        correlation = failure.correlationID
+        underlyingDomain = failure.underlyingDomain
+        underlyingCode = failure.underlyingCode
+        retryable = failure.retryable
+        safeCause = failure.safeCause?.rawValue
+        sourceStep = failure.sourceStep?.rawValue
+        whatHappened = failure.safeMessage
+        whatToDo = failure.recovery
+        technical = failure.technicalDetails
+    }
+
+    var retryDisposition: V3RetryDisposition {
+        if retryable == false { return .blocked }
+        if stage == CombinedFailure.Stage.authentication.rawValue ||
+           stage == CombinedFailure.Stage.filePreparation.rawValue ||
+           safeCause == CombinedFailure.SafeCause.certificateUnavailable.rawValue ||
+           safeCause == CombinedFailure.SafeCause.provisioningProfileUnavailable.rawValue {
+            return .prerequisite
+        }
+        return retryable == true ? .allowed : .unknown
+    }
+
+    var recoveryDestination: String? {
+        if stage == CombinedFailure.Stage.authentication.rawValue { return "signIn" }
+        if stage == CombinedFailure.Stage.filePreparation.rawValue { return "ipa" }
+        if sourceStep == CombinedFailure.SourceStep.provisioningProfileFetch.rawValue {
+            return "certificates"
+        }
+        if sourceStep == CombinedFailure.SourceStep.certificateValidation.rawValue ||
+           safeCause == CombinedFailure.SafeCause.certificateUnavailable.rawValue ||
+           safeCause == CombinedFailure.SafeCause.provisioningProfileUnavailable.rawValue {
+            return "certificates"
+        }
+        if stage == CombinedFailure.Stage.network.rawValue ||
+           stage == CombinedFailure.Stage.xpcConnection.rawValue ||
+           stage == CombinedFailure.Stage.extensionLaunch.rawValue ||
+           stage == CombinedFailure.Stage.serviceReadiness.rawValue ||
+           safeCause == CombinedFailure.SafeCause.networkConnectionLost.rawValue ||
+           safeCause == CombinedFailure.SafeCause.networkTimedOut.rawValue ||
+           safeCause == CombinedFailure.SafeCause.networkUnavailable.rawValue ||
+           safeCause == CombinedFailure.SafeCause.signingNetworkConnectionLost.rawValue ||
+           safeCause == CombinedFailure.SafeCause.signingNetworkTimedOut.rawValue ||
+           safeCause == CombinedFailure.SafeCause.signingNetworkUnavailable.rawValue ||
+           safeCause == CombinedFailure.SafeCause.wifiUnavailable.rawValue ||
+           safeCause == CombinedFailure.SafeCause.localDevVPNUnavailable.rawValue {
+            return "setup"
+        }
+        return nil
+    }
+
+    var recoveryActionTitle: String? {
+        switch recoveryDestination {
+        case "signIn": return "Open Account & Signing"
+        case "ipa": return "Choose IPA Again"
+        case "certificates": return "Open Certificates"
+        case "setup": return "Open Connection Check"
+        default: return nil
+        }
+    }
+
+    var recommendedAction: String {
+        switch recoveryDestination {
+        case "signIn": return "Open Account & Signing and complete the required account step."
+        case "ipa": return "Choose the IPA again so SideStore can stage a fresh copy."
+        case "certificates": return "Open Certificates and review the active certificate and provisioning profile."
+        case "setup": return "Open Health Check / Connection and restore the required connection."
+        default:
+            if retryable == false {
+                return "This operation is not marked safe to retry. Check the app and signing status before running it again."
+            }
+            if retryable == nil {
+                return "The service could not determine whether retry is safe. Check the app and signing status, then use Retry (outcome unknown) only if appropriate."
+            }
+            return whatToDo
+        }
+    }
+}
+
+// Keeps the failed pipeline stage across a Retry transition. A failure while
+// creating the next backend session is explicitly separate from pipeline failure.
+struct V3OperationRetryContext {
+    private(set) var previousFailure: V3OperationFailureDetails?
+    private(set) var currentFailure: V3OperationFailureDetails?
+    private(set) var retryCouldNotStart = false
+
+    mutating func recordPipelineFailure(_ failure: CombinedFailure) {
+        currentFailure = V3OperationFailureDetails(failure)
+        retryCouldNotStart = false
+    }
+
+    mutating func beginRetry() {
+        previousFailure = currentFailure
+        currentFailure = nil
+        retryCouldNotStart = false
+    }
+
+    mutating func operationStarted() {
+        previousFailure = nil
+        currentFailure = nil
+        retryCouldNotStart = false
+    }
+
+    mutating func recordStartFailure(_ failure: CombinedFailure) {
+        currentFailure = V3OperationFailureDetails(failure)
+        retryCouldNotStart = true
+    }
+
+    mutating func reset() {
+        previousFailure = nil
+        currentFailure = nil
+        retryCouldNotStart = false
+    }
+
+    var whatHappened: String {
+        guard let currentFailure else { return "The operation failed." }
+        guard retryCouldNotStart else { return currentFailure.whatHappened }
+        if let previousFailure {
+            if ["timedOut", "interrupted"].contains(currentFailure.code) {
+                return "The retry could not be confirmed as started. The previous operation may still be active. Previous attempt: \(previousFailure.whatHappened)"
+            }
+            return "The retry could not start, so the app operation did not run. Previous attempt: \(previousFailure.whatHappened)"
+        }
+        if ["timedOut", "interrupted"].contains(currentFailure.code) {
+            return "The operation could not be confirmed as started. It may still be active."
+        }
+        return "The operation could not start, so the app pipeline did not run."
+    }
+
+    var whatToDo: String {
+        guard let currentFailure else { return "Review the operation and try again only when it is safe." }
+        guard retryCouldNotStart else { return currentFailure.recommendedAction }
+        return "The retry could not start. Reconnect to SideStore and check the technical details before trying again."
+    }
+
+    var technicalDetails: String {
+        let current = currentFailure?.technical ?? "No structured failure record was returned."
+        guard retryCouldNotStart, let previousFailure else { return current }
+        return "retry_start_failure:\n\(current)\nprevious_attempt_failure:\n\(previousFailure.technical)"
+    }
+
+    var retryDisposition: V3RetryDisposition {
+        guard let currentFailure else { return .unknown }
+        return currentFailure.retryDisposition
     }
 }

@@ -87,6 +87,15 @@ class InstallHandoffTests(unittest.TestCase):
         view = view[:view.index("\n}\n") + 3]
         self.assertIn("presentation != nil", view)
 
+    def test_extension_prompt_uses_zero_excess_no_prompt_policy(self):
+        source = runtime()
+        start = source.index("func selectAppExtensionsToRemove")
+        end = source.index("func resolveUnsupportediOSVersion", start)
+        method = source[start:end]
+        self.assertIn("V3ExtensionRemovalPromptPolicy.decide", method)
+        self.assertIn("whenEmpty: .keepAll(useMainProfile: false)", method)
+        self.assertLess(method.index("V3ExtensionRemovalPromptPolicy.decide"), method.index("self.ask"))
+
 
 class StoreFeedbackTests(unittest.TestCase):
     def test_mutations_accept_snapshot_and_release_loading_first(self):
