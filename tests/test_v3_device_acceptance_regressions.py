@@ -49,15 +49,28 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
         self.assertIn("return try await ipaTarget(url: url, scoped: false)", resolver)
         self.assertIn("return .app(AnyApp", resolver)
 
-    def test_picker_handoff_waits_for_real_dismissal_and_reload_release(self):
+    def test_install_presentation_uses_one_host_cover_and_owns_picker_dismissal(self):
         shell = (TEMPLATES / "v3_unified_shell.swift").read_text(encoding="utf-8")
         self.assertNotIn("selectedInstallToken", shell)
-        self.assertIn("status.installPickerDidDismiss()", shell)
-        self.assertIn("installHandoff.pickerDidDismiss()", shell)
-        self.assertIn("installHandoff.takeIfReady(", shell)
+        self.assertIn(".fullScreenCover(item: $status.hostCoverID", shell)
+        self.assertIn("V3FullScreenCoverHost().environmentObject(status)", shell)
+        self.assertIn("V3InstallAttemptHost(attemptID: attemptID)", shell)
+        self.assertIn("status.installPickerSheetDidDismiss(attemptID: attemptID)", shell)
+        self.assertIn("status.installTerminal(attemptID: request.installAttemptID", shell)
+        self.assertIn("status.finishInstallCleanup(attemptID: request.installAttemptID)", shell)
         self.assertIn('drainInstallPresentation(trigger: "snapshot_finished")', shell)
-        self.assertIn('drainInstallPresentation(trigger: "picker_dismissed")', shell)
-        self.assertNotIn("Task.yield()", shell)
+        self.assertIn('drainInstallPresentation(trigger: "picker_did_disappear")', shell)
+        self.assertNotIn("installHandoff", shell)
+        self.assertNotIn("installPickerDidDismiss", shell)
+        self.assertNotIn("presentImmediately", shell)
+        self.assertNotIn("asyncAfter", shell)
+
+    def test_install_menu_action_has_icon_and_side_store_context(self):
+        shell = (TEMPLATES / "v3_unified_shell.swift").read_text(encoding="utf-8")
+        button = shell[shell.index("struct V3InstallButton:"):shell.index("struct V3OperationRequest:")]
+        self.assertIn('Button("Install with SideStore", systemImage: "arrow.down.app")', button)
+        self.assertIn("Install / Sideload App with SideStore", button)
+        self.assertIn("Choose an IPA", button)
 
     def test_delete_has_backend_evidence_and_authoritative_reconciliation(self):
         runtime = (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8")

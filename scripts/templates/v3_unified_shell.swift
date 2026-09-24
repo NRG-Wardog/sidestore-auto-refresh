@@ -54,22 +54,11 @@ struct V3UnifiedTabs: View {
         }
         .onReceive(monitor) { _ in status.reload(manual: false) }
         .onOpenURL(perform: dispatchURL)
-        .sheet(isPresented: $status.installPickerPresented, onDismiss: {
-            status.installPickerDidDismiss()
-        }) {
-            V3IPADocumentPicker { url in
-                if let url {
-                    NSLog("[V3_INSTALL_HANDOFF] PICKER_SELECTION received=true")
-                    _ = status.stageSharedIPA(url, title: "Install / Sideload App",
-                                              presentImmediately: false)
-                } else {
-                    NSLog("[V3_INSTALL_HANDOFF] PICKER_SELECTION received=false")
-                }
-                status.installPickerPresented = false
-            }
-        }
-        .fullScreenCover(item: $status.presentation, onDismiss: operationSheetDidDismiss) {
-            V3OperationSheet(request: $0).environmentObject(status)
+        .fullScreenCover(item: $status.hostCoverID, onDismiss: {
+            status.hostCoverDidDismiss()
+            operationSheetDidDismiss()
+        }) { _ in
+            V3FullScreenCoverHost().environmentObject(status)
         }
         .sheet(isPresented: $status.signInPresented, onDismiss: { status.reload() }) {
             NavigationView { V3SignInView().environmentObject(status) }
@@ -116,7 +105,7 @@ struct V3UnifiedTabs: View {
         switch destination {
         case "signIn": status.signInPresented = true
         case "certificates": status.certificatesPresented = true
-        case "ipa": status.installPickerPresented = true
+        case "ipa": status.beginInstallPicker()
         case "setup": status.setupPresented = true
         case "connection": status.connectionPresented = true
         default: break
@@ -216,6 +205,76 @@ struct V3IPADocumentPicker: UIViewControllerRepresentable {
             finish(urls.first)
         }
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finish(nil) }
+    }
+}
+
+// Local IPA selection and its operation share one host cover. The picker is a
+// child sheet, and its completed dismissal advances the same install attempt.
+struct V3FullScreenCoverHost: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+
+    var body: some View {
+        Group {
+            if let request = status.presentation {
+                V3OperationSheet(request: request)
+            } else if let attemptID = status.installAttempt.attemptID {
+                V3InstallAttemptHost(attemptID: attemptID)
+            } else {
+                ProgressView("Preparing SideStore…")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
+        .interactiveDismissDisabled(true)
+    }
+}
+
+private struct V3InstallAttemptHost: View {
+    @EnvironmentObject private var status: V3SideStoreStatusStore
+    let attemptID: UUID
+
+    private var pickerBinding: Binding<Bool> {
+        Binding(
+            get: {
+                status.installAttempt.attemptID == attemptID &&
+                    status.installAttempt.phase == .pickerPresented
+            },
+            set: { presented in
+                if !presented,
+                   status.installAttempt.attemptID == attemptID,
+                   status.installAttempt.phase == .pickerPresented {
+                    status.cancelInstallPicker(attemptID: attemptID)
+                }
+            }
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+            Text(status.installAttempt.phase == .waitingForReload
+                 ? "Waiting for SideStore to finish loading…"
+                 : "Preparing selected IPA…")
+                .font(.headline)
+            Text("Your IPA is being prepared for SideStore.")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: pickerBinding, onDismiss: {
+            status.installPickerSheetDidDismiss(attemptID: attemptID)
+        }) {
+            V3IPADocumentPicker { url in
+                if let url {
+                    NSLog("[V3_INSTALL_STATE] attempt=%@ event=picker_selected", attemptID.uuidString)
+                    _ = status.stagePickerIPA(url, attemptID: attemptID)
+                } else {
+                    status.cancelInstallPicker(attemptID: attemptID)
+                }
+            }
+            .ignoresSafeArea()
+        }
     }
 }
 
@@ -448,7 +507,7 @@ struct V3RefreshAllButton: View {
         switch destination {
         case "signIn": status.signInPresented = true
         case "certificates": status.certificatesPresented = true
-        case "ipa": status.installPickerPresented = true
+        case "ipa": status.beginInstallPicker()
         case "setup": status.setupPresented = true
         case "connection": status.connectionPresented = true
         default: break
@@ -459,17 +518,30 @@ struct V3RefreshAllButton: View {
 struct V3InstallButton: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     var body: some View {
-        Button("Install / Sideload App") { status.installPickerPresented = true }
-            .accessibilityHint("Choose an IPA to sign and install as an iOS app with SideStore")
-            .disabled(status.presentation != nil || status.installPickerPresented)
+        Button("Install with SideStore", systemImage: "arrow.down.app") {
+            status.beginInstallPicker()
+        }
+        .accessibilityLabel("Install / Sideload App with SideStore")
+        .accessibilityHint("Choose an IPA to sign and install as an iOS app.")
+        .disabled(status.presentation != nil || status.installAttempt.hasActiveAttempt)
     }
 }
 
 struct V3OperationRequest: Identifiable {
-    let id = UUID()
+    let id: UUID
     let operation: String
     let target: String
     let title: String
+    let installAttemptID: UUID?
+
+    init(id: UUID = UUID(), operation: String, target: String, title: String,
+         installAttemptID: UUID? = nil) {
+        self.id = id
+        self.operation = operation
+        self.target = target
+        self.title = title
+        self.installAttemptID = installAttemptID
+    }
 }
 
 struct V3PromptAnswer {
@@ -492,18 +564,15 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var settings: [String: Bool] = [:]
     @Published var error: String?
     @Published var notice: String?
+    @Published var hostCoverID: UUID?
     @Published var presentation: V3OperationRequest? {
         didSet {
-            if presentation == nil {
-                drainDeferredReload()
-                drainInstallPresentation(trigger: "operation_dismissed")
-            }
+            if presentation == nil { drainDeferredReload() }
         }
     }
     @Published var sourceURL = ""
     @Published var refreshTarget: String?
     @Published var refreshPresented = false
-    @Published var installPickerPresented = false
     @Published var signInPresented = false
     @Published var setupPresented = false
     @Published var connectionPresented = false
@@ -513,7 +582,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var connected = false
     @Published private(set) var requiresConnectionRetry = false
     private var deferredReloadManual: Bool?
-    private var installHandoff = V3InstallPresentationHandoff()
+    @Published private(set) var installAttempt = V3InstallAttemptState()
     var installedAppCount: Int { installedApps.count }
     var isStale: Bool { !connected || (updatedAt.map { Date().timeIntervalSince($0) > 120 } ?? true) }
     var needsSignIn: Bool { account == "Not signed in" }
@@ -527,9 +596,18 @@ final class V3SideStoreStatusStore: ObservableObject {
         guard manual || !requiresConnectionRetry else { return }
         if manual { requiresConnectionRetry = false }
         loading = true
+        if installAttempt.hasActiveAttempt {
+            NSLog("[V3_INSTALL_STATE] attempt=%@ event=snapshot_started phase=%@",
+                  installAttempt.attemptID?.uuidString ?? "none", installAttempt.phase.rawValue)
+        }
         Task {
             defer {
                 loading = false
+                installAttempt.reloadFinished()
+                if installAttempt.hasActiveAttempt {
+                    NSLog("[V3_INSTALL_STATE] attempt=%@ event=snapshot_finished phase=%@",
+                          installAttempt.attemptID?.uuidString ?? "none", installAttempt.phase.rawValue)
+                }
                 drainInstallPresentation(trigger: "snapshot_finished")
                 drainDeferredReload()
             }
@@ -560,7 +638,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         // A second operation while one is presented must explain itself
         // instead of silently doing nothing (which looks like the first tap
         // was ignored and invites blind retries).
-        guard presentation == nil else {
+        guard presentation == nil, hostCoverID == nil else {
             self.error = "Another operation is already running. Finish or cancel it before starting a new one."
             return
         }
@@ -576,7 +654,9 @@ final class V3SideStoreStatusStore: ObservableObject {
         case "jit": jit(target: target)
         case "install", "installURL", "installSharedIPA", "update", "refreshApp",
              "activate", "deactivate", "remove", "delete", "backup", "restore":
-            presentation = V3OperationRequest(operation: operation, target: target, title: title)
+            let request = V3OperationRequest(operation: operation, target: target, title: title)
+            presentation = request
+            hostCoverID = request.id
         default: break
         }
     }
@@ -660,61 +740,156 @@ final class V3SideStoreStatusStore: ObservableObject {
         LCUtils.appGroupUserDefault.set(data, forKey: "V3SharedFile." + token)
         return token
     }
+    func beginInstallPicker() {
+        guard presentation == nil, hostCoverID == nil,
+              let attemptID = installAttempt.beginPicker() else {
+            error = "Another operation is already running. Finish or cancel it before installing another app."
+            return
+        }
+        hostCoverID = attemptID
+        NSLog("[V3_INSTALL_STATE] attempt=%@ phase=pickerPresented loading=%d host_cover=%@",
+              attemptID.uuidString, loading ? 1 : 0, hostCoverID?.uuidString ?? "none")
+    }
+
+    func cancelInstallPicker(attemptID: UUID) {
+        guard installAttempt.cancelPicker(attemptID: attemptID) else { return }
+        if hostCoverID == attemptID { hostCoverID = nil }
+        NSLog("[V3_INSTALL_STATE] attempt=%@ phase=idle outcome=pickerCancelled", attemptID.uuidString)
+    }
+
     @discardableResult
-    func stageSharedIPA(_ url: URL, bookmark: Data? = nil, title: String,
-                        presentImmediately: Bool = true) -> String? {
-        guard presentation == nil, !installHandoff.hasPendingRequest else {
-            self.error = "Another operation is already running. Finish or cancel it before installing another app."
-            NSLog("[V3_INSTALL_HANDOFF] STAGE_REJECTED presentation_active=%d pending=%d",
-                  presentation == nil ? 0 : 1, installHandoff.hasPendingRequest ? 1 : 0)
+    func stagePickerIPA(_ url: URL, attemptID: UUID) -> String? {
+        guard installAttempt.beginStaging(attemptID: attemptID) else {
+            NSLog("[V3_INSTALL_STATE] attempt=%@ event=stalePickerSelection", attemptID.uuidString)
             return nil
         }
+        NSLog("[V3_INSTALL_STATE] attempt=%@ event=staging_started", attemptID.uuidString)
+        return stageIPA(url, attemptID: attemptID, bookmark: nil,
+                        title: "Install / Sideload App with SideStore",
+                        waitsForPickerDismissal: true)
+    }
+
+    @discardableResult
+    func stageSharedIPA(_ url: URL, bookmark: Data? = nil, title: String) -> String? {
+        guard presentation == nil, hostCoverID == nil,
+              let attemptID = installAttempt.beginDirectStaging() else {
+            self.error = "Another operation is already running. Finish or cancel it before installing another app."
+            return nil
+        }
+        hostCoverID = attemptID
+        return stageIPA(url, attemptID: attemptID, bookmark: bookmark, title: title,
+                        waitsForPickerDismissal: false)
+    }
+
+    private func stageIPA(_ url: URL, attemptID: UUID, bookmark: Data?, title: String,
+                          waitsForPickerDismissal: Bool) -> String? {
         do {
             guard let container = LCSharedUtils.appGroupPath() else { throw CombinedIPAFileError(.fileAccess) }
             let token = try V3IPAStaging.stage(sourceURL: url, bookmark: bookmark, containerRoot: container)
-            guard installHandoff.stage(token: token, title: title,
-                                       waitsForPickerDismissal: !presentImmediately) else {
+            guard installAttempt.staged(attemptID: attemptID, token: token, title: title,
+                                        waitsForPickerDismissal: waitsForPickerDismissal,
+                                        isLoading: loading) else {
                 Task { _ = await cleanupStagedIPA(token) }
-                self.error = "The selected IPA could not be queued for presentation. Choose it again."
-                NSLog("[V3_INSTALL_HANDOFF] STAGE_REJECTED reason=handoff_state")
+                installAttempt.cancelPicker(attemptID: attemptID)
+                if hostCoverID == attemptID { hostCoverID = nil }
+                error = "The selected IPA could not be queued for presentation. Choose it again."
                 return nil
             }
-            NSLog("[V3_INSTALL_HANDOFF] STAGED token_suffix=%@ picker_dismissal_required=%d loading=%d",
-                  String(token.suffix(8)), presentImmediately ? 0 : 1, loading ? 1 : 0)
-            drainInstallPresentation(trigger: "ipa_staged")
+            NSLog("[V3_INSTALL_STATE] attempt=%@ phase=%@ token_suffix=%@ loading=%d",
+                  attemptID.uuidString, installAttempt.phase.rawValue, String(token.suffix(8)), loading ? 1 : 0)
+            if !waitsForPickerDismissal {
+                drainInstallPresentation(trigger: "input_staged")
+            }
             return token
         } catch let failure as CombinedIPAFileError {
-            self.error = failure.localizedDescription
+            _ = installAttempt.failStaging(attemptID: attemptID)
+            if hostCoverID == attemptID { hostCoverID = nil }
+            error = failure.localizedDescription
         } catch {
-            self.error = CombinedIPAFileError(.stagingFailed).localizedDescription
+            _ = installAttempt.failStaging(attemptID: attemptID)
+            if hostCoverID == attemptID { hostCoverID = nil }
+            error = CombinedIPAFileError(.stagingFailed).localizedDescription
         }
         return nil
     }
-    func installPickerDidDismiss() {
-        NSLog("[V3_INSTALL_HANDOFF] PICKER_DISMISSED pending=%d loading=%d presentation_active=%d",
-              installHandoff.hasPendingRequest ? 1 : 0, loading ? 1 : 0,
-              presentation == nil ? 0 : 1)
-        installHandoff.pickerDidDismiss()
-        drainInstallPresentation(trigger: "picker_dismissed")
-    }
 
     private func drainInstallPresentation(trigger: String) {
-        guard let request = installHandoff.takeIfReady(
-            isLoading: loading, hasActivePresentation: presentation != nil
+        guard let request = installAttempt.takeReadyOperation(
+            isLoading: loading, hasActiveOperationPresentation: presentation != nil
         ) else {
-            if installHandoff.hasPendingRequest {
-                NSLog("[V3_INSTALL_HANDOFF] WAITING trigger=%@ loading=%d picker_presented=%d presentation_active=%d",
-                      trigger, loading ? 1 : 0, installPickerPresented ? 1 : 0,
-                      presentation == nil ? 0 : 1)
+            if installAttempt.hasActiveAttempt {
+                NSLog("[V3_INSTALL_STATE] attempt=%@ event=presentation_wait trigger=%@ phase=%@ loading=%d presentation_active=%d host_cover=%@",
+                      installAttempt.attemptID?.uuidString ?? "none", trigger,
+                      installAttempt.phase.rawValue, loading ? 1 : 0,
+                      presentation == nil ? 0 : 1, hostCoverID?.uuidString ?? "none")
             }
             return
         }
-        NSLog("[V3_INSTALL_HANDOFF] PRESENTATION_READY trigger=%@ token_suffix=%@",
-              trigger, String(request.token.suffix(8)))
-        presentation = V3OperationRequest(operation: "installSharedIPA", target: request.token,
-                                          title: request.title)
-        NSLog("[V3_INSTALL_HANDOFF] FULL_SCREEN_COVER_REQUESTED token_suffix=%@",
-              String(request.token.suffix(8)))
+        presentation = V3OperationRequest(id: request.operationID, operation: "installSharedIPA",
+            target: request.token, title: request.title, installAttemptID: request.attemptID)
+        NSLog("[V3_INSTALL_STATE] attempt=%@ phase=operationPresented trigger=%@ token_suffix=%@",
+              request.attemptID.uuidString, trigger, String(request.token.suffix(8)))
+    }
+
+    func installPickerDidDisappear(attemptID: UUID) {
+        guard installAttempt.pickerDidDisappear(attemptID: attemptID, isLoading: loading) else { return }
+        NSLog("[V3_INSTALL_STATE] attempt=%@ phase=%@", attemptID.uuidString, installAttempt.phase.rawValue)
+        drainInstallPresentation(trigger: "picker_did_disappear")
+    }
+
+    func installPickerSheetDidDismiss(attemptID: UUID) {
+        guard installAttempt.attemptID == attemptID else { return }
+        NSLog("[V3_INSTALL_STATE] attempt=%@ event=picker_sheet_dismissed phase=%@ loading=%d",
+              attemptID.uuidString, installAttempt.phase.rawValue, loading ? 1 : 0)
+        if installAttempt.phase == .pickerPresented {
+            cancelInstallPicker(attemptID: attemptID)
+        } else {
+            installPickerDidDisappear(attemptID: attemptID)
+        }
+    }
+
+    func installBackendStarted(attemptID: UUID?, operationID: UUID, sessionID: String) {
+        guard let attemptID,
+              installAttempt.backendStarted(attemptID: attemptID, operationID: operationID, sessionID: sessionID) else { return }
+        NSLog("[V3_INSTALL_STATE] attempt=%@ phase=operationStarted backend_session=%@",
+              attemptID.uuidString, sessionID)
+    }
+
+    func installTerminal(attemptID: UUID?, operationID: UUID, outcome: String) {
+        guard let attemptID,
+              installAttempt.recordTerminal(attemptID: attemptID, operationID: operationID, outcome: outcome) else { return }
+        NSLog("[V3_INSTALL_STATE] attempt=%@ phase=terminal outcome=%@", attemptID.uuidString, outcome)
+    }
+
+    func prepareInstallRetry(attemptID: UUID?) {
+        guard let attemptID, let operationID = presentation?.id,
+              installAttempt.prepareRetry(attemptID: attemptID, operationID: operationID) else { return }
+        NSLog("[V3_INSTALL_STATE] attempt=%@ phase=operationPresented outcome=retry", attemptID.uuidString)
+    }
+
+    func beginInstallCleanup(attemptID: UUID?) -> Bool {
+        guard let attemptID, installAttempt.beginCleanup(attemptID: attemptID) else { return false }
+        NSLog("[V3_INSTALL_STATE] attempt=%@ phase=cleaningUp", attemptID.uuidString)
+        return true
+    }
+
+    func finishInstallCleanup(attemptID: UUID?) -> Bool {
+        guard let attemptID, installAttempt.finishCleanup(attemptID: attemptID) else { return false }
+        presentation = nil
+        if hostCoverID == attemptID { hostCoverID = nil }
+        NSLog("[V3_INSTALL_STATE] attempt=%@ phase=idle", attemptID.uuidString)
+        return true
+    }
+
+    func hostCoverDidDismiss() {
+        NSLog("[V3_INSTALL_STATE] attempt=%@ event=host_cover_dismissed phase=%@",
+              installAttempt.attemptID?.uuidString ?? "none", installAttempt.phase.rawValue)
+        if installAttempt.phase == .pickerPresented, let attemptID = installAttempt.attemptID {
+            cancelInstallPicker(attemptID: attemptID)
+        }
+        if presentation != nil { presentation = nil }
+        hostCoverID = nil
+        drainDeferredReload()
     }
     func cleanupStagedIPA(_ token: String) async -> Bool {
         do {
@@ -1673,8 +1848,16 @@ struct V3OperationSheet: View {
                         } catch { cancellationConfirmed = false }
                     }
                     await oldTask?.value
-                    if request.operation == "installSharedIPA", cancellationConfirmed, !stagedIPACleaned {
-                        stagedIPACleaned = await status.cleanupStagedIPA(request.target)
+                    if request.operation == "installSharedIPA", cancellationConfirmed {
+                        status.installTerminal(attemptID: request.installAttemptID,
+                            operationID: request.id, outcome: "cancelled")
+                        let cleaning = status.beginInstallCleanup(attemptID: request.installAttemptID)
+                        if !stagedIPACleaned {
+                            stagedIPACleaned = await status.cleanupStagedIPA(request.target)
+                        }
+                        if cleaning {
+                            _ = status.finishInstallCleanup(attemptID: request.installAttemptID)
+                        }
                     } else if request.operation == "installSharedIPA", mustConfirmCancel, !cancellationConfirmed {
                         status.error = "The operation was not confirmed as stopped, so its staged IPA was kept safely. Reconnect before cleanup."
                     }
@@ -1738,6 +1921,8 @@ struct V3OperationSheet: View {
                 return
             }
             backendSessionStarted = true
+            status.installBackendStarted(attemptID: request.installAttemptID,
+                operationID: request.id, sessionID: id)
             failureContext.operationStarted()
             retryBlocked = false
             try await pollLoop(id: id, generation: generation)
@@ -1770,6 +1955,8 @@ struct V3OperationSheet: View {
 
     private func presentCurrentFailure() {
         _ = attempt.acceptStartFailure(generation: attempt.generation)
+        status.installTerminal(attemptID: request.installAttemptID,
+            operationID: request.id, outcome: "failed")
         state = "failed"
         message = failureContext.whatHappened
         whatToDo = failureContext.whatToDo
@@ -1796,6 +1983,10 @@ struct V3OperationSheet: View {
         guard let nextState = reply["state"] as? String,
               attempt.accept(state: nextState, generation: generation, sessionID: sessionID) else { return }
         state = nextState
+        if !["working", "awaitingPrompt"].contains(nextState) {
+            status.installTerminal(attemptID: request.installAttemptID,
+                operationID: request.id, outcome: nextState)
+        }
         progress = reply["progress"] as? Double ?? progress
         let oldPromptID = prompt?["id"] as? String
         let nextPrompt = reply["prompt"] as? [String: Any]
@@ -1813,9 +2004,6 @@ struct V3OperationSheet: View {
             failureContext.reset()
             recordRefresh("completed", "The operation completed. Reload the app list to confirm the result.")
             status.reload()
-            if request.operation == "installSharedIPA", !stagedIPACleaned {
-                Task { stagedIPACleaned = await status.cleanupStagedIPA(request.target) }
-            }
         case "cancelled":
             // A backend cancellation the user did not request (the Done
             // button already dismisses locally) stays visible as a terminal
@@ -1884,6 +2072,7 @@ struct V3OperationSheet: View {
     }
     private func retry() {
         guard retryAllowed, attempt.beginTransition() else { return }
+        status.prepareInstallRetry(attemptID: request.installAttemptID)
         failureContext.beginRetry()
         let oldTask = task
         let oldSession = attempt.supersede()
@@ -1946,6 +2135,8 @@ struct V3OperationSheet: View {
                 guard attempt.generation == transitionGeneration else { return }
                 uncertainSessionID = nil
                 state = "cancelled"
+                status.installTerminal(attemptID: request.installAttemptID,
+                    operationID: request.id, outcome: "cancelled")
                 message = "The operation was cancelled and the backend confirmed that it stopped."
                 whatToDo = "You can safely start the operation again."
                 technicalDetails = ""
@@ -1991,10 +2182,17 @@ struct V3OperationSheet: View {
                     }
                 }
             }
-            if request.operation == "installSharedIPA", !stagedIPACleaned {
-                stagedIPACleaned = await status.cleanupStagedIPA(request.target)
+            status.installTerminal(attemptID: request.installAttemptID,
+                operationID: request.id, outcome: "cancelled")
+            if request.operation == "installSharedIPA" {
+                let cleaning = status.beginInstallCleanup(attemptID: request.installAttemptID)
+                if !stagedIPACleaned {
+                    stagedIPACleaned = await status.cleanupStagedIPA(request.target)
+                }
+                if cleaning { _ = status.finishInstallCleanup(attemptID: request.installAttemptID) }
+            } else {
+                status.reload()
             }
-            status.reload()
             dismiss()
         }
     }

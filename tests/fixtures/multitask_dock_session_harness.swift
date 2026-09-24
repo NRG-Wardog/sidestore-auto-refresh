@@ -4,91 +4,95 @@ struct DockSessionHarness {
         var state = LCMultitaskDockSessionState()
         var presentation = LCMultitaskDockPresentationState()
 
-        // iOS may evaluate a reused hosting root before addRunningApp's queued
-        // session work executes. That cached expanded branch is the device-only
-        // case the former state-only harness skipped.
-        let reusedRootFirstBody = LCMultitaskDockSessionState.renderedMode(isCollapsed: false)
-        precondition(reusedRootFirstBody == .expandedDockView)
+        // A reused host may still have evaluated the previous session's root.
+        // Until the new session commits its mode, no old branch is presented.
+        let staleRootMode = LCMultitaskDockSessionState.renderedMode(isCollapsed: false)
+        precondition(staleRootMode == .expandedDockView)
 
-        // Preference OFF selects the actual expanded SwiftUI branch on the first frame.
-        let first = state.begin(storedPreference: false)
+        // Both preferences OFF: fresh session presents the normal expanded,
+        // visible dock on its first logical body evaluation.
+        let first = state.begin(storedPreference: false, storedTuckedPreference: false)
         presentation.begin(sessionID: first)
-        var collapsed = true // stale singleton value from a previous session
-        guard let initial = state.applyBeforeFirstFrame(sessionID: first) else {
-            preconditionFailure("fresh session did not provide an initial preference")
-        }
-        collapsed = initial
-        precondition(!presentation.isReady,
-                     "a reused host exposed a dock branch before the fresh-session preference was committed")
-        precondition(presentation.markReady(sessionID: first, isCollapsed: collapsed) == .expandedDockView)
-        precondition(state.markPresented(sessionID: first), "first session presentation was not recorded")
-        precondition(!state.markPresented(sessionID: first), "first presentation was not one-shot")
-        precondition(!collapsed, "preference OFF did not start expanded")
-        precondition(LCMultitaskDockSessionState.renderedMode(isCollapsed: collapsed) == .expandedDockView,
-                     "preference OFF did not select the expanded view on first presentation")
-        precondition(state.applyBeforeFirstFrame(sessionID: first) == nil,
-                     "layout/rotation reapplied the preference")
+        var collapsed = true
+        var tucked = true
+        collapsed = state.applyBeforeFirstFrame(sessionID: first)!
+        tucked = state.applyTuckedBeforeFirstFrame(sessionID: first)!
+        precondition(!presentation.isReady)
+        precondition(presentation.markReady(sessionID: first, isCollapsed: collapsed,
+                                             isDockHidden: tucked) == .expandedDockView)
+        precondition(presentation.firstPresentedHiddenState == false)
+        precondition(state.markPresented(sessionID: first))
+        precondition(!collapsed && !tucked)
+        precondition(state.applyBeforeFirstFrame(sessionID: first) == nil)
+        precondition(state.applyTuckedBeforeFirstFrame(sessionID: first) == nil)
 
-        // A manual toggle after presentation wins for this session.
-        state.userDidToggle()
-        collapsed.toggle()
-        precondition(collapsed, "manual collapse did not change the current session")
-        precondition(state.applyBeforeFirstFrame(sessionID: first) == nil,
-                     "manual override was overwritten")
-
-        // The singleton is reused; removing the last app ends the session.
+        // Start Dock Collapsed ON, Tucked To Edge OFF selects CollapsedDockView
+        // without tucking it. A manual expansion then remains authoritative.
         state.end()
         presentation.end(sessionID: first)
-        let second = state.begin(storedPreference: true)
+        let second = state.begin(storedPreference: true, storedTuckedPreference: false)
         presentation.begin(sessionID: second)
-        precondition(second != first, "fresh session identity was reused")
-        guard let nextInitial = state.applyBeforeFirstFrame(sessionID: second) else {
-            preconditionFailure("reused manager did not apply the next session preference")
-        }
-        collapsed = nextInitial
-        // The old expanded root remains cached until the state is ready. It is
-        // never selected for this fresh session's first visible body.
-        precondition(!presentation.isReady)
-        precondition(presentation.markReady(sessionID: second, isCollapsed: collapsed) == .collapsedDockView,
-                     "first presented SwiftUI state did not select CollapsedDockView")
-        precondition(presentation.recordFirstBodyEvaluation(sessionID: second, isCollapsed: collapsed) == .collapsedDockView,
-                     "first SwiftUI body evaluation did not select CollapsedDockView")
-        precondition(state.markPresented(sessionID: second), "collapsed session did not record its first presentation")
-        precondition(collapsed, "preference ON did not start collapsed")
-        precondition(LCMultitaskDockSessionState.renderedMode(isCollapsed: collapsed) == .collapsedDockView,
-                     "preference ON did not select CollapsedDockView on first presentation")
+        collapsed = state.applyBeforeFirstFrame(sessionID: second)!
+        tucked = state.applyTuckedBeforeFirstFrame(sessionID: second)!
+        precondition(presentation.markReady(sessionID: second, isCollapsed: collapsed,
+                                             isDockHidden: tucked) == .collapsedDockView)
+        precondition(presentation.firstPresentedHiddenState == false,
+                     "collapsed-only preference must show the ordinary collapsed control")
+        precondition(collapsed && !tucked)
+        precondition(state.markPresented(sessionID: second))
         state.userDidToggle()
-        collapsed.toggle()
-        precondition(!collapsed, "manual expand did not keep the current session expanded")
-        precondition(LCMultitaskDockSessionState.renderedMode(isCollapsed: collapsed) == .expandedDockView,
-                     "manual expansion did not select the normal dock")
+        collapsed = false
+        precondition(!collapsed)
         precondition(state.applyBeforeFirstFrame(sessionID: second) == nil,
-                     "rotation/layout collapsed the manually expanded dock")
-        precondition(state.applyBeforeFirstFrame(sessionID: first) == nil,
-                     "late first-frame work from the old session was accepted")
+                     "rotation reapplied Start Dock Collapsed")
+        precondition(state.applyTuckedBeforeFirstFrame(sessionID: second) == nil,
+                     "layout reapplied Start Dock Tucked To Edge")
 
-        // The next fresh session reads the preference again, even after a manual expand.
+        // Both ON: the first branch is CollapsedDockView and its initial frame
+        // uses the existing hidden-to-side state. This is not LCHideCollapsedDock.
         state.end()
         presentation.end(sessionID: second)
-        let third = state.begin(storedPreference: true)
+        let third = state.begin(storedPreference: true, storedTuckedPreference: true)
         presentation.begin(sessionID: third)
-        guard let thirdInitial = state.applyBeforeFirstFrame(sessionID: third) else {
-            preconditionFailure("third session preference was not applied")
-        }
-        precondition(thirdInitial, "next fresh session did not start collapsed again")
-        precondition(presentation.markReady(sessionID: third, isCollapsed: thirdInitial) == .collapsedDockView)
-        precondition(LCMultitaskDockSessionState.renderedMode(isCollapsed: thirdInitial) == .collapsedDockView,
-                     "next fresh session did not present CollapsedDockView")
+        collapsed = state.applyBeforeFirstFrame(sessionID: third)!
+        tucked = state.applyTuckedBeforeFirstFrame(sessionID: third)!
+        precondition(presentation.markReady(sessionID: third, isCollapsed: collapsed,
+                                             isDockHidden: tucked) == .collapsedDockView)
+        precondition(presentation.firstPresentedHiddenState == true,
+                     "tucked preference did not select the hidden-to-side first state")
+        precondition(collapsed && tucked)
+        precondition(presentation.recordFirstBodyEvaluation(sessionID: third,
+            isCollapsed: collapsed) == .collapsedDockView,
+            "the first actual SwiftUI body branch did not select CollapsedDockView")
+        precondition(state.markPresented(sessionID: third))
+
+        // The edge control brings the dock back. Rotation/layout never re-tucks
+        // it, and the next fresh session reads the persisted preference again.
+        tucked = false
+        precondition(state.applyTuckedBeforeFirstFrame(sessionID: third) == nil)
+        precondition(!tucked, "rotation re-tucked a manually opened dock")
         state.end()
         presentation.end(sessionID: third)
-        let fourth = state.begin(storedPreference: false)
+        let fourth = state.begin(storedPreference: true, storedTuckedPreference: true)
         presentation.begin(sessionID: fourth)
-        guard let fourthInitial = state.applyBeforeFirstFrame(sessionID: fourth) else {
-            preconditionFailure("preference OFF fresh session did not start")
-        }
-        precondition(!fourthInitial && LCMultitaskDockSessionState.renderedMode(isCollapsed: fourthInitial) == .expandedDockView,
-                     "preference OFF fresh session did not restore expanded dock")
-        precondition(presentation.markReady(sessionID: fourth, isCollapsed: fourthInitial) == .expandedDockView)
-        print("DOCK_FIRST_PRESENTED_VIEW_BEHAVIOR_PASS")
+        collapsed = state.applyBeforeFirstFrame(sessionID: fourth)!
+        tucked = state.applyTuckedBeforeFirstFrame(sessionID: fourth)!
+        precondition(presentation.markReady(sessionID: fourth, isCollapsed: collapsed,
+                                             isDockHidden: tucked) == .collapsedDockView)
+        precondition(collapsed && tucked,
+                     "fresh session did not reapply both persisted preferences")
+
+        // Collapsed OFF remains expanded even with no tuck; Start Dock Collapsed
+        // retains its existing meaning and is independent of the new setting.
+        state.end()
+        presentation.end(sessionID: fourth)
+        let fifth = state.begin(storedPreference: false, storedTuckedPreference: false)
+        presentation.begin(sessionID: fifth)
+        collapsed = state.applyBeforeFirstFrame(sessionID: fifth)!
+        tucked = state.applyTuckedBeforeFirstFrame(sessionID: fifth)!
+        precondition(presentation.markReady(sessionID: fifth, isCollapsed: collapsed,
+                                             isDockHidden: tucked) == .expandedDockView)
+        precondition(!collapsed && !tucked)
+        print("DOCK_FIRST_PRESENTED_VIEW_AND_TUCK_BEHAVIOR_PASS")
     }
 }

@@ -192,7 +192,7 @@ class DockPatchTests(unittest.TestCase):
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
             result = subprocess.run([str(executable)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("DOCK_FIRST_PRESENTED_VIEW_BEHAVIOR_PASS", result.stdout)
+            self.assertIn("DOCK_FIRST_PRESENTED_VIEW_AND_TUCK_BEHAVIOR_PASS", result.stdout)
 
     def test_patch_applies_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -204,6 +204,8 @@ class DockPatchTests(unittest.TestCase):
             self.assertIn("LCMultitaskDockStartsCollapsed", dock)
             self.assertIn("LCMultitaskDockStartsCollapsed", settings)
             self.assertIn("Start Dock Collapsed", settings)
+            self.assertIn("LCMultitaskDockStartsTuckedToEdge", settings)
+            self.assertIn("Start Dock Tucked To Edge", settings)
             patch.patch(live)
             self.assertEqual(first, snapshot(Path(directory)))
 
@@ -238,8 +240,10 @@ class DockPatchTests(unittest.TestCase):
             # it, so the first body evaluation chooses the expected view branch.
             self.assertIn("@Published @objc var isCollapsed: Bool = false", dock)
             self.assertIn("self.isCollapsed = stored", dock)
-            self.assertIn("collapseStartState.begin(storedPreference: stored)", dock)
+            self.assertIn("collapseStartState.begin(storedPreference: stored, storedTuckedPreference: storedTucked)", dock)
+            self.assertIn("applyTuckedBeforeFirstFrame(sessionID: sessionID)", dock)
             self.assertIn("applyBeforeFirstFrame(sessionID: sessionID)", dock)
+            self.assertIn("applyTuckedBeforeFirstFrame(sessionID: sessionID)", dock)
             self.assertIn("self.isCollapsed = initial", dock)
             self.assertIn("if dockManager.isCollapsed {", dock)
             self.assertIn("CollapsedDockView(isHidden: dockManager.isDockHidden)", dock)
@@ -292,7 +296,9 @@ class DockPatchTests(unittest.TestCase):
                 self.assertIn(marker, dock)
             # Hidden-dock and Guest Return states are separate from this setting.
             self.assertNotIn("LCHideCollapsedDock", dock)
-            self.assertIn("self.isDockHidden = false", dock)
+            self.assertNotIn("self.isDockHidden = false", dock)
+            self.assertIn('bool(forKey: "LCMultitaskDockStartsTuckedToEdge")', dock)
+            self.assertIn("isDockHidden=", dock)
             self.assertIn("MULTITASK_DOCK_RESHOW_AFTER_TRANSITION_V1", dock)
             # Rotation/layout paths never touch collapse state.
             self.assertNotIn("collapseManuallyOverridden", dock[dock.index("deviceOrientationDidChange"):])
@@ -354,7 +360,7 @@ class DockPatchTests(unittest.TestCase):
             self.assertEqual(build.returncode, 0, build.stderr)
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=15)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("DOCK_FIRST_PRESENTED_VIEW_BEHAVIOR_PASS", result.stdout)
+            self.assertIn("DOCK_FIRST_PRESENTED_VIEW_AND_TUCK_BEHAVIOR_PASS", result.stdout)
 
     def test_hide_collapsed_dock_untouched(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -364,6 +370,7 @@ class DockPatchTests(unittest.TestCase):
             # Existing Hide label keeps its localization key, verbatim.
             self.assertIn('                Toggle(isOn: $hideCollapsedDock) {\n                    Text("lc.settings.hideCollapsedDock".loc)\n                }',
                           settings)
+            self.assertIn('Toggle(isOn: $dockStartsTuckedToEdge)', settings)
 
     def test_settings_row_placement(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -372,9 +379,11 @@ class DockPatchTests(unittest.TestCase):
             settings = (live / "LiveContainerSwiftUI/Views/Settings/LCMultitaskSettingView.swift").read_text(encoding="utf-8")
             slider = settings.index("Slider(value: $dockWidth")
             start = settings.index("Start Dock Collapsed")
+            tucked = settings.index("Start Dock Tucked To Edge")
             hide = settings.index('Toggle(isOn: $hideCollapsedDock)')
             self.assertLess(slider, start)
-            self.assertLess(start, hide)
+            self.assertLess(start, tucked)
+            self.assertLess(tucked, hide)
 
     def test_separate_preference_from_guest_and_hide(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -418,6 +427,8 @@ class DockPinnedSourceTests(unittest.TestCase):
             settings = (live / "LiveContainerSwiftUI/Views/Settings/LCMultitaskSettingView.swift").read_text(encoding="utf-8")
             self.assertIn('bool(forKey: "LCMultitaskDockStartsCollapsed")', dock)
             self.assertIn("Start Dock Collapsed", settings)
+            self.assertIn('bool(forKey: "LCMultitaskDockStartsTuckedToEdge")', dock)
+            self.assertIn("Start Dock Tucked To Edge", settings)
             self.assertEqual(dock.count("self.isCollapsed = initial"), 2)
             self.assertEqual(dock.count("self.collapseStartState.userDidToggle()"), 1)
             compiler = shutil.which("swiftc")

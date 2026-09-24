@@ -11,6 +11,7 @@ enum LCMultitaskDockRenderedMode: Equatable {
 struct LCMultitaskDockPresentationState {
     private(set) var sessionID: String?
     private(set) var firstPresentedMode: LCMultitaskDockRenderedMode?
+    private(set) var firstPresentedHiddenState: Bool?
     private(set) var firstBodyEvaluationMode: LCMultitaskDockRenderedMode?
 
     var isReady: Bool { sessionID != nil && firstPresentedMode != nil }
@@ -18,14 +19,17 @@ struct LCMultitaskDockPresentationState {
     mutating func begin(sessionID: String) {
         self.sessionID = sessionID
         firstPresentedMode = nil
+        firstPresentedHiddenState = nil
         firstBodyEvaluationMode = nil
     }
 
     @discardableResult
-    mutating func markReady(sessionID: String, isCollapsed: Bool) -> LCMultitaskDockRenderedMode? {
+    mutating func markReady(sessionID: String, isCollapsed: Bool,
+                            isDockHidden: Bool = false) -> LCMultitaskDockRenderedMode? {
         guard self.sessionID == sessionID, firstPresentedMode == nil else { return nil }
         let mode = LCMultitaskDockSessionState.renderedMode(isCollapsed: isCollapsed)
         firstPresentedMode = mode
+        firstPresentedHiddenState = isDockHidden
         return mode
     }
 
@@ -50,7 +54,9 @@ struct LCMultitaskDockPresentationState {
 struct LCMultitaskDockSessionState {
     private(set) var sessionID: String?
     private var storedPreference = false
+    private var storedTuckedPreference = false
     private var initialPreferenceApplied = false
+    private var initialTuckedPreferenceApplied = false
     private(set) var manuallyOverridden = false
     private(set) var wasPresented = false
 
@@ -60,11 +66,13 @@ struct LCMultitaskDockSessionState {
         isCollapsed ? .collapsedDockView : .expandedDockView
     }
 
-    mutating func begin(storedPreference: Bool) -> String {
+    mutating func begin(storedPreference: Bool, storedTuckedPreference: Bool = false) -> String {
         let id = UUID().uuidString
         sessionID = id
         self.storedPreference = storedPreference
+        self.storedTuckedPreference = storedTuckedPreference
         initialPreferenceApplied = false
+        initialTuckedPreferenceApplied = false
         manuallyOverridden = false
         wasPresented = false
         return id
@@ -82,6 +90,14 @@ struct LCMultitaskDockSessionState {
         return manuallyOverridden ? nil : storedPreference
     }
 
+    // The edge-tuck setting is independent of collapsed rendering. It is read
+    // once with the session and never re-applied during layout or rotation.
+    mutating func applyTuckedBeforeFirstFrame(sessionID id: String) -> Bool? {
+        guard sessionID == id, !initialTuckedPreferenceApplied else { return nil }
+        initialTuckedPreferenceApplied = true
+        return storedTuckedPreference
+    }
+
     mutating func userDidToggle() {
         guard sessionID != nil else { return }
         manuallyOverridden = true
@@ -90,6 +106,8 @@ struct LCMultitaskDockSessionState {
     mutating func end() {
         sessionID = nil
         initialPreferenceApplied = false
+        initialTuckedPreferenceApplied = false
+        storedTuckedPreference = false
         manuallyOverridden = false
         wasPresented = false
     }

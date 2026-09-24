@@ -38,9 +38,10 @@ def status_store():
 class SheetLifecycleTests(unittest.TestCase):
     def test_failure_recovery_dismiss_route_lives_on_cover_owner(self):
         text = shell()
-        cover = text[text.index(".fullScreenCover(item: $status.presentation"):]
+        cover = text[text.index(".fullScreenCover(item: $status.hostCoverID"):]
         cover = cover[:cover.index(".sheet(isPresented: $status.signInPresented")]
-        self.assertIn("onDismiss: operationSheetDidDismiss", cover)
+        self.assertIn("status.hostCoverDidDismiss()", cover)
+        self.assertIn("operationSheetDidDismiss()", cover)
         self.assertLess(text.index("private func operationSheetDidDismiss"),
                         text.index("struct V3RefreshAllButton"))
         route = text[text.index("private func operationSheetDidDismiss"):text.index("private func dispatchURL")]
@@ -81,18 +82,20 @@ class SheetLifecycleTests(unittest.TestCase):
         self.assertEqual(sheet.count('operation: "opStart"'), 1)
 
 
-class InstallHandoffTests(unittest.TestCase):
-    def test_handoff_deferred_past_picker_dismissal(self):
+class InstallStateMachineTests(unittest.TestCase):
+    def test_single_cover_handoff_waits_for_picker_and_reload(self):
         text = shell()
         fn = text[text.index("func stageSharedIPA"):]
         fn = fn[:fn.index("struct V3SideStoreApp")]
         self.assertIn("V3IPAStaging.stage", fn)
-        self.assertIn("installHandoff.stage", fn)
+        self.assertIn("installAttempt.staged", fn)
         self.assertIn("drainInstallPresentation(trigger:", fn)
-        self.assertNotIn("Task.yield()", fn)
-        picker = text[text.index(".sheet(isPresented: $status.installPickerPresented"):]
-        self.assertIn("presentImmediately: false", picker)
-        self.assertIn("status.installPickerDidDismiss()", picker)
+        self.assertNotIn("asyncAfter", text)
+        self.assertIn(".fullScreenCover(item: $status.hostCoverID", text)
+        self.assertIn("V3FullScreenCoverHost().environmentObject(status)", text)
+        self.assertIn(".sheet(isPresented: pickerBinding", text)
+        self.assertIn("status.installPickerSheetDidDismiss(attemptID: attemptID)", text)
+        self.assertIn("status.finishInstallCleanup(attemptID: request.installAttemptID)", text)
 
     def test_install_button_disabled_while_busy(self):
         text = shell()

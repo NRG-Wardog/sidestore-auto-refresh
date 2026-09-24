@@ -1,9 +1,11 @@
 import Foundation
 
-// A picker selection survives the sheet transition and any in-flight snapshot
-// reload. The view may hand off only after UIKit reports dismissal and the
-// host is free to present the operation cover.
+// A picker selection survives dismissal and any in-flight snapshot reload.
+// The picker and operation occupy one host-owned cover, so SwiftUI never has to
+// race two unrelated root presentations.
 struct V3InstallPresentationRequest: Equatable {
+    let attemptID: UUID
+    let operationID: UUID
     let token: String
     let title: String
 }
@@ -22,32 +24,147 @@ enum V3InstallPipelineParity {
     }
 }
 
-struct V3InstallPresentationHandoff {
-    private(set) var pending: V3InstallPresentationRequest?
-    private var pickerDismissed = true
+struct V3InstallAttemptState {
+    enum Phase: String, Equatable {
+        case idle, pickerPresented, staging, waitingForPickerDismissal, waitingForReload
+        case readyToPresentOperation, operationPresented, operationStarted, terminal, cleaningUp
+    }
 
-    var hasPendingRequest: Bool { pending != nil }
+    private(set) var phase: Phase = .idle
+    private(set) var attemptID: UUID?
+    private(set) var operationID: UUID?
+    private(set) var token: String?
+    private(set) var title: String?
+    private(set) var backendSessionID: String?
+    private(set) var terminalOutcome: String?
+
+    var isIdle: Bool { phase == .idle }
+    var hasActiveAttempt: Bool { !isIdle }
+
+    mutating func beginPicker() -> UUID? {
+        guard isIdle else { return nil }
+        reset()
+        let id = UUID()
+        attemptID = id
+        phase = .pickerPresented
+        return id
+    }
+
+    mutating func beginDirectStaging() -> UUID? {
+        guard isIdle else { return nil }
+        reset()
+        let id = UUID()
+        attemptID = id
+        phase = .staging
+        return id
+    }
 
     @discardableResult
-    mutating func stage(token: String, title: String, waitsForPickerDismissal: Bool) -> Bool {
-        guard pending == nil, UUID(uuidString: token) != nil,
-              !title.isEmpty, title.utf8.count <= 160 else { return false }
-        pending = V3InstallPresentationRequest(token: token, title: title)
-        pickerDismissed = !waitsForPickerDismissal
+    mutating func beginStaging(attemptID id: UUID) -> Bool {
+        guard attemptID == id, phase == .pickerPresented else { return false }
+        phase = .staging
         return true
     }
 
-    mutating func pickerDidDismiss() {
-        guard pending != nil else { return }
-        pickerDismissed = true
+    @discardableResult
+    mutating func staged(attemptID id: UUID, token: String, title: String,
+                         waitsForPickerDismissal: Bool, isLoading: Bool) -> Bool {
+        guard attemptID == id, phase == .staging, UUID(uuidString: token) != nil,
+              !title.isEmpty, title.utf8.count <= 160 else { return false }
+        self.token = token
+        self.title = title
+        if waitsForPickerDismissal { phase = .waitingForPickerDismissal }
+        else { phase = isLoading ? .waitingForReload : .readyToPresentOperation }
+        return true
     }
 
-    mutating func takeIfReady(isLoading: Bool, hasActivePresentation: Bool) -> V3InstallPresentationRequest? {
-        guard pickerDismissed, !isLoading, !hasActivePresentation else { return nil }
-        let request = pending
-        pending = nil
-        pickerDismissed = true
-        return request
+    @discardableResult
+    mutating func failStaging(attemptID id: UUID) -> Bool {
+        guard attemptID == id, phase == .staging else { return false }
+        reset()
+        return true
+    }
+
+    @discardableResult
+    mutating func pickerDidDisappear(attemptID id: UUID, isLoading: Bool) -> Bool {
+        guard attemptID == id, phase == .waitingForPickerDismissal else { return false }
+        phase = isLoading ? .waitingForReload : .readyToPresentOperation
+        return true
+    }
+
+    @discardableResult
+    mutating func cancelPicker(attemptID id: UUID) -> Bool {
+        guard attemptID == id, phase == .pickerPresented || phase == .staging ||
+                phase == .waitingForPickerDismissal else { return false }
+        reset()
+        return true
+    }
+
+    mutating func reloadFinished() {
+        guard phase == .waitingForReload else { return }
+        phase = .readyToPresentOperation
+    }
+
+    mutating func takeReadyOperation(isLoading: Bool,
+                                     hasActiveOperationPresentation: Bool) -> V3InstallPresentationRequest? {
+        guard phase == .readyToPresentOperation, !isLoading, !hasActiveOperationPresentation,
+              let attemptID, let token, let title else { return nil }
+        let operationID = UUID()
+        self.operationID = operationID
+        phase = .operationPresented
+        return V3InstallPresentationRequest(attemptID: attemptID, operationID: operationID,
+                                            token: token, title: title)
+    }
+
+    @discardableResult
+    mutating func backendStarted(attemptID id: UUID, operationID: UUID, sessionID: String) -> Bool {
+        guard attemptID == id, self.operationID == operationID,
+              phase == .operationPresented, UUID(uuidString: sessionID) != nil else { return false }
+        backendSessionID = sessionID
+        phase = .operationStarted
+        return true
+    }
+
+    @discardableResult
+    mutating func recordTerminal(attemptID id: UUID, operationID: UUID, outcome: String) -> Bool {
+        guard attemptID == id, self.operationID == operationID,
+              phase == .operationPresented || phase == .operationStarted else { return false }
+        terminalOutcome = outcome
+        phase = .terminal
+        return true
+    }
+
+    @discardableResult
+    mutating func prepareRetry(attemptID id: UUID, operationID: UUID) -> Bool {
+        guard attemptID == id, self.operationID == operationID, phase == .terminal else { return false }
+        backendSessionID = nil
+        terminalOutcome = nil
+        phase = .operationPresented
+        return true
+    }
+
+    @discardableResult
+    mutating func beginCleanup(attemptID id: UUID) -> Bool {
+        guard attemptID == id, phase == .terminal else { return false }
+        phase = .cleaningUp
+        return true
+    }
+
+    @discardableResult
+    mutating func finishCleanup(attemptID id: UUID) -> Bool {
+        guard attemptID == id, phase == .cleaningUp else { return false }
+        reset()
+        return true
+    }
+
+    private mutating func reset() {
+        phase = .idle
+        attemptID = nil
+        operationID = nil
+        token = nil
+        title = nil
+        backendSessionID = nil
+        terminalOutcome = nil
     }
 }
 

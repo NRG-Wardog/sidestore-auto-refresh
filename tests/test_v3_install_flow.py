@@ -87,10 +87,11 @@ class InstallFirstAttemptTests(unittest.TestCase):
         text = shell()
         self.assertIn("func documentPickerWasCancelled", text)
         self.assertIn("finish(nil)", text)
-        self.assertIn("func installPickerDidDismiss()", text)
+        self.assertIn("func cancelInstallPicker(attemptID: UUID)", text)
+        self.assertIn("func installPickerDidDisappear(attemptID: UUID)", text)
         self.assertNotIn("selectedInstallToken", text)
-        self.assertIn("if let url {", text)
-        self.assertIn("presentImmediately: false", text)
+        self.assertIn("status.stagePickerIPA(url, attemptID: attemptID)", text)
+        self.assertIn("status.cancelInstallPicker(attemptID: attemptID)", text)
 
     def test_local_and_url_install_inputs_share_one_downstream_driver(self):
         text = runtime()
