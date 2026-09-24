@@ -25,7 +25,7 @@ class LiveContainerRuntimeTests(unittest.TestCase):
             result = subprocess.run([str(exe)], text=True, capture_output=True, timeout=20)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("SCHEDULER_BEHAVIOR_TESTS_PASSED", result.stdout)
-            self.assertIn("error_code=42", result.stdout)
+            self.assertIn("underlying_code=42", result.stdout)
             self.assertNotIn(r"\(runID", result.stdout)
             self.assertNotIn("SECRET_TOKEN", result.stdout)
 
