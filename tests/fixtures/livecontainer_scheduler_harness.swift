@@ -124,9 +124,13 @@ extension LiveContainerAutoRefreshScheduler {
             let failed = BGTask()
             await execute(source: "manual", task: failed)
             precondition(failed.completions == [false])
-            let error = defaults.string(forKey: lastErrorKey)!
-            precondition(error.contains("stage=" + stage.rawValue) && error.contains("underlying_code=77"))
-            precondition(error.contains("retryable=unknown") && !error.contains("SECRET_TOKEN"))
+            let terminal = defaults.dictionary(forKey: currentRunFailureKey)!
+            let failure = terminal["failure"] as! [String: Any]
+            precondition(failure["stage"] as? String == stage.rawValue &&
+                         terminal["underlying_code"] as? Int == 77)
+            precondition(terminal["retryable"] as? String == "unknown")
+            precondition((terminal["safe_message"] as? String ?? "").contains(stage.rawValue))
+            precondition(!String(describing: terminal).contains("SECRET_TOKEN"))
             precondition((defaults.object(forKey: nextRetryKey) == nil) == (stage == .authentication))
         }
         clearTestState()
