@@ -275,10 +275,122 @@ func v3ProvisioningGuidance(_ error: DeveloperPortalError) -> (message: String, 
     }
 }
 
+// MARK: - SideStore OperationError provisioning guidance (typed, never numeric)
+
+// V3_OPERATION_ERROR_PROVISIONING_GUIDANCE_V1
+// Guidance for the concrete SideStore.OperationError cases that
+// SignInOperation.provisioningLoop can raise after Apple authentication has
+// already succeeded: team fetch, certificate fetch/create, revocation, device
+// registration, and the transport/pairing prerequisites that registration needs.
+//
+// Two rules are absolute here.
+// 1. The bridged NSError integer is never consulted. OperationError conforms to
+//    CustomNSError but implements neither errorCode nor errorDomain, so every
+//    case bridges to code 0 and its case ordinal is not a pinned contract. A
+//    numeric mapping silently rots the moment upstream reorders the enum.
+// 2. No associated value is ever forwarded. unknown/forbidden embed #fileID and
+//    #line, provisioningError embeds the raw portal result, cacheClearError
+//    embeds upstream strings, and SideJITIssue embeds a transport error. Only
+//    the typed case and privacy-safe facts cross the bridge.
+func v3OperationErrorGuidance(_ error: OperationError) -> (message: String, hint: String) {
+    switch error {
+    // Device connection / pairing prerequisites. These are the transport cases
+    // MinimuxerWrapper.asOperationError can produce for a refresh pipeline.
+    case .noConnection:
+        return ("SideStore could not reach this device to finish provisioning.",
+                "Restore the LocalDevVPN connection, then retry provisioning.")
+    case .noVPN:
+        return ("LocalDevVPN is not active, so this device cannot be registered.",
+                "Connect LocalDevVPN, then retry provisioning.")
+    case .invalidVPN:
+        return ("The LocalDevVPN connection is not usable.",
+                "Reconnect LocalDevVPN, then retry provisioning.")
+    case .noDevice:
+        return ("No usable device endpoint was selected for provisioning.",
+                "Open Connection and select a working endpoint, then retry provisioning.")
+    case .notReachable:
+        return ("The device is not reachable at the selected endpoint.",
+                "Open Connection, verify the endpoint, then retry provisioning.")
+    case .invalidPairingFile:
+        return ("The pairing file is invalid or unreadable.",
+                "Place or import a current pairing file, then retry provisioning.")
+    case .minimuxerNotStarted:
+        return ("The device connection service has not started.",
+                "Complete pairing, then retry provisioning.")
+    case .pairingNotComplete:
+        return ("A pairing file is required before this device can finish provisioning.",
+                "Place or import a pairing file, then retry provisioning.")
+    case .unknownUDID:
+        return ("SideStore could not identify this device for registration.",
+                "Check LocalDevVPN and the pairing file, then retry provisioning.")
+
+    // Account / session state.
+    case .notAuthenticated:
+        return ("The saved Apple session is no longer valid.",
+                "Sign in again with this Apple ID, then retry provisioning.")
+    case .forbidden:
+        return ("Apple denied the provisioning request for this account.",
+                "Check the account and team under Account and Signing, then retry provisioning.")
+    case .missingAppGroup:
+        return ("A required app group is missing for this signing configuration.",
+                "Fix the app group configuration, then retry provisioning.")
+
+    // Certificates and profiles.
+    case .certificateRevoked:
+        return ("The signing certificate Apple holds for this app was revoked.",
+                "Re-sign or reinstall the app under Certificates.")
+    case .customCertificateRevoked:
+        return ("The active custom signing certificate was revoked on the Developer Portal.",
+                "Select or create a current certificate under Certificates.")
+    case .customCertificateExpired:
+        return ("The active custom signing certificate has expired.",
+                "Select or create a current certificate under Certificates.")
+    case .certificateExpired:
+        return ("The signing certificate Apple holds for this app has expired.",
+                "Re-sign or reinstall the app under Certificates.")
+    case .certificateChanged:
+        return ("The signing certificate for this app no longer matches the active certificate.",
+                "Re-sign or reinstall the app under Certificates.")
+    case .missingProvisioningProfile:
+        return ("A required provisioning profile is not available.",
+                "Open Certificates and review the active profile, then retry provisioning.")
+    case .provisioningError:
+        return ("Apple rejected the provisioning request for this app.",
+                "Review the app identifier and team under Account and Signing, then retry provisioning.")
+    case .maximumAppIDLimitReached:
+        return ("The Apple Developer account has reached its App ID limit.",
+                "Remove an unused App ID before retrying.")
+
+    // Timing.
+    case .timedOut:
+        return ("The provisioning request to Apple timed out.",
+                "Retry once. If it repeats, check the connection and try again later.")
+    case .connectionFailed:
+        return ("The connection to the Apple Developer service failed during provisioning.",
+                "Check the connection, then retry provisioning.")
+
+    default:
+        break
+    }
+    // Honesty: a case without specific guidance is reported as unclassified
+    // rather than being relabelled as a credential, pairing, or manifest problem.
+    return ("SideStore could not finish provisioning for a reason it does not classify.",
+            "You can retry. If it keeps failing, keep the technical details and review Account and Signing and Certificates.")
+}
+
 // MARK: - Authentication state machine
 
 @MainActor
 final class V3AuthCenter {
+    // V3_PROVISIONING_RESUME_V1: how a begin request should be served.
+    // .interactive asks for credentials and two-factor codes. .resumeProvisioning
+    // reuses the already authenticated Apple session, so a retry after a
+    // provisioning failure never repeats credentials or 2FA.
+    enum BeginMode: String, Equatable {
+        case interactive
+        case resumeProvisioning
+    }
+
     struct Session {
         var task: Task<Void, Never>?
         var watchdog: Task<Void, Never>?
@@ -293,11 +405,38 @@ final class V3AuthCenter {
         var authenticatedAppleID: String?
     }
 
+    // Privacy-safe record of a finished-but-incomplete provisioning attempt, so
+    // Retry Provisioning can be served without credentials or 2FA. Only the
+    // lowercased Apple ID and the typed stage are stored; never a token.
+    private(set) var resumableProvisioning: (appleID: String, stage: String)?
+
     var sessions: [String: Session] = [:]
     private var activeID: String?
 
-    func begin(deadline: Date) async -> [String: Any] {
+    func begin(deadline: Date, mode: BeginMode = .interactive) async -> [String: Any] {
         cleanupSessions()
+        if mode == .resumeProvisioning {
+            // Refuse to claim a reusable session that cannot be reused. This is
+            // the only place that decides whether a retry may skip credentials,
+            // so it checks both the keychain session and that it belongs to the
+            // account whose provisioning actually failed.
+            let sessionAppleID = AuthManager.shared.currentAppleID?.lowercased()
+            let resumable = resumableProvisioning
+            guard AuthManager.shared.isAuthenticated, let resumable, !resumable.appleID.isEmpty,
+                  resumable.appleID == sessionAppleID else {
+                let id = UUID().uuidString
+                let failure = CombinedFailure(operation: "signIn", stage: .authentication, code: .notReady,
+                    id: id, retryable: false)
+                let response: [String: Any] = ["session": id, "state": "failed", "authenticated": false,
+                    "stage": failure.stage.rawValue, "code": failure.code.rawValue,
+                    "message": "The saved Apple session is no longer valid. Sign in again with this Apple ID.",
+                    "failure": failure.wire,
+                    "technicalDetails": failure.technicalDetails]
+                debugLog("[V3_AUTH] TERMINAL session=\(id) state=failed reason=provisioning_not_resumable")
+                return response
+            }
+            debugLog("[V3_AUTH] PROVISIONING_RESUME authenticated=true previous_stage=\(resumable.stage)")
+        }
         if let current = activeID {
             let oldTask = sessions[current]?.task
             _ = cancel(id: current)
@@ -312,7 +451,7 @@ final class V3AuthCenter {
             if interval > 0 { try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000)) }
             V3HeadlessRuntime.shared.auth.expire(id: id)
         }
-        debugLog("[V3_AUTH] BEGIN session=\(id)")
+        debugLog("[V3_AUTH] BEGIN session=\(id) mode=\(mode.rawValue)")
         return ["session": id, "state": "working"]
     }
 
@@ -333,6 +472,7 @@ final class V3AuthCenter {
             let account = result.team.account ?? ALTAccount(appleID: "", identifier: result.team.identifier)
             await handler.handleSignInResult(.success((account, result.session)))
             sessions[id]?.prompt = nil
+            resumableProvisioning = nil
             finish(id: id, response: ["state": "completed", "team": result.team.name,
                                       "teamID": result.team.identifier, "authenticated": true])
             debugLog("[V3_AUTH] TERMINAL session=\(id) state=completed")
@@ -351,19 +491,28 @@ final class V3AuthCenter {
                 cancelled: cancelled)
 
             if authenticatedOutcome == "authenticatedProvisioningIncomplete" {
-                var response: [String: Any] = ["state": authenticatedOutcome,
+                // V3_AUTH_PROVISIONING_TERMINAL_SHAPE_V1: one state, one wire
+                // shape. A cancelled provisioning attempt and a failed one both
+                // carry stage/code/failure/technicalDetails and an explicit
+                // outcome discriminator, so the host never has to guess and can
+                // never present a successful sign-in as a failed one.
+                let failure = CombinedFailure.capture(error, operation: "signIn", stage: .provisioning, id: id,
+                                                      retryable: cancelled)
+                resumableProvisioning = (submitted ?? activeAppleID?.lowercased() ?? "", failure.stage.rawValue)
+                let response: [String: Any] = [
+                    "state": authenticatedOutcome,
                     "authenticated": true,
-                    "message": cancelled ? "Signed in successfully. Provisioning was cancelled before setup finished." :
-                        "Signed in successfully, but provisioning could not be completed."]
-                if !cancelled {
-                    let failure = CombinedFailure.capture(error, operation: "signIn", stage: .provisioning, id: id)
-                    response["stage"] = failure.stage.rawValue
-                    response["code"] = failure.code.rawValue
-                    response["failure"] = failure.wire
-                    response["technicalDetails"] = failure.technicalDetails
-                }
+                    "outcome": cancelled ? "provisioningCancelled" : "provisioningFailed",
+                    "resumable": AuthManager.shared.isAuthenticated,
+                    "message": cancelled
+                        ? "Signed in successfully. Provisioning was cancelled before setup finished."
+                        : "Signed in successfully, but provisioning could not be completed.",
+                    "stage": failure.stage.rawValue,
+                    "code": failure.code.rawValue,
+                    "failure": failure.wire,
+                    "technicalDetails": failure.technicalDetails]
                 finish(id: id, response: response)
-                debugLog("[V3_AUTH] TERMINAL session=\(id) state=authenticatedProvisioningIncomplete")
+                debugLog("[V3_AUTH] TERMINAL session=\(id) state=authenticatedProvisioningIncomplete outcome=\(cancelled ? "provisioningCancelled" : "provisioningFailed") stage=\(failure.stage.rawValue) code=\(failure.code.rawValue)")
             } else if cancelled {
                 finish(id: id, response: ["state": "cancelled", "authenticated": false])
                 debugLog("[V3_AUTH] TERMINAL session=\(id) state=cancelled")
@@ -640,12 +789,17 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
     func resolveProvisioningError(_ error: Error) async -> ProvisioningErrorDecision {
         // Cancellation is terminal, never a prompt. Everything else is
         // classified from the actual typed error: the message comes from the
-        // concrete DeveloperPortalError case; the bridged domain/code travel
-        // only inside the separate technical details.
+        // concrete DeveloperPortalError or SideStore.OperationError case; the
+        // bridged domain/code travel only inside the separate technical
+        // details. A numeric NSError code is never treated as a semantic API.
         if error is CancellationError { return .cancel }
         if let portal = error as? DeveloperPortalError {
             if case .userCancelled = portal { return .cancel }
             let guidance = v3ProvisioningGuidance(portal)
+            return await askProvisioningRetry(message: guidance.message, hint: guidance.hint, error: error)
+        }
+        if let operation = error as? OperationError {
+            let guidance = v3OperationErrorGuidance(operation)
             return await askProvisioningRetry(message: guidance.message, hint: guidance.hint, error: error)
         }
         return await askProvisioningRetry(
@@ -657,11 +811,15 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
     private func askProvisioningRetry(message: String, hint: String, error: Error) async -> ProvisioningErrorDecision {
         let native = error as NSError
         let technical = "domain=\(native.domain) code=\(native.code) area=provisioning correlation=\(sessionID)"
+        // V3_PROVISIONING_RECOVERY_LABELS_V1: authentication already succeeded.
+        // "Cancel" would read as a failed sign-in, so the escape action is named
+        // Finish Later and the retry is scoped to provisioning only.
         do {
             let answer = try await ask(kind: "provisioningError", title: "Provisioning Needs Attention",
                                        message: message + "\n\n" + hint,
                                        fields: [["key": "technical", "label": "Technical details", "secure": "false", "value": technical]],
-                                       options: [["id": "retry", "label": "Retry"], ["id": "cancel", "label": "Cancel"]])
+                                       options: [["id": "retry", "label": "Retry Provisioning"],
+                                                 ["id": "cancel", "label": "Finish Later"]])
             return answer["choice"] == "retry" ? .retry : .cancel
         } catch { return .cancel }
     }

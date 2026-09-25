@@ -86,6 +86,9 @@ def main():
         paths += ['.lc-app-layout.json', '.combined-service-startup.json']
         if args.product == 'v3' or args.product.startswith('v3.'):
             paths += ['LiveContainerSwiftUI/Views/V3UnifiedShell.swift']
+            # The generated Settings list is the host UI most likely to carry
+            # layout residue from the injection patches, so it ships as evidence.
+            paths += ['LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift']
         for name in paths:
             data = (args.source / name).read_bytes()
             target = args.output / 'generated' / name

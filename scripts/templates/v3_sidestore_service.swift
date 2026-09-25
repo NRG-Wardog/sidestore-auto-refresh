@@ -38,12 +38,20 @@ final class V3SideStoreService: NSObject {
     }
 
     private func receive(_ data: Data, reply: @escaping (Data) -> Void) {
-        guard let request = V3WireContract.decodeRequest(data),
-              let id = request["id"] as? String,
+        // V3_CORRELATED_INVALID_REQUEST_V1: a request that fails the strict
+        // contract is still answered with its own correlation and operation
+        // whenever a well-formed envelope can be read, so the host can
+        // classify the real reason instead of receiving an idless token it must
+        // treat as a stale reply.
+        guard let request = V3WireContract.decodeRequest(data) else {
+            reply(encode(invalidRequestReply(for: data)))
+            return
+        }
+        guard let id = request["id"] as? String,
               let operation = request["operation"] as? String,
               let deadline = request["deadline"] as? Date,
               deadline > Date(), deadline.timeIntervalSinceNow <= 610 else {
-            reply(encode(["error": "invalidRequest"]))
+            reply(encode(invalidRequestReply(for: data)))
             return
         }
         completed = completed.filter { $0.value.deadline > Date() }
@@ -54,15 +62,17 @@ final class V3SideStoreService: NSObject {
                 tasks[target]?.cancel()
                 cancellations[target]?()
             }
-            reply(encode(["id": id, "version": 1, "ok": true]))
+            reply(encode(["id": id, "version": 1, "ok": true], operation: operation))
             return
         }
         guard tasks[id] == nil else { reply(encode(["version": 1, "id": id, "error": "busy",
-            "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire])); return }
+            "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire],
+            operation: operation)); return }
         let mutation = !V3WireContract.readOperations.contains(operation)
         guard !mutation || (mutationID == nil && completed.count < 512) else {
             reply(encode(["version": 1, "id": id, "error": "busy",
-                "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire])); return }
+                "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire],
+                operation: operation)); return }
         if mutation { mutationID = id }
         tasks[id] = Task { @MainActor in
             defer {
@@ -88,7 +98,7 @@ final class V3SideStoreService: NSObject {
                 switch operation {
                 case "snapshot": stage = .serviceReadiness
                 case "catalog": stage = .catalog
-                case "authBegin", "authPoll", "authRespond", "authCancel", "accountExport", "accountImport": stage = .authentication
+                case "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning", "accountExport", "accountImport": stage = .authentication
                 case "opStart", "opPoll", "opAnswer", "opCancel": stage = .command
                 case "certList", "certSetActive", "certDelete", "certPortalList", "certRevoke", "certCreate": stage = .signing
                 case "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles", "syncAppIDs": stage = .authentication
@@ -149,7 +159,7 @@ final class V3SideStoreService: NSObject {
                     response["failure"] = CombinedFailure.capture(error, operation: operation, stage: stage, id: id).wire
                 }
             }
-            let encoded = encode(response)
+            let encoded = encode(response, operation: operation)
             if mutation { completed[id] = (encoded, deadline) }
             reply(encoded)
         }
@@ -161,12 +171,40 @@ final class V3SideStoreService: NSObject {
 
     enum ServiceError: String, Error { case notReady, invalidRequest, notFound, unsupported, busy }
 
-    private func encode(_ value: [String: Any]) -> Data {
-        guard let data = try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0),
-              data.count <= 4_194_304 else {
-            return try! PropertyListSerialization.data(fromPropertyList: ["id": value["id"] ?? "", "error": "responseTooLarge"], format: .binary, options: 0)
+    // Reads only the envelope fields the contract already trusts: the request ID
+    // must be a valid UUID and the operation must be on the allow list. Nothing
+    // from the payload is echoed back.
+    private func invalidRequestReply(for data: Data) -> [String: Any] {
+        let envelope = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any]
+        let rawID = envelope?["id"] as? String
+        let id = (rawID.flatMap { UUID(uuidString: $0) != nil } ?? false) ? rawID! : UUID().uuidString
+        let rawOperation = envelope?["operation"] as? String
+        let operation = (rawOperation.flatMap { V3WireContract.operations.contains($0) } ?? false)
+            ? rawOperation! : "command"
+        return ["version": 1, "id": id, "error": "invalidRequest",
+                "failure": CombinedFailure(operation: operation, stage: .command,
+                    code: .invalidConfiguration, id: id).wire]
+    }
+
+    private func encode(_ value: [String: Any], operation: String = "command") -> Data {
+        if let data = try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0),
+           data.count <= 4_194_304 {
+            return data
         }
-        return data
+        // V3_CORRELATED_RESPONSE_TOO_LARGE_V1: an oversized reply is a typed
+        // invalid response, not an opaque token. The request ID and operation
+        // are preserved so the host can report the real reason. No response
+        // content is ever included. This path is not recursive: the fallback is
+        // a few hundred bytes and is serialized directly.
+        let id = value["id"] as? String ?? ""
+        let fallback: [String: Any] = ["version": 1, "id": id, "error": "responseTooLarge",
+                                       "failure": CombinedFailure(operation: operation, stage: .command,
+                                           code: .invalidResponse, id: id).wire]
+        if let data = try? PropertyListSerialization.data(fromPropertyList: fallback, format: .binary, options: 0),
+           data.count <= 4_194_304 {
+            return data
+        }
+        return Data()
     }
 
     private func run(_ operation: String, request: [String: Any], id: String) async throws -> [String: Any] {
@@ -193,6 +231,19 @@ final class V3SideStoreService: NSObject {
                 userInfo: [AppDelegate.appBackupResultKey: result])
             return [:]
         case "catalog":
+            // V3_CATALOG_DIAGNOSTICS_V1: the catalog read is measured with
+            // privacy-safe facts only: whether the source row exists, whether
+            // its identifier matches the request, and how many catalog rows were
+            // returned. No source identifier, URL, name, bundle identifier,
+            // description, object URI, or filesystem path is ever recorded.
+            let sourceQuery = NSFetchRequest<Source>(entityName: "Source")
+            sourceQuery.predicate = NSPredicate(format: "identifier == %@", target)
+            sourceQuery.fetchLimit = 1
+            let storedSource = try context.fetch(sourceQuery).first
+            let sourceFound = storedSource != nil
+            // Detects identifier normalization drift between the source row and
+            // the request target, which a tautological fetch predicate could not.
+            let sourceMatch = storedSource?.identifier == target
             let query = NSFetchRequest<StoreApp>(entityName: "StoreApp")
             query.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
                 StoreApp.visibleAppsPredicate, NSPredicate(format: "sourceIdentifier == %@", target)])
@@ -203,6 +254,7 @@ final class V3SideStoreService: NSObject {
             query.fetchLimit = 51
             let fetched = try context.fetch(query)
             let apps = Array(fetched.prefix(50))
+            debugLog("[V3_CATALOG] RESULT operation=catalog stage=catalogRead request_id=\(id) cursor=\(offset) source_found=\(sourceFound ? "yes" : "no") source_identifier_match=\(sourceMatch ? "yes" : "no") catalog_row_count=\(apps.count) has_more=\(fetched.count > 50 ? "yes" : "no")")
             return ["apps": apps.map { app in
                 ["identifier": app.objectID.uriRepresentation().absoluteString,
                  "bundleID": app.bundleIdentifier, "name": app.name,
@@ -237,6 +289,12 @@ final class V3SideStoreService: NSObject {
         case "authBegin":
             guard let deadline = request["deadline"] as? Date else { throw ServiceError.invalidRequest }
             return await V3HeadlessRuntime.shared.auth.begin(deadline: deadline)
+        case "authRetryProvisioning":
+            // V3_PROVISIONING_RESUME_V1: Apple authentication already succeeded.
+            // This re-enters provisioning with the saved session so credentials
+            // and 2FA are never requested a second time.
+            guard let deadline = request["deadline"] as? Date else { throw ServiceError.invalidRequest }
+            return await V3HeadlessRuntime.shared.auth.begin(deadline: deadline, mode: .resumeProvisioning)
         case "authPoll":
             guard let reply = V3HeadlessRuntime.shared.auth.poll(id: target) else { throw ServiceError.invalidRequest }
             return reply
@@ -424,8 +482,22 @@ final class V3SideStoreService: NSObject {
         let sources = try context.fetch(NSFetchRequest<Source>(entityName: "Source"))
         let team = DatabaseManager.shared.activeTeam()
         let certificate = CertificateManager.shared.activeCertificate?.certificate.x509
+        // V3_AUTH_SESSION_SNAPSHOT_V1: Apple authentication can succeed before
+        // the account row is activated, because activation happens at the end
+        // of SignInOperation.finalizeAuthentication. Reporting "Not signed in"
+        // in that window made a successful sign-in look like a failed one and
+        // hid the authenticated session from Retry Provisioning. The session
+        // itself is authoritative; the active row is reported separately as
+        // provisioningIncomplete so no active team is ever implied.
+        let activeAccount = DatabaseManager.shared.activeAccount()
+        let authenticated = AuthManager.shared.isAuthenticated
+        let account = activeAccount?.appleID
+            ?? (authenticated ? AuthManager.shared.currentAppleID : nil)
+            ?? "Not signed in"
         return ["updatedAt": Date(), "busy": mutationID != nil,
-                "account": DatabaseManager.shared.activeAccount()?.appleID ?? "Not signed in",
+                "account": account,
+                "authenticated": authenticated,
+                "provisioningIncomplete": authenticated && activeAccount == nil,
                 "team": team?.name ?? "No active team", "teamID": team?.identifier ?? "",
                 "signing": team == nil ? "Sign in required" : "Team selected",
                 "certificate": CertificateManager.shared.activeCertificate == nil ? "No active certificate" : "Active certificate available",

@@ -537,9 +537,11 @@ struct V3RefreshAllButton: View {
         attempt.begin(requestID: newRequestID)
         message = "Starting Refresh..."
         diagnostics = "manual_refresh_request=\(newRequestID)\nstate=starting"
-        if status.pairing == "Pairing file required" {
-            let failure = CombinedFailure(operation: "refresh", stage: .pairing, code: .notReady,
-                id: newRequestID, retryable: false, safeCause: .pairingRequired)
+        // V3_REFRESH_PREREQUISITE_POLICY_V1: shared policy, evaluated before the
+        // mutation request is posted. A known-missing pairing file blocks here
+        // instead of surfacing later as an unexplained refresh failure.
+        if let failure = V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing)
+            .failure(correlationID: newRequestID) {
             attempt.failBeforeStart(message: failure.safeMessage)
             terminalFailure = V3OperationFailureDetails(failure)
             message = failure.safeMessage
@@ -727,6 +729,11 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var certificate = "Unknown"
     @Published private(set) var certificateExpiration: Date?
     @Published private(set) var pairing = "Unknown"
+    // V3_AUTH_SESSION_SNAPSHOT_V1: the service reports the authenticated Apple
+    // session separately from the active account row, because authentication
+    // completes before provisioning activates that row.
+    @Published private(set) var authenticated = false
+    @Published private(set) var provisioningIncomplete = false
     @Published private(set) var updatedAt: Date?
     @Published private(set) var installedApps: [V3SideStoreApp] = []
     @Published private(set) var sources: [V3SideStoreSource] = []
@@ -761,7 +768,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             (installAttempt.phase == .operationStarted || installAttempt.phase == .operationPresented)
     }
     var isStale: Bool { !connected || (updatedAt.map { Date().timeIntervalSince($0) > 120 } ?? true) }
-    var needsSignIn: Bool { account == "Not signed in" }
+    var needsSignIn: Bool { account == "Not signed in" && !authenticated }
     func reload(manual: Bool = true) {
         if loading || presentation != nil {
             if manual || !requiresConnectionRetry {
@@ -804,6 +811,8 @@ final class V3SideStoreStatusStore: ObservableObject {
         certificate = snapshot["certificate"] as? String ?? "Unknown"
         certificateExpiration = (snapshot["certificateExpiration"] as? Date).flatMap { $0 == .distantPast ? nil : $0 }
         pairing = snapshot["pairing"] as? String ?? "Unknown"
+        authenticated = snapshot["authenticated"] as? Bool ?? false
+        provisioningIncomplete = snapshot["provisioningIncomplete"] as? Bool ?? false
         updatedAt = snapshot["updatedAt"] as? Date
         installedApps = (snapshot["installedApps"] as? [[String: Any]] ?? []).compactMap(V3SideStoreApp.init)
         sources = (snapshot["sources"] as? [[String: Any]] ?? []).compactMap(V3SideStoreSource.init)
@@ -1724,14 +1733,31 @@ struct V3CatalogView: View {
             apps = []
             repeat {
                 try Task.checkCancellation()
+                // V3_CATALOG_PAGE_VALIDATION_V1: a page is validated instead of
+                // being coerced. A missing or mistyped app list is no longer
+                // silently shown as an empty catalog, and a cursor that does not
+                // advance is a typed invalid response rather than a raw error.
                 let result = try await V3ServiceBridge.shared.request(operation: "catalog", target: source.identifier, cursor: cursor)
-                let page = (result["apps"] as? [[String: Any]] ?? []).compactMap(V3CatalogApp.init)
+                guard let rawApps = result["apps"] as? [[String: Any]] else {
+                    throw catalogResponseFailure(cursor: cursor)
+                }
+                guard let number = result["nextCursor"] as? NSNumber,
+                      CFGetTypeID(number) != CFBooleanGetTypeID(),
+                      let next = number as? Int else {
+                    throw catalogResponseFailure(cursor: cursor)
+                }
+                let page = rawApps.compactMap(V3CatalogApp.init)
+                guard page.count == rawApps.count else { throw catalogResponseFailure(cursor: cursor) }
                 let existing = Set(apps.map(\.id))
                 apps.append(contentsOf: page.filter { !existing.contains($0.id) })
-                let next = result["nextCursor"] as? Int ?? -1
-                guard next == -1 || next > cursor else { throw NSError(domain: "V3Catalog", code: 1) }
+                guard next == -1 || next > cursor else { throw catalogResponseFailure(cursor: cursor) }
                 cursor = next
             } while cursor >= 0
+        } catch is CancellationError {
+            // A cancelled load is lifecycle, not a catalog failure. Presenting it
+            // as an error would blame the source for a navigation change.
+            error = nil
+            failure = nil
         } catch {
             if let combined = error as? CombinedFailure {
                 failure = V3OperationFailureDetails(combined)
@@ -1741,6 +1767,17 @@ struct V3CatalogView: View {
                 self.error = "The source catalog could not be loaded."
             }
         }
+    }
+
+    // V3_CATALOG_DIAGNOSTICS_V1: an unreadable page is reported against the
+    // catalog stage with the request's own correlation, and never contains the
+    // source identifier, app rows, or any raw payload.
+    private func catalogResponseFailure(cursor: Int) -> CombinedFailure {
+        var failure = CombinedFailure(operation: "catalog", stage: .catalog, code: .invalidResponse,
+                                     id: UUID().uuidString, safeCause: .catalogUnavailable,
+                                     sourceStep: .catalogRead)
+        failure.annotatingCatalogPage(cursor: cursor)
+        return failure
     }
 }
 
@@ -1796,6 +1833,20 @@ struct V3AccountSettings: View {
                     Text(app.certificateStatus.capitalized + (app.expirationDate.map { " (exp " + $0.formatted(date: .abbreviated, time: .omitted) + ")" } ?? ""))
                         .foregroundColor(.secondary)
                 }
+            }
+            // V3_PROVISIONING_NEEDS_ATTENTION_V1: an authenticated session with
+            // incomplete provisioning is signed in, so the recovery row is
+            // presented as provisioning work, never as a sign-in problem. It is
+            // placed before the signed-in-only block because
+            // provisioningIncomplete can only be true for a signed-in account.
+            if status.provisioningIncomplete {
+                NavigationLink {
+                    V3SignInView().environmentObject(status)
+                } label: {
+                    Label("Provisioning needs attention", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                }
+                .accessibilityHint("Apple ID is signed in. Retry provisioning or finish later.")
             }
             // Re-authenticate and Sign Out exist only for a signed-in account.
             // When signed out, the section above already offers Sign In, so a
@@ -2001,11 +2052,23 @@ struct V3TargetedRefreshSection: View {
                             .foregroundColor(.secondary)
                     }
                 }
+                // V3_REFRESH_PREREQUISITE_POLICY_V1: targeted refresh uses the
+                // same contract. A known-missing pairing file blocks the mutation
+                // and offers the same recovery action instead of starting a run
+                // that can only fail.
+                if V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).blocksTargetedRefresh {
+                    Text("A pairing file is required before this device can be refreshed.")
+                        .font(.footnote)
+                    Text("Place or import a valid pairing file, then try again.")
+                        .font(.footnote).foregroundColor(.secondary)
+                    Button("Show Pairing Setup") { status.pairingPresented = true }
+                }
                 Button {
                     status.perform("refreshApp", target: target, title: "Refresh " + app.name)
                 } label: {
                     Label("Refresh " + app.name, systemImage: "arrow.clockwise")
                 }
+                .disabled(V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).blocksTargetedRefresh)
                 Button("Clear Selection") { status.refreshTarget = nil }
             }
         }
@@ -2799,8 +2862,34 @@ final class V3AuthStore: ObservableObject {
     @Published var promptSubmitting = false
     @Published private(set) var isCancelling = false
     @Published private(set) var cancellationConfirmed = true
+    // V3_PROVISIONING_RECOVERY_STATE_V1: a successful Apple sign-in and a failed
+    // provisioning attempt are two separate facts and are stored separately, so
+    // neither can be presented as the other. The typed provisioning guidance and
+    // the safe technical line produced by the service are preserved verbatim
+    // instead of being discarded with the terminal payload.
+    @Published private(set) var provisioningMessage = ""
+    @Published private(set) var provisioningTechnical = ""
+    @Published private(set) var provisioningCode = ""
+    @Published private(set) var provisioningStage = ""
+    @Published private(set) var provisioningCorrelation = ""
+    @Published private(set) var provisioningRetryAvailable = false
+    @Published private(set) var provisioningFinishedLater = false
+    // Sticky once the service reports an authenticated terminal. It survives a
+    // provisioning retry so the screen keeps saying the sign-in succeeded while
+    // provisioning is running again.
+    @Published private(set) var signedIn = false
     private var session: String?
     private var task: Task<Void, Never>?
+
+    // V3_AUTH_SUCCESS_IS_NOT_PROVISIONING_SUCCESS_V1: authentication succeeded
+    // whenever the service reports an authenticated terminal, regardless of
+    // whether provisioning then failed.
+    var isSignedIn: Bool { signedIn }
+    // The provisioning problem is only present when a classified failure arrived.
+    var hasProvisioningProblem: Bool {
+        state == "authenticatedProvisioningIncomplete" && !provisioningMessage.isEmpty
+            && !provisioningFinishedLater
+    }
 
     func begin() {
         guard canBegin else { return }
@@ -2813,10 +2902,70 @@ final class V3AuthStore: ObservableObject {
         previousFailure = nil
         promptSubmitting = false
         cancellationConfirmed = true
+        signedIn = false
+        clearProvisioningOutcome()
         task = Task { await run() }
     }
     var canBegin: Bool {
         !isCancelling && cancellationConfirmed && !["working", "awaitingPrompt"].contains(state)
+    }
+
+    private func clearProvisioningOutcome() {
+        provisioningMessage = ""
+        provisioningTechnical = ""
+        provisioningCode = ""
+        provisioningStage = ""
+        provisioningCorrelation = ""
+        provisioningRetryAvailable = false
+        provisioningFinishedLater = false
+    }
+
+    // V3_RETRY_PROVISIONING_REUSES_SESSION_V1: the Apple session is already
+    // authenticated, so the retry is a distinct operation. It deliberately does
+    // not reuse the interactive begin operation, which would ask for credentials
+    // and 2FA again.
+    func retryProvisioning() {
+        guard !isCancelling, !["working", "awaitingPrompt"].contains(state) else { return }
+        task?.cancel()
+        state = "working"
+        message = ""
+        prompt = nil
+        previousFailure = nil
+        promptSubmitting = false
+        clearProvisioningOutcome()
+        task = Task { await runProvisioningRetry() }
+    }
+    var canRetryProvisioning: Bool { provisioningRetryAvailable }
+
+    private func runProvisioningRetry() async {
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "authRetryProvisioning")
+            guard let id = reply["session"] as? String,
+                  reply["state"] as? String != "failed" else {
+                // The saved session is gone. Fall back to a full, honest sign-in
+                // instead of silently claiming provisioning was retried.
+                state = "failed"
+                message = reply["message"] as? String
+                    ?? "The saved Apple session is no longer valid. Sign in again with this Apple ID."
+                provisioningMessage = ""
+                return
+            }
+            session = id
+            try await pollLoop(id: id)
+        } catch {
+            state = "authenticatedProvisioningIncomplete"
+            provisioningMessage = "Retry Provisioning could not be started."
+            provisioningTechnical = (error as? CombinedFailure)?.technicalDetails ?? ""
+        }
+    }
+
+    // V3_FINISH_LATER_PRESERVES_ACCOUNT_V1: closing the provisioning flow must
+    // not sign the account out. It only dismisses the local recovery
+    // presentation; authoritative account state is reloaded afterwards.
+    func finishProvisioningLater() {
+        provisioningMessage = ""
+        provisioningTechnical = ""
+        provisioningFinishedLater = true
     }
 
     func reconcile() async {
@@ -2824,10 +2973,35 @@ final class V3AuthStore: ObservableObject {
         do {
             let snapshot = try await V3ServiceBridge.shared.request(operation: "snapshot")
             let account = snapshot["account"] as? String ?? "Not signed in"
-            if !account.isEmpty && account != "Not signed in" {
-                state = "completed"
-                team = snapshot["team"] as? String ?? ""
-                message = ""
+            let authoritative = (snapshot["authenticated"] as? Bool ?? false) || !account.isEmpty && account != "Not signed in"
+            let incomplete = snapshot["provisioningIncomplete"] as? Bool ?? false
+            if authoritative {
+                // V3_FINISH_LATER_RECONCILES_AS_SIGNED_IN_V1: authoritative state
+                // wins. A finished-later provisioning attempt still reconciles as
+                // signed in, never back to "sign in again".
+                signedIn = true
+                if incomplete {
+                    // The service still reports an authenticated session whose
+                    // provisioning never activated an account. Stay signed in and
+                    // keep the provisioning recovery actions available. The
+                    // classified reason from the original attempt is not
+                    // reconstructed here, because nothing persisted it.
+                    if state != "authenticatedProvisioningIncomplete" {
+                        state = "authenticatedProvisioningIncomplete"
+                        message = "Apple ID signed in successfully."
+                    }
+                    if provisioningMessage.isEmpty {
+                        provisioningMessage = "Device provisioning did not complete. Retry provisioning, or finish later and come back."
+                    }
+                    // The service only reports an authenticated session here, so
+                    // the saved session is present and a retry can skip 2FA.
+                    provisioningRetryAvailable = true
+                } else {
+                    state = "completed"
+                    team = snapshot["team"] as? String ?? ""
+                    message = ""
+                    clearProvisioningOutcome()
+                }
             } else if state == "idle" || state == "completed" {
                 state = "idle"
                 team = ""
@@ -2871,6 +3045,7 @@ final class V3AuthStore: ObservableObject {
         attempts = reply["attempts"] as? Int ?? attempts
         prompt = reply["prompt"] as? [String: Any]
         previousFailure = V3AuthPromptFailurePolicy.applying(reply: reply, current: previousFailure)
+        if reply["authenticated"] as? Bool == true { signedIn = true }
         if oldPromptID != (prompt?["id"] as? String) {
             promptSubmitting = false
             if state == "awaitingPrompt" {
@@ -2883,16 +3058,28 @@ final class V3AuthStore: ObservableObject {
             prompt = nil
             message = ""
             deliveryProgressMessage = ""
+            clearProvisioningOutcome()
         } else if state == "authenticatedProvisioningIncomplete" {
+            // V3_PROVISIONING_TERMINAL_NOT_A_SIGNIN_FAILURE_V1: the terminal
+            // payload carries the classified provisioning problem, which is
+            // retained verbatim. This state is never collapsed into "failed".
             team = reply["team"] as? String ?? team
-            message = reply["message"] as? String ?? "Signed in successfully, but provisioning could not be completed."
+            message = "Apple ID signed in successfully."
             prompt = nil
             deliveryProgressMessage = ""
+            provisioningMessage = reply["message"] as? String ?? "Provisioning could not be completed."
+            provisioningStage = reply["stage"] as? String ?? ""
+            provisioningCode = reply["code"] as? String ?? ""
+            provisioningTechnical = reply["technicalDetails"] as? String ?? ""
+            provisioningCorrelation = (reply["failure"] as? [String: Any])?["correlationID"] as? String ?? ""
+            provisioningRetryAvailable = reply["resumable"] as? Bool ?? false
+            provisioningFinishedLater = false
         } else if state == "failed" {
             message = reply["message"] as? String ?? "The sign-in request failed for an unknown reason."
             if let failure = reply["failure"] as? [String: Any] { previousFailure = failure }
             prompt = nil
             deliveryProgressMessage = ""
+            clearProvisioningOutcome()
         } else if state == "cancelled" {
             message = "Sign-in was cancelled."
             prompt = nil
@@ -3055,9 +3242,9 @@ struct V3SignInView: View {
                     Spacer()
                     Text(statusText).foregroundColor(.secondary)
                 }
-                if auth.state == "completed" || auth.state == "authenticatedProvisioningIncomplete" {
+                if auth.isSignedIn {
                     HStack {
-                        Label("Signed in", systemImage: "checkmark.circle.fill")
+                        Label("Signed in successfully", systemImage: "checkmark.circle.fill")
                             .foregroundColor(.green)
                         Spacer()
                         if !auth.team.isEmpty { Text(auth.team).foregroundColor(.secondary) }
@@ -3077,8 +3264,36 @@ struct V3SignInView: View {
                 if !auth.message.isEmpty {
                     Text(auth.message)
                         .font(.footnote)
-                        .foregroundColor(auth.state == "authenticatedProvisioningIncomplete" ? .orange : .red)
+                        .foregroundColor(auth.isSignedIn ? .green : .red)
                         .textSelection(.enabled)
+                }
+                // V3_PROVISIONING_NEEDS_ATTENTION_V1: the authenticated fact above
+                // stays green while the provisioning problem is stated separately.
+                if auth.hasProvisioningProblem {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Provisioning needs attention")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.orange)
+                        Text("Provisioning could not be completed.")
+                            .font(.footnote.weight(.medium))
+                            .foregroundColor(.orange)
+                        Text(auth.provisioningMessage)
+                            .font(.footnote)
+                            .foregroundColor(.orange)
+                            .textSelection(.enabled)
+                        if !auth.provisioningTechnical.isEmpty {
+                            DisclosureGroup("Technical details") {
+                                Text(auth.provisioningTechnical)
+                                    .font(.caption2)
+                                    .textSelection(.enabled)
+                            }
+                            HStack {
+                                Button("Copy Diagnostics") { UIPasteboard.general.string = auth.provisioningTechnical }
+                                    .font(.caption)
+                                Spacer(minLength: 0)
+                            }
+                        }
+                    }
                 }
                 if !auth.deliveryProgressMessage.isEmpty {
                     Text(auth.deliveryProgressMessage)
@@ -3100,6 +3315,23 @@ struct V3SignInView: View {
                 if auth.state == "working" || auth.state == "awaitingPrompt" {
                     Button(auth.isCancelling ? "Cancelling..." : "Cancel Sign In", role: .cancel) { auth.cancel() }
                         .disabled(auth.isCancelling)
+                }
+                // V3_PROVISIONING_RECOVERY_ACTIONS_V1: the actions describe the
+                // provisioning state, not a failed sign-in. "Retry" re-enters
+                // provisioning with the saved session; "Finish Later" keeps the
+                // authenticated account and closes this flow.
+                if auth.state == "authenticatedProvisioningIncomplete" && !auth.provisioningFinishedLater {
+                    Button {
+                        auth.retryProvisioning()
+                    } label: {
+                        Label("Retry Provisioning", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(!auth.canRetryProvisioning)
+                    if !auth.canRetryProvisioning {
+                        Text("The saved Apple session is no longer available. Sign in again to retry provisioning.")
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                    Button("Finish Later") { finishProvisioningLater() }
                 }
             }
             if let prompt = auth.prompt {
@@ -3138,13 +3370,22 @@ struct V3SignInView: View {
     private var statusText: String {
         switch auth.state {
         case "completed": return "Signed in"
-        case "authenticatedProvisioningIncomplete": return "Signed in, setup incomplete"
+        case "authenticatedProvisioningIncomplete":
+            return auth.provisioningFinishedLater ? "Signed in" : "Signed in, provisioning needs attention"
         case "awaitingPrompt": return "Needs your input"
         case "failed": return "Failed"
         case "cancelled": return "Cancelled"
-        case "working": return "Working..."
+        case "working": return auth.isSignedIn ? "Finishing provisioning..." : "Working..."
         default: return "Not started"
         }
+    }
+
+    // V3_FINISH_LATER_PRESERVES_ACCOUNT_V1: closing the flow reloads the
+    // authoritative SideStore snapshot so the account is shown as signed in
+    // again. It never signs out and never discards the saved session.
+    private func finishProvisioningLater() {
+        auth.finishProvisioningLater()
+        status.reload()
     }
 
     private func openJITLessSetup() {
@@ -3468,14 +3709,54 @@ struct V3PairingView: View {
                     Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled)
                 }
             }
+            // V3_PAIRING_PLACEMENT_FIRST_V1: the pairing mechanism works. The
+            // normal installation workflow places the pairing file with the tool
+            // that installed LC+SS, so that is the recommended path. Manual import
+            // remains available as a clearly secondary fallback.
+            if pairingMissing {
+                Section("Pairing File Required") {
+                    Text("Recommended setup")
+                        .font(.footnote.weight(.semibold))
+                    Text("If you installed with iLoader:")
+                        .font(.footnote).foregroundColor(.secondary)
+                    ForEach(Array(pairingPlacementSteps.enumerated()), id: \.offset) { index, step in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text("\(index + 1).").font(.caption).foregroundColor(.secondary)
+                            Text(step).font(.footnote)
+                        }
+                    }
+                    Text("Other installation tools use different menu names, but they all place the pairing file for the installed app.")
+                        .font(.caption).foregroundColor(.secondary)
+                    Button {
+                        recheck()
+                    } label: {
+                        Label("Re-check Pairing", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(working)
+                }
+            } else {
+                Section("Pairing File Ready") {
+                    Text("A valid pairing file is available. Re-check if you replace the file or reset the device.")
+                        .font(.footnote).foregroundColor(.secondary)
+                    Button {
+                        recheck()
+                    } label: {
+                        Label("Re-check Pairing", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(working)
+                }
+            }
+            // V3_PAIRING_IMPORT_IS_FALLBACK_V1: kept, presented as an alternative.
             Section {
+                Text("Alternative: Import Pairing File Manually")
+                    .font(.footnote.weight(.semibold))
                 Button {
                     pickerPresented = true
                 } label: {
-                    Label(working ? "Importing..." : "Select Pairing File", systemImage: "doc.badge.plus")
+                    Label(working ? "Importing..." : "Import Pairing File Manually", systemImage: "doc.badge.plus")
                 }
                 .disabled(working)
-                Text("Pick a .mobiledevicepairing or .plist file. This screen owns the picker; the service only validates and stores the file.")
+                Text("Use this only if the placement tool did not work. Pick a .mobiledevicepairing or .plist file. This screen owns the picker; the service only validates and stores the file.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -3489,6 +3770,31 @@ struct V3PairingView: View {
             }
         }
     }
+    // V3_PAIRING_PLACEMENT_STEPS_V1: the documented iLoader placement flow.
+    // It is presented as "If you installed with iLoader", because other
+    // third-party installers do not necessarily use the same menu names.
+    static let pairingPlacementSteps = [
+        "Connect the iPhone to the computer if your installation tool requires it.",
+        "Open the tool you used to install LC+SS.",
+        "Open Management.",
+        "Open Manage Pairing File.",
+        "If LC+SS is not listed, use Rescan Installed Apps.",
+        "Find the installed LC+SS app.",
+        "Choose Place for this app.",
+        "Wait for the tool to confirm success.",
+        "Return to LC+SS."
+    ]
+
+    // V3_REFRESH_PREREQUISITE_POLICY_V1: one interpretation, shared with every
+    // refresh entry point.
+    private var pairingMissing: Bool {
+        V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).blocksRefresh
+    }
+
+    private func recheck() {
+        status.reload()
+    }
+
     private func importFile(_ url: URL) async {
         working = true
         defer { working = false }
@@ -4488,6 +4794,10 @@ final class V3SetupStore: ObservableObject {
     @Published var background = V3SetupStepState()
     @Published var schedule = V3SetupStepState()
     @Published var verification = V3SetupStepState()
+    // V3_REFRESH_PREREQUISITE_POLICY_V1: the "What you can do" line for a
+    // blocked or failed Test Refresh, kept separate from the row detail so the
+    // structured failure fields stay machine-readable.
+    @Published var verificationGuidance = ""
     @Published var failureOperation = ""
     @Published var failureStage = ""
     @Published var failureCode = ""
@@ -4522,13 +4832,24 @@ final class V3SetupStore: ObservableObject {
     func recalculate(status: V3SideStoreStatusStore) async {
         NSLog("[V3_SETUP] STATUS recalculating")
         device = V3SetupStepState(state: "complete", detail: "App running")
-        if status.pairing == "Pairing file available" {
+        // V3_REFRESH_PREREQUISITE_POLICY_V1: shared with Home Refresh All, Test
+        // Refresh, and targeted refresh. A known-missing pairing file is
+        // "missing"; an unknown status stays unknown rather than being reported
+        // as missing.
+        switch V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).state {
+        case .satisfied:
             pairing = V3SetupStepState(state: "complete", detail: "Pairing file available")
-        } else {
-            pairing = V3SetupStepState(state: "actionRequired", detail: "No pairing file yet")
+        case .unsatisfied:
+            pairing = V3SetupStepState(state: "actionRequired", detail: V3RefreshPrerequisite.pairingRequiredDetail)
+        case .unknown:
+            pairing = V3SetupStepState(state: "checking", detail: "Checking pairing file status")
         }
+        // V3_AUTH_SESSION_SNAPSHOT_V1: an authenticated session with incomplete
+        // provisioning is signed in, so the row must not read "Not signed in".
         if status.needsSignIn {
             account = V3SetupStepState(state: "actionRequired", detail: "Not signed in")
+        } else if status.provisioningIncomplete {
+            account = V3SetupStepState(state: "warning", detail: "Signed in, provisioning needs attention")
         } else if status.team == "No active team" {
             account = V3SetupStepState(state: "warning", detail: "Signed in without an active team")
         } else {
@@ -4654,13 +4975,33 @@ final class V3SetupStore: ObservableObject {
         }
     }
 
-    func runTestRefresh() {
+    // V3_REFRESH_PREREQUISITE_POLICY_V1: Test Refresh uses the same
+    // authoritative prerequisite contract as Home Refresh All. A known-missing
+    // pairing file must never post the scheduler notification, so no backend
+    // mutation is started, and it must never be reported as an unexplained
+    // refresh failure.
+    func runTestRefresh(status: V3SideStoreStatusStore) {
         guard !testRunning else { return }
-        testRunning = true
         let requestID = UUID().uuidString
+        if let failure = V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing)
+            .failure(correlationID: requestID) {
+            testRunning = false
+            testRequestID = nil
+            testRunID = nil
+            testTask = nil
+            recordFailure(operation: failure.operation, stage: failure.stage.rawValue,
+                          code: failure.code.rawValue, correlation: failure.correlationID,
+                          retryable: "false")
+            verification = V3SetupStepState(state: "actionRequired", detail: failure.safeMessage)
+            verificationGuidance = "Place or import a valid pairing file, then try again."
+            NSLog("[V3_SETUP] TEST_REFRESH_BLOCKED reason=pairing request_id=%@", requestID)
+            return
+        }
+        testRunning = true
         testRequestID = requestID
         testRunID = nil
         verification = V3SetupStepState(state: "running", detail: "Test refresh running…")
+        verificationGuidance = ""
         NSLog("[V3_SETUP] TEST_REFRESH_START request_id=%@ origin=setupAssistant", requestID)
         NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil,
                                         userInfo: ["requestID": requestID, "origin": "setupAssistant"])
@@ -4743,11 +5084,21 @@ final class V3SetupStore: ObservableObject {
         testRunID = nil
     }
 
+    // A human-copyable pairing word for the diagnostics block. The internal
+    // policy states are not the vocabulary a person reading a support log wants.
+    static func describePairing(_ state: V3RefreshPrerequisiteState) -> String {
+        switch state {
+        case .satisfied: return "available"
+        case .unsatisfied: return "missing"
+        case .unknown: return "unknown"
+        }
+    }
+
     func buildDiagnostics(status: V3SideStoreStatusStore) {
         var lines: [String] = ["Setup Assistant"]
         lines.append("Product: " + (Bundle.main.object(forInfoDictionaryKey: "LCProductLine") as? String ?? "unknown"))
         lines.append("iOS: " + UIDevice.current.systemVersion)
-        lines.append("Pairing: " + (status.pairing == "Pairing file available" ? "available" : "missing"))
+        lines.append("Pairing: " + V3SetupStore.describePairing(V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).state))
         lines.append("Account: " + (status.needsSignIn ? "signed out" : "signed in"))
         lines.append("Team: " + status.team)
         lines.append("Wi-Fi: " + (network.state == "failed" ? "unavailable" : "available"))
@@ -4780,6 +5131,10 @@ struct V3SetupAssistantView: View {
     @StateObject private var setup = V3SetupStore()
     @State private var vpnWorking = false
     @State private var copiedDiagnostics = false
+    // V3_RECHECK_PAIRING_ON_RETURN_V1: the pairing file is placed by an
+    // external installation tool, so returning to a live Quick Setup is the
+    // moment a newly placed file can be detected.
+    @State private var showPairingSetup = false
     var body: some View {
         List {
             Section("Device") {
@@ -4789,10 +5144,32 @@ struct V3SetupAssistantView: View {
                          state: V3SetupStepState(state: "warning", detail: "Guidance only: keep Developer Mode on in iOS Settings. Setup continues regardless."),
                          destination: nil)
             }
+            // V3_PAIRING_PLACEMENT_FIRST_V1: the pairing mechanism works. The
+            // documented normal path is placing the file with the installation
+            // tool, so that is what the row explains first. Manual import stays
+            // available as the secondary path.
             Section("Pairing") {
                 setupRow(icon: "link", title: "Pairing File",
                          state: setup.pairing,
                          destination: AnyView(V3PairingView().environmentObject(status)))
+                if setup.pairing.state == "actionRequired" {
+                    Button {
+                        showPairingSetup = true
+                    } label: {
+                        Label("Show Pairing Setup", systemImage: "link.badge.plus")
+                    }
+                    Button {
+                        Task { await setup.recalculate(status: status) }
+                    } label: {
+                        Label("Re-check Pairing", systemImage: "arrow.clockwise")
+                    }
+                }
+            }
+            .sheet(isPresented: $showPairingSetup) {
+                // NavigationView, not NavigationStack: the host target deploys
+                // to iOS 15.
+                NavigationView { V3PairingView().environmentObject(status) }
+                    .navigationViewStyle(StackNavigationViewStyle())
             }
             Section("Apple Account") {
                 setupRow(icon: "person.crop.circle", title: "Apple ID",
@@ -4872,7 +5249,18 @@ struct V3SetupAssistantView: View {
             Section("Verification") {
                 setupRow(icon: "checkmark.seal", title: "Test Refresh",
                          state: setup.verification, destination: nil)
-                if setup.verification.state == "failed" && !setup.failureOperation.isEmpty {
+                if !setup.verificationGuidance.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("What you can do").font(.caption.weight(.semibold))
+                        Text(setup.verificationGuidance).font(.footnote)
+                    }
+                }
+                // V3_REFRESH_PREREQUISITE_POLICY_V1: a structured prerequisite
+                // failure is shown for failed and action-required states alike,
+                // so a known-missing pairing file is never reported as
+                // "no safe underlying cause was available".
+                if (setup.verification.state == "failed" || setup.verification.state == "actionRequired")
+                    && !setup.failureOperation.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("operation=\(setup.failureOperation) stage=\(setup.failureStage) code=\(setup.failureCode)")
                             .font(.caption2).foregroundColor(.secondary).textSelection(.enabled)
@@ -4880,11 +5268,23 @@ struct V3SetupAssistantView: View {
                             .font(.caption2).foregroundColor(.secondary).textSelection(.enabled)
                     }
                 }
+                if setup.verification.state == "actionRequired" && setup.failureStage == CombinedFailure.Stage.pairing.rawValue {
+                    Button {
+                        showPairingSetup = true
+                    } label: {
+                        Label("Show Pairing Setup", systemImage: "link.badge.plus")
+                    }
+                    Button {
+                        Task { await setup.recalculate(status: status) }
+                    } label: {
+                        Label("Re-check Pairing", systemImage: "arrow.clockwise")
+                    }
+                }
                 if setup.testRunning {
                     Button("Cancel Test", role: .cancel) { setup.cancelTest() }
                 } else if setup.verification.state != "complete" {
                     Button {
-                        setup.runTestRefresh()
+                        setup.runTestRefresh(status: status)
                     } label: {
                         Label("Run Test Refresh", systemImage: "arrow.clockwise")
                     }
@@ -4922,8 +5322,15 @@ struct V3SetupAssistantView: View {
         .task { await setup.recalculate(status: status) }
         .onChange(of: scenePhase) { phase in
             if phase == .active {
+                // Reload the authoritative SideStore snapshot first, so a pairing
+                // file placed by the installation tool while the app was
+                // backgrounded is detected before the setup steps recalculate.
+                status.reload()
                 Task { await setup.recalculate(status: status) }
             }
+        }
+        .onChange(of: showPairingSetup) { presented in
+            if !presented { Task { await setup.recalculate(status: status) } }
         }
     }
     private func coredeviceState() -> V3SetupStepState {
@@ -5076,7 +5483,10 @@ private struct V3HomeView: View {
     // pairing, schedule, Background App Refresh and at least one verified
     // refresh are all in place. Acceptance itself stays in V3SetupStore.
     private var setupIncomplete: Bool {
-        if status.needsSignIn || status.pairing == "Pairing file required" { return true }
+        // V3_REFRESH_PREREQUISITE_POLICY_V1: one interpretation of the pairing
+        // status, so the banner can never disagree with the refresh gate.
+        if status.needsSignIn || status.provisioningIncomplete { return true }
+        if V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).blocksRefresh { return true }
         if let defaults, !defaults.bool(forKey: "liveContainerAutoRefreshEnabled") { return true }
         if UIApplication.shared.backgroundRefreshStatus != .available { return true }
         let verifiedID = defaults?.dictionary(forKey: "liveContainerAutoRefreshVerification")?["run_id"] as? String

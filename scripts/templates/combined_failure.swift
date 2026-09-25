@@ -169,12 +169,19 @@ public struct CombinedFailure: Error, LocalizedError {
     public let safeCause: SafeCause?
     public let sourceStep: SourceStep?
     public let retryable: Bool?
+    // V3_CATALOG_OPERATION_CONTEXT_V1: host-only request context. It records
+    // which request was waiting when a failure occurred before the service
+    // received it, so a catalog read keeps its operation context even when the
+    // failure is a connection problem. It is appended to the copied technical
+    // line only and is never part of the wire envelope.
+    public var requestContext: String?
     public init(operation: String, stage: Stage, code: Code = .failed, id: String,
                 underlying: Error? = nil, retryable: Bool? = nil, safeCause: SafeCause? = nil,
                 sourceStep: SourceStep? = nil) {
         let normalized = ["snapshot": "status", "refreshApp": "refresh", "installURL": "install", "installSharedIPA": "install",
                           "addSource": "source", "removeSource": "source", "refreshSources": "source", "syncAppIDs": "signIn",
                           "authBegin": "signIn", "authPoll": "signIn", "authRespond": "signIn", "authCancel": "signIn",
+                          "authRetryProvisioning": "signIn",
                           "opStart": "command", "opPoll": "command", "opAnswer": "command", "opCancel": "command",
                           "sourcePreview": "source", "sourceAddConfirmed": "source", "sourceRemoveConfirmed": "source"][operation] ?? operation
         self.operation = Self.operations.contains(normalized) ? normalized : "command"
@@ -195,10 +202,13 @@ public struct CombinedFailure: Error, LocalizedError {
         if operation == "delete", code == .timedOut {
             return "SideStore could not confirm that the deleted app disappeared from its installed library."
         }
+        // V3_CATALOG_FAILURE_VOCABULARY_V1: a catalog read must never surface as
+        // the generic command-stage message. It can fail at a stage that is not
+        // the catalog stage, so the operation selects this wording first.
+        if operation == "catalog", let catalog = catalogFailureMessage { return catalog }
         if code == .cancelled { return "The \(operation) request was cancelled. Its result may need reconciliation." }
         if code == .timedOut { return "The \(operation) request timed out during \(stage.rawValue)." }
-        if let safeCause {
-            switch safeCause {
+        if let safeCause {            switch safeCause {
             case .networkConnectionLost: return "The network connection was lost during \(operation)."
             case .networkTimedOut: return "The network request timed out during \(operation)."
             case .networkUnavailable: return "A network connection was unavailable during \(operation)."
@@ -243,7 +253,10 @@ public struct CombinedFailure: Error, LocalizedError {
             case .manifestParsing: return "The source returned data SideStore could not read as a valid source."
             default: return "SideStore could not complete the source request."
             }
-        case .catalog: return "SideStore could not read the saved source catalog."
+        case .catalog:
+            // The wording is supplied by catalogFailureMessage, which keys on the
+            // operation rather than on this stage.
+            return "SideStore could not load this source's catalog."
         case .authentication: return "SideStore could not complete account authentication."
         case .provisioning: return "Apple sign-in succeeded, but device provisioning did not complete."
         case .signing:
@@ -288,7 +301,45 @@ public struct CombinedFailure: Error, LocalizedError {
             return "SideStore could not start or complete the requested \(operation) action."
         }
     }
+    // V3_CATALOG_FAILURE_VOCABULARY_V1: the exact sentence for each boundary a
+    // catalog read can fail at, selected by the real stage and code rather than
+    // by a generic fallback. The source manifest is never blamed here, because
+    // nothing on this path proves the manifest failed to parse.
+    private var catalogFailureMessage: String? {
+        if code == .unavailable || code == .notReady || stage == .serviceReadiness {
+            return "The SideStore service is not ready to load this source yet."
+        }
+        if stage == .xpcConnection && code == .interrupted {
+            return "The connection to the SideStore service was interrupted while loading the source."
+        }
+        if code == .busy {
+            return "SideStore is still finishing another operation. Wait a moment, then reload the source."
+        }
+        if code == .invalidResponse {
+            return "SideStore returned an unreadable response while loading the source catalog."
+        }
+        if code == .timedOut {
+            return "The SideStore service did not answer while loading this source catalog."
+        }
+        if stage == .catalog { return "SideStore could not read this source's saved catalog." }
+        return nil
+    }
+
+    private var catalogFailureRecovery: String? {
+        if code == .unavailable || code == .notReady || stage == .serviceReadiness {
+            return "Wait for SideStore to finish starting, then reload the source."
+        }
+        if code == .busy {
+            return "Wait for the current SideStore operation to finish, then reload the source."
+        }
+        if stage == .xpcConnection || code == .timedOut {
+            return "Wait for the SideStore service to become available, then reload the source."
+        }
+        return "Reload the source catalog. If it continues, copy the safe diagnostics."
+    }
+
     public var recovery: String {
+        if operation == "catalog", let catalog = catalogFailureRecovery { return catalog }
         if let safeCause {
             switch safeCause {
             case .networkConnectionLost, .networkTimedOut, .networkUnavailable:
@@ -328,7 +379,10 @@ public struct CombinedFailure: Error, LocalizedError {
             return "Wait for SideStore to finish starting, then retry the request."
         case .authentication, .provisioning, .signing: return "Review Account and Signing, then explicitly retry. Never share credentials or private keys."
         case .source: return "Retry the source request. If it repeats, copy the safe diagnostics."
-        case .catalog: return "Reload the source catalog. If it continues, copy the safe diagnostics."
+        case .catalog:
+            // The wording is supplied by catalogFailureRecovery, which keys on
+            // the operation rather than on this stage.
+            return "Reload the source catalog. If it continues, copy the safe diagnostics."
         case .filePreparation: return "Choose the IPA again. SideStore will copy it into private shared staging before starting installation."
         case .installation, .refreshVerification: return "Reload authoritative app status and expiration before retrying. Completion may be uncertain."
         case .endpointSelection, .heartbeat, .coreDevice, .cdTunnel, .rsdDiscovery, .rsdService, .lockdownConnection, .uniqueDeviceID, .network:
@@ -346,7 +400,22 @@ public struct CombinedFailure: Error, LocalizedError {
         return message
     }
     public var technicalDetails: String {
-        "schema=1 operation=\(operation) stage=\(stage.rawValue) code=\(code.rawValue) correlation=\(correlationID) underlying_domain=\(underlyingDomain) underlying_code=\(underlyingCode) retryable=\(retryable.map(String.init) ?? "unknown") source_step=\(sourceStep?.rawValue ?? "unknown") safe_cause=\(safeCause?.rawValue ?? "unknown")" + installVerdict
+        "schema=1 operation=\(operation) stage=\(stage.rawValue) code=\(code.rawValue) correlation=\(correlationID) underlying_domain=\(underlyingDomain) underlying_code=\(underlyingCode) retryable=\(retryable.map(String.init) ?? "unknown") source_step=\(sourceStep?.rawValue ?? "unknown") safe_cause=\(safeCause?.rawValue ?? "unknown")" + installVerdict + requestContextSuffix
+    }
+    // Appended only when present, so every existing diagnostic stays
+    // byte-identical.
+    private var requestContextSuffix: String {
+        guard let requestContext, !requestContext.isEmpty else { return "" }
+        return " " + requestContext
+    }
+    public mutating func annotatingRequest(requestedOperation: String, requestID: String) {
+        requestContext = "request_operation=\(requestedOperation) request_correlation=\(requestID)"
+    }
+    // V3_CATALOG_DIAGNOSTICS_V1: host-only catalog page context. Only the page
+    // offset and the returned row count are recorded; never the source
+    // identifier, app names, bundle identifiers, or response content.
+    public mutating func annotatingCatalogPage(cursor: Int) {
+        requestContext = "source_step=catalogRead page_cursor=\(cursor)"
     }
     // Bounded machine classification for Apple-side application verification
     // rejections (InstallationProxy/installd). Only the two fixed installd
@@ -413,15 +482,16 @@ public struct CombinedFailure: Error, LocalizedError {
         }
         return CombinedFailure(operation: operation, stage: stage, code: code, id: id, underlying: error, retryable: retryable)
     }
-    public static func capture(_ error: Error, operation: String, stage: Stage, id: String) -> CombinedFailure {
+    public static func capture(_ error: Error, operation: String, stage: Stage, id: String,
+                               retryable: Bool? = nil) -> CombinedFailure {
         if let known = error as? CombinedFailure { return known }
         if let refreshError = error as? CombinedRefreshVerificationError {
             let code: Code = refreshError == .missingResult ? .missingResult : .staleResult
-            return CombinedFailure(operation: operation, stage: .refreshVerification, code: code, id: id)
+            return CombinedFailure(operation: operation, stage: .refreshVerification, code: code, id: id, retryable: retryable)
         }
         if let fileFailure = error as? CombinedIPAFileError {
             return CombinedFailure(operation: operation, stage: .filePreparation,
-                                  code: fileFailure.combinedCode, id: id, underlying: fileFailure)
+                                  code: fileFailure.combinedCode, id: id, underlying: fileFailure, retryable: retryable)
         }
         var cause = error as NSError
         var resolved = stage
@@ -565,7 +635,7 @@ public struct CombinedFailure: Error, LocalizedError {
         }
         return CombinedFailure(operation: operation, stage: resolved,
             code: resolvedCode, id: id,
-            underlying: underlying, safeCause: safeCause, sourceStep: sourceStep)
+            underlying: underlying, retryable: retryable, safeCause: safeCause, sourceStep: sourceStep)
     }
 }
 

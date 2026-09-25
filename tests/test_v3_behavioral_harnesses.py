@@ -96,6 +96,32 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         self.compile_and_run("import Foundation\n" + failure + "\n" + classifier + "\n" + harness,
                              "V3_AUTH_AND_PPQ_CLASSIFICATION_PASS")
 
+    def test_shared_refresh_prerequisite_policy_executes(self):
+        # V3_REFRESH_PREREQUISITE_POLICY_V1: executes the single authoritative
+        # contract, including the canonical pairing failure identity and the
+        # fail-open behaviour for an unknown status.
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_refresh_prerequisite_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run(failure + "\n" + helper + "\n" + harness,
+                             "V3_REFRESH_PREREQUISITE_PASS")
+
+    def test_typed_provisioning_operation_error_guidance_executes(self):
+        # V3_PROVISIONING_RESUME_V1: executes the real typed OperationError
+        # guidance, proves no associated value is forwarded, and proves an
+        # authenticated terminal is distinct from a failed sign-in.
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        guidance_start = runtime.index("func v3OperationErrorGuidance(")
+        guidance_end = runtime.index("\n}\n", guidance_start) + len("\n}\n")
+        guidance = runtime[guidance_start:guidance_end]
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        policy_start = helper.index("enum V3AuthTerminalPolicy {")
+        policy_end = helper.index("\n}\n", policy_start) + len("\n}\n")
+        policy = helper[policy_start:policy_end]
+        harness = (ROOT / "tests/fixtures/v3_provisioning_typed_guidance_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run("import Foundation\n" + guidance + "\n" + policy + "\n" + harness,
+                             "V3_PROVISIONING_TYPED_GUIDANCE_PASS")
+
     def test_auth_2fa_jitless_and_prerequisite_error_contracts_execute(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")

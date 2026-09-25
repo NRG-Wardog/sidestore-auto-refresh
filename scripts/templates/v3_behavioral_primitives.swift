@@ -938,6 +938,76 @@ enum V3RetryDisposition: Equatable {
     case blocked
 }
 
+// V3_REFRESH_PREREQUISITE_POLICY_V1
+// One authoritative prerequisite contract for every refresh entry point. Home
+// Refresh All, Setup Assistant Test Refresh, Refresh Manager Manual Refresh,
+// and targeted per-app refresh all call this instead of re-deriving rules, so
+// a prerequisite the host already knows about can never be reported later as
+// "no safe underlying cause was available".
+//
+// Two invariants are encoded here rather than at each call site.
+// 1. The service's pairing status string is interpreted in exactly one place.
+// 2. Only an authoritative "Pairing file required" blocks. "Unknown" (before
+//    the first snapshot, or after a failed snapshot) does not block, so a host
+//    restart can never permanently disable a correctly configured device.
+//    Nothing is blocked on Wi-Fi, LocalDevVPN, or an account here: those are
+//    not proven required for a refresh, and the scheduler already owns the
+//    transport preflight for them.
+enum V3RefreshPrerequisiteState: String, Equatable {
+    case unknown
+    case satisfied
+    case unsatisfied
+}
+
+enum V3RefreshPrerequisiteKind: String, Equatable {
+    case pairing
+}
+
+struct V3RefreshPrerequisite: Equatable {
+    let state: V3RefreshPrerequisiteState
+    let kind: V3RefreshPrerequisiteKind?
+    let detail: String
+
+    static let pairingRequiredDetail = "No pairing file yet"
+
+    private init(state: V3RefreshPrerequisiteState, kind: V3RefreshPrerequisiteKind?, detail: String) {
+        self.state = state
+        self.kind = kind
+        self.detail = detail
+    }
+
+    static let unknown = V3RefreshPrerequisite(state: .unknown, kind: nil, detail: "")
+    static let satisfied = V3RefreshPrerequisite(state: .satisfied, kind: nil, detail: "Pairing file available")
+    static let pairingRequired = V3RefreshPrerequisite(state: .unsatisfied, kind: .pairing, detail: pairingRequiredDetail)
+
+    /// The only interpretation of the authoritative pairing snapshot string.
+    static func evaluate(pairingStatus: String?) -> V3RefreshPrerequisite {
+        switch pairingStatus {
+        case "Pairing file available": return .satisfied
+        case "Pairing file required": return .pairingRequired
+        default: return .unknown
+        }
+    }
+
+    var blocksRefresh: Bool { state == .unsatisfied }
+    var blocksTargetedRefresh: Bool { blocksRefresh }
+    var recoveryDestination: String? { kind == .pairing ? "pairing" : nil }
+    var recoveryActionTitle: String? { kind == .pairing ? "Show Pairing Setup" : nil }
+    var recommendedAction: String {
+        kind == .pairing
+            ? "Place or import a valid pairing file, then try again."
+            : "Reload status, then try again."
+    }
+
+    /// The canonical structured failure for a blocked refresh. Minted only on
+    /// demand so it can carry the caller's correlation ID.
+    func failure(correlationID: String) -> CombinedFailure? {
+        guard kind == .pairing else { return nil }
+        return CombinedFailure(operation: "refresh", stage: .pairing, code: .notReady,
+                               id: correlationID, retryable: false, safeCause: .pairingRequired)
+    }
+}
+
 struct V3OperationFailureDetails {
     let operation: String
     let stage: String

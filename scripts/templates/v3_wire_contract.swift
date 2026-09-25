@@ -9,7 +9,7 @@ enum V3WireContract {
     static let responseLimit = 4_194_304
     static let operations: Set<String> = ["snapshot", "catalog", "appIcon", "cancel", "refreshSources",
         "signOut", "syncAppIDs", "clearCache", "jit", "backupResult",
-        "authBegin", "authPoll", "authRespond", "authCancel",
+        "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning",
         "opStart", "opPoll", "opAnswer", "opCancel", "ipaCleanup",
         "certList", "certSetActive", "certDelete", "certPortalList", "certRevoke", "certCreate",
         "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles",

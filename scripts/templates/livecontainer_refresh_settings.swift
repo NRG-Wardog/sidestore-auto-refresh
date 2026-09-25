@@ -69,6 +69,9 @@ enum LiveContainerRefreshHistoryStore {
 struct LCEmbeddedSideStoreRefreshView: View {
     private let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") ?? .standard
     @Environment(\.layoutDirection) private var layoutDirection
+    // V3_REFRESH_PREREQUISITE_POLICY_V1: nil-default key so a missing store hides
+    // the gate instead of trapping. An unknown pairing status never blocks.
+    @Environment(\.v3StatusStore) private var v3Status
     @State private var history: [LiveContainerRefreshHistoryEntry] = []
     @State private var isSelectingHistory = false
     @State private var selectedHistoryIDs: Set<String> = []
@@ -113,7 +116,18 @@ struct LCEmbeddedSideStoreRefreshView: View {
             }
             Section {
                 Toggle("Scheduled refresh", isOn: Binding(get: { enabled }, set: { enabled = $0; notifyScheduleChanged() }))
+                // V3_REFRESH_PREREQUISITE_POLICY_V1: manual refresh uses the same
+                // authoritative prerequisite contract as Home Refresh All, Setup
+                // Assistant Test Refresh, and targeted refresh. A known-missing
+                // pairing file is reported as such and no mutation is started.
+                if manualRefreshBlocked {
+                    Text("A pairing file is required before this device can be refreshed.")
+                        .font(.footnote)
+                    Text("Place or import a valid pairing file, then try again.")
+                        .font(.caption).foregroundColor(.secondary)
+                }
                 Button("Refresh SideStore now", action: notifyManualRefresh)
+                    .disabled(manualRefreshBlocked)
                 Picker("Frequency", selection: Binding(get: { frequency }, set: { frequency = $0; notifyScheduleChanged() })) {
                     Text("Every six hours").tag("interval")
                     Text("Daily").tag("daily")
@@ -249,7 +263,19 @@ struct LCEmbeddedSideStoreRefreshView: View {
         NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshScheduleChanged"), object: nil)
     }
 
+    // V3_REFRESH_PREREQUISITE_POLICY_V1: one policy, evaluated before the
+    // scheduler notification. A nil store (this view can be presented outside the
+    // inherited environment) is treated as unknown, which never blocks.
+    private var manualRefreshBlocked: Bool {
+        guard let status = v3Status else { return false }
+        return V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).blocksRefresh
+    }
+
     private func notifyManualRefresh() {
+        // Defence in depth: the button is already disabled, and this guard makes
+        // it impossible for any caller to post a mutation for a known-missing
+        // pairing file.
+        guard !manualRefreshBlocked else { return }
         let requestID = UUID().uuidString
         NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil,
                                         userInfo: ["requestID": requestID, "origin": "refreshManager"])

@@ -73,11 +73,6 @@ def patch_host(root: Path) -> None:
             "canonical JIT-Less diagnose route state")
         text = replace_once(
             text,
-            '            Form {\n',
-            '            Form {\n                NavigationLink(destination: LCJITLessDiagnoseView(), isActive: $v3OpenJITLessDiagnose) { EmptyView() }.hidden()\n',
-            "canonical JIT-Less diagnose navigation")
-        text = replace_once(
-            text,
             '    func handleURL(url: URL) {\n        if url.host == "certificate" {',
             '    func handleURL(url: URL) {\n        if url.host == "jitless-setup" {\n            Task { await importCertificateFromSideStore() }\n            return\n        }\n        if url.host == "jitless-diagnose" {\n            v3OpenJITLessDiagnose = true\n            return\n        }\n        if url.host == "certificate" {',
             "canonical JIT-Less setup and diagnose deep links")
@@ -86,7 +81,24 @@ def patch_host(root: Path) -> None:
             '        certificateDataFound = true\n    }',
             '        certificateDataFound = true\n        NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated"), object: nil)\n    }',
             "canonical JIT-Less import completion event")
-        settings.write_text(text, encoding="utf-8")
+    # The programmatic route is required, but a bare NavigationLink with an
+    # EmptyView label still occupies a Settings row. Neutralize the row
+    # footprint so no empty actionable cell renders in the generated list.
+    # Guarded on its own marker so a tree patched by an earlier revision is
+    # upgraded in place instead of failing closed.
+    if "V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1" not in text:
+        text = replace_once(
+            text,
+            '            Form {\n',
+            '            Form {\n'
+            '                NavigationLink(destination: LCJITLessDiagnoseView(), isActive: $v3OpenJITLessDiagnose) { EmptyView() }\n'
+            '                    .frame(width: 0, height: 0)\n'
+            '                    .listRowInsets(EdgeInsets())\n'
+            '                    .listRowSeparator(.hidden)\n'
+            '                    .accessibilityHidden(true)\n'
+            '                    .hidden() // V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1\n',
+            "canonical JIT-Less diagnose navigation")
+    settings.write_text(text, encoding="utf-8")
     old = '''                if store == .SideStore {
                     Section {
                         NavigationLink { LCEmbeddedSideStoreRefreshView() } label: { Text("SideStore scheduled refresh") }
@@ -175,6 +187,8 @@ def verify(live: Path, side: Path) -> None:
                   "v3OpenJITLessDiagnose = true", "V3CanonicalJITLessCertificateUpdated"):
         if token not in settings_source:
             die(f"canonical LiveContainer JIT-Less route is missing {token}")
+    if "V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1" not in settings_source:
+        die("canonical JIT-Less route is not row-neutralized (an empty Settings row would render)")
     if "V3_SIDESTORE_STATUS_SNAPSHOT_V1" not in (side / "AltStore/AppDelegate.swift").read_text(encoding="utf-8"):
         die("embedded SideStore snapshot retirement marker is missing")
     compiler = shutil.which("swiftc")

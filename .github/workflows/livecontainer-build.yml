@@ -127,6 +127,7 @@ jobs:
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Models/AppLayoutStyle.swift
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift
+            swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift
             python3 - <<'PY'
           import importlib.util
           from pathlib import Path

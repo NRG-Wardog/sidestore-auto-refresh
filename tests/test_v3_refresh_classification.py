@@ -30,14 +30,25 @@ class RefreshClassificationTests(unittest.TestCase):
         self.assertIn("activeCertificate", host)
 
     def test_home_refresh_checks_authoritative_missing_pairing_before_notification(self):
+        # V3_REFRESH_PREREQUISITE_POLICY_V1: the pairing status string is now
+        # interpreted by exactly one authoritative policy, and Home Refresh All
+        # consults it before posting the mutation request. The behavioural
+        # guarantee is unchanged; only the location of the decision moved.
         host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         start = host.index("private func start()", host.index("struct V3RefreshAllButton"))
         end = host.index("private func monitorRun", start)
         body = host[start:end]
-        self.assertIn('status.pairing == "Pairing file required"', body)
-        self.assertIn("safeCause: .pairingRequired", body)
-        self.assertLess(body.index('status.pairing == "Pairing file required"'),
-                        body.index('NotificationCenter.default.post'))
+        self.assertIn("V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing)", body)
+        self.assertLess(body.index("V3RefreshPrerequisite.evaluate"),
+                        body.index("NotificationCenter.default.post"))
+        # The pairing identity is minted once, in the shared policy.
+        self.assertIn('case "Pairing file required": return .pairingRequired', primitives)
+        self.assertIn("safeCause: .pairingRequired", primitives)
+        self.assertNotIn("safeCause: .pairingRequired", body)
+        # The snapshot string is never re-interpreted at a call site.
+        self.assertNotIn('status.pairing == "Pairing file required"', host)
+        self.assertNotIn('status.pairing == "Pairing file available"', host)
         self.assertIn('case "pairing": status.pairingPresented = true', host)
 
     def test_only_typed_auth_context_maps_to_authentication(self):
