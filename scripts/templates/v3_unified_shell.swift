@@ -3981,9 +3981,10 @@ struct V3HealthView: View {
         let options = [kSecImportExportPassphrase as String: password] as CFDictionary
         guard SecPKCS12Import(data as CFData, options, &importedItems) == errSecSuccess,
               let item = (importedItems as? [[String: Any]])?.first,
-              let identityValue = item[kSecImportItemIdentity as String] as? AnyObject,
-              CFGetTypeID(identityValue) == SecIdentityGetTypeID() else { return nil }
-        let identity = identityValue as! SecIdentity
+              let identityValue = item[kSecImportItemIdentity as String] else { return nil }
+        let identityObject = identityValue as AnyObject
+        guard CFGetTypeID(identityObject as CFTypeRef) == SecIdentityGetTypeID() else { return nil }
+        let identity = unsafeBitCast(identityObject, to: SecIdentity.self)
         var certificate: SecCertificate?
         guard SecIdentityCopyCertificate(identity, &certificate) == errSecSuccess,
               let certificate,
