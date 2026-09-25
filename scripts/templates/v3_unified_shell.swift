@@ -3981,11 +3981,13 @@ struct V3HealthView: View {
         let options = [kSecImportExportPassphrase as String: password] as CFDictionary
         guard SecPKCS12Import(data as CFData, options, &importedItems) == errSecSuccess,
               let item = (importedItems as? [[String: Any]])?.first,
-              let identity = item[kSecImportItemIdentity as String] as? SecIdentity else { return nil }
+              let identityValue = item[kSecImportItemIdentity as String] as? AnyObject,
+              CFGetTypeID(identityValue) == SecIdentityGetTypeID() else { return nil }
+        let identity = identityValue as! SecIdentity
         var certificate: SecCertificate?
         guard SecIdentityCopyCertificate(identity, &certificate) == errSecSuccess,
               let certificate,
-              let team = LCUtils.getCertTeamId(withKeyData: data as NSData, password: password) else { return nil }
+              let team = LCUtils.getCertTeamId(withKeyData: data, password: password) else { return nil }
         let der = SecCertificateCopyData(certificate) as Data
         let fingerprint = SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
         return V3PKCS12CertificateFacts(teamIdentifier: team, identitySHA256: fingerprint)
