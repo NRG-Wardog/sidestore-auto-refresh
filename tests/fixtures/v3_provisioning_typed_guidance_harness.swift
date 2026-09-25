@@ -5,7 +5,13 @@ import Foundation
 // production guidance function can be executed in isolation. The case names and
 // associated-value shapes must match
 // SideStore/Core/Operations/Errors/OperationError.swift at the pinned revision.
-enum OperationError: Error {
+//
+// CustomNSError is part of the mirror on purpose. The pinned type conforms to it
+// without implementing errorCode or errorDomain, so every case bridges to code 0
+// and its case ordinal is not a semantic identifier. Conforming here is what
+// makes the bridge-code assertions below meaningful instead of describing a
+// synthesised ordinal.
+enum OperationError: Error, CustomNSError {
     case unknown(failureReason: String? = nil)
     case unknownResult
     case timedOut
@@ -121,10 +127,20 @@ struct ProvisioningTypedGuidanceHarness {
         precondition(!unclassified.message.lowercased().contains("manifest"))
         precondition(!unclassified.message.lowercased().contains("pairing"))
 
-        // The bridged NSError integer is not a semantic API: every
-        // OperationError bridges to code 0, so guidance must not depend on it.
-        precondition((OperationError.noConnection(reason: secret) as NSError).code == 0)
-        precondition((OperationError.unknownUDID as NSError).code == 0)
+        // The bridged NSError integer is not a semantic API: because the type
+        // conforms to CustomNSError without implementing errorCode, every case
+        // bridges to code 0. Two cases whose ordinals differ therefore report
+        // the same bridged code, which is exactly why classification must never
+        // read it.
+        let bridgedA = (OperationError.noConnection(reason: secret) as NSError).code
+        let bridgedB = (OperationError.unknownUDID as NSError).code
+        let bridgedC = (OperationError.serverNotFound as NSError).code
+        precondition(bridgedA == 0 && bridgedB == 0 && bridgedC == 0,
+                     "OperationError must not expose a per-case integer bridge code")
+        // The two cases still receive different, typed guidance.
+        precondition(v3OperationErrorGuidance(OperationError.noConnection(reason: nil)).message
+            != v3OperationErrorGuidance(OperationError.unknownUDID).message,
+            "typed cases must not collapse when the bridged code is identical")
 
         // A successful Apple sign-in with a failed provisioning step is a
         // distinct terminal from a failed sign-in.
