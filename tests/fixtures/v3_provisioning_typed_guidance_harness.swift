@@ -85,27 +85,29 @@ struct ProvisioningTypedGuidanceHarness {
         // for a populated and an empty payload prove the reason string from the
         // transport layer never reaches the user or the diagnostics.
         let secret = "SECRET-TRANSPORT-REASON-9f2c"
-        for caseWithPayload: [(OperationError, OperationError)] in [
-            (.noConnection(reason: secret), .noConnection(reason: nil)),
-            (.noVPN(reason: secret), .noVPN(reason: nil)),
-            (.invalidVPN(reason: secret), .invalidVPN(reason: nil)),
-            (.noDevice(reason: secret), .noDevice(reason: nil)),
-            (.invalidPairingFile(reason: secret), .invalidPairingFile(reason: nil)),
-            (.minimuxerNotStarted(reason: secret), .minimuxerNotStarted(reason: nil)),
-            (.pairingNotComplete(reason: secret), .pairingNotComplete(reason: nil)),
-            (.unknown(failureReason: secret), .unknown(failureReason: nil)),
-            (.forbidden(failureReason: secret), .forbidden(failureReason: nil)),
-            (.SideJITIssue(error: secret), .SideJITIssue(error: nil)),
-            (.provisioningError(result: secret, message: secret), .provisioningError(result: secret, message: nil)),
-        ] {
-            precondition(v3OperationErrorGuidance(caseWithPayload.0).message
-                == v3OperationErrorGuidance(caseWithPayload.1).message,
+        let payloadPairs: [(OperationError, OperationError)] = [
+            (OperationError.noConnection(reason: secret), OperationError.noConnection(reason: nil)),
+            (OperationError.noVPN(reason: secret), OperationError.noVPN(reason: nil)),
+            (OperationError.invalidVPN(reason: secret), OperationError.invalidVPN(reason: nil)),
+            (OperationError.noDevice(reason: secret), OperationError.noDevice(reason: nil)),
+            (OperationError.invalidPairingFile(reason: secret), OperationError.invalidPairingFile(reason: nil)),
+            (OperationError.minimuxerNotStarted(reason: secret), OperationError.minimuxerNotStarted(reason: nil)),
+            (OperationError.pairingNotComplete(reason: secret), OperationError.pairingNotComplete(reason: nil)),
+            (OperationError.unknown(failureReason: secret), OperationError.unknown(failureReason: nil)),
+            (OperationError.forbidden(failureReason: secret), OperationError.forbidden(failureReason: nil)),
+            (OperationError.SideJITIssue(error: secret), OperationError.SideJITIssue(error: nil)),
+            (OperationError.provisioningError(result: secret, message: secret),
+             OperationError.provisioningError(result: secret, message: nil))
+        ]
+        for pair in payloadPairs {
+            precondition(v3OperationErrorGuidance(pair.0).message
+                == v3OperationErrorGuidance(pair.1).message,
                 "an associated value changed the user-facing message")
-            precondition(v3OperationErrorGuidance(caseWithPayload.0).hint
-                == v3OperationErrorGuidance(caseWithPayload.1).hint,
+            precondition(v3OperationErrorGuidance(pair.0).hint
+                == v3OperationErrorGuidance(pair.1).hint,
                 "an associated value changed the recovery hint")
-            precondition(!v3OperationErrorGuidance(caseWithPayload.0).message.contains(secret))
-            precondition(!v3OperationErrorGuidance(caseWithPayload.0).hint.contains(secret))
+            precondition(!v3OperationErrorGuidance(pair.0).message.contains(secret))
+            precondition(!v3OperationErrorGuidance(pair.0).hint.contains(secret))
         }
 
         // An unclassified case stays honestly unclassified; it is never
