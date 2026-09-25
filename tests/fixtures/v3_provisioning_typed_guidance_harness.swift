@@ -7,10 +7,9 @@ import Foundation
 // SideStore/Core/Operations/Errors/OperationError.swift at the pinned revision.
 //
 // CustomNSError is part of the mirror on purpose. The pinned type conforms to it
-// without implementing errorCode or errorDomain, so every case bridges to code 0
-// and its case ordinal is not a semantic identifier. Conforming here is what
-// makes the bridge-code assertions below meaningful instead of describing a
-// synthesised ordinal.
+// without implementing errorCode or errorDomain, so the bridged NSError integer
+// carries no stable meaning and cannot be used as a semantic API. Conforming the
+// mirror keeps the harness honest about the shape of that bridge.
 enum OperationError: Error, CustomNSError {
     case unknown(failureReason: String? = nil)
     case unknownResult
@@ -127,19 +126,23 @@ struct ProvisioningTypedGuidanceHarness {
         precondition(!unclassified.message.lowercased().contains("manifest"))
         precondition(!unclassified.message.lowercased().contains("pairing"))
 
-        // The bridged NSError integer is not a semantic API: because the type
-        // conforms to CustomNSError without implementing errorCode, every case
-        // bridges to code 0. Two cases whose ordinals differ therefore report
-        // the same bridged code, which is exactly why classification must never
-        // read it.
-        let bridgedA = (OperationError.noConnection(reason: secret) as NSError).code
-        let bridgedB = (OperationError.unknownUDID as NSError).code
-        let bridgedC = (OperationError.serverNotFound as NSError).code
-        precondition(bridgedA == 0 && bridgedB == 0 && bridgedC == 0,
-                     "OperationError must not expose a per-case integer bridge code")
-        // The two cases still receive different, typed guidance.
+        // The bridged NSError integer is not a semantic API. Whether the
+        // runtime synthesises a per-case ordinal or reports the CustomNSError
+        // default, the value is an implementation detail, so it is recorded as
+        // evidence and never asserted. The property that matters is that two
+        // distinct typed cases still receive different guidance, so nothing can
+        // be classified from that integer.
+        let bridgedCodes = [
+            (OperationError.noConnection(reason: secret) as NSError).code,
+            (OperationError.unknownUDID as NSError).code,
+            (OperationError.serverNotFound as NSError).code
+        ]
+        print("V3_PROVISIONING_BRIDGE_CODES \(bridgedCodes)")
         precondition(v3OperationErrorGuidance(OperationError.noConnection(reason: nil)).message
             != v3OperationErrorGuidance(OperationError.unknownUDID).message,
+            "typed cases must not collapse when the bridged code is identical")
+        precondition(v3OperationErrorGuidance(OperationError.unknownUDID).message
+            != v3OperationErrorGuidance(OperationError.serverNotFound).message,
             "typed cases must not collapse when the bridged code is identical")
 
         // A successful Apple sign-in with a failed provisioning step is a
