@@ -3829,7 +3829,7 @@ struct V3HealthView: View {
                     }
                     .font(.subheadline)
                 }
-                Text("SideStore refresh uses its active certificate. LiveContainer JIT-Less signing uses a separate imported copy. A revoked copy does not make SideStore refresh use that certificate.")
+                Text("SideStore refresh uses its active certificate, never the JIT-Less copy. Its revoked state alone does not cause a SideStore refresh failure. The imported copy is separate and can be synced below.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

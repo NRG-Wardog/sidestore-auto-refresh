@@ -129,8 +129,13 @@ class ServicePatchTests(unittest.TestCase):
     def test_owner_boundary(self):
         host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
-        for token in ("CoreData", "Keychain", "NSManagedObject", "signingCertificatePassword", "appleIDXcodeToken"):
+        for token in ("CoreData", "NSManagedObject", "appleIDXcodeToken"):
             self.assertNotIn(token, host + bridge)
+        sync = host[host.index("private func syncJITLessCertificate()"):host.index("private func keychainData(")]
+        self.assertIn('operation: "healthSnapshot"', sync)
+        self.assertNotIn("payload:", sync)
+        self.assertNotIn("p12Data", sync)
+        self.assertNotIn("UIPasteboard.general.string = data", sync)
         self.assertNotIn("v3SideStoreStatusSnapshot", host)
         self.assertIn("pending.removeValue", bridge)
         self.assertIn("decoded[\"id\"] as? String == id", bridge)

@@ -6,8 +6,8 @@ Two independent stores exist and must never be conflated:
    certificate the refresh/signing pipeline actually uses.
 2. LiveContainer LCCertificateData/Password/UpdateDate (app-group
    defaults): a manually imported p12 copy used ONLY by JIT-Less flows
-   (ZSigner guest signing, TestJITLess validation). Nothing re-syncs it:
-   not sign-in, replacement, revocation, re-creation, or refresh.
+   (ZSigner guest signing, TestJITLess validation). It only updates through
+   the explicit host-owned certificate sync action.
 
 A "Revoked" JIT-Less copy next to an "Active" SideStore certificate means
 the copy predates the current certificate until proven otherwise; it can
@@ -16,7 +16,7 @@ the JIT-Less copy.
 
 The v3 Health view therefore shows both sides plus a privacy-safe verdict
 (certificate_state_match=yes/no/unknown). Full serials, keys, passwords,
-and blobs never cross XPC: suffixes only.
+and blobs never cross XPC; a public certificate fingerprint supports identity comparison.
 """
 import unittest
 from pathlib import Path
@@ -53,8 +53,9 @@ class ServiceCertFactsTests(unittest.TestCase):
     def test_suffixes_only_no_secrets(self):
         fn = service_cert_state()
         self.assertIn("suffix(4)", fn)
+        self.assertIn("certificateIdentitySHA256", fn)
         for forbidden in ("p12Data", "password", "privateKey", "kSecImport",
-                          "signingCertificate", "DER", "LCCertificate"):
+                          "signingCertificate", "LCCertificate"):
             self.assertNotIn(forbidden, fn)
 
     def test_missing_cert_is_explicit(self):
@@ -77,7 +78,7 @@ class HostComparisonTests(unittest.TestCase):
         self.assertIn('Section("Certificates")', view)
         self.assertIn("certRows", view)
         self.assertIn("Team Match", view)
-        self.assertIn("its revoked state alone does not cause a SideStore refresh failure", view)
+        self.assertIn("Its revoked state alone does not cause a SideStore refresh failure", view)
 
     def test_lc_facts_come_from_lcutils(self):
         fn = self.comparison()
@@ -103,9 +104,9 @@ class HostComparisonTests(unittest.TestCase):
         text = shell()
         view = text[text.index("struct V3HealthView"):]
         view = view[:view.index("struct V3BackupsView")]
-        self.assertIn("never the JIT-Less copy", view)
-        self.assertIn("Re-import it under Settings", view)
-        self.assertIn("does not cause a SideStore refresh failure", view)
+        self.assertIn("SideStore refresh uses its active certificate", view)
+        self.assertIn("Sync JIT-Less Certificate from SideStore", view)
+        self.assertIn("Its revoked state alone does not cause a SideStore refresh failure", view)
 
 
 if __name__ == "__main__":
