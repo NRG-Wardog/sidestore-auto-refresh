@@ -44,12 +44,6 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         harness = (ROOT / "tests/fixtures/v3_source_add_persistence_harness.swift").read_text(encoding="utf-8")
         self.compile_and_run(failure + "\n" + helper + "\n" + harness, "V3_SOURCE_ADD_PERSISTENCE_PASS")
 
-    def test_jitless_certificate_sync_safety_and_validation_execute(self):
-        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
-        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
-        harness = (ROOT / "tests/fixtures/v3_jitless_certificate_sync_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run(failure + "\n" + helper + "\n" + harness, "V3_JITLESS_CERTIFICATE_SYNC_PASS")
-
     def test_refresh_all_request_correlation_terminal_order_and_absorbing_states_execute(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
@@ -101,6 +95,13 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         harness = (ROOT / "tests/fixtures/v3_auth_classification_harness.swift").read_text(encoding="utf-8")
         self.compile_and_run("import Foundation\n" + failure + "\n" + classifier + "\n" + harness,
                              "V3_AUTH_AND_PPQ_CLASSIFICATION_PASS")
+
+    def test_auth_2fa_jitless_and_prerequisite_error_contracts_execute(self):
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_auth_jitless_error_behavior_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run(failure + "\n" + helper + "\n" + harness,
+                             "V3_AUTH_2FA_JITLESS_AND_ERROR_BEHAVIOR_PASS")
 
 
 if __name__ == "__main__":

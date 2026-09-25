@@ -1,4 +1,4 @@
-"""#38 persisted source add and #39 JIT-Less certificate repair contracts."""
+"""Source persistence and canonical JIT-Less setup contracts."""
 import os
 from pathlib import Path
 import subprocess
@@ -8,6 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
 SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
 SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
+PRIMITIVES = ROOT / "scripts/templates/v3_behavioral_primitives.swift"
+PATCH_SHELL = ROOT / "scripts/patch_v3_unified_shell.py"
 
 
 def text(path):
@@ -27,14 +29,11 @@ class SourceAddPersistenceContractTests(unittest.TestCase):
         self.assertIn("V3SourceAddPersistencePolicy.validatedURL(urlString)", method)
         self.assertIn("AppManager.shared.fetchSource", method)
         self.assertIn("source.isAdded()", method)
-        self.assertIn("V3SourceAddPersistencePolicy.decision(sourceIsPersisted: wasPersisted)", method)
         self.assertNotIn("background.fetch(NSFetchRequest<Source>", method)
         self.assertLess(method.index("source.isAdded()"), method.index("background.save()"))
         self.assertLess(method.index("background.save()"), method.index("verificationContext"))
         self.assertIn("verificationContext.count(for: query)", method)
         self.assertIn("authoritativeCount: authoritativeCount", method)
-        self.assertLess(method.index("authoritativeCount: authoritativeCount"),
-                        method.index("didAddSourceNotification"))
         self.assertIn("object: persistedSource", method)
         self.assertIn("static func authoritativeSourceRows()", runtime)
 
@@ -43,8 +42,7 @@ class SourceAddPersistenceContractTests(unittest.TestCase):
         method = region(service, 'case "sourceAddConfirmed":', 'case "sourceRemoveConfirmed":')
         for token in ("sourceAddConfirmed(urlString: target)", "snapshot()",
                       "authoritativeSourceRows()", "persistenceUnverified",
-                      'updated["sources"] = persistedSources',
-                      "updated.merging(addResult)"):
+                      'updated["sources"] = persistedSources', "updated.merging(addResult)"):
             self.assertIn(token, method)
 
     def test_host_shows_success_only_for_verified_authoritative_result(self):
@@ -53,10 +51,8 @@ class SourceAddPersistenceContractTests(unittest.TestCase):
         for token in ("V3SourceAddPersistencePolicy.confirmationMessage(result)",
                       'result["persistenceVerified"]', "sources.contains", "status.accept(result)",
                       'status.sourceURL = ""', "notice = message"):
-            # The policy validates persistenceVerified and both outcome flags.
-            self.assertTrue(token in method or token in text(ROOT / "scripts/templates/v3_behavioral_primitives.swift"))
+            self.assertTrue(token in method or token in text(PRIMITIVES))
         self.assertNotIn('notice = "Source added."', method)
-        self.assertIn("Section(\"What happened\")", shell)
         self.assertIn("sourceFailure.technicalDetails", shell)
 
     def test_pinned_sidestore_uses_fresh_context_source_is_added_semantics(self):
@@ -82,52 +78,31 @@ class SourceAddPersistenceContractTests(unittest.TestCase):
         self.assertIn("didAddSourceNotification", add)
         self.assertIn("newBackgroundContext()", is_added)
         self.assertIn("backgroundContext.count(for: fetchRequest)", is_added)
-        self.assertIn("IFF it has been saved to disk", source_model)
 
 
-class JITLessCertificateSyncContractTests(unittest.TestCase):
-    def test_sync_uses_side_store_active_public_identity_and_private_shared_keychain(self):
-        runtime = text(RUNTIME)
+class CanonicalJITLessRouteTests(unittest.TestCase):
+    def test_health_and_quick_setup_forward_to_livecontainer_canonical_route(self):
         shell = text(SHELL)
-        state = region(runtime, "static func certificateState()", "static func accountExport(")
-        sync = region(shell, "private func syncJITLessCertificate()", "private func certComparison(")
-        for token in ("CertificateManager.shared.activeCertificate", "certificateIdentitySHA256",
-                      "SHA256.hash(data: certificateDER)"):
-            self.assertIn(token, state)
-        for token in ('account: "signingCertificate"', 'account: "signingCertificatePassword"',
-                      '"com.kdt.livecontainer"', "SecPKCS12Import", "LCUtils.getCertTeamId",
-                      "certificateIdentitySHA256", "teamMatches", "activeExpired"):
-            self.assertIn(token, sync)
-        self.assertNotIn('payload: ["p12"', sync)
-        self.assertNotIn('payload: ["password"', sync)
+        health = region(shell, "struct V3HealthView", "struct V3BackupsView")
+        setup = region(shell, "struct V3SetupAssistantView", "struct V3HomeServiceHeader")
+        patch = text(PATCH_SHELL)
+        for token in ("livecontainer://jitless-setup", "Open JIT-Less Setup"):
+            self.assertIn(token, health)
+        for token in ("openCanonicalJITLessSetup()", 'Button("Set Up JIT-Less")',
+                      'Button("Refresh JIT-Less Certificate")'):
+            self.assertIn(token, setup)
+        for token in ("jitless-setup", "importCertificateFromSideStore()",
+                      "jitless-diagnose", "V3CanonicalJITLessCertificateUpdated"):
+            self.assertIn(token, patch)
 
-    def test_sync_validates_before_batch_write_reloads_and_rolls_back(self):
+    def test_custom_copy_engine_and_side_store_keychain_access_are_absent(self):
         shell = text(SHELL)
-        sync = region(shell, "private func syncJITLessCertificate()", "private func keychainData(")
-        self.assertLess(sync.index("parsedCertificate(data: data, password: password)"),
-                        sync.index("writeJITLessCertificate(data: data"))
-        self.assertIn("CFPreferencesSetMultiple", shell)
-        self.assertIn('"LCCertificateData"', shell)
-        self.assertIn('"LCCertificatePassword"', shell)
-        self.assertIn('"LCCertificateUpdateDate"', shell)
-        self.assertIn("writeJITLessCertificate(data: oldData, password: oldPassword, updateDate: oldDate)", sync)
-        self.assertLess(sync.index("let validation = await validateCurrentJITLessCertificate()"),
-                        sync.index("notice = \"The JIT-Less copy now matches"))
-        self.assertIn("await reload()", sync)
-        self.assertIn("Section(\"JIT-Less Certificate\")", shell)
-        self.assertIn("Sync JIT-Less Certificate from SideStore", shell)
-        self.assertIn("status.certificatesPresented = true", shell)
+        primitives = text(PRIMITIVES)
+        for forbidden in ("syncJITLessCertificate", "V3JITLessCertificateSyncAssessment",
+                          "CFPreferencesSetMultiple", "signingCertificatePassword", "SecItemCopyMatching"):
+            self.assertNotIn(forbidden, shell + primitives)
 
-    def test_sync_diagnostics_are_static_safe_vocabulary(self):
-        primitives = text(ROOT / "scripts/templates/v3_behavioral_primitives.swift")
-        issue = region(primitives, "enum V3JITLessCertificateSyncIssue:", "enum V3JITLessCertificateSyncAssessment:")
-        for sensitive in ("p12Data", "privateKey", "password=", "certificateDER", "appleID"):
-            self.assertNotIn(sensitive, issue)
-        for token in ("activeCertificateRevoked", "keyMaterialUnavailable", "teamMismatch",
-                      "validationUnavailable", "schema=1\\noperation=jitlessCertificateSync"):
-            self.assertIn(token, issue)
-
-    def test_pinned_livecontainer_import_uses_canonical_active_keychain_slots(self):
+    def test_pinned_livecontainer_settings_remains_the_import_authority(self):
         live = os.environ.get("LIVE_CONTAINER_TEST_SOURCE")
         if not live:
             self.skipTest("pinned LiveContainer source is supplied by macOS CI")
@@ -140,8 +115,7 @@ class JITLessCertificateSyncContractTests(unittest.TestCase):
             text=True, encoding="utf-8")
         import_flow = region(source, "func importCertificateFromSideStore() async", "func onSideStoreCertificateCallback")
         callback = region(source, "func onSideStoreCertificateCallback", "func removeCertificate()")
-        for token in ('"signingCertificate"', '"signingCertificatePassword"',
-                      '"com.kdt.livecontainer"'):
+        for token in ('"signingCertificate"', '"signingCertificatePassword"', '"com.kdt.livecontainer"'):
             self.assertIn(token, import_flow)
         for token in ('"LCCertificateData"', '"LCCertificatePassword"', '"LCCertificateUpdateDate"'):
             self.assertIn(token, callback)

@@ -115,6 +115,12 @@ public struct CombinedFailure: Error, LocalizedError {
         case wifiUnavailable
         case localDevVPNUnavailable
         case unknownSigningCause
+        case sourceNetworkFailure
+        case sourceInvalidManifest
+        case sourcePersistenceUnverified
+        case sourceInvalidURL
+        case catalogUnavailable
+        case pairingRequired
 
         fileprivate var inferredRetryable: Bool? {
             switch self {
@@ -128,19 +134,26 @@ public struct CombinedFailure: Error, LocalizedError {
                 return nil
             case .unknownSigningCause:
                 return nil
+            case .sourceNetworkFailure:
+                return true
+            case .sourceInvalidManifest, .sourcePersistenceUnverified, .sourceInvalidURL, .catalogUnavailable:
+                return false
+            case .pairingRequired:
+                return false
             }
         }
     }
 
     public enum SourceStep: String, CaseIterable {
         case provisioningProfileFetch, certificateValidation, localCodeSigning
+        case sourceDownload, manifestParsing, catalogRead
     }
 
     public enum Stage: String, CaseIterable {
         case hostContainer, storagePreparation, bookmarkCreation, extensionDiscovery, extensionLaunch
-        case xpcConnection, serviceReadiness, command, authentication, signing, filePreparation, installation, refreshVerification
+        case xpcConnection, serviceReadiness, command, authentication, provisioning, signing, filePreparation, installation, refreshVerification
         case endpointSelection, heartbeat, coreDevice, cdTunnel, rsdDiscovery, rsdService, lockdownConnection, uniqueDeviceID, pairing
-        case network
+        case network, source, catalog
     }
     public enum Code: String, CaseIterable {
         case unavailable, invalidConfiguration, permissionDenied, timedOut, cancelled, interrupted
@@ -176,7 +189,7 @@ public struct CombinedFailure: Error, LocalizedError {
         self.retryable = retryable ?? safeCause?.inferredRetryable
     }
     private static let operations: Set<String> = ["connect", "status", "command", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit"]
-    private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "HTTPStatus"]
+    private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError"]
     private static let verificationDomains: Set<String> = ["ALTServerErrorDomain", "ALTErrorDomain", "IdeviceGatewayError", "DeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy"]
     public var message: String {
         if operation == "delete", code == .timedOut {
@@ -199,6 +212,12 @@ public struct CombinedFailure: Error, LocalizedError {
             case .wifiUnavailable: return "Wi-Fi was unavailable before refresh started."
             case .localDevVPNUnavailable: return "LocalDevVPN was unavailable before refresh started."
             case .unknownSigningCause: return "SideStore could not sign the selected app. The exact underlying cause could not be safely identified."
+            case .sourceNetworkFailure: return "The source could not be downloaded because its network request failed."
+            case .sourceInvalidManifest: return "The source returned data SideStore could not read as a valid source."
+            case .sourcePersistenceUnverified: return "SideStore could not confirm that the source was saved."
+            case .sourceInvalidURL: return "The source URL is invalid."
+            case .catalogUnavailable: return "SideStore could not read this source's saved catalog data."
+            case .pairingRequired: return "A pairing file is required before this device can be refreshed."
             }
         }
         switch stage {
@@ -218,7 +237,15 @@ public struct CombinedFailure: Error, LocalizedError {
         case .lockdownConnection: return "The device transport opened, but the lockdownd connection failed."
         case .uniqueDeviceID: return "The device connection opened, but the UniqueDeviceID request failed."
         case .pairing: return "Pairing parsing, validation, or a concrete device trust check failed."
+        case .source:
+            switch sourceStep {
+            case .sourceDownload: return "The source could not be downloaded."
+            case .manifestParsing: return "The source returned data SideStore could not read as a valid source."
+            default: return "SideStore could not complete the source request."
+            }
+        case .catalog: return "SideStore could not read the saved source catalog."
         case .authentication: return "SideStore could not complete account authentication."
+        case .provisioning: return "Apple sign-in succeeded, but device provisioning did not complete."
         case .signing:
             switch sourceStep {
             case .provisioningProfileFetch:
@@ -227,7 +254,7 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "SideStore could not validate the signing certificate. The exact underlying cause could not be safely identified."
             case .localCodeSigning:
                 return "SideStore could not sign the app locally. The exact underlying cause could not be safely identified."
-            case nil: break
+            default: break
             }
             return underlyingDomain == "redacted" && underlyingCode != 0
                 ? "SideStore could not sign the application. The exact underlying cause could not be safely identified."
@@ -276,6 +303,18 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Restore the indicated connection prerequisite, then start a new refresh."
             case .unknownSigningCause:
                 return "Check Account & Signing and Certificates. The exact underlying cause was not safely identified; keep these diagnostics before trying again."
+            case .sourceNetworkFailure:
+                return "Check the network connection and retry the source request."
+            case .sourceInvalidManifest:
+                return "Check the source provider's manifest format, then preview it again."
+            case .sourcePersistenceUnverified:
+                return "Reload Sources and check whether the source appears before trying again."
+            case .sourceInvalidURL:
+                return "Enter a valid HTTP or HTTPS source URL, then preview it again."
+            case .catalogUnavailable:
+                return "Reload the catalog. If it continues, copy the safe diagnostics."
+            case .pairingRequired:
+                return "Add the pairing file, then retry the refresh."
             }
         }
         switch stage {
@@ -285,7 +324,11 @@ public struct CombinedFailure: Error, LocalizedError {
             return "Keep existing data intact. Return to the host, check available storage, and use Retry Connection. Copy these diagnostics if it fails again."
         case .extensionDiscovery:
             return "Check that the installed combined package retains LiveProcess and its extension registration. Do not reset SideStore or guest data."
-        case .authentication, .signing: return "Review Account and Signing, then explicitly retry. Never share credentials or private keys."
+        case .serviceReadiness:
+            return "Wait for SideStore to finish starting, then retry the request."
+        case .authentication, .provisioning, .signing: return "Review Account and Signing, then explicitly retry. Never share credentials or private keys."
+        case .source: return "Retry the source request. If it repeats, copy the safe diagnostics."
+        case .catalog: return "Reload the source catalog. If it continues, copy the safe diagnostics."
         case .filePreparation: return "Choose the IPA again. SideStore will copy it into private shared staging before starting installation."
         case .installation, .refreshVerification: return "Reload authoritative app status and expiration before retrying. Completion may be uncertain."
         case .endpointSelection, .heartbeat, .coreDevice, .cdTunnel, .rsdDiscovery, .rsdService, .lockdownConnection, .uniqueDeviceID, .network:

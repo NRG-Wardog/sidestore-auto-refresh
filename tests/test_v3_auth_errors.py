@@ -82,6 +82,32 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("V3AuthStore.failureMessage", text)
         self.assertIn("V3AuthStore.failureDetails", text)
 
+    def test_top_level_previous_failure_is_preserved_until_credentials_submission(self):
+        host = shell()
+        self.assertIn("V3AuthPromptFailurePolicy.applying(reply: reply, current: previousFailure)", host)
+        self.assertIn("V3AuthPromptFailurePolicy.isVisible(auth.previousFailure", host)
+        self.assertNotIn('prompt["previousFailure"]', host)
+        self.assertIn("clearingAfterSubmission", host)
+        self.assertIn("clearPreviousFailure()", host)
+
+    def test_authentication_and_post_auth_provisioning_have_distinct_terminal_states(self):
+        runtime_text = runtime()
+        host = shell()
+        self.assertIn('"authenticatedProvisioningIncomplete"', runtime_text)
+        self.assertIn("V3AuthTerminalPolicy.resolve", runtime_text)
+        self.assertIn("Signed in successfully, but provisioning could not be completed.", runtime_text)
+        self.assertIn('case "authenticatedProvisioningIncomplete"', host)
+        self.assertNotIn('message = "Sign-in failed."', host)
+
+    def test_sign_in_reopening_reconciles_authoritative_side_store_snapshot(self):
+        host = shell()
+        sign_in = host[host.index("final class V3AuthStore"):host.index("struct V3SignInLink")]
+        self.assertIn("func reconcile() async", sign_in)
+        self.assertIn('request(operation: "snapshot")', sign_in)
+        self.assertIn('snapshot["account"] as? String', sign_in)
+        self.assertIn(".task { await auth.reconcile() }", host)
+        self.assertNotIn(".task { auth.begin() }", host)
+
     def test_password_guidance_only_for_proven_credentials(self):
         text = shell()
         self.assertIn('"invalidCredentials"', text)

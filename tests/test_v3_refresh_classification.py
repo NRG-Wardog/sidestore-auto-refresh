@@ -15,6 +15,31 @@ def template():
 
 
 class RefreshClassificationTests(unittest.TestCase):
+    def test_source_catalog_and_pairing_failures_have_typed_safe_guidance(self):
+        text = template()
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        for token in ("sourceNetworkFailure", "sourceInvalidManifest", "sourceInvalidURL",
+                      "sourcePersistenceUnverified", "catalogUnavailable", "pairingRequired"):
+            self.assertIn(token, text)
+        self.assertIn("error is DecodingError", runtime)
+        self.assertIn("native.domain == NSURLErrorDomain", runtime)
+        self.assertIn('native.domain == "io.sidestore.SideStore.DecodingError"', runtime)
+        self.assertIn('case "catalog": stage = .catalog', service)
+        self.assertIn("activeCertificate", host)
+
+    def test_home_refresh_checks_authoritative_missing_pairing_before_notification(self):
+        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        start = host.index("private func start()", host.index("struct V3RefreshAllButton"))
+        end = host.index("private func monitorRun", start)
+        body = host[start:end]
+        self.assertIn('status.pairing == "Pairing file required"', body)
+        self.assertIn("safeCause: .pairingRequired", body)
+        self.assertLess(body.index('status.pairing == "Pairing file required"'),
+                        body.index('NotificationCenter.default.post'))
+        self.assertIn('case "pairing": status.pairingPresented = true', host)
+
     def test_only_typed_auth_context_maps_to_authentication(self):
         text = template()
         self.assertIn('"com.SideStore.Authentication"', text)
@@ -107,7 +132,7 @@ class RefreshClassificationTests(unittest.TestCase):
         text = template()
         for domain in ("MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError",
                        "NSPOSIXErrorDomain", "NSURLErrorDomain", "Foundation",
-                       "CoreData", "CFNetwork", "HTTPStatus"):
+                       "CoreData", "CFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError"):
             self.assertIn('"%s"' % domain, text)
 
     def test_explicit_stage_markers_honored(self):

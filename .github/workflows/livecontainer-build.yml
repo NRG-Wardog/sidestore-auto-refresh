@@ -265,8 +265,15 @@ jobs:
           SIDESTORE=work/EmbeddedSideStore
           python3 builder/scripts/patch_sidesign_privacy.py "$SIDESIGN" "$SIDESTORE"
           python3 builder/scripts/patch_sidesign_privacy.py "$SIDESIGN" "$SIDESTORE"
+          python3 builder/scripts/patch_sidesign_2fa_state.py "$SIDESIGN"
+          python3 builder/scripts/patch_sidesign_2fa_state.py "$SIDESIGN"
           git -C "$SIDESIGN" diff --check
-          test "$(git -C "$SIDESIGN" diff --name-only)" = "Sources/Logging.swift"
+          expected_sidesign=$(printf '%s\n' \
+            'Sources/DeveloperPortal/Authentication.swift' \
+            'Sources/DeveloperPortal/DeveloperPortalAPI.swift' \
+            'Sources/Logging.swift' | sort)
+          actual_sidesign=$(git -C "$SIDESIGN" diff --name-only | sort)
+          test "$actual_sidesign" = "$expected_sidesign"
           git -C "$SIDESTORE" diff --check
           expected_side_logging=$(printf '%s\n' \
             'SideStore/Core/Logging/OperationLogging.swift' \

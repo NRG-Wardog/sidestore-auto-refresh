@@ -129,81 +129,101 @@ enum V3SourceAddPersistencePolicy {
     }
 }
 
-enum V3JITLessCertificateSyncIssue: String, Equatable {
-    case noActiveCertificate
-    case keyMaterialUnavailable
-    case invalidPKCS12
-    case activeCertificateMismatch
-    case teamMismatch
-    case activeCertificateExpired
+enum V3JITLessReadiness: String, Equatable {
+    case notRequired
+    case setupRequired
+    case certificateImported
+    case needsCertificateRefresh
+    case revoked
     case activeCertificateRevoked
-    case validationUnavailable
-    case persistenceFailed
+    case activeCertificateExpired
+    case ready
+    case unknown
 
-    var whatHappened: String {
-        switch self {
-        case .noActiveCertificate: return "SideStore has no active signing certificate to copy."
-        case .keyMaterialUnavailable: return "SideStore's active certificate or matching password could not be read."
-        case .invalidPKCS12: return "SideStore's active certificate could not be opened with its stored password."
-        case .activeCertificateMismatch: return "The certificate keychain entry does not match SideStore's active certificate."
-        case .teamMismatch: return "The certificate does not match SideStore's active developer team."
-        case .activeCertificateExpired: return "SideStore's active certificate has expired."
-        case .activeCertificateRevoked: return "SideStore's active certificate is reported as revoked."
-        case .validationUnavailable: return "The active certificate could not be validated, so the JIT-Less copy was left unchanged."
-        case .persistenceFailed: return "LiveContainer could not verify the saved JIT-Less certificate."
+    var isReady: Bool { self == .ready || self == .notRequired }
+}
+
+// This policy describes only the LiveContainer copy and safe public identity
+// facts. Import/repair remains LiveContainer's canonical settings flow.
+enum V3JITLessReadinessPolicy {
+    static func evaluate(osMajor: Int, hasCopy: Bool, activeCertificateExists: Bool,
+                         activeCertificateStatus: String = "unknown", identitiesMatch: Bool?,
+                         validationStatus: Int?, validationFailed: Bool) -> V3JITLessReadiness {
+        guard osMajor >= 26 else { return .notRequired }
+        if activeCertificateExists && activeCertificateStatus == "revoked" { return .activeCertificateRevoked }
+        if activeCertificateExists && activeCertificateStatus == "expired" { return .activeCertificateExpired }
+        guard activeCertificateExists else { return .unknown }
+        guard hasCopy else { return .setupRequired }
+        guard let validationStatus else { return .certificateImported }
+        if validationStatus == 1 {
+            if activeCertificateExists, identitiesMatch == true { return .activeCertificateRevoked }
+            return .revoked
         }
-    }
-
-    var whatToDo: String {
-        switch self {
-        case .noActiveCertificate, .activeCertificateExpired, .activeCertificateRevoked,
-             .activeCertificateMismatch, .teamMismatch:
-            return "Open Certificates and resolve the current SideStore certificate before syncing again."
-        case .keyMaterialUnavailable, .invalidPKCS12, .validationUnavailable:
-            return "Keep the current JIT-Less copy and check SideStore Certificates and JIT-Less Diagnose."
-        case .persistenceFailed:
-            return "Open JIT-Less Diagnose and check the saved copy before relying on JIT-Less signing."
-        }
-    }
-
-    var technicalDetails: String {
-        "schema=1\noperation=jitlessCertificateSync\nstage=\(stage)\ncode=\(rawValue)\nretryable=false"
-    }
-
-    private var stage: String {
-        switch self {
-        case .noActiveCertificate, .activeCertificateExpired, .activeCertificateRevoked,
-             .activeCertificateMismatch, .teamMismatch: return "certificateValidation"
-        case .keyMaterialUnavailable, .invalidPKCS12: return "keychainRead"
-        case .validationUnavailable: return "certificateValidation"
-        case .persistenceFailed: return "certificatePersistence"
-        }
+        guard validationStatus == 0, !validationFailed else { return .unknown }
+        guard let identitiesMatch else { return .unknown }
+        return identitiesMatch ? .ready : .needsCertificateRefresh
     }
 }
 
-enum V3JITLessCertificateSyncAssessment: Equatable {
-    case sync
-    case alreadyCurrent
-    case blocked(V3JITLessCertificateSyncIssue)
+enum V3TwoFactorStep: String, Equatable {
+    case chooseDeliveryMethod
+    case choosePhoneNumber
+    case deliveryRequested
+    case enterVerificationCode
+    case verifyingCode
+    case completed
+    case failed
+    case cancelled
 
-    static func evaluate(activeExists: Bool, keyDataExists: Bool, passwordExists: Bool,
-                         p12Valid: Bool, activeFingerprintMatches: Bool,
-                         teamMatches: Bool, activeExpired: Bool,
-                         alreadyCurrent: Bool) -> Self {
-        guard activeExists else { return .blocked(.noActiveCertificate) }
-        guard keyDataExists, passwordExists else { return .blocked(.keyMaterialUnavailable) }
-        guard p12Valid else { return .blocked(.invalidPKCS12) }
-        guard activeFingerprintMatches else { return .blocked(.activeCertificateMismatch) }
-        guard teamMatches else { return .blocked(.teamMismatch) }
-        guard !activeExpired else { return .blocked(.activeCertificateExpired) }
-        return alreadyCurrent ? .alreadyCurrent : .sync
+    var progressLabel: String? {
+        switch self {
+        case .choosePhoneNumber: return "Choose a phone number for this verification request..."
+        case .deliveryRequested: return "Requesting verification..."
+        case .verifyingCode: return "Verifying code..."
+        default: return nil
+        }
     }
 
-    static func validationIssue(status: Int, hasError: Bool) -> V3JITLessCertificateSyncIssue? {
-        if status == 1 { return .activeCertificateRevoked }
-        if status == 0 && !hasError { return nil }
-        return .validationUnavailable
+    static func afterDeliveryChoice(_ method: String, phoneCount: Int) -> Self? {
+        guard ["trustedDevice", "sms", "voice"].contains(method) else { return nil }
+        return method == "sms" || method == "voice" ? (phoneCount > 1 ? .choosePhoneNumber : .deliveryRequested) : .deliveryRequested
     }
+
+    static func afterDelivery(_ method: String) -> Self? {
+        ["trustedDevice", "sms", "voice"].contains(method) ? .enterVerificationCode : nil
+    }
+
+    static func afterVerification(accepted: Bool) -> Self {
+        accepted ? .completed : .enterVerificationCode
+    }
+
+    static var afterChangeMethod: Self { .chooseDeliveryMethod }
+}
+
+enum V3AuthTerminalPolicy {
+    static func resolve(authenticationSucceeded: Bool, authoritativeAccountMatches: Bool,
+                        provisioningFailed: Bool, cancelled: Bool) -> String {
+        if authenticationSucceeded || authoritativeAccountMatches {
+            return provisioningFailed || cancelled ? "authenticatedProvisioningIncomplete" : "completed"
+        }
+        return cancelled ? "cancelled" : "failed"
+    }
+}
+
+enum V3AuthPromptFailurePolicy {
+    static func applying(reply: [String: Any], current: [String: Any]?) -> [String: Any]? {
+        (reply["previousFailure"] as? [String: Any]) ?? current
+    }
+
+    static func isVisible(_ failure: [String: Any]?, promptKind: String?) -> Bool {
+        failure != nil && promptKind == "credentials"
+    }
+
+    static func clearingAfterSubmission(_ failure: [String: Any]?, promptKind: String?) -> [String: Any]? {
+        promptKind == "credentials" ? nil : failure
+    }
+
+    static func clearingOnDismiss(_ failure: [String: Any]?) -> [String: Any]? { nil }
 }
 
 // A picker selection survives dismissal and any in-flight snapshot reload.
@@ -799,6 +819,12 @@ struct V3RefreshAllAttemptState {
         terminalMessage = "Refresh did not reach a verified terminal result."
     }
 
+    mutating func failBeforeStart(message: String) {
+        guard !isTerminal else { return }
+        phase = .failed
+        terminalMessage = message
+    }
+
     mutating func acknowledge() {
         requestID = ""
         runID = ""
@@ -953,6 +979,7 @@ struct V3OperationFailureDetails {
     }
 
     var recoveryDestination: String? {
+        if safeCause == CombinedFailure.SafeCause.pairingRequired.rawValue { return "pairing" }
         if stage == CombinedFailure.Stage.authentication.rawValue { return "signIn" }
         if stage == CombinedFailure.Stage.filePreparation.rawValue { return "ipa" }
         if safeCause == CombinedFailure.SafeCause.signingNetworkConnectionLost.rawValue ||
@@ -991,12 +1018,15 @@ struct V3OperationFailureDetails {
         case "ipa": return "Choose IPA Again"
         case "certificates": return "Open Certificates"
         case "connection": return "Open Connection Check"
+        case "pairing": return "Open Pairing File"
         default: return nil
         }
     }
 
     var recommendedAction: String {
         switch safeCause {
+        case CombinedFailure.SafeCause.pairingRequired.rawValue:
+            return "Add the pairing file, then start the refresh again."
         case CombinedFailure.SafeCause.signingNetworkConnectionLost.rawValue:
             return "Your current connection may still be healthy. Retry once. If this happens again, open Connection Check."
         case CombinedFailure.SafeCause.signingNetworkTimedOut.rawValue:

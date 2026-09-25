@@ -11,6 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("sidesign_privacy_patch", ROOT / "scripts/patch_sidesign_privacy.py")
 patch = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(patch)
+TFA_SPEC = importlib.util.spec_from_file_location(
+    "sidesign_typed_2fa_patch", ROOT / "scripts/patch_sidesign_2fa_state.py")
+tfa_patch = importlib.util.module_from_spec(TFA_SPEC)
+TFA_SPEC.loader.exec_module(tfa_patch)
 
 
 def pinned_source():
@@ -24,6 +28,64 @@ def pinned_sidestore_source():
 
 
 class SideSignPrivacyTests(unittest.TestCase):
+    def test_pinned_typed_2fa_patch_is_idempotent_and_omits_raw_retry_payloads(self):
+        source = pinned_source()
+        if not source or not source.exists():
+            self.skipTest("pinned SideSign source is supplied by macOS CI")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for relative in ("Sources/DeveloperPortal/Authentication.swift",
+                             "Sources/DeveloperPortal/DeveloperPortalAPI.swift"):
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source / relative, destination)
+            tfa_patch.patch(root)
+            first = {path.relative_to(root): path.read_bytes() for path in root.rglob("*.swift")}
+            tfa_patch.patch(root)
+            second = {path.relative_to(root): path.read_bytes() for path in root.rglob("*.swift")}
+            self.assertEqual(first, second)
+            auth = (root / "Sources/DeveloperPortal/Authentication.swift").read_text(encoding="utf-8")
+            api = (root / "Sources/DeveloperPortal/DeveloperPortalAPI.swift").read_text(encoding="utf-8")
+            self.assertIn("return .retry(.incorrectCode)", auth)
+            self.assertIn("verificationFailure?.userMessage ?? rawError", api)
+            self.assertNotIn("2FA verification failed, retrying: ", auth)
+            self.assertNotIn("Body: \\(rawStr)", auth)
+
+    def test_generated_typed_incorrect_code_message_executes(self):
+        source = pinned_source()
+        compiler = shutil.which("swiftc")
+        if not source or not source.exists() or not compiler:
+            self.skipTest("pinned SideSign source and Swift compiler are supplied by macOS CI")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            api_path = root / "Sources/DeveloperPortal/DeveloperPortalAPI.swift"
+            api_path.parent.mkdir(parents=True)
+            shutil.copyfile(source / "Sources/DeveloperPortal/DeveloperPortalAPI.swift", api_path)
+            tfa_patch.patch(root)
+            api = api_path.read_text(encoding="utf-8")
+            start = api.index("// V3_TFA_TYPED_STATE_V1:")
+            end = api.index("public enum TwoFactorRequest", start)
+            typed_enum = api[start:end]
+            harness = "import Foundation\n" + typed_enum + r'''
+@main struct Tests {
+    static func main() {
+        precondition(TwoFactorVerificationFailure.incorrectCode.userMessage ==
+            "The verification code was not accepted. Enter a new code and try again.")
+        precondition(TwoFactorVerificationFailure.serviceUnavailable != .incorrectCode)
+        print("SIDESIGN_TYPED_2FA_PASS")
+    }
+}
+'''
+            swift = root / "main.swift"
+            executable = root / "typed-2fa"
+            swift.write_text(harness, encoding="utf-8")
+            compiled = subprocess.run([compiler, "-parse-as-library", str(swift), "-o", str(executable)],
+                                      capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("SIDESIGN_TYPED_2FA_PASS", result.stdout)
+
     def test_pinned_source_logging_and_sensitive_call_sites_are_audited(self):
         source = pinned_source()
         if not source or not source.exists():

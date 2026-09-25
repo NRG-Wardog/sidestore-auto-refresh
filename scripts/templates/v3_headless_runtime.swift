@@ -288,6 +288,9 @@ final class V3AuthCenter {
         var deadline = Date.distantFuture
         var previousFailure: [String: Any]?
         var terminalAt: Date?
+        var cancellationRequested = false
+        var submittedAppleID: String?
+        var authenticatedAppleID: String?
     }
 
     var sessions: [String: Session] = [:]
@@ -330,19 +333,49 @@ final class V3AuthCenter {
             let account = result.team.account ?? ALTAccount(appleID: "", identifier: result.team.identifier)
             await handler.handleSignInResult(.success((account, result.session)))
             sessions[id]?.prompt = nil
-            finish(id: id, response: ["state": "completed", "team": result.team.name, "teamID": result.team.identifier])
+            finish(id: id, response: ["state": "completed", "team": result.team.name,
+                                      "teamID": result.team.identifier, "authenticated": true])
             debugLog("[V3_AUTH] TERMINAL session=\(id) state=completed")
         } catch {
             sessions[id]?.prompt = nil
-            if error is CancellationError {
-                finish(id: id, response: ["state": "cancelled"])
+            let session = sessions[id]
+            let activeAppleID = DatabaseManager.shared.activeAccount()?.appleID
+            let submitted = session?.submittedAppleID?.lowercased()
+            let accountMatches = submitted != nil && submitted == activeAppleID?.lowercased()
+            let authenticationSucceeded = session?.authenticatedAppleID != nil
+            let cancelled = error is CancellationError || session?.cancellationRequested == true
+            let authenticatedOutcome = V3AuthTerminalPolicy.resolve(
+                authenticationSucceeded: authenticationSucceeded,
+                authoritativeAccountMatches: accountMatches,
+                provisioningFailed: !cancelled,
+                cancelled: cancelled)
+
+            if authenticatedOutcome == "authenticatedProvisioningIncomplete" {
+                var response: [String: Any] = ["state": authenticatedOutcome,
+                    "authenticated": true,
+                    "message": cancelled ? "Signed in successfully. Provisioning was cancelled before setup finished." :
+                        "Signed in successfully, but provisioning could not be completed."]
+                if !cancelled {
+                    let failure = CombinedFailure.capture(error, operation: "signIn", stage: .provisioning, id: id)
+                    response["stage"] = failure.stage.rawValue
+                    response["code"] = failure.code.rawValue
+                    response["failure"] = failure.wire
+                    response["technicalDetails"] = failure.technicalDetails
+                }
+                finish(id: id, response: response)
+                debugLog("[V3_AUTH] TERMINAL session=\(id) state=authenticatedProvisioningIncomplete")
+            } else if cancelled {
+                finish(id: id, response: ["state": "cancelled", "authenticated": false])
                 debugLog("[V3_AUTH] TERMINAL session=\(id) state=cancelled")
             } else {
                 let failure = CombinedFailure.capture(error, operation: "signIn", stage: .authentication, id: id)
-                let failureWire = failure.wire
-                if finish(id: id, response: ["state": "failed", "stage": failure.stage.rawValue, "code": failure.code.rawValue]) {
-                    sessions[id]?.previousFailure = failureWire
-                }
+                var wire = failure.wire
+                if let kind = v3ClassifyAuthError(error) { wire["kind"] = kind.rawValue }
+                let message = (wire["kind"] as? String).map { V3AuthFailureDisplay.message(for: $0) } ?? failure.safeMessage
+                let response: [String: Any] = ["state": "failed", "stage": failure.stage.rawValue,
+                    "code": failure.code.rawValue, "failure": wire, "message": message,
+                    "technicalDetails": failure.technicalDetails]
+                finish(id: id, response: response)
                 debugLog("[V3_AUTH] TERMINAL session=\(id) state=failed stage=\(failure.stage.rawValue) code=\(failure.code.rawValue)")
             }
         }
@@ -352,14 +385,15 @@ final class V3AuthCenter {
         cleanupSessions()
         guard let session = sessions[id] else { return nil }
         if let terminal = session.terminal.value { return terminal.merging(["session": id]) { current, _ in current } }
-        if let prompt = session.prompt {
+        if let prompt = session.prompt, !session.cancellationRequested {
             var reply: [String: Any] = ["session": id, "state": "awaitingPrompt", "attempts": session.attempts, "prompt": prompt]
             if let previousFailure = session.previousFailure {
                 reply["previousFailure"] = previousFailure
             }
             return reply
         }
-        return ["session": id, "state": "working", "attempts": session.attempts]
+        return ["session": id, "state": "working", "attempts": session.attempts,
+                "cancellationRequested": session.cancellationRequested]
     }
 
     func respond(id: String, promptID: String, answer: [String: String]) -> [String: Any]? {
@@ -385,13 +419,12 @@ final class V3AuthCenter {
     @discardableResult
     func cancel(id: String) -> Bool {
         guard var session = sessions[id] else { return false }
+        if !session.terminal.isEmpty { return true }
+        session.cancellationRequested = true
         session.task?.cancel()
         session.watchdog?.cancel()
-        if session.terminal.setIfEmpty(["state": "cancelled"]) { session.terminalAt = Date() }
         session.prompt = nil
         sessions[id] = session
-        if activeID == id { activeID = nil }
-        cleanupSessions()
         debugLog("[V3_AUTH] CANCEL session=\(id)")
         return true
     }
@@ -424,6 +457,22 @@ final class V3AuthCenter {
             .sorted { ($0.value.terminalAt ?? .distantPast) < ($1.value.terminalAt ?? .distantPast) }
         if completed.count > 256 {
             for (id, _) in completed.prefix(completed.count - 256) { sessions.removeValue(forKey: id) }
+        }
+    }
+}
+
+enum V3AuthFailureDisplay {
+    static func message(for kind: String) -> String {
+        switch kind {
+        case "invalidCredentials": return "Apple did not accept the Apple ID or password. Check them and try again."
+        case "appSpecificPasswordRequired": return "Apple requires an app-specific password for this authentication path."
+        case "invalidCode": return "The verification code was not accepted. Enter a new code and try again."
+        case "rateLimited": return "Too many authentication attempts. Apple is temporarily rate-limiting requests. Wait before trying again."
+        case "serviceUnavailable": return "Apple's authentication service is temporarily unavailable. Try again later."
+        case "anisette": return "Authentication could not obtain valid Anisette data."
+        case "network": return "Authentication could not reach the required Apple service. Check the connection and try again."
+        case "accountRepairRequired": return "Apple requires attention on this account before signing in."
+        default: return "Apple sign-in failed for an unknown typed reason."
         }
     }
 }
@@ -465,69 +514,88 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
                                             ["key": "password", "label": "Password", "secure": "true"]])
         guard let appleID = answer["appleID"], !appleID.isEmpty,
               let password = answer["password"], !password.isEmpty else { throw CancellationError() }
+        V3HeadlessRuntime.shared.auth.sessions[sessionID]?.submittedAppleID = appleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return (appleID, password)
     }
 
     func verificationCode(for request: TwoFactorRequest) async throws -> TwoFactorResponse {
-        var phones: [[String: String]] = []
-        var activeID = ""
-        var mode = ""
-        var failure = ""
         switch request {
         case .selectDeliveryMethod(let preferredMode, let phoneNumbers):
-            mode = preferredMode.rawValue
-            phones = phoneNumbers.map { ["id": $0.id, "number": $0.number] }
-            debugLog("[V3_AUTH] 2FA_DELIVERY_SELECTED mode=\(mode) phone_count=\(phoneNumbers.count)")
-        case .trustedDevice(let error):
-            mode = TwoFactorDeliveryMode.trustedDevice.rawValue
-            failure = error ?? ""
-            debugLog("[V3_AUTH] 2FA_DELIVERY_SELECTED mode=trustedDevice")
-        case .sms(let phoneNumbers, let selectedID, let error):
-            mode = TwoFactorDeliveryMode.sms.rawValue
-            phones = phoneNumbers.map { ["id": $0.id, "number": $0.number] }
-            activeID = selectedID
-            failure = error ?? ""
-            debugLog("[V3_AUTH] 2FA_DELIVERY_SELECTED mode=sms phone_count=\(phoneNumbers.count)")
-        case .voice(let phoneNumbers, let selectedID, let error):
-            mode = TwoFactorDeliveryMode.voice.rawValue
-            phones = phoneNumbers.map { ["id": $0.id, "number": $0.number] }
-            activeID = selectedID
-            failure = error ?? ""
-            debugLog("[V3_AUTH] 2FA_DELIVERY_SELECTED mode=voice phone_count=\(phoneNumbers.count)")
+            _ = preferredMode
+            return try await chooseDeliveryMethod(phoneNumbers: phoneNumbers)
+        case .trustedDevice:
+            return try await enterVerificationCode(mode: .trustedDevice, phoneNumbers: [], activeID: "",
+                                                  failure: request.verificationFailure)
+        case .sms(let phoneNumbers, let selectedID, _):
+            return try await enterVerificationCode(mode: .sms, phoneNumbers: phoneNumbers, activeID: selectedID,
+                                                  failure: request.verificationFailure)
+        case .voice(let phoneNumbers, let selectedID, _):
+            return try await enterVerificationCode(mode: .voice, phoneNumbers: phoneNumbers, activeID: selectedID,
+                                                  failure: request.verificationFailure)
         }
-        if let requestError = request.error, !requestError.isEmpty { failure = requestError }
-        var actionOptions: [[String: String]] = [["id": "code", "label": "Submit Code"],
-                                                      ["id": "trustedDevice", "label": "Use Trusted Device"],
-                                                      ["id": "sms", "label": "Send SMS"],
-                                                      ["id": "voice", "label": "Voice Call"],
-                                                      ["id": "cancel", "label": "Cancel"]]
-        for phone in phones {
-            actionOptions.append(["id": "phone:\(phone["id"] ?? "")", "label": phone["number"] ?? ""])
-        }
-        let answer = try await ask(kind: "twoFactor", title: "Two-Factor Authentication",
-                                   message: failure.isEmpty ? "Approve the sign-in or enter the verification code." : failure,
-                                   fields: [["key": "mode", "label": "mode", "secure": "false", "value": mode],
-                                            ["key": "activeID", "label": "activeID", "secure": "false", "value": activeID],
-                                            ["key": "code", "label": "Verification code", "secure": "false"],
-                                            ["key": "phoneID", "label": "phoneID", "secure": "false", "value": activeID]],
-                                   options: actionOptions)
+    }
+
+    private func chooseDeliveryMethod(phoneNumbers: [TrustedPhoneNumber]) async throws -> TwoFactorResponse {
+        var methods: [[String: String]] = [
+            ["id": "trustedDevice", "label": "Use Trusted Device"],
+            ["id": "sms", "label": "Send SMS"],
+            ["id": "voice", "label": "Request Voice Call"],
+            ["id": "cancel", "label": "Cancel Sign In"]
+        ]
+        if phoneNumbers.isEmpty { methods.removeAll { ["sms", "voice"].contains($0["id"] ?? "") } }
+        let answer = try await ask(kind: "twoFactor", title: "Choose Verification Method",
+            message: "Choose how Apple should send your verification code.",
+            fields: [["key": "step", "label": "step", "secure": "false", "value": V3TwoFactorStep.chooseDeliveryMethod.rawValue]],
+            options: methods)
         switch answer["action"] {
-        case "code":
-            guard let code = answer["code"], !code.isEmpty else { throw CancellationError() }
-            debugLog("[V3_AUTH] 2FA_CODE_SUBMITTED")
-            return .verificationCode(code)
         case "trustedDevice":
             debugLog("[V3_AUTH] 2FA_DELIVERY_REQUESTED mode=trustedDevice")
             return .requestTrustedDevice
-        case "sms":
-            let phoneID = answer["phoneID"] ?? activeID
-            debugLog("[V3_AUTH] 2FA_DELIVERY_REQUESTED mode=sms")
-            return .requestSMS(phoneID: phoneID)
-        case "voice":
-            let phoneID = answer["phoneID"] ?? activeID
-            debugLog("[V3_AUTH] 2FA_DELIVERY_REQUESTED mode=voice")
-            return .requestVoice(phoneID: phoneID)
-        default: throw CancellationError()
+        case "sms", "voice":
+            let method = answer["action"] ?? "sms"
+            var phoneID = phoneNumbers.first?.id ?? ""
+            if phoneNumbers.count > 1 {
+                let phoneChoices = phoneNumbers.map { ["id": "phone:\($0.id)", "label": $0.number] }
+                    + [["id": "cancel", "label": "Cancel Sign In"]]
+                let selection = try await ask(kind: "twoFactor", title: "Choose Phone Number",
+                    message: "Select where Apple should send the verification code.",
+                    fields: [["key": "step", "label": "step", "secure": "false", "value": V3TwoFactorStep.afterDeliveryChoice(method, phoneCount: phoneNumbers.count)?.rawValue ?? V3TwoFactorStep.choosePhoneNumber.rawValue],
+                             ["key": "mode", "label": "mode", "secure": "false", "value": method]],
+                    options: phoneChoices)
+                guard let chosen = selection["action"], chosen.hasPrefix("phone:") else { return .cancel }
+                phoneID = String(chosen.dropFirst("phone:".count))
+            }
+            debugLog("[V3_AUTH] 2FA_DELIVERY_REQUESTED mode=\(method)")
+            return method == "sms" ? .requestSMS(phoneID: phoneID) : .requestVoice(phoneID: phoneID)
+        default:
+            return .cancel
+        }
+    }
+
+    private func enterVerificationCode(mode: TwoFactorDeliveryMode, phoneNumbers: [TrustedPhoneNumber],
+                                       activeID: String, failure: TwoFactorVerificationFailure?) async throws -> TwoFactorResponse {
+        let acknowledgement: String
+        switch mode {
+        case .trustedDevice: acknowledgement = "Verification request sent to your trusted devices."
+        case .sms: acknowledgement = "Verification code requested by SMS."
+        case .voice: acknowledgement = "Verification call requested."
+        }
+        let message = failure?.userMessage ?? acknowledgement
+        let answer = try await ask(kind: "twoFactor", title: "Enter Verification Code", message: message,
+            fields: [["key": "step", "label": "step", "secure": "false", "value": V3TwoFactorStep.afterDelivery(mode.rawValue)?.rawValue ?? V3TwoFactorStep.enterVerificationCode.rawValue],
+                     ["key": "mode", "label": "mode", "secure": "false", "value": mode.rawValue],
+                     ["key": "activeID", "label": "activeID", "secure": "false", "value": activeID],
+                     ["key": "code", "label": "Verification code", "secure": "false"]],
+            options: [["id": "changeMethod", "label": "Change Verification Method"],
+                      ["id": "cancel", "label": "Cancel Sign In"]])
+        switch answer["action"] {
+        case "code":
+            guard let code = answer["code"], !code.isEmpty else { return try await enterVerificationCode(
+                mode: mode, phoneNumbers: phoneNumbers, activeID: activeID, failure: .unknown) }
+            debugLog("[V3_AUTH] 2FA_CODE_SUBMITTED")
+            return .verificationCode(code)
+        case "changeMethod": return try await chooseDeliveryMethod(phoneNumbers: phoneNumbers)
+        default: return .cancel
         }
     }
 
@@ -543,8 +611,10 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
     func handleSignInResult(_ result: Result<(ALTAccount, ALTAppleAPISession), Error>) async {
         guard V3HeadlessRuntime.shared.auth.sessions[sessionID]?.terminal.isEmpty == true else { return }
         switch result {
-        case .success:
+        case .success(let (account, _)):
             V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure = nil
+            V3HeadlessRuntime.shared.auth.sessions[sessionID]?.authenticatedAppleID =
+                account.appleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         case .failure(let error):
             guard let kind = v3ClassifyAuthError(error) else {
                 V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure = nil
@@ -1354,6 +1424,25 @@ enum V3SideStoreServiceError: String, Error {
     case notReady, invalidRequest, notFound, unsupported, busy, authRequired, persistenceUnverified
 }
 
+struct V3SourceCommandError: Error {
+    enum Kind { case network, invalidManifest }
+    let kind: Kind
+    let domain: String
+    let code: Int
+
+    static func classify(_ error: Error) -> V3SourceCommandError? {
+        let native = error as NSError
+        if error is URLError || native.domain == NSURLErrorDomain {
+            return V3SourceCommandError(kind: .network, domain: NSURLErrorDomain, code: native.code)
+        }
+        if error is DecodingError || native.domain == "io.sidestore.SideStore.DecodingError" ||
+            ((error as? SourceError)?.code == .unsupported) {
+            return V3SourceCommandError(kind: .invalidManifest, domain: native.domain, code: native.code)
+        }
+        return nil
+    }
+}
+
 func v3Resolve<T: NSManagedObject>(_ identifier: String) throws -> T {
     guard let url = URL(string: identifier),
           let id = DatabaseManager.shared.persistentContainer.persistentStoreCoordinator.managedObjectID(forURIRepresentation: url),
@@ -1368,6 +1457,8 @@ func v3Resolve<T: NSManagedObject>(_ identifier: String) throws -> T {
 
 @MainActor
 enum V3BackendCommands {
+    private static var activeCertificateValidationCache: (fingerprint: String, result: String, checkedAt: Date)?
+
     static func certificateRow(_ x509: ALTX509Certificate, activeSerial: String?) -> [String: Any] {
         var row: [String: Any] = ["serial": x509.serialNumber, "name": x509.name,
                                   "active": x509.serialNumber == activeSerial]
@@ -1457,7 +1548,13 @@ enum V3BackendCommands {
             throw V3SideStoreServiceError.invalidRequest
         }
         let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
-        let source = try await AppManager.shared.fetchSource(sourceURL: url, managedObjectContext: background)
+        let source: Source
+        do {
+            source = try await AppManager.shared.fetchSource(sourceURL: url, managedObjectContext: background)
+        } catch {
+            if let classified = V3SourceCommandError.classify(error) { throw classified }
+            throw error
+        }
         let name = try await background.performAsync { source.name }
         let identifier = try await background.performAsync { source.identifier }
         let added = try await source.isAdded()
@@ -1471,7 +1568,13 @@ enum V3BackendCommands {
             throw V3SideStoreServiceError.invalidRequest
         }
         let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
-        let source = try await AppManager.shared.fetchSource(sourceURL: url, managedObjectContext: background)
+        let source: Source
+        do {
+            source = try await AppManager.shared.fetchSource(sourceURL: url, managedObjectContext: background)
+        } catch {
+            if let classified = V3SourceCommandError.classify(error) { throw classified }
+            throw error
+        }
         let identifier = try await background.performAsync { source.identifier }
         let wasPersisted = try await source.isAdded()
         let decision = V3SourceAddPersistencePolicy.decision(sourceIsPersisted: wasPersisted)
@@ -1675,14 +1778,14 @@ enum V3BackendCommands {
                 "anisette": anisette,
                 "sidesign": ["configured": SideSignConfigManager.shared.hasConfigFile()],
                 "service": ["ready": DatabaseManager.shared.isStarted],
-                "certificateState": certificateState()]
+                "certificateState": await certificateState()]
     }
 
     // Facts about the certificate the refresh/signing pipeline actually uses
     // (CertificateManager.activeCertificate). Only the serial suffix and a
     // public certificate DER fingerprint cross XPC; no private key, p12, or
     // password is returned. The LiveContainer JIT-Less copy stays host-side.
-    static func certificateState() -> [String: Any] {
+    static func certificateState() async -> [String: Any] {
         guard let active = CertificateManager.shared.activeCertificate else {
             return ["active": false]
         }
@@ -1692,9 +1795,32 @@ enum V3BackendCommands {
             "team": DatabaseManager.shared.activeTeam()?.identifier ?? "",
             "expiry": active.certificate.x509.expiryDate,
         ]
+        let fingerprint: String
         if let certificateDER = active.certificate.x509.data {
-            state["certificateIdentitySHA256"] = SHA256.hash(data: certificateDER)
-                .map { String(format: "%02x", $0) }.joined()
+            fingerprint = SHA256.hash(data: certificateDER).map { String(format: "%02x", $0) }.joined()
+            state["certificateIdentitySHA256"] = fingerprint
+        } else {
+            fingerprint = ""
+        }
+        if let cached = activeCertificateValidationCache,
+           cached.fingerprint == fingerprint, Date().timeIntervalSince(cached.checkedAt) < 60 {
+            state["validation"] = cached.result
+        } else {
+            let validation: String
+            do {
+                try await OCSPValidator.validate(active.certificate.x509)
+                validation = "valid"
+            } catch let error as OCSPValidationError {
+                switch error {
+                case .revoked: validation = "revoked"
+                case .expired: validation = "expired"
+                default: validation = "unknown"
+                }
+            } catch {
+                validation = "unknown"
+            }
+            activeCertificateValidationCache = (fingerprint, validation, Date())
+            state["validation"] = validation
         }
         return state
     }

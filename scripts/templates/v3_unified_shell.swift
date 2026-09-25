@@ -56,6 +56,13 @@ struct V3UnifiedTabs: View {
             status.reload(manual: false)
             routePendingSetup()
         }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3CanonicalJITLessCertificateUpdated"))) { _ in
+            status.reload(manual: false)
+            if status.returnToSetupAfterJITLess {
+                status.returnToSetupAfterJITLess = false
+                status.setupPresented = true
+            }
+        }
         .onReceive(monitor) { _ in status.reload(manual: false) }
         .onOpenURL(perform: dispatchURL)
         .overlay(alignment: .topLeading) {
@@ -70,11 +77,14 @@ struct V3UnifiedTabs: View {
         }) { request in
             V3OperationSheet(request: request).environmentObject(status)
         }
-        .sheet(isPresented: $status.signInPresented, onDismiss: { status.reload() }) {
+        .sheet(isPresented: $status.signInPresented, onDismiss: {
+            status.reload()
+            routePendingCanonicalJITLessSetup()
+        }) {
             NavigationView { V3SignInView().environmentObject(status) }
                 .navigationViewStyle(StackNavigationViewStyle())
         }
-        .sheet(isPresented: $status.setupPresented) {
+        .sheet(isPresented: $status.setupPresented, onDismiss: { routePendingCanonicalJITLessSetup() }) {
             NavigationView { V3SetupAssistantView().environmentObject(status) }
                 .navigationViewStyle(StackNavigationViewStyle())
         }
@@ -84,6 +94,10 @@ struct V3UnifiedTabs: View {
         }
         .sheet(isPresented: $status.certificatesPresented) {
             NavigationView { V3CertificatesView().environmentObject(status) }
+                .navigationViewStyle(StackNavigationViewStyle())
+        }
+        .sheet(isPresented: $status.pairingPresented) {
+            NavigationView { V3PairingView().environmentObject(status) }
                 .navigationViewStyle(StackNavigationViewStyle())
         }
         .alert("SideStore", isPresented: Binding(get: { status.error != nil }, set: { if !$0 { status.error = nil } })) {
@@ -111,6 +125,12 @@ struct V3UnifiedTabs: View {
         LCUtils.appGroupUserDefault.removeObject(forKey: "V3PendingSetupAssistant")
         NSLog("[V3_SETUP] OPEN source=shortcut")
         status.setupPresented = true
+    }
+    private func routePendingCanonicalJITLessSetup() {
+        guard status.pendingCanonicalJITLessSetup else { return }
+        status.pendingCanonicalJITLessSetup = false
+        sharedModel.selectedTab = .settings
+        sharedModel.deepLink = URL(string: "livecontainer://jitless-setup")
     }
     private func operationSheetDidDismiss() {
         guard let destination = status.operationRecoveryDestination else { return }
@@ -517,6 +537,15 @@ struct V3RefreshAllButton: View {
         attempt.begin(requestID: newRequestID)
         message = "Starting Refresh..."
         diagnostics = "manual_refresh_request=\(newRequestID)\nstate=starting"
+        if status.pairing == "Pairing file required" {
+            let failure = CombinedFailure(operation: "refresh", stage: .pairing, code: .notReady,
+                id: newRequestID, retryable: false, safeCause: .pairingRequired)
+            attempt.failBeforeStart(message: failure.safeMessage)
+            terminalFailure = V3OperationFailureDetails(failure)
+            message = failure.safeMessage
+            diagnostics = "schema=1\nrequest_id=\(newRequestID)\nrun_id=not_started\nstate=failed\n\(failure.technicalDetails)\nsafe_message=\(failure.safeMessage)"
+            return
+        }
         print("[V3_HOME_REFRESH] REQUEST request_id=\(newRequestID) origin=home health=\(health) active_run_id=\(activeRun.isEmpty ? "none" : activeRun)")
         NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil,
                                         userInfo: ["requestID": newRequestID, "origin": "home"])
@@ -650,6 +679,7 @@ struct V3RefreshAllButton: View {
         case "ipa": status.beginInstallPicker()
         case "setup": status.setupPresented = true
         case "connection": status.connectionPresented = true
+        case "pairing": status.pairingPresented = true
         default: break
         }
     }
@@ -713,8 +743,11 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published var refreshPresented = false
     @Published var signInPresented = false
     @Published var setupPresented = false
+    @Published var pendingCanonicalJITLessSetup = false
+    @Published var returnToSetupAfterJITLess = false
     @Published var connectionPresented = false
     @Published var certificatesPresented = false
+    @Published var pairingPresented = false
     @Published var operationRecoveryDestination: String?
     @Published private(set) var loading = false
     @Published private(set) var connected = false
@@ -1558,6 +1591,7 @@ struct V3CatalogView: View {
     @State private var query = ""
     @State private var loading = true
     @State private var error: String?
+    @State private var failure: V3OperationFailureDetails?
     @State private var loadInFlight = false
     var body: some View {
         List {
@@ -1570,8 +1604,16 @@ struct V3CatalogView: View {
                 .padding()
             }
             if let error {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(error).font(.caption).foregroundColor(.red)
+                Section("What happened") {
+                    Text(failure?.whatHappened ?? error).font(.footnote).foregroundColor(.red)
+                    if let failure {
+                        Text("What you can do").font(.caption.weight(.semibold)).padding(.top, 4)
+                        Text(failure.whatToDo).font(.footnote)
+                        DisclosureGroup("Technical details") {
+                            Text(failure.technical).font(.caption2).textSelection(.enabled)
+                        }
+                        Button("Copy Diagnostics") { UIPasteboard.general.string = failure.technical }
+                    }
                     Button("Retry") { Task { await load() } }
                         .disabled(loadInFlight)
                 }
@@ -1675,6 +1717,7 @@ struct V3CatalogView: View {
         defer { loadInFlight = false }
         loading = true
         error = nil
+        failure = nil
         defer { loading = false }
         do {
             var cursor = 0
@@ -1689,7 +1732,15 @@ struct V3CatalogView: View {
                 guard next == -1 || next > cursor else { throw NSError(domain: "V3Catalog", code: 1) }
                 cursor = next
             } while cursor >= 0
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            if let combined = error as? CombinedFailure {
+                failure = V3OperationFailureDetails(combined)
+                self.error = combined.safeMessage
+            } else {
+                failure = nil
+                self.error = "The source catalog could not be loaded."
+            }
+        }
     }
 }
 
@@ -1916,7 +1967,7 @@ private struct V3SourceAddFailure {
         let failure = (error as? CombinedFailure) ?? CombinedFailure.capture(error,
             operation: "sourceAddConfirmed", stage: .command, id: UUID().uuidString)
         whatHappened = failure.safeMessage
-        whatToDo = "Check that the source URL is reachable and contains a valid source manifest, then preview it again."
+        whatToDo = failure.recovery
         technicalDetails = failure.technicalDetails
     }
 }
@@ -2538,6 +2589,10 @@ struct V3PromptSection: View {
     private var phoneOptions: [[String: String]] {
         options.filter { ($0["id"] ?? "").hasPrefix("phone:") }
     }
+    private var twoFactorStep: V3TwoFactorStep {
+        let raw = fieldDefs.first(where: { $0["key"] == "step" })?["value"] ?? "chooseDeliveryMethod"
+        return V3TwoFactorStep(rawValue: raw) ?? .chooseDeliveryMethod
+    }
     var body: some View {
         Section(title) {
             if !message.isEmpty {
@@ -2546,68 +2601,57 @@ struct V3PromptSection: View {
                     .foregroundColor(.secondary)
             }
             if kind == "twoFactor" {
-                Text("Step 1 - Choose how Apple sends your code:")
-                    .font(.subheadline.weight(.semibold))
-                ForEach(deliveryOptions, id: \.self) { option in
-                    Button {
+                switch twoFactorStep {
+                case .chooseDeliveryMethod:
+                    Text("Choose how Apple sends your verification code.")
+                        .font(.subheadline.weight(.semibold))
+                    ForEach(deliveryOptions, id: \.self) { option in twoFactorOption(option) }
+                    twoFactorCancelButton()
+                case .choosePhoneNumber:
+                    Text("Choose the phone number for this request.")
+                        .font(.subheadline.weight(.semibold))
+                    ForEach(phoneOptions, id: \.self) { option in twoFactorOption(option) }
+                    twoFactorCancelButton()
+                case .enterVerificationCode:
+                    TextField("Verification code", text: binding("code"))
+                        .keyboardType(.numberPad)
+                        .textFieldStyle(.roundedBorder)
+                        .textContentType(.oneTimeCode)
+                    Button("Verify Code") {
                         var answer = fields
-                        answer["choice"] = option["id"] ?? ""
-                        answer["action"] = option["id"] ?? ""
+                        answer["choice"] = "code"
+                        answer["action"] = "code"
                         respond(answer)
-                    } label: {
-                        HStack {
-                            Text(option["label"] ?? "")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(isSubmitting)
-                }
-                ForEach(phoneOptions, id: \.self) { option in
-                    Button {
+                    .buttonStyle(.borderedProminent)
+                    .disabled((fields["code"] ?? "").isEmpty || isSubmitting)
+                    Button("Change Verification Method", systemImage: "arrow.uturn.backward") {
                         var answer = fields
-                        let phoneID = String((option["id"] ?? "").dropFirst("phone:".count))
-                        answer["phoneID"] = phoneID
-                        let delivery = fields["mode"] == "voice" ? "voice" : "sms"
-                        answer["choice"] = delivery
-                        answer["action"] = delivery
+                        answer["action"] = "changeMethod"
+                        answer["choice"] = "changeMethod"
                         respond(answer)
-                    } label: {
-                        HStack {
-                            Image(systemName: "phone.fill")
-                                .foregroundColor(.accentColor)
-                            Text(option["label"] ?? "")
-                            Spacer()
-                        }
                     }
                     .disabled(isSubmitting)
+                    twoFactorCancelButton()
+                case .verifyingCode:
+                    ProgressView("Verifying code...")
+                case .deliveryRequested:
+                    ProgressView("Requesting verification...")
+                case .completed:
+                    Label("Verification complete", systemImage: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                case .failed:
+                    Text("Verification could not continue. You can change method or cancel sign-in.")
+                        .font(.footnote)
+                    twoFactorCancelButton()
+                case .cancelled:
+                    Text("Sign-in was cancelled.").font(.footnote)
                 }
-                Text("Step 2 - Enter the code you received:")
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.top, 4)
-                TextField("6-digit code", text: binding("code"))
-                    .keyboardType(.numberPad)
-                    .textFieldStyle(.roundedBorder)
-                Button("Submit Code") {
-                    var answer = fields
-                    answer["choice"] = "code"
-                    answer["action"] = "code"
-                    respond(answer)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled((fields["code"] ?? "").isEmpty || isSubmitting)
-                Button("Cancel Sign In", role: .cancel) {
-                    respond(["action": "cancel", "choice": "cancel"])
-                }
-                .disabled(isSubmitting)
             } else {
             ForEach(fieldDefs, id: \.self) { field in
                 // The "technical" field is diagnostics-only output: it renders
                 // as selectable caption text below, never as an editable field.
-                if field["key"] == "mode" || field["key"] == "activeID" || field["key"] == "phoneID" || field["key"] == "url" || field["key"] == "serials" || field["key"] == "technical" {
+                if field["key"] == "step" || field["key"] == "mode" || field["key"] == "activeID" || field["key"] == "phoneID" || field["key"] == "url" || field["key"] == "serials" || field["key"] == "technical" {
                     if let value = field["value"], !value.isEmpty, field["key"] == "url" {
                         Text(value)
                             .font(.caption)
@@ -2688,12 +2732,41 @@ struct V3PromptSection: View {
             }
         }
         .onAppear {
-            for field in fieldDefs {
-                if fields[field["key"] ?? ""] == nil {
-                    fields[field["key"] ?? ""] = field["value"] ?? ""
+            loadFields()
+        }
+        .onChange(of: prompt["id"] as? String ?? "") { _ in loadFields() }
+    }
+    private func loadFields() {
+        fields = [:]
+        selected = []
+        isSubmitting = false
+        for field in fieldDefs { fields[field["key"] ?? ""] = field["value"] ?? "" }
+    }
+    private func twoFactorOption(_ option: [String: String]) -> some View {
+        Button {
+            var answer = fields
+            let id = option["id"] ?? ""
+            answer["choice"] = id
+            answer["action"] = id
+            respond(answer)
+        } label: {
+            HStack {
+                if (option["id"] ?? "").hasPrefix("phone:") {
+                    Image(systemName: "phone.fill").foregroundColor(.accentColor)
                 }
+                Text(option["label"] ?? "")
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
             }
         }
+        .buttonStyle(.bordered)
+        .disabled(isSubmitting)
+    }
+    private func twoFactorCancelButton() -> some View {
+        Button("Cancel Sign In", role: .cancel) {
+            respond(["action": "cancel", "choice": "cancel"])
+        }
+        .disabled(isSubmitting)
     }
     private func binding(_ key: String) -> Binding<String> {
         Binding(get: { fields[key] ?? "" }, set: { fields[key] = $0 })
@@ -2717,8 +2790,11 @@ struct V3PromptSection: View {
 final class V3AuthStore: ObservableObject {
     @Published var state = "idle"
     @Published var prompt: [String: Any]?
+    @Published var previousFailure: [String: Any]?
     @Published var attempts = 0
     @Published var message = ""
+    @Published var deliveryProgressMessage = ""
+    @Published var twoFactorTransientStep: V3TwoFactorStep?
     @Published var team = ""
     @Published var promptSubmitting = false
     @Published private(set) var isCancelling = false
@@ -2731,13 +2807,34 @@ final class V3AuthStore: ObservableObject {
         task?.cancel()
         state = "working"
         message = ""
+        deliveryProgressMessage = ""
+        twoFactorTransientStep = nil
         prompt = nil
+        previousFailure = nil
         promptSubmitting = false
         cancellationConfirmed = true
         task = Task { await run() }
     }
     var canBegin: Bool {
         !isCancelling && cancellationConfirmed && !["working", "awaitingPrompt"].contains(state)
+    }
+
+    func reconcile() async {
+        guard !["working", "awaitingPrompt"].contains(state) else { return }
+        do {
+            let snapshot = try await V3ServiceBridge.shared.request(operation: "snapshot")
+            let account = snapshot["account"] as? String ?? "Not signed in"
+            if !account.isEmpty && account != "Not signed in" {
+                state = "completed"
+                team = snapshot["team"] as? String ?? ""
+                message = ""
+            } else if state == "idle" || state == "completed" {
+                state = "idle"
+                team = ""
+            }
+        } catch {
+            if state == "idle" { message = "Could not confirm the current SideStore account. Reload status and try again." }
+        }
     }
 
     private func run() async {
@@ -2773,16 +2870,31 @@ final class V3AuthStore: ObservableObject {
         state = reply["state"] as? String ?? state
         attempts = reply["attempts"] as? Int ?? attempts
         prompt = reply["prompt"] as? [String: Any]
-        if oldPromptID != (prompt?["id"] as? String) { promptSubmitting = false }
+        previousFailure = V3AuthPromptFailurePolicy.applying(reply: reply, current: previousFailure)
+        if oldPromptID != (prompt?["id"] as? String) {
+            promptSubmitting = false
+            if state == "awaitingPrompt" {
+                deliveryProgressMessage = ""
+                twoFactorTransientStep = nil
+            }
+        }
         if state == "completed" {
             team = reply["team"] as? String ?? ""
             prompt = nil
+            message = ""
+            deliveryProgressMessage = ""
+        } else if state == "authenticatedProvisioningIncomplete" {
+            team = reply["team"] as? String ?? team
+            message = reply["message"] as? String ?? "Signed in successfully, but provisioning could not be completed."
+            prompt = nil
+            deliveryProgressMessage = ""
         } else if state == "failed" {
-            var detail = "Sign-in failed."
-            if let stage = reply["stage"] as? String, let code = reply["code"] as? String {
-                detail += " (\(stage): \(code))"
-            }
-            message = detail
+            message = reply["message"] as? String ?? "The sign-in request failed for an unknown reason."
+            if let failure = reply["failure"] as? [String: Any] { previousFailure = failure }
+            prompt = nil
+            deliveryProgressMessage = ""
+        } else if state == "cancelled" {
+            message = "Sign-in was cancelled."
             prompt = nil
         }
     }
@@ -2793,13 +2905,14 @@ final class V3AuthStore: ObservableObject {
         switch failure["kind"] as? String {
         case "invalidCredentials": return "Apple did not accept the Apple ID or password. Check them and try again."
         case "appSpecificPasswordRequired": return "Apple requires an app-specific password for this authentication path."
-        case "invalidCode": return "The previous verification code was not accepted. Continue to try again with a new code."
+        case "invalidCode": return "The verification code was not accepted. Enter a new code and try again."
         case "rateLimited": return "Too many authentication attempts. Apple is temporarily rate-limiting requests. Wait before trying again."
         case "serviceUnavailable": return "Apple's authentication service did not return a valid response. Try again later."
         case "anisetteFailure", "anisette": return "Authentication could not obtain valid Anisette data."
         case "networkFailure", "network": return "Authentication could not reach the required Apple service. Check the connection and try again."
         case "accountRepairRequired": return "Apple requires attention on this account before signing in."
-        case "unknown", nil: break
+        case "unknown": return "Apple sign-in returned an error that could not be safely classified."
+        case nil: break
         default: break
         }
         let code = failure["code"] as? String ?? ""
@@ -2836,6 +2949,40 @@ final class V3AuthStore: ObservableObject {
         guard !promptID.isEmpty, let session,
               prompt?["id"] as? String == promptID else { return }
         promptSubmitting = true
+        previousFailure = V3AuthPromptFailurePolicy.clearingAfterSubmission(
+            previousFailure, promptKind: prompt?["kind"] as? String)
+        if prompt?["kind"] as? String == "twoFactor" {
+            switch answer["action"] {
+            case "trustedDevice":
+                twoFactorTransientStep = .deliveryRequested
+                deliveryProgressMessage = "Requesting approval from your trusted devices..."
+            case "sms", "voice":
+                let choices = prompt?["options"] as? [[String: Any]] ?? []
+                let phoneCount = choices.filter { ($0["id"] as? String ?? "").hasPrefix("phone:") }.count
+                if phoneCount > 1 {
+                    twoFactorTransientStep = .choosePhoneNumber
+                    deliveryProgressMessage = "Choose a phone number for this verification request..."
+                } else if answer["action"] == "voice" {
+                    twoFactorTransientStep = .deliveryRequested
+                    deliveryProgressMessage = "Requesting a verification call..."
+                } else {
+                    twoFactorTransientStep = .deliveryRequested
+                    deliveryProgressMessage = "Requesting a verification code by SMS..."
+                }
+            case "code":
+                twoFactorTransientStep = .verifyingCode
+                deliveryProgressMessage = "Verifying code..."
+            case "changeMethod":
+                twoFactorTransientStep = .chooseDeliveryMethod
+                deliveryProgressMessage = "Opening verification methods..."
+            default:
+                if answer["action"]?.hasPrefix("phone:") == true {
+                    let mode = answer["mode"] ?? "sms"
+                    twoFactorTransientStep = .deliveryRequested
+                    deliveryProgressMessage = mode == "voice" ? "Requesting a verification call..." : "Requesting a verification code by SMS..."
+                }
+            }
+        }
         Task {
             do {
                 let reply = try await V3ServiceBridge.shared.request(operation: "authRespond", target: session,
@@ -2848,6 +2995,10 @@ final class V3AuthStore: ObservableObject {
                 message = "The response could not be submitted. Check the connection, then try once more."
             }
         }
+    }
+
+    func clearPreviousFailure() {
+        previousFailure = V3AuthPromptFailurePolicy.clearingOnDismiss(previousFailure)
     }
 
     func cancel() {
@@ -2894,6 +3045,7 @@ struct V3SignInLink: View {
 
 struct V3SignInView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
+    @EnvironmentObject private var sharedModel: SharedModel
     @StateObject private var auth = V3AuthStore()
     var body: some View {
         List {
@@ -2903,19 +3055,39 @@ struct V3SignInView: View {
                     Spacer()
                     Text(statusText).foregroundColor(.secondary)
                 }
-                if auth.state == "completed" {
+                if auth.state == "completed" || auth.state == "authenticatedProvisioningIncomplete" {
                     HStack {
                         Label("Signed in", systemImage: "checkmark.circle.fill")
                             .foregroundColor(.green)
                         Spacer()
                         if !auth.team.isEmpty { Text(auth.team).foregroundColor(.secondary) }
                     }
+                    if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Next: Set Up JIT-Less")
+                                .font(.subheadline.weight(.semibold))
+                            Text("LiveContainer needs a JIT-Less certificate configured before guest apps can launch on iOS 26 and later.")
+                                .font(.footnote).foregroundColor(.secondary)
+                            Button("Continue to JIT-Less Setup") { openJITLessSetup() }
+                                .buttonStyle(.borderedProminent)
+                        }
+                        .padding(.vertical, 4)
+                    }
                 }
                 if !auth.message.isEmpty {
                     Text(auth.message)
                         .font(.footnote)
-                        .foregroundColor(.red)
+                        .foregroundColor(auth.state == "authenticatedProvisioningIncomplete" ? .orange : .red)
                         .textSelection(.enabled)
+                }
+                if !auth.deliveryProgressMessage.isEmpty {
+                    Text(auth.deliveryProgressMessage)
+                        .font(.footnote.weight(.medium))
+                        .foregroundColor(.orange)
+                } else if let progress = auth.twoFactorTransientStep?.progressLabel {
+                    Text(progress)
+                        .font(.footnote.weight(.medium))
+                        .foregroundColor(.orange)
                 }
                 if auth.state == "idle" || auth.state == "failed" || auth.state == "cancelled" {
                     Button {
@@ -2931,7 +3103,8 @@ struct V3SignInView: View {
                 }
             }
             if let prompt = auth.prompt {
-                if let previousFailure = prompt["previousFailure"] as? [String: Any] {
+                if V3AuthPromptFailurePolicy.isVisible(auth.previousFailure, promptKind: prompt["kind"] as? String),
+                   let previousFailure = auth.previousFailure {
                     Section {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(V3AuthStore.failureMessage(from: previousFailure))
@@ -2955,20 +3128,34 @@ struct V3SignInView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Sign In")
-        .task { auth.begin() }
+        .task { await auth.reconcile() }
         .onDisappear {
             auth.cancel()
+            auth.clearPreviousFailure()
             status.reload()
         }
     }
     private var statusText: String {
         switch auth.state {
         case "completed": return "Signed in"
+        case "authenticatedProvisioningIncomplete": return "Signed in, setup incomplete"
         case "awaitingPrompt": return "Needs your input"
         case "failed": return "Failed"
         case "cancelled": return "Cancelled"
         case "working": return "Working..."
         default: return "Not started"
+        }
+    }
+
+    private func openJITLessSetup() {
+        if status.setupPresented || status.signInPresented {
+            status.pendingCanonicalJITLessSetup = true
+            status.returnToSetupAfterJITLess = status.setupPresented
+            status.setupPresented = false
+            status.signInPresented = false
+        } else {
+            sharedModel.selectedTab = .settings
+            sharedModel.deepLink = URL(string: "livecontainer://jitless-setup")
         }
     }
 }
@@ -3759,52 +3946,105 @@ struct V3CustomizationsView: View {
     }
 }
 
+
 private struct V3PKCS12CertificateFacts {
     let teamIdentifier: String
     let identitySHA256: String
 }
 
+private enum V3JITLessStatusReader {
+    static func read(serviceCertificate: [String: Any]) async -> (V3JITLessReadiness, String) {
+        let osMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        let active = serviceCertificate["active"] as? Bool ?? false
+        let activeStatus = serviceCertificate["validation"] as? String ?? "unknown"
+        let activeFingerprint = serviceCertificate["certificateIdentitySHA256"] as? String ?? ""
+        let data = LCUtils.certificateData() as Data?
+        let password = LCSharedUtils.certificatePassword()
+        let facts = data.flatMap { bytes in password.flatMap { parse(bytes, password: $0) } }
+        let identitiesMatch: Bool? = {
+            guard active, !activeFingerprint.isEmpty, let facts else { return nil }
+            return activeFingerprint == facts.identitySHA256
+        }()
+        var validationStatus: Int?
+        var validationFailed = false
+        if data != nil && password != nil {
+            let validation = await validateLocalCopy()
+            validationStatus = validation.status
+            validationFailed = validation.failed
+        }
+        let state = V3JITLessReadinessPolicy.evaluate(
+            osMajor: osMajor,
+            hasCopy: data != nil && password != nil && facts != nil,
+            activeCertificateExists: active,
+            activeCertificateStatus: activeStatus,
+            identitiesMatch: identitiesMatch,
+            validationStatus: validationStatus,
+            validationFailed: validationFailed)
+        if osMajor >= 26 && !active {
+            return (state, "No active SideStore certificate. Open Certificates before continuing with JIT-Less setup.")
+        }
+        return (state, detail(for: state))
+    }
+
+    static func parse(_ data: Data, password: String) -> V3PKCS12CertificateFacts? {
+        var importedItems: CFArray?
+        let options = [kSecImportExportPassphrase as String: password] as CFDictionary
+        guard SecPKCS12Import(data as CFData, options, &importedItems) == errSecSuccess,
+              let item = (importedItems as? [[String: Any]])?.first,
+              let identityValue = item[kSecImportItemIdentity as String] else { return nil }
+        let identityObject = identityValue as AnyObject
+        guard CFGetTypeID(identityObject as CFTypeRef) == SecIdentityGetTypeID() else { return nil }
+        let identity = unsafeBitCast(identityObject, to: SecIdentity.self)
+        var certificate: SecCertificate?
+        guard SecIdentityCopyCertificate(identity, &certificate) == errSecSuccess,
+              let certificate,
+              let team = LCUtils.getCertTeamId(withKeyData: data, password: password) else { return nil }
+        let der = SecCertificateCopyData(certificate) as Data
+        let fingerprint = SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
+        return V3PKCS12CertificateFacts(teamIdentifier: team, identitySHA256: fingerprint)
+    }
+
+    private static func validateLocalCopy() async -> (status: Int?, failed: Bool) {
+        await withCheckedContinuation { (continuation: CheckedContinuation<(Int?, Bool), Never>) in
+            LCUtils.validateCertificate { status, _, _, error in
+                continuation.resume(returning: (Int(status), error != nil))
+            }
+        }
+    }
+
+    private static func detail(for state: V3JITLessReadiness) -> String {
+        switch state {
+        case .notRequired: return "Not required on this iOS version"
+        case .setupRequired: return "Setup Required"
+        case .certificateImported: return "Certificate imported; validation is not complete"
+        case .needsCertificateRefresh: return "JIT-Less certificate needs to be refreshed from SideStore"
+        case .revoked: return "The imported JIT-Less certificate is reported as revoked"
+        case .activeCertificateRevoked: return "SideStore's active certificate is reported as revoked"
+        case .activeCertificateExpired: return "SideStore's active certificate has expired"
+        case .ready: return "Ready"
+        case .unknown: return "Could not verify the JIT-Less certificate state"
+        }
+    }
+}
+
 struct V3HealthView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
+    @EnvironmentObject private var sharedModel: SharedModel
     @State private var rows: [(String, String)] = []
     @State private var certRows: [(String, String)] = []
     @State private var message = ""
-    @State private var notice = ""
-    @State private var syncIssue: V3JITLessCertificateSyncIssue?
+    @State private var jitlessReadiness: V3JITLessReadiness = .unknown
+    @State private var jitlessDetail = "Checking"
+    @State private var activeCertificateAvailable = false
     @State private var checking = false
-    @State private var syncingCertificate = false
+
     var body: some View {
         List {
             if status.needsSignIn {
-                Section {
-                    V3SignInLink(title: "Sign In to Check Account Health")
-                }
+                Section { V3SignInLink(title: "Sign In to Check Account Health") }
             }
             if !message.isEmpty {
                 Section { Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled) }
-            }
-            if !notice.isEmpty {
-                Section { Text(notice).font(.footnote).foregroundColor(.green) }
-            }
-            if let syncIssue {
-                Section("What happened") {
-                    Text(syncIssue.whatHappened).font(.footnote)
-                }
-                Section("What you can do") {
-                    Text(syncIssue.whatToDo).font(.footnote)
-                    Button("Open Certificates") { status.certificatesPresented = true }
-                }
-                Section {
-                    DisclosureGroup("Technical details") {
-                        Text(syncIssue.technicalDetails)
-                            .font(.caption2)
-                            .textSelection(.enabled)
-                    }
-                    Button("Copy Diagnostics") {
-                        UIPasteboard.general.string = syncIssue.technicalDetails
-                    }
-                    .font(.caption)
-                }
             }
             Section("Health") {
                 ForEach(rows, id: \.0) { row in
@@ -3829,28 +4069,52 @@ struct V3HealthView: View {
                     }
                     .font(.subheadline)
                 }
-                Text("SideStore refresh uses its active certificate, never the JIT-Less copy. Its revoked state alone does not cause a SideStore refresh failure. The imported copy is separate and can be synced below.")
+                Text("SideStore uses its active certificate for signing, refresh, and installation. LiveContainer keeps a separate JIT-Less certificate copy. JIT-Less certificate status does not by itself mean SideStore refresh used that copy.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            Section("JIT-Less Certificate") {
-                Text("Sync copies SideStore's current active certificate into LiveContainer's JIT-Less settings. The p12, password, team and identity are checked before writing; JIT-Less validation then checks revocation. A revoked or unverifiable certificate is not reported as repaired.")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                Button(syncingCertificate ? "Checking Active Certificate..." : "Sync JIT-Less Certificate from SideStore") {
-                    Task { await syncJITLessCertificate() }
+            Section("JIT-Less Mode") {
+                HStack {
+                    Text("Status")
+                    Spacer()
+                    Text(jitlessDetail).foregroundColor(.secondary).multilineTextAlignment(.trailing)
                 }
-                .disabled(syncingCertificate || checking)
+                if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 {
+                    switch jitlessReadiness {
+                    case .needsCertificateRefresh, .setupRequired, .revoked:
+                        Button(jitlessReadiness == .setupRequired ? "Set Up JIT-Less" : "Refresh JIT-Less Certificate") {
+                            openJITLessSetup()
+                        }
+                    case .activeCertificateRevoked, .activeCertificateExpired:
+                        Text("Refreshing the JIT-Less copy cannot repair SideStore's active certificate.")
+                            .font(.footnote).foregroundColor(.secondary)
+                        Button("Open Certificates") { status.certificatesPresented = true }
+                    case .unknown, .certificateImported:
+                        if activeCertificateAvailable {
+                            Button("Open JIT-Less Setup") { openJITLessSetup() }
+                        }
+                        Button("Open Certificates") { status.certificatesPresented = true }
+                    case .ready:
+                        Button("Open JIT-Less Diagnose") { openJITLessDiagnose() }
+                    case .notRequired:
+                        EmptyView()
+                    }
+                }
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Health Check")
         .task { await reload() }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3CanonicalJITLessCertificateUpdated"))) { _ in
+            Task { await reload() }
+        }
     }
+
     private func reload() async {
         guard !checking else { return }
         checking = true
         defer { checking = false }
+        jitlessDetail = "Checking"
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
             var result: [(String, String)] = []
@@ -3865,214 +4129,70 @@ struct V3HealthView: View {
                 result.append(("SideSign Configured", (sidesign["configured"] as? Bool ?? false) ? "Yes" : "No"))
             }
             rows = result
-            certRows = certComparison(service: reply["certificateState"] as? [String: Any] ?? [:])
+            let certificateState = reply["certificateState"] as? [String: Any] ?? [:]
+            activeCertificateAvailable = certificateState["active"] as? Bool == true
+            certRows = certComparison(service: certificateState)
+            let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificateState)
+            jitlessReadiness = readiness.0
+            jitlessDetail = readiness.1
             message = ""
-        } catch { message = error.localizedDescription }
-    }
-
-    private func syncJITLessCertificate() async {
-        guard !syncingCertificate, !checking else { return }
-        syncingCertificate = true
-        notice = ""
-        syncIssue = nil
-        defer { syncingCertificate = false }
-
-        do {
-            let health = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
-            let active = health["certificateState"] as? [String: Any] ?? [:]
-            let activeExists = active["active"] as? Bool == true
-            guard activeExists else { syncIssue = .noActiveCertificate; return }
-
-            guard let data = keychainData(account: "signingCertificate"), !data.isEmpty,
-                  let passwordData = keychainData(account: "signingCertificatePassword"),
-                  let password = String(data: passwordData, encoding: .utf8), !password.isEmpty else {
-                syncIssue = .keyMaterialUnavailable
-                return
-            }
-            guard let candidate = parsedCertificate(data: data, password: password) else {
-                syncIssue = .invalidPKCS12
-                return
-            }
-
-            let activeTeam = active["team"] as? String ?? ""
-            let activeFingerprint = active["certificateIdentitySHA256"] as? String ?? ""
-            let activeExpiry = active["expiry"] as? Date
-            let currentData = LCUtils.certificateData() as Data?
-            let currentPassword = LCSharedUtils.certificatePassword()
-            let current = currentData.flatMap { bytes in
-                currentPassword.flatMap { parsedCertificate(data: bytes, password: $0) }
-            }
-            let assessment = V3JITLessCertificateSyncAssessment.evaluate(
-                activeExists: true,
-                keyDataExists: !data.isEmpty,
-                passwordExists: !password.isEmpty,
-                p12Valid: true,
-                activeFingerprintMatches: !activeFingerprint.isEmpty &&
-                    activeFingerprint == candidate.identitySHA256,
-                teamMatches: !activeTeam.isEmpty && activeTeam == candidate.teamIdentifier,
-                activeExpired: activeExpiry.map { $0 <= Date() } ?? true,
-                alreadyCurrent: current?.identitySHA256 == candidate.identitySHA256)
-
-            switch assessment {
-            case .blocked(let issue):
-                syncIssue = issue
-                return
-            case .alreadyCurrent:
-                let validation = await validateCurrentJITLessCertificate()
-                if let issue = V3JITLessCertificateSyncAssessment.validationIssue(
-                    status: validation.status, hasError: validation.hasError) {
-                    syncIssue = issue
-                } else {
-                    notice = "The JIT-Less copy already matches SideStore's active certificate and validation succeeded."
-                    await reload()
-                }
-                return
-            case .sync:
-                break
-            }
-
-            let oldData = currentData
-            let oldPassword = currentPassword
-            let oldDate = LCUtils.appGroupUserDefault.object(forKey: "LCCertificateUpdateDate") as? Date
-            let updateDate = Date()
-            guard writeJITLessCertificate(data: data, password: password, updateDate: updateDate),
-                  let savedData = LCUtils.certificateData() as Data?, savedData == data,
-                  LCSharedUtils.certificatePassword() == password,
-                  LCUtils.appGroupUserDefault.object(forKey: "LCCertificateUpdateDate") as? Date == updateDate,
-                  let saved = parsedCertificate(data: savedData, password: password),
-                  saved.identitySHA256 == candidate.identitySHA256,
-                  saved.teamIdentifier == activeTeam else {
-                _ = writeJITLessCertificate(data: oldData, password: oldPassword, updateDate: oldDate)
-                syncIssue = .persistenceFailed
-                return
-            }
-
-            let validation = await validateCurrentJITLessCertificate()
-            if let issue = V3JITLessCertificateSyncAssessment.validationIssue(
-                status: validation.status, hasError: validation.hasError) {
-                _ = writeJITLessCertificate(data: oldData, password: oldPassword, updateDate: oldDate)
-                syncIssue = issue
-                return
-            }
-            notice = "The JIT-Less copy now matches SideStore's active certificate, and validation succeeded."
-            await reload()
         } catch {
-            // Never display or log keychain/framework details from this path.
-            syncIssue = .validationUnavailable
+            message = error.localizedDescription
+            jitlessReadiness = .unknown
+            jitlessDetail = "Could not check JIT-Less status"
+            activeCertificateAvailable = false
         }
     }
 
-    private func keychainData(account: String) -> Data? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecAttrService as String: "com.kdt.livecontainer",
-            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
-        ]
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess else { return nil }
-        return item as? Data
+    private func openJITLessSetup() {
+        sharedModel.selectedTab = .settings
+        sharedModel.deepLink = URL(string: "livecontainer://jitless-setup")
     }
 
-    private func parsedCertificate(data: Data, password: String) -> V3PKCS12CertificateFacts? {
-        var importedItems: CFArray?
-        let options = [kSecImportExportPassphrase as String: password] as CFDictionary
-        guard SecPKCS12Import(data as CFData, options, &importedItems) == errSecSuccess,
-              let item = (importedItems as? [[String: Any]])?.first,
-              let identityValue = item[kSecImportItemIdentity as String] else { return nil }
-        let identityObject = identityValue as AnyObject
-        guard CFGetTypeID(identityObject as CFTypeRef) == SecIdentityGetTypeID() else { return nil }
-        let identity = unsafeBitCast(identityObject, to: SecIdentity.self)
-        var certificate: SecCertificate?
-        guard SecIdentityCopyCertificate(identity, &certificate) == errSecSuccess,
-              let certificate,
-              let team = LCUtils.getCertTeamId(withKeyData: data, password: password) else { return nil }
-        let der = SecCertificateCopyData(certificate) as Data
-        let fingerprint = SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
-        return V3PKCS12CertificateFacts(teamIdentifier: team, identitySHA256: fingerprint)
+    private func openJITLessDiagnose() {
+        sharedModel.selectedTab = .settings
+        sharedModel.deepLink = URL(string: "livecontainer://jitless-diagnose")
     }
 
-    private func validateCurrentJITLessCertificate() async -> (status: Int, hasError: Bool) {
-        await withCheckedContinuation { (continuation: CheckedContinuation<(Int, Bool), Never>) in
-            LCUtils.validateCertificate { status, _, _, error in
-                continuation.resume(returning: (Int(status), error != nil))
-            }
-        }
-    }
-
-    // CFPreferencesSetMultiple writes the three legacy keys in one defaults
-    // transaction, preserving the format read by LiveContainer and Diagnose.
-    private func writeJITLessCertificate(data: Data?, password: String?, updateDate: Date?) -> Bool {
-        guard let suite = LCSharedUtils.appGroupID() else { return false }
-        var values: [String: Any] = [:]
-        var removals: [String] = []
-        if let data { values["LCCertificateData"] = data } else { removals.append("LCCertificateData") }
-        if let password { values["LCCertificatePassword"] = password } else { removals.append("LCCertificatePassword") }
-        if let updateDate { values["LCCertificateUpdateDate"] = updateDate } else { removals.append("LCCertificateUpdateDate") }
-        CFPreferencesSetMultiple(values as CFDictionary, removals as CFArray,
-                                 suite as CFString, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
-        guard CFPreferencesAppSynchronize(suite as CFString) else { return false }
-        _ = LCUtils.appGroupUserDefault.synchronize()
-        return (LCUtils.certificateData() as Data?) == data &&
-            LCSharedUtils.certificatePassword() == password &&
-            (LCUtils.appGroupUserDefault.object(forKey: "LCCertificateUpdateDate") as? Date) == updateDate
-    }
-
-    // Compares the SideStore pipeline certificate (service facts) against the
-    // LiveContainer JIT-Less copy (host facts: presence, team via local p12
-    // parse, last import date). Team identity and the public certificate DER
-    // fingerprint are compared locally; private key material never enters the
-    // service response, diagnostics, or logs.
     private func certComparison(service: [String: Any]) -> [(String, String)] {
         let active = service["active"] as? Bool ?? false
         let serialSuffix = service["serialSuffix"] as? String ?? ""
         let team = service["team"] as? String ?? ""
         let expiry = service["expiry"] as? Date
-        var result: [(String, String)] = []
-        result.append(("SideStore Active", active ? "Yes" : "No"))
+        var result: [(String, String)] = [("SideStore Active", active ? "Yes" : "No")]
         if active {
-            if !serialSuffix.isEmpty { result.append(("Active Serial", "…" + serialSuffix)) }
-            if !team.isEmpty { result.append(("Active Team", "…" + String(team.suffix(4)))) }
+            if !serialSuffix.isEmpty { result.append(("Active Serial", "?\(serialSuffix)")) }
+            if !team.isEmpty { result.append(("Active Team", "?\(String(team.suffix(4)))")) }
             if let expiry { result.append(("Active Expiry", expiry.formatted(date: .abbreviated, time: .omitted))) }
         }
-        let lcPresent = LCUtils.certificateData() != nil
-        result.append(("JIT-Less Copy", lcPresent ? "Imported" : "Not imported"))
-        var lcTeam = ""
-        var lcFingerprint = ""
-        if lcPresent,
-           let nsData = LCUtils.certificateData(),
-           let password = LCSharedUtils.certificatePassword(),
-           let parsed = LCUtils.getCertTeamId(withKeyData: nsData as Data, password: password) {
-             lcTeam = parsed
-             lcFingerprint = parsedCertificate(data: nsData as Data, password: password)?.identitySHA256 ?? ""
-            result.append(("Copy Team", "…" + String(parsed.suffix(4))))
+        let data = LCUtils.certificateData() as Data?
+        result.append(("JIT-Less Copy", data == nil ? "Not imported" : "Imported"))
+        var localTeam = ""
+        var localFingerprint = ""
+        if let data, let password = LCSharedUtils.certificatePassword(),
+           let facts = V3JITLessStatusReader.parse(data, password: password) {
+            localTeam = facts.teamIdentifier
+            localFingerprint = facts.identitySHA256
+            result.append(("Copy Team", "?\(String(localTeam.suffix(4)))"))
         }
-        if let lastUpdate = LCUtils.appGroupUserDefault.object(forKey: "LCCertificateUpdateDate") as? Date {
-            result.append(("Copy Imported", lastUpdate.formatted(date: .abbreviated, time: .shortened)))
+        if let date = LCUtils.appGroupUserDefault.object(forKey: "LCCertificateUpdateDate") as? Date {
+            result.append(("Copy Imported", date.formatted(date: .abbreviated, time: .shortened)))
         }
-        let verdict: String
-        if !active {
-            verdict = "unknown: SideStore has no active certificate"
-        } else if !lcPresent || lcTeam.isEmpty {
-            verdict = "unknown: no comparable JIT-Less copy"
-        } else if lcTeam == team, !team.isEmpty {
-            verdict = "yes: same team"
-        } else {
-            verdict = "no: different teams"
-        }
-        result.append(("Team Match", verdict))
+        let teamVerdict: String
+        if !active { teamVerdict = "unknown: no active SideStore certificate" }
+        else if localTeam.isEmpty || team.isEmpty { teamVerdict = "unknown: team could not be compared" }
+        else { teamVerdict = localTeam == team ? "yes: same team" : "no: different teams" }
+        result.append(("Team Match", teamVerdict))
         let activeFingerprint = service["certificateIdentitySHA256"] as? String ?? ""
         let identityVerdict: String
-        if !active {
-            identityVerdict = "unknown: SideStore has no active certificate"
-        } else if activeFingerprint.isEmpty || lcFingerprint.isEmpty {
+        if !active { identityVerdict = "unknown: no active SideStore certificate" }
+        else if activeFingerprint.isEmpty || localFingerprint.isEmpty {
             identityVerdict = "unknown: certificate identity could not be compared"
         } else {
-            identityVerdict = activeFingerprint == lcFingerprint ? "yes: same certificate" : "no: different certificates"
+            identityVerdict = activeFingerprint == localFingerprint ? "yes: same certificate" : "no: different certificates"
         }
         result.append(("Certificate Identity Match", identityVerdict))
+        if active { result.append(("SideStore Certificate Validation", service["validation"] as? String ?? "unknown")) }
         return result
     }
 }
@@ -4360,6 +4480,9 @@ final class V3SetupStore: ObservableObject {
     @Published var device = V3SetupStepState()
     @Published var pairing = V3SetupStepState()
     @Published var account = V3SetupStepState()
+    @Published var jitless = V3SetupStepState()
+    @Published var jitlessReadiness: V3JITLessReadiness = .unknown
+    @Published var jitlessHasActiveCertificate = false
     @Published var network = V3SetupStepState()
     @Published var tunnel = V3SetupStepState()
     @Published var background = V3SetupStepState()
@@ -4388,6 +4511,7 @@ final class V3SetupStore: ObservableObject {
     var isComplete: Bool {
         pairing.state == "complete" &&
         account.state == "complete" &&
+        (ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 || jitless.state == "complete") &&
         network.state == "complete" &&
         tunnel.state == "complete" &&
         background.state == "complete" &&
@@ -4409,6 +4533,38 @@ final class V3SetupStore: ObservableObject {
             account = V3SetupStepState(state: "warning", detail: "Signed in without an active team")
         } else {
             account = V3SetupStepState(state: "complete", detail: status.account)
+        }
+        if ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 {
+            jitlessReadiness = .notRequired
+            jitless = V3SetupStepState(state: "complete", detail: "Not required on this iOS version")
+        } else {
+            do {
+                let health = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
+                let certificate = health["certificateState"] as? [String: Any] ?? [:]
+                jitlessHasActiveCertificate = certificate["active"] as? Bool == true
+                let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificate)
+                jitlessReadiness = readiness.0
+                switch readiness.0 {
+                case .ready:
+                    jitless = V3SetupStepState(state: "complete", detail: "Ready")
+                case .notRequired:
+                    jitless = V3SetupStepState(state: "complete", detail: readiness.1)
+                case .setupRequired:
+                    jitless = V3SetupStepState(state: "actionRequired", detail: readiness.1)
+                case .needsCertificateRefresh:
+                    jitless = V3SetupStepState(state: "actionRequired", detail: "Needs Certificate Refresh")
+                case .revoked:
+                    jitless = V3SetupStepState(state: "actionRequired", detail: readiness.1)
+                case .activeCertificateRevoked, .activeCertificateExpired:
+                    jitless = V3SetupStepState(state: "failed", detail: readiness.1)
+                case .certificateImported, .unknown:
+                    jitless = V3SetupStepState(state: "warning", detail: readiness.1)
+                }
+            } catch {
+                jitlessReadiness = .unknown
+                jitlessHasActiveCertificate = false
+                jitless = V3SetupStepState(state: "warning", detail: "Could not verify JIT-Less certificate state")
+            }
         }
         network = V3SetupStepState(state: "checking", detail: "Checking Wi-Fi…")
         let wifi = await LiveContainerNetworkPreflight.wifiAvailable()
@@ -4618,6 +4774,7 @@ final class V3SetupStore: ObservableObject {
 
 struct V3SetupAssistantView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
+    @EnvironmentObject private var sharedModel: SharedModel
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     @StateObject private var setup = V3SetupStore()
@@ -4641,6 +4798,34 @@ struct V3SetupAssistantView: View {
                 setupRow(icon: "person.crop.circle", title: "Apple ID",
                          state: setup.account,
                          destination: AnyView(V3SignInView().environmentObject(status)))
+            }
+            if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 {
+                Section("JIT-Less Mode") {
+                    setupRow(icon: "bolt.horizontal.circle", title: "JIT-Less Mode",
+                             state: setup.jitless,
+                             destination: setup.jitlessReadiness == .ready
+                                ? AnyView(LCJITLessDiagnoseView())
+                                : ([.activeCertificateRevoked, .activeCertificateExpired].contains(setup.jitlessReadiness)
+                                    || !setup.jitlessHasActiveCertificate
+                                    ? AnyView(V3CertificatesView().environmentObject(status)) : nil))
+                    switch setup.jitlessReadiness {
+                    case .setupRequired:
+                        Button("Set Up JIT-Less") { openCanonicalJITLessSetup() }
+                    case .needsCertificateRefresh, .revoked:
+                        Button("Refresh JIT-Less Certificate") { openCanonicalJITLessSetup() }
+                    case .unknown, .certificateImported:
+                        if setup.jitlessHasActiveCertificate {
+                            Button("Open JIT-Less Setup") { openCanonicalJITLessSetup() }
+                        }
+                    case .ready:
+                        Button("Open JIT-Less Diagnose") {
+                            sharedModel.selectedTab = .settings
+                            sharedModel.deepLink = URL(string: "livecontainer://jitless-diagnose")
+                        }
+                    case .activeCertificateRevoked, .activeCertificateExpired, .notRequired:
+                        EmptyView()
+                    }
+                }
             }
             Section("Network") {
                 setupRow(icon: "wifi", title: "Wi-Fi",
@@ -4825,6 +5010,12 @@ struct V3SetupAssistantView: View {
         if let url = URL(string: UIApplication.openSettingsURLString) {
             UIApplication.shared.open(url)
         }
+    }
+
+    private func openCanonicalJITLessSetup() {
+        status.pendingCanonicalJITLessSetup = true
+        status.returnToSetupAfterJITLess = true
+        status.setupPresented = false
     }
 }
 

@@ -65,6 +65,28 @@ def patch_host(root: Path) -> None:
 
     settings = root / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"
     text = settings.read_text(encoding="utf-8")
+    if "V3_CANONICAL_JITLESS_ROUTE_V1" not in text:
+        text = replace_once(
+            text,
+            '    @State private var certificateDataFound = false',
+            '    @State private var certificateDataFound = false\n    @State private var v3OpenJITLessDiagnose = false // V3_CANONICAL_JITLESS_ROUTE_V1',
+            "canonical JIT-Less diagnose route state")
+        text = replace_once(
+            text,
+            '            Form {\n',
+            '            Form {\n                NavigationLink(destination: LCJITLessDiagnoseView(), isActive: $v3OpenJITLessDiagnose) { EmptyView() }.hidden()\n',
+            "canonical JIT-Less diagnose navigation")
+        text = replace_once(
+            text,
+            '    func handleURL(url: URL) {\n        if url.host == "certificate" {',
+            '    func handleURL(url: URL) {\n        if url.host == "jitless-setup" {\n            Task { await importCertificateFromSideStore() }\n            return\n        }\n        if url.host == "jitless-diagnose" {\n            v3OpenJITLessDiagnose = true\n            return\n        }\n        if url.host == "certificate" {',
+            "canonical JIT-Less setup and diagnose deep links")
+        text = replace_once(
+            text,
+            '        certificateDataFound = true\n    }',
+            '        certificateDataFound = true\n        NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated"), object: nil)\n    }',
+            "canonical JIT-Less import completion event")
+        settings.write_text(text, encoding="utf-8")
     old = '''                if store == .SideStore {
                     Section {
                         NavigationLink { LCEmbeddedSideStoreRefreshView() } label: { Text("SideStore scheduled refresh") }
@@ -133,7 +155,8 @@ def verify(live: Path, side: Path) -> None:
     shell = required[0].read_text(encoding="utf-8")
     for token in (MARKER, "V3SideStoreStatusStore", "V3SourcesView", "LCEmbeddedSideStoreRefreshView", "LCTabIdentifier.settings",
                   "V3SignInView", "V3CertificatesView", "V3PromptSection", "V3PairingView", "V3AuthStore",
-                  "V3SetupAssistantView", "V3SetupStore", "setupPresented"):
+                  "V3SetupAssistantView", "V3SetupStore", "setupPresented", "V3JITLessStatusReader",
+                  "pendingCanonicalJITLessSetup", "livecontainer://jitless-setup"):
         if token not in shell:
             die(f"v3 shell is missing {token}")
     for forbidden in ("V3RemoteServiceView", "Self.presenter", "presentingViewController: Self.presenter"):
@@ -147,6 +170,11 @@ def verify(live: Path, side: Path) -> None:
     app_list = (live / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift").read_text(encoding="utf-8")
     if "V3_UNIFIED_SHELL_V1: SideStore is reached through unified tabs." not in app_list:
         die("legacy SideStore launch button removal marker is missing from the Apps screen")
+    settings_source = (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text(encoding="utf-8")
+    for token in ("V3_CANONICAL_JITLESS_ROUTE_V1", "importCertificateFromSideStore()",
+                  "v3OpenJITLessDiagnose = true", "V3CanonicalJITLessCertificateUpdated"):
+        if token not in settings_source:
+            die(f"canonical LiveContainer JIT-Less route is missing {token}")
     if "V3_SIDESTORE_STATUS_SNAPSHOT_V1" not in (side / "AltStore/AppDelegate.swift").read_text(encoding="utf-8"):
         die("embedded SideStore snapshot retirement marker is missing")
     compiler = shutil.which("swiftc")

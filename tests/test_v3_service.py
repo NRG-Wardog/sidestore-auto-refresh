@@ -131,11 +131,11 @@ class ServicePatchTests(unittest.TestCase):
         bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
         for token in ("CoreData", "NSManagedObject", "appleIDXcodeToken"):
             self.assertNotIn(token, host + bridge)
-        sync = host[host.index("private func syncJITLessCertificate()"):host.index("private func keychainData(")]
-        self.assertIn('operation: "healthSnapshot"', sync)
-        self.assertNotIn("payload:", sync)
-        self.assertNotIn("p12Data", sync)
-        self.assertNotIn("UIPasteboard.general.string = data", sync)
+        self.assertIn("V3JITLessStatusReader", host)
+        self.assertIn("livecontainer://jitless-setup", host)
+        self.assertNotIn("syncJITLessCertificate", host)
+        self.assertNotIn('account: "signingCertificate"', host)
+        self.assertNotIn("writeJITLessCertificate", host)
         self.assertNotIn("v3SideStoreStatusSnapshot", host)
         self.assertIn("pending.removeValue", bridge)
         self.assertIn("decoded[\"id\"] as? String == id", bridge)
@@ -436,6 +436,10 @@ class GsaPreparedTreeTests(unittest.TestCase):
             if script.name == "patch_sidesign_privacy.py":
                 self.assertIn('LOGGING = Path("Sources/Logging.swift")', content)
                 self.assertNotIn("Authentication.swift", content)
+                continue
+            if script.name == "patch_sidesign_2fa_state.py":
+                self.assertIn("Authentication.swift", content)
+                self.assertIn("DeveloperPortalAPI.swift", content)
                 continue
             self.assertNotIn("DeveloperPortal/Authentication", content)
         medic = (ROOT / "scripts/combined_build_evidence.py").read_text(encoding="utf-8")

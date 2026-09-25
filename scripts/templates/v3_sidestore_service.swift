@@ -84,15 +84,22 @@ final class V3SideStoreService: NSObject {
                 else if let headlessError = error as? V3SideStoreServiceError { response["error"] = headlessError.rawValue }
                 else if error is CancellationError { response["error"] = "cancelled" }
                 else { response["error"] = "operationFailed" }
-                let stage: CombinedFailure.Stage
+                var stage: CombinedFailure.Stage
                 switch operation {
                 case "snapshot": stage = .serviceReadiness
+                case "catalog": stage = .catalog
                 case "authBegin", "authPoll", "authRespond", "authCancel", "accountExport", "accountImport": stage = .authentication
                 case "opStart", "opPoll", "opAnswer", "opCancel": stage = .command
                 case "certList", "certSetActive", "certDelete", "certPortalList", "certRevoke", "certCreate": stage = .signing
                 case "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles", "syncAppIDs": stage = .authentication
-                case "sourcePreview", "sourceAddConfirmed", "sourceRemoveConfirmed": stage = .command
+                case "sourcePreview", "sourceAddConfirmed", "sourceRemoveConfirmed": stage = .source
                 default: stage = .command
+                }
+                if let serviceError = error as? ServiceError, case .notReady = serviceError {
+                    stage = .serviceReadiness
+                }
+                if let serviceError = error as? V3SideStoreServiceError, case .notReady = serviceError {
+                    stage = .serviceReadiness
                 }
                 if let serviceError = error as? ServiceError {
                     let code: CombinedFailure.Code
@@ -115,7 +122,29 @@ final class V3SideStoreService: NSObject {
                     case .authRequired: code = .notReady
                     case .persistenceUnverified: code = .failed
                     }
-                    response["failure"] = CombinedFailure(operation: operation, stage: stage, code: code, id: id).wire
+                    if headlessError == .invalidRequest && ["sourcePreview", "sourceAddConfirmed"].contains(operation) {
+                        response["failure"] = CombinedFailure(operation: "source", stage: .source,
+                            code: .invalidConfiguration, id: id, safeCause: .sourceInvalidURL,
+                            sourceStep: .sourceDownload).wire
+                    } else if headlessError == .persistenceUnverified && operation == "sourceAddConfirmed" {
+                        response["failure"] = CombinedFailure(operation: "source", stage: .source, code: code,
+                            id: id, safeCause: .sourcePersistenceUnverified, sourceStep: .catalogRead).wire
+                    } else {
+                        response["failure"] = CombinedFailure(operation: operation, stage: stage, code: code, id: id).wire
+                    }
+                } else if let sourceError = error as? V3SourceCommandError {
+                    switch sourceError.kind {
+                    case .network:
+                        response["failure"] = CombinedFailure(operation: "source", stage: .source, code: .failed,
+                            id: id, underlying: NSError(domain: sourceError.domain, code: sourceError.code),
+                            safeCause: .sourceNetworkFailure, sourceStep: .sourceDownload).wire
+                    case .invalidManifest:
+                        response["failure"] = CombinedFailure(operation: "source", stage: .source, code: .invalidResponse,
+                            id: id, safeCause: .sourceInvalidManifest, sourceStep: .manifestParsing).wire
+                    }
+                } else if operation == "catalog" {
+                    response["failure"] = CombinedFailure(operation: "catalog", stage: .catalog, code: .failed,
+                        id: id, underlying: error, safeCause: .catalogUnavailable, sourceStep: .catalogRead).wire
                 } else {
                     response["failure"] = CombinedFailure.capture(error, operation: operation, stage: stage, id: id).wire
                 }
@@ -220,7 +249,8 @@ final class V3SideStoreService: NSObject {
             return reply
         case "authCancel":
             guard await V3HeadlessRuntime.shared.auth.cancelAndWait(id: target) else { throw ServiceError.invalidRequest }
-            return [:]
+            guard let reply = V3HeadlessRuntime.shared.auth.poll(id: target) else { throw ServiceError.invalidRequest }
+            return reply
         case "opStart":
             guard let kind = payload["kind"] as? String,
                   let session = payload["session"] as? String,

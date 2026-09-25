@@ -30,19 +30,18 @@ class V3TwoFactorTests(unittest.TestCase):
 
     def test_sms_request_with_phone_id(self):
         text = runtime()
-        self.assertIn("return .requestSMS(phoneID:", text)
-        # The selected phone ID is forwarded, never dropped.
-        self.assertIn('answer["phoneID"] ?? activeID', text)
+        self.assertIn("return method == \"sms\" ? .requestSMS(phoneID: phoneID) : .requestVoice(phoneID: phoneID)", text)
+        self.assertIn('phoneID = String(chosen.dropFirst("phone:".count))', text)
 
     def test_voice_request_with_phone_id(self):
         text = runtime()
-        self.assertIn("return .requestVoice(phoneID:", text)
+        self.assertIn(".requestVoice(phoneID: phoneID)", text)
 
     def test_phone_number_selection(self):
         text = runtime()
         # Phone options are offered alongside delivery methods.
-        self.assertIn('"phone:\\(phone["id"]', text)
-        self.assertIn('"phoneID"', text)
+        self.assertIn('"id": "phone:\\($0.id)"', text)
+        self.assertIn('String(chosen.dropFirst("phone:".count))', text)
 
     def test_code_submission(self):
         text = runtime()
@@ -51,8 +50,9 @@ class V3TwoFactorTests(unittest.TestCase):
 
     def test_delivery_failure_propagates_to_prompt(self):
         text = runtime()
-        # A failed delivery request re-prompts with the real failure text.
-        self.assertIn("request.error", text)
+        # SideSign returns a closed typed value. Provider text is not rendered.
+        self.assertIn("request.verificationFailure", text)
+        self.assertIn("failure?.userMessage", text)
 
     def test_no_automatic_resend_loop(self):
         text = runtime()
@@ -93,9 +93,9 @@ class V3TwoFactorTests(unittest.TestCase):
 
     def test_delivery_diagnostics_present(self):
         text = runtime()
-        self.assertIn("2FA_DELIVERY_SELECTED", text)
         self.assertIn("2FA_DELIVERY_REQUESTED", text)
         self.assertIn("2FA_CODE_SUBMITTED", text)
+        self.assertIn("Requesting a verification code by SMS...", shell())
 
     # --- SideSign integration wiring (verifies the actual upstream call path) ---
     def test_verification_code_maps_to_sidesign_request(self):
@@ -111,7 +111,7 @@ class V3TwoFactorTests(unittest.TestCase):
     def test_host_twofactor_ui_renders_delivery_methods(self):
         text = shell()
         # The host prompt renders the delivery method buttons and phone selection
-        self.assertIn("Step 1 - Choose how Apple sends your code", text)
+        self.assertIn("Choose how Apple sends your verification code", text)
         self.assertIn("trustedDevice", text)
         self.assertIn("sms", text)
         self.assertIn("voice", text)
@@ -119,16 +119,30 @@ class V3TwoFactorTests(unittest.TestCase):
 
     def test_host_twofactor_ui_renders_code_submission(self):
         text = shell()
-        self.assertIn("Step 2 - Enter the code you received", text)
-        self.assertIn("Submit Code", text)
+        self.assertIn("Change Verification Method", text)
+        self.assertIn("Verify Code", text)
         self.assertIn("binding(\"code\")", text)
+
+    def test_delivery_ack_and_typed_wrong_code_remain_in_separate_code_step(self):
+        backend = runtime()
+        host = shell()
+        for acknowledgement in ("Verification request sent to your trusted devices.",
+                                "Verification code requested by SMS.",
+                                "Verification call requested."):
+            self.assertIn(acknowledgement, backend)
+        self.assertIn("The verification code was not accepted. Enter a new code and try again.",
+                      (ROOT / "scripts/patch_sidesign_2fa_state.py").read_text(encoding="utf-8"))
+        self.assertIn("case .enterVerificationCode", host)
+        self.assertIn("accepted ? .completed : .enterVerificationCode",
+                      (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+        self.assertIn("auth.deliveryProgressMessage", host)
 
     def test_delivery_mode_selected_before_request(self):
         # The prompt includes the active mode in fields, which the handler
         # reads to know which delivery method the user chose.
         text = runtime()
         self.assertIn('"key": "mode"', text)
-        self.assertIn('"value": mode', text)
+        self.assertIn('"value": mode.rawValue', text)
 
 
 if __name__ == "__main__":

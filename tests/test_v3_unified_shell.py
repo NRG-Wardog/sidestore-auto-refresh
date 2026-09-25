@@ -24,12 +24,34 @@ def fixture(root: Path) -> Tuple[Path, Path]:
     (live / "LiveContainerSwiftUI/Utilities/Shared.swift").write_text("public enum LCTabIdentifier: Hashable {\n    case sources\n    case apps\n    case tweaks\n    case settings\n}\n\npublic struct SharedModel {\n    @Published var selectedTab: LCTabIdentifier = .apps\n}\n")
     (live / "LiveContainerSwiftUI/App/LiveContainerSwiftUIApp.swift").write_text("struct Root {\n            LCTabView()\n}\n")
     (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").write_text('''struct Settings {
+    @State private var certificateDataFound = false
+    var body: some View {
+        NavigationView {
+            Form {
+                if sharedModel.multiLCStatus != 2 {
+                }
+            }
+        }
+    }
                 if store == .SideStore {
                     Section {
                         NavigationLink { LCEmbeddedSideStoreRefreshView() } label: { Text("SideStore scheduled refresh") }
                     }
                 }
 }
+
+    func onSideStoreCertificateCallback(certificateData: Data, password: String) {
+        certificateDataFound = true
+    }
+
+    func removeCertificate() async {
+    }
+
+    func handleURL(url: URL) {
+        if url.host == "certificate" {
+            return
+        }
+    }
 
 struct LCTweaksView: View {
     var body: some View { Text("tweaks") }
@@ -284,7 +306,8 @@ precondition(near(scrolledSection, CGRect(x: 0, y: -262, width: 390, height: 325
                       "V3LogsView", "V3ExperimentalView", "V3SettingsStore",
                       "V3OperationSheet", "signInPresented", "V3SignInLink",
                       "needsSignIn", "Begin Sign In", "V3RefreshDetailView",
-                      "NRG-Wardog", "Step 1 -", "Submit Code"):
+                      "NRG-Wardog", "Choose how Apple sends", "Verify Code",
+                      "Change Verification Method", "Requesting a verification"):
             self.assertIn(token, source)
         for gone in ("Quick Actions",
                      ".sheet(isPresented: $status.refreshPresented"):
@@ -318,7 +341,7 @@ class V3SetupAssistantTests(unittest.TestCase):
 
     def test_setup_entry_points(self):
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        self.assertIn(".sheet(isPresented: $status.setupPresented)", source)
+        self.assertIn(".sheet(isPresented: $status.setupPresented, onDismiss: { routePendingCanonicalJITLessSetup() })", source)
         self.assertIn("V3SetupAssistantView", source)
         self.assertIn("routePendingSetup()", source)
         self.assertIn('"V3PendingSetupAssistant"', source)
@@ -377,6 +400,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         block = source[source.index("var isComplete: Bool"):source.index("var isComplete: Bool") + 800]
         for required in ('pairing.state == "complete"', 'account.state == "complete"',
+                         'ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 || jitless.state == "complete"',
                          'network.state == "complete"', 'tunnel.state == "complete"',
                          'background.state == "complete"', 'schedule.state == "complete"',
                          'verification.state == "complete"'):
