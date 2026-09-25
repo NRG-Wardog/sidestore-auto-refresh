@@ -59,8 +59,10 @@ class SideSignPrivacyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             api_path = root / "Sources/DeveloperPortal/DeveloperPortalAPI.swift"
+            auth_path = root / "Sources/DeveloperPortal/Authentication.swift"
             api_path.parent.mkdir(parents=True)
             shutil.copyfile(source / "Sources/DeveloperPortal/DeveloperPortalAPI.swift", api_path)
+            shutil.copyfile(source / "Sources/DeveloperPortal/Authentication.swift", auth_path)
             tfa_patch.patch(root)
             api = api_path.read_text(encoding="utf-8")
             start = api.index("// V3_TFA_TYPED_STATE_V1:")
