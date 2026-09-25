@@ -1021,7 +1021,7 @@ final class V3OperationCenter {
         let baseContext = StandaloneOperationContext(steps: .signIn, dbBackgroundContext: background)
         switch kind {
         case "install", "installURL", "installSharedIPA":
-            let installTarget = try await resolveInstallTarget(kind: kind, target: target)
+            let installTarget = try await resolveInstallTarget(id: id, kind: kind, target: target)
             let app: AppProtocol
             switch installTarget {
             case .app(let protocolApp):
@@ -1250,7 +1250,7 @@ final class V3OperationCenter {
         }
     }
 
-    private func resolveInstallTarget(kind: String, target: String) async throws -> InstallTarget {
+    private func resolveInstallTarget(id: String, kind: String, target: String) async throws -> InstallTarget {
         if kind == "install" {
             let app: StoreApp = try v3Resolve(target)
             guard app.latestSupportedVersion != nil else { throw V3SideStoreServiceError.unsupported }
