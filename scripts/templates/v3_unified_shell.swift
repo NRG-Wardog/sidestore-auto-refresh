@@ -3719,7 +3719,7 @@ struct V3PairingView: View {
                         .font(.footnote.weight(.semibold))
                     Text("If you installed with iLoader:")
                         .font(.footnote).foregroundColor(.secondary)
-                    ForEach(Array(pairingPlacementSteps.enumerated()), id: \.offset) { index, step in
+                    ForEach(Array(Self.pairingPlacementSteps.enumerated()), id: \.offset) { index, step in
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text("\(index + 1).").font(.caption).foregroundColor(.secondary)
                             Text(step).font(.footnote)

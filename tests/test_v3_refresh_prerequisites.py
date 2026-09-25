@@ -238,6 +238,9 @@ class PairingGuidanceTests(unittest.TestCase):
             "Wait for the tool to confirm success.",
             "Return to LC+SS.",
         ])
+        # A static member of a View cannot be referenced bare from an instance
+        # body, so the call site must be qualified.
+        self.assertIn("Array(Self.pairingPlacementSteps.enumerated())", text)
 
     def test_manual_import_is_kept_as_a_secondary_fallback(self):
         text = shell()
