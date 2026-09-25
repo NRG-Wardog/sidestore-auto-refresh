@@ -325,5 +325,38 @@ class ResumableProvisioningOperationTests(unittest.TestCase):
         self.assertIn('"authRetryProvisioning": "signIn"', failure)
 
 
+    def test_pinned_cases_with_defaulted_payloads_are_supplied_explicitly(self):
+        # A SideStore.OperationError case that declares a default for its
+        # associated value is exposed as a synthesised static function. Outside a
+        # switch, a bare `.case` reference therefore names that function and does
+        # not compile. The typed harness must always supply the payload, so this
+        # is caught without a Swift round-trip.
+        if not PINNED.exists():
+            self.skipTest("pinned SideStore sources unavailable")
+        pinned = PINNED.read_text(encoding="utf-8")
+        defaulted = set()
+        for line in pinned.splitlines():
+            match = re.match(r"^\s{4}case ([A-Za-z_][A-Za-z0-9_]*)\((.*)\)\s*$", line)
+            if match and "=" in match.group(2):
+                defaulted.add(match.group(1))
+        self.assertIn("noConnection", defaulted, "pinned enum shape changed")
+        harness = (ROOT / "tests/fixtures/v3_provisioning_typed_guidance_harness.swift").read_text(encoding="utf-8")
+        offenders = []
+        for name in sorted(defaulted):
+            for match in re.finditer(rf"v3OperationErrorGuidance\(\s*\.{name}\s*\)", harness):
+                offenders.append(name)
+        self.assertEqual(offenders, [],
+                         f"a defaulted-payload case is referenced bare: {offenders}")
+        # Every reference is explicitly qualified or supplies its payload.
+        for match in re.finditer(r"v3OperationErrorGuidance\(\s*\.([A-Za-z_][A-Za-z0-9_]*)", harness):
+            name = match.group(1)
+            if name in defaulted:
+                self.fail(f".{name} needs an explicit payload in the harness")
+        # The production switch may use bare patterns; only expression position
+        # is affected, so the guidance function is expected to keep them.
+        for name in ("noConnection", "noVPN", "invalidPairingFile"):
+            self.assertIn(f"case .{name}:", guidance_function())
+
+
 if __name__ == "__main__":
     unittest.main()

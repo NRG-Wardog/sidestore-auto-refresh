@@ -53,16 +53,19 @@ struct ProvisioningTypedGuidanceHarness {
     static func main() {
         // The transport and pairing prerequisites a device needs to finish
         // provisioning after Apple authentication already succeeded.
-        precondition(v3OperationErrorGuidance(.noConnection).message
+        // A case that declares a default for its associated value is referenced
+        // as a function outside a switch, so the payload is always supplied
+        // explicitly here.
+        precondition(v3OperationErrorGuidance(OperationError.noConnection(reason: nil)).message
             == "SideStore could not reach this device to finish provisioning.")
-        precondition(v3OperationErrorGuidance(.noVPN).hint.contains("LocalDevVPN"))
-        precondition(v3OperationErrorGuidance(.invalidVPN).hint.contains("LocalDevVPN"))
-        precondition(v3OperationErrorGuidance(.noDevice).hint.contains("endpoint"))
-        precondition(v3OperationErrorGuidance(.notReachable(reason: "")).hint.contains("Connection"))
-        precondition(v3OperationErrorGuidance(.invalidPairingFile).hint.contains("pairing file"))
-        precondition(v3OperationErrorGuidance(.minimuxerNotStarted).hint.contains("pairing"))
-        precondition(v3OperationErrorGuidance(.pairingNotComplete).hint.contains("pairing file"))
-        precondition(v3OperationErrorGuidance(.unknownUDID).message
+        precondition(v3OperationErrorGuidance(OperationError.noVPN(reason: nil)).hint.contains("LocalDevVPN"))
+        precondition(v3OperationErrorGuidance(OperationError.invalidVPN(reason: nil)).hint.contains("LocalDevVPN"))
+        precondition(v3OperationErrorGuidance(OperationError.noDevice(reason: nil)).hint.contains("endpoint"))
+        precondition(v3OperationErrorGuidance(OperationError.notReachable(reason: "")).hint.contains("Connection"))
+        precondition(v3OperationErrorGuidance(OperationError.invalidPairingFile(reason: nil)).hint.contains("pairing file"))
+        precondition(v3OperationErrorGuidance(OperationError.minimuxerNotStarted(reason: nil)).hint.contains("pairing"))
+        precondition(v3OperationErrorGuidance(OperationError.pairingNotComplete(reason: nil)).hint.contains("pairing file"))
+        precondition(v3OperationErrorGuidance(OperationError.unknownUDID).message
             == "SideStore could not identify this device for registration.")
 
         // The account and certificate families.
@@ -112,11 +115,11 @@ struct ProvisioningTypedGuidanceHarness {
 
         // An unclassified case stays honestly unclassified; it is never
         // relabelled as a credential, pairing, or manifest problem.
-        let unknown = v3OperationErrorGuidance(.serverNotFound)
-        precondition(unknown.message.contains("does not classify"))
-        precondition(!unknown.message.lowercased().contains("password"))
-        precondition(!unknown.message.lowercased().contains("manifest"))
-        precondition(!unknown.message.lowercased().contains("pairing"))
+        let unclassified = v3OperationErrorGuidance(OperationError.serverNotFound)
+        precondition(unclassified.message.contains("does not classify"))
+        precondition(!unclassified.message.lowercased().contains("password"))
+        precondition(!unclassified.message.lowercased().contains("manifest"))
+        precondition(!unclassified.message.lowercased().contains("pairing"))
 
         // The bridged NSError integer is not a semantic API: every
         // OperationError bridges to code 0, so guidance must not depend on it.
