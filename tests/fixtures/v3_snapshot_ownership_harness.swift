@@ -16,11 +16,6 @@ import Foundation
 // V3SnapshotGate. Continuations are represented by an index into a waiters
 // list, exactly as the store holds a CheckedContinuation array.
 
-enum Waiter {
-    case none
-    case parked(manual: Bool)
-}
-
 @main
 struct SnapshotOwnershipHarness {
     // A faithful model of the store's ownership state.
@@ -38,9 +33,6 @@ struct SnapshotOwnershipHarness {
         var presentationActive = false
         /// Set by a test to make the next snapshot fail.
         var nextSnapshotFails = false
-        /// Incremented by the store when a snapshot is started; a snapshot body
-        /// completing later reports which one it was.
-        private var generation = 0
 
         func beginSnapshot(manual: Bool) -> V3SnapshotDecision {
             let decision = V3SnapshotGate.decide(
@@ -64,7 +56,6 @@ struct SnapshotOwnershipHarness {
             if manual { requiresConnectionRetry = false }
             activity = .snapshot
             loading = true
-            generation += 1
         }
 
         func beginMutation() {
@@ -255,7 +246,25 @@ struct SnapshotOwnershipHarness {
         do {
             let s = Store()
             s.nextSnapshotFails = true
-            precondition(s.reloadAndWait(manual: true) == "applied" || true)
+            precondition(s.reloadAndWait(manual: true) == "snapshotFailed",
+                         "the owning caller must see the failure, not a success")
+            precondition(s.snapshotsPerformed == ["snapshotFailed"])
+            // A caller that joined a failing snapshot sees the same failure.
+            s.nextSnapshotFails = false
+            s.startSnapshot(manual: true)
+            precondition(s.reloadAndWait(manual: true) == "parked")
+            s.nextSnapshotFails = true
+            s.completeSnapshot()
+            precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "snapshotFailed")
+        }
+
+        // 7b. a snapshot failure is still a failure for the joiner
+        do {
+            let s = Store()
+            s.startSnapshot(manual: true)
+            precondition(s.reloadAndWait(manual: true) == "parked")
+            s.nextSnapshotFails = true
+            s.completeSnapshot()
             precondition(s.snapshotsPerformed == ["snapshotFailed"])
             precondition(s.resumptions.isEmpty, "the owning caller got the result directly")
             precondition(s.requiresConnectionRetry)

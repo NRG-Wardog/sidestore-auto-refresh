@@ -88,7 +88,12 @@ struct ResponseClassificationHarness {
         precondition(encodingFailure.safeCause == .responseEncodingFailed,
                      "an encoding failure must arrive as responseEncodingFailed, got \(String(describing: encodingFailure.safeCause))")
         precondition(encodingFailure.code == .invalidResponse)
-        precondition(encodingFailure.stage == .catalog, "the catalog stage must survive the fallback")
+        // The fallback reports the wire boundary, which is the truthful stage for
+        // a reply that could not be built. The host's own undecodable and
+        // oversize boundaries use the request's own stage instead, which is
+        // checked by the host-boundary assertions in the Python regression.
+        precondition(encodingFailure.stage == .command,
+                     "a reply the service could not build failed at the wire boundary")
         precondition(encodingFailure.correlationID == encodingID, "the correlation must survive the fallback")
         precondition(encodingFailure.retryable == false,
                      "a serialization defect is not fixed by repeating the same request")
@@ -149,11 +154,11 @@ struct ResponseClassificationHarness {
         let okReply = try! PropertyListSerialization.data(
             fromPropertyList: ["version": 1, "id": okID, "ok": true, "result": ["apps": [["identifier": "a"]]]],
             format: .binary, options: 0)
-        let okResult = try V3CatalogRequestContext.classifyReply(okReply, operation: "catalog", id: okID)
-        precondition(okResult["result"] is [String: Any],
-                     "a well-formed success reply must still be returned, not thrown")
+        let okResult = try! V3CatalogRequestContext.classifyReply(okReply, operation: "catalog", id: okID)
         let okInner = okResult["result"] as? [String: Any]
-        precondition(okInner?["apps"] != nil)
+        precondition(okInner != nil,
+                     "a well-formed success reply must still be returned, not thrown")
+        precondition((okInner?["apps"] as? [Any])?.isEmpty == false)
 
         // ---------------------------------------------------------------
         // No sensitive value crosses the boundary in a fallback. The offending

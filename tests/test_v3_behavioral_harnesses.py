@@ -34,8 +34,10 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         # against the real gate policy, including the no-duplicate-snapshot and
         # no-stranded-continuation cases.
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        # The primitives reference the error model, so it travels with them.
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_snapshot_ownership_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run(helper + "\n" + harness, "V3_SNAPSHOT_OWNERSHIP_PASS")
+        self.compile_and_run(failure + "\n" + helper + "\n" + harness, "V3_SNAPSHOT_OWNERSHIP_PASS")
 
     def test_response_encoding_classification_survives_the_wire(self):
         # V3_RESPONSE_CLASSIFICATION_CARRIER_V1: executes the REAL service
