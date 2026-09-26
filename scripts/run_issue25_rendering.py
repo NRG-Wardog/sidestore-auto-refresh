@@ -139,7 +139,31 @@ def build_v3_app(output: Path, live: Path, source: Path | None) -> tuple[Path, s
         "                        .background(FixtureGeometryProbe(id: \"reload-label\"))\n"
         "                } icon:", 1)
     generated_header = build / "V3HomeServiceHeader.swift"
-    generated_header.write_text("import SwiftUI\n" + header)
+    # The Home header renders the shared semantic status model, so the real
+    # production definitions are emitted alongside it rather than a stub. The
+    # layout evidence is only meaningful if it renders the shipped types. The
+    # model normally lives in the behavioral primitives, which are concatenated
+    # into the generated shell, so both sources are tried.
+    severity_model = ""
+    tint_model = ""
+    for candidate in (text, (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")):
+        if "enum V3StatusSeverity: String, Equatable, CaseIterable {" not in candidate:
+            continue
+        severity_start = candidate.index("enum V3StatusSeverity: String, Equatable, CaseIterable {")
+        severity_end = candidate.index("\n}\n", candidate.index(
+            "static func connectionState(", severity_start)) + len("\n}\n")
+        severity_model = candidate[severity_start:severity_end]
+        break
+    for candidate in (text, (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")):
+        if "extension V3StatusPresentation {" not in candidate:
+            continue
+        tint_start = candidate.index("extension V3StatusPresentation {")
+        tint_end = candidate.index("\n}\n", tint_start) + len("\n}\n")
+        tint_model = candidate[tint_start:tint_end]
+        break
+    if not severity_model or not tint_model:
+        raise RuntimeError("Semantic status model not found for the Reload Status layout probe")
+    generated_header.write_text("import SwiftUI\n" + severity_model + "\n" + tint_model + "\n" + header)
     sources = [live / "LiveContainerSwiftUI/Models/AppLayoutStyle.swift", generated, generated_header,
                ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift"]
     hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}

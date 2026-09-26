@@ -373,6 +373,24 @@ class ReloadLabelTests(unittest.TestCase):
         # The old ordering let a green "Active & Connected" win over a reload.
         self.assertNotIn('isConnected ? "Active & Connected"', header)
 
+    def test_layout_renderer_ships_the_real_status_model(self):
+        # The Reload Status layout probe compiles V3HomeServiceHeader standalone.
+        # If the shared semantic status model is not emitted with it, the probe
+        # cannot build and the layout evidence is lost.
+        renderer = (ROOT / "scripts/run_issue25_rendering.py").read_text(encoding="utf-8")
+        self.assertIn("enum V3StatusSeverity: String, Equatable, CaseIterable {", renderer)
+        self.assertIn("extension V3StatusPresentation {", renderer)
+        self.assertIn('"import SwiftUI\\n" + severity_model + "\\n" + tint_model + "\\n" + header', renderer)
+        # The model is resolved from the shell or the primitives, and a missing
+        # model fails loudly rather than silently rendering a stub.
+        self.assertIn("v3_behavioral_primitives.swift", renderer)
+        self.assertIn("Semantic status model not found for the Reload Status layout probe", renderer)
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertIn("extension V3StatusPresentation {", shell)
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        self.assertIn("enum V3StatusSeverity", primitives)
+        self.assertIn("struct V3StatusPresentation", primitives)
+
     def test_simulator_harness_renders_reload_status_on_narrow_phone_and_tablet(self):
         renderer = (ROOT / "scripts/run_issue25_rendering.py").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/issue25_v3_rendering_harness.swift").read_text(encoding="utf-8")
