@@ -271,13 +271,49 @@ struct SetupAndSemanticUXHarness {
         // V3_FAILURE_GUIDANCE_V1: a typed failure keeps its own recovery copy, an
         // untyped one never publishes a numeric domain and code as guidance, and
         // neither claims a network cause that was not proven.
-        let typed = CombinedFailure(operation: "source", stage: .sourceDownload, code: .failed,
-                                    id: UUID().uuidString, safeCause: .sourceNetworkFailure)
+        let typed = CombinedFailure(operation: "source", stage: .source, code: .failed,
+                                    id: UUID().uuidString, retryable: true,
+                                    safeCause: .sourceNetworkFailure, sourceStep: .sourceDownload)
         precondition(V3FailureGuidance.message(typed) == typed.recovery,
                      "a typed failure shows its own product recovery copy")
         precondition(V3FailureGuidance.diagnostics(typed) == typed.technicalDetails)
         precondition(!V3FailureGuidance.message(typed).contains("LiveContainer"),
                      "guidance must not leak the underlying error domain")
+
+        // A source failure must earn the source action, and only that action, so
+        // the button the user presses re-requests the sources instead of claiming
+        // a retry while only reloading status.
+        let sourceIssue = V3UserFacingIssue.make(typed)
+        precondition(sourceIssue.recoveryDestination == "sources",
+                     "a source failure routes to Sources")
+        precondition(sourceIssue.primaryAction == .retrySource)
+        precondition(sourceIssue.primaryAction.title == "Retry Source")
+        precondition(sourceIssue.retryDisposition == .allowed)
+
+        // A networking failure is the only case that may offer a connection retry,
+        // and it must still be routed by the typed stage rather than by a guess.
+        let networkIssue = V3UserFacingIssue.make(
+            CombinedFailure(operation: "status", stage: .network, code: .failed,
+                            id: UUID().uuidString, safeCause: .networkConnectionLost))
+        precondition(networkIssue.recoveryDestination == "connection")
+        precondition(networkIssue.primaryAction == .retryConnection,
+                     "a retryable connection failure is the one case that offers a retry")
+        // A connection-stage failure that is provably not retryable is inspected
+        // rather than blindly retried.
+        let blockedNetworkIssue = V3UserFacingIssue.make(
+            CombinedFailure(operation: "status", stage: .network, code: .failed,
+                            id: UUID().uuidString, retryable: false))
+        precondition(blockedNetworkIssue.recoveryDestination == "connection")
+        precondition(blockedNetworkIssue.primaryAction == .openConnectionCheck)
+        precondition(blockedNetworkIssue.retryDisposition == .blocked)
+
+        // A certificate failure must never be described as a connection problem.
+        let certificateIssue = V3UserFacingIssue.make(
+            CombinedFailure(operation: "refresh", stage: .signing, code: .failed,
+                            id: UUID().uuidString, safeCause: .certificateUnavailable))
+        precondition(certificateIssue.recoveryDestination == "certificates")
+        precondition(certificateIssue.primaryAction == .openCertificates)
+
         let untyped = NSError(domain: "LiveContainer.Service", code: 4865)
         precondition(!V3FailureGuidance.message(untyped).contains("4865"),
                      "a numeric error code must never be shown as guidance")
@@ -285,8 +321,16 @@ struct SetupAndSemanticUXHarness {
                      "the raw error domain must not be shown as guidance")
         precondition(V3FailureGuidance.diagnostics(untyped).contains("4865"),
                      "the code stays available through diagnostics")
-        precondition(V3FailureGuidance.diagnostics(untyped).contains("redacted")
-                     || V3FailureGuidance.diagnostics(untyped).contains("untyped"))
+        // An untyped failure has no proven cause, so it must not claim one.
+        let untypedIssue = V3UserFacingIssue.make(
+            operation: "command", stage: CombinedFailure.Stage.command.rawValue,
+            code: CombinedFailure.Code.failed.rawValue, safeCause: nil, sourceStep: nil,
+            retryable: nil, whatHappened: "That action did not complete.",
+            whatToDo: V3FailureGuidance.message(untyped),
+            technicalDetails: V3FailureGuidance.diagnostics(untyped))
+        precondition(untypedIssue.primaryAction == .dismiss,
+                     "with no evidence, no action is invented")
+        precondition(untypedIssue.recoveryDestination == nil)
 
         print("V3_SETUP_AND_SEMANTIC_UX_PASS")
     }
