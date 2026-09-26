@@ -26,6 +26,17 @@ class V3BehavioralHarnessTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(marker, result.stdout)
 
+    def test_snapshot_and_mutation_load_ownership_executes(self):
+        # V3_LOAD_ACTIVITY_OWNERSHIP_V1: one `loading` flag used to mean both
+        # "a snapshot is in flight" and "a mutation is in flight", so a caller
+        # awaiting authoritative status could join a mutation and be released by
+        # the mutation's completion. This executes the ten required interleavings
+        # against the real gate policy, including the no-duplicate-snapshot and
+        # no-stranded-continuation cases.
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_snapshot_ownership_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run(helper + "\n" + harness, "V3_SNAPSHOT_OWNERSHIP_PASS")
+
     def test_response_encoding_classification_survives_the_wire(self):
         # V3_RESPONSE_CLASSIFICATION_CARRIER_V1: executes the REAL service
         # encoder and the REAL host reply classifier against each other over

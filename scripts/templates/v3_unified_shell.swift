@@ -121,9 +121,16 @@ struct V3UnifiedTabs: View {
             // evidence supports. "Retry Connection" is only offered when the
             // failure actually implicates connection or service readiness, and
             // "Retry Source" re-requests the sources rather than reloading status.
-            Button(status.issue?.primaryAction.title ?? "OK") {
-                status.performPrimaryIssueAction()
-                status.clearIssue()
+            //
+            // A plain message with no structured issue has no action to offer.
+            // It used to render a button labelled "OK" that then did nothing,
+            // alongside a second "OK" that dismissed, so a refusal to work
+            // looked like a choice.
+            if let action = status.issue?.primaryAction, action != .dismiss {
+                Button(action.title) {
+                    status.performPrimaryIssueAction()
+                    status.clearIssue()
+                }
             }
             if status.hasUncertainInstallCancellation {
                 Button("Retry Cancellation") { status.retryInstallCancellation() }
@@ -864,7 +871,10 @@ final class V3SideStoreStatusStore: ObservableObject {
 
     @Published var presentation: V3OperationRequest? {
         didSet {
-            if presentation == nil { drainDeferredReload() }
+            // A presented operation owns the state a snapshot would report, so a
+            // deferred snapshot is owed until it ends. Draining here is what
+            // guarantees a parked continuation is resumed rather than stranded.
+            if presentation == nil { drainOwedSnapshot() }
         }
     }
     @Published var sourceURL = ""
@@ -880,17 +890,28 @@ final class V3SideStoreStatusStore: ObservableObject {
     // V3_USER_FACING_ISSUE_V1: a source failure routes back to Sources.
     @Published var sourcesPresented = false
     @Published var operationRecoveryDestination: String?
+    // V3_LOAD_ACTIVITY_OWNERSHIP_V1: `loading` keeps its user-facing meaning of
+    // "the service is busy", but it is now derived from a named activity so the
+    // snapshot gate can tell a snapshot from a mutation. Five of the six
+    // activities that used to set this flag were mutations.
     @Published private(set) var loading = false
     @Published private(set) var connected = false
     @Published private(set) var requiresConnectionRetry = false
-    private var deferredReloadManual: Bool?
-    // Callers awaiting the in-flight authoritative snapshot. Resumed only after
-    // the snapshot has been accepted, so no caller can observe stale state.
-    private var reloadWaiters: [CheckedContinuation<V3ReloadOutcome, Never>] = []
-    // The real result of the snapshot currently ending the loading window. Set
-    // before finishLoading() so joined and deferred waiters are resumed with the
-    // outcome that actually happened rather than a default.
-    private var pendingReloadOutcome: V3ReloadOutcome?
+    // The activity that currently owns the service. Only `.snapshot` may resolve
+    // a snapshot waiter.
+    private var loadActivity: V3LoadActivity = .idle
+    // At most one snapshot is owed, because at most one can be pending. Starting
+    // any snapshot discharges it, so an unrelated reload can never leave a stale
+    // intent behind to cause a second fetch.
+    private var snapshotOwed = false
+    // Callers awaiting an authoritative snapshot. Each carries whether it needs
+    // a manual snapshot, because the owed drain is shared and a non-manual
+    // monitor tick must not discharge a caller's manual requirement.
+    private struct SnapshotWaiter {
+        let manual: Bool
+        let continuation: CheckedContinuation<V3ReloadOutcome, Never>
+    }
+    private var snapshotWaiters: [SnapshotWaiter] = []
     private var pendingPickerError: (attemptID: UUID, message: String)?
     @Published private(set) var installAttempt = V3InstallAttemptState()
     var installedAppCount: Int { installedApps.count }
@@ -900,89 +921,113 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
     var isStale: Bool { !connected || (updatedAt.map { Date().timeIntervalSince($0) > 120 } ?? true) }
     var needsSignIn: Bool { account == "Not signed in" && !authenticated }
-    // V3_AWAITABLE_RELOAD_V1
-    // reload() is fire-and-forget: it sets loading synchronously and continues
-    // immediately, so any code that reads status right after it sees the PREVIOUS
-    // snapshot. reloadAndWait() completes only after the authoritative snapshot
-    // has been accepted, which is what callers that depend on ordering must use.
-    // No delay or sleep is involved: the caller awaits the real snapshot.
+    // V3_AWAITABLE_RELOAD_V1 / V3_LOAD_ACTIVITY_OWNERSHIP_V1
+    // reload() is fire-and-forget: it starts the snapshot and continues
+    // immediately, so any code that reads status right after it sees the
+    // PREVIOUS snapshot. reloadAndWait() completes only after an authoritative
+    // snapshot has been applied, which is what callers that depend on ordering
+    // must use. No delay or sleep is involved: the caller awaits the real
+    // snapshot.
     func reload(manual: Bool = true) {
-        guard case .startSnapshot = beginReload(manual: manual) else { return }
-        Task { _ = await performReload() }
+        switch beginSnapshot(manual: manual) {
+        case .performSnapshot:
+            Task { _ = await performSnapshot() }
+        case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:
+            // The request is remembered and satisfied by the drain once the
+            // blocking activity ends. No continuation is parked, because this
+            // caller does not wait.
+            break
+        case .doNotObserve:
+            break
+        }
     }
 
     /// The result of awaiting an authoritative snapshot.
     ///
-    /// This exists because the previous signature returned a Bool that could not
-    /// distinguish "the snapshot ran and failed" from "no snapshot ran at all". A
-    /// caller that recomputes derived state could therefore be told it had fresh
-    /// state when it had been handed the previous snapshot unchanged.
+    /// A Bool could not distinguish "the snapshot ran and failed" from "no
+    /// snapshot ran at all", so a caller that recomputes derived state could be
+    /// told it had fresh state when it had been handed the previous snapshot
+    /// unchanged.
     enum V3ReloadOutcome: Equatable {
         /// A snapshot was performed and accepted.
         case applied
         /// A snapshot was performed and failed.
         case snapshotFailed
-        /// No snapshot ran and none was left to run; state is unchanged.
+        /// No snapshot was performed. A caller that recomputes derived state
+        /// must treat this as "unknown", never as "up to date".
         case notObserved
     }
 
     /// Performs one authoritative snapshot and returns only once the resulting
-    /// state has been applied. If a snapshot is already in flight, this joins that
-    /// one instead of starting a second concurrent request. If a snapshot cannot
-    /// start yet because an operation sheet is presented, this waits for the
-    /// deferred snapshot rather than returning the untouched current state.
+    /// state has been applied.
+    ///
+    /// If a snapshot is already in flight this joins that one. If a mutation is
+    /// in flight it waits for a snapshot performed after that mutation, because
+    /// a mutation's completion says nothing about authoritative status. If a
+    /// presented operation owns the state it waits for the deferred snapshot. In
+    /// every parked case only a snapshot completion resumes the caller.
     @discardableResult
     func reloadAndWait(manual: Bool = true) async -> V3ReloadOutcome {
-        switch beginReload(manual: manual) {
-        case .startSnapshot:
-            return await performReload()
-        case .joinedOrDeferred:
-            // The in-flight or deferred snapshot will end this wait. Resuming with
-            // its real result is what stops a caller from reading stale state.
+        switch beginSnapshot(manual: manual) {
+        case .performSnapshot:
+            return await performSnapshot()
+        case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:
+            // Parked. There is no suspension between the gate decision and this
+            // append, so a snapshot finishing in between cannot be missed and a
+            // continuation cannot be left stranded.
             return await withCheckedContinuation { continuation in
-                reloadWaiters.append(continuation)
+                snapshotWaiters.append(SnapshotWaiter(manual: manual, continuation: continuation))
             }
-        case .skipped:
+        case .doNotObserve:
+            // Nothing ran and nothing is owed, so no continuation is parked.
             return .notObserved
         }
     }
 
-    /// Synchronous gate shared by both reload paths.
-    private enum V3ReloadStart {
-        case startSnapshot
-        /// A snapshot is in flight, or one has been deferred and will run when the
-        /// presented operation ends. Either way an authoritative result is coming.
-        case joinedOrDeferred
-        /// Nothing will run, by policy. The caller must not pretend otherwise.
-        case skipped
+    /// The shared synchronous gate. It names the activity instead of inferring
+    /// one from a shared busy flag, and it is the only place a snapshot is
+    /// started or a waiter is parked.
+    private func beginSnapshot(manual: Bool) -> V3SnapshotDecision {
+        let decision = V3SnapshotGate.decide(
+            activity: loadActivity, presentationActive: presentation != nil,
+            manual: manual, requiresConnectionRetry: requiresConnectionRetry)
+        switch decision {
+        case .performSnapshot:
+            startSnapshot(manual: manual)
+        case .joinSnapshot:
+            break
+        case .awaitMutationThenSnapshot, .deferForPresentation:
+            // A snapshot is owed. It is owed once, not once per requester, so a
+            // burst of requests cannot queue a burst of fetches.
+            snapshotOwed = true
+        case .doNotObserve:
+            break
+        }
+        return decision
     }
 
-    /// Synchronous gate shared by both reload paths. Returns what the caller owns.
-    private func beginReload(manual: Bool) -> V3ReloadStart {
-        // V3_RELOAD_GATE_V1: the gate rules are shared with the executable
-        // policy so the ordering contract can be tested as behaviour.
-        switch V3ReloadGate.begin(loading: loading, presentationActive: presentation != nil,
-                                 manual: manual, requiresConnectionRetry: requiresConnectionRetry) {
-        case .startSnapshot:
-            break
-        case .joinInFlight, .deferUntilIdle:
-            if manual || !requiresConnectionRetry {
-                deferredReloadManual = (deferredReloadManual ?? false) || manual
-            }
-            return .joinedOrDeferred
-        case .skip:
-            return .skipped
-        }
+    /// Claims the service for a snapshot. Starting any snapshot discharges the
+    /// owed intent, which is what stops an unrelated reload from leaving a stale
+    /// request behind to cause a second fetch.
+    private func startSnapshot(manual: Bool) {
+        snapshotOwed = false
         if manual { requiresConnectionRetry = false }
+        loadActivity = .snapshot
         loading = true
         if installAttempt.hasActiveAttempt {
             NSLog("[V3_INSTALL_STATE] attempt=%@ event=snapshot_started phase=%@",
                   installAttempt.attemptID?.uuidString ?? "none", installAttempt.phase.rawValue)
         }
-        return .startSnapshot
     }
 
-    private func performReload() async -> V3ReloadOutcome {
+    /// Claims the service for a mutation. A mutation never resolves a snapshot
+    /// waiter; it only makes an owed snapshot due.
+    private func beginMutation() {
+        loadActivity = .mutation
+        loading = true
+    }
+
+    private func performSnapshot() async -> V3ReloadOutcome {
         var succeeded = false
         do {
             accept(try await V3ServiceBridge.shared.request(operation: "snapshot"))
@@ -992,37 +1037,65 @@ final class V3SideStoreStatusStore: ObservableObject {
             requiresConnectionRetry = true
             present(error)
         }
-        // State is fully updated before anyone waiting is resumed.
-        pendingReloadOutcome = succeeded ? .applied : .snapshotFailed
-        finishLoading()
-        pendingReloadOutcome = nil
+        let outcome: V3ReloadOutcome = succeeded ? .applied : .snapshotFailed
+        // The only place a snapshot waiter is ever resumed. State is fully
+        // applied first, so no caller can observe a partially updated snapshot.
+        finishSnapshot(outcome: outcome)
         if installAttempt.hasActiveAttempt {
             NSLog("[V3_INSTALL_STATE] attempt=%@ event=snapshot_finished phase=%@",
                   installAttempt.attemptID?.uuidString ?? "none", installAttempt.phase.rawValue)
         }
         drainInstallPresentation(trigger: "snapshot_finished")
-        drainDeferredReload()
-        return succeeded ? .applied : .snapshotFailed
+        return outcome
     }
 
-    /// V3_AWAITABLE_RELOAD_V1: the single place that ends a loading window.
-    /// Several mutation paths also set `loading`, and a caller awaiting the
-    /// snapshot must never be left suspended because a path cleared the flag
-    /// without draining the waiters. A window that was not a snapshot reports
-    /// `.notObserved` rather than borrowing the snapshot's success.
-    private func finishLoading(succeeded: Bool = false) {
+    /// V3_AWAITABLE_RELOAD_V1: the single place a snapshot activity ends.
+    private func finishSnapshot(outcome: V3ReloadOutcome) {
+        loadActivity = .idle
         loading = false
+        // The install presentation gate is snapshot-scoped: it advances only once
+        // authoritative state has landed. A mutation advancing it would claim a
+        // snapshot had happened.
         installAttempt.reloadFinished()
-        let outcome = pendingReloadOutcome ?? (succeeded ? .applied : .notObserved)
-        let waiting = reloadWaiters
-        reloadWaiters.removeAll()
-        for waiter in waiting { waiter.resume(returning: outcome) }
+        let waiting = snapshotWaiters
+        snapshotWaiters.removeAll()
+        for waiter in waiting { waiter.continuation.resume(returning: outcome) }
+        drainOwedSnapshot()
     }
 
-    private func drainDeferredReload() {
-        guard !loading, presentation == nil, let manual = deferredReloadManual else { return }
-        deferredReloadManual = nil
-        Task { @MainActor in self.reload(manual: manual) }
+    /// V3_LOAD_ACTIVITY_OWNERSHIP_V1: the single place a mutation activity ends.
+    /// It resolves nothing. A caller awaiting authoritative status stays parked
+    /// until a real snapshot completes, because a mutation's reply says nothing
+    /// about the state a snapshot reports.
+    private func finishMutation() {
+        loadActivity = .idle
+        loading = false
+        drainOwedSnapshot()
+    }
+
+    /// Runs the single owed snapshot once nothing blocks it.
+    ///
+    /// The decision is total. If policy refuses the snapshot, every parked
+    /// continuation is resumed with `.notObserved` rather than left suspended,
+    /// which is what let a non-manual deferred reload hang a task forever.
+    private func drainOwedSnapshot() {
+        let needsManual = snapshotWaiters.contains { $0.manual }
+        switch V3SnapshotGate.drain(activity: loadActivity, presentationActive: presentation != nil,
+                                    owed: snapshotOwed, anyWaiterNeedsManual: needsManual,
+                                    requiresConnectionRetry: requiresConnectionRetry) {
+        case .performSnapshot:
+            startSnapshot(manual: needsManual || !requiresConnectionRetry)
+            Task { _ = await performSnapshot() }
+        case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:
+            // Still blocked. The owed intent is kept for whoever ends it.
+            break
+        case .doNotObserve:
+            guard snapshotOwed else { return }
+            snapshotOwed = false
+            let waiting = snapshotWaiters
+            snapshotWaiters.removeAll()
+            for waiter in waiting { waiter.continuation.resume(returning: .notObserved) }
+        }
     }
     func accept(_ snapshot: [String: Any]) {
         account = snapshot["account"] as? String ?? "Not signed in"
@@ -1047,8 +1120,8 @@ final class V3SideStoreStatusStore: ObservableObject {
             self.error = "Another operation is already running. Finish or cancel it before starting a new one."
             return
         }
-        guard !loading else {
-            self.error = "SideStore is still loading. Wait for the current request to finish, then try again."
+        guard loadActivity == .idle else {
+            presentBusy()
             return
         }
         switch operation {
@@ -1071,70 +1144,47 @@ final class V3SideStoreStatusStore: ObservableObject {
         if needsSignIn(error) { signInPresented = true }
         else { present(error) }
     }
-    func signOut() {
-        guard !loading else { return }
-        loading = true
+
+    /// V3_LOAD_ACTIVITY_OWNERSHIP_V1: a busy store explains itself.
+    ///
+    /// refreshSources() was reachable from the global alert's "Retry Source"
+    /// action, where a silent guard produced no work, no message, and a
+    /// dismissed alert: the user was told a source retry had happened when
+    /// nothing had been requested. Every entry point now reports the conflict.
+    private func presentBusy() {
+        self.error = "SideStore is still loading. Wait for the current request to finish, then try again."
+    }
+
+    /// Runs one service mutation under an explicit mutation activity.
+    ///
+    /// A mutation owns the service but is not a snapshot, so it must never
+    /// resolve a caller awaiting authoritative status. A snapshot is requested
+    /// after it; a caller already parked is released by that snapshot, not by
+    /// this one. The trailing reload is a plain request, so if the drain already
+    /// started the owed snapshot this joins it instead of fetching twice.
+    private func runMutation(_ operation: String, target: String = "", successNotice: String) {
+        guard loadActivity == .idle else {
+            presentBusy()
+            return
+        }
+        beginMutation()
         Task {
             do {
-                // The service answers every one of these mutations with a
-                // fresh snapshot: accept it directly, then release the busy
-                // state BEFORE reload(). Calling reload() while loading is
-                // still true trips its guard and the UI keeps stale state.
-                accept(try await V3ServiceBridge.shared.request(operation: "signOut"))
-                finishLoading()
-                notice = "Signed out successfully."
+                accept(try await V3ServiceBridge.shared.request(operation: operation, target: target))
+                finishMutation()
+                notice = successNotice
                 reload()
-            } catch { finishLoading(); failed(error) }
+            } catch {
+                finishMutation()
+                failed(error)
+            }
         }
     }
-    func jit(target: String) {
-        guard !loading else { return }
-        loading = true
-        Task {
-            do {
-                accept(try await V3ServiceBridge.shared.request(operation: "jit", target: target))
-                finishLoading()
-                notice = "JIT enabled."
-                reload()
-            } catch { finishLoading(); failed(error) }
-        }
-    }
-    func syncAppIDs() {
-        guard !loading else { return }
-        loading = true
-        Task {
-            do {
-                accept(try await V3ServiceBridge.shared.request(operation: "syncAppIDs"))
-                finishLoading()
-                notice = "App IDs synced."
-                reload()
-            } catch { finishLoading(); failed(error) }
-        }
-    }
-    func clearCache() {
-        guard !loading else { return }
-        loading = true
-        Task {
-            do {
-                accept(try await V3ServiceBridge.shared.request(operation: "clearCache"))
-                finishLoading()
-                notice = "Download cache cleared."
-                reload()
-            } catch { finishLoading(); failed(error) }
-        }
-    }
-    func refreshSources() {
-        guard !loading else { return }
-        loading = true
-        Task {
-            do {
-                accept(try await V3ServiceBridge.shared.request(operation: "refreshSources"))
-                finishLoading()
-                notice = "Sources updated."
-                reload()
-            } catch { finishLoading(); failed(error) }
-        }
-    }
+    func signOut() { runMutation("signOut", successNotice: "Signed out successfully.") }
+    func jit(target: String) { runMutation("jit", target: target, successNotice: "JIT enabled.") }
+    func syncAppIDs() { runMutation("syncAppIDs", successNotice: "App IDs synced.") }
+    func clearCache() { runMutation("clearCache", successNotice: "Download cache cleared.") }
+    func refreshSources() { runMutation("refreshSources", successNotice: "Sources updated.") }
     func stageSharedFile(_ data: Data) -> String? {
         guard !data.isEmpty, data.count <= 4_194_304 else {
             self.error = "The selected file is empty or too large to hand to the SideStore service."

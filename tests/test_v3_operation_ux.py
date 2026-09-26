@@ -139,36 +139,53 @@ class InstallStateMachineTests(unittest.TestCase):
 
 
 class StoreFeedbackTests(unittest.TestCase):
-    def test_mutations_accept_snapshot_and_release_loading_first(self):
+    def test_mutations_accept_snapshot_and_release_the_activity_first(self):
         store = status_store()
-        for operation in ("signOut", "syncAppIDs", "clearCache", "refreshSources"):
-            fn = store[store.index("func %s(" % operation):]
-            fn = fn[:fn.index("\n    }\n") + 6]
-            # Strip comments: only executable statements count here.
-            code = "\n".join(line for line in fn.splitlines()
-                             if not line.strip().startswith("//"))
-            self.assertIn("accept(try await", code, operation)
-            # V3_AWAITABLE_RELOAD_V1: every path that ends a loading window must
-            # go through the one helper, so a caller awaiting the snapshot is
-            # always resumed instead of suspending forever.
-            self.assertIn("finishLoading()", code, operation)
-            # reload() must run after the busy state is released.
-            self.assertLess(code.index("finishLoading()"), code.index("reload()"), operation)
+        # V3_LOAD_ACTIVITY_OWNERSHIP_V1: the five service mutations now share one
+        # named helper, so the activity they own is opened and closed in exactly
+        # one place and cannot drift per operation.
+        helper = store[store.index("private func runMutation("):]
+        helper = helper[:helper.index("\n    func signOut()")]
+        code = "\n".join(line for line in helper.splitlines()
+                         if not line.strip().startswith("//"))
+        for operation in ("signOut", "syncAppIDs", "clearCache", "refreshSources", "jit"):
+            self.assertIn(f'runMutation("{operation}"', store, operation)
+        self.assertIn("accept(try await", code)
+        self.assertIn("beginMutation()", code)
+        self.assertIn("finishMutation()", code)
+        # The busy state is released before the trailing reload, so the reload
+        # is not suppressed by the store's own guard.
+        self.assertLess(code.index("finishMutation()"), code.index("reload()"))
 
-    def test_every_loading_window_is_closed_through_one_helper(self):
+    def test_each_activity_is_closed_by_its_own_ender(self):
         store = status_store()
-        # The helper exists and owns the flag.
-        self.assertIn("private func finishLoading(succeeded: Bool = false) {", store)
-        helper = store[store.index("private func finishLoading("):]
-        helper = helper[:helper.index("\n    }\n")]
-        self.assertIn("loading = false", helper)
-        self.assertIn("reloadWaiters", helper)
-        self.assertIn("waiter.resume", helper)
-        # No other place may clear the flag directly.
+        # Two activities, two enders. The previous single finishLoading() could
+        # not tell them apart, which is how a mutation released a caller that was
+        # waiting for a snapshot.
+        self.assertIn("private func finishSnapshot(outcome: V3ReloadOutcome) {", store)
+        self.assertIn("private func finishMutation() {", store)
+        self.assertIn("private func beginMutation() {", store)
+        snapshot_end = store[store.index("private func finishSnapshot("):]
+        snapshot_end = snapshot_end[:snapshot_end.index("\n    }\n")]
+        mutation_end = store[store.index("private func finishMutation()"):]
+        mutation_end = mutation_end[:mutation_end.index("\n    }\n")]
+        self.assertIn("snapshotWaiters", snapshot_end)
+        self.assertIn("continuation.resume", snapshot_end)
+        self.assertNotIn("continuation.resume", mutation_end)
+        self.assertNotIn("snapshotWaiters", mutation_end)
+        # Neither may clear the busy flag anywhere else.
         body = store[store.index("final class V3SideStoreStatusStore"):]
         direct = [line for line in body.splitlines() if line.strip() == "loading = false"]
-        self.assertEqual(len(direct), 1,
-                         "loading must be cleared in exactly one place, or waiters can be stranded")
+        self.assertEqual(len(direct), 2,
+                         "loading must be cleared once per activity, or waiters can be stranded")
+        # And the flag is only ever set by claiming an activity, never directly.
+        setters = [line.strip() for line in body.splitlines() if line.strip() == "loading = true"]
+        self.assertEqual(len(setters), 2)
+        for claim in ("private func startSnapshot(manual: Bool)", "private func beginMutation()"):
+            block = store[store.index(claim):]
+            block = block[:block.index("\n    }")]
+            self.assertIn("loading = true", block,
+                          "the busy flag is set only where an activity is claimed")
 
     def test_terminal_notices(self):
         store = status_store()

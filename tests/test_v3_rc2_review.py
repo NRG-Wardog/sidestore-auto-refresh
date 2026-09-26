@@ -120,80 +120,149 @@ class CatalogSourceExistenceTests(unittest.TestCase):
 
 
 class ReloadOrderingTests(unittest.TestCase):
-    """P1: reload must be awaitable and must not race recalculate."""
+    """P1: an authoritative snapshot must be awaitable, and must not be faked.
 
-    def test_awaitable_reload_exists_and_completes_after_state_is_applied(self):
+    V3_LOAD_ACTIVITY_OWNERSHIP_V1: one `loading` flag used to cover both an
+    authoritative snapshot and a mutation. The gate read it as "a snapshot is in
+    flight", so a caller awaiting authoritative status could join a mutation and
+    be released by the mutation's completion before any snapshot had run. The
+    activity is now named, and only a snapshot completion resolves a waiter.
+
+    The interleavings themselves are executed in
+    tests/fixtures/v3_snapshot_ownership_harness.swift. These assertions pin the
+    production wiring that the harness models.
+    """
+
+    def test_snapshot_and_mutation_are_named_activities(self):
+        text = shell()
+        primitives_text = primitives()
+        self.assertIn("enum V3LoadActivity", primitives_text)
+        for case in ("case idle", "case snapshot", "case mutation"):
+            self.assertIn(case, primitives_text)
+        # The store tracks the activity instead of a bare busy flag, and the
+        # user-facing meaning of `loading` is derived from it.
+        self.assertIn("private var loadActivity: V3LoadActivity = .idle", text)
+        self.assertIn("loadActivity = .snapshot", text)
+        self.assertIn("loadActivity = .mutation", text)
+        # No shared busy flag may stand in for the activity again.
+        self.assertNotIn("V3ReloadGate.begin(loading:", text)
+        self.assertNotIn("enum V3ReloadGate", primitives_text)
+
+    def test_only_a_snapshot_completion_resolves_a_waiter(self):
+        text = shell()
+        self.assertIn("private func finishSnapshot(outcome: V3ReloadOutcome)", text)
+        self.assertIn("private func finishMutation()", text)
+        # The resumption lives in exactly one function.
+        self.assertEqual(text.count("waiter.continuation.resume(returning:"), 2,
+                         "only finishSnapshot and the refused drain may resume a waiter")
+        finish_mutation = text[text.index("private func finishMutation()"):]
+        finish_mutation = finish_mutation[:finish_mutation.index("\n    }")]
+        self.assertNotIn("continuation.resume", finish_mutation,
+                         "a mutation completion must never resolve a snapshot waiter")
+        self.assertNotIn("snapshotWaiters", finish_mutation)
+        # The one generic window-ender that could not tell them apart is gone.
+        self.assertNotIn("finishLoading", text)
+        self.assertNotIn("pendingReloadOutcome", text)
+
+    def test_a_waiter_waits_for_a_post_mutation_snapshot(self):
+        text = shell()
+        primitives_text = primitives()
+        # The gate can express "a mutation is running, snapshot afterwards",
+        # which the old boolean input could not.
+        self.assertIn("case awaitMutationThenSnapshot", primitives_text)
+        self.assertIn("case .mutation: return .awaitMutationThenSnapshot", primitives_text)
+        self.assertIn("enum V3SnapshotGate", primitives_text)
+        self.assertIn("static func decide(activity: V3LoadActivity", primitives_text)
+        self.assertIn("static func drain(activity: V3LoadActivity", primitives_text)
+        wait = text[text.index("func reloadAndWait(manual: Bool = true) async -> V3ReloadOutcome"):]
+        wait = wait[:wait.index("    /// The shared synchronous gate.")]
+        self.assertIn("case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:", wait)
+        self.assertIn("snapshotWaiters.append(SnapshotWaiter(manual: manual, continuation: continuation))", wait)
+
+    def test_only_one_snapshot_can_be_owed_and_starting_one_discharges_it(self):
+        # A single owed intent, not one per requester, so a burst of requests
+        # cannot queue a burst of fetches.
+        text = shell()
+        self.assertIn("private var snapshotOwed = false", text)
+        start = text[text.index("private func startSnapshot(manual: Bool)"):]
+        start = start[:start.index("\n    }")]
+        self.assertIn("snapshotOwed = false", start,
+                      "starting any snapshot must discharge the owed intent")
+        begin = text[text.index("private func beginSnapshot(manual: Bool) -> V3SnapshotDecision"):]
+        begin = begin[:begin.index("\n    private func startSnapshot")]
+        self.assertIn("snapshotOwed = true", begin)
+        self.assertEqual(begin.count("snapshotOwed = true"), 1,
+                         "only the deferring branches may set the owed intent")
+
+    def test_no_continuation_can_be_stranded(self):
+        text = shell()
+        primitives_text = primitives()
+        # The drain is total: policy refusal resumes the waiters instead of
+        # abandoning them, which is what let a non-manual deferred reload hang a
+        # task forever.
+        drain = text[text.index("private func drainOwedSnapshot()"):]
+        drain = drain[:drain.index("\n    }")]
+        self.assertIn("case .doNotObserve:", drain)
+        self.assertIn("guard snapshotOwed else { return }", drain)
+        self.assertIn("for waiter in waiting { waiter.continuation.resume(returning: .notObserved) }", drain)
+        self.assertIn("snapshotOwed = false", drain)
+        # Each waiter carries its own manual requirement, so a non-manual monitor
+        # tick cannot discharge a caller's manual request.
+        self.assertIn("private struct SnapshotWaiter {", text)
+        self.assertIn("let manual: Bool", text)
+        self.assertIn("let continuation: CheckedContinuation<V3ReloadOutcome, Never>", text)
+        self.assertIn("anyWaiterNeedsManual", primitives_text)
+        self.assertIn("let needsManual = snapshotWaiters.contains { $0.manual }", text)
+
+    def test_presentation_dismissal_drains_the_deferred_snapshot(self):
+        text = shell()
+        self.assertIn("if presentation == nil { drainOwedSnapshot() }", text)
+        drain = text[text.index("private func drainOwedSnapshot()"):]
+        drain = drain[:drain.index("\n    }")]
+        self.assertIn("presentationActive: presentation != nil", drain)
+
+    def test_awaitable_reload_completes_after_state_is_applied(self):
         text = shell()
         self.assertIn("func reloadAndWait(manual: Bool = true) async -> V3ReloadOutcome", text)
-        self.assertIn("private func beginReload(manual: Bool) -> V3ReloadStart", text)
-        self.assertIn("private func performReload() async -> V3ReloadOutcome", text)
-        # Every path that ends a loading window must drain the waiters, or an
-        # awaiting caller would suspend forever.
-        self.assertIn("private func finishLoading(succeeded: Bool = false)", text)
-        # Callers resume only after the snapshot is accepted.
-        perform = text[text.index("private func performReload()"):]
-        perform = perform[:perform.index("\n    private func drainDeferredReload()")]
+        self.assertIn("private func beginSnapshot(manual: Bool) -> V3SnapshotDecision", text)
+        self.assertIn("private func performSnapshot() async -> V3ReloadOutcome", text)
+        perform = text[text.index("private func performSnapshot()"):]
+        perform = perform[:perform.index("\n    /// V3_AWAITABLE_RELOAD_V1: the single place a snapshot")]
+        # State is accepted before anyone is resumed.
         self.assertLess(perform.index("accept(try await V3ServiceBridge.shared.request"),
-                        perform.index("for waiter in waiting { waiter.resume"))
-        self.assertIn("loading = false", perform)
-        self.assertLess(perform.index("loading = false"),
-                        perform.index("waiter.resume"))
+                        perform.index("finishSnapshot(outcome: outcome)"))
+        finish = text[text.index("private func finishSnapshot(outcome: V3ReloadOutcome)"):]
+        finish = finish[:finish.index("\n    /// V3_LOAD_ACTIVITY_OWNERSHIP_V1: the single place a mutation")]
+        self.assertLess(finish.index("loading = false"), finish.index("waiter.continuation.resume"))
 
-    def test_waiters_are_resumed_with_the_outcome_that_actually_happened(self):
-        # Joining an in-flight snapshot used to resume every waiter with the
-        # default false, so a caller that had just successfully reloaded was told
-        # the snapshot had not been applied.
+    def test_snapshot_failure_reports_a_failed_outcome(self):
         text = shell()
-        self.assertIn("pendingReloadOutcome = succeeded ? .applied : .snapshotFailed", text)
-        self.assertIn("pendingReloadOutcome: V3ReloadOutcome?", text)
-        finish = text[text.index("private func finishLoading("):]
-        finish = finish[:finish.index("\n    private func drainDeferredReload()")]
-        self.assertIn("let outcome = pendingReloadOutcome ?? (succeeded ? .applied : .notObserved)", finish)
-        self.assertIn("waiter.resume(returning: outcome)", finish)
-        # A window that was not a snapshot must not borrow a success.
-        self.assertIn(".notObserved", text)
+        perform = text[text.index("private func performSnapshot()"):]
+        perform = perform[:perform.index("\n    /// V3_AWAITABLE_RELOAD_V1: the single place a snapshot")]
+        self.assertIn("let outcome: V3ReloadOutcome = succeeded ? .applied : .snapshotFailed", perform)
+        self.assertIn("requiresConnectionRetry = true", perform)
+        self.assertIn("present(error)", perform)
 
-    def test_a_deferred_reload_is_awaited_instead_of_returning_stale_state(self):
-        # beginReload defers while an operation sheet is presented. reloadAndWait
-        # used to return `connected` in that case, handing the caller the previous
-        # snapshot as if it were fresh.
+    def test_mutations_are_named_and_explain_a_busy_store(self):
         text = shell()
-        wait = text[text.index("func reloadAndWait(manual: Bool = true) async -> V3ReloadOutcome"):]
-        wait = wait[:wait.index("/// Synchronous gate shared by both reload paths.")]
-        self.assertIn("case .joinedOrDeferred:", wait)
-        self.assertIn("reloadWaiters.append(continuation)", wait)
-        self.assertNotIn("return .notObserved\n        }\n    }\n\n    /// Synchronous", wait)
-        # A deferred snapshot is still drained when the presented operation ends,
-        # so the waiter is guaranteed a resumption rather than a permanent hang.
-        self.assertIn("if presentation == nil { drainDeferredReload() }", text)
-        drain = text[text.index("private func drainDeferredReload()"):]
-        drain = drain[:drain.index("\n    }")]
-        self.assertIn("guard !loading, presentation == nil", drain)
-
-    def test_reload_and_reload_and_wait_share_one_gate(self):
-        text = shell()
-        self.assertIn("guard case .startSnapshot = beginReload(manual: manual) else { return }", text)
-        self.assertIn("switch beginReload(manual: manual) {", text)
-        # The gate rules are the shared, executable policy.
-        self.assertIn("V3ReloadGate.begin(loading: loading, presentationActive: presentation != nil", text)
-        self.assertIn("enum V3ReloadGate", primitives())
-        # The two deferring outcomes are distinguished from the policy skip, so a
-        # caller is never told a snapshot was skipped when one is merely pending.
-        begin = text[text.index("private func beginReload(manual: Bool) -> V3ReloadStart"):]
-        begin = begin[:begin.index("\n    private func performReload()")]
-        self.assertIn("case .joinInFlight, .deferUntilIdle:", begin)
-        self.assertIn("return .joinedOrDeferred", begin)
-        self.assertIn("case .skip:\n            return .skipped", begin)
-
-    def test_a_waiter_joins_an_in_flight_snapshot_instead_of_starting_a_second(self):
-        text = shell()
-        wait = text[text.index("func reloadAndWait(manual: Bool = true) async -> V3ReloadOutcome"):]
-        wait = wait[:wait.index("/// Synchronous gate shared by both reload paths.")]
-        self.assertIn("withCheckedContinuation", wait)
-        self.assertIn("reloadWaiters.append(continuation)", wait)
-        self.assertIn("private var reloadWaiters: [CheckedContinuation<V3ReloadOutcome, Never>] = []", text)
-        # The gate still collapses a concurrent request rather than issuing one.
-        self.assertIn("if loading { return .joinInFlight }", primitives())
+        self.assertIn("private func beginMutation() {", text)
+        self.assertIn("private func runMutation(", text)
+        for operation in ("signOut", "jit", "syncAppIDs", "clearCache", "refreshSources"):
+            self.assertIn(f'runMutation("{operation}"', text)
+        run = text[text.index("private func runMutation("):]
+        run = run[:run.index("\n    func signOut()")]
+        # A busy store says so. refreshSources() was reachable from the global
+        # alert's Retry Source action, where a silent guard produced no work, no
+        # message, and a dismissed alert.
+        self.assertIn("guard loadActivity == .idle else {", run)
+        self.assertIn("presentBusy()", run)
+        self.assertIn("private func presentBusy() {", text)
+        self.assertIn("beginMutation()", run)
+        self.assertIn("finishMutation()", run)
+        # The mutation's own trailing reload joins an owed snapshot rather than
+        # starting a second one.
+        self.assertIn("reload()", run)
+        self.assertNotIn("loading = true", run)
 
     def test_ordering_required_callers_await_the_snapshot(self):
         text = shell()
@@ -215,13 +284,15 @@ class ReloadOrderingTests(unittest.TestCase):
         # polling loops legitimately sleep, so the check is scoped to the
         # ordering-sensitive paths.
         text = shell()
-        perform = text[text.index("private func performReload()"):]
-        perform = perform[:perform.index("\n    private func drainDeferredReload()")]
+        perform = text[text.index("private func performSnapshot()"):]
+        perform = perform[:perform.index("\n    /// V3_AWAITABLE_RELOAD_V1: the single place a snapshot")]
         self.assertNotIn("Task.sleep", perform)
         wait = text[text.index("func reloadAndWait(manual: Bool = true) async -> V3ReloadOutcome"):]
-        wait = wait[:wait.index("/// Synchronous gate shared by both reload paths.")]
+        wait = wait[:wait.index("    /// The shared synchronous gate.")]
         self.assertNotIn("Task.sleep", wait)
-        for action in ("private func dismissKeyboard()", "private func cancelSourceEditing()",
+        for action in ("private func presentBusy()", "private func drainOwedSnapshot()",
+                       "private func beginSnapshot(manual: Bool)",
+                       "private func dismissKeyboard()", "private func cancelSourceEditing()",
                        "private func previewSource()"):
             block = text[text.index(action):]
             block = block[:block.index("\n    }\n")]
@@ -230,8 +301,11 @@ class ReloadOrderingTests(unittest.TestCase):
     def test_reload_ordering_does_not_depend_on_timing(self):
         # The join path must be a continuation, not a poll.
         text = shell()
-        self.assertNotIn("reloadWaiters.append", text[text.index("func reloadAndWait"):text.index("private func beginReload")]
-                         .replace("reloadWaiters.append(continuation)", ""))
+        wait = text[text.index("func reloadAndWait(manual: Bool = true) async -> V3ReloadOutcome"):]
+        wait = wait[:wait.index("    /// The shared synchronous gate.")]
+        self.assertIn("withCheckedContinuation", wait)
+        self.assertNotIn("while", wait)
+        self.assertNotIn("Task.sleep", wait)
 
 
 class SharedSetupCompletionTests(unittest.TestCase):
@@ -335,7 +409,7 @@ class UserFacingIssueRoutingTests(unittest.TestCase):
 
     def test_alert_uses_the_structured_primary_action(self):
         text = shell()
-        start = text.index('Button(status.issue?.primaryAction.title ?? "OK")')
+        start = text.index('if let action = status.issue?.primaryAction, action != .dismiss {')
         block = text[start - 400:start + 900]
         self.assertIn("status.issue?.primaryAction", block)
         self.assertIn("status.performPrimaryIssueAction()", block)
@@ -344,6 +418,12 @@ class UserFacingIssueRoutingTests(unittest.TestCase):
         self.assertIn("status.issue?.technicalDetails ?? status.error", block)
         # The unconditional Retry Connection is gone.
         self.assertNotIn('Button("Retry Connection") { status.reload() }', text)
+        # A plain message with no structured issue offers no action. It used to
+        # render a button labelled "OK" that then did nothing, next to a second
+        # "OK" that dismissed, so a refusal to work looked like a choice.
+        self.assertIn("action != .dismiss", block)
+        self.assertNotIn('Button(status.issue?.primaryAction.title ?? "OK")', text)
+        self.assertNotIn('Button("OK") {', text)
 
     def test_retry_source_re_requests_the_sources_not_the_status_snapshot(self):
         # A button labelled "Retry Source" that only reloads status leaves the

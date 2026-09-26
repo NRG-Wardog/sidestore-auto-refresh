@@ -1293,25 +1293,70 @@ enum V3CatalogRowPolicy {
 // The reload gate rules, made explicit and executable. The store previously
 // inlined this, and callers could not await an authoritative snapshot, so a
 // recalculate could read the previous snapshot.
-enum V3ReloadBeginOutcome: String, Equatable {
-    /// The caller owns the snapshot and must perform it.
-    case startSnapshot
-    /// A snapshot is already running; the caller must join it, not start a
-    /// second concurrent request.
-    case joinInFlight
-    /// A presented operation owns the state; the request is deferred.
-    case deferUntilIdle
-    /// Not permitted by the current connection-retry state.
-    case skip
+// V3_LOAD_ACTIVITY_OWNERSHIP_V1
+// One `loading` flag used to mean two different things: an authoritative status
+// snapshot, and a mutation such as refreshSources, signOut, clearCache, syncAppIDs
+// or a JIT operation. The reload gate read that flag as "a snapshot is in flight",
+// so a caller awaiting an authoritative snapshot could join a mutation instead,
+// and the mutation's completion released it with a not-observed outcome before
+// any snapshot had been performed. The activity is now named, and the gate can
+// tell the two apart.
+enum V3LoadActivity: String, Equatable, CaseIterable {
+    case idle
+    /// An authoritative status snapshot is in flight. This is the only activity
+    /// that may resolve a snapshot waiter.
+    case snapshot
+    /// A mutation is in flight. A snapshot must be requested after it, never
+    /// substituted by it.
+    case mutation
 }
 
-enum V3ReloadGate {
-    static func begin(loading: Bool, presentationActive: Bool,
-                      manual: Bool, requiresConnectionRetry: Bool) -> V3ReloadBeginOutcome {
-        if loading { return .joinInFlight }
-        if presentationActive { return .deferUntilIdle }
-        if !manual && requiresConnectionRetry { return .skip }
-        return .startSnapshot
+// V3_SNAPSHOT_GATE_V1
+// The decision a snapshot request makes. It is a pure function so the ordering
+// contract is executable behaviour rather than a comment about a flag.
+enum V3SnapshotDecision: String, Equatable, CaseIterable {
+    /// The caller owns the snapshot and must perform it now.
+    case performSnapshot
+    /// A snapshot is genuinely in flight. The caller parks and joins it.
+    case joinSnapshot
+    /// A mutation is in flight. The caller parks, and a snapshot is owed for
+    /// after the mutation. The mutation's completion must not resolve it.
+    case awaitMutationThenSnapshot
+    /// A presented operation owns the state a snapshot would report. The caller
+    /// parks, and a snapshot is owed for when the operation ends.
+    case deferForPresentation
+    /// Policy forbids a snapshot and none is owed, so the caller is told
+    /// truthfully that nothing was observed. No continuation is parked.
+    case doNotObserve
+}
+
+enum V3SnapshotGate {
+    /// A presented operation owns the state, so its snapshot is deferred even
+    /// when nothing else is running. This is checked first because a sheet can
+    /// be up while a mutation is still settling, and both must be honoured.
+    static func decide(activity: V3LoadActivity, presentationActive: Bool,
+                       manual: Bool, requiresConnectionRetry: Bool) -> V3SnapshotDecision {
+        if presentationActive { return .deferForPresentation }
+        switch activity {
+        case .snapshot: return .joinSnapshot
+        case .mutation: return .awaitMutationThenSnapshot
+        case .idle: break
+        }
+        if !manual && requiresConnectionRetry { return .doNotObserve }
+        return .performSnapshot
+    }
+
+    /// The result of running an owed snapshot once the blocking activity has
+    /// ended. Every case is total: no input leaves a parked continuation
+    /// without a resumption, which is what made a non-manual deferred reload a
+    /// latent permanent hang.
+    static func drain(activity: V3LoadActivity, presentationActive: Bool,
+                      owed: Bool, anyWaiterNeedsManual: Bool,
+                      requiresConnectionRetry: Bool) -> V3SnapshotDecision {
+        guard owed, activity == .idle, !presentationActive else { return .doNotObserve }
+        return decide(activity: .idle, presentationActive: false,
+                      manual: anyWaiterNeedsManual || !requiresConnectionRetry,
+                      requiresConnectionRetry: requiresConnectionRetry)
     }
 }
 
