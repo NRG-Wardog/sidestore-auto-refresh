@@ -774,8 +774,14 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var provisioningIncomplete = false
     // V3_SETUP_COMPLETION_POLICY_V1: the last authoritative Wi-Fi observation.
     // Probing Wi-Fi is async, so Home reads this cache instead of guessing.
-    // nil means "not observed yet", which counts as outstanding.
+    // nil means "not observed yet", which counts as outstanding. It is written
+    // only through recordWifiAvailability so the cached fact has one owner.
     @Published private(set) var wifiAvailable: Bool?
+
+    /// Records the authoritative Wi-Fi observation for the shared setup policy.
+    func recordWifiAvailability(_ available: Bool) {
+        wifiAvailable = available
+    }
     @Published private(set) var updatedAt: Date?
     @Published private(set) var installedApps: [V3SideStoreApp] = []
     @Published private(set) var sources: [V3SideStoreSource] = []
@@ -4591,24 +4597,40 @@ struct V3HealthView: View {
                     Text(jitlessDetail).foregroundColor(.secondary).multilineTextAlignment(.trailing)
                 }
                 if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 {
-                    switch jitlessReadiness {
-                    case .needsCertificateRefresh, .setupRequired, .revoked:
-                        Button(jitlessReadiness == .setupRequired ? "Set Up JIT-Less" : "Refresh JIT-Less Certificate") {
-                            openJITLessSetup()
-                        }
-                    case .activeCertificateRevoked, .activeCertificateExpired:
-                        Text("Refreshing the JIT-Less copy cannot repair SideStore's active certificate.")
-                            .font(.footnote).foregroundColor(.secondary)
-                        Button("Open Certificates") { status.certificatesPresented = true }
-                    case .unknown, .certificateImported:
-                        if activeCertificateAvailable {
-                            Button("Open JIT-Less Setup") { openJITLessSetup() }
-                        }
-                        Button("Open Certificates") { status.certificatesPresented = true }
-                    case .ready:
+                    // V3_JITLESS_PRESENTATION_V1: Health renders the same shared
+                    // presentation as Setup Assistant, and adds the certificate
+                    // action that actually resolves each distinct state.
+                    let jitless = V3JITLessPresentation.present(jitlessReadiness)
+                    Label(jitless.title, systemImage: jitless.icon)
+                        .font(.footnote)
+                        .foregroundColor(jitless.tint)
+                    if !jitless.isOutstandingSetupTask {
                         Button("Open JIT-Less Diagnose") { openJITLessDiagnose() }
-                    case .notRequired:
-                        EmptyView()
+                            .font(.caption)
+                    } else {
+                        switch jitlessReadiness {
+                        case .setupRequired, .needsCertificateRefresh, .certificateMismatch, .revoked:
+                            Button(jitlessReadiness == .setupRequired
+                                   ? "Set Up JIT-Less" : "Refresh JIT-Less Certificate") {
+                                openJITLessSetup()
+                            }
+                        case .certificateImported, .unknown:
+                            // The copy exists but validation is not conclusive, so
+                            // the canonical setup flow is still the useful action.
+                            if activeCertificateAvailable {
+                                Button("Open JIT-Less Setup") { openJITLessSetup() }
+                            }
+                            Button("Open Certificates") { status.certificatesPresented = true }
+                        case .activeCertificateMissing, .activeCertificateRevoked,
+                             .activeCertificateExpired:
+                            // Refreshing the copy cannot repair SideStore's own
+                            // certificate, so only Certificates is offered.
+                            Text("Refreshing the JIT-Less copy cannot repair SideStore's active certificate.")
+                                .font(.caption).foregroundColor(.secondary)
+                            Button("Open Certificates") { status.certificatesPresented = true }
+                        case .ready, .notRequired:
+                            EmptyView()
+                        }
                     }
                 }
             }
@@ -5121,7 +5143,7 @@ final class V3SetupStore: ObservableObject {
         let wifi = await LiveContainerNetworkPreflight.wifiAvailable()
         // Published so the shared setup-completion policy and the Home banner
         // observe the same authoritative Wi-Fi fact instead of each deciding.
-        status.wifiAvailable = wifi
+        status.recordWifiAvailability(wifi)
         if !wifi {
             network = V3SetupStepState(state: "failed", detail: "Wi-Fi unavailable")
             tunnel = V3SetupStepState(state: "unavailable", detail: "Needs Wi-Fi first")

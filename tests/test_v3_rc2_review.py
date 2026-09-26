@@ -5,6 +5,7 @@ by the Swift harnesses in tests/test_v3_behavioral_harnesses.py; this module
 covers the wiring, routing and structural contracts that live in the host views
 and the generated output.
 """
+import re
 import unittest
 from pathlib import Path
 
@@ -184,7 +185,8 @@ class SharedSetupCompletionTests(unittest.TestCase):
     def test_wifi_fact_is_shared_rather_than_guessed(self):
         text = shell()
         self.assertIn("@Published private(set) var wifiAvailable: Bool?", text)
-        self.assertIn("status.wifiAvailable = wifi", text)
+        self.assertIn("status.recordWifiAvailability(wifi)", text)
+        self.assertIn("func recordWifiAvailability(_ available: Bool)", text)
         self.assertIn("networkComplete: status.wifiAvailable == true", text)
 
 
@@ -340,6 +342,32 @@ class JITLessCertificationTests(unittest.TestCase):
         self.assertIn('Button("Set Up JIT-Less")', section)
         self.assertIn('Button("Refresh JIT-Less Certificate")', section)
         self.assertIn('Button("Open Certificates")', section)
+
+    def test_every_jitless_switch_is_exhaustive(self):
+        # Adding a readiness state silently broke a switch in another view, which
+        # is a build failure. Every switch over the enum must now name all cases,
+        # or carry an explicit default.
+        primitives_text = primitives()
+        declared = set(re.findall(r"^\s{4}case ([A-Za-z][A-Za-z0-9]*)", re.search(
+            r"enum V3JITLessReadiness: String, Equatable \{(.*?)\n\}", primitives_text,
+            re.S).group(1), re.M))
+        self.assertIn("certificateMismatch", declared)
+        self.assertIn("activeCertificateMissing", declared)
+        for path in (SHELL, PRIMITIVES):
+            text = path.read_text(encoding="utf-8")
+            for match in re.finditer(r"switch ([A-Za-z0-9_.]+) \{\n((?:.*\n)*?)\s{8}\}\n", text):
+                subject, body = match.group(1), match.group(2)
+                if "jitless" not in subject.lower() and subject != "readiness":
+                    continue
+                if "default:" in body:
+                    continue
+                covered = set()
+                for group in re.findall(r"case ([^:]+):", body):
+                    for name in re.findall(r"\.([A-Za-z][A-Za-z0-9]*)", group):
+                        covered.add(name)
+                missing = declared - covered
+                self.assertEqual(missing, set(),
+                                 f"{path.name}: switch on {subject} misses {sorted(missing)}")
 
 
 class SourceKeyboardTests(unittest.TestCase):
