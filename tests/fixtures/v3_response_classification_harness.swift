@@ -149,8 +149,10 @@ struct ResponseClassificationHarness {
         let okReply = try! PropertyListSerialization.data(
             fromPropertyList: ["version": 1, "id": okID, "ok": true, "result": ["apps": [["identifier": "a"]]]],
             format: .binary, options: 0)
-        precondition(try! V3CatalogRequestContext.classifyReply(okReply, operation: "catalog", id: okID)
-                     ["result"] is [String: Any])
+        let okResult = try V3CatalogRequestContext.classifyReply(okReply, operation: "catalog", id: okID)
+        precondition(okResult["result"] is [String: Any],
+                     "a well-formed success reply must still be returned, not thrown")
+        precondition(okResult["result"]?["apps"] != nil)
 
         // ---------------------------------------------------------------
         // No sensitive value crosses the boundary in a fallback. The offending

@@ -1492,6 +1492,82 @@ enum V3FailureGuidance {
     }
 }
 
+// V3_RESPONSE_CLASSIFICATION_CARRIER_V1
+// The service's reply encoder and the host's reply classifier are separated by
+// a property-list boundary, and the classification of a reply the service could
+// not deliver has to survive that boundary. It previously did not: the service
+// wrote the specific token under a legacy "error" key and a cause-less
+// structured "failure", and the host prefers the structured envelope, so every
+// encoding failure arrived as a generic invalidResponse.
+//
+// Both halves live here, as pure functions, so the pair can be executed together
+// against real property-list bytes rather than asserted about in source text.
+// The host still prefers the structured envelope; the classification simply
+// travels inside it now, and the legacy token remains for an older host.
+enum V3ResponseClassifier {
+    /// The legacy string tokens a service may put in the "error" key.
+    enum Token {
+        static let encodingFailed = "responseEncodingFailed"
+        static let tooLarge = "responseTooLarge"
+    }
+
+    /// The safe cause that carries a token's classification across the wire.
+    static func safeCause(for token: String) -> CombinedFailure.SafeCause? {
+        switch token {
+        case Token.encodingFailed: return .responseEncodingFailed
+        case Token.tooLarge: return .responseTooLarge
+        default: return nil
+        }
+    }
+}
+
+// V3_RESPONSE_ENCODER_V1
+// The service side of the classification pair. It is a separate enum rather than
+// a private method so the harness can execute the real encoder, and it reads the
+// shared responseLimit instead of repeating the literal.
+enum V3ResponseEncoder {
+    /// Encodes a reply, or returns a correlated, typed fallback that says which
+    /// of the two failure modes occurred.
+    static func encode(_ value: [String: Any], operation: String = "command") -> Data {
+        let correlationID = value["id"] as? String ?? ""
+        do {
+            let data = try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
+            guard data.count <= V3WireContract.responseLimit else {
+                return fallback(id: correlationID, operation: operation,
+                                token: V3ResponseClassifier.Token.tooLarge,
+                                code: .invalidResponse,
+                                safeCause: V3ResponseClassifier.safeCause(for: V3ResponseClassifier.Token.tooLarge))
+            }
+            return data
+        } catch {
+            return fallback(id: correlationID, operation: operation,
+                            token: V3ResponseClassifier.Token.encodingFailed,
+                            code: .invalidResponse,
+                            safeCause: V3ResponseClassifier.safeCause(for: V3ResponseClassifier.Token.encodingFailed))
+        }
+    }
+
+    /// Builds a small, correlated, typed fallback reply. Always serializable
+    /// because every value is a concrete String, Bool or Int.
+    ///
+    /// The reply deliberately carries BOTH the legacy "error" token and the
+    /// structured "failure" envelope, because that is the shape production
+    /// emits. The structured envelope is authoritative on the host, so the
+    /// classification that survives is the safeCause set here.
+    static func fallback(id: String, operation: String, token: String,
+                         code: CombinedFailure.Code,
+                         safeCause: CombinedFailure.SafeCause? = nil) -> Data {
+        let value: [String: Any] = [
+            "version": 1,
+            "id": id,
+            "error": token,
+            "failure": CombinedFailure(operation: operation, stage: .command, code: code,
+                                       id: id, safeCause: safeCause).wire
+        ]
+        return (try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)) ?? Data()
+    }
+}
+
 // V3_SHARED_JITLESS_FACT_V1
 // Home and the Setup Assistant each decided JIT-Less completion separately. Home
 // had no access to the certificate facts, so on the platforms that require

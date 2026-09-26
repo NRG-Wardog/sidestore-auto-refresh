@@ -221,18 +221,24 @@ struct SetupAndSemanticUXHarness {
         precondition(!mismatch.detail.lowercased().contains("broken"))
         precondition(mismatch.severity == .warning)
 
-        // V3_RELOAD_GATE_V1: a caller can never start a second concurrent
-        // snapshot, which is what made the recalculate race possible.
-        precondition(V3ReloadGate.begin(loading: false, presentationActive: false,
-                                        manual: true, requiresConnectionRetry: false) == .startSnapshot)
-        precondition(V3ReloadGate.begin(loading: true, presentationActive: false,
-                                        manual: true, requiresConnectionRetry: false) == .joinInFlight)
-        precondition(V3ReloadGate.begin(loading: false, presentationActive: true,
-                                        manual: true, requiresConnectionRetry: false) == .deferUntilIdle)
-        precondition(V3ReloadGate.begin(loading: false, presentationActive: false,
-                                        manual: false, requiresConnectionRetry: true) == .skip)
-        precondition(V3ReloadGate.begin(loading: false, presentationActive: false,
-                                        manual: true, requiresConnectionRetry: true) == .startSnapshot,
+        // V3_SNAPSHOT_GATE_V1: the activity, not a shared busy flag, decides
+        // what a snapshot request does. The previous gate took a single `loading`
+        // boolean that a mutation also set, so a caller awaiting authoritative
+        // status could join a mutation; the deep interleavings are executed in
+        // v3_snapshot_ownership_harness.swift.
+        precondition(V3SnapshotGate.decide(activity: .idle, presentationActive: false,
+                                          manual: true, requiresConnectionRetry: false) == .performSnapshot)
+        precondition(V3SnapshotGate.decide(activity: .snapshot, presentationActive: false,
+                                          manual: true, requiresConnectionRetry: false) == .joinSnapshot)
+        precondition(V3SnapshotGate.decide(activity: .mutation, presentationActive: false,
+                                          manual: true, requiresConnectionRetry: false) == .awaitMutationThenSnapshot,
+                     "a mutation must never be mistaken for a snapshot")
+        precondition(V3SnapshotGate.decide(activity: .idle, presentationActive: true,
+                                          manual: true, requiresConnectionRetry: false) == .deferForPresentation)
+        precondition(V3SnapshotGate.decide(activity: .idle, presentationActive: false,
+                                          manual: false, requiresConnectionRetry: true) == .doNotObserve)
+        precondition(V3SnapshotGate.decide(activity: .idle, presentationActive: false,
+                                          manual: true, requiresConnectionRetry: true) == .performSnapshot,
                      "an explicit manual reload must always be allowed")
 
         // V3_SOURCE_EDITING_POLICY_V1 (issue #40): Done keeps the typed value,

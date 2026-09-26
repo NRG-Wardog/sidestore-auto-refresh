@@ -46,6 +46,7 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         # Foundation itself rather than a hardcoded expectation list.
         wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_response_classification_harness.swift").read_text(encoding="utf-8")
         # The classifier is the pure half of the bridge; the UIKit-dependent
@@ -53,7 +54,7 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         # operations-and-errors context is taken.
         context = bridge[bridge.index("enum V3CatalogRequestContext {"):]
         context = context[:context.index("\n@MainActor")]
-        self.compile_and_run(wire + "\n" + failure + "\n" + context + "\n" + harness,
+        self.compile_and_run(wire + "\n" + failure + "\n" + helper + "\n" + context + "\n" + harness,
                              "V3_RESPONSE_CLASSIFICATION_PASS")
 
     def test_operation_refresh_and_settings_state_machines_execute(self):

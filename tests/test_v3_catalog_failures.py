@@ -174,10 +174,13 @@ class ServiceSidePropagationTests(unittest.TestCase):
         #
         # The encoder now lives in the shared wire contract as a pure enum, so it
         # can be executed against the host classifier instead of only described.
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
-        start = wire.index("enum V3ResponseEncoder {")
-        whole = normalized(wire[start:])
-        encoder = normalized(wire[start:wire.index("static func fallback(", start)])
+        # The encoder lives in the behavioural primitives, beside CombinedFailure:
+        # the wire contract is a shared source compiled independently in each
+        # process and must not gain a dependency on the error model.
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        start = helper.index("enum V3ResponseEncoder {")
+        whole = normalized(helper[start:])
+        encoder = normalized(helper[start:helper.index("static func fallback(", start)])
         self.assertIn("let data = try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)", encoder)
         self.assertIn("guard data.count <= V3WireContract.responseLimit else", encoder)
         # The shared limit is used, not a fourth copy of the literal.
@@ -212,10 +215,16 @@ class ServiceSidePropagationTests(unittest.TestCase):
         # the structured one. A classification carried only by the token was
         # therefore discarded on arrival, so every encoding failure reached the
         # user as a generic invalidResponse.
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
-        classifier = normalized(wire[wire.index("enum V3ResponseClassifier {"):])
+        # The encoder and the token table live in the behavioural primitives,
+        # beside CombinedFailure. The wire contract is a shared source compiled
+        # independently in each process, so it must not depend on the error model
+        # and a test that compiles it alone has to keep passing.
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        classifier = normalized(helper[helper.index("enum V3ResponseClassifier {"):])
         self.assertIn("case Token.encodingFailed: return .responseEncodingFailed", classifier)
         self.assertIn("case Token.tooLarge: return .responseTooLarge", classifier)
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        self.assertNotIn("CombinedFailure", wire)
         failure_text = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         # Both causes exist, are distinct, and are not retryable: repeating the
         # same request reproduces the same defect.

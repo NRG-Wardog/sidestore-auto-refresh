@@ -43,10 +43,10 @@ class CatalogPlistSafetyTests(unittest.TestCase):
     def test_encoder_distinguishes_encoding_failure_from_oversize(self):
         # The encoder moved into the shared wire contract as a pure enum so the
         # real encoder and the real host classifier can be executed together.
-        wire = WIRE.read_text(encoding="utf-8")
-        start = wire.index("enum V3ResponseEncoder {")
+        helper = primitives()
+        start = helper.index("enum V3ResponseEncoder {")
         block = " ".join(re.sub(r"//.*$", "", line) for line in
-                         wire[start:wire.index("static func fallback(", start)].splitlines())
+                         helper[start:helper.index("static func fallback(", start)].splitlines())
         block = re.sub(r"\s+", " ", block)
         self.assertIn("V3ResponseClassifier.Token.tooLarge", block)
         self.assertIn("V3ResponseClassifier.Token.encodingFailed", block)
@@ -56,7 +56,7 @@ class CatalogPlistSafetyTests(unittest.TestCase):
         self.assertNotIn("try? PropertyListSerialization.data(fromPropertyList: value", block)
         # The shared limit, not a duplicated literal.
         self.assertIn("guard data.count <= V3WireContract.responseLimit else", block)
-        self.assertNotIn("4_194_304", wire[wire.index("enum V3ResponseEncoder {"):])
+        self.assertNotIn("4_194_304", helper[helper.index("enum V3ResponseEncoder {"):])
 
     def test_encoding_failure_has_its_own_safe_cause_and_token(self):
         bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
@@ -69,11 +69,16 @@ class CatalogPlistSafetyTests(unittest.TestCase):
         # V3_RESPONSE_CLASSIFICATION_CARRIER_V1: the classification must be
         # carried by the structured envelope, because the host throws that one
         # and discards the legacy token. A cause that only the legacy token can
-        # produce is unreachable in production.
-        wire = WIRE.read_text(encoding="utf-8")
-        self.assertIn("enum V3ResponseClassifier", wire)
-        self.assertIn("case Token.encodingFailed: return .responseEncodingFailed", wire)
-        self.assertIn("id: id, safeCause: safeCause).wire", wire)
+        # produce is unreachable in production. The encoder and the token table
+        # live in the behavioural primitives, beside CombinedFailure: the wire
+        # contract is compiled independently in each process and stays free of
+        # the error model.
+        helper_text = primitives()
+        self.assertIn("enum V3ResponseClassifier", helper_text)
+        self.assertIn("case Token.encodingFailed: return .responseEncodingFailed", helper_text)
+        self.assertIn("id: id, safeCause: safeCause).wire", helper_text)
+        self.assertNotIn("CombinedFailure", WIRE.read_text(encoding="utf-8"),
+                         "the wire contract must stay independently compilable")
 
     def test_plist_safe_helper_lives_in_the_shared_wire_contract(self):
         # The invariant must be enforceable from one place, not per call site.
