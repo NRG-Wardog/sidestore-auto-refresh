@@ -402,12 +402,12 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         # rule. It supplies inputs to the one shared policy that Home also uses.
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         setup = source[source.index("final class V3SetupStore"):source.index("struct V3SetupAssistantView")]
-        self.assertIn("var completionInputs: V3SetupCompletionInputs {", setup)
+        self.assertIn("func completionInputs(status: V3SideStoreStatusStore) -> V3SetupCompletionInputs {", setup)
         for required in ('accountComplete: account.state == "complete"',
                          'provisioningIncomplete: statusProvisioningIncomplete',
                          'pairingSatisfied: pairing.state == "complete"',
                          'V3JITLessCompletionPolicy.isRequired(',
-                         'jitlessComplete: jitless.state == "complete"',
+                         'jitlessComplete: V3JITLessCompletionPolicy.isComplete(status.jitlessReadiness)',
                          'networkComplete: network.state == "complete"',
                          'tunnelComplete: tunnel.state == "complete"',
                          'backgroundRefreshAvailable: background.state == "complete"',
@@ -418,7 +418,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         # what let Home and the assistant disagree on iOS 26.
         self.assertNotIn("jitlessRequired: ProcessInfo.processInfo", setup)
         # The decision itself is delegated, never re-implemented.
-        self.assertIn("var isComplete: Bool { completionInputs.isComplete }", setup)
+        self.assertIn("func isComplete(status: V3SideStoreStatusStore) -> Bool", setup)
         self.assertNotIn('majorVersion < 26 || jitless.state == "complete"', setup)
 
     def test_generated_shell_has_no_collapsed_declarations(self):

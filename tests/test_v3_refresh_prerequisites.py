@@ -139,7 +139,7 @@ class TestRefreshShortCircuitTests(unittest.TestCase):
     def test_verification_section_offers_pairing_recovery(self):
         text = shell()
         start = text.index('Section("Verification")')
-        end = text.index("if setup.isComplete {", start)
+        end = text.index("if setup.isComplete(status: status) {", start)
         section = text[start:end]
         self.assertIn("setup.failureStage == CombinedFailure.Stage.pairing.rawValue", section)
         self.assertIn('Label("Show Pairing Setup"', section)

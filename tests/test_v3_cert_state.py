@@ -47,7 +47,7 @@ class JITLessOwnershipTests(unittest.TestCase):
         # JIT-Less requirement is an input from the one shared policy, not a
         # private assistant rule, so Home cannot answer it differently.
         self.assertIn("V3JITLessCompletionPolicy.isRequired(", setup)
-        self.assertIn("var isComplete: Bool { completionInputs.isComplete }", setup)
+        self.assertIn("func isComplete(status: V3SideStoreStatusStore) -> Bool", setup)
         self.assertIn('Section("JIT-Less Mode")', view)
         self.assertIn("status.returnToSetupAfterJITLess", shell)
         self.assertIn("V3CanonicalJITLessCertificateUpdated", shell)

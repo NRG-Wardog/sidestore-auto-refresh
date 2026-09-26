@@ -318,11 +318,54 @@ class SharedSetupCompletionTests(unittest.TestCase):
         self.assertIn("struct V3SetupCompletionInputs", primitives())
         self.assertIn("func outstanding() -> [V3SetupOutstandingItem]", primitives())
         self.assertIn("var isComplete: Bool { outstanding().isEmpty }", primitives())
-        self.assertIn("var isComplete: Bool { completionInputs.isComplete }", text)
+        self.assertIn("func isComplete(status: V3SideStoreStatusStore) -> Bool", text)
         self.assertIn("completionInputs(status: status, defaults: defaults).isComplete", text)
         # Neither screen owns a private rule any more.
         self.assertNotIn('majorVersion < 26 || jitless.state == "complete"', text)
         self.assertNotIn("if UIApplication.shared.backgroundRefreshStatus != .available { return true }", text)
+        # V3_SHARED_JITLESS_FACT_V1: the assistant must not keep a private copy of
+        # the readiness. It used to answer from a local step-state string while
+        # Home answered from the published fact, so Health could publish a ready
+        # readiness the assistant had not observed and the two would disagree.
+        setup = text[text.index("final class V3SetupStore"):text.index("struct V3SetupAssistantView")]
+        self.assertNotIn("@Published var jitlessReadiness", setup,
+                         "the setup store must not keep a second copy of the shared fact")
+        self.assertNotIn("setup.jitlessReadiness", text)
+        # Both surfaces ask the same policy of the same published fact.
+        self.assertEqual(text.count("jitlessComplete: V3JITLessCompletionPolicy.isComplete(status.jitlessReadiness)"), 2)
+        # Home, the assistant, the assistant's own platform branch, and the three
+        # sections that gate JIT-Less UI on the platform all ask the shared
+        # requirement policy rather than testing the OS version locally.
+        self.assertEqual(text.count("V3JITLessCompletionPolicy.isRequired("), 6)
+        self.assertNotIn("ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26", text)
+        self.assertNotIn("ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26", text)
+
+    def test_home_setup_facts_are_observed_without_opening_a_screen(self):
+        # V3_SETUP_FACT_OBSERVATION_V1: the published facts were only ever
+        # written by the Setup Assistant and Health. A user who opened neither
+        # left them nil, and nil is outstanding by policy, so on a platform where
+        # JIT-Less is required the Home banner could never clear however correct
+        # the underlying state was. The store now observes them itself.
+        text = shell()
+        self.assertIn("private func observeSetupFactsIfNeeded()", text)
+        self.assertIn("private func observeSetupFacts() async", text)
+        self.assertIn("observeSetupFactsIfNeeded()", text[text.index("private func performSnapshot()"):])
+        self.assertIn("V3ServiceBridge.shared.request(operation: \"healthSnapshot\")", text)
+        self.assertIn("recordWifiAvailability(wifi)", text)
+        self.assertIn("recordJITLessReadiness(readiness.0)", text)
+        # A failure is published as unknown, never as an assumed-good fact.
+        observation = text[text.index("private func observeSetupFacts() async"):]
+        observation = observation[:observation.index("\n    @Published private(set) var updatedAt")]
+        self.assertIn("recordJITLessReadiness(.unknown)", observation)
+        self.assertNotIn("recordJITLessReadiness(.ready)", observation,
+                         "an unanswered observation must never assert readiness")
+        # The attempt is bounded, so a silent service cannot cause a retry loop.
+        self.assertIn("private enum SetupFactObservation: Equatable {", text)
+        self.assertIn("case pending", text)
+        self.assertIn("case observed", text)
+        self.assertIn("case deferred", text)
+        # Only a deliberate reload asks again.
+        self.assertIn("if setupFactObservation == .deferred { setupFactObservation = .pending }", text)
 
     def test_jitless_requirement_is_an_input_not_a_local_exception(self):
         text = shell()

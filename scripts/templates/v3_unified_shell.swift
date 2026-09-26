@@ -786,14 +786,69 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
 
     // V3_SHARED_JITLESS_FACT_V1: the last authoritative JIT-Less readiness.
-    // Health, Certificates and the Setup Assistant all observe it, and Home
-    // reads it, so no surface can claim a different completion answer.
-    // nil means "not observed yet" and counts as outstanding.
+    // Health, the Setup Assistant and the store's own setup-fact observation all
+    // publish it, and Home reads it, so no surface can claim a different
+    // completion answer. nil means "not observed yet" and counts as
+    // outstanding, so a fact nothing observes can never read as satisfied.
     @Published private(set) var jitlessReadiness: V3JITLessReadiness?
 
     /// Publishes an observed JIT-Less readiness for every setup surface to share.
     func recordJITLessReadiness(_ readiness: V3JITLessReadiness) {
         jitlessReadiness = readiness
+    }
+
+    // V3_SETUP_FACT_OBSERVATION_V1
+    // The two facts above were only ever observed by the Setup Assistant and by
+    // Health. A user who opened neither left them nil, and nil is outstanding by
+    // policy, so on a platform where JIT-Less is required the Home banner could
+    // never clear no matter how correct the underlying state was. The store now
+    // observes them itself, once, after its first authoritative snapshot.
+    //
+    // The attempt is tri-state rather than a boolean so a failure cannot become
+    // an unbounded retry loop against a service that is not answering, and so a
+    // deliberate reload can still ask again.
+    private enum SetupFactObservation: Equatable {
+        /// Not attempted yet.
+        case pending
+        /// Both facts are known.
+        case observed
+        /// Attempted and the service did not answer. Not retried automatically.
+        case deferred
+    }
+    private var setupFactObservation: SetupFactObservation = .pending
+
+    /// Observes the shared setup facts once, when they are the only thing
+    /// standing between the user and a cleared setup banner.
+    private func observeSetupFactsIfNeeded() {
+        guard setupFactObservation == .pending, connected,
+              loadActivity == .idle, presentation == nil else { return }
+        // Where JIT-Less is not required and Wi-Fi is already known, there is
+        // nothing to learn.
+        guard jitlessReadiness == nil || wifiAvailable == nil else {
+            setupFactObservation = .observed
+            return
+        }
+        setupFactObservation = .deferred
+        Task { await observeSetupFacts() }
+    }
+
+    private func observeSetupFacts() async {
+        // Wi-Fi is a host-side fact, so it is probed here rather than asked of
+        // the service. An unavailable answer is recorded as unavailable, not as
+        // unknown, because the probe is the authority for it.
+        let wifi = await LiveContainerNetworkPreflight.wifiAvailable()
+        recordWifiAvailability(wifi)
+        do {
+            let health = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
+            let certificate = health["certificateState"] as? [String: Any] ?? [:]
+            let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificate)
+            recordJITLessReadiness(readiness.0)
+            setupFactObservation = .observed
+        } catch {
+            // Unobserved is published as unknown, so the item stays outstanding
+            // rather than the banner claiming a certificate exists.
+            recordJITLessReadiness(.unknown)
+        }
     }
     @Published private(set) var updatedAt: Date?
     @Published private(set) var installedApps: [V3SideStoreApp] = []
@@ -1011,7 +1066,13 @@ final class V3SideStoreStatusStore: ObservableObject {
     /// request behind to cause a second fetch.
     private func startSnapshot(manual: Bool) {
         snapshotOwed = false
-        if manual { requiresConnectionRetry = false }
+        if manual {
+            requiresConnectionRetry = false
+            // A deliberate reload is also a deliberate request to try the
+            // shared setup facts again, so a previous service failure is not
+            // permanent.
+            if setupFactObservation == .deferred { setupFactObservation = .pending }
+        }
         loadActivity = .snapshot
         loading = true
         if installAttempt.hasActiveAttempt {
@@ -1046,6 +1107,9 @@ final class V3SideStoreStatusStore: ObservableObject {
                   installAttempt.attemptID?.uuidString ?? "none", installAttempt.phase.rawValue)
         }
         drainInstallPresentation(trigger: "snapshot_finished")
+        // V3_SETUP_FACT_OBSERVATION_V1: only once an authoritative snapshot has
+        // landed, so the observation is never made against a disconnected store.
+        observeSetupFactsIfNeeded()
         return outcome
     }
 
@@ -3595,7 +3659,7 @@ struct V3SignInView: View {
                         Spacer()
                         if !auth.team.isEmpty { Text(auth.team).foregroundColor(.secondary) }
                     }
-                    if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 {
+                    if V3JITLessCompletionPolicy.isRequired(osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Next: Set Up JIT-Less")
                                 .font(.subheadline.weight(.semibold))
@@ -4724,7 +4788,7 @@ struct V3HealthView: View {
                     Spacer()
                     Text(jitlessDetail).foregroundColor(.secondary).multilineTextAlignment(.trailing)
                 }
-                if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 {
+                if V3JITLessCompletionPolicy.isRequired(osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion) {
                     // V3_JITLESS_PRESENTATION_V1: Health renders the same shared
                     // presentation as Setup Assistant, and adds the certificate
                     // action that actually resolves each distinct state.
@@ -5146,7 +5210,6 @@ final class V3SetupStore: ObservableObject {
     @Published var pairing = V3SetupStepState()
     @Published var account = V3SetupStepState()
     @Published var jitless = V3SetupStepState()
-    @Published var jitlessReadiness: V3JITLessReadiness = .unknown
     @Published var jitlessHasActiveCertificate = false
     @Published var network = V3SetupStepState()
     @Published var tunnel = V3SetupStepState()
@@ -5179,32 +5242,43 @@ final class V3SetupStore: ObservableObject {
     // session. Developer Mode stays advisory and never gates.
     // V3_SETUP_COMPLETION_POLICY_V1: the decision comes from the one shared
     // policy that Home also uses, so the two screens cannot disagree.
-    var completionInputs: V3SetupCompletionInputs {
+    /// V3_SHARED_JITLESS_FACT_V1: the store is passed in because the fact the
+    /// decision needs is published on the status store, and this type is not a
+    /// View. Reading the published fact rather than a local copy is what stops
+    /// the assistant and Home from holding two answers.
+    func completionInputs(status: V3SideStoreStatusStore) -> V3SetupCompletionInputs {
         V3SetupCompletionInputs(
             accountComplete: account.state == "complete",
             provisioningIncomplete: statusProvisioningIncomplete,
             pairingSatisfied: pairing.state == "complete",
-            // V3_SHARED_JITLESS_FACT_V1: both surfaces ask the shared policy
-            // whether JIT-Less is required, and the step state below is derived
-            // from the same observed readiness Home reads.
+            // V3_SHARED_JITLESS_FACT_V1: both surfaces ask the same shared
+            // policy the same question, of the same published fact. The
+            // assistant previously answered from its own step-state string,
+            // which is a second authority: Health could publish a ready
+            // readiness the assistant had not yet observed, and the two would
+            // disagree about whether the item was outstanding.
             jitlessRequired: V3JITLessCompletionPolicy.isRequired(
                 osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion),
-            jitlessComplete: jitless.state == "complete",
+            jitlessComplete: V3JITLessCompletionPolicy.isComplete(status.jitlessReadiness),
             networkComplete: network.state == "complete",
             tunnelComplete: tunnel.state == "complete",
             backgroundRefreshAvailable: background.state == "complete",
             scheduleEnabled: schedule.state == "complete",
             verifiedRefreshPresent: verification.state == "complete")
     }
-    var outstandingSetup: [V3SetupOutstandingItem] { completionInputs.outstanding() }
-    var isComplete: Bool { completionInputs.isComplete }
+    func outstandingSetup(status: V3SideStoreStatusStore) -> [V3SetupOutstandingItem] {
+        completionInputs(status: status).outstanding()
+    }
+    func isComplete(status: V3SideStoreStatusStore) -> Bool {
+        completionInputs(status: status).isComplete
+    }
 
     /// Where the JIT-Less row leads when the state still needs work. A ready
     /// state has no required destination; its diagnostic action is separate.
     /// The status store is passed in because the store is not a View and has no
     /// environment of its own.
     func jitlessDestination(status: V3SideStoreStatusStore) -> AnyView? {
-        let readiness = jitlessReadiness
+        let readiness = status.jitlessReadiness ?? .unknown
         if readiness.isSatisfied { return nil }
         if [.activeCertificateRevoked, .activeCertificateExpired].contains(readiness) || !jitlessHasActiveCertificate {
             return AnyView(V3CertificatesView().environmentObject(status))
@@ -5250,7 +5324,6 @@ final class V3SetupStore: ObservableObject {
         // disagree about whether JIT-Less applies on this iOS version.
         if !V3JITLessCompletionPolicy.isRequired(
             osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion) {
-            jitlessReadiness = .notRequired
             status.recordJITLessReadiness(.notRequired)
             jitless = V3SetupStepState(state: "complete", detail: "Not required on this iOS version")
         } else {
@@ -5259,9 +5332,9 @@ final class V3SetupStore: ObservableObject {
                 let certificate = health["certificateState"] as? [String: Any] ?? [:]
                 jitlessHasActiveCertificate = certificate["active"] as? Bool == true
                 let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificate)
-                jitlessReadiness = readiness.0
-                // V3_SHARED_JITLESS_FACT_V1: publish the readiness so Home reads
-                // this answer rather than re-deriving a different one.
+                // V3_SHARED_JITLESS_FACT_V1: the published fact is the only
+                // authority. Nothing keeps a local copy, so no surface can hold
+                // a second answer to the same question.
                 status.recordJITLessReadiness(readiness.0)
                 // V3_JITLESS_PRESENTATION_V1: the step state is derived from the
                 // shared presentation, so a ready state is stored as complete
@@ -5278,7 +5351,6 @@ final class V3SetupStore: ObservableObject {
                     jitless = V3SetupStepState(state: "actionRequired", detail: presentation.title)
                 }
             } catch {
-                jitlessReadiness = .unknown
                 jitlessHasActiveCertificate = false
                 // Not observed is published as unknown, so Home keeps the item
                 // outstanding instead of assuming a certificate exists.
@@ -5584,12 +5656,12 @@ struct V3SetupAssistantView: View {
                          state: setup.account,
                          destination: AnyView(V3SignInView().environmentObject(status)))
             }
-            if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 {
+            if V3JITLessCompletionPolicy.isRequired(osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion) {
                 // V3_JITLESS_PRESENTATION_V1: a ready JIT-Less state is rendered
                 // as a completed result, not as an outstanding setup task. The
                 // section only presents required actions while something is
                 // actually outstanding.
-                let jitless = V3JITLessPresentation.present(setup.jitlessReadiness)
+                let jitless = V3JITLessPresentation.present(status.jitlessReadiness ?? .unknown)
                 Section("JIT-Less Mode") {
                     setupRow(icon: jitless.icon, title: "JIT-Less",
                              state: V3SetupStepState(
@@ -5608,7 +5680,7 @@ struct V3SetupAssistantView: View {
                         }
                         .font(.caption)
                     } else {
-                        switch setup.jitlessReadiness {
+                        switch status.jitlessReadiness ?? .unknown {
                         case .setupRequired, .activeCertificateMissing:
                             Button("Set Up JIT-Less") { openCanonicalJITLessSetup() }
                         case .needsCertificateRefresh, .certificateMismatch, .revoked:
@@ -5723,16 +5795,16 @@ struct V3SetupAssistantView: View {
             // V3_SETUP_COMPLETION_POLICY_V1: when setup is not complete, name
             // the outstanding items from the one shared policy, so the assistant
             // and the Home banner can never disagree about what is left.
-            if !setup.outstandingSetup.isEmpty {
+            if !setup.outstandingSetup(status: status).isEmpty {
                 Section("Still Needed") {
-                    ForEach(setup.outstandingSetup, id: \.self) { item in
+                    ForEach(setup.outstandingSetup(status: status), id: \.self) { item in
                         Label(item.title, systemImage: V3StatusSeverity.warning.icon)
                             .font(.footnote)
                             .foregroundColor(.orange)
                     }
                 }
             }
-            if setup.isComplete {
+            if setup.isComplete(status: status) {
                 Section("Setup Complete") {
                     Label("Ready to use", systemImage: "checkmark.circle.fill")
                         .foregroundColor(.green)
