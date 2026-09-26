@@ -5430,23 +5430,30 @@ final class V3SetupStore: ObservableObject {
         NSLog("[V3_SETUP] FAILURE operation=%@ stage=%@ code=%@ correlation=%@", operation, stage, code, correlation)
     }
 
+    /// Records a Test Refresh failure for the Setup Assistant.
+    ///
+    /// V3_FAILURE_GUIDANCE_V1: the row caption is product copy, so it shows
+    /// guidance. It previously appended the numeric NSError domain and code,
+    /// which is the practice the failure policy exists to remove, and the branch
+    /// that did it also made the final `else` unreachable: every Swift Error
+    /// bridges to `NSError?`, so that arm could never run. The domain and code
+    /// remain available in the diagnostics block, which is where a support reader
+    /// looks for them.
     func recordError(_ error: Error, operation: String) {
         if let failure = error as? CombinedFailure {
-            let technical = failure.technicalDetails
             recordFailure(operation: operation, stage: failure.stage.rawValue, code: failure.code.rawValue,
                           correlation: failure.correlationID,
                           retryable: failure.retryable.map { $0 ? "true" : "false" } ?? "")
-            verification = V3SetupStepState(state: "failed", detail: technical)
-        } else if let native = error as NSError? {
-            // No stage/code is invented for generic errors, but the available
-            // domain and code travel with the message instead of being dropped.
-            recordFailure(operation: operation, stage: "", code: "",
-                          correlation: "", retryable: "")
-            verification = V3SetupStepState(state: "failed",
-                detail: error.localizedDescription + " (\(native.domain) \(native.code))")
-        } else {
-            verification = V3SetupStepState(state: "failed", detail: error.localizedDescription)
+            verification = V3SetupStepState(state: "failed", detail: failure.safeMessage)
+            verificationGuidance = failure.recovery
+            return
         }
+        // No stage or code is invented for an untyped error. Nothing claimed a
+        // cause, so nothing is asserted about one.
+        recordFailure(operation: operation, stage: "", code: "", correlation: "", retryable: "")
+        verification = V3SetupStepState(state: "warning",
+            detail: "Test refresh could not be completed, and the cause is not known.")
+        verificationGuidance = V3FailureGuidance.message(error)
     }
 
     // V3_REFRESH_PREREQUISITE_POLICY_V1: Test Refresh uses the same
@@ -5528,10 +5535,23 @@ final class V3SetupStore: ObservableObject {
             var detail = "Refresh reported failures"
             if let failed = results.first(where: { $0["success"] as? Bool != true }) {
                 recordFailure(operation: "refresh", stage: "", code: "", correlation: runID, retryable: "")
-                if let message = failed["error"] as? String, !message.isEmpty {
-                    detail = message
+                // V3_FAILURE_GUIDANCE_V1: the manifest's "error" field is a
+                // diagnostic block of message, recovery and technical details
+                // joined by newlines. It was used verbatim as the row caption, so
+                // a diagnostics line was rendered as product copy. The caption
+                // takes the structured failure's safe message when the manifest
+                // carries one, and the full text is still available below in the
+                // diagnostics block.
+                let wire = failed["failure"] as? [String: Any]
+                let decoded = wire.flatMap { CombinedFailure.decode($0, expectedID: runID) }
+                if let decoded {
+                    detail = decoded.safeMessage
+                    verificationGuidance = decoded.recovery
+                } else if let message = failed["error"] as? String, !message.isEmpty,
+                          let firstLine = message.split(separator: "\n").first {
+                    detail = String(firstLine)
                 }
-                if let failure = failed["failure"] as? [String: Any] {
+                if let failure = wire {
                     recordFailure(operation: failure["operation"] as? String ?? "refresh",
                                   stage: failure["stage"] as? String ?? "",
                                   code: failure["code"] as? String ?? "",

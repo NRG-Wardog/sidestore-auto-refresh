@@ -1472,7 +1472,14 @@ enum V3FailureGuidance {
         if let combined = error as? CombinedFailure {
             return combined.recovery
         }
-        return "That action did not complete and nothing was changed. Reload status, then try again. If it keeps failing, copy diagnostics to identify the cause."
+        // The earlier wording asserted "and nothing was changed". Nothing
+        // supports that: an untyped failure can arrive after the service applied
+        // the request, and the same helper is used after settings writes, source
+        // confirmation, pairing import and install staging. Claiming a known
+        // side-effect from an unknown cause is the same class of error as
+        // blaming the network, so the claim is removed and the outcome is stated
+        // as unknown.
+        return "That action did not complete, and whether it took effect is not known. Reload status to see the current state before trying again. If it keeps failing, copy diagnostics to identify the cause."
     }
 
     /// Privacy-safe diagnostic text, never shown as guidance.

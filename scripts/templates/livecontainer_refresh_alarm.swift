@@ -90,7 +90,10 @@ enum LiveContainerAutoRefreshAlarmProvider {
     static func cancelIfAvailable() {
         do { try AlarmManager.shared.cancel(id: alarmID) }
         catch {
-            LiveContainerAutoRefreshScheduler.defaults.set(error.localizedDescription, forKey: "liveContainerAutoRefreshDeadlineWarningError")
+            // Nothing reads this key today, so persisting a bridged error
+            // description only put a numeric domain and code into the app group.
+            // The raw text stays in the log.
+            LiveContainerAutoRefreshScheduler.defaults.set("A scheduled refresh deadline could not be cleared. Refresh All still works now.", forKey: "liveContainerAutoRefreshDeadlineWarningError")
             print("[LIVE_CONTAINER_REFRESH] ALARM_CANCEL_RESULT error=\(error.localizedDescription)")
             return
         }

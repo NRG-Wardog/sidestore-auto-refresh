@@ -513,12 +513,81 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         self.assertIn('verification.state == "complete"', coredevice)
 
     def test_generic_errors_keep_structure(self):
+        # V3_FAILURE_GUIDANCE_V1: this test previously asserted the opposite of
+        # the policy. It required the row caption to carry failure.technicalDetails
+        # and the bridged NSError domain and code, which is a diagnostics line
+        # rendered as product copy. It also pinned an `else if let native = error
+        # as NSError?` arm that made the final `else` unreachable, because every
+        # Swift Error bridges to NSError?.
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         start = source.index("func recordError")
-        record = source[start:start + 1500]
-        self.assertIn("failure.technicalDetails", record)
-        self.assertIn("native.domain", record)
-        self.assertIn("native.code", record)
+        record = source[start:source.index("\n    }\n", start)]
+        record = "\n".join(line for line in record.splitlines()
+                           if not line.strip().startswith("//"))
+        # A typed failure keeps its own product copy and its structured fields.
+        self.assertIn("failure.safeMessage", record)
+        self.assertIn("failure.recovery", record)
+        self.assertIn("recordFailure(operation: operation, stage: failure.stage.rawValue", record)
+        # An untyped failure invents nothing and shows no numeric code.
+        self.assertNotIn("native.domain", record)
+        self.assertNotIn("native.code", record)
+        self.assertNotIn("localizedDescription", record)
+        self.assertIn("cause is not known", record)
+        self.assertIn("V3FailureGuidance.message(error)", record)
+        # The unreachable arm is gone: there is one typed branch and one else.
+        self.assertNotIn("as NSError?", record)
+        self.assertEqual(record.count("recordFailure(operation: operation"), 2)
+
+    def test_refresh_warning_copy_is_readable_and_diagnostics_stay_in_logs(self):
+        # V3_FAILURE_GUIDANCE_V1: lastErrorKey is rendered as red product copy on
+        # Home under a "Last Refresh Warning" heading. It held a bridged
+        # localizedDescription, which for an NSError is a numeric domain and
+        # code, and opaque snake_case tokens.
+        scheduler = (ROOT / "scripts/templates/livecontainer_refresh_scheduler.swift").read_text(encoding="utf-8")
+        self.assertNotIn("defaults.set(error.localizedDescription, forKey: lastErrorKey)", scheduler)
+        for message in ("hostRelaunchUnverifiedMessage", "hostBaselineUnavailableMessage",
+                        "hostExpirationNotAdvancedMessage", "schedulerConfigurationMessage",
+                        "backgroundSubmitFailedMessage"):
+            self.assertIn(f"static let {message} =", scheduler)
+        # No opaque token may be stored where the user reads it.
+        for token in ('"installed_host_baseline_unavailable"',
+                      '"installed_host_expiration_not_advanced"'):
+            self.assertNotIn(f"defaults.set({token}, forKey: lastErrorKey)", scheduler)
+        # The raw text is still recorded for a support reader.
+        self.assertIn("detail: error.localizedDescription", scheduler)
+        alarm = (ROOT / "scripts/templates/livecontainer_refresh_alarm.swift").read_text(encoding="utf-8")
+        self.assertNotIn('set(error.localizedDescription, forKey: "liveContainerAutoRefreshDeadlineWarningError")', alarm)
+
+    def test_untyped_guidance_does_not_claim_a_side_effect(self):
+        # Nothing supports "nothing was changed" for an untyped failure: it can
+        # arrive after the service applied the request, and the same helper runs
+        # after settings writes, source confirmation, pairing import and staging.
+        primitives_text = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        start = primitives_text.index("enum V3FailureGuidance")
+        guidance = primitives_text[start:primitives_text.index("\n}", start)]
+        # Comments are stripped so the prose describing the old wording is never
+        # read as the wording itself.
+        code = "\n".join(line for line in guidance.splitlines()
+                         if not line.strip().startswith("//"))
+        self.assertNotIn("nothing was changed", code)
+        self.assertIn("whether it took effect is not known", code)
+        # A typed failure still keeps its own recovery copy.
+        self.assertIn("return combined.recovery", code)
+
+    def test_manifest_diagnostics_are_not_used_as_a_row_caption(self):
+        # The manifest's "error" field is a newline-joined block of message,
+        # recovery and technical details. It is a diagnostic record, and it was
+        # being rendered verbatim as the Test Refresh row caption.
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        start = source.index('var detail = "Refresh reported failures"')
+        block = source[start:source.index("\n        }", start)]
+        self.assertIn("CombinedFailure.decode", block)
+        self.assertIn("detail = decoded.safeMessage", block)
+        self.assertIn("verificationGuidance = decoded.recovery", block)
+        # The full text is no longer the caption; only its first line may be, and
+        # only when the manifest carries no structured failure.
+        self.assertIn("message.split(separator: \"\\n\").first", block)
+        self.assertNotIn("detail = message", block)
 
 
 class V3RefreshFeedbackTests(unittest.TestCase):

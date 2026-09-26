@@ -42,6 +42,23 @@ enum LiveContainerAutoRefreshScheduler {
     static let retryExhaustedKey = "liveContainerAutoRefreshRetryExhausted"
     static let uncertainMutationKey = "liveContainerAutoRefreshUncertainMutationRunID"
     static let runStateChangedNotification = "LiveContainerAutoRefreshRunStateChanged"
+
+    // V3_FAILURE_GUIDANCE_V1: lastErrorKey is rendered as red product copy on
+    // Home, under a "Last Refresh Warning" heading. It used to hold
+    // error.localizedDescription, which for a bridged NSError is a numeric
+    // domain and code that means nothing to a reader, and it also held opaque
+    // snake_case tokens. Each of these states now says what happened and what
+    // remains true, and the raw error text stays in the log and the run record.
+    static let hostRelaunchUnverifiedMessage =
+        "LiveContainer refreshed its installed profile, but the new one could not be confirmed until you relaunch. Relaunch to finish verifying it."
+    static let hostBaselineUnavailableMessage =
+        "LiveContainer could not read its previous installed profile, so a background refresh cannot be confirmed as having renewed it. Open Refresh History for details."
+    static let hostExpirationNotAdvancedMessage =
+        "LiveContainer refreshed, but its installed profile has not advanced yet. Relaunch LiveContainer, then check Refresh History."
+    static let schedulerConfigurationMessage =
+        "iOS did not register every background refresh task, so refreshes will not run on their own. Manual Refresh All still works."
+    static let backgroundSubmitFailedMessage =
+        "iOS would not accept the next scheduled background refresh. Refresh All still works now; check Settings for Background App Refresh."
     static let maximumRunLedgerEntries = 32
     static let warningIdentifier = "LiveContainerAutoRefresh.deadline"
     static let leadTime: TimeInterval = 60 * 60 // Provisional policy, not a timing guarantee.
@@ -473,7 +490,7 @@ enum LiveContainerAutoRefreshScheduler {
               let previous = baseline["expiration"] as? Date,
               let bundle = hostBundle, let bundleID = bundle.bundleIdentifier else {
             defaults.set("HOST_REFRESH_UNVERIFIED", forKey: healthStateKey)
-            defaults.set("installed_host_baseline_unavailable", forKey: lastErrorKey)
+            defaults.set(Self.hostBaselineUnavailableMessage, forKey: lastErrorKey)
             defaults.removeObject(forKey: hostHandoffKey)
             defaults.set(true, forKey: retryExhaustedKey)
             record(source: "relaunch", result: "host_unverified", detail: "The old run has no installed-profile baseline. Its result is unknown; a new manual attempt can establish one.")
@@ -484,7 +501,7 @@ enum LiveContainerAutoRefreshScheduler {
                 at: bundle.bundleURL.appendingPathComponent("embedded.mobileprovision"), expectedBundleID: bundleID)
             guard current.expiration > previous, current.expiration > Date() else {
                 defaults.set("HOST_REFRESH_AWAITING_RELAUNCH", forKey: healthStateKey)
-                defaults.set("installed_host_expiration_not_advanced", forKey: lastErrorKey)
+                defaults.set(Self.hostExpirationNotAdvancedMessage, forKey: lastErrorKey)
                 print("[LIVE_CONTAINER_REFRESH] HOST_REFRESH_UNVERIFIED reason=installed_profile_expiration_not_advanced")
                 if let started = defaults.object(forKey: hostHandoffStartedKey) as? Date,
                    Date().timeIntervalSince(started) >= 180 {
@@ -511,7 +528,10 @@ enum LiveContainerAutoRefreshScheduler {
             }
         } catch {
             defaults.set("HOST_REFRESH_AWAITING_RELAUNCH", forKey: healthStateKey)
-            defaults.set(error.localizedDescription, forKey: lastErrorKey)
+            // lastErrorKey is rendered as product copy on Home. A bridged error
+            // description is a numeric domain and code there, so the raw text
+            // stays in the log and the user gets something readable.
+            defaults.set(Self.hostRelaunchUnverifiedMessage, forKey: lastErrorKey)
             print("[LIVE_CONTAINER_REFRESH] HOST_REFRESH_UNVERIFIED error=\(error.localizedDescription)")
         }
     }
@@ -725,7 +745,7 @@ enum LiveContainerAutoRefreshScheduler {
             }
         } catch {
             defaults.set("foreground_recovery_only", forKey: strategyKey)
-            defaults.set(error.localizedDescription, forKey: lastErrorKey)
+            defaults.set(Self.schedulerConfigurationMessage, forKey: lastErrorKey)
             record(source: "scheduler", result: "configuration_failed", detail: error.localizedDescription)
         }
     }
@@ -826,7 +846,7 @@ enum LiveContainerAutoRefreshScheduler {
                 try BGTaskScheduler.shared.submit(request)
                 print("[LIVE_CONTAINER_REFRESH] SCHEDULE_PASS target_deadline=\(deadline.timeIntervalSince1970) earliest_begin=\(earliest.timeIntervalSince1970)")
             } catch {
-                defaults.set(error.localizedDescription, forKey: lastErrorKey)
+                defaults.set(Self.backgroundSubmitFailedMessage, forKey: lastErrorKey)
                 record(source: "scheduler", result: "bgprocessing_submit_failed", detail: error.localizedDescription)
             }
             // A watchdog is one bounded opportunity, not a repeated polling job.
