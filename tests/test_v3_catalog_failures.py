@@ -395,10 +395,21 @@ class CatalogFailureMessageTests(unittest.TestCase):
         # A catalog request selects its wording from the operation, before any
         # stage is consulted, so the generic branch is unreachable for it.
         message = text[text.index("public var message: String {"):]
-        self.assertIn('if operation == "catalog", let catalog = catalogFailureMessage { return catalog }',
-                      message)
+        self.assertIn('if operation == "catalog"', message)
+        self.assertIn("catalogFailureMessage { return catalog }", message)
         self.assertLess(message.index('if operation == "catalog"'),
                         message.index("switch stage {"))
+        # V3_RESPONSE_CLASSIFICATION_CARRIER_V1: the two reply-level causes are
+        # the deliberate exception. They describe the reply rather than the
+        # catalog, and the catalog vocabulary covered both with one sentence, so
+        # an unencodable reply and an oversized one read identically.
+        self.assertIn("safeCause != .responseEncodingFailed", message)
+        self.assertIn("safeCause != .responseTooLarge", message)
+        # The exception is a narrowing, not a removal: every other catalog cause
+        # still takes the catalog vocabulary.
+        guard_block = message[message.index('if operation == "catalog"'):]
+        guard_block = guard_block[:guard_block.index("\n        if ")]
+        self.assertIn("let catalog = catalogFailureMessage", guard_block)
 
 
 class CatalogViewValidationTests(unittest.TestCase):

@@ -332,14 +332,22 @@ struct SnapshotOwnershipHarness {
         // 10. several simultaneous callers all receive the same result
         do {
             let s = Store()
-            for manual in [true, false, true, false, true] {
-                precondition(s.reloadAndWait(manual: manual) == "parked", "s.reloadAndWait(manual: manual) == parked")
+            // The first caller owns the snapshot; the rest join it. Every one of
+            // them must observe the same authoritative outcome.
+            precondition(s.reloadAndWait(manual: true) == "applied",
+                         "the first caller owns the snapshot")
+            for manual in [false, true, false, true] {
+                precondition(s.reloadAndWait(manual: manual) == "parked",
+                             "a concurrent caller must join, not start a second snapshot")
             }
-            precondition(s.snapshotsPerformed.isEmpty, "one snapshot serves all of them")
+            precondition(s.snapshotsPerformed.isEmpty, "no caller started a second snapshot")
             s.completeSnapshot()
-            precondition(s.snapshotsPerformed == ["applied"], "s.snapshotsPerformed == [applied]")
-            precondition(s.resumptions.count == 5, "s.resumptions.count == 5")
-            precondition(Set(s.resumptions.map { $0.1 }).count == 1, "all callers must observe the same authoritative outcome")
+            precondition(s.snapshotsPerformed == ["applied"],
+                         "exactly one snapshot served them all")
+            precondition(s.resumptions.count == 4, "every joined caller must be resumed")
+            precondition(Set(s.resumptions.map { $0.1 }).count == 1,
+                         "all callers must observe the same authoritative outcome")
+            precondition(s.waiters.isEmpty, "no continuation may remain parked")
         }
 
         // The UI meaning of `loading` is preserved: busy for either activity.

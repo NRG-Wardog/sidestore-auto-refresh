@@ -226,7 +226,14 @@ public struct CombinedFailure: Error, LocalizedError {
         // V3_CATALOG_FAILURE_VOCABULARY_V1: a catalog read must never surface as
         // the generic command-stage message. It can fail at a stage that is not
         // the catalog stage, so the operation selects this wording first.
-        if operation == "catalog", let catalog = catalogFailureMessage { return catalog }
+        //
+        // V3_RESPONSE_CLASSIFICATION_CARRIER_V1: the two reply-level causes are
+        // the exception. They describe the reply itself rather than the catalog,
+        // and the catalog vocabulary covered both of them with one sentence, so
+        // a reply that could not be encoded and a reply that was too large read
+        // identically to a user. The specific cause outranks it.
+        if operation == "catalog", safeCause != .responseEncodingFailed,
+           safeCause != .responseTooLarge, let catalog = catalogFailureMessage { return catalog }
         if code == .cancelled { return "The \(operation) request was cancelled. Its result may need reconciliation." }
         if code == .timedOut { return "The \(operation) request timed out during \(stage.rawValue)." }
         if let safeCause {            switch safeCause {
