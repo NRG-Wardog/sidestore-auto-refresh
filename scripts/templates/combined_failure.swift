@@ -370,7 +370,13 @@ public struct CombinedFailure: Error, LocalizedError {
     }
 
     public var recovery: String {
-        if operation == "catalog", let catalog = catalogFailureRecovery { return catalog }
+        // V3_RESPONSE_CLASSIFICATION_CARRIER_V1: the two reply-level causes
+        // outrank the catalog recovery for the same reason they outrank its
+        // message. Repeating an unencodable request, or the same oversized one,
+        // fails identically, so the catalog advice to reload would send the user
+        // in a circle.
+        if operation == "catalog", safeCause != .responseEncodingFailed,
+           safeCause != .responseTooLarge, let catalog = catalogFailureRecovery { return catalog }
         if let safeCause {
             switch safeCause {
             case .networkConnectionLost, .networkTimedOut, .networkUnavailable:

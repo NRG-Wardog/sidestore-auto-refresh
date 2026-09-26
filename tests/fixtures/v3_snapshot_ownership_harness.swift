@@ -33,6 +33,12 @@ struct SnapshotOwnershipHarness {
         var presentationActive = false
         /// Set by a test to make the next snapshot fail.
         var nextSnapshotFails = false
+        /// When true a snapshot finishes inside the call that started it, which
+        /// is what a caller that owns the snapshot observes. When false the
+        /// snapshot stays in flight until the test completes it, which is the
+        /// window in which a second caller can join. The real store awaits the
+        /// service, so both windows exist in production.
+        var completesSnapshotImmediately = true
 
         /// The store latches this on a failed snapshot. A test sets it directly to
         /// reach the state where an owed non-manual snapshot is refused, which no
@@ -123,13 +129,15 @@ struct SnapshotOwnershipHarness {
             drainOwedSnapshot()
         }
 
-        /// reloadAndWait, modelled: returns immediately for a decision that owes
-        /// the caller nothing, and otherwise parks and returns the resumption.
+        /// reloadAndWait, modelled. Returns "parked" for a caller that must wait,
+        /// "notObserved" for one the policy refuses, and the snapshot's real
+        /// outcome for one that owns a snapshot which completed immediately.
         func reloadAndWait(manual: Bool) -> String {
             switch beginSnapshot(manual: manual) {
             case .performSnapshot:
+                guard completesSnapshotImmediately else { return "inFlight" }
                 completeSnapshot()
-                return resumptions.isEmpty ? snapshotsPerformed.last! : "applied"
+                return snapshotsPerformed.last ?? "applied"
             case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:
                 waiters.append(manual)
                 return "parked"
@@ -138,12 +146,12 @@ struct SnapshotOwnershipHarness {
             }
         }
 
-        /// reload(), modelled: fire and forget, parks nothing.
+        /// reload(), modelled: fire and forget, so it starts a snapshot and
+        /// returns without waiting. Production does exactly this.
         func reload(manual: Bool) {
             switch beginSnapshot(manual: manual) {
-            case .performSnapshot:
-                completeSnapshot()
-            case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation, .doNotObserve:
+            case .performSnapshot, .joinSnapshot, .awaitMutationThenSnapshot,
+                 .deferForPresentation, .doNotObserve:
                 break
             }
         }
@@ -182,6 +190,7 @@ struct SnapshotOwnershipHarness {
         // 2. mutation success + reloadAndWait waits for a real snapshot
         do {
             let s = Store()
+            s.completesSnapshotImmediately = false
             s.beginMutation()
             precondition(s.reloadAndWait(manual: true) == "parked", "s.reloadAndWait(manual: true) == parked")
             precondition(s.snapshotOwed, "a snapshot is owed for after the mutation")
@@ -197,6 +206,7 @@ struct SnapshotOwnershipHarness {
         // 3. mutation failure + reloadAndWait still waits for a real snapshot
         do {
             let s = Store()
+            s.completesSnapshotImmediately = false
             s.beginMutation()
             precondition(s.reloadAndWait(manual: true) == "parked", "s.reloadAndWait(manual: true) == parked")
             s.completeMutation()
@@ -332,10 +342,13 @@ struct SnapshotOwnershipHarness {
         // 10. several simultaneous callers all receive the same result
         do {
             let s = Store()
+            // The snapshot stays in flight, which is the window in which the
+            // remaining callers join it.
+            s.completesSnapshotImmediately = false
             // The first caller owns the snapshot; the rest join it. Every one of
             // them must observe the same authoritative outcome.
-            precondition(s.reloadAndWait(manual: true) == "applied",
-                         "the first caller owns the snapshot")
+            precondition(s.reloadAndWait(manual: true) == "inFlight",
+                         "the first caller owns the snapshot, which is still in flight")
             for manual in [false, true, false, true] {
                 precondition(s.reloadAndWait(manual: manual) == "parked",
                              "a concurrent caller must join, not start a second snapshot")

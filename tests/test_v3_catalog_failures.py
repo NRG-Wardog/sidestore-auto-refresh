@@ -410,6 +410,17 @@ class CatalogFailureMessageTests(unittest.TestCase):
         guard_block = message[message.index('if operation == "catalog"'):]
         guard_block = guard_block[:guard_block.index("\n        if ")]
         self.assertIn("let catalog = catalogFailureMessage", guard_block)
+        # The recovery copy carries the same exception. Repeating an unencodable
+        # request, or the same oversized one, fails identically, so the catalog
+        # advice to reload would send the user in a circle.
+        recovery = text[text.index("public var recovery: String {"):]
+        self.assertIn('if operation == "catalog", safeCause != .responseEncodingFailed,', recovery)
+        self.assertIn("safeCause != .responseTooLarge, let catalog = catalogFailureRecovery", recovery)
+        # Every catalog cause that is not one of the two reply-level defects
+        # still reaches its specific recovery copy.
+        catalog_recovery = recovery[recovery.index("if let safeCause {"):]
+        self.assertIn("case .catalogSourceUnavailable:", catalog_recovery)
+        self.assertIn("Return to Sources and reload the source list", catalog_recovery)
 
 
 class CatalogViewValidationTests(unittest.TestCase):
