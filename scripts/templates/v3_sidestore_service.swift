@@ -192,40 +192,27 @@ final class V3SideStoreService: NSObject {
                     code: .invalidConfiguration, id: id).wire]
     }
 
+    // V3_RESPONSE_CLASSIFICATION_CARRIER_V1: the encoder and its typed fallback
+    // live in the shared wire contract so the host's classifier and the
+    // service's encoder can be executed together against real bytes. The
+    // classification travels in the structured envelope's safeCause, not only in
+    // the legacy "error" token: the host prefers the structured failure and
+    // throws it, so a token-only classification was discarded on arrival and
+    // every encoding failure reached the user as a generic invalidResponse.
     private func encode(_ value: [String: Any], operation: String = "command") -> Data {
-        // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: serialization failure and an
-        // oversized payload are different defects and must never be reported as
-        // each other. A response that cannot be encoded at all was saying
-        // "responseTooLarge", which the host then classified as
-        // invalidResponse, destroying the real cause.
-        do {
-            let data = try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
-            guard data.count <= 4_194_304 else {
-                // Correctly serialized, but too large to transport.
-                return fallback(id: value["id"] as? String ?? "", operation: operation,
-                                token: "responseTooLarge", code: .invalidResponse)
-            }
-            return data
-        } catch {
-            // The object graph is not representable. The offending value is never
-            // serialized and the raw error text never crosses the boundary: the
-            // host only needs to know the response could not be encoded.
-            return fallback(id: value["id"] as? String ?? "", operation: operation,
-                            token: "responseEncodingFailed", code: .invalidResponse)
+        let correlationID = value["id"] as? String ?? ""
+        let data = V3ResponseEncoder.encode(value, operation: operation)
+        // A fallback reply is a defect and it must be visible. A serialization or
+        // oversize regression is otherwise indistinguishable in the field from
+        // the failure it causes, because the host reports a generic
+        // invalidResponse either way. Only the classification and the
+        // correlation are recorded; the value that could not be encoded, and
+        // the raw error text, never are.
+        if let decoded = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+           let token = decoded["error"] as? String {
+            debugLog("[V3_ENCODE] FAIL operation=\(operation) request_id=\(correlationID) classification=\(token) correlated=\(correlationID.isEmpty ? "no" : "yes")")
         }
-    }
-
-    /// Builds a small, correlated, typed fallback reply. Always serializable
-    /// because every value is a concrete String, Bool or Int.
-    private func fallback(id: String, operation: String, token: String,
-                          code: CombinedFailure.Code) -> Data {
-        let value: [String: Any] = [
-            "version": 1,
-            "id": id,
-            "error": token,
-            "failure": CombinedFailure(operation: operation, stage: .command, code: code, id: id).wire
-        ]
-        return (try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)) ?? Data()
+        return data
     }
 
     private func run(_ operation: String, request: [String: Any], id: String) async throws -> [String: Any] {

@@ -27,7 +27,11 @@ enum V3CatalogRequestContext {
         case "busy":
             return CombinedFailure(operation: operation, stage: stage, code: .busy, id: id, retryable: true)
         case "responseTooLarge":
-            return CombinedFailure(operation: operation, stage: stage, code: .invalidResponse, id: id)
+            // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: correctly serialized, but
+            // too large to transfer. Distinct from both an encoding failure and a
+            // reply that could not be parsed.
+            return CombinedFailure(operation: operation, stage: stage, code: .invalidResponse, id: id,
+                                  safeCause: .responseTooLarge)
         case "responseEncodingFailed":
             // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: the service could not
             // serialize its reply at all. This is a distinct defect from an
@@ -46,6 +50,42 @@ enum V3CatalogRequestContext {
             // explicitly not blamed, because nothing proved it failed to parse.
             return CombinedFailure(operation: operation, stage: stage, code: .failed, id: id)
         }
+    }
+
+    // V3_RESPONSE_CLASSIFICATION_CARRIER_V1
+    // Classifies one service reply. This is the exact production path, kept pure
+    // so a real service fallback envelope can be run through it.
+    //
+    // Precedence is deliberate and unchanged: the structured `failure` envelope
+    // wins over the legacy string `error` token, because it carries the
+    // operation, stage, correlation, retryability and safe cause that the token
+    // cannot express. The token is consulted only when there is no decodable
+    // envelope, which is the case for a foreign or older service. The
+    // classification of a reply the service could not deliver therefore has to
+    // travel inside the structured envelope, which is what
+    // V3ResponseClassifier.safeCause(for:) is for.
+    static func classifyReply(_ response: Data, operation: String, id: String) throws -> [String: Any] {
+        guard let decoded = try PropertyListSerialization.propertyList(from: response, format: nil) as? [String: Any] else {
+            throw CombinedFailure(operation: operation, stage: hostStage(for: operation),
+                                  code: .invalidResponse, id: id)
+        }
+        guard decoded["id"] as? String == id else {
+            // Genuine cross-request protocol evidence. It is never resolved to
+            // the waiting caller, and it is never reported as a serialization
+            // defect it did not prove.
+            throw CombinedFailure(operation: operation, stage: .command, code: .staleResult, id: id)
+        }
+        if let envelope = decoded["failure"] as? [String: Any],
+           let failure = CombinedFailure.decode(envelope, expectedID: id) { throw failure }
+        if let code = decoded["error"] as? String {
+            throw hostFailure(errorToken: code, operation: operation, id: id)
+        }
+        guard decoded["version"] as? Int == 1, decoded["ok"] as? Bool == true,
+              let result = decoded["result"] as? [String: Any] else {
+            throw CombinedFailure(operation: operation, stage: hostStage(for: operation),
+                                  code: .invalidResponse, id: id)
+        }
+        return result
     }
 
     /// Attach the waiting request to a pre-dispatch connection failure. The
@@ -134,9 +174,17 @@ public final class V3ServiceBridge {
                 client.v3Execute(data) { response in
                     Task { @MainActor in
                         self.cancellationRecovery.removeValue(forKey: id)?.cancel()
-                        guard response.count <= 4_194_304 else {
-                            self.settle(id, .failure(CombinedFailure(operation: operation, stage: .command,
-                                code: .invalidResponse, id: id))); return
+                        guard response.count <= V3WireContract.responseLimit else {
+                            // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: a reply that
+                            // arrived but exceeded the transport limit is its own
+                            // defect. It was reported as a plain invalidResponse,
+                            // which is the same shape as a reply that could not be
+                            // parsed, so the two were indistinguishable. The stage
+                            // follows the request so a catalog read is not reported
+                            // as a generic command failure.
+                            self.settle(id, .failure(CombinedFailure(operation: operation,
+                                stage: V3CatalogRequestContext.hostStage(for: operation),
+                                code: .invalidResponse, id: id, safeCause: .responseTooLarge))); return
                         }
                         self.settle(id, .success(response))
                     }
@@ -168,30 +216,12 @@ public final class V3ServiceBridge {
                 self.settle(id, .failure(CancellationError()))
             }
         })
-        // V3_CATALOG_FAILURE_STAGE_V1: an empty or undecodable reply, an
-        // oversized reply, and a read timeout are all reported against the
-        // request's own operation and stage. A reply carrying a different,
-        // well-formed request ID stays staleResult, because that is genuine
-        // cross-request protocol evidence and must never be resolved to the
-        // waiting caller.
-        guard let decoded = try PropertyListSerialization.propertyList(from: response, format: nil) as? [String: Any] else {
-            throw CombinedFailure(operation: operation, stage: V3CatalogRequestContext.hostStage(for: operation),
-                                  code: .invalidResponse, id: id)
-        }
-        guard decoded["id"] as? String == id else {
-            throw CombinedFailure(operation: operation, stage: .command, code: .staleResult, id: id)
-        }
-        if let envelope = decoded["failure"] as? [String: Any],
-           let failure = CombinedFailure.decode(envelope, expectedID: id) { throw failure }
-        if let code = decoded["error"] as? String {
-            throw V3CatalogRequestContext.hostFailure(errorToken: code, operation: operation, id: id)
-        }
-        guard decoded["version"] as? Int == 1, decoded["ok"] as? Bool == true,
-              let result = decoded["result"] as? [String: Any] else {
-            throw CombinedFailure(operation: operation, stage: V3CatalogRequestContext.hostStage(for: operation),
-                                  code: .invalidResponse, id: id)
-        }
-        return result
+        // V3_RESPONSE_CLASSIFICATION_CARRIER_V1: the reply classification is a
+        // pure function so the exact production path can be executed against a
+        // real service fallback envelope, rather than only asserted in source
+        // text. Precedence is unchanged: the structured envelope is authoritative
+        // and the legacy token is only consulted when there is no decodable one.
+        return try V3CatalogRequestContext.classifyReply(response, operation: operation, id: id)
     }
 
     public func disconnected() {

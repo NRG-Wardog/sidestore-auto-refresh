@@ -41,13 +41,22 @@ class CatalogPlistSafetyTests(unittest.TestCase):
         self.assertNotIn("installedVersion: app.installedApp?.version ??", block)
 
     def test_encoder_distinguishes_encoding_failure_from_oversize(self):
-        service = SERVICE.read_text(encoding="utf-8")
-        start = service.index("private func encode(")
-        block = service[start:service.index("private func fallback(", start)]
-        self.assertIn('token: "responseTooLarge"', block)
-        self.assertIn('token: "responseEncodingFailed"', block)
-        # A swallowed try? would re-merge the two failure modes.
+        # The encoder moved into the shared wire contract as a pure enum so the
+        # real encoder and the real host classifier can be executed together.
+        wire = WIRE.read_text(encoding="utf-8")
+        start = wire.index("enum V3ResponseEncoder {")
+        block = " ".join(re.sub(r"//.*$", "", line) for line in
+                         wire[start:wire.index("static func fallback(", start)].splitlines())
+        block = re.sub(r"\s+", " ", block)
+        self.assertIn("V3ResponseClassifier.Token.tooLarge", block)
+        self.assertIn("V3ResponseClassifier.Token.encodingFailed", block)
+        # A swallowed try? in encode() would re-merge the two failure modes.
+        # The fallback's own try? is different: that dictionary is always
+        # serializable and must still return Data rather than trap.
         self.assertNotIn("try? PropertyListSerialization.data(fromPropertyList: value", block)
+        # The shared limit, not a duplicated literal.
+        self.assertIn("guard data.count <= V3WireContract.responseLimit else", block)
+        self.assertNotIn("4_194_304", wire[wire.index("enum V3ResponseEncoder {"):])
 
     def test_encoding_failure_has_its_own_safe_cause_and_token(self):
         bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
@@ -57,6 +66,14 @@ class CatalogPlistSafetyTests(unittest.TestCase):
         self.assertIn("case responseEncodingFailed", failure)
         # Non-retryable: retrying the same request cannot fix an encoding bug.
         self.assertIn("case .responseEncodingFailed:\n                return false", failure)
+        # V3_RESPONSE_CLASSIFICATION_CARRIER_V1: the classification must be
+        # carried by the structured envelope, because the host throws that one
+        # and discards the legacy token. A cause that only the legacy token can
+        # produce is unreachable in production.
+        wire = WIRE.read_text(encoding="utf-8")
+        self.assertIn("enum V3ResponseClassifier", wire)
+        self.assertIn("case Token.encodingFailed: return .responseEncodingFailed", wire)
+        self.assertIn("id: id, safeCause: safeCause).wire", wire)
 
     def test_plist_safe_helper_lives_in_the_shared_wire_contract(self):
         # The invariant must be enforceable from one place, not per call site.
@@ -66,6 +83,25 @@ class CatalogPlistSafetyTests(unittest.TestCase):
         self.assertIn("static func unwrapOptional", wire)
         self.assertIn("static func dictionary(", wire)
         self.assertIn("static func isEncodable", wire)
+
+    def test_plist_leaf_set_is_foundation_derived_and_rejects_url(self):
+        # V3_PLIST_LEAF_CONTRACT_V1: URL is not a property-list leaf. The
+        # previous hand-written list accepted it, which licensed a future
+        # serialization failure, and rejected Float and the narrow integer types,
+        # which do serialize. The set is now Foundation's, so it cannot drift.
+        wire = WIRE.read_text(encoding="utf-8")
+        start = wire.index("static func isEncodable")
+        block = wire[start:wire.index("\n    }", start)]
+        self.assertIn("is NSNumber", block, "one bridged case must cover the whole numeric family")
+        self.assertIn("is String", block)
+        self.assertIn("is Date", block)
+        self.assertIn("is Data", block)
+        self.assertNotIn("is URL", block, "CoreFoundation rejects CFURL for every plist format but OpenStep")
+        self.assertNotIn("is Int,", block, "a remembered type list drifts from Foundation")
+        self.assertNotIn("is Double,", block)
+        # An unknown object is rejected, never stringified into the wire.
+        self.assertNotIn("String(describing:", block)
+        self.assertNotIn("String(describing: unwrapped)", block)
 
 
 class CatalogSourceExistenceTests(unittest.TestCase):

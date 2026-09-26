@@ -57,6 +57,19 @@ def request_function() -> str:
     return text[start:text.index("public func disconnected()", start)]
 
 
+def classify_function() -> str:
+    """The reply classifier, which is the pure half of the host bridge.
+
+    V3_RESPONSE_CLASSIFICATION_CARRIER_V1 moved reply classification out of
+    request() so the exact production path can be executed against a real
+    service fallback envelope. These assertions follow it there. Comments are
+    stripped so prose describing a rule is never read as the rule.
+    """
+    text = bridge()
+    start = text.index("static func classifyReply(")
+    return text[start:text.index("\n    public func disconnected()", start)]
+
+
 class HostBridgePropagationTests(unittest.TestCase):
     """Item 15: the host side must retain the operation context."""
 
@@ -77,20 +90,23 @@ class HostBridgePropagationTests(unittest.TestCase):
     def test_catalog_boundaries_use_the_catalog_stage(self):
         text = bridge()
         self.assertIn("operation == \"catalog\" ? .catalog : .command", text)
-        body = request_function()
-        # Timeout, undecodable reply, and bad envelope all report catalog stage.
-        flat = normalized(body)
+        # Timeout reports the catalog stage in request()...
+        flat = normalized(request_function())
         self.assertIn("stage: V3CatalogRequestContext.hostStage(for: operation), code: .timedOut", flat)
-        self.assertIn("stage: V3CatalogRequestContext.hostStage(for: operation), code: .invalidResponse", flat)
-        # Both invalid-response boundaries carry the catalog stage.
-        self.assertEqual(flat.count("stage: V3CatalogRequestContext.hostStage(for: operation), code: .invalidResponse"), 2)
+        # ...and both invalid-response boundaries report it in the classifier.
+        replies = normalized(uncommented(classify_function()))
+        self.assertIn("stage: hostStage(for: operation), code: .invalidResponse", replies)
+        self.assertEqual(replies.count("stage: hostStage(for: operation), code: .invalidResponse"), 2)
+        # The transport-size boundary is a third invalid-response site, and it is
+        # staged and classified like every other host boundary.
+        self.assertIn("stage: V3CatalogRequestContext.hostStage(for: operation), code: .invalidResponse, id: id, safeCause: .responseTooLarge", flat)
 
     def test_a_well_formed_reply_with_a_foreign_id_stays_stale_result(self):
-        body = normalized(request_function())
+        body = normalized(uncommented(classify_function()))
         self.assertIn('guard decoded["id"] as? String == id else { throw CombinedFailure(operation: operation, stage: .command, code: .staleResult, id: id) }', body)
         # Malformed and mismatched replies are no longer conflated.
         self.assertNotIn('as? [String: Any], decoded["id"]', body)
-        self.assertIn('as? [String: Any] else { throw CombinedFailure(operation: operation, stage: V3CatalogRequestContext.hostStage(for: operation), code: .invalidResponse', body)
+        self.assertIn('as? [String: Any] else { throw CombinedFailure(operation: operation, stage: hostStage(for: operation), code: .invalidResponse', body)
 
     def test_missing_client_is_retryable_for_a_read(self):
         body = request_function()
@@ -155,33 +171,69 @@ class ServiceSidePropagationTests(unittest.TestCase):
         # V3_RESPONSE_ENCODING_CLASSIFICATION_V1: a reply that cannot be
         # serialized must never be reported as too large. That conflation is
         # what turned a boxed Optional into an opaque "invalidResponse".
-        text = service()
-        start = text.index("private func encode(")
-        end = text.index("private func fallback(", start)
-        encode = normalized(text[start:end])
-        self.assertIn("let data = try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)", encode)
-        self.assertIn("guard data.count <= 4_194_304 else", encode)
-        self.assertIn('token: "responseTooLarge"', encode)
-        self.assertIn('token: "responseEncodingFailed"', encode)
-        # A try? that swallows the error into a size claim is exactly the bug.
-        self.assertNotIn("try? PropertyListSerialization.data(fromPropertyList: value", encode)
-        # Both fallbacks are correlated and typed.
-        self.assertNotIn('"error": "responseTooLarge"', encode,
-                         "the fallback is built by the shared correlated helper")
-        fallback_start = text.index("private func fallback(")
-        fallback = normalized(text[fallback_start:fallback_start + 700])
-        self.assertIn('"error": token', fallback)
-        self.assertIn("CombinedFailure(operation: operation, stage: .command, code: code, id: id).wire", fallback)
+        #
+        # The encoder now lives in the shared wire contract as a pure enum, so it
+        # can be executed against the host classifier instead of only described.
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        start = wire.index("enum V3ResponseEncoder {")
+        whole = normalized(wire[start:])
+        encoder = normalized(wire[start:wire.index("static func fallback(", start)])
+        self.assertIn("let data = try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)", encoder)
+        self.assertIn("guard data.count <= V3WireContract.responseLimit else", encoder)
+        # The shared limit is used, not a fourth copy of the literal.
+        self.assertNotIn("4_194_304", whole)
+        self.assertIn("V3ResponseClassifier.Token.tooLarge", encoder)
+        self.assertIn("V3ResponseClassifier.Token.encodingFailed", encoder)
+        # A try? in encode() would swallow the failure into a size claim, which
+        # is exactly the original conflation. The fallback's own try? is
+        # different and correct: that dictionary is always serializable, and a
+        # failure there must still return Data rather than trap.
+        self.assertNotIn("try? PropertyListSerialization.data(fromPropertyList: value", encoder)
+        # The fallback carries the classification inside the structured envelope,
+        # which is the part the host actually reads.
+        self.assertIn('"error": token', whole)
+        self.assertIn("id: id, safeCause: safeCause).wire", whole)
+        self.assertIn("safeCause: V3ResponseClassifier.safeCause(for:", whole)
         # No offending value or raw error text may cross the boundary.
-        for forbidden in ("localizedDescription", "String(describing:", "error.localizedDescription"):
-            self.assertNotIn(forbidden, fallback)
+        for forbidden in ("localizedDescription", "String(describing:"):
+            self.assertNotIn(forbidden, whole)
+        # The service delegates rather than keeping a second encoder.
+        service_text = service()
+        delegate = normalized(service_text[service_text.index("private func encode("):])
+        self.assertIn("V3ResponseEncoder.encode(value, operation: operation)", delegate)
+        self.assertNotIn("PropertyListSerialization.data(fromPropertyList: value", delegate)
+        # A fallback is a defect and must be diagnosable in the field.
+        self.assertIn("[V3_ENCODE] FAIL", delegate)
+        self.assertIn("classification=", delegate)
 
-    def test_encoding_failure_token_is_distinct_on_both_sides(self):
+    def test_encoding_classification_travels_in_the_structured_envelope(self):
+        # V3_RESPONSE_CLASSIFICATION_CARRIER_V1: the service emits BOTH a legacy
+        # "error" token and a structured "failure" envelope, and the host prefers
+        # the structured one. A classification carried only by the token was
+        # therefore discarded on arrival, so every encoding failure reached the
+        # user as a generic invalidResponse.
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        classifier = normalized(wire[wire.index("enum V3ResponseClassifier {"):])
+        self.assertIn("case Token.encodingFailed: return .responseEncodingFailed", classifier)
+        self.assertIn("case Token.tooLarge: return .responseTooLarge", classifier)
+        failure_text = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        # Both causes exist, are distinct, and are not retryable: repeating the
+        # same request reproduces the same defect.
+        self.assertIn("case responseEncodingFailed", failure_text)
+        self.assertIn("case responseTooLarge", failure_text)
+        self.assertIn("case .responseTooLarge:\n                return false", failure_text)
         bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
-        self.assertIn('case "responseEncodingFailed":', bridge)
-        self.assertIn("safeCause: .responseEncodingFailed", bridge)
-        self.assertIn("case responseEncodingFailed", (ROOT / "scripts/templates/combined_failure.swift")
-                      .read_text(encoding="utf-8"))
+        # The legacy token path still types both, for a foreign older service.
+        self.assertIn("case \"responseEncodingFailed\":", bridge)
+        self.assertIn("case \"responseTooLarge\":", bridge)
+        self.assertIn("safeCause: .responseTooLarge", bridge)
+        # The host oversize boundary is a distinct cause, staged like every other
+        # host boundary, instead of a bare invalidResponse.
+        self.assertIn("safeCause: .responseTooLarge))); return", bridge)
+        self.assertIn("stage: V3CatalogRequestContext.hostStage(for: operation),\n                                code: .invalidResponse, id: id, safeCause: .responseTooLarge", bridge)
+        # The reply classifier is a pure function so it can be executed.
+        self.assertIn("static func classifyReply(_ response: Data, operation: String, id: String) throws -> [String: Any]", bridge)
+        self.assertIn("return try V3CatalogRequestContext.classifyReply(response, operation: operation, id: id)", bridge)
 
     def test_catalog_source_missing_is_typed_and_not_a_manifest_problem(self):
         # V3_CATALOG_SOURCE_MISSING_V1: a deleted source must fail, not return
@@ -202,31 +254,20 @@ class ServiceSidePropagationTests(unittest.TestCase):
         # A present source with zero apps is still a success.
         self.assertIn("source_found=yes", service)
 
-    def test_catalog_rows_are_built_through_the_plist_safe_helper(self):
-        # V3_CATALOG_ROW_PLIST_SAFE_V1: no Optional may be boxed into the row.
-        service = SERVICE.read_text(encoding="utf-8")
-        start = service.index('case "catalog":')
-        block = service[start:start + 4000]
-        self.assertIn("V3WireContract.V3PropertyListValue.dictionary([", block)
-        self.assertNotIn("] as [String: Any]", block,
-                         "a cast dictionary can still hold a boxed Optional")
-        # The genuinely optional field is the only one left uncoalesced, and it
-        # is omitted rather than given a fake placeholder.
-        self.assertIn('"installedVersion": app.installedApp?.version', block)
-        self.assertNotIn('"installedVersion": app.installedApp?.version ??', block)
-        # The display-contract fields stay coalesced.
-        self.assertIn('"version": app.latestSupportedVersion?.version ?? "Unavailable"', block)
-        self.assertIn('"downloadURL": app.latestSupportedVersion?.downloadURL.absoluteString ?? ""', block)
-
-    def test_catalog_rows_are_built_through_the_plist_safe_helper(self):
-        # V3_CATALOG_ROW_PLIST_SAFE_V1: no Optional may be boxed into the row.
+    def test_catalog_row_avoids_every_known_plist_unsafe_value(self):
+        # V3_CATALOG_ROW_PLIST_SAFE_V1 / V3_PLIST_LEAF_CONTRACT_V1: no Optional
+        # may be boxed into the row, and no unsupported type may reach
+        # PropertyListSerialization. `as [String: Any]` cannot enforce either, so
+        # the row must not be built that way.
+        #
+        # This replaced two same-named methods. The second silently shadowed the
+        # first, so one of the two never ran and its assertions were never
+        # checked by anything.
         service = SERVICE.read_text(encoding="utf-8")
         start = service.index('case "catalog":')
         end = service.index('case "signOut":', start)
         block = service[start:end]
         self.assertIn("V3WireContract.V3PropertyListValue.dictionary([", block)
-        # A `as [String: Any]` cast can still hold a boxed Optional, so the row
-        # must not be built that way.
         self.assertNotIn("as [String: Any]", block)
         # The genuinely optional field is omitted rather than given a fake value.
         self.assertIn('"installedVersion": app.installedApp?.version', block)
@@ -234,6 +275,16 @@ class ServiceSidePropagationTests(unittest.TestCase):
         # The display-contract fields stay coalesced.
         self.assertIn('"version": app.latestSupportedVersion?.version ?? "Unavailable"', block)
         self.assertIn('"downloadURL": app.latestSupportedVersion?.downloadURL.absoluteString ?? ""', block)
+        # V3_PLIST_LEAF_CONTRACT_V1: URL is not a property-list leaf. Every URL
+        # on this wire must be sent as a string, or the whole catalog reply
+        # fails to serialize after the Core Data read already succeeded.
+        self.assertIn('"iconURL": app.iconURL.absoluteString', block)
+        self.assertNotIn('"iconURL": app.iconURL,', block)
+        self.assertNotIn('"iconURL": app.iconURL ', block)
+        for raw in ('"iconURL": app.iconURL,', '"downloadURL": app.latestSupportedVersion?.downloadURL,'):
+            self.assertNotIn(raw, block, "a raw URL cannot cross the property-list boundary")
+        # No unvalidated cast dictionary may reappear in the row.
+        self.assertNotIn("] as [String: Any]", block)
 
     def test_no_optional_can_leak_into_any_response_dictionary(self):
         """Repo-wide audit for the P0 defect class.

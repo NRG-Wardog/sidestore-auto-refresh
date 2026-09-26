@@ -109,39 +109,54 @@ struct CatalogResponseEncodingHarness {
 
         // A present but unrepresentable value is preserved, so serialization
         // fails loudly instead of silently dropping data.
+        //
+        // V3_PLIST_LEAF_CONTRACT_V1: the leaf set is Foundation's, and URL is
+        // not a leaf. This assertion previously required the opposite, which is
+        // how a URL was licensed onto the wire. The cross-check against real
+        // PropertyListSerialization for every leaf lives in
+        // v3_response_classification_harness.swift.
         final class Opaque {}
         precondition(!V3WireContract.V3PropertyListValue.isEncodable(Opaque()))
+        precondition(!V3WireContract.V3PropertyListValue.isEncodable(URL(string: "https://example.invalid")!))
+        precondition(V3WireContract.V3PropertyListValue.isEncodable(URL(string: "https://example.invalid")!.absoluteString))
         precondition(V3WireContract.V3PropertyListValue.isEncodable("text"))
         precondition(V3WireContract.V3PropertyListValue.isEncodable(1))
         precondition(V3WireContract.V3PropertyListValue.isEncodable(true))
         precondition(V3WireContract.V3PropertyListValue.isEncodable(Date()))
-        precondition(V3WireContract.V3PropertyListValue.isEncodable(URL(string: "https://example.invalid")!))
         precondition(!V3WireContract.V3PropertyListValue.isEncodable(Optional<String>.none as Any))
 
-        // The encoder must distinguish the two failure modes. This mirrors the
-        // service's encode path with the same limit and the same tokens.
-        let limit = 4_194_304
+        // The encoder must distinguish the two failure modes. This runs the REAL
+        // shared encoder rather than a copy of it: a mirrored copy can keep
+        // passing after the production token names or limit change.
         func classify(_ value: [String: Any]) -> String {
-            do {
-                let data = try PropertyListSerialization.data(fromPropertyList: value,
-                                                               format: .binary, options: 0)
-                return data.count <= limit ? "ok" : "responseTooLarge"
-            } catch {
-                return "responseEncodingFailed"
-            }
+            let reply = V3ResponseEncoder.encode(value, operation: "catalog")
+            let decoded = (try? PropertyListSerialization.propertyList(from: reply, format: nil)) as? [String: Any]
+            if let token = decoded?["error"] as? String { return token }
+            return decoded?["ok"] as? Bool == true ? "ok" : "unknown"
         }
         precondition(classify(["version": 1, "id": "u", "ok": true]) == "ok")
         precondition(classify(["version": 1, "id": "u", "bad": Opaque()]) == "responseEncodingFailed")
         // A genuinely oversized but valid payload is a different defect.
-        let oversized = "x".padding(toLength: limit + 16, withPad: "x", startingAt: 0)
+        let oversized = "x".padding(toLength: V3WireContract.responseLimit + 16, withPad: "x", startingAt: 0)
         precondition(classify(["version": 1, "id": "u", "blob": oversized]) == "responseTooLarge")
-
-        // The fallback reply must itself always serialize, and must carry the
-        // correlation and operation.
-        let fallback: [String: Any] = ["version": 1, "id": "u", "error": "responseEncodingFailed"]
-        precondition((try? PropertyListSerialization.data(fromPropertyList: fallback,
-                                                         format: .binary, options: 0)) != nil,
-                     "the correlated fallback must always serialize")
+        // The real fallback must itself always serialize, and must carry the
+        // correlation, the operation, and the classification inside the
+        // structured envelope the host actually reads.
+        let fallbackID = UUID().uuidString
+        let fallbackReply = V3ResponseEncoder.fallback(
+            id: fallbackID, operation: "catalog",
+            token: V3ResponseClassifier.Token.encodingFailed, code: .invalidResponse,
+            safeCause: V3ResponseClassifier.safeCause(for: V3ResponseClassifier.Token.encodingFailed))
+        precondition(fallbackReply.count > 0, "the correlated fallback must always serialize")
+        let fallbackDecoded = try! PropertyListSerialization.propertyList(
+            from: fallbackReply, format: nil) as! [String: Any]
+        precondition(fallbackDecoded["id"] as? String == fallbackID)
+        let envelope = fallbackDecoded["failure"] as! [String: Any]
+        let decodedFailure = CombinedFailure.decode(envelope, expectedID: fallbackID)!
+        precondition(decodedFailure.safeCause == .responseEncodingFailed,
+                     "the classification must survive inside the structured envelope")
+        precondition(decodedFailure.correlationID == fallbackID)
+        precondition(decodedFailure.retryable == false)
 
         // V3_CATALOG_ROW_POLICY_V1: duplicates are removed within a page and
         // across pages, first-seen order preserved.

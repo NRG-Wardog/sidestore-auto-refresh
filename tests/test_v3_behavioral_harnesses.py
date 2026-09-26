@@ -26,6 +26,25 @@ class V3BehavioralHarnessTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(marker, result.stdout)
 
+    def test_response_encoding_classification_survives_the_wire(self):
+        # V3_RESPONSE_CLASSIFICATION_CARRIER_V1: executes the REAL service
+        # encoder and the REAL host reply classifier against each other over
+        # real property-list bytes, using the exact production fallback shape
+        # that carries BOTH a legacy "error" token and a structured "failure"
+        # envelope. Also cross-checks the property-list leaf contract against
+        # Foundation itself rather than a hardcoded expectation list.
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_response_classification_harness.swift").read_text(encoding="utf-8")
+        # The classifier is the pure half of the bridge; the UIKit-dependent
+        # bridge class cannot be compiled standalone, so only the pure
+        # operations-and-errors context is taken.
+        context = bridge[bridge.index("enum V3CatalogRequestContext {"):]
+        context = context[:context.index("\n@MainActor")]
+        self.compile_and_run(wire + "\n" + failure + "\n" + context + "\n" + harness,
+                             "V3_RESPONSE_CLASSIFICATION_PASS")
+
     def test_operation_refresh_and_settings_state_machines_execute(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")

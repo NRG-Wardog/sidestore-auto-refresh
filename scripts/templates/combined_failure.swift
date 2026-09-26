@@ -124,6 +124,11 @@ public struct CombinedFailure: Error, LocalizedError {
         // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: the service built a reply it
         // could not serialize. Distinct from an oversized reply.
         case responseEncodingFailed
+        // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: the reply serialized cleanly
+        // but exceeded the transport limit. This is a third defect, distinct
+        // from both an encoding failure and a reply that could not be parsed,
+        // and it must not be reported as any of them.
+        case responseTooLarge
         case pairingRequired
 
         fileprivate var inferredRetryable: Bool? {
@@ -149,6 +154,10 @@ public struct CombinedFailure: Error, LocalizedError {
             // A reply that could not be serialized is not fixed by retrying the
             // same request; it needs a code fix or a smaller payload.
             case .responseEncodingFailed:
+                return false
+            // An oversized reply is not fixed by retrying the same request
+            // either: the same data would serialize to the same size again.
+            case .responseTooLarge:
                 return false
             case .pairingRequired:
                 return false
@@ -241,6 +250,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .catalogUnavailable: return "SideStore could not read this source's saved catalog data."
             case .catalogSourceUnavailable: return "This source is no longer in the SideStore source list."
             case .responseEncodingFailed: return "SideStore could not encode the response for this request."
+            case .responseTooLarge: return "SideStore produced a response that is too large to transfer."
             case .pairingRequired: return "A pairing file is required before this device can be refreshed."
             }
         }
@@ -382,6 +392,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Return to Sources and reload the source list, then open the source again."
             case .responseEncodingFailed:
                 return "Reload the request. If it keeps failing, copy the safe diagnostics; the service could not encode its reply."
+            case .responseTooLarge:
+                return "Narrow the request, such as a smaller catalog page, then try again. Repeating it unchanged will fail the same way."
             case .pairingRequired:
                 return "Add the pairing file, then retry the refresh."
             }
