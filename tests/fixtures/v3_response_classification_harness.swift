@@ -149,16 +149,30 @@ struct ResponseClassificationHarness {
         precondition(hostFailure(encodingReply, operation: "catalog", id: UUID().uuidString).code == .staleResult,
                      "a mismatched correlation must stay staleResult")
 
-        // A successful reply is still accepted.
+        // A successful reply is still accepted. The payload is typed explicitly
+        // so a heterogeneous literal cannot be inferred as something the
+        // property-list writer will not accept.
         let okID = UUID().uuidString
-        let okReply = try! PropertyListSerialization.data(
-            fromPropertyList: ["version": 1, "id": okID, "ok": true, "result": ["apps": [["identifier": "a"]]]],
-            format: .binary, options: 0)
-        let okResult = try! V3CatalogRequestContext.classifyReply(okReply, operation: "catalog", id: okID)
-        let okInner = okResult["result"] as? [String: Any]
-        precondition(okInner != nil,
-                     "a well-formed success reply must still be returned, not thrown")
-        precondition((okInner?["apps"] as? [Any])?.isEmpty == false)
+        let okPayload: [String: Any] = [
+            "version": 1, "id": okID, "ok": true,
+            "result": ["apps": [["identifier": "com.example.app"]]]]
+        let okReply = try! PropertyListSerialization.data(fromPropertyList: okPayload,
+                                                         format: .binary, options: 0)
+        var returned: [String: Any]? = nil
+        do {
+            returned = try V3CatalogRequestContext.classifyReply(okReply, operation: "catalog", id: okID)
+        } catch {
+            preconditionFailure("a well-formed success reply must be returned, not thrown: \(error)")
+        }
+        guard let payload = returned else {
+            preconditionFailure("a well-formed success reply must be returned, not nil")
+        }
+        // The payload is unwrapped before the cast, so the cast is applied to the
+        // value and not to a double optional.
+        let okInner = payload["result"] as? [String: Any]
+        precondition(okInner != nil, "the result payload must survive the round trip")
+        let okRows = okInner?["apps"] as? [Any] ?? []
+        precondition(!okRows.isEmpty, "the catalog rows must survive the round trip")
 
         // ---------------------------------------------------------------
         // No sensitive value crosses the boundary in a fallback. The offending

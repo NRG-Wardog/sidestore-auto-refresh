@@ -34,6 +34,13 @@ struct SnapshotOwnershipHarness {
         /// Set by a test to make the next snapshot fail.
         var nextSnapshotFails = false
 
+        /// The store latches this on a failed snapshot. A test sets it directly to
+        /// reach the state where an owed non-manual snapshot is refused, which no
+        /// single call sequence otherwise produces.
+        func simulateFailedSnapshotLatch() {
+            requiresConnectionRetry = true
+        }
+
         func beginSnapshot(manual: Bool) -> V3SnapshotDecision {
             let decision = V3SnapshotGate.decide(
                 activity: activity, presentationActive: presentationActive,
@@ -291,7 +298,7 @@ struct SnapshotOwnershipHarness {
         do {
             let s = Store()
             s.beginMutation()
-            s.reloadAndWait(manual: true)
+            _ = s.reloadAndWait(manual: true)
             s.completeMutation()          // owed snapshot starts
             precondition(s.activity == .snapshot)
             s.reload(manual: true)        // the mutation's own trailing reload
@@ -316,7 +323,7 @@ struct SnapshotOwnershipHarness {
             let t = Store()
             t.presentationActive = true
             precondition(t.reloadAndWait(manual: false) == "parked")
-            t.requiresConnectionRetry = true
+            t.simulateFailedSnapshotLatch()
             t.presentationEnded()
             precondition(t.resumptions.count == 1 && t.resumptions[0].1 == "notObserved",
                          "a refused drain must resume its waiters rather than strand them")
