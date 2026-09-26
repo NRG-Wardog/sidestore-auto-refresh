@@ -201,7 +201,8 @@ final class V3SideStoreService: NSObject {
     // every encoding failure reached the user as a generic invalidResponse.
     private func encode(_ value: [String: Any], operation: String = "command") -> Data {
         let correlationID = value["id"] as? String ?? ""
-        let data = V3ResponseEncoder.encode(value, operation: operation)
+        let data = V3ResponseEncoder.encode(value, operation: operation,
+                                            limit: V3WireContract.responseLimit)
         // A fallback reply is a defect and it must be visible. A serialization or
         // oversize regression is otherwise indistinguishable in the field from
         // the failure it causes, because the host reports a generic

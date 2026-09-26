@@ -81,7 +81,7 @@ struct ResponseClassificationHarness {
             "version": 1, "id": encodingID, "ok": true,
             "result": ["apps": [["identifier": "com.example.app",
                                  "installedVersion": Optional<String>.none as Any]]]]
-        let encodingReply = V3ResponseEncoder.encode(unencodable, operation: "catalog")
+        let encodingReply = V3ResponseEncoder.encode(unencodable, operation: "catalog", limit: V3WireContract.responseLimit)
         precondition(encodingReply.count <= V3WireContract.responseLimit)
 
         let encodingFailure = hostFailure(encodingReply, operation: "catalog", id: encodingID)
@@ -105,7 +105,7 @@ struct ResponseClassificationHarness {
         // confused with the encoding failure.
         var oversized: [String: Any] = ["version": 1, "id": encodingID, "ok": true, "result": ["apps": []]]
         oversized["padding"] = String(repeating: "x", count: V3WireContract.responseLimit)
-        let oversizeReply = V3ResponseEncoder.encode(oversized, operation: "catalog")
+        let oversizeReply = V3ResponseEncoder.encode(oversized, operation: "catalog", limit: V3WireContract.responseLimit)
         precondition(oversizeReply.count > 0)
         let oversizeFailure = hostFailure(oversizeReply, operation: "catalog", id: encodingID)
         precondition(oversizeFailure.safeCause == .responseTooLarge,
@@ -152,7 +152,8 @@ struct ResponseClassificationHarness {
         let okResult = try V3CatalogRequestContext.classifyReply(okReply, operation: "catalog", id: okID)
         precondition(okResult["result"] is [String: Any],
                      "a well-formed success reply must still be returned, not thrown")
-        precondition(okResult["result"]?["apps"] != nil)
+        let okInner = okResult["result"] as? [String: Any]
+        precondition(okInner?["apps"] != nil)
 
         // ---------------------------------------------------------------
         // No sensitive value crosses the boundary in a fallback. The offending
@@ -162,7 +163,7 @@ struct ResponseClassificationHarness {
         let secretReply = V3ResponseEncoder.encode(
             ["version": 1, "id": encodingID, "ok": true,
              "result": ["pairing": secret, "installedVersion": Optional<String>.none as Any]],
-            operation: "snapshot")
+            operation: "snapshot", limit: V3WireContract.responseLimit)
         precondition(!String(decoding: secretReply, as: UTF8.self).contains(secret),
                      "a fallback must never carry the value that could not be encoded")
         let secretFailure = hostFailure(secretReply, operation: "snapshot", id: encodingID)

@@ -157,14 +157,19 @@ class ServiceSidePropagationTests(unittest.TestCase):
     def test_encode_call_sites_preserve_the_operation(self):
         text = normalized(service())
         head, _, tail = text.partition("completed = completed.filter")
-        calls = re.findall(r"encode\(", tail)
-        forwarded = re.findall(r"operation: operation\)", tail)
+        # Only reply emission sites are counted. A bare "encode(" also matches the
+        # encoder's own declaration and its internal call to the shared encoder,
+        # neither of which is a reply, so the sites are named explicitly.
+        sites = [m.start() for m in re.finditer(r"reply\(encode\(|let encoded = encode\(", tail)]
+        forwarded = sum(1 for start in sites
+                        if "operation: operation" in tail[start:start + 240])
         # Every reply emitted after the operation is bound forwards it, so an
         # oversized response is never misattributed to a generic command. The
         # only exception is the pre-validation rejection, which has no trusted
         # operation to forward and carries it inside the failure envelope.
-        self.assertEqual(len(calls), len(forwarded) + 1,
-                         f"{len(calls)} encode calls but {len(forwarded)} forward the operation")
+        self.assertGreaterEqual(len(sites), 4, "the reply emission sites must all be found")
+        self.assertEqual(len(sites), forwarded,
+                         f"{len(sites)} reply encode sites but {forwarded} forward the operation")
         self.assertIn("encode(invalidRequestReply(for: data))", head)
 
     def test_encoder_separates_encoding_failure_from_oversize(self):
@@ -172,9 +177,10 @@ class ServiceSidePropagationTests(unittest.TestCase):
         # serialized must never be reported as too large. That conflation is
         # what turned a boxed Optional into an opaque "invalidResponse".
         #
-        # The encoder now lives in the shared wire contract as a pure enum, so it
-        # can be executed against the host classifier instead of only described.
-        # The encoder lives in the behavioural primitives, beside CombinedFailure:
+        # The encoder lives in the behavioural primitives as a pure enum, beside
+        # CombinedFailure, so it can be executed against the host classifier
+        # instead of only described. The encoder lives in the behavioural
+        # primitives, beside CombinedFailure:
         # the wire contract is a shared source compiled independently in each
         # process and must not gain a dependency on the error model.
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
@@ -182,7 +188,7 @@ class ServiceSidePropagationTests(unittest.TestCase):
         whole = normalized(helper[start:])
         encoder = normalized(helper[start:helper.index("static func fallback(", start)])
         self.assertIn("let data = try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)", encoder)
-        self.assertIn("guard data.count <= V3WireContract.responseLimit else", encoder)
+        self.assertIn("guard data.count <= limit else", encoder)
         # The shared limit is used, not a fourth copy of the literal.
         self.assertNotIn("4_194_304", whole)
         self.assertIn("V3ResponseClassifier.Token.tooLarge", encoder)
@@ -203,7 +209,8 @@ class ServiceSidePropagationTests(unittest.TestCase):
         # The service delegates rather than keeping a second encoder.
         service_text = service()
         delegate = normalized(service_text[service_text.index("private func encode("):])
-        self.assertIn("V3ResponseEncoder.encode(value, operation: operation)", delegate)
+        self.assertIn("V3ResponseEncoder.encode(value, operation: operation,", delegate)
+        self.assertIn("limit: V3WireContract.responseLimit", delegate)
         self.assertNotIn("PropertyListSerialization.data(fromPropertyList: value", delegate)
         # A fallback is a defect and must be diagnosable in the field.
         self.assertIn("[V3_ENCODE] FAIL", delegate)

@@ -1528,11 +1528,17 @@ enum V3ResponseClassifier {
 enum V3ResponseEncoder {
     /// Encodes a reply, or returns a correlated, typed fallback that says which
     /// of the two failure modes occurred.
-    static func encode(_ value: [String: Any], operation: String = "command") -> Data {
+    ///
+    /// The limit is a parameter rather than a read of `V3WireContract` so this
+    /// file stays independently compilable, exactly as the wire contract stays
+    /// free of the error model. The caller passes the one shared constant, so
+    /// the limit still has a single definition in production.
+    static func encode(_ value: [String: Any], operation: String = "command",
+                       limit: Int) -> Data {
         let correlationID = value["id"] as? String ?? ""
         do {
             let data = try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
-            guard data.count <= V3WireContract.responseLimit else {
+            guard data.count <= limit else {
                 return fallback(id: correlationID, operation: operation,
                                 token: V3ResponseClassifier.Token.tooLarge,
                                 code: .invalidResponse,

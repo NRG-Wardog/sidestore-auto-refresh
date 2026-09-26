@@ -41,8 +41,11 @@ class CatalogPlistSafetyTests(unittest.TestCase):
         self.assertNotIn("installedVersion: app.installedApp?.version ??", block)
 
     def test_encoder_distinguishes_encoding_failure_from_oversize(self):
-        # The encoder moved into the shared wire contract as a pure enum so the
-        # real encoder and the real host classifier can be executed together.
+        # The encoder is a pure enum in the behavioural primitives, beside
+        # CombinedFailure, so the real encoder and the real host classifier can
+        # be executed together. It is not in the wire contract, which is
+        # compiled independently in each process and must not depend on the
+        # error model.
         helper = primitives()
         start = helper.index("enum V3ResponseEncoder {")
         block = " ".join(re.sub(r"//.*$", "", line) for line in
@@ -54,8 +57,18 @@ class CatalogPlistSafetyTests(unittest.TestCase):
         # The fallback's own try? is different: that dictionary is always
         # serializable and must still return Data rather than trap.
         self.assertNotIn("try? PropertyListSerialization.data(fromPropertyList: value", block)
-        # The shared limit, not a duplicated literal.
-        self.assertIn("guard data.count <= V3WireContract.responseLimit else", block)
+        # The limit is a parameter, not a read of the wire contract, so the
+        # primitives stay independently compilable too.
+        self.assertIn("guard data.count <= limit else", block)
+        self.assertIn("limit: Int) -> Data", block)
+        # Comments are stripped so prose naming the forbidden dependency is not
+        # read as the dependency.
+        helper_code = re.sub(r"//[^\n]*", "", helper)
+        self.assertNotIn("V3WireContract", helper_code,
+                         "the primitives must not depend on the wire contract")
+        # The limit is a parameter so this file stays independently compilable, and
+        # the one shared constant is still what production passes.
+        self.assertIn("limit: Int) -> Data", block)
         self.assertNotIn("4_194_304", helper[helper.index("enum V3ResponseEncoder {"):])
 
     def test_encoding_failure_has_its_own_safe_cause_and_token(self):

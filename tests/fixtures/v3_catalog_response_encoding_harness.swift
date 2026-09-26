@@ -129,7 +129,7 @@ struct CatalogResponseEncodingHarness {
         // shared encoder rather than a copy of it: a mirrored copy can keep
         // passing after the production token names or limit change.
         func classify(_ value: [String: Any]) -> String {
-            let reply = V3ResponseEncoder.encode(value, operation: "catalog")
+            let reply = V3ResponseEncoder.encode(value, operation: "catalog", limit: V3WireContract.responseLimit)
             let decoded = (try? PropertyListSerialization.propertyList(from: reply, format: nil)) as? [String: Any]
             if let token = decoded?["error"] as? String { return token }
             return decoded?["ok"] as? Bool == true ? "ok" : "unknown"
