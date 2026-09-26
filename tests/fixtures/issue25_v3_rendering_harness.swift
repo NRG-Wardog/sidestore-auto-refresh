@@ -98,7 +98,8 @@ struct V3RenderingScreen: View {
             ScrollViewReader { reader in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        V3HomeServiceHeader(isConnected: true, isLoading: false, onReload: {})
+                        V3HomeServiceHeader(isConnected: true, isLoading: false,
+                                            updatedAt: Date(timeIntervalSince1970: 1_700_000_000), onReload: {})
                             .background(FixtureGeometryProbe(id: "home-header"))
                         V3InstalledAppsSection(query: state.query)
                             .background(FixtureGeometryProbe(id: "content"))
