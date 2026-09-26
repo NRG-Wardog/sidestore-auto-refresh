@@ -450,6 +450,80 @@ class UserFacingIssueRoutingTests(unittest.TestCase):
         self.assertNotIn("underlyingCode", make)
         self.assertNotIn("code ==", make)
 
+    def test_source_cancel_restores_the_value_and_changes_nothing_else(self):
+        # Issue #40. Cancel performs no network request, no preview, no
+        # persistence and no source mutation. It previously also cleared an
+        # already-rendered preview, which silently discarded a request the user
+        # had just paid for together with its Confirm action.
+        text = shell()
+        cancel = text[text.index("private func cancelSourceEditing() {"):]
+        cancel = cancel[:cancel.index("\n    }")]
+        code = "\n".join(line for line in cancel.splitlines()
+                         if not line.strip().startswith("//"))
+        self.assertIn("V3SourceEditingPolicy.cancel(typed: status.sourceURL, beforeEditing: sourceURLBeforeEditing)", code)
+        self.assertIn("sourceFieldFocused = false", code)
+        for forbidden in ("preview = nil", "V3ServiceBridge", "previewSource", "addSource",
+                          "sourceAddConfirmed", "status.reload", "sourceFailure =",
+                          "addSucceeded =", "notice ="):
+            self.assertNotIn(forbidden, code,
+                             f"Cancel must not touch {forbidden}")
+
+    def test_done_dismisses_only_and_uses_the_shared_policy(self):
+        # The Done path is a pure UI dismissal. It previously bypassed the shared
+        # policy entirely, so the harness was certifying a function production
+        # never called.
+        text = shell()
+        primitives_text = primitives()
+        self.assertIn("static func done(typed: String) -> V3SourceEditingOutcome", primitives_text)
+        done = text[text.index("private func dismissKeyboard() {"):]
+        done = done[:done.index("\n    }")]
+        code = "\n".join(line for line in done.splitlines()
+                         if not line.strip().startswith("//"))
+        self.assertIn("sourceFieldFocused = false", code)
+        self.assertIn("V3SourceEditingPolicy.done(typed: status.sourceURL)", code)
+        for forbidden in ("status.sourceURL =", "V3ServiceBridge", "preview"):
+            self.assertNotIn(forbidden, code)
+
+    def test_pre_edit_value_is_captured_on_the_focus_rising_edge_only(self):
+        text = shell()
+        capture = text[text.index(".onChange(of: sourceFieldFocused)"):]
+        capture = capture[:capture.index("\n                            }")]
+        code = "\n".join(line for line in capture.splitlines()
+                         if not line.strip().startswith("//"))
+        self.assertIn("if focused { sourceURLBeforeEditing = status.sourceURL }", code)
+        # Only the rising edge may capture, because Cancel itself drops focus and
+        # must not overwrite the value it is about to restore.
+        self.assertNotIn("else", code)
+        # And the capture must not also happen anywhere else, such as when a
+        # preview is requested, which is what made Cancel restore the wrong value.
+        self.assertEqual(text.count("sourceURLBeforeEditing = status.sourceURL"), 1)
+        preview = text[text.index("private func previewSource() async {"):]
+        preview = preview[:preview.index("\n    }")]
+        self.assertNotIn("sourceURLBeforeEditing", preview)
+
+    def test_return_dismisses_the_keyboard_and_submits_nothing(self):
+        text = shell()
+        field = text[text.index('TextField("https://example.com/source.json"'):]
+        field = field[:field.index("\n                    }")]
+        code = "\n".join(line for line in field.splitlines()
+                         if not line.strip().startswith("//"))
+        self.assertIn(".submitLabel(.done)", code)
+        self.assertIn(".onSubmit { dismissKeyboard() }", code)
+        self.assertNotIn("previewSource", code)
+        self.assertNotIn("addSource", code)
+
+    def test_operation_recovery_action_names_where_it_actually_goes(self):
+        # The "setup" destination opens the Setup Assistant but read "Open
+        # Connection Check", which is the same class of mislabel as offering a
+        # connection retry for a source failure.
+        text = shell()
+        titles = text[text.index("private func recoveryActionTitle(for destination: String)"):]
+        titles = titles[:titles.index("\n    }")]
+        self.assertIn('case "setup": return "Open Setup Assistant"', titles)
+        self.assertNotIn('case "setup": return "Open Connection Check"', titles)
+        # And the route it names must be the one the destination is handled by.
+        self.assertIn('case "setup": status.setupPresented = true', text)
+
     def test_alert_uses_the_structured_primary_action(self):
         text = shell()
         start = text.index('if let action = status.issue?.primaryAction, action != .dismiss {')

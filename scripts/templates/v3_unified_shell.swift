@@ -1915,21 +1915,26 @@ struct V3SourcesView: View {
     }
     // V3_SOURCE_KEYBOARD_DISMISS_V1: dismissing the keyboard is a pure UI action.
     // It previews nothing, requests nothing and persists nothing.
+    /// Done keeps the typed value and dismisses the keyboard. It is a pure UI
+    /// dismissal: it never previews, requests, or persists anything.
     private func dismissKeyboard() {
         sourceFieldFocused = false
+        _ = V3SourceEditingPolicy.done(typed: status.sourceURL)
     }
 
     /// Cancel restores the URL that was present when editing began and dismisses
-    /// the keyboard. It performs no preview, no network request, and no source
-    /// persistence. The pre-edit value is restored rather than clearing the
-    /// field, so a URL the user may want to keep is never silently discarded and
-    /// a later focus always starts from the same predictable value.
+    /// the keyboard.
+    ///
+    /// It performs no network request, no preview and no source mutation. It
+    /// deliberately does not discard an already-rendered preview either: a
+    /// preview the user just spent a request on used to vanish silently,
+    /// together with its Confirm action, which is a source mutation the user
+    /// never asked to lose.
     private func cancelSourceEditing() {
         status.sourceURL = V3SourceEditingPolicy.resolved(
             V3SourceEditingPolicy.cancel(typed: status.sourceURL, beforeEditing: sourceURLBeforeEditing),
             typed: status.sourceURL)
         sourceFieldFocused = false
-        preview = nil
     }
 
     private func previewSource() async {
@@ -2525,7 +2530,11 @@ struct V3OperationSheet: View {
         case "certificates": return "Open Certificates"
         case "ipa": return "Choose IPA Again"
         case "connection": return "Open Connection Check"
-        case "setup": return "Open Connection Check"
+        // This destination opens the Setup Assistant, so it must say so. It read
+        // "Open Connection Check" while routing to the assistant, which is the
+        // same class of mislabel as offering a connection retry for a source
+        // failure.
+        case "setup": return "Open Setup Assistant"
         default: return nil
         }
     }
