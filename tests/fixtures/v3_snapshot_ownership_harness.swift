@@ -172,80 +172,76 @@ struct SnapshotOwnershipHarness {
         do {
             let s = Store()
             s.startSnapshot(manual: true)
-            precondition(s.reloadAndWait(manual: true) == "parked")
+            precondition(s.reloadAndWait(manual: true) == "parked", "s.reloadAndWait(manual: true) == parked")
             precondition(s.snapshotsPerformed.isEmpty, "joining must not start a second snapshot")
             s.completeSnapshot()
             precondition(s.snapshotsPerformed == ["applied"], "exactly one snapshot ran")
-            precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "applied",
-                         "the waiter is resumed with the real snapshot result")
+            precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "applied", "the waiter is resumed with the real snapshot result")
         }
 
         // 2. mutation success + reloadAndWait waits for a real snapshot
         do {
             let s = Store()
             s.beginMutation()
-            precondition(s.reloadAndWait(manual: true) == "parked")
+            precondition(s.reloadAndWait(manual: true) == "parked", "s.reloadAndWait(manual: true) == parked")
             precondition(s.snapshotOwed, "a snapshot is owed for after the mutation")
             s.completeMutation()
-            precondition(s.resumptions.isEmpty,
-                         "a mutation completion must never resolve a snapshot waiter")
+            precondition(s.resumptions.isEmpty, "a mutation completion must never resolve a snapshot waiter")
             precondition(s.activity == .snapshot, "the owed snapshot started after the mutation")
             precondition(s.snapshotsPerformed.isEmpty, "and has not completed yet")
             s.completeSnapshot()
-            precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "applied")
-            precondition(s.snapshotsPerformed == ["applied"])
+            precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "applied", "s.resumptions.count == 1 && s.resumptions[0].1 == applied")
+            precondition(s.snapshotsPerformed == ["applied"], "s.snapshotsPerformed == [applied]")
         }
 
         // 3. mutation failure + reloadAndWait still waits for a real snapshot
         do {
             let s = Store()
             s.beginMutation()
-            precondition(s.reloadAndWait(manual: true) == "parked")
+            precondition(s.reloadAndWait(manual: true) == "parked", "s.reloadAndWait(manual: true) == parked")
             s.completeMutation()
-            precondition(s.resumptions.isEmpty,
-                         "a failed mutation must not release a snapshot waiter either")
-            precondition(s.activity == .snapshot)
+            precondition(s.resumptions.isEmpty, "a failed mutation must not release a snapshot waiter either")
+            precondition(s.activity == .snapshot, "s.activity == .snapshot")
             s.nextSnapshotFails = true
             s.completeSnapshot()
             precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "snapshotFailed",
                          "the waiter sees the snapshot's own failure, not the mutation's")
-            precondition(s.requiresConnectionRetry)
+            precondition(s.requiresConnectionRetry, "s.requiresConnectionRetry")
         }
 
         // 4. a mutation is followed by exactly one snapshot, not one per request
         do {
             let s = Store()
             s.beginMutation()
-            for _ in 0..<5 { precondition(s.reloadAndWait(manual: true) == "parked") }
+            for _ in 0..<5 { precondition(s.reloadAndWait(manual: true) == "parked", "s.reloadAndWait(manual: true) == parked") }
             precondition(s.waiters.count == 5, "each caller parks its own continuation")
             s.completeMutation()
             precondition(s.activity == .snapshot, "one owed snapshot, not five")
             s.completeSnapshot()
             precondition(s.snapshotsPerformed == ["applied"], "exactly one snapshot for five requests")
             precondition(s.resumptions.count == 5, "every caller is resumed")
-            precondition(s.resumptions.allSatisfy { $0.1 == "applied" },
-                         "every caller receives the same authoritative result")
-            precondition(s.waiters.isEmpty)
+            precondition(s.resumptions.allSatisfy { $0.1 == "applied" }, "every caller receives the same authoritative result")
+            precondition(s.waiters.isEmpty, "s.waiters.isEmpty")
         }
 
         // 5. presentation active + reloadAndWait parks rather than returning
         do {
             let s = Store()
             s.presentationActive = true
-            precondition(s.reloadAndWait(manual: true) == "parked")
-            precondition(s.snapshotsPerformed.isEmpty)
-            precondition(s.snapshotOwed)
+            precondition(s.reloadAndWait(manual: true) == "parked", "s.reloadAndWait(manual: true) == parked")
+            precondition(s.snapshotsPerformed.isEmpty, "s.snapshotsPerformed.isEmpty")
+            precondition(s.snapshotOwed, "s.snapshotOwed")
         }
 
         // 6. presentation dismissal drains the deferred snapshot
         do {
             let s = Store()
             s.presentationActive = true
-            precondition(s.reloadAndWait(manual: true) == "parked")
+            precondition(s.reloadAndWait(manual: true) == "parked", "s.reloadAndWait(manual: true) == parked")
             s.presentationEnded()
             precondition(s.activity == .snapshot, "dismissal drains the owed snapshot")
             s.completeSnapshot()
-            precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "applied")
+            precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "applied", "s.resumptions.count == 1 && s.resumptions[0].1 == applied")
             precondition(s.waiters.isEmpty, "no continuation is stranded")
         }
 
@@ -257,7 +253,7 @@ struct SnapshotOwnershipHarness {
             // nothing was parked, so there is no resumption to observe.
             precondition(s.reloadAndWait(manual: true) == "snapshotFailed",
                          "the owning caller must see the failure, not a success")
-            precondition(s.snapshotsPerformed == ["snapshotFailed"])
+            precondition(s.snapshotsPerformed == ["snapshotFailed"], "s.snapshotsPerformed == [snapshotFailed]")
             precondition(s.resumptions.isEmpty, "the owning caller got the result directly")
             precondition(s.requiresConnectionRetry, "a failed snapshot latches the connection retry")
         }
@@ -266,12 +262,11 @@ struct SnapshotOwnershipHarness {
         do {
             let s = Store()
             s.startSnapshot(manual: true)
-            precondition(s.reloadAndWait(manual: true) == "parked")
+            precondition(s.reloadAndWait(manual: true) == "parked", "s.reloadAndWait(manual: true) == parked")
             s.nextSnapshotFails = true
             s.completeSnapshot()
-            precondition(s.snapshotsPerformed == ["snapshotFailed"])
-            precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "snapshotFailed",
-                         "a joiner must observe the snapshot's own failure")
+            precondition(s.snapshotsPerformed == ["snapshotFailed"], "s.snapshotsPerformed == [snapshotFailed]")
+            precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "snapshotFailed", "a joiner must observe the snapshot's own failure")
         }
 
         // 8. no duplicate snapshot from a stale owed intent
@@ -281,14 +276,13 @@ struct SnapshotOwnershipHarness {
             // A fire-and-forget reload while blocked, then a reload that is
             // allowed to start: starting any snapshot discharges the intent.
             s.reload(manual: false)
-            precondition(s.snapshotOwed)
+            precondition(s.snapshotOwed, "s.snapshotOwed")
             s.presentationEnded()
-            precondition(s.activity == .snapshot)
+            precondition(s.activity == .snapshot, "s.activity == .snapshot")
             precondition(!s.snapshotOwed, "starting a snapshot discharges the owed intent")
             s.completeSnapshot()
-            precondition(s.snapshotsPerformed.count == 1,
-                         "a stale owed flag must not cause a second fetch")
-            precondition(!s.snapshotOwed)
+            precondition(s.snapshotsPerformed.count == 1, "a stale owed flag must not cause a second fetch")
+            precondition(!s.snapshotOwed, "!s.snapshotOwed")
         }
 
         // 8b. a trailing fire-and-forget reload after a mutation does not double-fetch
@@ -297,7 +291,7 @@ struct SnapshotOwnershipHarness {
             s.beginMutation()
             _ = s.reloadAndWait(manual: true)
             s.completeMutation()          // owed snapshot starts
-            precondition(s.activity == .snapshot)
+            precondition(s.activity == .snapshot, "s.activity == .snapshot")
             s.reload(manual: true)        // the mutation's own trailing reload
             precondition(s.activity == .snapshot, "it joins rather than starting a second")
             s.completeSnapshot()
@@ -307,24 +301,31 @@ struct SnapshotOwnershipHarness {
 
         // 9. no stranded continuation when policy refuses the owed snapshot
         do {
-            let s = Store()
             // A non-manual request while a connection retry is required is
-            // refused outright, so nothing is parked and nothing is owed.
-            precondition(s.reloadAndWait(manual: false) == "notObserved")
-            precondition(s.waiters.isEmpty && !s.snapshotOwed)
-            precondition(s.resumptions.isEmpty)
+            // refused outright, so nothing is parked, nothing is owed, and the
+            // caller is told truthfully that nothing was observed.
+            let s = Store()
+            s.simulateFailedSnapshotLatch()
+            precondition(s.reloadAndWait(manual: false) == "notObserved", "a refused non-manual request must report notObserved")
+            precondition(s.waiters.isEmpty && !s.snapshotOwed, "a refused request must park nothing and owe nothing")
+            precondition(s.resumptions.isEmpty, "and must resume nothing")
 
-            // A manual request is owed behind a presented operation, and the
-            // connection-retry state then refuses the drain. The waiter must be
-            // resumed, not abandoned.
+            // An explicit manual request is never refused, so a caller that
+            // needs one is always released by a real snapshot.
+            let m = Store()
+            m.simulateFailedSnapshotLatch()
+            precondition(m.reloadAndWait(manual: true) == "applied", "a manual request must always be allowed to run")
+
+            // A non-manual request owed behind a presented operation, with the
+            // latch then refusing the drain, must be resumed rather than
+            // abandoned. Abandoning it would hang the awaiting task forever.
             let t = Store()
             t.presentationActive = true
-            precondition(t.reloadAndWait(manual: false) == "parked")
+            precondition(t.reloadAndWait(manual: false) == "parked", "a presented operation must defer and park the caller")
             t.simulateFailedSnapshotLatch()
             t.presentationEnded()
-            precondition(t.resumptions.count == 1 && t.resumptions[0].1 == "notObserved",
-                         "a refused drain must resume its waiters rather than strand them")
-            precondition(t.waiters.isEmpty)
+            precondition(t.resumptions.count == 1 && t.resumptions[0].1 == "notObserved", "a refused drain must resume its waiters rather than strand them")
+            precondition(t.waiters.isEmpty, "no continuation may remain parked")
             precondition(!t.snapshotOwed, "the refused intent is cleared, not retried forever")
         }
 
@@ -332,36 +333,34 @@ struct SnapshotOwnershipHarness {
         do {
             let s = Store()
             for manual in [true, false, true, false, true] {
-                precondition(s.reloadAndWait(manual: manual) == "parked")
+                precondition(s.reloadAndWait(manual: manual) == "parked", "s.reloadAndWait(manual: manual) == parked")
             }
             precondition(s.snapshotsPerformed.isEmpty, "one snapshot serves all of them")
             s.completeSnapshot()
-            precondition(s.snapshotsPerformed == ["applied"])
-            precondition(s.resumptions.count == 5)
-            precondition(Set(s.resumptions.map { $0.1 }).count == 1,
-                         "all callers must observe the same authoritative outcome")
+            precondition(s.snapshotsPerformed == ["applied"], "s.snapshotsPerformed == [applied]")
+            precondition(s.resumptions.count == 5, "s.resumptions.count == 5")
+            precondition(Set(s.resumptions.map { $0.1 }).count == 1, "all callers must observe the same authoritative outcome")
         }
 
         // The UI meaning of `loading` is preserved: busy for either activity.
         do {
             let s = Store()
-            precondition(!s.loading)
+            precondition(!s.loading, "!s.loading")
             s.beginMutation()
             precondition(s.loading, "a mutation still shows the store as busy")
             precondition(s.activity == .mutation, "but it is not a snapshot")
             s.completeMutation()
-            precondition(!s.loading)
+            precondition(!s.loading, "!s.loading")
             s.startSnapshot(manual: true)
-            precondition(s.loading)
+            precondition(s.loading, "s.loading")
             s.completeSnapshot()
-            precondition(!s.loading && s.activity == .idle)
+            precondition(!s.loading && s.activity == .idle, "!s.loading && s.activity == .idle")
         }
 
         // A snapshot waiter is never resumed by anything but a snapshot, and an
         // install-attempt gate is never advanced by a mutation.
         let reflection = Mirror(reflecting: Store())
-        precondition(reflection.children.contains { $0.label == "resumptions" },
-                     "the model must record resumptions so the tests can prove who resumed")
+        precondition(reflection.children.contains { $0.label == "resumptions" }, "the model must record resumptions so the tests can prove who resumed")
 
         print("V3_SNAPSHOT_OWNERSHIP_PASS")
     }

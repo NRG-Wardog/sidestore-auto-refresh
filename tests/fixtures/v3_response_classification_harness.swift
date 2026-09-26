@@ -22,55 +22,55 @@ struct ResponseClassificationHarness {
         }
 
         // ---------------------------------------------------------------
-        // V3_PLIST_LEAF_CONTRACT_V1: the validator must AGREE with
-        // Foundation for every leaf the wire can carry. A hardcoded
-        // expectation list cannot catch a type list that has drifted, and
-        // accepting URL is how a future serialization crash was licensed.
+        // V3_PLIST_LEAF_CONTRACT_V1: the validator must AGREE with Foundation
+        // for every leaf the wire can carry. A hardcoded expectation list
+        // cannot catch a type list that has drifted, and accepting URL is how a
+        // future serialization crash was licensed.
         // ---------------------------------------------------------------
         final class Opaque {}
         let leaves: [(String, Any)] = [
-            ("String", "text"),
-            ("Bool", true),
-            ("Int", 1),
-            ("Int8", Int8(1)),
-            ("Int64", Int64(1)),
-            ("UInt", UInt(1)),
-            ("Double", 1.5),
-            ("Float", Float(1.5)),
-            ("Date", Date()),
-            ("Data", Data([0x01])),
-            ("Array", [1, 2]),
-            ("Dictionary", ["a": "b"]),
-            ("NestedArray", [1, ["b": Date()]]),
-            ("URL", URL(string: "https://example.invalid")!),
+            ("a string", "text"),
+            ("a bool", true),
+            ("an int", 1),
+            ("an Int8", Int8(1)),
+            ("an Int64", Int64(1)),
+            ("a UInt", UInt(1)),
+            ("a double", 1.5),
+            ("a float", Float(1.5)),
+            ("a date", Date()),
+            ("data", Data([0x01])),
+            ("an array", [1, 2] as [Any]),
+            ("a dictionary", ["a": "b"] as [String: Any]),
+            ("a nested container", [1, ["b": Date() as Any]] as [Any]),
+            ("a URL", URL(string: "https://example.invalid")!),
             ("NSNull", NSNull()),
-            ("NSError", NSError(domain: "audit", code: 1)),
-            ("Set", Set([1])),
-            ("Opaque", Opaque()),
-            ("BoxedNone", Optional<String>.none as Any),
+            ("an NSError", NSError(domain: "audit", code: 1)),
+            ("a Set", Set([1])),
+            ("an unknown class", Opaque()),
+            ("a boxed absent Optional", Optional<String>.none as Any),
         ]
         for (name, leaf) in leaves {
             precondition(
                 V3WireContract.V3PropertyListValue.isEncodable(leaf) == foundationEncodes(leaf),
                 "isEncodable disagrees with PropertyListSerialization for \(name)")
         }
-        // The nested container is spelled as [String: Any] so the cast inside
-        // isEncodable is a plain upcast rather than a dictionary value coercion.
-        precondition(V3WireContract.V3PropertyListValue.isEncodable([1, ["b": Date() as Any]] as [Any]))
-        precondition(foundationEncodes([1, ["b": Date() as Any]] as [Any]))
-        // A URL must be sent as a string, and a boxed Optional must never encode.
+        // A URL must be sent as a string, and a boxed absent Optional must never
+        // encode. Both are the properties the wire contract relies on.
         precondition(!foundationEncodes(URL(string: "https://example.invalid")!),
-                     "CoreFoundation now accepts CFURL; revisit the absoluteString contract")
-        precondition(V3WireContract.V3PropertyListValue.isEncodable(URL(string: "https://x.invalid")!.absoluteString),
-                     "a URL's absoluteString is the intended wire form")
-        precondition(!V3WireContract.V3PropertyListValue.isEncodable(Optional<String>.none as Any),
+                     "CoreFoundation accepted a URL; revisit the absoluteString contract")
+        precondition(V3WireContract.V3PropertyListValue.isEncodable(
+                        URL(string: "https://x.invalid")!.absoluteString),
+                     "a URL's absoluteString must be the accepted wire form")
+        precondition(!V3WireContract.V3PropertyListValue.isEncodable(
+                        Optional<String>.none as Any),
                      "an absent Optional must never be reported as encodable")
 
-        // The plist-safe dictionary helper must omit an absent Optional and keep
-        // a present one, and the result must really serialize.
+        // The plist-safe dictionary helper omits an absent Optional, and the
+        // original defect class is still real in Foundation.
         let omitted = V3WireContract.V3PropertyListValue.dictionary([
             "identifier": "com.example.app", "installedVersion": Optional<String>.none as Any])
-        precondition(omitted["identifier"] as? String == "com.example.app")
+        precondition(omitted["identifier"] as? String == "com.example.app",
+                     "a present value must survive the plist-safe helper")
         precondition(omitted["installedVersion"] == nil,
                      "an absent value must be omitted, not boxed into Any")
         let boxed: [String: Any] = ["installedVersion": Optional<String>.none as Any]
@@ -86,20 +86,24 @@ struct ResponseClassificationHarness {
             "version": 1, "id": encodingID, "ok": true,
             "result": ["apps": [["identifier": "com.example.app",
                                  "installedVersion": Optional<String>.none as Any]]]]
-        let encodingReply = V3ResponseEncoder.encode(unencodable, operation: "catalog", limit: V3WireContract.responseLimit)
-        precondition(encodingReply.count <= V3WireContract.responseLimit)
+        let encodingReply = V3ResponseEncoder.encode(unencodable, operation: "catalog",
+                                                     limit: V3WireContract.responseLimit)
+        precondition(encodingReply.count <= V3WireContract.responseLimit,
+                     "the typed fallback must be small enough to transport")
 
         let encodingFailure = hostFailure(encodingReply, operation: "catalog", id: encodingID)
         precondition(encodingFailure.safeCause == .responseEncodingFailed,
-                     "an encoding failure must arrive as responseEncodingFailed, got \(String(describing: encodingFailure.safeCause))")
-        precondition(encodingFailure.code == .invalidResponse)
+                     "an encoding failure must arrive as responseEncodingFailed, not a generic "
+                     + "invalidResponse; got \(String(describing: encodingFailure.safeCause))")
+        precondition(encodingFailure.code == .invalidResponse,
+                     "the code stays invalidResponse; the cause carries the distinction")
         // The fallback reports the wire boundary, which is the truthful stage for
         // a reply that could not be built. The host's own undecodable and
-        // oversize boundaries use the request's own stage instead, which is
-        // checked by the host-boundary assertions in the Python regression.
+        // oversize boundaries use the request's own stage instead.
         precondition(encodingFailure.stage == .command,
                      "a reply the service could not build failed at the wire boundary")
-        precondition(encodingFailure.correlationID == encodingID, "the correlation must survive the fallback")
+        precondition(encodingFailure.correlationID == encodingID,
+                     "the correlation must survive the fallback")
         precondition(encodingFailure.retryable == false,
                      "a serialization defect is not fixed by repeating the same request")
 
@@ -111,26 +115,29 @@ struct ResponseClassificationHarness {
         precondition((encodingDecoded["failure"] as? [String: Any]) != nil,
                      "the structured envelope is still emitted and is authoritative")
 
-        // An oversized-but-valid reply is a different defect and must not be
+        // An oversized but valid reply is a different defect and must not be
         // confused with the encoding failure.
-        var oversized: [String: Any] = ["version": 1, "id": encodingID, "ok": true, "result": ["apps": []]]
+        var oversized: [String: Any] = ["version": 1, "id": encodingID, "ok": true,
+                                        "result": ["apps": []]]
         oversized["padding"] = String(repeating: "x", count: V3WireContract.responseLimit)
-        let oversizeReply = V3ResponseEncoder.encode(oversized, operation: "catalog", limit: V3WireContract.responseLimit)
-        precondition(oversizeReply.count > 0)
+        let oversizeReply = V3ResponseEncoder.encode(oversized, operation: "catalog",
+                                                     limit: V3WireContract.responseLimit)
+        precondition(oversizeReply.count > 0, "the oversized reply must be a typed fallback")
         let oversizeFailure = hostFailure(oversizeReply, operation: "catalog", id: encodingID)
         precondition(oversizeFailure.safeCause == .responseTooLarge,
-                     "an oversized reply must arrive as responseTooLarge, got \(String(describing: oversizeFailure.safeCause))")
+                     "an oversized reply must arrive as responseTooLarge; got "
+                     + String(describing: oversizeFailure.safeCause))
         precondition(oversizeFailure.safeCause != encodingFailure.safeCause,
                      "the two encoder failure modes must never be confused")
 
         // ---------------------------------------------------------------
-        // Structured precedence still wins for unrelated typed failures, and
-        // the legacy token path still works for a foreign service.
+        // Structured precedence still wins for unrelated typed failures, and the
+        // legacy token path still works for a foreign service.
         // ---------------------------------------------------------------
-        let unrelatedID = UUID().uuidString
-        let busy = V3ResponseEncoder.fallback(id: unrelatedID, operation: "snapshot",
+        let busyID = UUID().uuidString
+        let busy = V3ResponseEncoder.fallback(id: busyID, operation: "snapshot",
                                                token: "busy", code: .busy)
-        precondition(hostFailure(busy, operation: "snapshot", id: unrelatedID).code == .busy,
+        precondition(hostFailure(busy, operation: "snapshot", id: busyID).code == .busy,
                      "structured precedence must still deliver a typed unrelated failure")
 
         let foreignID = UUID().uuidString
@@ -141,7 +148,6 @@ struct ResponseClassificationHarness {
         precondition(foreign.code == .notReady && foreign.stage == .serviceReadiness,
                      "a legacy-only reply from an older service must still be typed")
 
-        // An unknown token invents nothing.
         let unknownID = UUID().uuidString
         let unknownToken = try! PropertyListSerialization.data(
             fromPropertyList: ["version": 1, "id": unknownID, "error": "somethingNew"],
@@ -151,12 +157,13 @@ struct ResponseClassificationHarness {
 
         // A reply for a different request is protocol evidence, never a
         // serialization defect, and never resolved to this caller.
-        precondition(hostFailure(encodingReply, operation: "catalog", id: UUID().uuidString).code == .staleResult,
+        precondition(hostFailure(encodingReply, operation: "catalog",
+                                 id: UUID().uuidString).code == .staleResult,
                      "a mismatched correlation must stay staleResult")
 
-        // A successful reply is still accepted. The payload is typed explicitly
-        // so a heterogeneous literal cannot be inferred as something the
-        // property-list writer will not accept.
+        // A successful reply is still returned rather than thrown. The payload is
+        // typed explicitly so a heterogeneous literal is not inferred as
+        // something the property-list writer will refuse.
         let okID = UUID().uuidString
         let okPayload: [String: Any] = [
             "version": 1, "id": okID, "ok": true,
@@ -175,10 +182,9 @@ struct ResponseClassificationHarness {
         // classifyReply returns the inner result payload, not the whole envelope,
         // so the catalog rows sit directly under the returned dictionary.
         let okRows = payload["apps"] as? [Any]
-        precondition(okRows?.isEmpty == false,
-                     "the catalog rows must survive the round trip")
-        precondition((okRows?.first as? [String: Any])?["identifier"] as? String
-                     == "com.example.app",
+        precondition((okRows?.isEmpty == false), "the catalog rows must survive the round trip")
+        let okFirst = okRows?.first as? [String: Any]
+        precondition(okFirst?["identifier"] as? String == "com.example.app",
                      "the row identifier must survive the round trip")
 
         // ---------------------------------------------------------------
@@ -193,25 +199,35 @@ struct ResponseClassificationHarness {
         precondition(!String(decoding: secretReply, as: UTF8.self).contains(secret),
                      "a fallback must never carry the value that could not be encoded")
         let secretFailure = hostFailure(secretReply, operation: "snapshot", id: encodingID)
-        precondition(!secretFailure.safeMessage.contains(secret))
-        precondition(!secretFailure.technicalDetails.contains(secret))
-        precondition(!secretFailure.recovery.contains(secret))
+        precondition(!secretFailure.safeMessage.contains(secret),
+                     "the safe message must not carry the offending value")
+        precondition(!secretFailure.technicalDetails.contains(secret),
+                     "the diagnostics must not carry the offending value")
+        precondition(!secretFailure.recovery.contains(secret),
+                     "the recovery must not carry the offending value")
 
         // ---------------------------------------------------------------
         // The token-to-cause mapping is total over the two encoder tokens, so a
         // future token cannot silently lose its classification.
         // ---------------------------------------------------------------
         precondition(V3ResponseClassifier.safeCause(for: V3ResponseClassifier.Token.encodingFailed)
-                     == .responseEncodingFailed)
+                     == .responseEncodingFailed,
+                     "the encoding token must map to the encoding cause")
         precondition(V3ResponseClassifier.safeCause(for: V3ResponseClassifier.Token.tooLarge)
-                     == .responseTooLarge)
-        precondition(V3ResponseClassifier.safeCause(for: "notReady") == nil)
+                     == .responseTooLarge,
+                     "the oversize token must map to the oversize cause")
+        precondition(V3ResponseClassifier.safeCause(for: "notReady") == nil,
+                     "an unrelated token must map to no cause at all")
 
         // Each of the three reply defects has its own user-facing wording, so a
         // support reader can tell them apart without the diagnostics.
-        precondition(encodingFailure.safeMessage != oversizeFailure.safeMessage)
-        precondition(encodingFailure.recovery != oversizeFailure.recovery)
-        precondition(oversizeFailure.safeMessage != "SideStore could not read this source's saved catalog data.")
+        precondition(encodingFailure.safeMessage != oversizeFailure.safeMessage,
+                     "an encoding failure and an oversize reply must read differently")
+        precondition(encodingFailure.recovery != oversizeFailure.recovery,
+                     "their recovery guidance must differ too")
+        precondition(oversizeFailure.safeMessage
+                     != "SideStore could not read this source's saved catalog data.",
+                     "an oversize reply must not be described as a catalog read failure")
 
         print("V3_RESPONSE_CLASSIFICATION_PASS")
     }
