@@ -825,7 +825,9 @@ final class V3SideStoreStatusStore: ObservableObject {
         case "sources": sourcesPresented = true
         default: break
         }
-    }    @Published var presentation: V3OperationRequest? {
+    }
+
+    @Published var presentation: V3OperationRequest? {
         didSet {
             if presentation == nil { drainDeferredReload() }
         }

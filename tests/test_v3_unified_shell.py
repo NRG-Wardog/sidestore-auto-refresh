@@ -418,6 +418,36 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         self.assertIn("var isComplete: Bool { completionInputs.isComplete }", setup)
         self.assertNotIn('majorVersion < 26 || jitless.state == "complete"', setup)
 
+    def test_generated_shell_has_no_collapsed_declarations(self):
+        # A closing brace immediately followed by a declaration on the same line
+        # is a syntax error that no source-text assertion would catch, and it is
+        # easy to introduce with a scripted edit. The generated shell is checked
+        # structurally, statement by statement.
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        staging = (ROOT / "scripts/templates/v3_ipa_staging.swift").read_text(encoding="utf-8")
+        template = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        generated = primitives.splitlines() + [""] + staging.splitlines() + [""] + template.splitlines()
+        pattern = re.compile(r"\}\s+(?:@Published|@State|@Environment|@FocusState|@AppStorage|"
+                             r"@EnvironmentObject|private |public |internal |static |func |var |let |"
+                             r"struct |enum |init)")
+        offenders = [(index, line) for index, line in enumerate(generated, 1) if pattern.search(line)]
+        self.assertEqual(offenders, [],
+                         "a declaration was collapsed onto a closing brace: "
+                         + "\n".join(f"{index}: {line}" for index, line in offenders))
+
+    def test_generated_shell_balances_braces(self):
+        # Every template is concatenated into a single generated Swift file, so a
+        # single unbalanced brace anywhere makes the whole product unparseable.
+        # String literals are stripped BEFORE comments, because a "//" inside a
+        # literal (a URL, for example) would otherwise be read as a comment and
+        # silently remove the rest of the line.
+        for path in sorted((ROOT / "scripts/templates").glob("*.swift")):
+            text = path.read_text(encoding="utf-8")
+            body = re.sub(r'"(?:[^"\\\n]|\\.)*"', '""', text)
+            body = re.sub(r"//[^\n]*", "", body)
+            self.assertEqual(body.count("{"), body.count("}"),
+                             f"{path.name} has unbalanced braces, so the generated file cannot parse")
+
     def test_history_never_satisfies_current_test(self):
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         self.assertEqual(source.count('detail: "Refresh verified"'), 1)
