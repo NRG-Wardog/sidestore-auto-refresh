@@ -406,7 +406,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         for required in ('accountComplete: account.state == "complete"',
                          'provisioningIncomplete: statusProvisioningIncomplete',
                          'pairingSatisfied: pairing.state == "complete"',
-                         'jitlessRequired: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26',
+                         'V3JITLessCompletionPolicy.isRequired(',
                          'jitlessComplete: jitless.state == "complete"',
                          'networkComplete: network.state == "complete"',
                          'tunnelComplete: tunnel.state == "complete"',
@@ -414,6 +414,9 @@ class V3SetupAcceptanceTests(unittest.TestCase):
                          'scheduleEnabled: schedule.state == "complete"',
                          'verifiedRefreshPresent: verification.state == "complete"'):
             self.assertIn(required, setup)
+        # Neither surface may restate the platform requirement locally, which is
+        # what let Home and the assistant disagree on iOS 26.
+        self.assertNotIn("jitlessRequired: ProcessInfo.processInfo", setup)
         # The decision itself is delegated, never re-implemented.
         self.assertIn("var isComplete: Bool { completionInputs.isComplete }", setup)
         self.assertNotIn('majorVersion < 26 || jitless.state == "complete"', setup)

@@ -43,9 +43,10 @@ class JITLessOwnershipTests(unittest.TestCase):
         shell = SHELL.read_text(encoding="utf-8")
         setup = shell[shell.index("final class V3SetupStore"):shell.index("struct V3SetupAssistantView")]
         view = shell[shell.index("struct V3SetupAssistantView"):shell.index("struct V3HomeServiceHeader")]
-        # V3_SETUP_COMPLETION_POLICY_V1: the iOS-26 JIT-Less requirement is now
-        # an input to the shared policy rather than a private assistant rule.
-        self.assertIn("jitlessRequired: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26", setup)
+        # V3_SETUP_COMPLETION_POLICY_V1 / V3_SHARED_JITLESS_FACT_V1: the iOS-26
+        # JIT-Less requirement is an input from the one shared policy, not a
+        # private assistant rule, so Home cannot answer it differently.
+        self.assertIn("V3JITLessCompletionPolicy.isRequired(", setup)
         self.assertIn("var isComplete: Bool { completionInputs.isComplete }", setup)
         self.assertIn('Section("JIT-Less Mode")', view)
         self.assertIn("status.returnToSetupAfterJITLess", shell)

@@ -1410,6 +1410,55 @@ struct V3SetupCompletionInputs: Equatable {
     var isComplete: Bool { outstanding().isEmpty }
 }
 
+// V3_FAILURE_GUIDANCE_V1
+// A failure that reached a view as an untyped error was displayed as
+// error.localizedDescription. That publishes whatever text the service happened
+// to attach, which for a bridged NSError includes its numeric domain and code
+// and means nothing to a user, and it offered no guidance at all. Every
+// user-visible failure message now comes from here.
+//
+// A typed CombinedFailure keeps its own product recovery copy. An untyped error
+// cannot be attributed to a cause, so the guidance deliberately does not guess
+// one: it says what is known, and it points at the diagnostics that can identify
+// it. The unreadable text is kept out of the interface and offered through
+// Copy Diagnostics instead.
+enum V3FailureGuidance {
+    static func message(_ error: Error) -> String {
+        if let combined = error as? CombinedFailure {
+            return combined.recovery
+        }
+        return "That action did not complete and nothing was changed. Reload status, then try again. If it keeps failing, copy diagnostics to identify the cause."
+    }
+
+    /// Privacy-safe diagnostic text, never shown as guidance.
+    static func diagnostics(_ error: Error) -> String {
+        if let combined = error as? CombinedFailure {
+            return combined.technicalDetails
+        }
+        let nsError = error as NSError
+        return "operation=untyped stage=command code=\(nsError.code) domain=\(nsError.domain) underlying=redacted"
+    }
+}
+
+// V3_SHARED_JITLESS_FACT_V1
+// Home and the Setup Assistant each decided JIT-Less completion separately. Home
+// had no access to the certificate facts, so on the platforms that require
+// JIT-Less it reported the item as permanently outstanding while the assistant,
+// which had the real readiness, showed it complete. One observed readiness is
+// now published and both surfaces read it.
+//
+// A nil readiness means "not observed yet", which counts as outstanding. Guessing
+// "fine" there is what produced the original disagreement.
+enum V3JITLessCompletionPolicy {
+    static func isComplete(_ readiness: V3JITLessReadiness?) -> Bool {
+        guard let readiness else { return false }
+        return readiness.isReady
+    }
+
+    /// True where an unobserved JIT-Less state is still an outstanding item.
+    static func isRequired(osMajor: Int) -> Bool { osMajor >= 26 }
+}
+
 enum V3RetryDisposition: Equatable {
     case allowed
     case unknown

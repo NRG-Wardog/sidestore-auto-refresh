@@ -9,6 +9,8 @@ import Foundation
 //   - JIT-Less states that never confuse the active certificate with the copy
 //   - the reload gate, so a caller can never start a second concurrent snapshot
 //   - Add Source keyboard dismissal and cancel semantics
+//   - one JIT-Less readiness fact, so Home and the assistant cannot disagree
+//   - failure guidance that never shows a numeric error code as advice
 
 @main
 struct SetupAndSemanticUXHarness {
@@ -243,6 +245,48 @@ struct SetupAndSemanticUXHarness {
         // Cancelling a pristine field is a no-op.
         precondition(V3SourceEditingPolicy.resolved(
             V3SourceEditingPolicy.cancel(typed: "same", beforeEditing: "same"), typed: "same") == "same")
+
+        // V3_SHARED_JITLESS_FACT_V1: Home and the Setup Assistant must be able to
+        // reach the same completion answer from the same observed readiness.
+        // A verified copy completes the item on a platform that requires it; an
+        // unobserved fact is outstanding rather than assumed fine, which is the
+        // answer that used to differ per surface.
+        precondition(V3JITLessCompletionPolicy.isRequired(osMajor: 26))
+        precondition(V3JITLessCompletionPolicy.isRequired(osMajor: 27))
+        precondition(!V3JITLessCompletionPolicy.isRequired(osMajor: 18))
+        precondition(V3JITLessCompletionPolicy.isComplete(.ready))
+        precondition(V3JITLessCompletionPolicy.isComplete(.notRequired))
+        precondition(!V3JITLessCompletionPolicy.isComplete(nil),
+                     "an unobserved JIT-Less state must stay outstanding")
+        precondition(!V3JITLessCompletionPolicy.isComplete(.unknown))
+        for state: V3JITLessReadiness in [.setupRequired, .certificateImported,
+                                         .needsCertificateRefresh, .revoked,
+                                         .activeCertificateMissing, .activeCertificateRevoked,
+                                         .activeCertificateExpired, .certificateMismatch,
+                                         .unknown] {
+            precondition(!V3JITLessCompletionPolicy.isComplete(state),
+                         "\(state) is outstanding setup work")
+        }
+
+        // V3_FAILURE_GUIDANCE_V1: a typed failure keeps its own recovery copy, an
+        // untyped one never publishes a numeric domain and code as guidance, and
+        // neither claims a network cause that was not proven.
+        let typed = CombinedFailure(operation: "source", stage: .sourceDownload, code: .failed,
+                                    id: UUID().uuidString, safeCause: .sourceNetworkFailure)
+        precondition(V3FailureGuidance.message(typed) == typed.recovery,
+                     "a typed failure shows its own product recovery copy")
+        precondition(V3FailureGuidance.diagnostics(typed) == typed.technicalDetails)
+        precondition(!V3FailureGuidance.message(typed).contains("LiveContainer"),
+                     "guidance must not leak the underlying error domain")
+        let untyped = NSError(domain: "LiveContainer.Service", code: 4865)
+        precondition(!V3FailureGuidance.message(untyped).contains("4865"),
+                     "a numeric error code must never be shown as guidance")
+        precondition(!V3FailureGuidance.message(untyped).contains("LiveContainer.Service"),
+                     "the raw error domain must not be shown as guidance")
+        precondition(V3FailureGuidance.diagnostics(untyped).contains("4865"),
+                     "the code stays available through diagnostics")
+        precondition(V3FailureGuidance.diagnostics(untyped).contains("redacted")
+                     || V3FailureGuidance.diagnostics(untyped).contains("untyped"))
 
         print("V3_SETUP_AND_SEMANTIC_UX_PASS")
     }

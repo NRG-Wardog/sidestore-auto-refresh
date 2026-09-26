@@ -114,7 +114,10 @@ class InstallFirstAttemptTests(unittest.TestCase):
         self.assertIn("self.error =", fn)
         self.assertIn("V3IPAStaging.stage", fn)
         self.assertIn("CombinedIPAFileError", fn)
-        self.assertIn("pendingPickerError = (attemptID, failure.localizedDescription)", fn)
+        # The picker's own safe copy is shown; the raw description is not, because
+        # for a bridged NSError it is a numeric domain and code.
+        self.assertIn("pendingPickerError = (attemptID, V3FailureGuidance.message(failure))", fn)
+        self.assertNotIn("pendingPickerError = (attemptID, failure.localizedDescription)", fn)
         self.assertIn("if let pending = pendingPickerError", text)
         self.assertIn("error = pending.message", text)
 
