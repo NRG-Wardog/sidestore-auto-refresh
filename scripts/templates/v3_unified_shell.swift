@@ -5754,6 +5754,16 @@ extension V3StatusPresentation {
     }
 }
 
+// The JIT-Less presentation carries a severity of its own, so it reuses the
+// same mapping rather than inventing a second colour vocabulary.
+extension V3JITLessPresentation {
+    var status: V3StatusPresentation {
+        V3StatusPresentation(severity: severity, title: title, detail: detail)
+    }
+
+    var tint: Color { status.tint }
+}
+
 struct V3HomeServiceHeader: View {
     let isConnected: Bool
     let isLoading: Bool
