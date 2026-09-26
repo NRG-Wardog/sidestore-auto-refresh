@@ -253,19 +253,16 @@ struct SnapshotOwnershipHarness {
         do {
             let s = Store()
             s.nextSnapshotFails = true
+            // The caller that owns the snapshot gets its result directly, and
+            // nothing was parked, so there is no resumption to observe.
             precondition(s.reloadAndWait(manual: true) == "snapshotFailed",
                          "the owning caller must see the failure, not a success")
             precondition(s.snapshotsPerformed == ["snapshotFailed"])
-            // A caller that joined a failing snapshot sees the same failure.
-            s.nextSnapshotFails = false
-            s.startSnapshot(manual: true)
-            precondition(s.reloadAndWait(manual: true) == "parked")
-            s.nextSnapshotFails = true
-            s.completeSnapshot()
-            precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "snapshotFailed")
+            precondition(s.resumptions.isEmpty, "the owning caller got the result directly")
+            precondition(s.requiresConnectionRetry, "a failed snapshot latches the connection retry")
         }
 
-        // 7b. a snapshot failure is still a failure for the joiner
+        // 7b. a caller that joined a failing snapshot sees the same failure
         do {
             let s = Store()
             s.startSnapshot(manual: true)
@@ -273,8 +270,8 @@ struct SnapshotOwnershipHarness {
             s.nextSnapshotFails = true
             s.completeSnapshot()
             precondition(s.snapshotsPerformed == ["snapshotFailed"])
-            precondition(s.resumptions.isEmpty, "the owning caller got the result directly")
-            precondition(s.requiresConnectionRetry)
+            precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "snapshotFailed",
+                         "a joiner must observe the snapshot's own failure")
         }
 
         // 8. no duplicate snapshot from a stale owed intent

@@ -54,6 +54,10 @@ struct ResponseClassificationHarness {
                 V3WireContract.V3PropertyListValue.isEncodable(leaf) == foundationEncodes(leaf),
                 "isEncodable disagrees with PropertyListSerialization for \(name)")
         }
+        // The nested container is spelled as [String: Any] so the cast inside
+        // isEncodable is a plain upcast rather than a dictionary value coercion.
+        precondition(V3WireContract.V3PropertyListValue.isEncodable([1, ["b": Date() as Any]] as [Any]))
+        precondition(foundationEncodes([1, ["b": Date() as Any]] as [Any]))
         // A URL must be sent as a string, and a boxed Optional must never encode.
         precondition(!foundationEncodes(URL(string: "https://example.invalid")!),
                      "CoreFoundation now accepts CFURL; revisit the absoluteString contract")
@@ -69,7 +73,8 @@ struct ResponseClassificationHarness {
         precondition(omitted["identifier"] as? String == "com.example.app")
         precondition(omitted["installedVersion"] == nil,
                      "an absent value must be omitted, not boxed into Any")
-        precondition(!foundationEncodes(["installedVersion": Optional<String>.none as Any]),
+        let boxed: [String: Any] = ["installedVersion": Optional<String>.none as Any]
+        precondition(!foundationEncodes(boxed),
                      "the boxed Optional premise changed; the original defect class is gone")
 
         // ---------------------------------------------------------------
@@ -103,7 +108,7 @@ struct ResponseClassificationHarness {
             from: encodingReply, format: nil) as! [String: Any]
         precondition(encodingDecoded["error"] as? String == "responseEncodingFailed",
                      "the legacy token is still emitted for an older host")
-        precondition(encodingDecoded["failure"] is [String: Any],
+        precondition((encodingDecoded["failure"] as? [String: Any]) != nil,
                      "the structured envelope is still emitted and is authoritative")
 
         // An oversized-but-valid reply is a different defect and must not be
@@ -167,12 +172,14 @@ struct ResponseClassificationHarness {
         guard let payload = returned else {
             preconditionFailure("a well-formed success reply must be returned, not nil")
         }
-        // The payload is unwrapped before the cast, so the cast is applied to the
-        // value and not to a double optional.
-        let okInner = payload["result"] as? [String: Any]
-        precondition(okInner != nil, "the result payload must survive the round trip")
-        let okRows = okInner?["apps"] as? [Any] ?? []
-        precondition(!okRows.isEmpty, "the catalog rows must survive the round trip")
+        // classifyReply returns the inner result payload, not the whole envelope,
+        // so the catalog rows sit directly under the returned dictionary.
+        let okRows = payload["apps"] as? [Any]
+        precondition(okRows?.isEmpty == false,
+                     "the catalog rows must survive the round trip")
+        precondition((okRows?.first as? [String: Any])?["identifier"] as? String
+                     == "com.example.app",
+                     "the row identifier must survive the round trip")
 
         // ---------------------------------------------------------------
         // No sensitive value crosses the boundary in a fallback. The offending
