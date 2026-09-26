@@ -1580,6 +1580,10 @@ struct V3RequiresSourceError: Error {
 
 enum V3SideStoreServiceError: String, Error {
     case notReady, invalidRequest, notFound, unsupported, busy, authRequired, persistenceUnverified
+    // V3_CATALOG_SOURCE_MISSING_V1: the requested Source row no longer exists.
+    // Distinct from a valid source that happens to publish zero apps, and never
+    // reported as a manifest problem.
+    case catalogSourceUnavailable
 }
 
 struct V3SourceCommandError: Error {

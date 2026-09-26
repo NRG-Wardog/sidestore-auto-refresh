@@ -57,14 +57,28 @@ struct V3UnifiedTabs: View {
             routePendingSetup()
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3CanonicalJITLessCertificateUpdated"))) { _ in
-            status.reload(manual: false)
-            if status.returnToSetupAfterJITLess {
-                status.returnToSetupAfterJITLess = false
-                status.setupPresented = true
+            // V3_AWAITABLE_RELOAD_V1: a certificate import just changed
+            // authoritative state. The snapshot is awaited before Setup is
+            // reopened, so the assistant never recomputes JIT-Less from the
+            // pre-import snapshot.
+            Task {
+                await status.reloadAndWait()
+                if status.returnToSetupAfterJITLess {
+                    status.returnToSetupAfterJITLess = false
+                    status.setupPresented = true
+                }
             }
         }
         .onReceive(monitor) { _ in status.reload(manual: false) }
         .onOpenURL(perform: dispatchURL)
+        // V3_USER_FACING_ISSUE_V1: a source failure routes the user to Sources.
+        // Without this the flag was written but never read, so the action would
+        // have appeared to do nothing.
+        .onChange(of: status.sourcesPresented) { presented in
+            guard presented else { return }
+            status.sourcesPresented = false
+            sharedModel.selectedTab = .sources
+        }
         .overlay(alignment: .topLeading) {
             V3InstallPickerPresenter(status: status)
                 .frame(width: 1, height: 1)
@@ -100,14 +114,38 @@ struct V3UnifiedTabs: View {
             NavigationView { V3PairingView().environmentObject(status) }
                 .navigationViewStyle(StackNavigationViewStyle())
         }
-        .alert("SideStore", isPresented: Binding(get: { status.error != nil }, set: { if !$0 { status.error = nil } })) {
-            Button("Copy Diagnostics") { UIPasteboard.general.string = status.error }
+        .alert(status.issue?.title ?? "SideStore",
+              isPresented: Binding(get: { status.error != nil },
+                                   set: { if !$0 { status.clearIssue() } })) {
+            // V3_USER_FACING_ISSUE_V1: the primary action is the one the typed
+            // evidence supports. "Retry Connection" is only offered when the
+            // failure actually implicates connection or service readiness.
+            Button(status.issue?.primaryAction.title ?? "OK") {
+                if let action = status.issue?.primaryAction {
+                    if action == .retryConnection || action == .retrySource {
+                        status.reload()
+                    } else {
+                        status.openIssueRecovery()
+                    }
+                }
+                status.clearIssue()
+            }
             if status.hasUncertainInstallCancellation {
                 Button("Retry Cancellation") { status.retryInstallCancellation() }
             }
-            Button("Retry Connection") { status.reload() }
-            Button("OK", role: .cancel) { status.error = nil }
-        } message: { Text(status.error ?? "") }
+            Button("Copy Diagnostics") {
+                UIPasteboard.general.string = status.issue?.technicalDetails ?? status.error
+            }
+            Button("OK", role: .cancel) { status.clearIssue() }
+        } message: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(status.issue?.whatHappened ?? status.error ?? "")
+                if let whatToDo = status.issue?.whatToDo, !whatToDo.isEmpty {
+                    Text("What you can do").font(.caption.weight(.semibold))
+                    Text(whatToDo).font(.caption)
+                }
+            }
+        }
         .alert("SideStore", isPresented: Binding(get: { status.notice != nil }, set: { if !$0 { status.notice = nil } })) {
             Button("OK", role: .cancel) { status.notice = nil }
         } message: { Text(status.notice ?? "") }
@@ -170,7 +208,7 @@ struct V3UnifiedTabs: View {
                     _ = try await V3ServiceBridge.shared.request(operation: "backupResult", target: result)
                     status.reload()
                 }
-                catch { status.error = error.localizedDescription }
+                catch { status.present(error) }
             }
             return
         }
@@ -189,7 +227,7 @@ struct V3UnifiedTabs: View {
                         $0.bundleID == bundle || ($0.isHost && bundle == Bundle.main.bundleIdentifier)
                     }) else { status.error = "This app is not in SideStore's library."; return }
                     status.perform("jit", target: app.identifier, title: "Enable JIT for " + app.name)
-                } catch { status.error = error.localizedDescription }
+                } catch { status.present(error) }
             }
             return
         }
@@ -734,13 +772,60 @@ final class V3SideStoreStatusStore: ObservableObject {
     // completes before provisioning activates that row.
     @Published private(set) var authenticated = false
     @Published private(set) var provisioningIncomplete = false
+    // V3_SETUP_COMPLETION_POLICY_V1: the last authoritative Wi-Fi observation.
+    // Probing Wi-Fi is async, so Home reads this cache instead of guessing.
+    // nil means "not observed yet", which counts as outstanding.
+    @Published private(set) var wifiAvailable: Bool?
     @Published private(set) var updatedAt: Date?
     @Published private(set) var installedApps: [V3SideStoreApp] = []
     @Published private(set) var sources: [V3SideStoreSource] = []
     @Published private(set) var settings: [String: Bool] = [:]
     @Published var error: String?
+    // V3_USER_FACING_ISSUE_V1: the structured issue behind the global alert.
+    // The string form is retained for compatibility and copyable summaries, but
+    // actions are chosen from the typed issue, never from the string.
+    @Published private(set) var issue: V3UserFacingIssue?
     @Published var notice: String?
-    @Published var presentation: V3OperationRequest? {
+
+    /// Presents a failure with the action its typed evidence supports.
+    func present(_ error: Error) {
+        if let combined = error as? CombinedFailure {
+            let structured = V3UserFacingIssue.make(combined)
+            issue = structured
+            self.error = structured.summary
+        } else {
+            // An untyped failure still gets guidance, and still never claims a
+            // connection problem without evidence.
+            let structured = V3UserFacingIssue.make(
+                operation: "command", stage: CombinedFailure.Stage.command.rawValue,
+                code: CombinedFailure.Code.failed.rawValue, safeCause: nil, sourceStep: nil,
+                retryable: nil, whatHappened: error.localizedDescription,
+                whatToDo: "Reload status, then try the action again.",
+                technicalDetails: "operation=command stage=command code=failed underlying_domain=redacted")
+            issue = structured
+            self.error = structured.summary
+        }
+    }
+
+    func clearIssue() {
+        issue = nil
+        error = nil
+    }
+
+    /// Opens the destination an issue's primary action points at.
+    func openIssueRecovery() {
+        guard let destination = issue?.recoveryDestination else { return }
+        switch destination {
+        case "signIn": signInPresented = true
+        case "certificates": certificatesPresented = true
+        case "ipa": beginInstallPicker()
+        case "setup": setupPresented = true
+        case "connection": connectionPresented = true
+        case "pairing": pairingPresented = true
+        case "sources": sourcesPresented = true
+        default: break
+        }
+    }    @Published var presentation: V3OperationRequest? {
         didSet {
             if presentation == nil { drainDeferredReload() }
         }
@@ -755,11 +840,16 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published var connectionPresented = false
     @Published var certificatesPresented = false
     @Published var pairingPresented = false
+    // V3_USER_FACING_ISSUE_V1: a source failure routes back to Sources.
+    @Published var sourcesPresented = false
     @Published var operationRecoveryDestination: String?
     @Published private(set) var loading = false
     @Published private(set) var connected = false
     @Published private(set) var requiresConnectionRetry = false
     private var deferredReloadManual: Bool?
+    // Callers awaiting the in-flight authoritative snapshot. Resumed only after
+    // the snapshot has been accepted, so no caller can observe stale state.
+    private var reloadWaiters: [CheckedContinuation<Bool, Never>] = []
     private var pendingPickerError: (attemptID: UUID, message: String)?
     @Published private(set) var installAttempt = V3InstallAttemptState()
     var installedAppCount: Int { installedApps.count }
@@ -769,36 +859,90 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
     var isStale: Bool { !connected || (updatedAt.map { Date().timeIntervalSince($0) > 120 } ?? true) }
     var needsSignIn: Bool { account == "Not signed in" && !authenticated }
+    // V3_AWAITABLE_RELOAD_V1
+    // reload() is fire-and-forget: it sets loading synchronously and continues
+    // immediately, so any code that reads status right after it sees the PREVIOUS
+    // snapshot. reloadAndWait() completes only after the authoritative snapshot
+    // has been accepted, which is what callers that depend on ordering must use.
+    // No delay or sleep is involved: the caller awaits the real snapshot.
     func reload(manual: Bool = true) {
-        if loading || presentation != nil {
+        guard beginReload(manual: manual) else { return }
+        Task { await performReload() }
+    }
+
+    /// Performs one authoritative snapshot and returns only once the resulting
+    /// state has been applied. If a snapshot is already in flight, this joins that
+    /// one instead of starting a second concurrent request.
+    @discardableResult
+    func reloadAndWait(manual: Bool = true) async -> Bool {
+        if loading {
+            return await withCheckedContinuation { continuation in
+                reloadWaiters.append(continuation)
+            }
+        }
+        guard beginReload(manual: manual) else { return connected }
+        return await performReload()
+    }
+
+    /// Synchronous gate shared by both reload paths. Returns true when the caller
+    /// owns a snapshot that must be performed.
+    private func beginReload(manual: Bool) -> Bool {
+        // V3_RELOAD_GATE_V1: the gate rules are shared with the executable
+        // policy so the ordering contract can be tested as behaviour.
+        switch V3ReloadGate.begin(loading: loading, presentationActive: presentation != nil,
+                                 manual: manual, requiresConnectionRetry: requiresConnectionRetry) {
+        case .startSnapshot:
+            break
+        case .joinInFlight, .deferUntilIdle:
             if manual || !requiresConnectionRetry {
                 deferredReloadManual = (deferredReloadManual ?? false) || manual
             }
-            return
+            return false
+        case .skip:
+            return false
         }
-        guard manual || !requiresConnectionRetry else { return }
         if manual { requiresConnectionRetry = false }
         loading = true
         if installAttempt.hasActiveAttempt {
             NSLog("[V3_INSTALL_STATE] attempt=%@ event=snapshot_started phase=%@",
                   installAttempt.attemptID?.uuidString ?? "none", installAttempt.phase.rawValue)
         }
-        Task {
-            defer {
-                loading = false
-                installAttempt.reloadFinished()
-                if installAttempt.hasActiveAttempt {
-                    NSLog("[V3_INSTALL_STATE] attempt=%@ event=snapshot_finished phase=%@",
-                          installAttempt.attemptID?.uuidString ?? "none", installAttempt.phase.rawValue)
-                }
-                drainInstallPresentation(trigger: "snapshot_finished")
-                drainDeferredReload()
-            }
-            do {
-                accept(try await V3ServiceBridge.shared.request(operation: "snapshot"))
-            } catch { connected = false; requiresConnectionRetry = true; self.error = error.localizedDescription }
-        }
+        return true
     }
+
+    private func performReload() async -> Bool {
+        var succeeded = false
+        do {
+            accept(try await V3ServiceBridge.shared.request(operation: "snapshot"))
+            succeeded = true
+        } catch {
+            connected = false
+            requiresConnectionRetry = true
+            present(error)
+        }
+        // State is fully updated before anyone waiting is resumed.
+        finishLoading()
+        if installAttempt.hasActiveAttempt {
+            NSLog("[V3_INSTALL_STATE] attempt=%@ event=snapshot_finished phase=%@",
+                  installAttempt.attemptID?.uuidString ?? "none", installAttempt.phase.rawValue)
+        }
+        drainInstallPresentation(trigger: "snapshot_finished")
+        drainDeferredReload()
+        return succeeded
+    }
+
+    /// V3_AWAITABLE_RELOAD_V1: the single place that ends a loading window.
+    /// Several mutation paths also set `loading`, and a caller awaiting the
+    /// snapshot must never be left suspended because a path cleared the flag
+    /// without draining the waiters.
+    private func finishLoading(succeeded: Bool = false) {
+        loading = false
+        installAttempt.reloadFinished()
+        let waiting = reloadWaiters
+        reloadWaiters.removeAll()
+        for waiter in waiting { waiter.resume(returning: succeeded) }
+    }
+
     private func drainDeferredReload() {
         guard !loading, presentation == nil, let manual = deferredReloadManual else { return }
         deferredReloadManual = nil
@@ -849,7 +993,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
     private func failed(_ error: Error) {
         if needsSignIn(error) { signInPresented = true }
-        else { self.error = error.localizedDescription }
+        else { present(error) }
     }
     func signOut() {
         guard !loading else { return }
@@ -861,10 +1005,10 @@ final class V3SideStoreStatusStore: ObservableObject {
                 // state BEFORE reload(). Calling reload() while loading is
                 // still true trips its guard and the UI keeps stale state.
                 accept(try await V3ServiceBridge.shared.request(operation: "signOut"))
-                loading = false
+                finishLoading()
                 notice = "Signed out successfully."
                 reload()
-            } catch { loading = false; failed(error) }
+            } catch { finishLoading(); failed(error) }
         }
     }
     func jit(target: String) {
@@ -873,10 +1017,10 @@ final class V3SideStoreStatusStore: ObservableObject {
         Task {
             do {
                 accept(try await V3ServiceBridge.shared.request(operation: "jit", target: target))
-                loading = false
+                finishLoading()
                 notice = "JIT enabled."
                 reload()
-            } catch { loading = false; failed(error) }
+            } catch { finishLoading(); failed(error) }
         }
     }
     func syncAppIDs() {
@@ -885,10 +1029,10 @@ final class V3SideStoreStatusStore: ObservableObject {
         Task {
             do {
                 accept(try await V3ServiceBridge.shared.request(operation: "syncAppIDs"))
-                loading = false
+                finishLoading()
                 notice = "App IDs synced."
                 reload()
-            } catch { loading = false; failed(error) }
+            } catch { finishLoading(); failed(error) }
         }
     }
     func clearCache() {
@@ -897,10 +1041,10 @@ final class V3SideStoreStatusStore: ObservableObject {
         Task {
             do {
                 accept(try await V3ServiceBridge.shared.request(operation: "clearCache"))
-                loading = false
+                finishLoading()
                 notice = "Download cache cleared."
                 reload()
-            } catch { loading = false; failed(error) }
+            } catch { finishLoading(); failed(error) }
         }
     }
     func refreshSources() {
@@ -909,10 +1053,10 @@ final class V3SideStoreStatusStore: ObservableObject {
         Task {
             do {
                 accept(try await V3ServiceBridge.shared.request(operation: "refreshSources"))
-                loading = false
+                finishLoading()
                 notice = "Sources updated."
                 reload()
-            } catch { loading = false; failed(error) }
+            } catch { finishLoading(); failed(error) }
         }
     }
     func stageSharedFile(_ data: Data) -> String? {
@@ -1391,7 +1535,17 @@ struct V3SourcesView: View {
     @State private var removeBusy = false
     @State private var notice = ""
     @State private var sourceFailure: V3SourceAddFailure?
+    // V3_SOURCE_SEMANTIC_STATE_V1: a successful add is a success, and is never
+    // rendered with the same neutral grey as an informational note.
+    @State private var addSucceeded = false
     @State private var removeCandidate: V3SideStoreSource?
+    // V3_SOURCE_KEYBOARD_DISMISS_V1 (issue #40): the field had no focus state and
+    // no explicit dismiss action, so the only way out of the keyboard felt like
+    // Return, which read as if Return were also the submit action.
+    @FocusState private var sourceFieldFocused: Bool
+    // @State so the pre-edit value survives; the view is a struct, so a plain
+    // stored var could not be assigned from a non-mutating method.
+    @State private var sourceURLBeforeEditing: String = ""
     private var savedGuestSources: [String] {
         (UserDefaults.standard.stringArray(forKey: "LCAltStoreSourceURLs") ?? [])
             .filter { saved in !status.sources.contains(where: { $0.url == saved }) }
@@ -1399,16 +1553,27 @@ struct V3SourcesView: View {
     var body: some View {
         NavigationView {
             List {
-                if !notice.isEmpty {
+                if addSucceeded && !notice.isEmpty {
                     Section {
-                        Text(notice)
+                        Label(notice, systemImage: V3StatusSeverity.completed.icon)
+                            .font(.footnote)
+                            .foregroundColor(.green)
+                    }
+                } else if !notice.isEmpty {
+                    Section {
+                        // V3_SOURCE_SEMANTIC_STATE_V1: an informational notice is
+                        // neutral, never styled as if it were a result.
+                        Label(notice, systemImage: "info.circle.fill")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     }
                 }
                 if let sourceFailure {
                     Section("What happened") {
-                        Text(sourceFailure.whatHappened).font(.footnote)
+                        // A source failure is a failure, and says so.
+                        Label(sourceFailure.whatHappened, systemImage: V3StatusSeverity.failed.icon)
+                            .font(.footnote)
+                            .foregroundColor(.red)
                     }
                     Section("What you can do") {
                         Text(sourceFailure.whatToDo).font(.footnote)
@@ -1433,6 +1598,20 @@ struct V3SourcesView: View {
                             .keyboardType(.URL)
                             .autocapitalization(.none)
                             .disableAutocorrection(true)
+                            .focused($sourceFieldFocused)
+                            // Return only dismisses the keyboard. It never
+                            // previews and never adds a source.
+                            .submitLabel(.done)
+                            .onSubmit { dismissKeyboard() }
+                    }
+                    // Explicit keyboard dismissal, with an explicit Cancel that
+                    // performs no preview, no network request and no persistence.
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Cancel") { cancelSourceEditing() }
+                            Button("Done") { dismissKeyboard() }
+                        }
                     }
                     Button {
                         Task { await previewSource() }
@@ -1533,15 +1712,39 @@ struct V3SourcesView: View {
         }
         .navigationViewStyle(StackNavigationViewStyle())
     }
+    // V3_SOURCE_KEYBOARD_DISMISS_V1: dismissing the keyboard is a pure UI action.
+    // It previews nothing, requests nothing and persists nothing.
+    private func dismissKeyboard() {
+        sourceFieldFocused = false
+    }
+
+    /// Cancel restores the URL that was present when editing began and dismisses
+    /// the keyboard. It performs no preview, no network request, and no source
+    /// persistence. The pre-edit value is restored rather than clearing the
+    /// field, so a URL the user may want to keep is never silently discarded and
+    /// a later focus always starts from the same predictable value.
+    private func cancelSourceEditing() {
+        status.sourceURL = V3SourceEditingPolicy.resolved(
+            V3SourceEditingPolicy.cancel(typed: status.sourceURL, beforeEditing: sourceURLBeforeEditing),
+            typed: status.sourceURL)
+        sourceFieldFocused = false
+        preview = nil
+    }
+
     private func previewSource() async {
+        sourceURLBeforeEditing = status.sourceURL
         previewBusy = true
         defer { previewBusy = false }
         sourceFailure = nil
         notice = ""
+        addSucceeded = false
         do {
             var row = try await V3ServiceBridge.shared.request(operation: "sourcePreview", target: status.sourceURL)
             row["url"] = status.sourceURL
             preview = row
+            // Previewing is an explicit action, so the keyboard has served its
+            // purpose once the preview is on screen.
+            dismissKeyboard()
         } catch { sourceFailure = V3SourceAddFailure(error) }
     }
     private func confirmAdd(url: String) async {
@@ -1562,6 +1765,7 @@ struct V3SourcesView: View {
             preview = nil
             status.sourceURL = ""
             notice = message
+            addSucceeded = true
         } catch { sourceFailure = V3SourceAddFailure(error) }
     }
     private func confirmRemove(id: String) async {
@@ -1573,7 +1777,7 @@ struct V3SourcesView: View {
             _ = try await V3ServiceBridge.shared.request(operation: "sourceRemoveConfirmed", target: id)
             notice = "Source removed."
             status.reload()
-        } catch { status.error = error.localizedDescription }
+        } catch { status.present(error) }
     }
 }
 
@@ -1730,7 +1934,11 @@ struct V3CatalogView: View {
         defer { loading = false }
         do {
             var cursor = 0
-            apps = []
+            // V3_CATALOG_ROW_POLICY_V1: raw rows are accumulated so the shared
+            // deduplication rule can be applied, then mapped to the display model
+            // once. Accumulating display models instead would require a second,
+            // weaker dedupe path.
+            var accumulated: [[String: Any]] = []
             repeat {
                 try Task.checkCancellation()
                 // V3_CATALOG_PAGE_VALIDATION_V1: a page is validated instead of
@@ -1741,18 +1949,20 @@ struct V3CatalogView: View {
                 guard let rawApps = result["apps"] as? [[String: Any]] else {
                     throw catalogResponseFailure(cursor: cursor)
                 }
+                let page = rawApps.compactMap(V3CatalogApp.init)
+                guard page.count == rawApps.count else { throw catalogResponseFailure(cursor: cursor) }
                 guard let number = result["nextCursor"] as? NSNumber,
                       CFGetTypeID(number) != CFBooleanGetTypeID(),
                       let next = number as? Int else {
                     throw catalogResponseFailure(cursor: cursor)
                 }
-                let page = rawApps.compactMap(V3CatalogApp.init)
-                guard page.count == rawApps.count else { throw catalogResponseFailure(cursor: cursor) }
-                let existing = Set(apps.map(\.id))
-                apps.append(contentsOf: page.filter { !existing.contains($0.id) })
+                // The real deduplication rule: duplicates are removed within a
+                // page and across pages, first-seen order preserved.
+                accumulated = V3CatalogRowPolicy.appending(rawApps, to: accumulated)
                 guard next == -1 || next > cursor else { throw catalogResponseFailure(cursor: cursor) }
                 cursor = next
             } while cursor >= 0
+            apps = accumulated.compactMap(V3CatalogApp.init)
         } catch is CancellationError {
             // A cancelled load is lifecycle, not a catalog failure. Presenting it
             // as an error would blame the source for a navigation change.
@@ -1970,7 +2180,7 @@ struct V3BoolSettingRow: View {
                 confirmedValue = legacy
             }
             loaded = true
-        } catch { status.error = error.localizedDescription }
+        } catch { status.present(error) }
     }
     private func save(_ newValue: Bool) {
         let generation = writeGenerations.begin(key)
@@ -1990,7 +2200,7 @@ struct V3BoolSettingRow: View {
                 if !loaded, writeGenerations.isCurrent(generation, for: key) {
                     value = confirmedValue ?? !newValue
                 }
-                status.error = error.localizedDescription
+                status.present(error)
             }
         }
     }
@@ -4287,7 +4497,7 @@ private enum V3JITLessStatusReader {
             validationStatus: validationStatus,
             validationFailed: validationFailed)
         if osMajor >= 26 && !active {
-            return (state, "No active SideStore certificate. Open Certificates before continuing with JIT-Less setup.")
+            return (state, V3JITLessPresentation.present(.activeCertificateMissing).detail)
         }
         return (state, detail(for: state))
     }
@@ -4319,17 +4529,10 @@ private enum V3JITLessStatusReader {
     }
 
     private static func detail(for state: V3JITLessReadiness) -> String {
-        switch state {
-        case .notRequired: return "Not required on this iOS version"
-        case .setupRequired: return "Setup Required"
-        case .certificateImported: return "Certificate imported; validation is not complete"
-        case .needsCertificateRefresh: return "JIT-Less certificate needs to be refreshed from SideStore"
-        case .revoked: return "The imported JIT-Less certificate is reported as revoked"
-        case .activeCertificateRevoked: return "SideStore's active certificate is reported as revoked"
-        case .activeCertificateExpired: return "SideStore's active certificate has expired"
-        case .ready: return "Ready"
-        case .unknown: return "Could not verify the JIT-Less certificate state"
-        }
+        // V3_JITLESS_PRESENTATION_V1: one source of truth for the wording, so
+        // Setup Assistant, Health and Settings cannot describe the same state
+        // three different ways.
+        V3JITLessPresentation.present(state).detail
     }
 }
 
@@ -4818,19 +5021,46 @@ final class V3SetupStore: ObservableObject {
     // with team, acceptable network and tunnel, available Background App
     // Refresh, an enabled schedule, and a test verified in this assistant
     // session. Developer Mode stays advisory and never gates.
-    var isComplete: Bool {
-        pairing.state == "complete" &&
-        account.state == "complete" &&
-        (ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 || jitless.state == "complete") &&
-        network.state == "complete" &&
-        tunnel.state == "complete" &&
-        background.state == "complete" &&
-        schedule.state == "complete" &&
-        verification.state == "complete"
+    // V3_SETUP_COMPLETION_POLICY_V1: the decision comes from the one shared
+    // policy that Home also uses, so the two screens cannot disagree.
+    var completionInputs: V3SetupCompletionInputs {
+        V3SetupCompletionInputs(
+            accountComplete: account.state == "complete",
+            provisioningIncomplete: statusProvisioningIncomplete,
+            pairingSatisfied: pairing.state == "complete",
+            jitlessRequired: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26,
+            jitlessComplete: jitless.state == "complete",
+            networkComplete: network.state == "complete",
+            tunnelComplete: tunnel.state == "complete",
+            backgroundRefreshAvailable: background.state == "complete",
+            scheduleEnabled: schedule.state == "complete",
+            verifiedRefreshPresent: verification.state == "complete")
     }
+    var outstandingSetup: [V3SetupOutstandingItem] { completionInputs.outstanding() }
+    var isComplete: Bool { completionInputs.isComplete }
+
+    /// Where the JIT-Less row leads when the state still needs work. A ready
+    /// state has no required destination; its diagnostic action is separate.
+    /// The status store is passed in because the store is not a View and has no
+    /// environment of its own.
+    func jitlessDestination(status: V3SideStoreStatusStore) -> AnyView? {
+        let readiness = jitlessReadiness
+        if readiness.isSatisfied { return nil }
+        if [.activeCertificateRevoked, .activeCertificateExpired].contains(readiness) || !jitlessHasActiveCertificate {
+            return AnyView(V3CertificatesView().environmentObject(status))
+        }
+        return nil
+    }
+
+    // Set from the authoritative snapshot so the shared policy sees the same
+    // provisioning fact Home sees, rather than inferring it from step states.
+    @Published private(set) var statusProvisioningIncomplete = false
 
     func recalculate(status: V3SideStoreStatusStore) async {
         NSLog("[V3_SETUP] STATUS recalculating")
+        // Recorded from the authoritative snapshot so the shared completion
+        // policy sees the same provisioning fact Home sees.
+        statusProvisioningIncomplete = status.provisioningIncomplete
         device = V3SetupStepState(state: "complete", detail: "App running")
         // V3_REFRESH_PREREQUISITE_POLICY_V1: shared with Home Refresh All, Test
         // Refresh, and targeted refresh. A known-missing pairing file is
@@ -4865,21 +5095,19 @@ final class V3SetupStore: ObservableObject {
                 jitlessHasActiveCertificate = certificate["active"] as? Bool == true
                 let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificate)
                 jitlessReadiness = readiness.0
-                switch readiness.0 {
-                case .ready:
-                    jitless = V3SetupStepState(state: "complete", detail: "Ready")
-                case .notRequired:
-                    jitless = V3SetupStepState(state: "complete", detail: readiness.1)
-                case .setupRequired:
-                    jitless = V3SetupStepState(state: "actionRequired", detail: readiness.1)
-                case .needsCertificateRefresh:
-                    jitless = V3SetupStepState(state: "actionRequired", detail: "Needs Certificate Refresh")
-                case .revoked:
-                    jitless = V3SetupStepState(state: "actionRequired", detail: readiness.1)
-                case .activeCertificateRevoked, .activeCertificateExpired:
-                    jitless = V3SetupStepState(state: "failed", detail: readiness.1)
-                case .certificateImported, .unknown:
-                    jitless = V3SetupStepState(state: "warning", detail: readiness.1)
+                // V3_JITLESS_PRESENTATION_V1: the step state is derived from the
+                // shared presentation, so a ready state is stored as complete
+                // rather than as a permanent "action required" row.
+                let presentation = V3JITLessPresentation.present(readiness.0)
+                switch presentation.severity {
+                case .completed:
+                    jitless = V3SetupStepState(state: "complete", detail: presentation.title)
+                case .failed:
+                    jitless = V3SetupStepState(state: "failed", detail: presentation.title)
+                case .unknown:
+                    jitless = V3SetupStepState(state: "warning", detail: presentation.title)
+                default:
+                    jitless = V3SetupStepState(state: "actionRequired", detail: presentation.title)
                 }
             } catch {
                 jitlessReadiness = .unknown
@@ -4889,6 +5117,9 @@ final class V3SetupStore: ObservableObject {
         }
         network = V3SetupStepState(state: "checking", detail: "Checking Wi-Fi…")
         let wifi = await LiveContainerNetworkPreflight.wifiAvailable()
+        // Published so the shared setup-completion policy and the Home banner
+        // observe the same authoritative Wi-Fi fact instead of each deciding.
+        status.wifiAvailable = wifi
         if !wifi {
             network = V3SetupStepState(state: "failed", detail: "Wi-Fi unavailable")
             tunnel = V3SetupStepState(state: "unavailable", detail: "Needs Wi-Fi first")
@@ -5159,7 +5390,13 @@ struct V3SetupAssistantView: View {
                         Label("Show Pairing Setup", systemImage: "link.badge.plus")
                     }
                     Button {
-                        Task { await setup.recalculate(status: status) }
+                        Task {
+                            // The pairing file is placed by an external installation tool, so
+                            // the authoritative snapshot is the only way to observe it.
+                            // It is awaited before the setup steps are recomputed.
+                            await status.reloadAndWait()
+                            await setup.recalculate(status: status)
+                        }
                     } label: {
                         Label("Re-check Pairing", systemImage: "arrow.clockwise")
                     }
@@ -5177,30 +5414,41 @@ struct V3SetupAssistantView: View {
                          destination: AnyView(V3SignInView().environmentObject(status)))
             }
             if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 {
+                // V3_JITLESS_PRESENTATION_V1: a ready JIT-Less state is rendered
+                // as a completed result, not as an outstanding setup task. The
+                // section only presents required actions while something is
+                // actually outstanding.
+                let jitless = V3JITLessPresentation.present(setup.jitlessReadiness)
                 Section("JIT-Less Mode") {
-                    setupRow(icon: "bolt.horizontal.circle", title: "JIT-Less Mode",
-                             state: setup.jitless,
-                             destination: setup.jitlessReadiness == .ready
-                                ? AnyView(LCJITLessDiagnoseView())
-                                : ([.activeCertificateRevoked, .activeCertificateExpired].contains(setup.jitlessReadiness)
-                                    || !setup.jitlessHasActiveCertificate
-                                    ? AnyView(V3CertificatesView().environmentObject(status)) : nil))
-                    switch setup.jitlessReadiness {
-                    case .setupRequired:
-                        Button("Set Up JIT-Less") { openCanonicalJITLessSetup() }
-                    case .needsCertificateRefresh, .revoked:
-                        Button("Refresh JIT-Less Certificate") { openCanonicalJITLessSetup() }
-                    case .unknown, .certificateImported:
-                        if setup.jitlessHasActiveCertificate {
-                            Button("Open JIT-Less Setup") { openCanonicalJITLessSetup() }
-                        }
-                    case .ready:
-                        Button("Open JIT-Less Diagnose") {
+                    setupRow(icon: jitless.icon, title: "JIT-Less",
+                             state: V3SetupStepState(
+                                state: jitless.isOutstandingSetupTask ? setup.jitless.state : "complete",
+                                detail: jitless.title),
+                             destination: jitless.isOutstandingSetupTask
+                                ? setup.jitlessDestination(status: status)
+                                : nil)
+                    if !jitless.isOutstandingSetupTask {
+                        // Optional diagnostic only. It must not look like setup.
+                        Button {
                             sharedModel.selectedTab = .settings
                             sharedModel.deepLink = URL(string: "livecontainer://jitless-diagnose")
+                        } label: {
+                            Label("Open JIT-Less Diagnose", systemImage: "stethoscope")
                         }
-                    case .activeCertificateRevoked, .activeCertificateExpired, .notRequired:
-                        EmptyView()
+                        .font(.caption)
+                    } else {
+                        switch setup.jitlessReadiness {
+                        case .setupRequired, .activeCertificateMissing:
+                            Button("Set Up JIT-Less") { openCanonicalJITLessSetup() }
+                        case .needsCertificateRefresh, .certificateMismatch, .revoked:
+                            Button("Refresh JIT-Less Certificate") { openCanonicalJITLessSetup() }
+                        case .activeCertificateRevoked, .activeCertificateExpired:
+                            Button("Open Certificates") { status.certificatesPresented = true }
+                        case .unknown, .certificateImported:
+                            Button("Open JIT-Less Setup") { openCanonicalJITLessSetup() }
+                        case .ready, .notRequired:
+                            EmptyView()
+                        }
                     }
                 }
             }
@@ -5275,7 +5523,13 @@ struct V3SetupAssistantView: View {
                         Label("Show Pairing Setup", systemImage: "link.badge.plus")
                     }
                     Button {
-                        Task { await setup.recalculate(status: status) }
+                        Task {
+                            // The pairing file is placed by an external installation tool, so
+                            // the authoritative snapshot is the only way to observe it.
+                            // It is awaited before the setup steps are recomputed.
+                            await status.reloadAndWait()
+                            await setup.recalculate(status: status)
+                        }
                     } label: {
                         Label("Re-check Pairing", systemImage: "arrow.clockwise")
                     }
@@ -5293,6 +5547,18 @@ struct V3SetupAssistantView: View {
                     Text("Last verified " + date.formatted(date: .abbreviated, time: .shortened))
                         .font(.caption)
                         .foregroundColor(.secondary)
+                }
+            }
+            // V3_SETUP_COMPLETION_POLICY_V1: when setup is not complete, name
+            // the outstanding items from the one shared policy, so the assistant
+            // and the Home banner can never disagree about what is left.
+            if !setup.outstandingSetup.isEmpty {
+                Section("Still Needed") {
+                    ForEach(setup.outstandingSetup, id: \.self) { item in
+                        Label(item.title, systemImage: V3StatusSeverity.warning.icon)
+                            .font(.footnote)
+                            .foregroundColor(.orange)
+                    }
                 }
             }
             if setup.isComplete {
@@ -5319,18 +5585,32 @@ struct V3SetupAssistantView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Setup Assistant")
-        .task { await setup.recalculate(status: status) }
+        .task {
+            // V3_AWAITABLE_RELOAD_V1: the first view of the assistant must be
+            // built from an authoritative snapshot, not from whatever was left
+            // over from a previous session.
+            await status.reloadAndWait()
+            await setup.recalculate(status: status)
+        }
         .onChange(of: scenePhase) { phase in
             if phase == .active {
-                // Reload the authoritative SideStore snapshot first, so a pairing
-                // file placed by the installation tool while the app was
-                // backgrounded is detected before the setup steps recalculate.
-                status.reload()
-                Task { await setup.recalculate(status: status) }
+                Task {
+                    // A pairing file placed by the installation tool while the app
+                    // was backgrounded is detected here. The reload must complete
+                    // before recalculate reads status, otherwise the setup rows
+                    // are computed from the previous snapshot.
+                    await status.reloadAndWait()
+                    await setup.recalculate(status: status)
+                }
             }
         }
         .onChange(of: showPairingSetup) { presented in
-            if !presented { Task { await setup.recalculate(status: status) } }
+            if !presented {
+                Task {
+                    await status.reloadAndWait()
+                    await setup.recalculate(status: status)
+                }
+            }
         }
     }
     private func coredeviceState() -> V3SetupStepState {
@@ -5343,7 +5623,13 @@ struct V3SetupAssistantView: View {
     private func setupRow(icon: String, title: String, state: V3SetupStepState, destination: AnyView?) -> some View {
         if let destination {
             NavigationLink(destination: destination.onDisappear {
-                Task { await setup.recalculate(status: status) }
+                // V3_AWAITABLE_RELOAD_V1: returning from a setup destination may
+                // follow an action that changed authoritative state, so the
+                // snapshot is awaited before the steps are recomputed.
+                Task {
+                    await status.reloadAndWait()
+                    await setup.recalculate(status: status)
+                }
             }) {
                 rowContent(icon: icon, title: title, state: state, linked: true)
             }
@@ -5426,10 +5712,39 @@ struct V3SetupAssistantView: View {
     }
 }
 
+// V3_STATUS_TINT_V1
+// The semantic colour for a status. Declared here rather than beside the model
+// because the behavioral primitives are also compiled into the SideStoreSupport
+// target, which does not import SwiftUI. The model stays presentation-free and
+// testable; only this mapping knows about Color.
+extension V3StatusPresentation {
+    var tint: Color {
+        switch severity {
+        case .working: return .blue
+        case .completed: return .green
+        case .warning: return .orange
+        case .failed: return .red
+        case .cancelled: return .orange
+        case .unknown: return .secondary
+        }
+    }
+}
+
 struct V3HomeServiceHeader: View {
     let isConnected: Bool
     let isLoading: Bool
-    let onReload: () -> Void
+    let updatedAt: Date?
+    var onReload: () -> Void = {}
+
+    // V3_RELOAD_STATUS_VISIBILITY_V1
+    // isConnected used to win over isLoading, so a reload in progress still
+    // rendered a green "Active & Connected" and the only difference was a
+    // disabled button, which read as "nothing happened". Loading now has
+    // priority, and a successful manual reload is confirmed in place rather
+    // than by an intrusive repeated alert.
+    private var statusPresentation: V3StatusPresentation {
+        V3StatusPresentation.connectionState(connected: isConnected, loading: isLoading)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -5440,20 +5755,35 @@ struct V3HomeServiceHeader: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("LiveContainer + SideStore")
                         .font(.headline)
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(isConnected ? Color.green : (isLoading ? Color.orange : Color.gray))
-                            .frame(width: 8, height: 8)
-                        Text(isConnected ? "Active & Connected" : (isLoading ? "Connecting..." : "Not Connected"))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            if isLoading {
+                                ProgressView()
+                                    .controlSize(.mini)
+                            } else {
+                                Circle()
+                                    .fill(statusPresentation.tint)
+                                    .frame(width: 8, height: 8)
+                            }
+                            // Icon and text both carry the state, so the meaning
+                            // does not depend on colour alone.
+                            Label(statusPresentation.title, systemImage: statusPresentation.icon)
+                                .font(.caption)
+                                .foregroundColor(statusPresentation.tint)
+                        }
+                        if let updatedAt {
+                            Text("Updated " + updatedAt.formatted(date: .omitted, time: .standard))
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .accessibilityLabel("Status last updated " + updatedAt.formatted(date: .abbreviated, time: .shortened))
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             Button(action: onReload) {
                 Label {
-                    Text("Reload Status")
+                    Text(isLoading ? "Reloading Status..." : "Reload Status")
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                         .fixedSize(horizontal: false, vertical: true)
@@ -5471,6 +5801,9 @@ struct V3HomeServiceHeader: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("SideStore status: " + statusPresentation.title
+                            + ", " + statusPresentation.severityName)
     }
 }
 
@@ -5482,23 +5815,44 @@ private struct V3HomeView: View {
     // The banner is a nudge, not acceptance: it hides only when account,
     // pairing, schedule, Background App Refresh and at least one verified
     // refresh are all in place. Acceptance itself stays in V3SetupStore.
-    private var setupIncomplete: Bool {
-        // V3_REFRESH_PREREQUISITE_POLICY_V1: one interpretation of the pairing
-        // status, so the banner can never disagree with the refresh gate.
-        if status.needsSignIn || status.provisioningIncomplete { return true }
-        if V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).blocksRefresh { return true }
-        if let defaults, !defaults.bool(forKey: "liveContainerAutoRefreshEnabled") { return true }
-        if UIApplication.shared.backgroundRefreshStatus != .available { return true }
-        let verifiedID = defaults?.dictionary(forKey: "liveContainerAutoRefreshVerification")?["run_id"] as? String
-        if verifiedID?.isEmpty != false { return true }
-        return false
+    // V3_SETUP_COMPLETION_POLICY_V1: Home consumes the same policy as the Setup
+    // Assistant. The banner used to omit JIT-Less, network, and tunnel, so it
+    // could disappear while the assistant still considered setup incomplete.
+    private var setupIncomplete: Bool { !V3HomeView.completionInputs(status: status, defaults: defaults).isComplete }
+
+    /// Derived from the same authoritative facts the Setup Assistant uses.
+    static func completionInputs(status: V3SideStoreStatusStore,
+                                 defaults: UserDefaults?) -> V3SetupCompletionInputs {
+        let verifiedRunID = defaults?.dictionary(forKey: "liveContainerAutoRefreshVerification")?["run_id"] as? String
+        return V3SetupCompletionInputs(
+            accountComplete: !status.needsSignIn,
+            provisioningIncomplete: status.provisioningIncomplete,
+            pairingSatisfied: !V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).blocksRefresh,
+            // JIT-Less is only a prerequisite on the platforms that require it.
+            jitlessRequired: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26,
+            // Home cannot verify the JIT-Less certificate itself, so a required
+            // but unverified state is treated as outstanding. The assistant shows
+            // the precise reason.
+            jitlessComplete: !JITLessRequiredForHome,
+            networkComplete: status.wifiAvailable == true,
+            tunnelComplete: LiveContainerNetworkPreflight.hasTunnelInterface(),
+            backgroundRefreshAvailable: UIApplication.shared.backgroundRefreshStatus == .available,
+            scheduleEnabled: defaults?.bool(forKey: "liveContainerAutoRefreshEnabled") ?? false,
+            verifiedRefreshPresent: verifiedRunID?.isEmpty == false)
+    }
+
+    /// True on the platforms where an unverified JIT-Less certificate is an
+    /// outstanding setup item. On every other platform it is not required.
+    private static var JITLessRequiredForHome: Bool {
+        ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26
     }
     var body: some View {
         NavigationView {
             List {
                 Section {
                     VStack(alignment: .leading, spacing: 14) {
-                        V3HomeServiceHeader(isConnected: status.connected, isLoading: status.loading) {
+                        V3HomeServiceHeader(isConnected: status.connected, isLoading: status.loading,
+                                            updatedAt: status.updatedAt) {
                             status.reload()
                         }
                         

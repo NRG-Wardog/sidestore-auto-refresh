@@ -137,10 +137,19 @@ enum V3JITLessReadiness: String, Equatable {
     case revoked
     case activeCertificateRevoked
     case activeCertificateExpired
+    // V3_JITLESS_CERT_DISTINCTION_V1: SideStore's active certificate being
+    // absent is a different problem from the LiveContainer copy being stale, and
+    // neither means the other's certificate is broken.
+    case activeCertificateMissing
+    case certificateMismatch
     case ready
     case unknown
 
     var isReady: Bool { self == .ready || self == .notRequired }
+
+    /// True only for a genuinely finished JIT-Less state. Used so a completed
+    /// JIT-Less setup is never rendered as an outstanding setup task.
+    var isSatisfied: Bool { isReady }
 }
 
 // This policy describes only the LiveContainer copy and safe public identity
@@ -152,7 +161,9 @@ enum V3JITLessReadinessPolicy {
         guard osMajor >= 26 else { return .notRequired }
         if activeCertificateExists && activeCertificateStatus == "revoked" { return .activeCertificateRevoked }
         if activeCertificateExists && activeCertificateStatus == "expired" { return .activeCertificateExpired }
-        guard activeCertificateExists else { return .unknown }
+        // Distinct from "the copy is missing": the active SideStore certificate
+        // itself is absent, which is a SideStore-side prerequisite.
+        guard activeCertificateExists else { return .activeCertificateMissing }
         guard hasCopy else { return .setupRequired }
         guard let validationStatus else { return .certificateImported }
         if validationStatus == 1 {
@@ -161,7 +172,84 @@ enum V3JITLessReadinessPolicy {
         }
         guard validationStatus == 0, !validationFailed else { return .unknown }
         guard let identitiesMatch else { return .unknown }
-        return identitiesMatch ? .ready : .needsCertificateRefresh
+        // The copy is valid but SideStore has since moved to a different
+        // certificate. Only the copy is stale; SideStore's certificate is fine.
+        return identitiesMatch ? .ready : .certificateMismatch
+    }
+}
+
+// V3_JITLESS_PRESENTATION_V1
+// One place that decides how a JIT-Less state is presented, so the Setup
+// Assistant, Health and Settings cannot each invent their own treatment. A ready
+// state is a completed result, not an outstanding setup task.
+struct V3JITLessPresentation: Equatable {
+    let readiness: V3JITLessReadiness
+    let severity: V3StatusSeverity
+    let title: String
+    let detail: String
+    /// True when this state still requires the user to do something.
+    let isOutstandingSetupTask: Bool
+
+    var icon: String { severity.icon }
+
+    static func present(_ readiness: V3JITLessReadiness) -> V3JITLessPresentation {
+        switch readiness {
+        case .notRequired:
+            return V3JITLessPresentation(readiness: .notRequired, severity: .completed,
+                                        title: "Not required",
+                                        detail: "This iOS version does not require a JIT-Less certificate.",
+                                        isOutstandingSetupTask: false)
+        case .ready:
+            return V3JITLessPresentation(readiness: .ready, severity: .completed,
+                                        title: "Configured / Ready",
+                                        detail: "The LiveContainer JIT-Less certificate matches the active SideStore certificate.",
+                                        isOutstandingSetupTask: false)
+        case .certificateMismatch:
+            return V3JITLessPresentation(readiness: .certificateMismatch, severity: .warning,
+                                        title: "JIT-Less certificate copy is out of date",
+                                        detail: "SideStore is using a different or newer signing certificate than the JIT-Less certificate stored by LiveContainer. Refresh the JIT-Less certificate copy.",
+                                        isOutstandingSetupTask: true)
+        case .activeCertificateMissing:
+            return V3JITLessPresentation(readiness: .activeCertificateMissing, severity: .failed,
+                                        title: "No active SideStore certificate",
+                                        detail: "SideStore has no active signing certificate. Open Certificates and create or select one before configuring JIT-Less.",
+                                        isOutstandingSetupTask: true)
+        case .activeCertificateRevoked:
+            return V3JITLessPresentation(readiness: .activeCertificateRevoked, severity: .failed,
+                                        title: "Active certificate revoked",
+                                        detail: "SideStore's active signing certificate is reported as revoked. Open Certificates and select or create a current certificate.",
+                                        isOutstandingSetupTask: true)
+        case .activeCertificateExpired:
+            return V3JITLessPresentation(readiness: .activeCertificateExpired, severity: .failed,
+                                        title: "Active certificate expired",
+                                        detail: "SideStore's active signing certificate has expired. Open Certificates and select or create a current certificate.",
+                                        isOutstandingSetupTask: true)
+        case .setupRequired:
+            return V3JITLessPresentation(readiness: .setupRequired, severity: .warning,
+                                        title: "JIT-Less certificate not configured",
+                                        detail: "LiveContainer has no JIT-Less certificate copy yet. Import one to launch guest apps on this iOS version.",
+                                        isOutstandingSetupTask: true)
+        case .revoked:
+            return V3JITLessPresentation(readiness: .revoked, severity: .failed,
+                                        title: "JIT-Less certificate copy is revoked",
+                                        detail: "The certificate stored by LiveContainer is reported as revoked. Import a current copy.",
+                                        isOutstandingSetupTask: true)
+        case .certificateImported:
+            return V3JITLessPresentation(readiness: .certificateImported, severity: .warning,
+                                        title: "Certificate imported, validation pending",
+                                        detail: "The certificate is stored but could not be validated yet.",
+                                        isOutstandingSetupTask: true)
+        case .needsCertificateRefresh:
+            return V3JITLessPresentation(readiness: .needsCertificateRefresh, severity: .warning,
+                                        title: "JIT-Less certificate needs refreshing",
+                                        detail: "Refresh the JIT-Less certificate copy from SideStore.",
+                                        isOutstandingSetupTask: true)
+        case .unknown:
+            return V3JITLessPresentation(readiness: .unknown, severity: .unknown,
+                                        title: "Validation unknown",
+                                        detail: "The JIT-Less certificate state could not be verified.",
+                                        isOutstandingSetupTask: true)
+        }
     }
 }
 
@@ -929,6 +1017,397 @@ enum V3RefreshAllFailureDiagnostics {
             "safe_message=\(safeMessage)"
         ].joined(separator: "\n")
     }
+}
+
+// V3_STATUS_PRESENTATION_V1
+// One reusable semantic status model. Success, warning and failure were drawn
+// with almost the same treatment in the operation sheet, Sources, Setup
+// Assistant, Health and install flows, so a red failure and a grey informational
+// line were hard to tell apart. Every state carries an icon AND a text label so
+// the meaning never depends on colour alone.
+enum V3StatusSeverity: String, Equatable, CaseIterable {
+    case working
+    case completed
+    case warning
+    case failed
+    case cancelled
+    case unknown
+
+    var icon: String {
+        switch self {
+        case .working: return "arrow.triangle.2.circlepath"
+        case .completed: return "checkmark.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .failed: return "xmark.circle.fill"
+        case .cancelled: return "slash.circle"
+        case .unknown: return "questionmark.circle"
+        }
+    }
+
+    /// The colour used alongside the icon and the text.
+    var severityName: String {
+        switch self {
+        case .working: return "working"
+        case .completed: return "success"
+        case .warning: return "warning"
+        case .failed: return "failure"
+        case .cancelled: return "cancelled"
+        case .unknown: return "unknown"
+        }
+    }
+
+    var isFailure: Bool { self == .failed }
+    var isSuccess: Bool { self == .completed }
+    /// Only a genuine success is presented as a tick.
+    var showsCheckmark: Bool { self == .completed }
+}
+
+struct V3StatusPresentation: Equatable {
+    let severity: V3StatusSeverity
+    let title: String
+    let detail: String
+
+    var icon: String { severity.icon }
+    var severityName: String { severity.severityName }
+    var isFailure: Bool { severity.isFailure }
+    var isSuccess: Bool { severity.isSuccess }
+
+    init(severity: V3StatusSeverity, title: String, detail: String = "") {
+        self.severity = severity
+        self.title = title
+        self.detail = detail
+    }
+
+    /// Maps a product state word onto the shared severity model.
+    static func severity(forState state: String) -> V3StatusSeverity {
+        switch state {
+        case "complete", "completed", "verified", "ready", "success": return .completed
+        case "failed", "error": return .failed
+        case "warning", "actionRequired", "needsAttention": return .warning
+        case "running", "checking", "working", "loading", "inProgress": return .working
+        case "cancelled", "canceled": return .cancelled
+        default: return .unknown
+        }
+    }
+
+    /// V3_RELOAD_STATUS_VISIBILITY_V1: loading wins over connected. The previous
+    /// ordering rendered a green "Active & Connected" while a reload was
+    /// actively running, so the button appeared to do nothing.
+    static func connectionState(connected: Bool, loading: Bool) -> V3StatusPresentation {
+        if loading {
+            return V3StatusPresentation(severity: .working, title: "Reloading Status...")
+        }
+        if connected {
+            return V3StatusPresentation(severity: .completed, title: "Connected")
+        }
+        return V3StatusPresentation(severity: .failed, title: "Not Connected")
+    }
+}
+
+// V3_USER_FACING_ISSUE_V1
+// The global alert used to offer "Retry Connection" for essentially every
+// failure, which trained users to read every problem as a networking problem.
+// A source failure, a certificate failure, an auth failure and a pairing failure
+// each get the action that can actually resolve them, and "Retry Connection" is
+// only offered when the evidence points at connection or service readiness.
+enum V3IssueAction: String, Equatable, CaseIterable {
+    case retryConnection
+    case retrySource
+    case openCertificates
+    case openAccount
+    case showPairingSetup
+    case openConnectionCheck
+    case chooseIPA
+    case openSetup
+    case dismiss
+
+    var title: String {
+        switch self {
+        case .retryConnection: return "Retry Connection"
+        case .retrySource: return "Retry Source"
+        case .openCertificates: return "Open Certificates"
+        case .openAccount: return "Open Account & Signing"
+        case .showPairingSetup: return "Show Pairing Setup"
+        case .openConnectionCheck: return "Open Connection Check"
+        case .chooseIPA: return "Choose IPA Again"
+        case .openSetup: return "Open Setup Assistant"
+        case .dismiss: return "OK"
+        }
+    }
+
+    /// The screen this action opens, or nil for an action that re-requests.
+    var destination: String? {
+        switch self {
+        case .openCertificates: return "certificates"
+        case .openAccount: return "signIn"
+        case .showPairingSetup: return "pairing"
+        case .openConnectionCheck, .retryConnection: return "connection"
+        case .chooseIPA: return "ipa"
+        case .openSetup: return "setup"
+        case .retrySource: return "sources"
+        case .dismiss: return nil
+        }
+    }
+}
+
+struct V3UserFacingIssue: Equatable {
+    let title: String
+    let severity: V3StatusSeverity
+    let whatHappened: String
+    let whatToDo: String
+    let technicalDetails: String
+    let primaryAction: V3IssueAction
+    let secondaryAction: V3IssueAction
+    let recoveryDestination: String?
+    let retryDisposition: V3RetryDisposition
+
+    /// The single place that decides which action a failure deserves. Selection
+    /// is driven by the typed operation, stage and safe cause, never by a
+    /// numeric code or by the mere fact that a request failed.
+    static func make(operation: String, stage: String, code: String,
+                     safeCause: String?, sourceStep: String?, retryable: Bool?,
+                     whatHappened: String, whatToDo: String, technicalDetails: String) -> V3UserFacingIssue {
+        let destination: String? = {
+            if safeCause == CombinedFailure.SafeCause.pairingRequired.rawValue { return "pairing" }
+            if stage == CombinedFailure.Stage.authentication.rawValue { return "signIn" }
+            if stage == CombinedFailure.Stage.filePreparation.rawValue { return "ipa" }
+            if sourceStep == CombinedFailure.SourceStep.provisioningProfileFetch.rawValue
+                || sourceStep == CombinedFailure.SourceStep.certificateValidation.rawValue
+                || safeCause == CombinedFailure.SafeCause.certificateUnavailable.rawValue
+                || safeCause == CombinedFailure.SafeCause.provisioningProfileUnavailable.rawValue
+                || stage == CombinedFailure.Stage.signing.rawValue {
+                return "certificates"
+            }
+            if operation == "source" || sourceStep == CombinedFailure.SourceStep.manifestParsing.rawValue
+                || sourceStep == CombinedFailure.SourceStep.sourceDownload.rawValue {
+                return "sources"
+            }
+            // Only these stages actually implicate connectivity or readiness.
+            if stage == CombinedFailure.Stage.network.rawValue
+                || stage == CombinedFailure.Stage.xpcConnection.rawValue
+                || stage == CombinedFailure.Stage.extensionLaunch.rawValue
+                || stage == CombinedFailure.Stage.extensionDiscovery.rawValue
+                || stage == CombinedFailure.Stage.serviceReadiness.rawValue
+                || stage == CombinedFailure.Stage.coreDevice.rawValue
+                || stage == CombinedFailure.Stage.cdTunnel.rawValue
+                || stage == CombinedFailure.Stage.rsdDiscovery.rawValue
+                || stage == CombinedFailure.Stage.rsdService.rawValue
+                || stage == CombinedFailure.Stage.lockdownConnection.rawValue
+                || stage == CombinedFailure.Stage.uniqueDeviceID.rawValue
+                || stage == CombinedFailure.Stage.heartbeat.rawValue
+                || stage == CombinedFailure.Stage.endpointSelection.rawValue
+                || safeCause == CombinedFailure.SafeCause.networkConnectionLost.rawValue
+                || safeCause == CombinedFailure.SafeCause.networkTimedOut.rawValue
+                || safeCause == CombinedFailure.SafeCause.networkUnavailable.rawValue
+                || safeCause == CombinedFailure.SafeCause.wifiUnavailable.rawValue
+                || safeCause == CombinedFailure.SafeCause.localDevVPNUnavailable.rawValue {
+                return "connection"
+            }
+            if stage == CombinedFailure.Stage.provisioning.rawValue {
+                return "setup"
+            }
+            return nil
+        }()
+
+        let primary: V3IssueAction = {
+            switch destination {
+            case "certificates": return .openCertificates
+            case "signIn": return .openAccount
+            case "pairing": return .showPairingSetup
+            case "ipa": return .chooseIPA
+            case "sources": return .retrySource
+            case "setup": return .openSetup
+            // A connection destination is the only case that legitimately
+            // offers a connection action.
+            case "connection": return retryable == true ? .retryConnection : .openConnectionCheck
+            default:
+                // No evidence points anywhere specific. Never assume networking.
+                return .dismiss
+            }
+        }()
+
+        let disposition: V3RetryDisposition = {
+            if retryable == false { return .blocked }
+            if destination == "connection" && retryable == true { return .allowed }
+            if retryable == true { return .allowed }
+            return .unknown
+        }()
+
+        return V3UserFacingIssue(
+            title: "SideStore",
+            severity: .failed,
+            whatHappened: whatHappened,
+            whatToDo: whatToDo,
+            technicalDetails: technicalDetails,
+            primaryAction: primary,
+            secondaryAction: .dismiss,
+            recoveryDestination: destination,
+            retryDisposition: disposition)
+    }
+
+    /// Builds an issue from a typed failure, preserving its privacy-safe text.
+    static func make(_ failure: CombinedFailure) -> V3UserFacingIssue {
+        make(operation: failure.operation, stage: failure.stage.rawValue, code: failure.code.rawValue,
+             safeCause: failure.safeCause?.rawValue, sourceStep: failure.sourceStep?.rawValue,
+             retryable: failure.retryable, whatHappened: failure.safeMessage,
+             whatToDo: failure.recovery, technicalDetails: failure.technicalDetails)
+    }
+
+    /// One-line summary, kept short enough for a copyable alert body.
+    var summary: String { whatHappened }
+}
+
+// V3_CATALOG_ROW_POLICY_V1
+// The catalog view deduplicated by snapshotting the accumulated IDs before
+// filtering a page, so an identifier repeated inside one page passed twice. The
+// rule lives here so the real behaviour is executable rather than asserted as
+// source text.
+enum V3CatalogRowPolicy {
+    static func identifier(of row: [String: Any]) -> String? {
+        guard let value = row["identifier"] as? String, !value.isEmpty else { return nil }
+        return value
+    }
+
+    /// Removes duplicates by identifier, preserving first-seen order, across
+    /// every page seen so far. Rows without a usable identifier are rejected
+    /// rather than silently kept, because they cannot be deduplicated or
+    /// installed.
+    static func dedupe(_ rows: [[String: Any]]) -> [[String: Any]] {
+        var seen = Set<String>()
+        var result: [[String: Any]] = []
+        result.reserveCapacity(rows.count)
+        for row in rows {
+            guard let identifier = identifier(of: row) else { continue }
+            if seen.insert(identifier).inserted { result.append(row) }
+        }
+        return result
+    }
+
+    /// Folds one page into the rows already displayed.
+    static func appending(_ page: [[String: Any]], to rows: [[String: Any]]) -> [[String: Any]] {
+        dedupe(rows + page)
+    }
+}
+
+// V3_RELOAD_GATE_V1
+// The reload gate rules, made explicit and executable. The store previously
+// inlined this, and callers could not await an authoritative snapshot, so a
+// recalculate could read the previous snapshot.
+enum V3ReloadBeginOutcome: String, Equatable {
+    /// The caller owns the snapshot and must perform it.
+    case startSnapshot
+    /// A snapshot is already running; the caller must join it, not start a
+    /// second concurrent request.
+    case joinInFlight
+    /// A presented operation owns the state; the request is deferred.
+    case deferUntilIdle
+    /// Not permitted by the current connection-retry state.
+    case skip
+}
+
+enum V3ReloadGate {
+    static func begin(loading: Bool, presentationActive: Bool,
+                      manual: Bool, requiresConnectionRetry: Bool) -> V3ReloadBeginOutcome {
+        if loading { return .joinInFlight }
+        if presentationActive { return .deferUntilIdle }
+        if !manual && requiresConnectionRetry { return .skip }
+        return .startSnapshot
+    }
+}
+
+// V3_SOURCE_EDITING_POLICY_V1
+// Issue #40: the Add Source field had no focus state and no explicit dismissal,
+// so Return was the only way out of the keyboard and read as a submit action.
+// The cancel semantics are stated here so they are executable and testable:
+// Cancel restores the URL that was present when editing began, and neither
+// Cancel nor Done may preview, request, or persist anything.
+enum V3SourceEditingOutcome: Equatable {
+    case dismissed
+    case restored(String)
+}
+
+enum V3SourceEditingPolicy {
+    /// Done: a pure UI dismissal. The typed value is kept.
+    static func done(typed: String) -> V3SourceEditingOutcome { .dismissed }
+
+    /// Cancel: restore the pre-edit value, so a URL is never silently discarded
+    /// and a later focus always starts from a predictable value.
+    static func cancel(typed: String, beforeEditing: String) -> V3SourceEditingOutcome {
+        .restored(beforeEditing)
+    }
+
+    /// The value the field should hold after the outcome is applied.
+    static func resolved(_ outcome: V3SourceEditingOutcome, typed: String) -> String {
+        switch outcome {
+        case .dismissed: return typed
+        case .restored(let value): return value
+        }
+    }
+}
+
+// V3_SETUP_COMPLETION_POLICY_V1
+// One authority for "is setup finished". Home and the Setup Assistant each used
+// their own rule, so Home could stop showing "Finish Setup" while the assistant
+// still considered setup incomplete. Two authorities for one product state is
+// the defect; this type removes the possibility of disagreement by having exactly
+// one decision, consumed by both, and by reporting which item is outstanding
+// rather than a bare boolean.
+enum V3SetupOutstandingItem: String, Equatable, CaseIterable {
+    case account
+    case provisioning
+    case pairing
+    case jitless
+    case network
+    case tunnel
+    case backgroundRefresh
+    case schedule
+    case verifiedRefresh
+
+    /// User-facing label, so the UI can name the outstanding step.
+    var title: String {
+        switch self {
+        case .account: return "Sign in with your Apple ID"
+        case .provisioning: return "Finish device provisioning"
+        case .pairing: return "Add a pairing file"
+        case .jitless: return "Configure the JIT-Less certificate"
+        case .network: return "Connect to Wi-Fi"
+        case .tunnel: return "Enable LocalDevVPN"
+        case .backgroundRefresh: return "Allow Background App Refresh"
+        case .schedule: return "Enable scheduled refresh"
+        case .verifiedRefresh: return "Run one verified refresh"
+        }
+    }
+}
+
+struct V3SetupCompletionInputs: Equatable {
+    var accountComplete = false
+    var provisioningIncomplete = false
+    var pairingSatisfied = false
+    var jitlessRequired = false
+    var jitlessComplete = false
+    var networkComplete = false
+    var tunnelComplete = false
+    var backgroundRefreshAvailable = false
+    var scheduleEnabled = false
+    var verifiedRefreshPresent = false
+
+    /// The only legal way to decide whether setup is finished.
+    func outstanding() -> [V3SetupOutstandingItem] {
+        var items: [V3SetupOutstandingItem] = []
+        if !accountComplete { items.append(.account) }
+        if provisioningIncomplete { items.append(.provisioning) }
+        if !pairingSatisfied { items.append(.pairing) }
+        // JIT-Less is only a prerequisite where the platform requires it.
+        if jitlessRequired && !jitlessComplete { items.append(.jitless) }
+        if !networkComplete { items.append(.network) }
+        if !tunnelComplete { items.append(.tunnel) }
+        if !backgroundRefreshAvailable { items.append(.backgroundRefresh) }
+        if !scheduleEnabled { items.append(.schedule) }
+        if !verifiedRefreshPresent { items.append(.verifiedRefresh) }
+        return items
+    }
+
+    var isComplete: Bool { outstanding().isEmpty }
 }
 
 enum V3RetryDisposition: Equatable {

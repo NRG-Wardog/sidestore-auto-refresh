@@ -96,6 +96,28 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         self.compile_and_run("import Foundation\n" + failure + "\n" + classifier + "\n" + harness,
                              "V3_AUTH_AND_PPQ_CLASSIFICATION_PASS")
 
+    def test_catalog_response_plist_round_trip_and_encoding_classification_execute(self):
+        # V3_CATALOG_ROW_PLIST_SAFE_V1: actually serializes and decodes the
+        # catalog response, proves the boxed-Optional premise, and proves the
+        # two encoder failure modes are distinguished.
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_catalog_response_encoding_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run("import Foundation\n" + wire + "\n" + failure + "\n" + helper + "\n" + harness,
+                             "V3_CATALOG_RESPONSE_ENCODING_PASS")
+
+    def test_setup_completion_status_issue_routing_and_jitless_execute(self):
+        # V3_SETUP_COMPLETION_POLICY_V1, V3_RELOAD_STATUS_VISIBILITY_V1,
+        # V3_USER_FACING_ISSUE_V1, V3_STATUS_PRESENTATION_V1,
+        # V3_JITLESS_CERT_DISTINCTION_V1, V3_RELOAD_GATE_V1,
+        # V3_SOURCE_EDITING_POLICY_V1
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_setup_and_semantic_ux_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run(failure + "\n" + helper + "\n" + harness,
+                             "V3_SETUP_AND_SEMANTIC_UX_PASS")
+
     def test_shared_refresh_prerequisite_policy_executes(self):
         # V3_REFRESH_PREREQUISITE_POLICY_V1: executes the single authoritative
         # contract, including the canonical pairing failure identity and the

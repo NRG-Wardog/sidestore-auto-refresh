@@ -138,16 +138,6 @@ class ServiceSidePropagationTests(unittest.TestCase):
         for forbidden in ("payload", "target", "deadline"):
             self.assertNotIn(f'["{forbidden}"]', builder)
 
-    def test_oversized_reply_is_a_typed_invalid_response(self):
-        text = service()
-        start = text.index("private func encode(")
-        block = text[start:text.index("private func run(", start)]
-        self.assertIn('"error": "responseTooLarge"', block)
-        self.assertIn("code: .invalidResponse", block)
-        # The failure never carries response content.
-        self.assertNotIn("apps", block)
-        self.assertNotIn("result", block)
-
     def test_encode_call_sites_preserve_the_operation(self):
         text = normalized(service())
         head, _, tail = text.partition("completed = completed.filter")
@@ -160,11 +150,119 @@ class ServiceSidePropagationTests(unittest.TestCase):
         self.assertEqual(len(calls), len(forwarded) + 1,
                          f"{len(calls)} encode calls but {len(forwarded)} forward the operation")
         self.assertIn("encode(invalidRequestReply(for: data))", head)
-        # The oversize fallback must not recurse.
-        encode_start = text.index("private func encode(")
-        encode = text[encode_start:text.index("private func run(", encode_start)]
-        self.assertEqual(encode.count("encode("), 1,
-                         "the oversize fallback must serialize directly, not recursively")
+
+    def test_encoder_separates_encoding_failure_from_oversize(self):
+        # V3_RESPONSE_ENCODING_CLASSIFICATION_V1: a reply that cannot be
+        # serialized must never be reported as too large. That conflation is
+        # what turned a boxed Optional into an opaque "invalidResponse".
+        text = service()
+        start = text.index("private func encode(")
+        end = text.index("private func fallback(", start)
+        encode = normalized(text[start:end])
+        self.assertIn("let data = try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)", encode)
+        self.assertIn("guard data.count <= 4_194_304 else", encode)
+        self.assertIn('token: "responseTooLarge"', encode)
+        self.assertIn('token: "responseEncodingFailed"', encode)
+        # A try? that swallows the error into a size claim is exactly the bug.
+        self.assertNotIn("try? PropertyListSerialization.data(fromPropertyList: value", encode)
+        # Both fallbacks are correlated and typed.
+        self.assertNotIn('"error": "responseTooLarge"', encode,
+                         "the fallback is built by the shared correlated helper")
+        fallback_start = text.index("private func fallback(")
+        fallback = normalized(text[fallback_start:fallback_start + 700])
+        self.assertIn('"error": token', fallback)
+        self.assertIn("CombinedFailure(operation: operation, stage: .command, code: code, id: id).wire", fallback)
+        # No offending value or raw error text may cross the boundary.
+        for forbidden in ("localizedDescription", "String(describing:", "error.localizedDescription"):
+            self.assertNotIn(forbidden, fallback)
+
+    def test_encoding_failure_token_is_distinct_on_both_sides(self):
+        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        self.assertIn('case "responseEncodingFailed":', bridge)
+        self.assertIn("safeCause: .responseEncodingFailed", bridge)
+        self.assertIn("case responseEncodingFailed", (ROOT / "scripts/templates/combined_failure.swift")
+                      .read_text(encoding="utf-8"))
+
+    def test_catalog_source_missing_is_typed_and_not_a_manifest_problem(self):
+        # V3_CATALOG_SOURCE_MISSING_V1: a deleted source must fail, not return
+        # an empty catalog that looks like a valid source with zero apps.
+        service = SERVICE.read_text(encoding="utf-8")
+        self.assertIn("case .catalogSourceUnavailable: code = .unavailable", service)
+        self.assertIn("guard let storedSource else {", service)
+        self.assertIn("throw V3SideStoreServiceError.catalogSourceUnavailable", service)
+        self.assertIn("safeCause: .catalogSourceUnavailable", service)
+        self.assertIn("sourceStep: .catalogRead", service)
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        self.assertIn("case catalogSourceUnavailable", runtime)
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        self.assertIn("This source is no longer in the SideStore source list.", failure)
+        self.assertIn("Return to Sources and reload the source list", failure)
+        # A missing source must never be reported as a bad manifest.
+        self.assertNotIn('safeCause: .sourceInvalidManifest, sourceStep: .catalogRead', service)
+        # A present source with zero apps is still a success.
+        self.assertIn("source_found=yes", service)
+
+    def test_catalog_rows_are_built_through_the_plist_safe_helper(self):
+        # V3_CATALOG_ROW_PLIST_SAFE_V1: no Optional may be boxed into the row.
+        service = SERVICE.read_text(encoding="utf-8")
+        start = service.index('case "catalog":')
+        block = service[start:start + 4000]
+        self.assertIn("V3WireContract.V3PropertyListValue.dictionary([", block)
+        self.assertNotIn("] as [String: Any]", block,
+                         "a cast dictionary can still hold a boxed Optional")
+        # The genuinely optional field is the only one left uncoalesced, and it
+        # is omitted rather than given a fake placeholder.
+        self.assertIn('"installedVersion": app.installedApp?.version', block)
+        self.assertNotIn('"installedVersion": app.installedApp?.version ??', block)
+        # The display-contract fields stay coalesced.
+        self.assertIn('"version": app.latestSupportedVersion?.version ?? "Unavailable"', block)
+        self.assertIn('"downloadURL": app.latestSupportedVersion?.downloadURL.absoluteString ?? ""', block)
+
+    def test_catalog_rows_are_built_through_the_plist_safe_helper(self):
+        # V3_CATALOG_ROW_PLIST_SAFE_V1: no Optional may be boxed into the row.
+        service = SERVICE.read_text(encoding="utf-8")
+        start = service.index('case "catalog":')
+        end = service.index('case "signOut":', start)
+        block = service[start:end]
+        self.assertIn("V3WireContract.V3PropertyListValue.dictionary([", block)
+        # A `as [String: Any]` cast can still hold a boxed Optional, so the row
+        # must not be built that way.
+        self.assertNotIn("as [String: Any]", block)
+        # The genuinely optional field is omitted rather than given a fake value.
+        self.assertIn('"installedVersion": app.installedApp?.version', block)
+        self.assertNotIn('"installedVersion": app.installedApp?.version ??', block)
+        # The display-contract fields stay coalesced.
+        self.assertIn('"version": app.latestSupportedVersion?.version ?? "Unavailable"', block)
+        self.assertIn('"downloadURL": app.latestSupportedVersion?.downloadURL.absoluteString ?? ""', block)
+
+    def test_no_optional_can_leak_into_any_response_dictionary(self):
+        """Repo-wide audit for the P0 defect class.
+
+        A `?.` that lands directly in a dictionary value boxes `Optional.none`
+        into `Any`, which PropertyListSerialization cannot encode. Coalescing with
+        `??` is safe. An uncoalesced value is only safe when it is handed to the
+        shared plist-safe builder, which unwraps and omits the absent key.
+        """
+        safe = ("??", "unwrapOptional")
+        offenders = []
+        for path in sorted((ROOT / "scripts/templates").glob("*.swift")):
+            in_builder = False
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                stripped = line.strip()
+                if "V3PropertyListValue.dictionary(" in stripped:
+                    in_builder = True
+                if in_builder and re.match(r'^"[A-Za-z]+":\s*.*\?\.', stripped) \
+                        and not any(token in stripped for token in safe):
+                    # Only a value inside the builder may stay uncoalesced.
+                    pass
+                elif re.match(r'^"[A-Za-z]+":\s*.*\?\.', stripped) \
+                        and not any(token in stripped for token in safe):
+                    offenders.append(f"{path.name}:{number}: {stripped}")
+                if in_builder and stripped in ("]) , " "]", "]", "])", ")]"):
+                    in_builder = False
+        self.assertEqual(offenders, [],
+                         "an Optional may be boxed into a response dictionary:\n"
+                         + "\n".join(offenders))
 
     def test_catalog_core_data_failure_is_unchanged(self):
         text = service()
@@ -255,6 +353,16 @@ class CatalogViewValidationTests(unittest.TestCase):
         self.assertIn("CFGetTypeID(number) != CFBooleanGetTypeID()", view)
         self.assertIn("guard page.count == rawApps.count else", view)
         self.assertIn("guard next == -1 || next > cursor else", view)
+
+    def test_dedupe_uses_the_shared_row_policy(self):
+        # V3_CATALOG_ROW_POLICY_V1: the real rule is executed by the harness; the
+        # view must use it rather than re-implementing a weaker version.
+        view = catalog_view()
+        self.assertIn("V3CatalogRowPolicy.appending(rawApps, to: accumulated)", view)
+        self.assertIn("apps = accumulated.compactMap(V3CatalogApp.init)", view)
+        # The weaker snapshot-then-filter shape is gone.
+        self.assertNotIn("var existing = Set(apps.map(\\.id))", view)
+        self.assertNotIn("seen.insert($0.id).inserted", view)
 
     def test_invalid_page_reports_a_correlated_typed_failure(self):
         view = catalog_view()

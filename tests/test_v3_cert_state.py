@@ -43,7 +43,10 @@ class JITLessOwnershipTests(unittest.TestCase):
         shell = SHELL.read_text(encoding="utf-8")
         setup = shell[shell.index("final class V3SetupStore"):shell.index("struct V3SetupAssistantView")]
         view = shell[shell.index("struct V3SetupAssistantView"):shell.index("struct V3HomeServiceHeader")]
-        self.assertIn("ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 || jitless.state == \"complete\"", setup)
+        # V3_SETUP_COMPLETION_POLICY_V1: the iOS-26 JIT-Less requirement is now
+        # an input to the shared policy rather than a private assistant rule.
+        self.assertIn("jitlessRequired: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26", setup)
+        self.assertIn("var isComplete: Bool { completionInputs.isComplete }", setup)
         self.assertIn('Section("JIT-Less Mode")', view)
         self.assertIn("status.returnToSetupAfterJITLess", shell)
         self.assertIn("V3CanonicalJITLessCertificateUpdated", shell)

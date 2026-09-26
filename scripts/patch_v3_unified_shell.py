@@ -81,22 +81,27 @@ def patch_host(root: Path) -> None:
             '        certificateDataFound = true\n    }',
             '        certificateDataFound = true\n        NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated"), object: nil)\n    }',
             "canonical JIT-Less import completion event")
-    # The programmatic route is required, but a bare NavigationLink with an
-    # EmptyView label still occupies a Settings row. Neutralize the row
-    # footprint so no empty actionable cell renders in the generated list.
-    # Guarded on its own marker so a tree patched by an earlier revision is
-    # upgraded in place instead of failing closed.
+    # The programmatic route is required, but a NavigationLink placed as a Form
+    # child is a List row participant: SwiftUI still allocates a row and its
+    # minimum height for it, so the user sees a blank cell. Upstream uses this
+    # exact pattern inside a ScrollView, where there are no rows, which is why it
+    # looked harmless there. The link is therefore attached as a background of
+    # the Form, which is laid out outside the row structure entirely, so no row
+    # and no accessibility element is produced. Guarded on its own marker so a
+    # tree patched by an earlier revision is upgraded in place.
     if "V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1" not in text:
         text = replace_once(
             text,
-            '            Form {\n',
-            '            Form {\n'
+            '            .navigationBarTitle("lc.tabView.settings".loc)',
+            '            // V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1: a background is laid out\n'
+            '            // outside the Form row structure, so this programmatic route cannot\n'
+            '            // produce an empty Settings row at any text size or device width, and\n'
+            '            // leaves no accessibility ghost element.\n'
+            '            .background(\n'
             '                NavigationLink(destination: LCJITLessDiagnoseView(), isActive: $v3OpenJITLessDiagnose) { EmptyView() }\n'
-            '                    .frame(width: 0, height: 0)\n'
-            '                    .listRowInsets(EdgeInsets())\n'
-            '                    .listRowSeparator(.hidden)\n'
-            '                    .accessibilityHidden(true)\n'
-            '                    .hidden() // V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1\n',
+            '                    .hidden()\n'
+            '            )\n'
+            '            .navigationBarTitle("lc.tabView.settings".loc)',
             "canonical JIT-Less diagnose navigation")
     settings.write_text(text, encoding="utf-8")
     old = '''                if store == .SideStore {

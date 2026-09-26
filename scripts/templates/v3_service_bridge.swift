@@ -28,6 +28,12 @@ enum V3CatalogRequestContext {
             return CombinedFailure(operation: operation, stage: stage, code: .busy, id: id, retryable: true)
         case "responseTooLarge":
             return CombinedFailure(operation: operation, stage: stage, code: .invalidResponse, id: id)
+        case "responseEncodingFailed":
+            // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: the service could not
+            // serialize its reply at all. This is a distinct defect from an
+            // oversized reply and is never reported as one.
+            return CombinedFailure(operation: operation, stage: stage, code: .invalidResponse, id: id,
+                                  safeCause: .responseEncodingFailed)
         case "invalidRequest":
             return CombinedFailure(operation: operation, stage: .command, code: .invalidConfiguration, id: id)
         case "cancelled":

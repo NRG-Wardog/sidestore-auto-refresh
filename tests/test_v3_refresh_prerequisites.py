@@ -268,13 +268,22 @@ class PairingGuidanceTests(unittest.TestCase):
     def test_returning_to_a_live_quick_setup_detects_a_newly_placed_file(self):
         text = shell()
         start = text.index("struct V3SetupAssistantView")
-        quick = text[start:start + 12000]
+        quick = text[start:start + 14000]
         change = quick[quick.index(".onChange(of: scenePhase)"):]
         change = change[:change.index("\n    }")]
-        self.assertIn("status.reload()", change)
-        self.assertIn("setup.recalculate(status: status)", change)
-        # Closing the pairing setup sheet also re-checks.
+        # V3_AWAITABLE_RELOAD_V1: the reload is awaited, so recalculate can never
+        # read the previous snapshot. A fire-and-forget reload followed by an
+        # immediate recalculate was the race.
+        self.assertIn("await status.reloadAndWait()", change)
+        self.assertIn("await setup.recalculate(status: status)", change)
+        self.assertLess(change.index("await status.reloadAndWait()"),
+                        change.index("await setup.recalculate(status: status)"))
+        self.assertNotIn("status.reload()\n", change)
+        # First appearance, the sheet dismissal, and returning from a setup
+        # destination all use the ordered path.
+        self.assertIn("await status.reloadAndWait()", quick[:quick.index(".onChange(of: scenePhase)")])
         self.assertIn(".onChange(of: showPairingSetup)", quick)
+        self.assertEqual(quick.count("await status.reloadAndWait()") >= 3, True)
 
     def test_pairing_storage_and_transport_are_untouched(self):
         # The working pairing mechanism must not be redesigned: no new pairing

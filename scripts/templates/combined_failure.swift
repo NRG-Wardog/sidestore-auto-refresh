@@ -120,6 +120,10 @@ public struct CombinedFailure: Error, LocalizedError {
         case sourcePersistenceUnverified
         case sourceInvalidURL
         case catalogUnavailable
+        case catalogSourceUnavailable
+        // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: the service built a reply it
+        // could not serialize. Distinct from an oversized reply.
+        case responseEncodingFailed
         case pairingRequired
 
         fileprivate var inferredRetryable: Bool? {
@@ -137,6 +141,14 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceNetworkFailure:
                 return true
             case .sourceInvalidManifest, .sourcePersistenceUnverified, .sourceInvalidURL, .catalogUnavailable:
+                return false
+            // The source is gone, so retrying the same request cannot succeed;
+            // the recovery is to reload the source list, not to retry.
+            case .catalogSourceUnavailable:
+                return false
+            // A reply that could not be serialized is not fixed by retrying the
+            // same request; it needs a code fix or a smaller payload.
+            case .responseEncodingFailed:
                 return false
             case .pairingRequired:
                 return false
@@ -227,6 +239,8 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourcePersistenceUnverified: return "SideStore could not confirm that the source was saved."
             case .sourceInvalidURL: return "The source URL is invalid."
             case .catalogUnavailable: return "SideStore could not read this source's saved catalog data."
+            case .catalogSourceUnavailable: return "This source is no longer in the SideStore source list."
+            case .responseEncodingFailed: return "SideStore could not encode the response for this request."
             case .pairingRequired: return "A pairing file is required before this device can be refreshed."
             }
         }
@@ -364,6 +378,10 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Enter a valid HTTP or HTTPS source URL, then preview it again."
             case .catalogUnavailable:
                 return "Reload the catalog. If it continues, copy the safe diagnostics."
+            case .catalogSourceUnavailable:
+                return "Return to Sources and reload the source list, then open the source again."
+            case .responseEncodingFailed:
+                return "Reload the request. If it keeps failing, copy the safe diagnostics; the service could not encode its reply."
             case .pairingRequired:
                 return "Add the pairing file, then retry the refresh."
             }

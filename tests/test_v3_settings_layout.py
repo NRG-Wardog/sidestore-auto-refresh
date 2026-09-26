@@ -295,13 +295,26 @@ class GeneratedSettingsLayoutTests(unittest.TestCase):
                              f"an actionable row renders as an empty cell: {fragment[:200]!r}")
 
     def test_the_hidden_jitless_route_is_row_neutralized(self):
+        # V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1: the route is attached as a
+        # background of the Form, not as a Form child. A NavigationLink that is
+        # a Form child is a List row participant: SwiftUI allocates a row and
+        # its minimum height for it regardless of .hidden(), which is what
+        # produced the blank cell after Guest Runtime.
         text = generate()["settings"]
         self.assertIn("V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1", text)
-        start = text.index("NavigationLink(destination: LCJITLessDiagnoseView()")
-        block = text[start:start + 600]
-        for neutralizer in ROW_NEUTRALIZERS:
-            self.assertIn(neutralizer, block,
-                          f"the hidden route must neutralize its row footprint ({neutralizer})")
+        marker = text.index("V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1")
+        # The marker and its link must sit AFTER the Form body closes.
+        form_end = text.rindex("            }\n", 0, marker)
+        self.assertLess(form_end, marker, "the route is still inside the Form row structure")
+        block = text[marker - 200:marker + 400]
+        self.assertIn(".background(", block)
+        self.assertIn("NavigationLink(destination: LCJITLessDiagnoseView()", block)
+        # No EmptyView-labelled link may appear anywhere inside the Form body.
+        body = text[text.index("Form {"):form_end]
+        self.assertNotIn("EmptyView()", body,
+                         "an EmptyView-labelled row is still inside the Form")
+        # Programmatic navigation still works: the binding is unchanged.
+        self.assertIn("v3OpenJITLessDiagnose = true", text)
 
     def test_no_section_renders_an_empty_body(self):
         text = mask(generate()["settings"])

@@ -46,4 +46,53 @@ enum V3WireContract {
         }
         return request
     }
+
+    // V3_PROPERTY_LIST_VALUE_V1
+    // Property lists cannot encode a Swift Optional that has been boxed into
+    // `Any`. Assigning `someOptional` to an `[String: Any]` value stores
+    // `Optional<T>.none` as a live object, and serialization then fails for the
+    // whole response, long after the value was read correctly from its owner.
+    // This is the only place that decides what may cross the boundary.
+    enum V3PropertyListValue {
+        /// Returns the unwrapped value, or nil when it is absent.
+        ///
+        /// Only the Optional case is unwrapped. A value that is present but not
+        /// representable is returned unchanged so the encoder can report a real
+        /// encoding failure instead of silently dropping data.
+        static func unwrapOptional(_ value: Any?) -> Any? {
+            guard let value else { return nil }
+            let mirror = Mirror(reflecting: value)
+            guard mirror.displayStyle == .optional else { return value }
+            return mirror.children.first?.value
+        }
+
+        /// Builds a property-list-safe dictionary, omitting keys whose value is
+        /// an absent Optional. A key whose value is present but unrepresentable
+        /// is preserved so serialization fails loudly rather than quietly.
+        static func dictionary(_ entries: [String: Any?]) -> [String: Any] {
+            var result: [String: Any] = [:]
+            result.reserveCapacity(entries.count)
+            for (key, value) in entries {
+                if let unwrapped = unwrapOptional(value) { result[key] = unwrapped }
+            }
+            return result
+        }
+
+        /// True when a value can be encoded by PropertyListSerialization.
+        static func isEncodable(_ value: Any) -> Bool {
+            // A still-boxed Optional is never encodable, so an absent value
+            // reports false rather than being silently accepted.
+            guard let unwrapped = unwrapOptional(value) else { return false }
+            switch unwrapped {
+            case is String, is Bool, is Int, is Double, is Date, is Data, is URL:
+                return true
+            case let array as [Any]:
+                return array.allSatisfy { isEncodable($0) }
+            case let dictionary as [String: Any]:
+                return dictionary.values.allSatisfy { isEncodable($0) }
+            default:
+                return false
+            }
+        }
+    }
 }

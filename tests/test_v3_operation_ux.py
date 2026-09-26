@@ -148,9 +148,27 @@ class StoreFeedbackTests(unittest.TestCase):
             code = "\n".join(line for line in fn.splitlines()
                              if not line.strip().startswith("//"))
             self.assertIn("accept(try await", code, operation)
-            self.assertIn("loading = false", code, operation)
+            # V3_AWAITABLE_RELOAD_V1: every path that ends a loading window must
+            # go through the one helper, so a caller awaiting the snapshot is
+            # always resumed instead of suspending forever.
+            self.assertIn("finishLoading()", code, operation)
             # reload() must run after the busy state is released.
-            self.assertLess(code.index("loading = false"), code.index("reload()"), operation)
+            self.assertLess(code.index("finishLoading()"), code.index("reload()"), operation)
+
+    def test_every_loading_window_is_closed_through_one_helper(self):
+        store = status_store()
+        # The helper exists and owns the flag.
+        self.assertIn("private func finishLoading(succeeded: Bool = false) {", store)
+        helper = store[store.index("private func finishLoading("):]
+        helper = helper[:helper.index("\n    }\n")]
+        self.assertIn("loading = false", helper)
+        self.assertIn("reloadWaiters", helper)
+        self.assertIn("waiter.resume", helper)
+        # No other place may clear the flag directly.
+        body = store[store.index("final class V3SideStoreStatusStore"):]
+        direct = [line for line in body.splitlines() if line.strip() == "loading = false"]
+        self.assertEqual(len(direct), 1,
+                         "loading must be cleared in exactly one place, or waiters can be stranded")
 
     def test_terminal_notices(self):
         store = status_store()
@@ -336,11 +354,24 @@ class ReloadLabelTests(unittest.TestCase):
         start = text.index("struct V3HomeServiceHeader")
         end = text.index("private struct V3HomeView", start)
         header = text[start:end]
-        self.assertIn('Text("Reload Status")', header)
+        # V3_RELOAD_STATUS_VISIBILITY_V1: the button names the action it is
+        # currently performing, so a reload is never a silent no-op.
+        self.assertIn('Text(isLoading ? "Reloading Status..." : "Reload Status")', header)
         self.assertIn('.lineLimit(1)', header)
         self.assertIn('.minimumScaleFactor(0.8)', header)
         self.assertIn('.fixedSize(horizontal: false, vertical: true)', header)
         self.assertIn('.accessibilityHint("Reloads the latest SideStore connection and account status.', header)
+        # Loading is visible, and the last update time is exposed.
+        self.assertIn("if isLoading {", header)
+        self.assertIn("ProgressView()", header)
+        self.assertIn("if let updatedAt {", header)
+        self.assertIn('Text("Updated " + updatedAt.formatted', header)
+        # State is never communicated by colour alone.
+        self.assertIn("Label(statusPresentation.title, systemImage: statusPresentation.icon)", header)
+        # The semantic name is exposed to assistive technology too.
+        self.assertIn("statusPresentation.severityName", header)
+        # The old ordering let a green "Active & Connected" win over a reload.
+        self.assertNotIn('isConnected ? "Active & Connected"', header)
 
     def test_simulator_harness_renders_reload_status_on_narrow_phone_and_tablet(self):
         renderer = (ROOT / "scripts/run_issue25_rendering.py").read_text(encoding="utf-8")

@@ -31,6 +31,7 @@ def fixture(root: Path) -> Tuple[Path, Path]:
                 if sharedModel.multiLCStatus != 2 {
                 }
             }
+            .navigationBarTitle("lc.tabView.settings".loc)
         }
     }
                 if store == .SideStore {
@@ -397,14 +398,25 @@ class V3SetupAssistantTests(unittest.TestCase):
 
 class V3SetupAcceptanceTests(unittest.TestCase):
     def test_setup_complete_requires_everything(self):
+        # V3_SETUP_COMPLETION_POLICY_V1: the assistant no longer owns a private
+        # rule. It supplies inputs to the one shared policy that Home also uses.
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        block = source[source.index("var isComplete: Bool"):source.index("var isComplete: Bool") + 800]
-        for required in ('pairing.state == "complete"', 'account.state == "complete"',
-                         'ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 || jitless.state == "complete"',
-                         'network.state == "complete"', 'tunnel.state == "complete"',
-                         'background.state == "complete"', 'schedule.state == "complete"',
-                         'verification.state == "complete"'):
-            self.assertIn(required, block)
+        setup = source[source.index("final class V3SetupStore"):source.index("struct V3SetupAssistantView")]
+        self.assertIn("var completionInputs: V3SetupCompletionInputs {", setup)
+        for required in ('accountComplete: account.state == "complete"',
+                         'provisioningIncomplete: statusProvisioningIncomplete',
+                         'pairingSatisfied: pairing.state == "complete"',
+                         'jitlessRequired: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26',
+                         'jitlessComplete: jitless.state == "complete"',
+                         'networkComplete: network.state == "complete"',
+                         'tunnelComplete: tunnel.state == "complete"',
+                         'backgroundRefreshAvailable: background.state == "complete"',
+                         'scheduleEnabled: schedule.state == "complete"',
+                         'verifiedRefreshPresent: verification.state == "complete"'):
+            self.assertIn(required, setup)
+        # The decision itself is delegated, never re-implemented.
+        self.assertIn("var isComplete: Bool { completionInputs.isComplete }", setup)
+        self.assertNotIn('majorVersion < 26 || jitless.state == "complete"', setup)
 
     def test_history_never_satisfies_current_test(self):
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
@@ -442,11 +454,23 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         self.assertIn("V3RefreshDetailView()", source)
 
     def test_home_banner_reflects_full_setup(self):
+        # V3_SETUP_COMPLETION_POLICY_V1: Home and the assistant now consume the
+        # same policy, so the banner can no longer stop while the assistant
+        # still considers setup incomplete.
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        self.assertIn("setupIncomplete", source)
-        self.assertIn("liveContainerAutoRefreshEnabled", source)
-        self.assertIn("backgroundRefreshStatus != .available", source)
-        self.assertIn("liveContainerAutoRefreshVerification", source)
+        home = source[source.index("struct V3HomeServiceHeader"):]
+        self.assertIn("completionInputs(status: status, defaults: defaults).isComplete", home)
+        for required in ("accountComplete: !status.needsSignIn",
+                         "provisioningIncomplete: status.provisioningIncomplete",
+                         "pairingSatisfied: !V3RefreshPrerequisite.evaluate",
+                         "networkComplete: status.wifiAvailable == true",
+                         "tunnelComplete: LiveContainerNetworkPreflight.hasTunnelInterface()",
+                         "backgroundRefreshAvailable: UIApplication.shared.backgroundRefreshStatus == .available",
+                         "scheduleEnabled: defaults?.bool(forKey: \"liveContainerAutoRefreshEnabled\")",
+                         "verifiedRefreshPresent: verifiedRunID?.isEmpty == false"):
+            self.assertIn(required, home)
+        # The old private rule must be gone.
+        self.assertNotIn('if UIApplication.shared.backgroundRefreshStatus != .available { return true }', home)
 
     def test_tunnel_presence_never_proves_coredevice(self):
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")

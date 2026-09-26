@@ -131,8 +131,14 @@ final class V3SideStoreService: NSObject {
                     case .invalidRequest: code = .invalidConfiguration
                     case .authRequired: code = .notReady
                     case .persistenceUnverified: code = .failed
+                    // V3_CATALOG_SOURCE_MISSING_V1: a typed, non-manifest cause.
+                    case .catalogSourceUnavailable: code = .unavailable
                     }
-                    if headlessError == .invalidRequest && ["sourcePreview", "sourceAddConfirmed"].contains(operation) {
+                    if headlessError == .catalogSourceUnavailable {
+                        response["failure"] = CombinedFailure(operation: "catalog", stage: .catalog,
+                            code: code, id: id, safeCause: .catalogSourceUnavailable,
+                            sourceStep: .catalogRead).wire
+                    } else if headlessError == .invalidRequest && ["sourcePreview", "sourceAddConfirmed"].contains(operation) {
                         response["failure"] = CombinedFailure(operation: "source", stage: .source,
                             code: .invalidConfiguration, id: id, safeCause: .sourceInvalidURL,
                             sourceStep: .sourceDownload).wire
@@ -187,24 +193,39 @@ final class V3SideStoreService: NSObject {
     }
 
     private func encode(_ value: [String: Any], operation: String = "command") -> Data {
-        if let data = try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0),
-           data.count <= 4_194_304 {
+        // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: serialization failure and an
+        // oversized payload are different defects and must never be reported as
+        // each other. A response that cannot be encoded at all was saying
+        // "responseTooLarge", which the host then classified as
+        // invalidResponse, destroying the real cause.
+        do {
+            let data = try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
+            guard data.count <= 4_194_304 else {
+                // Correctly serialized, but too large to transport.
+                return fallback(id: value["id"] as? String ?? "", operation: operation,
+                                token: "responseTooLarge", code: .invalidResponse)
+            }
             return data
+        } catch {
+            // The object graph is not representable. The offending value is never
+            // serialized and the raw error text never crosses the boundary: the
+            // host only needs to know the response could not be encoded.
+            return fallback(id: value["id"] as? String ?? "", operation: operation,
+                            token: "responseEncodingFailed", code: .invalidResponse)
         }
-        // V3_CORRELATED_RESPONSE_TOO_LARGE_V1: an oversized reply is a typed
-        // invalid response, not an opaque token. The request ID and operation
-        // are preserved so the host can report the real reason. No response
-        // content is ever included. This path is not recursive: the fallback is
-        // a few hundred bytes and is serialized directly.
-        let id = value["id"] as? String ?? ""
-        let fallback: [String: Any] = ["version": 1, "id": id, "error": "responseTooLarge",
-                                       "failure": CombinedFailure(operation: operation, stage: .command,
-                                           code: .invalidResponse, id: id).wire]
-        if let data = try? PropertyListSerialization.data(fromPropertyList: fallback, format: .binary, options: 0),
-           data.count <= 4_194_304 {
-            return data
-        }
-        return Data()
+    }
+
+    /// Builds a small, correlated, typed fallback reply. Always serializable
+    /// because every value is a concrete String, Bool or Int.
+    private func fallback(id: String, operation: String, token: String,
+                          code: CombinedFailure.Code) -> Data {
+        let value: [String: Any] = [
+            "version": 1,
+            "id": id,
+            "error": token,
+            "failure": CombinedFailure(operation: operation, stage: .command, code: code, id: id).wire
+        ]
+        return (try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)) ?? Data()
     }
 
     private func run(_ operation: String, request: [String: Any], id: String) async throws -> [String: Any] {
@@ -240,10 +261,14 @@ final class V3SideStoreService: NSObject {
             sourceQuery.predicate = NSPredicate(format: "identifier == %@", target)
             sourceQuery.fetchLimit = 1
             let storedSource = try context.fetch(sourceQuery).first
-            let sourceFound = storedSource != nil
-            // Detects identifier normalization drift between the source row and
-            // the request target, which a tautological fetch predicate could not.
-            let sourceMatch = storedSource?.identifier == target
+            // V3_CATALOG_SOURCE_MISSING_V1: a source that no longer exists must
+            // not be reported as a valid source with zero apps, or a stale
+            // catalog screen becomes indistinguishable from an empty catalog.
+            // This is NOT a manifest problem and is never reported as one.
+            guard let storedSource else {
+                throw V3SideStoreServiceError.catalogSourceUnavailable
+            }
+            let sourceMatch = storedSource.identifier == target
             let query = NSFetchRequest<StoreApp>(entityName: "StoreApp")
             query.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
                 StoreApp.visibleAppsPredicate, NSPredicate(format: "sourceIdentifier == %@", target)])
@@ -254,17 +279,35 @@ final class V3SideStoreService: NSObject {
             query.fetchLimit = 51
             let fetched = try context.fetch(query)
             let apps = Array(fetched.prefix(50))
-            debugLog("[V3_CATALOG] RESULT operation=catalog stage=catalogRead request_id=\(id) cursor=\(offset) source_found=\(sourceFound ? "yes" : "no") source_identifier_match=\(sourceMatch ? "yes" : "no") catalog_row_count=\(apps.count) has_more=\(fetched.count > 50 ? "yes" : "no")")
+            debugLog("[V3_CATALOG] RESULT operation=catalog stage=catalogRead request_id=\(id) cursor=\(offset) source_found=yes source_identifier_match=\(sourceMatch ? "yes" : "no") catalog_row_count=\(apps.count) has_more=\(fetched.count > 50 ? "yes" : "no")")
             return ["apps": apps.map { app in
-                ["identifier": app.objectID.uriRepresentation().absoluteString,
-                 "bundleID": app.bundleIdentifier, "name": app.name,
-                 "version": app.latestSupportedVersion?.version ?? "Unavailable",
-                 "developer": app.developerName, "description": app.localizedDescription,
-                 "iconURL": app.iconURL.absoluteString,
-                 "downloadURL": app.latestSupportedVersion?.downloadURL.absoluteString ?? "",
-                 "canInstall": app.latestSupportedVersion != nil,
-                 "installedID": app.installedApp?.objectID.uriRepresentation().absoluteString ?? "",
-                 "installedVersion": app.installedApp?.version] as [String: Any]
+                // V3_CATALOG_ROW_PLIST_SAFE_V1: the row is built explicitly and
+                // every value is unwrapped. An app that is not installed has no
+                // installedVersion, and an absent key is the correct encoding of
+                // an absent value: placing a Swift Optional into this dictionary
+                // boxes Optional.none into Any, which PropertyListSerialization
+                // cannot encode, so the whole catalog response would fail to
+                // serialize even though the Core Data read succeeded.
+                V3WireContract.V3PropertyListValue.dictionary([
+                    "identifier": app.objectID.uriRepresentation().absoluteString,
+                    "bundleID": app.bundleIdentifier,
+                    "name": app.name,
+                    // Coalesced to a concrete String: the host renders this as a
+                    // non-optional version label, so the placeholder is part of
+                    // the display contract rather than a leaked Optional.
+                    "version": app.latestSupportedVersion?.version ?? "Unavailable",
+                    "developer": app.developerName,
+                    "description": app.localizedDescription,
+                    "iconURL": app.iconURL.absoluteString,
+                    "downloadURL": app.latestSupportedVersion?.downloadURL.absoluteString ?? "",
+                    "canInstall": app.latestSupportedVersion != nil,
+                    "installedID": app.installedApp?.objectID.uriRepresentation().absoluteString ?? "",
+                    // The only field that was genuinely optional. It is omitted
+                    // entirely when the app is not installed. The host already
+                    // models it as an optional, so no placeholder is invented and
+                    // no Optional is boxed into the response graph.
+                    "installedVersion": app.installedApp?.version
+                ])
             }, "nextCursor": fetched.count > 50 ? offset + 50 : -1]
         case "signOut":
             // Preserve reusable certificate and anisette state, matching upgrade preservation.
