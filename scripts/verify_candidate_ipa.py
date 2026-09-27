@@ -29,6 +29,10 @@ REQUIRED_BACKGROUND_IDS = {
     "com.kdt.livecontainer.sidestore.automatic-refresh",
     "com.kdt.livecontainer.sidestore.automatic-refresh.watchdog",
 }
+REMOVED_SIDESTORE_ICON_NAMES = {
+    "classic", "modern", "blueicon", "darkicon", "honeydewicon", "prideicon",
+    "sandyicon", "skyicon", "snowicon", "starbursticon", "stormicon", "vistaicon", "wintericon",
+}
 PRIVATE_EXTENSIONS = {".p12", ".p8", ".pem", ".key", ".mobileprovision", ".log", ".crash", ".ips"}
 
 
@@ -151,14 +155,14 @@ def verify_side_store_assetutil_records(records: list[dict]) -> dict:
         raise ValueError("SideStore Assets.car has no readable asset records")
     names = sorted({record.get("Name") for record in records
                     if isinstance(record, dict) and isinstance(record.get("Name"), str)})
-    excluded = sorted({name.casefold() for name in names} & {"classic", "modern"})
+    excluded = sorted({name.casefold() for name in names} & REMOVED_SIDESTORE_ICON_NAMES)
     if excluded:
         raise ValueError("excluded SideStore alternate-icon assets remain: " + ", ".join(excluded))
     primary_icons = [name for name in names if "appicon" in name.casefold()]
     return {
         "asset_catalog_record_count": len(records),
         "appicon_asset_rendition_count": len(primary_icons),
-        "alternate_icon_sets": "Classic/Modern absent",
+        "alternate_icon_sets": "Classic/Modern and 11 alternate app icons absent",
     }
 
 
