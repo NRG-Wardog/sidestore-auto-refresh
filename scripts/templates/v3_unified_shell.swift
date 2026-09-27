@@ -4016,7 +4016,15 @@ final class V3AuthStore: ObservableObject {
                 return
             }
             let reconciliationGenerationBefore = reconciliationGate.generation
-            let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)
+            let sessionUnavailable = ((pollFailure?.underlying ?? error) as? CombinedFailure)?.safeCause == .authSessionUnavailable
+            let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession,
+                retireInactiveAuthSession: !sessionUnavailable)
+            if let sessionFailure = (pollFailure?.underlying ?? error) as? CombinedFailure,
+               sessionFailure.safeCause == .authSessionUnavailable {
+                resolveUnavailableAuthSession(sessionFailure, expectedSessionID: requestedSession,
+                    snapshotConfirmed: snapshotConfirmed)
+                return
+            }
             if let pollFailure,
                restartPollMonitorAfterSupersededFailure(sessionID: requestedSession,
                     sessionDeadline: sessionDeadline,
@@ -4027,6 +4035,18 @@ final class V3AuthStore: ObservableObject {
                     provisioningRetry: true,
                     reconciliationWasSuperseded: reconciliationGate.generation !=
                         (reconciliationGenerationBefore &+ 1)) {
+                return
+            }
+            if pollFailure == nil,
+               V3AuthPollMonitorRecoveryPolicy.shouldResumeAfterAmbiguousStart(
+                    requestedSessionID: requestedSession, currentSessionID: session,
+                    authenticationActive: provisioningRetryBlockedByActiveSession,
+                    cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled),
+               restartPollMonitorAfterSupersededFailure(sessionID: requestedSession,
+                    sessionDeadline: sessionDeadline, failedPromptRevision: revision,
+                    failedPromptResponseGeneration: promptResponseGeneration,
+                    pollFailureIsTransient: false, provisioningRetry: true,
+                    reconciliationWasSuperseded: false) {
                 return
             }
             guard V3AuthAttemptFailureCommitPolicy.mayCommit(
@@ -4047,12 +4067,6 @@ final class V3AuthStore: ObservableObject {
                         reconciliationWasSuperseded: reconciliationGate.generation !=
                             (reconciliationGenerationBefore &+ 1))
                 }
-                return
-            }
-            if let sessionFailure = pollFailure?.underlying as? CombinedFailure,
-               sessionFailure.safeCause == .authSessionUnavailable {
-                resolveUnavailableAuthSession(sessionFailure, expectedSessionID: requestedSession,
-                    snapshotConfirmed: snapshotConfirmed)
                 return
             }
             if let pollFailure, prompt != nil {
@@ -4363,7 +4377,7 @@ final class V3AuthStore: ObservableObject {
             let sessionUnavailable = ((pollFailure?.underlying ?? error) as? CombinedFailure)?.safeCause == .authSessionUnavailable
             let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession,
                 retireInactiveAuthSession: !sessionUnavailable)
-            if let sessionFailure = pollFailure?.underlying as? CombinedFailure,
+            if let sessionFailure = (pollFailure?.underlying ?? error) as? CombinedFailure,
                sessionFailure.safeCause == .authSessionUnavailable {
                 resolveUnavailableAuthSession(sessionFailure, expectedSessionID: requestedSession,
                     snapshotConfirmed: snapshotConfirmed)
@@ -4379,6 +4393,18 @@ final class V3AuthStore: ObservableObject {
                     provisioningRetry: false,
                     reconciliationWasSuperseded: reconciliationGate.generation !=
                         (reconciliationGenerationBefore &+ 1)) {
+                return
+            }
+            if pollFailure == nil,
+               V3AuthPollMonitorRecoveryPolicy.shouldResumeAfterAmbiguousStart(
+                    requestedSessionID: requestedSession, currentSessionID: session,
+                    authenticationActive: provisioningRetryBlockedByActiveSession,
+                    cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled),
+               restartPollMonitorAfterSupersededFailure(sessionID: requestedSession,
+                    sessionDeadline: sessionDeadline, failedPromptRevision: revision,
+                    failedPromptResponseGeneration: promptResponseGeneration,
+                    pollFailureIsTransient: false, provisioningRetry: false,
+                    reconciliationWasSuperseded: false) {
                 return
             }
             if V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState(

@@ -194,6 +194,16 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("retireInactiveAuthSession: !sessionUnavailable", failure_path)
         self.assertLess(failure_path.index(preserve), failure_path.index('state = "resultUnknown"'))
         self.assertIn("shouldCommitConfirmedSignedOutFailure", failure_path)
+        self.assertIn("shouldResumeAfterAmbiguousStart", failure_path)
+        self.assertIn("pollFailure == nil", failure_path)
+        retry_provisioning = host[host.index("private func runProvisioningRetry(previouslyAvailable: Bool)"):]
+        retry_provisioning = retry_provisioning[:retry_provisioning.index("private func pollLoop(")]
+        retry_failure_path = retry_provisioning[
+            retry_provisioning.index("let sessionUnavailable = ((pollFailure?.underlying ?? error)"):]
+        self.assertIn("shouldResumeAfterAmbiguousStart", retry_failure_path)
+        self.assertIn("retireInactiveAuthSession: !sessionUnavailable", retry_failure_path)
+        self.assertLess(retry_failure_path.index("safeCause == .authSessionUnavailable"),
+                        retry_failure_path.index("V3AuthAttemptFailureCommitPolicy.mayCommit"))
         monitor = host[host.index("private func continuePollingAfterSupersededFailure"):]
         self.assertIn(preserve, monitor)
         self.assertLess(monitor.index("V3AuthPollMonitorRecoveryPolicy.shouldResume"), monitor.index(preserve))

@@ -3244,6 +3244,15 @@ enum V3AuthPollFailureRacePolicy {
 }
 
 enum V3AuthPollMonitorRecoveryPolicy {
+    static func shouldResumeAfterAmbiguousStart(requestedSessionID: String,
+                                                currentSessionID: String?,
+                                                authenticationActive: Bool,
+                                                cancellationInProgress: Bool,
+                                                taskCancelled: Bool) -> Bool {
+        currentSessionID == requestedSessionID && authenticationActive &&
+            !cancellationInProgress && !taskCancelled
+    }
+
     static func shouldResume(requestedSessionID: String, currentSessionID: String?,
                              failedPromptRevision: Int,
                              currentPromptRevision: Int,

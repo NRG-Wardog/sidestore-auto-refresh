@@ -293,6 +293,16 @@ struct AuthOwnershipReconciliationHarness {
             cancellationInProgress: false, taskCancelled: false,
             now: now, sessionDeadline: deadline),
             "an unauthenticated but active SideSign session retains its host poller after a deterministic XPC read error")
+        precondition(V3AuthPollMonitorRecoveryPolicy.shouldResumeAfterAmbiguousStart(
+            requestedSessionID: current, currentSessionID: current,
+            authenticationActive: true, cancellationInProgress: false, taskCancelled: false) &&
+            !V3AuthPollMonitorRecoveryPolicy.shouldResumeAfterAmbiguousStart(
+                requestedSessionID: prior, currentSessionID: current,
+                authenticationActive: true, cancellationInProgress: false, taskCancelled: false) &&
+            !V3AuthPollMonitorRecoveryPolicy.shouldResumeAfterAmbiguousStart(
+                requestedSessionID: current, currentSessionID: current,
+                authenticationActive: false, cancellationInProgress: false, taskCancelled: false),
+            "an authBegin reply lost after dispatch restarts polling only for its own active session")
 
         let authRequestID = UUID().uuidString
         let missingSession = CombinedFailure(operation: "signIn", stage: .authentication,
