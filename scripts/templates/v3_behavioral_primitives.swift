@@ -789,8 +789,52 @@ enum V3AuthSessionResponsePolicy {
     }
 
     static func mayApplyReply(currentSessionID: String?, replySessionID: String,
-                              cancellationInProgress: Bool) -> Bool {
-        !cancellationInProgress && currentSessionID == replySessionID
+                              cancellationInProgress: Bool,
+                              submittedPromptID: String? = nil,
+                              currentPromptID: String? = nil) -> Bool {
+        guard !cancellationInProgress, currentSessionID == replySessionID else { return false }
+        guard let submittedPromptID else { return true }
+        return currentPromptID == submittedPromptID
+    }
+
+    static func mayAcceptStartedSession(expectedSessionID: String, replySessionID: String?,
+                                        currentSessionID: String?, cancellationInProgress: Bool) -> Bool {
+        !cancellationInProgress && replySessionID == expectedSessionID &&
+            currentSessionID == expectedSessionID
+    }
+
+    static func mayLaunchCreatedSession(sessionID: String, activeSessionID: String?,
+                                        cancellationRequested: Bool, terminalIsEmpty: Bool) -> Bool {
+        activeSessionID == sessionID && !cancellationRequested && terminalIsEmpty
+    }
+}
+
+struct V3AuthStartCancellationRegistry {
+    private var cancelled: [String: Date] = [:]
+
+    mutating func cancelBeforeStart(_ id: String, now: Date = Date()) -> Bool {
+        guard let parsed = UUID(uuidString: id), parsed.uuidString == id else { return false }
+        prune(now: now)
+        cancelled[id] = now.addingTimeInterval(600)
+        prune(now: now)
+        return true
+    }
+
+    mutating func consume(_ id: String, now: Date = Date()) -> Bool {
+        prune(now: now)
+        return cancelled.removeValue(forKey: id) != nil
+    }
+
+    func contains(_ id: String, now: Date = Date()) -> Bool {
+        guard let expiry = cancelled[id] else { return false }
+        return expiry > now
+    }
+
+    mutating func prune(now: Date = Date()) {
+        cancelled = cancelled.filter { $0.value > now }
+        guard cancelled.count > 256 else { return }
+        let oldest = cancelled.sorted { $0.value < $1.value }
+        for (id, _) in oldest.prefix(cancelled.count - 256) { cancelled.removeValue(forKey: id) }
     }
 }
 
@@ -1286,6 +1330,7 @@ enum V3IssueAction: String, Equatable, CaseIterable {
     case openConnectionCheck
     case chooseIPA
     case openSetup
+    case openSources
     case dismiss
 
     var title: String {
@@ -1299,6 +1344,7 @@ enum V3IssueAction: String, Equatable, CaseIterable {
         case .openConnectionCheck: return "Open Connection Check"
         case .chooseIPA: return "Choose IPA Again"
         case .openSetup: return "Open Setup Assistant"
+        case .openSources: return "Open Sources"
         case .dismiss: return "OK"
         }
     }
@@ -1312,7 +1358,7 @@ enum V3IssueAction: String, Equatable, CaseIterable {
         case .openConnectionCheck, .retryConnection: return "connection"
         case .chooseIPA: return "ipa"
         case .openSetup: return "setup"
-        case .retrySource, .reloadSources: return "sources"
+        case .retrySource, .reloadSources, .openSources: return "sources"
         case .dismiss: return nil
         }
     }
@@ -1339,6 +1385,9 @@ struct V3UserFacingIssue: Equatable {
             if safeCause == CombinedFailure.SafeCause.pairingRequired.rawValue { return "pairing" }
             if safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue ||
                safeCause == CombinedFailure.SafeCause.sourceRemoveBusy.rawValue { return "sources" }
+            if operation == "source" && stage == CombinedFailure.Stage.serviceReadiness.rawValue {
+                return "sources"
+            }
             if stage == CombinedFailure.Stage.authentication.rawValue { return "signIn" }
             if stage == CombinedFailure.Stage.filePreparation.rawValue { return "ipa" }
             if sourceStep == CombinedFailure.SourceStep.provisioningProfileFetch.rawValue
@@ -1386,9 +1435,10 @@ struct V3UserFacingIssue: Equatable {
             case "pairing": return .showPairingSetup
             case "ipa": return .chooseIPA
             case "sources":
-                return safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue ||
-                       safeCause == CombinedFailure.SafeCause.sourceRemoveBusy.rawValue
-                    ? .reloadSources : .retrySource
+                if safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue ||
+                   safeCause == CombinedFailure.SafeCause.sourceRemoveBusy.rawValue { return .reloadSources }
+                if stage == CombinedFailure.Stage.serviceReadiness.rawValue { return .openSources }
+                return .retrySource
             case "setup": return .openSetup
             // A connection destination is the only case that legitimately
             // offers a connection action.
@@ -2035,7 +2085,45 @@ struct V3OperationRetryContext {
 }
 
 enum V3OperationRetrySafetyPolicy {
+    enum Disposition: Equatable { case retry, alreadyCompleted, outcomeUnknown }
+
     static func canRetry(backendSettled: Bool?, outcomeUnknown: Bool) -> Bool {
-        !outcomeUnknown && (backendSettled ?? true)
+        !outcomeUnknown && backendSettled == true
+    }
+
+    static func disposition(state: String?, backendSettled: Bool?, outcomeUnknown: Bool) -> Disposition {
+        guard canRetry(backendSettled: backendSettled, outcomeUnknown: outcomeUnknown) else {
+            return .outcomeUnknown
+        }
+        if state == "completed" { return .alreadyCompleted }
+        guard ["failed", "cancelled", "requiresSource", "waitingForAuthentication"].contains(state ?? "") else {
+            return .outcomeUnknown
+        }
+        return .retry
+    }
+}
+
+enum V3OperationMissingSessionPolicy {
+    static func unknownTerminal(sessionID: String, knownStarted: Bool) -> [String: Any]? {
+        guard knownStarted else { return nil }
+        return ["session": sessionID, "state": "failed", "backendSettled": false,
+                "outcomeUnknown": true, "stopConfirmed": false,
+                "message": "The operation session is no longer available, so its device result cannot be confirmed."]
+    }
+}
+
+enum V3OperationStartDispatchPolicy {
+    static func provesNotDispatched(resultWasReturned: Bool) -> Bool {
+        !resultWasReturned
+    }
+}
+
+enum V3OperationSessionCorrelationPolicy {
+    static func matches(operation: String, target: String, requestedStartSession: String?,
+                        resultSession: String?) -> Bool {
+        guard ["opStart", "opPoll", "opAnswer", "opCancel"].contains(operation) else { return true }
+        let expected = operation == "opStart" ? requestedStartSession : target
+        guard let expected, !expected.isEmpty else { return false }
+        return resultSession == expected
     }
 }

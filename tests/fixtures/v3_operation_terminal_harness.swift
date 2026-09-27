@@ -31,6 +31,28 @@ struct OperationTerminalHarness {
         precondition(!failureWins.setIfEmpty(["state": "completed"]))
         precondition(failureWins.value?["stage"] as? String == "signing")
 
+        let forgottenSessionID = UUID().uuidString
+        let lostSession = V3OperationMissingSessionPolicy.unknownTerminal(
+            sessionID: forgottenSessionID, knownStarted: true)
+        precondition(lostSession?["state"] as? String == "failed" &&
+            lostSession?["outcomeUnknown"] as? Bool == true &&
+            lostSession?["backendSettled"] as? Bool == false &&
+            lostSession?["stopConfirmed"] as? Bool == false,
+            "a previously started but now-missing service session must remain outcome-unknown")
+        precondition(V3OperationMissingSessionPolicy.unknownTerminal(
+            sessionID: forgottenSessionID, knownStarted: false) == nil,
+            "a known pre-start cancellation must use the before-start cancellation registry")
+        precondition(V3OperationStartDispatchPolicy.provesNotDispatched(resultWasReturned: false))
+        precondition(!V3OperationStartDispatchPolicy.provesNotDispatched(resultWasReturned: true),
+            "cancellation after opStart produced a session must not erase operation ownership")
+        precondition(V3OperationSessionCorrelationPolicy.matches(operation: "opStart",
+            target: "", requestedStartSession: forgottenSessionID,
+            resultSession: forgottenSessionID))
+        precondition(!V3OperationSessionCorrelationPolicy.matches(operation: "opPoll",
+            target: forgottenSessionID, requestedStartSession: nil,
+            resultSession: UUID().uuidString),
+            "a terminal reply for another operation session must not release this session's gate")
+
         let preparation = V3OperationPreparationGate()
         var cancellations = 0
         preparation.installCancellation { cancellations += 1 }

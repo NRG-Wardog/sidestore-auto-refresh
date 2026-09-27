@@ -111,6 +111,7 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         self.compile_and_run("import Foundation\n" + failure + "\n" + helper + "\n" + harness,
                              "V3_OPERATION_CANCELLATION_TERMINAL_PASS")
 
+
     def test_picker_staging_file_lifetime_and_path_validation_execute(self):
         helper = (ROOT / "scripts/templates/v3_ipa_staging.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")

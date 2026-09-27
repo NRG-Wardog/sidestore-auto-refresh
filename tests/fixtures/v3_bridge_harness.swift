@@ -7,6 +7,7 @@ final class FakeClient {
     var oversized = false
     var backendSettled = true
     var operationState = "working"
+    var rejectOperationStart = false
     var replies: [() -> Void] = []
     var cancellations = 0
     var operations: [String] = []
@@ -20,6 +21,17 @@ final class FakeClient {
         let operationResult: [String: Any]
         switch operation {
         case "opStart":
+            if rejectOperationStart {
+                let failure = CombinedFailure(operation: "install", stage: .command,
+                    code: .busy, id: request["id"] as! String, retryable: true)
+                let rejected: [String: Any] = ["version": 1, "id": request["id"]!,
+                    "error": "busy", "failure": failure.wire,
+                    "operationNotDispatched": true]
+                let encoded = try! PropertyListSerialization.data(fromPropertyList: rejected,
+                    format: .binary, options: 0)
+                reply(encoded)
+                return
+            }
             operationResult = ["session": payload["session"] as? String ?? "", "state": "working"]
         case "opPoll":
             operationResult = ["session": target, "state": operationState,
@@ -217,6 +229,62 @@ struct BridgeTests {
                      "user-confirmed device reconciliation must retire the uncertain backend process")
         precondition(handler.stops == stopsBeforeConfirmation + 1 && !bridge.isMutating,
                      "the explicit confirmed-reconciliation path must release the host mutation gate")
+
+        // A service-level rejection before the operation center creates a session
+        // is authoritative proof that the mutation was never dispatched.
+        client.rejectOperationStart = true
+        let rejectedSession = UUID().uuidString
+        do {
+            _ = try await bridge.request(operation: "opStart",
+                payload: ["kind": "install", "session": rejectedSession])
+            preconditionFailure("the fake service start rejection was accepted")
+        } catch {}
+        precondition(!bridge.isMutating && !bridge.hasUncertainOperationSession(rejectedSession),
+            "a structured pre-dispatch rejection must release session ownership")
+        client.rejectOperationStart = false
+
+        // Lose the first terminal poll response, then let the owner monitor find
+        // the backend completion. The UI retry policy must preserve completion.
+        let lostPollSession = UUID().uuidString
+        client.operationState = "working"
+        client.backendSettled = false
+        _ = try await bridge.request(operation: "opStart",
+            payload: ["kind": "install", "session": lostPollSession])
+        client.hold = true
+        let startCountBeforeLostPoll = client.operations.filter { $0 == "opStart" }.count
+        let lostPoll = Task { try await bridge.request(operation: "opPoll", target: lostPollSession) }
+        await waitForRequest(client)
+        do { _ = try await lostPoll.value; preconditionFailure("stalled poll did not time out") } catch {}
+        precondition(bridge.hasUncertainOperationSession(lostPollSession),
+            "a lost poll must make the device outcome uncertain")
+        client.flush()
+        client.hold = false
+        client.operationState = "completed"
+        client.backendSettled = true
+        let lostPollDeadline = Date().addingTimeInterval(4)
+        while bridge.isMutating {
+            precondition(Date() < lostPollDeadline, "owner monitor did not discover terminal completion")
+            await Task.yield()
+        }
+        let recovered = try await bridge.request(operation: "opCancel", target: lostPollSession)
+        precondition(recovered["state"] as? String == "completed" &&
+            recovered["backendSettled"] as? Bool == true,
+            "the settled session reply must preserve the old completion result")
+        precondition(client.operations.filter { $0 == "opStart" }.count == startCountBeforeLostPoll,
+            "a recovered completion must not start a duplicate operation")
+        bridge.forgetSettledOperationSession(lostPollSession)
+
+        // Disconnect while a native operation is unresolved cannot clear its gate.
+        let disconnectedSession = UUID().uuidString
+        client.operationState = "working"
+        client.backendSettled = false
+        _ = try await bridge.request(operation: "opStart",
+            payload: ["kind": "delete", "session": disconnectedSession])
+        bridge.disconnected()
+        precondition(bridge.isMutating && bridge.hasUncertainOperationSession(disconnectedSession),
+            "XPC loss cannot be treated as native operation cancellation")
+        precondition(bridge.confirmUncertainOperationAfterDeviceCheck(sessionID: disconnectedSession))
+        precondition(!bridge.isMutating)
         print("V3 lifecycle PASS")
     }
 }

@@ -2690,7 +2690,7 @@ struct V3OperationSheet: View {
                     if let oldSession {
                         do {
                             let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: oldSession)
-                            cancellationConfirmed = reply["backendSettled"] as? Bool
+                            cancellationConfirmed = V3WireContract.strictBool(reply["backendSettled"])
                                 ?? reply["stopConfirmed"] as? Bool ?? true
                         } catch { cancellationConfirmed = false }
                     }
@@ -2788,12 +2788,11 @@ struct V3OperationSheet: View {
                 failureContext.recordStartFailure(failure)
             }
             presentCurrentFailure()
-            if !backendSessionStarted,
-               V3ServiceBridge.shared.hasUncertainOperationSession(generation.uuidString) {
+            if V3ServiceBridge.shared.hasUncertainOperationSession(generation.uuidString) {
                 needsDeviceConfirmation = true
                 uncertainSessionID = generation.uuidString
                 retryBlocked = true
-                message = "SideStore may have received the operation start, but did not confirm its state."
+                message = "SideStore could not confirm the current operation result."
                 whatToDo = "Check the device before starting another mutation. If no operation is running, use Reconcile After Checking Device."
                 technicalDetails += " backend_settled=no outcome=unknown"
             }
@@ -2917,12 +2916,13 @@ struct V3OperationSheet: View {
                 code: CombinedFailure.Code(rawValue: reply["code"] as? String ?? "") ?? .failed,
                 id: sessionID, retryable: reply["retryable"] as? Bool)
             failureContext.recordPipelineFailure(failure)
-            let outcomeUnknown = reply["outcomeUnknown"] as? Bool == true ||
-                reply["backendSettled"] as? Bool == false
+            let backendSettled = V3WireContract.strictBool(reply["backendSettled"])
+            let outcomeUnknown = V3WireContract.strictBool(reply["outcomeUnknown"]) == true ||
+                backendSettled != true
             needsDeviceConfirmation = outcomeUnknown
             if outcomeUnknown { uncertainSessionID = sessionID }
             retryBlocked = !V3OperationRetrySafetyPolicy.canRetry(
-                backendSettled: reply["backendSettled"] as? Bool,
+                backendSettled: backendSettled,
                 outcomeUnknown: outcomeUnknown)
             message = failureContext.whatHappened
             whatToDo = outcomeUnknown
@@ -2966,8 +2966,6 @@ struct V3OperationSheet: View {
     }
     private func retry() {
         guard retryAllowed, attempt.beginTransition() else { return }
-        status.prepareInstallRetry(attemptID: request.installAttemptID)
-        failureContext.beginRetry()
         let oldTask = task
         let oldSession = attempt.supersede()
         let transitionGeneration = attempt.generation
@@ -2988,7 +2986,33 @@ struct V3OperationSheet: View {
             do {
                 if let oldSession {
                     let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: oldSession)
-                    if reply["backendSettled"] as? Bool == false || reply["outcomeUnknown"] as? Bool == true {
+                    let disposition = V3OperationRetrySafetyPolicy.disposition(
+                        state: reply["state"] as? String,
+                        backendSettled: V3WireContract.strictBool(reply["backendSettled"])
+                            ?? V3WireContract.strictBool(reply["stopConfirmed"]),
+                        outcomeUnknown: V3WireContract.strictBool(reply["outcomeUnknown"]) == true)
+                    if disposition == .alreadyCompleted {
+                        await oldTask?.value
+                        guard attempt.transitionInFlight, attempt.generation == transitionGeneration else { return }
+                        attempt.endTransition()
+                        uncertainSessionID = nil
+                        needsDeviceConfirmation = false
+                        retryBlocked = true
+                        state = "completed"
+                        progress = 1
+                        hasProgress = true
+                        message = request.title + " completed successfully."
+                        whatToDo = "Reload app status to confirm the installed app and signing state."
+                        technicalDetails = ""
+                        failureContext.reset()
+                        status.installTerminal(attemptID: request.installAttemptID,
+                            operationID: request.id, outcome: "completed")
+                        status.reload()
+                        recordRefresh("completed", message)
+                        V3ServiceBridge.shared.forgetSettledOperationSession(oldSession)
+                        return
+                    }
+                    if disposition != .retry {
                         await oldTask?.value
                         guard attempt.transitionInFlight, attempt.generation == transitionGeneration else { return }
                         let failure = CombinedFailure(operation: request.operation, stage: .command,
@@ -3004,10 +3028,13 @@ struct V3OperationSheet: View {
                         technicalDetails = failureContext.technicalDetails + " backend_settled=no outcome=unknown"
                         return
                     }
+                    V3ServiceBridge.shared.forgetSettledOperationSession(oldSession)
                 }
                 await oldTask?.value
                 guard attempt.transitionInFlight, attempt.generation == transitionGeneration else { return }
                 uncertainSessionID = nil
+                status.prepareInstallRetry(attemptID: request.installAttemptID)
+                failureContext.beginRetry()
                 message = ""
                 let generation = attempt.begin()
                 attempt.endTransition()
@@ -3082,11 +3109,12 @@ struct V3OperationSheet: View {
         Task { @MainActor in
             await oldTask?.value
             let cancellationTarget = uncertainSessionID ?? oldSession
+            var confirmedOutcome = "cancelled"
             if let cancellationTarget {
                 do {
                     let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: cancellationTarget)
-                    let backendSettled = reply["backendSettled"] as? Bool
-                        ?? reply["stopConfirmed"] as? Bool ?? true
+                    let backendSettled = V3WireContract.strictBool(reply["backendSettled"])
+                        ?? V3WireContract.strictBool(reply["stopConfirmed"]) ?? false
                     guard backendSettled else {
                         isDismissing = false
                         attempt.endTransition()
@@ -3098,6 +3126,21 @@ struct V3OperationSheet: View {
                         return
                     }
                     uncertainSessionID = nil
+                    if ["completed", "failed", "cancelled", "requiresSource", "waitingForAuthentication"]
+                        .contains(reply["state"] as? String ?? "") {
+                        V3ServiceBridge.shared.forgetSettledOperationSession(cancellationTarget)
+                    }
+                    if reply["state"] as? String == "completed" {
+                        confirmedOutcome = "completed"
+                        state = "completed"
+                        progress = 1
+                        hasProgress = true
+                        message = request.title + " completed successfully."
+                        whatToDo = "Reload app status to confirm the installed app and signing state."
+                        recordRefresh("completed", message)
+                    } else if reply["state"] as? String == "failed" {
+                        confirmedOutcome = "failed"
+                    }
                 } catch {
                     if uncertainSessionID != nil {
                         isDismissing = false
@@ -3110,7 +3153,7 @@ struct V3OperationSheet: View {
                 }
             }
             status.installTerminal(attemptID: request.installAttemptID,
-                operationID: request.id, outcome: "cancelled")
+                operationID: request.id, outcome: confirmedOutcome)
             if request.operation == "installSharedIPA" {
                 let token = request.installAttemptID.flatMap {
                     status.resetInstallUI(attemptID: $0, outcome: "acknowledged",
@@ -3441,6 +3484,7 @@ final class V3AuthStore: ObservableObject {
     func retryProvisioning() {
         guard !isCancelling, !["working", "awaitingPrompt"].contains(state) else { return }
         task?.cancel()
+        session = UUID().uuidString
         state = "working"
         message = ""
         prompt = nil
@@ -3452,8 +3496,17 @@ final class V3AuthStore: ObservableObject {
     var canRetryProvisioning: Bool { provisioningRetryAvailable }
 
     private func runProvisioningRetry() async {
+        guard let requestedSession = session else { return }
         do {
-            let reply = try await V3ServiceBridge.shared.request(operation: "authRetryProvisioning")
+            let reply = try await V3ServiceBridge.shared.request(operation: "authRetryProvisioning",
+                target: requestedSession, payload: ["session": requestedSession])
+            guard V3AuthSessionResponsePolicy.mayAcceptStartedSession(
+                expectedSessionID: requestedSession, replySessionID: reply["session"] as? String,
+                currentSessionID: session, cancellationInProgress: isCancelling) else {
+                _ = try? await V3ServiceBridge.shared.request(operation: "authCancel", target: requestedSession)
+                await reconcile(force: true)
+                return
+            }
             guard let id = reply["session"] as? String,
                   reply["state"] as? String != "failed" else {
                 // The saved session is gone. Fall back to a full, honest sign-in
@@ -3467,6 +3520,7 @@ final class V3AuthStore: ObservableObject {
             session = id
             try await pollLoop(id: id)
         } catch {
+            if isCancelling || Task.isCancelled { return }
             state = "authenticatedProvisioningIncomplete"
             provisioningMessage = "Retry Provisioning could not be started."
             provisioningTechnical = (error as? CombinedFailure)?.technicalDetails ?? ""
@@ -3531,11 +3585,21 @@ final class V3AuthStore: ObservableObject {
     }
 
     private func run() async {
+        let requestedSession = UUID().uuidString
+        session = requestedSession
         do {
             state = "working"
             message = ""
             prompt = nil
-            let reply = try await V3ServiceBridge.shared.request(operation: "authBegin")
+            let reply = try await V3ServiceBridge.shared.request(operation: "authBegin",
+                target: requestedSession, payload: ["session": requestedSession])
+            guard V3AuthSessionResponsePolicy.mayAcceptStartedSession(
+                expectedSessionID: requestedSession, replySessionID: reply["session"] as? String,
+                currentSessionID: session, cancellationInProgress: isCancelling) else {
+                _ = try? await V3ServiceBridge.shared.request(operation: "authCancel", target: requestedSession)
+                await reconcile(force: true)
+                return
+            }
             guard let id = reply["session"] as? String else {
                 throw NSError(domain: "V3Auth", code: 1,
                               userInfo: [NSLocalizedDescriptionKey: "The service did not start sign-in."])
@@ -3543,7 +3607,7 @@ final class V3AuthStore: ObservableObject {
             session = id
             try await pollLoop(id: id)
         } catch {
-            if isCancelling { return }
+            if isCancelling || Task.isCancelled { return }
             state = "failed"
             message = V3FailureGuidance.message(error)
         }
@@ -3698,7 +3762,9 @@ final class V3AuthStore: ObservableObject {
                 guard V3AuthSessionResponsePolicy.mayApplyReply(
                     currentSessionID: self.session,
                     replySessionID: reply["session"] as? String ?? "",
-                    cancellationInProgress: self.isCancelling) else { return }
+                    cancellationInProgress: self.isCancelling,
+                    submittedPromptID: promptID,
+                    currentPromptID: self.prompt?["id"] as? String) else { return }
                 apply(reply)
             } catch {
                 guard self.session == session, !self.isCancelling else { return }

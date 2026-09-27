@@ -19,6 +19,13 @@ struct OperationRetryFailureHarness {
         precondition(V3OperationRetrySafetyPolicy.canRetry(backendSettled: true, outcomeUnknown: false))
         precondition(!V3OperationRetrySafetyPolicy.canRetry(backendSettled: false, outcomeUnknown: true),
                      "an uncertain native result must block a new mutation")
+        precondition(V3OperationRetrySafetyPolicy.disposition(state: "completed",
+            backendSettled: true, outcomeUnknown: false) == .alreadyCompleted,
+            "a lost terminal poll must not let Retry repeat an operation that completed")
+        precondition(V3OperationRetrySafetyPolicy.disposition(state: "failed",
+            backendSettled: true, outcomeUnknown: false) == .retry)
+        precondition(V3OperationRetrySafetyPolicy.disposition(state: "working",
+            backendSettled: true, outcomeUnknown: false) == .outcomeUnknown)
 
         precondition(registry.finish(firstSession))
         context.beginRetry()

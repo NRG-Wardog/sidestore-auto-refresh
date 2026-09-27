@@ -35,13 +35,42 @@ struct V3AuthJITLessErrorBehaviorHarness {
             terminalIsEmpty: true, cancellationRequested: true, promptMatches: true),
             "a late 2FA answer must not resume a cancelled authentication prompt")
         precondition(V3AuthSessionResponsePolicy.mayApplyReply(
-            currentSessionID: sessionID, replySessionID: sessionID, cancellationInProgress: false))
+            currentSessionID: sessionID, replySessionID: sessionID, cancellationInProgress: false,
+            submittedPromptID: "prompt-A", currentPromptID: "prompt-A"))
         precondition(!V3AuthSessionResponsePolicy.mayApplyReply(
-            currentSessionID: sessionID, replySessionID: sessionID, cancellationInProgress: true),
+            currentSessionID: sessionID, replySessionID: sessionID, cancellationInProgress: true,
+            submittedPromptID: "prompt-A", currentPromptID: "prompt-A"),
             "a late authRespond reply must not replace the authCancel terminal result")
         precondition(!V3AuthSessionResponsePolicy.mayApplyReply(
             currentSessionID: UUID().uuidString, replySessionID: sessionID, cancellationInProgress: false),
             "a response from an earlier auth session must be ignored")
+        precondition(!V3AuthSessionResponsePolicy.mayApplyReply(
+            currentSessionID: sessionID, replySessionID: sessionID, cancellationInProgress: false,
+            submittedPromptID: "prompt-A", currentPromptID: "prompt-B"),
+            "a late answer for prompt A must not replace a newer prompt B in the same session")
+        let beginRaceID = UUID().uuidString
+        var beginCancellation = V3AuthStartCancellationRegistry()
+        precondition(beginCancellation.cancelBeforeStart(beginRaceID),
+            "cancellation before authBegin reaches SideStore must record the client-owned session")
+        precondition(beginCancellation.contains(beginRaceID))
+        precondition(beginCancellation.consume(beginRaceID),
+            "late authBegin must consume the cancellation and create only a cancelled terminal session")
+        precondition(!beginCancellation.consume(beginRaceID))
+        precondition(V3AuthSessionResponsePolicy.mayAcceptStartedSession(
+            expectedSessionID: beginRaceID, replySessionID: beginRaceID,
+            currentSessionID: beginRaceID, cancellationInProgress: false))
+        precondition(!V3AuthSessionResponsePolicy.mayAcceptStartedSession(
+            expectedSessionID: beginRaceID, replySessionID: beginRaceID,
+            currentSessionID: beginRaceID, cancellationInProgress: true),
+            "a late begin/retry reply after cancel must not resume polling or replace visible cancellation")
+        precondition(V3AuthSessionResponsePolicy.mayLaunchCreatedSession(sessionID: beginRaceID,
+            activeSessionID: beginRaceID, cancellationRequested: false, terminalIsEmpty: true))
+        precondition(!V3AuthSessionResponsePolicy.mayLaunchCreatedSession(sessionID: beginRaceID,
+            activeSessionID: beginRaceID, cancellationRequested: true, terminalIsEmpty: true),
+            "cancellation while a replacement waits for the previous auth task must suppress launch")
+        precondition(!V3AuthSessionResponsePolicy.mayLaunchCreatedSession(sessionID: beginRaceID,
+            activeSessionID: UUID().uuidString, cancellationRequested: false, terminalIsEmpty: true),
+            "a newer auth begin must supersede the older suspended begin")
 
         precondition(V3TwoFactorStep.afterDeliveryChoice("trustedDevice", phoneCount: 0) == .deliveryRequested)
         precondition(V3TwoFactorStep.afterDelivery("trustedDevice") == .enterVerificationCode)

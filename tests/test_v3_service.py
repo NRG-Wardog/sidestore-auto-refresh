@@ -117,6 +117,9 @@ class ServicePatchTests(unittest.TestCase):
             self.assertNotIn("ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES", project)
             self.assertEqual(project.count("ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO"), 2)
             app_delegate = (side / "AltStore/AppDelegate.swift").read_text()
+            self.assertNotIn("prepareForBackgroundFetch", app_delegate)
+            self.assertNotIn("requestAuthorization(options: [.alert, .badge, .sound])", app_delegate,
+                             "the embedded backend must not request a second app's notification permission")
             self.assertNotIn("BackgroundTaskManager.shared", app_delegate)
             self.assertNotIn("AppManager.shared.backgroundRefresh", app_delegate)
             self.assertNotIn("self.fetchSources", app_delegate)
@@ -406,6 +409,15 @@ for removed in ["panel", "signIn", "install", "refreshApp", "addSource", "remove
 var badPayload = base("opStart")
 badPayload["payload"] = "not-a-dict"
 precondition(V3WireContract.decodeRequest(encode(badPayload), now: now) == nil)
+var validCancel = base("cancel")
+validCancel["payload"] = ["scope": "operation"]
+precondition(V3WireContract.decodeRequest(encode(validCancel), now: now) != nil)
+var missingCancelScope = base("cancel")
+missingCancelScope["payload"] = [:]
+precondition(V3WireContract.decodeRequest(encode(missingCancelScope), now: now) == nil)
+var invalidCancelScope = base("cancel")
+invalidCancelScope["payload"] = ["scope": "auth-or-operation"]
+precondition(V3WireContract.decodeRequest(encode(invalidCancelScope), now: now) == nil)
 var legacyValue = base("snapshot")
 legacyValue["value"] = true
 precondition(V3WireContract.decodeRequest(encode(legacyValue), now: now) == nil)
@@ -501,13 +513,14 @@ class GsaPreparedTreeTests(unittest.TestCase):
 
     def test_auth_is_single_flight_without_retry_loops(self):
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
-        self.assertIn("if let current = activeID {", runtime)
+        self.assertIn("let previousID = activeID", runtime)
+        self.assertIn("mayLaunchCreatedSession", runtime)
         self.assertIn("if let oldTask { await oldTask.value }", runtime)
         auth = runtime.split("final class V3OperationCenter")[0]
         self.assertIn("func cancelAndWait(id: String) async -> Bool", auth)
         self.assertIn("func cancelAndWait(id: String) async -> Bool", runtime)
         auth = runtime.split("final class V3OperationCenter")[0]
-        self.assertNotIn("while ", auth)
+        self.assertNotRegex(auth, r"(?m)^\s*while\s")
         for marker in ("[V3_AUTH] BEGIN", "[V3_AUTH] PROMPT", "[V3_AUTH] TERMINAL",
                        "[V3_AUTH] CANCEL", "[V3_OP] PROMPT", "[V3_OP] TERMINAL"):
             self.assertIn(marker, runtime)

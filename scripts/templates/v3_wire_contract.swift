@@ -7,6 +7,13 @@ import CoreFoundation
 enum V3WireContract {
     static let requestLimit = 16_384
     static let responseLimit = 4_194_304
+    static let cancellationScopes: Set<String> = ["auth", "operation", "request"]
+
+    static func strictBool(_ value: Any?) -> Bool? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+        return number.boolValue
+    }
     static let operations: Set<String> = ["snapshot", "catalog", "appIcon", "cancel", "refreshSources",
         "signOut", "syncAppIDs", "clearCache", "jit", "backupResult",
         "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning",
@@ -43,6 +50,11 @@ enum V3WireContract {
         }
         if let payload = request["payload"] {
             guard payload as? [String: Any] != nil else { return nil }
+        }
+        if operation == "cancel" {
+            guard let payload = request["payload"] as? [String: Any],
+                  let scope = payload["scope"] as? String,
+                  cancellationScopes.contains(scope) else { return nil }
         }
         return request
     }

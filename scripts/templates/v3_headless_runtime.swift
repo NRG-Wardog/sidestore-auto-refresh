@@ -104,9 +104,13 @@ final class V3HeadlessRuntime {
     let auth = V3AuthCenter()
     let operations = V3OperationCenter()
 
-    func cancelSession(_ id: String) -> Bool {
-        if auth.cancel(id: id) { return true }
-        return operations.cancel(id: id)
+    func cancelSession(_ id: String, scope: String) -> Bool {
+        switch scope {
+        case "auth": return auth.cancelBeforeBegin(id: id)
+        case "operation": return operations.cancelBeforeStart(id: id)
+        case "request": return false
+        default: return false
+        }
     }
 }
 
@@ -403,7 +407,6 @@ final class V3AuthCenter {
     struct Session {
         var task: Task<Void, Never>?
         var watchdog: Task<Void, Never>?
-        var preparation = V3OperationPreparationGate()
         var prompt: [String: Any]?
         var attempts = 0
         var terminal = V3TerminalResponse()
@@ -422,9 +425,24 @@ final class V3AuthCenter {
 
     var sessions: [String: Session] = [:]
     private var activeID: String?
+    private var cancelledBeforeBegin = V3AuthStartCancellationRegistry()
 
-    func begin(deadline: Date, mode: BeginMode = .interactive) async -> [String: Any] {
+    func begin(deadline: Date, mode: BeginMode = .interactive,
+               sessionID requestedID: String? = nil) async -> [String: Any] {
         cleanupSessions()
+        let id = requestedID ?? UUID().uuidString
+        guard let parsedID = UUID(uuidString: id), parsedID.uuidString == id else {
+            return ["session": id, "state": "failed", "authenticated": false,
+                    "message": "The sign-in attempt identifier is invalid."]
+        }
+        if cancelledBeforeBegin.consume(id) {
+            var session = Session(deadline: deadline)
+            _ = session.terminal.setIfEmpty(["session": id, "state": "cancelled", "authenticated": false])
+            session.terminalAt = Date()
+            sessions[id] = session
+            cleanupSessions()
+            return poll(id: id) ?? ["session": id, "state": "cancelled", "authenticated": false]
+        }
         if mode == .resumeProvisioning {
             // Refuse to claim a reusable session that cannot be reused. This is
             // the only place that decides whether a retry may skip credentials,
@@ -434,7 +452,6 @@ final class V3AuthCenter {
             let resumable = resumableProvisioning
             guard AuthManager.shared.isAuthenticated, let resumable, !resumable.appleID.isEmpty,
                   resumable.appleID == sessionAppleID else {
-                let id = UUID().uuidString
                 let failure = CombinedFailure(operation: "signIn", stage: .authentication, code: .notReady,
                     id: id, retryable: false)
                 let response: [String: Any] = ["session": id, "state": "failed", "authenticated": false,
@@ -447,14 +464,23 @@ final class V3AuthCenter {
             }
             debugLog("[V3_AUTH] PROVISIONING_RESUME authenticated=true previous_stage=\(resumable.stage)")
         }
-        if let current = activeID {
-            let oldTask = sessions[current]?.task
-            _ = cancel(id: current)
-            if let oldTask { await oldTask.value }
-        }
-        let id = UUID().uuidString
+        let previousID = activeID
         sessions[id] = Session(deadline: deadline)
         activeID = id
+        // Reserve ownership before the first suspension. A cancel or a newer
+        // auth begin can now find this exact session while the previous task
+        // unwinds, instead of recording a tombstone that the new begin misses.
+        if let previousID, previousID != id {
+            let oldTask = sessions[previousID]?.task
+            _ = cancel(id: previousID)
+            if let oldTask { await oldTask.value }
+        }
+        guard let current = sessions[id],
+              V3AuthSessionResponsePolicy.mayLaunchCreatedSession(sessionID: id,
+                activeSessionID: activeID, cancellationRequested: current.cancellationRequested,
+                terminalIsEmpty: current.terminal.isEmpty) else {
+            return poll(id: id) ?? ["session": id, "state": "cancelled", "authenticated": false]
+        }
         sessions[id]?.task = Task { @MainActor in await V3HeadlessRuntime.shared.auth.run(id: id) }
         sessions[id]?.watchdog = Task { @MainActor in
             let interval = deadline.timeIntervalSinceNow
@@ -542,7 +568,12 @@ final class V3AuthCenter {
 
     func poll(id: String) -> [String: Any]? {
         cleanupSessions()
-        guard let session = sessions[id] else { return nil }
+        guard let session = sessions[id] else {
+            if cancelledBeforeBegin.contains(id) {
+                return ["session": id, "state": "cancelled", "authenticated": false]
+            }
+            return nil
+        }
         if let terminal = session.terminal.value { return terminal.merging(["session": id]) { current, _ in current } }
         if let prompt = session.prompt, !session.cancellationRequested {
             var reply: [String: Any] = ["session": id, "state": "awaitingPrompt", "attempts": session.attempts, "prompt": prompt]
@@ -588,12 +619,23 @@ final class V3AuthCenter {
         session.prompt = nil
         sessions[id] = session
         debugLog("[V3_AUTH] CANCEL session=\(id)")
+        if session.task == nil {
+            _ = finish(id: id, response: ["state": "cancelled", "authenticated": false])
+            if activeID == id { activeID = nil }
+        }
         return true
     }
 
+    @discardableResult
+    func cancelBeforeBegin(id: String) -> Bool {
+        guard let parsed = UUID(uuidString: id), parsed.uuidString == id else { return false }
+        if sessions[id] != nil { return cancel(id: id) }
+        return cancelledBeforeBegin.cancelBeforeStart(id)
+    }
+
     func cancelAndWait(id: String) async -> Bool {
-        guard let parsed = UUID(uuidString: id), parsed.uuidString == id,
-              let session = sessions[id] else { return false }
+        guard let parsed = UUID(uuidString: id), parsed.uuidString == id else { return false }
+        guard let session = sessions[id] else { return cancelBeforeBegin(id: id) }
         let task = session.task
         guard cancel(id: id) else { return false }
         if let task { await task.value }
@@ -610,6 +652,7 @@ final class V3AuthCenter {
     }
 
     private func cleanupSessions(now: Date = Date()) {
+        cancelledBeforeBegin.prune(now: now)
         let expired = sessions.compactMap { id, session in
             session.task == nil && session.terminal.value != nil &&
                 session.terminalAt.map { now.timeIntervalSince($0) > 600 } == true ? id : nil
@@ -621,6 +664,7 @@ final class V3AuthCenter {
             for (id, _) in completed.prefix(completed.count - 256) { sessions.removeValue(forKey: id) }
         }
     }
+
 }
 
 enum V3AuthFailureDisplay {
@@ -1022,6 +1066,7 @@ final class V3OperationCenter {
     struct Session {
         var task: Task<Void, Never>?
         var watchdog: Task<Void, Never>?
+        var preparation = V3OperationPreparationGate()
         var prompt: [String: Any]?
         var group: RefreshGroup?
         var phase = V3OperationPhaseTracker()
@@ -1207,9 +1252,19 @@ final class V3OperationCenter {
         return true
     }
 
-    func cancelAndWait(id: String) async -> [String: Any]? {
+    @discardableResult
+    func cancelBeforeStart(id: String) -> Bool {
+        guard let parsedID = UUID(uuidString: id), parsedID.uuidString == id else { return false }
+        if sessions[id] != nil { return cancel(id: id) }
+        _ = mutationRegistry.cancel(id)
+        return true
+    }
+
+    func cancelAndWait(id: String, knownStarted: Bool = false) async -> [String: Any]? {
         guard let parsedID = UUID(uuidString: id), parsedID.uuidString == id else { return nil }
         guard let session = sessions[id] else {
+            if let unknown = V3OperationMissingSessionPolicy.unknownTerminal(
+                sessionID: id, knownStarted: knownStarted) { return unknown }
             _ = mutationRegistry.cancel(id)
             cleanupSessions()
             return ["session": id, "state": "cancelled", "stopConfirmed": true]

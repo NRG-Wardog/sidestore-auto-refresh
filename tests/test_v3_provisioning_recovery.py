@@ -194,9 +194,10 @@ class RecoveryActionLabelTests(unittest.TestCase):
 
     def test_retry_provisioning_uses_a_distinct_operation(self):
         store = auth_store()
-        self.assertIn('request(operation: "authRetryProvisioning")', store)
+        self.assertIn('request(operation: "authRetryProvisioning",', store)
+        self.assertIn('payload: ["session": requestedSession]', store)
         # A second interactive begin would re-request credentials and 2FA.
-        self.assertEqual(shell().count('request(operation: "authBegin")'), 1)
+        self.assertEqual(shell().count('request(operation: "authBegin",'), 1)
         self.assertIn("func retryProvisioning()", store)
         self.assertIn("func runProvisioningRetry()", store)
         self.assertIn("func finishProvisioningLater()", store)
@@ -216,7 +217,7 @@ class RecoveryActionLabelTests(unittest.TestCase):
     def test_retry_is_blocked_when_no_session_can_be_reused(self):
         body = runtime()
         start = body.index("if mode == .resumeProvisioning {")
-        end = body.index("if let current = activeID {", start)
+        end = body.index("let previousID = activeID", start)
         guard = body[start:end]
         # Both the keychain session and its ownership by the account whose
         # provisioning failed must hold, otherwise credentials would be skipped
@@ -317,7 +318,7 @@ class ResumableProvisioningOperationTests(unittest.TestCase):
     def test_service_routes_the_operation_to_the_resume_mode(self):
         service = SERVICE.read_text(encoding="utf-8")
         self.assertIn('case "authRetryProvisioning":', service)
-        self.assertIn("begin(deadline: deadline, mode: .resumeProvisioning)", service)
+        self.assertIn("mode: .resumeProvisioning, sessionID: session)", service)
         self.assertIn('"authRetryProvisioning", "accountExport"', service)
 
     def test_operation_normalizes_to_the_sign_in_failure_vocabulary(self):

@@ -122,6 +122,12 @@ struct SetupAndSemanticUXHarness {
         let serviceFailure = issue("catalog", "serviceReadiness", retryable: true)
         precondition(serviceFailure.primaryAction == .retryConnection,
                      "service readiness is a connection-class failure")
+        let sourceNotReady = CombinedFailure(operation: "source", stage: .serviceReadiness,
+            code: .notReady, id: UUID().uuidString, retryable: true)
+        let sourceNotReadyIssue = V3UserFacingIssue.make(sourceNotReady)
+        precondition(sourceNotReadyIssue.primaryAction == .openSources &&
+            sourceNotReadyIssue.primaryAction.title == "Open Sources",
+            "source service-readiness failures must not claim Retry Source re-fetches the source")
         let ipaFailure = issue("install", "filePreparation")
         precondition(ipaFailure.primaryAction == .chooseIPA)
         // A failure with no specific evidence must not assume networking.

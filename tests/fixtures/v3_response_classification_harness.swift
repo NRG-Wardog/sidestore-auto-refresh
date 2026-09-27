@@ -61,6 +61,10 @@ struct ResponseClassificationHarness {
         precondition(V3WireContract.V3PropertyListValue.isEncodable(
                         URL(string: "https://x.invalid")!.absoluteString),
                      "a URL's absoluteString must be the accepted wire form")
+        precondition(V3WireContract.strictBool(true as Any) == true)
+        precondition(V3WireContract.strictBool(NSNumber(value: 1)) == nil,
+                     "numeric one must not impersonate a property-list Boolean")
+        precondition(V3WireContract.strictBool("true") == nil)
         precondition(!V3WireContract.V3PropertyListValue.isEncodable(
                         Optional<String>.none as Any),
                      "an absent Optional must never be reported as encodable")
@@ -148,6 +152,18 @@ struct ResponseClassificationHarness {
         let foreign = hostFailure(foreignOnlyToken, operation: "snapshot", id: foreignID)
         precondition(foreign.code == .notReady && foreign.stage == .serviceReadiness,
                      "a legacy-only reply from an older service must still be typed")
+
+        let removeID = UUID().uuidString
+        let removeFailure = CombinedFailure(operation: "source", stage: .source, code: .busy,
+            id: removeID, retryable: true, safeCause: .sourceRemoveBusy)
+        let removeReply = V3ResponseEncoder.encode([
+            "version": 1, "id": removeID, "error": "busy", "failure": removeFailure.wire
+        ], operation: "sourceRemoveConfirmed", limit: V3WireContract.responseLimit)
+        let removeRoundTrip = hostFailure(removeReply, operation: "sourceRemoveConfirmed", id: removeID)
+        precondition(removeRoundTrip.operation == "source" && removeRoundTrip.stage == .source &&
+            removeRoundTrip.code == .busy && removeRoundTrip.safeCause == .sourceRemoveBusy &&
+            removeRoundTrip.retryable == true && removeRoundTrip.correlationID == removeID,
+            "source-removal busy guidance must survive the actual plist envelope and classifier")
 
         let unknownID = UUID().uuidString
         let unknownToken = try! PropertyListSerialization.data(

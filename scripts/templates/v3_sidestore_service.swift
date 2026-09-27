@@ -58,7 +58,12 @@ final class V3SideStoreService: NSObject {
         if let previous = completed[id] { reply(previous.data); return }
         if operation == "cancel" {
             let target = request["target"] as? String ?? ""
-            if !V3HeadlessRuntime.shared.cancelSession(target) {
+            guard let cancelScope = (request["payload"] as? [String: Any])?["scope"] as? String,
+                  V3WireContract.cancellationScopes.contains(cancelScope) else {
+                reply(encode(invalidRequestReply(for: data), operation: operation))
+                return
+            }
+            if !V3HeadlessRuntime.shared.cancelSession(target, scope: cancelScope) {
                 tasks[target]?.cancel()
                 cancellations[target]?()
             }
@@ -70,8 +75,9 @@ final class V3SideStoreService: NSObject {
                 ? CombinedFailure(operation: "source", stage: .source, code: .busy, id: id,
                                   retryable: true, safeCause: .sourceRemoveBusy)
                 : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
-            reply(encode(["version": 1, "id": id, "error": "busy", "failure": failure.wire],
-                         operation: operation))
+            var response: [String: Any] = ["version": 1, "id": id, "error": "busy", "failure": failure.wire]
+            if operation == "opStart" { response["operationNotDispatched"] = true }
+            reply(encode(response, operation: operation))
             return
         }
         let mutation = !V3WireContract.readOperations.contains(operation)
@@ -80,8 +86,9 @@ final class V3SideStoreService: NSObject {
                 ? CombinedFailure(operation: "source", stage: .source, code: .busy, id: id,
                                   retryable: true, safeCause: .sourceRemoveBusy)
                 : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
-            reply(encode(["version": 1, "id": id, "error": "busy", "failure": failure.wire],
-                         operation: operation))
+            var response: [String: Any] = ["version": 1, "id": id, "error": "busy", "failure": failure.wire]
+            if operation == "opStart" { response["operationNotDispatched"] = true }
+            reply(encode(response, operation: operation))
             return
         }
         if mutation { mutationID = id }
@@ -105,6 +112,11 @@ final class V3SideStoreService: NSObject {
                 else if let headlessError = error as? V3SideStoreServiceError { response["error"] = headlessError.rawValue }
                 else if error is CancellationError { response["error"] = "cancelled" }
                 else { response["error"] = "operationFailed" }
+                if operation == "opStart",
+                   V3OperationStartDispatchPolicy.provesNotDispatched(
+                    resultWasReturned: response["result"] != nil) {
+                    response["operationNotDispatched"] = true
+                }
                 var stage: CombinedFailure.Stage
                 switch operation {
                 case "snapshot": stage = .serviceReadiness
@@ -217,9 +229,11 @@ final class V3SideStoreService: NSObject {
         let rawOperation = envelope?["operation"] as? String
         let operation = (rawOperation.flatMap { V3WireContract.operations.contains($0) } ?? false)
             ? rawOperation! : "command"
-        return ["version": 1, "id": id, "error": "invalidRequest",
+        var response: [String: Any] = ["version": 1, "id": id, "error": "invalidRequest",
                 "failure": CombinedFailure(operation: operation, stage: .command,
                     code: .invalidConfiguration, id: id).wire]
+        if operation == "opStart" { response["operationNotDispatched"] = true }
+        return response
     }
 
     // V3_RESPONSE_CLASSIFICATION_CARRIER_V1: the encoder and its typed fallback
@@ -348,14 +362,21 @@ final class V3SideStoreService: NSObject {
             try await callback { done in AppManager.shared.enableJIT(for: app, completionHandler: done) }
             return try snapshot()
         case "authBegin":
-            guard let deadline = request["deadline"] as? Date else { throw ServiceError.invalidRequest }
-            return await V3HeadlessRuntime.shared.auth.begin(deadline: deadline)
+            guard let deadline = request["deadline"] as? Date,
+                  let session = payload["session"] as? String, session == target else {
+                throw ServiceError.invalidRequest
+            }
+            return await V3HeadlessRuntime.shared.auth.begin(deadline: deadline, sessionID: session)
         case "authRetryProvisioning":
             // V3_PROVISIONING_RESUME_V1: Apple authentication already succeeded.
             // This re-enters provisioning with the saved session so credentials
             // and 2FA are never requested a second time.
-            guard let deadline = request["deadline"] as? Date else { throw ServiceError.invalidRequest }
-            return await V3HeadlessRuntime.shared.auth.begin(deadline: deadline, mode: .resumeProvisioning)
+            guard let deadline = request["deadline"] as? Date,
+                  let session = payload["session"] as? String, session == target else {
+                throw ServiceError.invalidRequest
+            }
+            return await V3HeadlessRuntime.shared.auth.begin(deadline: deadline,
+                mode: .resumeProvisioning, sessionID: session)
         case "authPoll":
             guard let reply = V3HeadlessRuntime.shared.auth.poll(id: target) else { throw ServiceError.invalidRequest }
             return reply
@@ -388,7 +409,9 @@ final class V3SideStoreService: NSObject {
             }
             return reply
         case "opCancel":
-            guard let result = await V3HeadlessRuntime.shared.operations.cancelAndWait(id: target) else {
+            let knownStarted = V3WireContract.strictBool(payload["knownStarted"]) ?? true
+            guard let result = await V3HeadlessRuntime.shared.operations.cancelAndWait(
+                id: target, knownStarted: knownStarted) else {
                 throw ServiceError.invalidRequest
             }
             return result
