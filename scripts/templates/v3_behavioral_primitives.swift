@@ -3146,14 +3146,6 @@ enum V3AuthSessionCorrelationPolicy {
     }
 }
 
-struct V3AuthServiceSnapshot: Equatable {
-    let authenticated: Bool
-    let provisioningIncomplete: Bool
-    let provisioningRetryAvailable: Bool
-    let authenticationActive: Bool
-    let authenticationSessionID: String?
-}
-
 enum V3AuthSnapshotAuthorityPolicy {
     struct Facts: Equatable {
         let authenticated: Bool

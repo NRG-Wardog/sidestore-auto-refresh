@@ -10,12 +10,15 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SWIFTC = shutil.which("swiftc")
 CLANG = shutil.which("clang")
+WIRE_CONTRACT = ROOT / "scripts/templates/v3_wire_contract.swift"
 
 
 class V3BehavioralHarnessTests(unittest.TestCase):
     def compile_and_run(self, source: str, marker: str) -> None:
         if not SWIFTC:
             self.skipTest("Swift compiler unavailable; behavioral harnesses run in macOS CI")
+        if "enum V3WireContract {" not in source:
+            source = WIRE_CONTRACT.read_text(encoding="utf-8") + "\n" + source
         with tempfile.TemporaryDirectory() as temporary:
             main = Path(temporary) / "main.swift"
             executable = Path(temporary) / "behavior"

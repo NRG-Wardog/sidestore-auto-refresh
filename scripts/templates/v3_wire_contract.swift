@@ -1,6 +1,24 @@
 import Foundation
 import CoreFoundation
 
+public struct V3AuthServiceSnapshot: Equatable {
+    public let authenticated: Bool
+    public let provisioningIncomplete: Bool
+    public let provisioningRetryAvailable: Bool
+    public let authenticationActive: Bool
+    public let authenticationSessionID: String?
+
+    public init(authenticated: Bool, provisioningIncomplete: Bool,
+                provisioningRetryAvailable: Bool, authenticationActive: Bool,
+                authenticationSessionID: String?) {
+        self.authenticated = authenticated
+        self.provisioningIncomplete = provisioningIncomplete
+        self.provisioningRetryAvailable = provisioningRetryAvailable
+        self.authenticationActive = authenticationActive
+        self.authenticationSessionID = authenticationSessionID
+    }
+}
+
 // V3_WIRE_CONTRACT_V1: shared source, compiled independently in each process.
 // V3_HEADLESS_CONTRACT_V2: SideStore is a headless backend. All presentation
 // decisions cross as data (prompts/confirmations); no remote UI is addressed.
