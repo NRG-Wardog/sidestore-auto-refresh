@@ -336,14 +336,30 @@ struct CatalogResponseEncodingHarness {
                      "reply-cache accounting must never exceed its byte ceiling")
         let ordinaryReplyLimit = V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: false)
         let allReplyLimit = V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: true)
-        precondition(ordinaryReplyLimit == 446 && allReplyLimit == 512,
-                     "ordinary replies preserve 66 bounded slots for a full authentication session")
+        precondition(ordinaryReplyLimit == 382 && allReplyLimit == 512,
+                     "ordinary replies preserve one maximum authentication lifecycle")
         precondition(allReplyLimit - ordinaryReplyLimit == V3MutationReplyCacheBudget.reservedControlReplies,
                      "the configured reply reserve remains executable and symmetric")
-        for operation in ["refreshAdmissionEnd", "authBegin", "authRetryProvisioning", "authRespond", "opAnswer"] {
+        for operation in ["refreshAdmissionEnd", "authBegin", "authRetryProvisioning", "authRespond",
+                          "opStart", "opAnswer"] {
             precondition(V3MutationReplyCacheBudget.isControlReply(operation: operation),
                          "session continuation \(operation) must use the reserved reply capacity")
         }
+        precondition(V3MutationReplyCacheBudget.canAdmit(operation: "authBegin",
+            completedReplyCount: 382) &&
+                     !V3MutationReplyCacheBudget.canAdmit(operation: "authBegin",
+                        completedReplyCount: 383),
+            "authBegin is not dispatched unless its begin, prompt, and provisioning-retry replies fit")
+        precondition(V3MutationReplyCacheBudget.canAdmit(operation: "authRetryProvisioning",
+            completedReplyCount: 447) &&
+                     !V3MutationReplyCacheBudget.canAdmit(operation: "authRetryProvisioning",
+                        completedReplyCount: 448),
+            "a provisioning retry is not dispatched unless its prompt replies fit")
+        precondition(V3MutationReplyCacheBudget.canAdmit(operation: "opStart",
+            completedReplyCount: 447) &&
+                     !V3MutationReplyCacheBudget.canAdmit(operation: "opStart",
+                        completedReplyCount: 448),
+            "an operation that may ask prompts retains enough replies for its bounded prompt sequence")
         precondition(!V3MutationReplyCacheBudget.isControlReply(operation: "sourceAddConfirmed"),
                      "ordinary source mutations cannot consume all continuation capacity")
         replyBudget.remove(V3WireContract.responseLimit)

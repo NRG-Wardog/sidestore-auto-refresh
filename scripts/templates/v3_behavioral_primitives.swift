@@ -1037,10 +1037,17 @@ enum V3DeleteReconciliationPolicy {
         return now.timeIntervalSince(lastCheck) >= libraryRecheckInterval
     }
 
+    static func shouldThrottleLibraryChecks(authoritativeAbsenceConfirmed: Bool,
+                                            cancellationRequested: Bool) -> Bool {
+        authoritativeAbsenceConfirmed || cancellationRequested
+    }
+
     static func nextCallbackPollDelay(current: TimeInterval, backendPending: Bool,
                                       nativeUninstallSucceeded: Bool,
-                                      appStillInLibrary: Bool) -> TimeInterval {
-        guard backendPending, nativeUninstallSucceeded, !appStillInLibrary else { return 0.25 }
+                                      appStillInLibrary: Bool,
+                                      cancellationRequested: Bool = false) -> TimeInterval {
+        guard backendPending,
+              cancellationRequested || (nativeUninstallSucceeded && !appStillInLibrary) else { return 0.25 }
         let base = current.isFinite && current > 0 ? current : 0.25
         return min(base * 2, maximumCallbackPollInterval)
     }
@@ -2423,6 +2430,9 @@ struct V3OperationFailureDetails {
                 return "This operation is not marked safe to retry. Check the app and signing status before running it again."
             }
             if retryable == nil {
+                if !whatToDo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return whatToDo
+                }
                 return "The service could not determine whether retry is safe. Check the app and signing status before deciding to retry."
             }
             return whatToDo

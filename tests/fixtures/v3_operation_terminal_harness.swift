@@ -107,6 +107,11 @@ struct OperationTerminalHarness {
         precondition(!V3DeleteReconciliationPolicy.shouldCheckLibrary(
             lastCheck: deletePollNow, now: deletePollNow.addingTimeInterval(1)),
             "after a verified absence, callback waiting must not refetch Core Data four times per second")
+        precondition(V3DeleteReconciliationPolicy.shouldThrottleLibraryChecks(
+            authoritativeAbsenceConfirmed: false, cancellationRequested: true) &&
+                     !V3DeleteReconciliationPolicy.shouldThrottleLibraryChecks(
+                        authoritativeAbsenceConfirmed: false, cancellationRequested: false),
+            "an unresolved cancellation wait rate-limits library rechecks even when deletion is not confirmed")
         precondition(V3DeleteReconciliationPolicy.shouldCheckLibrary(
             lastCheck: deletePollNow,
             now: deletePollNow.addingTimeInterval(V3DeleteReconciliationPolicy.libraryRecheckInterval)),
@@ -122,6 +127,10 @@ struct OperationTerminalHarness {
                         current: callbackDelay2, backendPending: false,
                         nativeUninstallSucceeded: true, appStillInLibrary: false) == 0.25,
             "a verified delete backs off callback checks, then resets when the callback settles")
+        precondition(V3DeleteReconciliationPolicy.nextCallbackPollDelay(
+            current: 0.25, backendPending: true, nativeUninstallSucceeded: false,
+            appStillInLibrary: true, cancellationRequested: true) == 0.5,
+            "an unresolved cancelled delete also backs off instead of polling four times per second")
 
         let earlyTerminalAt = Date(timeIntervalSince1970: 100)
         let lateCallbackAt = earlyTerminalAt.addingTimeInterval(700)
@@ -140,10 +149,11 @@ struct OperationTerminalHarness {
             now: lateCallbackAt.addingTimeInterval(V3OperationSessionRetentionPolicy.terminalRetention + 1)),
             "a settled operation session remains bounded after its final settlement timestamp")
 
+        let lateDeleteSession = UUID().uuidString
         let lateDeleteTerminal = V3OperationTerminalResponse()
         precondition(lateDeleteTerminal.setIfEmpty(["state": "completed"]))
-        precondition(lateDeleteTerminal.reply(sessionID: deleteSession, backendSettled: false)?["state"] as? String == "completed")
-        precondition(lateDeleteTerminal.reply(sessionID: deleteSession, backendSettled: true)?["backendSettled"] as? Bool == true,
+        precondition(lateDeleteTerminal.reply(sessionID: lateDeleteSession, backendSettled: false)?["state"] as? String == "completed")
+        precondition(lateDeleteTerminal.reply(sessionID: lateDeleteSession, backendSettled: true)?["backendSettled"] as? Bool == true,
             "the write-once completion state can report dynamic backend settlement after a late callback")
 
         var deleteAttempt = V3OperationAttemptState()

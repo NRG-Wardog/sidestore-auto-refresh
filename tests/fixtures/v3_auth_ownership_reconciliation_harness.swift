@@ -442,7 +442,7 @@ struct AuthOwnershipReconciliationHarness {
         precondition(V3AuthStatusTextPolicy.label(state: "resultUnknown", isSignedIn: false,
             provisioningFinishedLater: false) == "Result not confirmed")
         precondition(V3AuthStatusTextPolicy.accountLabel(state: "resultUnknown", isSignedIn: true) ==
-            "Account currently signed in")
+            "Last confirmed account status: signed in")
         precondition(V3AuthStatusTextPolicy.accountLabel(state: "completed", isSignedIn: true) ==
             "Signed in successfully")
         var attemptNotice = V3AuthAttemptFailureNotice()

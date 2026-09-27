@@ -104,6 +104,7 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         self.assertIn("if completionAwaitingSettlement", shell)
         self.assertIn("lastCheck: lastLibraryCheckAt", runtime)
         self.assertIn("V3DeleteReconciliationPolicy.shouldCheckLibrary", runtime)
+        self.assertIn("V3DeleteReconciliationPolicy.shouldThrottleLibraryChecks", runtime)
         self.assertIn("V3DeleteReconciliationPolicy.nextCallbackPollDelay", runtime)
         self.assertIn("V3OperationSessionRetentionPolicy.shouldRefreshTerminalAt", runtime)
         self.assertIn("V3OperationSessionRetentionPolicy.isExpired", runtime)

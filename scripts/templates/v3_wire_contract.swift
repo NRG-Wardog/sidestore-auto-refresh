@@ -180,15 +180,33 @@ struct V3MutationReplyCacheBudget {
     static let maximumStoredBytes = 64 * 1024 * 1024
     static let maximumStoredReplies = 512
     static let reservedControlBytes = V3WireContract.responseLimit
-    // An auth session retains up to 64 accepted prompt IDs. Reserve capacity
-    // for its begin reply, all prompt acknowledgements, and one provisioning
-    // retry so ordinary mutations cannot strand a live authentication flow.
-    static let reservedControlReplies = 66
+    // Reserve the maximum supported interactive flow: authBegin + 64 answers,
+    // authRetryProvisioning + 64 answers. Operation start + 64 prompt answers
+    // fits inside the same reservation.
+    static let authenticationLifecycleReplyBudget = 130
+    static let provisioningRetryReplyBudget = 65
+    static let operationPromptReplyBudget = 65
+    static let reservedControlReplies = authenticationLifecycleReplyBudget
     private(set) var storedBytes = 0
 
     static func isControlReply(operation: String) -> Bool {
-        ["refreshAdmissionEnd", "authBegin", "authRetryProvisioning", "authRespond", "opAnswer"]
+        ["refreshAdmissionEnd", "authBegin", "authRetryProvisioning", "authRespond",
+         "opStart", "opAnswer"]
             .contains(operation)
+    }
+
+    static func minimumAvailableRepliesToAdmit(operation: String) -> Int {
+        switch operation {
+        case "authBegin": return authenticationLifecycleReplyBudget
+        case "authRetryProvisioning": return provisioningRetryReplyBudget
+        case "opStart": return operationPromptReplyBudget
+        default: return 1
+        }
+    }
+
+    static func canAdmit(operation: String, completedReplyCount: Int) -> Bool {
+        let required = minimumAvailableRepliesToAdmit(operation: operation)
+        return completedReplyCount >= 0 && completedReplyCount <= maximumStoredReplies - required
     }
 
     func canReserve(maximumResponseBytes: Int = V3WireContract.responseLimit,

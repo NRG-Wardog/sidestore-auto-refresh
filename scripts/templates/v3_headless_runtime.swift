@@ -1734,18 +1734,21 @@ final class V3OperationCenter {
             let backendResult = callback.result
             if case .failure(let error)? = backendResult { throw error }
             let now = Date()
-            let shouldCheckLibrary = !authoritativeAbsenceConfirmed ||
+            let shouldThrottleLibrary = V3DeleteReconciliationPolicy.shouldThrottleLibraryChecks(
+                authoritativeAbsenceConfirmed: authoritativeAbsenceConfirmed,
+                cancellationRequested: cancellationRequestedAt != nil)
+            let shouldCheckLibrary = !shouldThrottleLibrary ||
                 V3DeleteReconciliationPolicy.shouldCheckLibrary(lastCheck: lastLibraryCheckAt, now: now)
             let appIsPresent: Bool
             if shouldCheckLibrary {
                 appIsPresent = try await authoritativeLibraryContains(bundleIdentifier: bundleIdentifier)
                 lastLibraryCheckAt = now
             } else {
-                // Native uninstall success plus a fresh-context absence check
-                // is already authoritative. While waiting only for the native
-                // callback, avoid four redundant Core Data counts per second;
-                // recheck periodically in case an external install occurs.
-                appIsPresent = false
+                // After verified absence, or after cancellation was requested
+                // for an unresolved delete, avoid repeated Core Data counts in
+                // the callback wait. Recheck periodically and retain the last
+                // observed library state between those authoritative reads.
+                appIsPresent = lastLibraryPresence ?? true
             }
             let nativeUninstallSucceeded = V3DeleteNativeSuccessRegistry.shared.contains(sessionID: id)
             if appIsPresent || !nativeUninstallSucceeded {
@@ -1808,7 +1811,8 @@ final class V3OperationCenter {
                     callbackPollDelay = V3DeleteReconciliationPolicy.nextCallbackPollDelay(
                         current: callbackPollDelay, backendPending: true,
                         nativeUninstallSucceeded: nativeUninstallSucceeded,
-                        appStillInLibrary: appIsPresent)
+                        appStillInLibrary: appIsPresent,
+                        cancellationRequested: cancellationRequestedAt != nil)
                     try await Task.sleep(nanoseconds: UInt64(callbackPollDelay * 1_000_000_000))
                     continue
                 }
@@ -1834,7 +1838,8 @@ final class V3OperationCenter {
                     callbackPollDelay = V3DeleteReconciliationPolicy.nextCallbackPollDelay(
                         current: callbackPollDelay, backendPending: true,
                         nativeUninstallSucceeded: nativeUninstallSucceeded,
-                        appStillInLibrary: appIsPresent)
+                        appStillInLibrary: appIsPresent,
+                        cancellationRequested: cancellationRequestedAt != nil)
                     try await Task.sleep(nanoseconds: UInt64(callbackPollDelay * 1_000_000_000))
                     continue
                 }

@@ -193,6 +193,11 @@ struct SetupAndSemanticUXHarness {
         precondition(capacityFailure.message.contains("cannot safely accept another") &&
                      capacityFailure.recovery.contains("release earlier request results"),
                      "request-cache capacity has distinct wait guidance from an active device mutation")
+        let deleteTimeout = CombinedFailure(operation: "delete", stage: .command,
+            code: .timedOut, id: UUID().uuidString)
+        precondition(V3OperationFailureDetails(deleteTimeout).recommendedAction == deleteTimeout.recovery &&
+                     deleteTimeout.recovery.contains("verify the deletion"),
+            "unknown retryability must preserve the operation-specific delete reconciliation guidance")
         precondition(V3CatalogRetryPresentationPolicy.action(for: .allowed) == .retry &&
                      V3CatalogRetryPresentationPolicy.action(for: .unknown) == .retryWithUnknownDisposition &&
                      V3CatalogRetryPresentationPolicy.action(for: .prerequisite) == .noRetry &&

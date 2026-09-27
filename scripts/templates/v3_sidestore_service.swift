@@ -134,7 +134,9 @@ final class V3SideStoreService: NSObject {
         let controlReply = V3MutationReplyCacheBudget.isControlReply(operation: operation)
         let responseCapacityAvailable = !mutation ||
             (completed.count < V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: controlReply) &&
-             completedCacheBudget.canReserve(preservingControlCapacity: !controlReply))
+             completedCacheBudget.canReserve(preservingControlCapacity: !controlReply) &&
+             V3MutationReplyCacheBudget.canAdmit(operation: operation,
+                completedReplyCount: completed.count))
         guard V3ServiceMutationAdmissionPolicy.admits(isMutation: mutation,
             anotherMutationActive: mutationID != nil || operationMutationActive,
             authenticationActive: V3HeadlessRuntime.shared.auth.hasActiveSession,
