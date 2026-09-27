@@ -159,9 +159,12 @@ def verify_side_store_assetutil_records(records: list[dict]) -> dict:
     if excluded:
         raise ValueError("excluded SideStore alternate-icon assets remain: " + ", ".join(excluded))
     primary_icons = [name for name in names if "appicon" in name.casefold()]
+    if "AppIcon" not in primary_icons:
+        raise ValueError("the primary SideStore AppIcon is missing from Assets.car")
     return {
         "asset_catalog_record_count": len(records),
         "appicon_named_asset_name_count": len(primary_icons),
+        "primary_app_icon_present": True,
         "alternate_icon_sets": "11 alternate app icons absent; Classic/Modern previews retained",
     }
 
@@ -228,14 +231,6 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
             icons = side_store_info.get(icon_key, {})
             if isinstance(icons, dict) and icons.get("CFBundleAlternateIcons"):
                 raise ValueError("embedded SideStore still declares alternate app icons")
-        icon_container = side_store_info.get("CFBundleIcons", {})
-        primary_icon = icon_container.get("CFBundlePrimaryIcon", {}) if isinstance(icon_container, dict) else {}
-        primary_icon_files = primary_icon.get("CFBundleIconFiles", []) if isinstance(primary_icon, dict) else []
-        primary_icon_members = [name for name in names
-                                if name.startswith(side_store_path + "/AppIcon")
-                                and Path(name).suffix.lower() == ".png"]
-        if not primary_icon_files or not primary_icon_members:
-            raise ValueError("the primary SideStore AppIcon declaration or PNG renditions are missing")
         legacy_resources = find_legacy_side_store_resources(side_store_path, names)
         if legacy_resources:
             raise ValueError("embedded SideStore contains excluded UI/audio resources: "

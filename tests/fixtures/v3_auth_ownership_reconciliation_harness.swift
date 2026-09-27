@@ -42,6 +42,12 @@ struct AuthOwnershipReconciliationHarness {
         ownership.clearAll()
         precondition(!ownership.hasActiveSession(now: now),
                      "confirmed service retirement clears host-only auth ownership")
+
+        precondition(!V3CancellationRecoveryReplyPolicy.mayCancelRetirement(requestStillPending: false),
+                     "a late authCancel reply after request timeout cannot cancel service retirement")
+        precondition(V3CancellationRecoveryReplyPolicy.mayCancelRetirement(requestStillPending: true),
+                     "a reply for a live request may resolve its pending recovery entry")
+
         ownership.register(sessionID: prior, deadline: deadline, now: now)
         ownership.register(sessionID: current, deadline: deadline, now: now)
         ownership.observe(operation: "authPoll", sessionID: current, replySessionID: current,

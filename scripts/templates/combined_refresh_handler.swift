@@ -207,10 +207,14 @@ class RefreshHandler: NSObject {
         /*REFRESH_READINESS*/
         try Task.checkCancellation()
         let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
-        let run = defaults?.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? UUID().uuidString
-        guard UUID(uuidString: run) != nil, let client else {
+        let selectedRun = V3RefreshRunIdentitySelection.select(
+            expectedRunID: defaults?.string(forKey: "liveContainerAutoRefreshExpectedRunID"),
+            activeRunID: defaults?.string(forKey: "liveContainerAutoRefreshActiveRunID"),
+            newRunID: UUID().uuidString)
+        guard let selectedRun, let client else {
             throw CombinedFailure(operation: "refresh", stage: .xpcConnection, code: .invalidConfiguration, id: token.uuidString)
         }
+        let run = selectedRun.runID
         guard v3RefreshAdmissionRunID == nil else {
             throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
                 code: .busy, id: run, retryable: true, safeCause: .operationInProgress)
@@ -231,6 +235,12 @@ class RefreshHandler: NSObject {
                 code: .busy, id: run, retryable: true, safeCause: .operationInProgress)
         }
         defaults?.set(run, forKey: "liveContainerAutoRefreshExpectedRunID")
+        defer {
+            if !selectedRun.schedulerOwned,
+               defaults?.string(forKey: "liveContainerAutoRefreshExpectedRunID") == run {
+                defaults?.removeObject(forKey: "liveContainerAutoRefreshExpectedRunID")
+            }
+        }
         refreshRunID = run
         let timeout = Task { @MainActor in
             do {

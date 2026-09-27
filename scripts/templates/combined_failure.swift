@@ -780,6 +780,8 @@ enum V3NotDispatchedReplyPolicy {
               v3StrictPlistInteger(reply["version"]) == 1,
               reply["id"] as? String == requestID,
               reply["error"] as? String != nil,
+              reply["result"] == nil,
+              reply["ok"] == nil,
               let notDispatched = reply["operationNotDispatched"] as? NSNumber,
               CFGetTypeID(notDispatched) == CFBooleanGetTypeID(), notDispatched.boolValue,
               let failure = reply["failure"] as? [String: Any],

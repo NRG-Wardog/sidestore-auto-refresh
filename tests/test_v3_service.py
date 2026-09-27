@@ -168,15 +168,38 @@ class ServicePatchTests(unittest.TestCase):
             self.assertIn("await handler.recordNativeUninstallSucceeded()", uninstall)
             sign_in = (roots[1] / "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift").read_text()
             self.assertIn("V3_PROVISIONING_RETRY_BYPASSES_CACHED_SIGNIN_V1", sign_in)
-            self.assertIn("V3ProvisioningResumePolicy.mayUseCachedSignIn", sign_in)
+            self.assertIn("V3ProvisioningResumeExecutionPolicy.mayUseCachedSignIn", sign_in)
             self.assertIn("handleSignInResult(.success(silentResult))", sign_in)
             self.assertIn("V3ProvisioningResumeUnavailableError()", sign_in)
+            self.assertIn("if self.v3ForceProvisioningRetry {", sign_in)
+            self.assertIn("let account = team.account else", sign_in)
+            retry = sign_in[sign_in.index("if self.v3ForceProvisioningRetry {"):sign_in.index("} else if V3ProvisioningResumeExecutionPolicy")]
+            self.assertIn("self.provisioningLoop(account: account, session: session", retry)
+            self.assertNotIn("silentSignIn()", retry,
+                             "provisioning retry must reuse the authenticated session without reauthentication")
             self.assertIn("retryCredentials: (String, String)?", sign_in)
             self.assertIn("V3TwoFactorRetryPolicy.shouldReuseCredentialsForCodeRetry", sign_in)
-            self.assertIn("if self.isCancelled || error is CancellationError", sign_in)
+            self.assertIn("v3ClassifyAuthError(error) == nil", sign_in)
             self.assertIn("!(error is V3ProvisioningResumeUnavailableError)", sign_in)
-            self.assertLess(sign_in.index("handleSignInResult(.success(silentResult))"),
-                            sign_in.index("self.provisioningLoop("))
+            start_authentication = sign_in.index("private func startAuthentication")
+            self.assertLess(sign_in.index("handleSignInResult(.success(silentResult))", start_authentication),
+                            sign_in.index("self.provisioningLoop(", start_authentication))
+
+    def test_workflow_verifies_only_the_exact_pinned_signin_patch(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
+        self.assertIn("SideStore/Core/Auth SideStore/Core/Anisette", workflow)
+        self.assertIn("--verify-sign-in-operation", workflow)
+        self.assertIn('"$EMBEDDED_SIDESTORE_REF"', workflow)
+        patcher = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
+        self.assertIn('git", "-C", str(side), "show", f"{pinned_ref}:{relative}"', patcher)
+        self.assertIn("actual != expected", patcher)
+
+    def test_standalone_refresh_run_does_not_reuse_stale_scheduler_identity(self):
+        refresh = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        self.assertIn("V3RefreshRunIdentitySelection.select(", refresh)
+        self.assertIn('forKey: "liveContainerAutoRefreshActiveRunID"', refresh)
+        self.assertIn("if !selectedRun.schedulerOwned", refresh)
+        self.assertIn('removeObject(forKey: "liveContainerAutoRefreshExpectedRunID")', refresh)
 
     def test_service_and_startup_adapters_compose_on_pinned_sources(self):
         startup = module("patch_combined_service_startup")
@@ -320,7 +343,7 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertIn("pendingRefreshAdmissionRequests", service)
         end_case = service[service.index('case "refreshAdmissionEnd":'):]
         self.assertIn("UUID(uuidString: target)", end_case)
-        self.assertIn("cancelledSessionCreation", bridge)
+        self.assertIn("V3CancellationRecoveryReplyPolicy.mayCancelRetirement", bridge)
         self.assertIn("V3RequestRetirementPolicy", bridge)
 
     def test_auth_begin_request_expiry_cancels_its_reserved_session(self):

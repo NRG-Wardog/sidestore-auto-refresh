@@ -2212,6 +2212,20 @@ enum V3OperationStartDispatchPolicy {
     }
 }
 
+struct V3RefreshRunIdentitySelection: Equatable {
+    let runID: String
+    let schedulerOwned: Bool
+
+    static func select(expectedRunID: String?, activeRunID: String?, newRunID: String) -> Self? {
+        if let expectedRunID, expectedRunID == activeRunID,
+           let parsed = UUID(uuidString: expectedRunID), parsed.uuidString == expectedRunID {
+            return Self(runID: expectedRunID, schedulerOwned: true)
+        }
+        guard let generated = UUID(uuidString: newRunID), generated.uuidString == newRunID else { return nil }
+        return Self(runID: newRunID, schedulerOwned: false)
+    }
+}
+
 enum V3RequestRetirementPolicy {
     private static let sessionControls: Set<String> = [
         "opStart", "opPoll", "opAnswer", "opCancel",
@@ -2220,6 +2234,15 @@ enum V3RequestRetirementPolicy {
 
     static func shouldRetireServiceIfRequestStaysPending(_ operation: String) -> Bool {
         !sessionControls.contains(operation)
+    }
+}
+
+enum V3CancellationRecoveryReplyPolicy {
+    // A response arriving after the host settled/cancelled its request is only
+    // a late callback. It cannot cancel bounded service-retirement recovery,
+    // because the normal result-classification path will not consume it.
+    static func mayCancelRetirement(requestStillPending: Bool) -> Bool {
+        requestStillPending
     }
 }
 

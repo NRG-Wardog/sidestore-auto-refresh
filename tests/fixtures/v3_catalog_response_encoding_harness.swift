@@ -224,14 +224,28 @@ struct CatalogResponseEncodingHarness {
             "version": 1, "id": rejectedStartID, "error": "busy",
             "failure": rejectedStartFailure.wire, "operationNotDispatched": true
         ] as [String: Any], format: .binary, options: 0)
-        precondition(V3NotDispatchedReplyPolicy.confirms(rejectedStart, requestID: rejectedStartID),
+        precondition(V3NotDispatchedReplyPolicy.confirms(rejectedStart, requestID: rejectedStartID,
+            maximumBytes: V3WireContract.responseLimit),
                      "a correlated typed service rejection may release a phantom host owner")
         let ambiguousStart = try! PropertyListSerialization.data(fromPropertyList: [
             "version": 1, "id": rejectedStartID, "error": "busy",
             "failure": rejectedStartFailure.wire
         ] as [String: Any], format: .binary, options: 0)
-        precondition(!V3NotDispatchedReplyPolicy.confirms(ambiguousStart, requestID: rejectedStartID),
+        precondition(!V3NotDispatchedReplyPolicy.confirms(ambiguousStart, requestID: rejectedStartID,
+            maximumBytes: V3WireContract.responseLimit),
                      "an unmarked error cannot prove the auth operation never started")
+        let contradictoryStart = try! PropertyListSerialization.data(fromPropertyList: [
+            "version": 1, "id": rejectedStartID, "error": "busy",
+            "failure": rejectedStartFailure.wire, "operationNotDispatched": true,
+            "result": ["state": "working"]
+        ] as [String: Any], format: .binary, options: 0)
+        precondition(!V3NotDispatchedReplyPolicy.confirms(contradictoryStart,
+            requestID: rejectedStartID, maximumBytes: V3WireContract.responseLimit),
+            "a reply cannot both reject dispatch and contain a result")
+        precondition(V3WireContract.strictInt(NSNumber(value: true)) == nil,
+            "Boolean auth revisions must not pass as integer revisions")
+        precondition(V3WireContract.strictInt(NSNumber(value: 7)) == 7,
+            "valid integer auth revisions remain accepted")
 
         let readinessID = UUID().uuidString
         func readinessReply(_ value: [String: Any]) -> Data {

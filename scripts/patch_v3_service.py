@@ -11,7 +11,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 4
+PATCH_VERSION = 5
 
 
 def remove_pbx_object(text, object_marker):
@@ -187,12 +187,13 @@ def patch_sign_in_operation(text):
     if marker in text:
         required = (
             "v3ForceProvisioningRetry: Bool",
-            "V3ProvisioningResumePolicy.mayUseCachedSignIn",
-            "V3ProvisioningResumePolicy.mayPromptForCredentials",
+            "V3ProvisioningResumeExecutionPolicy.mayUseCachedSignIn",
+            "V3ProvisioningResumeExecutionPolicy.mayPromptForCredentials",
             "V3ProvisioningResumeUnavailableError()",
             "handleSignInResult(.success(silentResult))",
             "V3TwoFactorRetryPolicy.shouldReuseCredentialsForCodeRetry",
-            "if self.isCancelled || error is CancellationError",
+            "if self.isCancelled || error is CancellationError || v3ClassifyAuthError(error) == nil",
+            "if self.v3ForceProvisioningRetry {",
             "!(error is V3ProvisioningResumeUnavailableError)",
         )
         if text.count(marker) != 1 or any(value not in text for value in required):
@@ -214,7 +215,15 @@ def patch_sign_in_operation(text):
         "        self.v3ForceProvisioningRetry = v3ForceProvisioningRetry\n")
     text = replace(text,
         "            if var session = AuthManager.shared.session,\n",
-        "            if V3ProvisioningResumePolicy.mayUseCachedSignIn(\n"
+        "            if self.v3ForceProvisioningRetry {\n"
+        "                guard let session = AuthManager.shared.session,\n"
+        "                      let team = AuthManager.shared.team,\n"
+        "                      let account = team.account else {\n"
+        "                    throw V3ProvisioningResumeUnavailableError()\n"
+        "                }\n"
+        "                authResult = try await self.provisioningLoop(account: account, session: session,\n"
+        "                    reportProgress: { [weak self] progress in self?.setProgress(progress) })\n"
+        "            } else if V3ProvisioningResumeExecutionPolicy.mayUseCachedSignIn(\n"
         "                forceProvisioningRetry: self.v3ForceProvisioningRetry),\n"
         "               var session = AuthManager.shared.session,\n")
     text = replace(text,
@@ -226,7 +235,7 @@ def patch_sign_in_operation(text):
         "        let (account, session) = if let silentResult = try await self.silentSignIn() {\n"
         "            await self.signInHandler.handleSignInResult(.success(silentResult))\n"
         "            silentResult\n"
-        "        } else if V3ProvisioningResumePolicy.mayPromptForCredentials(\n"
+        "        } else if V3ProvisioningResumeExecutionPolicy.mayPromptForCredentials(\n"
         "            forceProvisioningRetry: self.v3ForceProvisioningRetry) {\n"
         "            try await self.authenticationLoop()\n"
         "        } else {\n"
@@ -249,7 +258,9 @@ def patch_sign_in_operation(text):
         "            } catch {\n"
         "                self.debugLog(\"[SignInOperation] authenticationLoop: Attempt failed with error: \\(error)\")\n",
         "            } catch {\n"
-        "                if self.isCancelled || error is CancellationError { throw OperationError.cancelled }\n"
+        "                if self.isCancelled || error is CancellationError || v3ClassifyAuthError(error) == nil {\n"
+        "                    throw OperationError.cancelled\n"
+        "                }\n"
         "                self.debugLog(\"[SignInOperation] authenticationLoop: Attempt failed with error: \\(error)\")\n")
     text = replace(text,
         "                await handler.handleSignInResult(.failure(error))\n",
@@ -507,8 +518,22 @@ static void V3InitializeUIKitFixes(void) {
                                     "templates": template_hashes, "files": records}, indent=2) + "\n")
 
 
+def verify_sign_in_operation(side, pinned_ref):
+    relative = "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"
+    source = subprocess.check_output(
+        ["git", "-C", str(side), "show", f"{pinned_ref}:{relative}"], text=True)
+    expected = patch_sign_in_operation(source)
+    actual = (side / relative).read_text(encoding="utf-8")
+    if actual != expected:
+        raise SystemExit("v3 service: SignInOperation differs from the exact generated pinned patch")
+
+
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        raise SystemExit("usage: patch_v3_service.py LIVE_CONTAINER SIDE_STORE")
-    patch(*(Path(arg).resolve() for arg in sys.argv[1:]))
-    print("v3 command patch applied and verified")
+    if len(sys.argv) == 4 and sys.argv[1] == "--verify-sign-in-operation":
+        verify_sign_in_operation(Path(sys.argv[2]).resolve(), sys.argv[3])
+        print("pinned SignInOperation patch verified")
+    else:
+        if len(sys.argv) != 3:
+            raise SystemExit("usage: patch_v3_service.py LIVE_CONTAINER SIDE_STORE")
+        patch(*(Path(arg).resolve() for arg in sys.argv[1:]))
+        print("v3 command patch applied and verified")

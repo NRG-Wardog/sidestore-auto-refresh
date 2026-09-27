@@ -258,10 +258,12 @@ jobs:
           git -C "$MUX" diff --check
           while IFS= read -r -d '' source; do swiftc -frontend -parse "$source"; done < <(find "$MUX" -type f -name '*.swift' -not -path '*/.build/*' -print0)
           swift package --package-path "$MUX/DeviceGateway" dump-package >"$RUNNER_TEMP/combined-gateway-package.json"
-          # Auth/configuration is upstream-owned and must remain byte-identical.
+          # Auth/configuration remains upstream-owned. SignInOperation has one
+          # exact, generated recovery patch and is checked against the pinned source.
           git -C work/EmbeddedSideStore diff --exit-code -- \
-            SideStore/Core/Auth SideStore/Core/Anisette \
-            SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift
+            SideStore/Core/Auth SideStore/Core/Anisette
+          python3 builder/scripts/patch_v3_service.py --verify-sign-in-operation \
+            work/EmbeddedSideStore "$EMBEDDED_SIDESTORE_REF"
           SIDESIGN=work/EmbeddedSideStore/Dependencies/SideSign
           SIDESTORE=work/EmbeddedSideStore
           python3 builder/scripts/patch_sidesign_privacy.py "$SIDESIGN" "$SIDESTORE"

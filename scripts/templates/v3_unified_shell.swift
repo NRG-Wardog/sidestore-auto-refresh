@@ -3736,7 +3736,7 @@ final class V3AuthStore: ObservableObject {
                 currentSessionID: session, replySessionID: reply["session"] as? String ?? "",
                 cancellationInProgress: isCancelling,
                 currentRevision: revision,
-                replyRevision: reply["revision"] as? Int,
+                replyRevision: V3WireContract.strictInt(reply["revision"]),
                 currentPromptID: prompt?["id"] as? String,
                 replyPromptID: (reply["prompt"] as? [String: Any])?["id"] as? String) else {
                 continue
@@ -3755,8 +3755,8 @@ final class V3AuthStore: ObservableObject {
     private func apply(_ reply: [String: Any]) {
         let oldPromptID = prompt?["id"] as? String
         state = reply["state"] as? String ?? state
-        attempts = reply["attempts"] as? Int ?? attempts
-        revision = reply["revision"] as? Int ?? revision
+        attempts = V3WireContract.strictInt(reply["attempts"]) ?? attempts
+        revision = V3WireContract.strictInt(reply["revision"]) ?? revision
         prompt = reply["prompt"] as? [String: Any]
         previousFailure = V3AuthPromptFailurePolicy.applying(reply: reply, current: previousFailure)
         if reply["authenticated"] as? Bool == true { signedIn = true }
@@ -3917,7 +3917,7 @@ final class V3AuthStore: ObservableObject {
                     reply["state"] as? String == "promptExpired" {
                     guard self.session == session, !self.isCancelling,
                           self.prompt?["id"] as? String == promptID else { return }
-                    if let replyRevision = reply["revision"] as? Int, replyRevision >= revision {
+                    if let replyRevision = V3WireContract.strictInt(reply["revision"]), replyRevision >= revision {
                         revision = replyRevision
                     }
                     state = "promptExpired"
@@ -3936,7 +3936,7 @@ final class V3AuthStore: ObservableObject {
                     submittedPromptID: promptID,
                     currentPromptID: self.prompt?["id"] as? String,
                     currentRevision: self.revision,
-                    replyRevision: reply["revision"] as? Int) else { return }
+                    replyRevision: V3WireContract.strictInt(reply["revision"])) else { return }
                 apply(reply)
             } catch {
                 guard V3AuthPromptSubmissionPolicy.mayShowFailure(
