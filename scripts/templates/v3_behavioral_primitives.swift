@@ -2091,6 +2091,8 @@ struct V3OperationFailureDetails {
             return "Copy Diagnostics and report that the service reply exceeded the transfer limit. Repeating the same request will fail again."
         case CombinedFailure.SafeCause.pairingRequired.rawValue:
             return "Add the pairing file, then start the refresh again."
+        case CombinedFailure.SafeCause.staleRefreshAttempt.rawValue:
+            return "This stale refresh request was not started. Return to Refresh and start a new refresh."
         case CombinedFailure.SafeCause.signingNetworkConnectionLost.rawValue:
             return "Your current connection may still be healthy. Retry once. If this happens again, open Connection Check."
         case CombinedFailure.SafeCause.signingNetworkTimedOut.rawValue:
@@ -2446,6 +2448,46 @@ enum V3AuthCancellationRetryPolicy {
     static func canRetry(isCancelling: Bool, cancellationConfirmed: Bool,
                          hasSession: Bool) -> Bool {
         !isCancelling && !cancellationConfirmed && hasSession
+    }
+}
+
+enum V3AuthStatusTextPolicy {
+    static func label(state: String, isSignedIn: Bool,
+                      provisioningFinishedLater: Bool) -> String {
+        switch state {
+        case "completed": return "Signed in"
+        case "authenticatedProvisioningIncomplete":
+            return provisioningFinishedLater ? "Signed in" : "Signed in, provisioning needs attention"
+        case "awaitingPrompt": return "Needs your input"
+        case "failed": return "Failed"
+        case "cancelled": return "Cancelled"
+        case "timedOut": return "Timed out"
+        case "promptExpired": return "Verification expired"
+        case "working": return isSignedIn ? "Finishing provisioning..." : "Working..."
+        default: return "Not started"
+        }
+    }
+}
+
+enum V3AuthFailureDiagnosticsPolicy {
+    static func render(_ failure: [String: Any],
+                       strictInt: (Any?) -> Int?, strictBool: (Any?) -> Bool?) -> String {
+        let kind = failure["kind"] as? String ?? ""
+        let stage = failure["stage"] as? String ?? ""
+        let code = failure["code"] as? String ?? ""
+        let correlation = failure["correlationID"] as? String ?? ""
+        let underlyingDomain = failure["underlyingDomain"] as? String ?? ""
+        let underlyingCode = strictInt(failure["underlyingCode"]).map(String.init) ?? "unknown"
+        let retryable = strictBool(failure["retryable"]).map { $0 ? "yes" : "no" } ?? "unknown"
+        return "kind=\(kind) stage=\(stage) code=\(code) correlation=\(correlation) underlying=\(underlyingDomain)/\(underlyingCode) retryable=\(retryable)"
+    }
+}
+
+enum V3AuthAttemptFailurePresentationPolicy {
+    static func messageAfterReconciliation(authenticated: Bool,
+                                           failureMessage: String) -> String? {
+        guard authenticated, !failureMessage.isEmpty else { return nil }
+        return "The sign-in attempt could not be confirmed. Your existing account remains signed in. \(failureMessage)"
     }
 }
 

@@ -294,7 +294,7 @@ enum LiveContainerAutoRefreshScheduler {
     }
 
     private static func verifyRefreshManifest(runID: String) -> (verified: Bool, hostHandoff: Bool, reason: String, failure: CombinedFailure?) {
-        let pending = defaults.bool(forKey: hostHandoffKey)
+        let pending = defaults.bool(forKey: hostHandoffKey) && !defaults.bool(forKey: hostVerifiedKey)
         if let manifest = defaults.dictionary(forKey: verificationKey), manifest["run_id"] as? String == runID {
             let record = runLedger()[runID] ?? [:]
             func ids(_ key: String) -> String {
@@ -515,19 +515,63 @@ enum LiveContainerAutoRefreshScheduler {
         return true
     }
 
+    private static func clearHostHandoffState(runID: String? = nil) {
+        if let runID, defaults.string(forKey: hostHandoffRunKey) != runID { return }
+        defaults.removeObject(forKey: hostHandoffKey)
+        defaults.removeObject(forKey: hostHandoffRunKey)
+        defaults.removeObject(forKey: hostHandoffStartedKey)
+        defaults.removeObject(forKey: hostBaselineKey)
+    }
+
+    // A crash can happen after the terminal ledger/health is committed but
+    // before the host-handoff metadata is removed. Reconcile that durable
+    // terminal record first so a later profile check cannot rewrite failure
+    // health back to HOST_REFRESH_AWAITING_RELAUNCH.
+    private static func restoreTerminalHostHandoffIfNeeded() -> Bool {
+        guard let runID = defaults.string(forKey: hostHandoffRunKey),
+              let record = runLedger()[runID],
+              let state = record["state"] as? String,
+              ["completed", "failed"].contains(state) else { return false }
+        if let health = record["health"] as? String { defaults.set(health, forKey: healthStateKey) }
+        if state == "failed", let message = record["message"] as? String, !message.isEmpty {
+            defaults.set(message, forKey: lastErrorKey)
+        } else {
+            defaults.removeObject(forKey: lastErrorKey)
+        }
+        clearHostHandoffState(runID: runID)
+        return true
+    }
+
     private static func verifyPendingHostHandoff() {
         guard activeRun == nil, defaults.bool(forKey: hostHandoffKey) else { return }
         if let uncertain = defaults.string(forKey: uncertainMutationKey), uncertain != defaults.string(forKey: hostHandoffRunKey) { return }
+        if restoreTerminalHostHandoffIfNeeded() { return }
         guard let baseline = defaults.dictionary(forKey: hostBaselineKey),
               let runID = baseline["run_id"] as? String,
               runID == defaults.string(forKey: hostHandoffRunKey),
               let previous = baseline["expiration"] as? Date,
               let bundle = hostBundle, let bundleID = bundle.bundleIdentifier else {
-            defaults.set("HOST_REFRESH_UNVERIFIED", forKey: healthStateKey)
-            defaults.set(Self.hostBaselineUnavailableMessage, forKey: lastErrorKey)
-            defaults.removeObject(forKey: hostHandoffKey)
             defaults.set(true, forKey: retryExhaustedKey)
-            record(source: "relaunch", result: "host_unverified", detail: "The old run has no installed-profile baseline. Its result is unknown; a new manual attempt can establish one.")
+            let message = "The refresh could not verify the installed host profile because its handoff record or baseline is incomplete. Review Refresh history and app expiration before retrying."
+            if let runID = defaults.string(forKey: hostHandoffRunKey),
+               UUID(uuidString: runID) != nil,
+               runLedger()[runID] != nil {
+                let failure = CombinedFailure(operation: "refresh", stage: .refreshVerification,
+                    code: .missingResult, id: runID, retryable: false)
+                if markFailed(runID: runID, source: "relaunch", health: "HOST_REFRESH_UNVERIFIED",
+                    failure: failure, message: message, result: "host_baseline_unavailable") {
+                    clearHostHandoffState(runID: runID)
+                    return
+                }
+                if restoreTerminalHostHandoffIfNeeded() { return }
+                // Preserve the handoff record if a different active run still
+                // owns refresh state; do not clear another run's evidence.
+                return
+            }
+            defaults.set("HOST_REFRESH_UNVERIFIED", forKey: healthStateKey)
+            defaults.set(message, forKey: lastErrorKey)
+            clearHostHandoffState()
+            record(source: "relaunch", result: "host_unverified", detail: message)
             return
         }
         do {
@@ -541,29 +585,30 @@ enum LiveContainerAutoRefreshScheduler {
                    Date().timeIntervalSince(started) >= 180 {
                     defaults.set(true, forKey: retryExhaustedKey)
                     let message = "The installed host profile did not advance after replacement. Retry manually; no success was recorded."
-                    _ = markFailed(runID: runID, source: "relaunch", health: "HOST_REFRESH_FAILED",
+                    let failed = markFailed(runID: runID, source: "relaunch", health: "HOST_REFRESH_FAILED",
                         failure: CombinedFailure(operation: "refresh", stage: .refreshVerification,
                             code: .timedOut, id: runID, retryable: true),
                         message: message, result: "host_refresh_failed")
-                    defaults.removeObject(forKey: hostHandoffKey)
-                    defaults.removeObject(forKey: hostHandoffRunKey)
-                    defaults.removeObject(forKey: hostHandoffStartedKey)
-                    defaults.removeObject(forKey: hostBaselineKey)
+                    if failed { clearHostHandoffState(runID: runID) }
+                    else { _ = restoreTerminalHostHandoffIfNeeded() }
                 }
                 return
             }
             defaults.set(true, forKey: hostVerifiedKey)
-            defaults.removeObject(forKey: hostHandoffKey)
             print("[LIVE_CONTAINER_REFRESH] HOST_REFRESH_VERIFIED evidence=installed_profile_expiration_advanced")
             let batch = verifyRefreshManifest(runID: runID)
             if batch.verified {
                 markVerified(runID: runID, source: "relaunch", detail: "LiveContainer's installed profile renewed; all requested app results were confirmed.")
             } else {
-                // Host replacement can kill the process before it writes the
-                // final batch results. Host success is not whole-batch success.
-                defaults.set("HOST_REFRESH_VERIFIED", forKey: healthStateKey)
-                record(source: "relaunch", result: "host_verified_batch_unconfirmed", detail: batch.reason)
-                notify(title: "LiveContainer refreshed", body: "Its installed profile renewed. Some batch results remain unconfirmed; review Refresh history and app expiration.", kind: "host_verified")
+                // Host profile renewal is only one part of the run. Persist a
+                // terminal failure for the batch if its per-app manifest is
+                // absent or incomplete; never announce refresh success here.
+                let failure = batch.failure ?? CombinedFailure(operation: "refresh",
+                    stage: .refreshVerification, code: .missingResult, id: runID, retryable: false)
+                let failed = markFailed(runID: runID, source: "relaunch", health: "REFRESH_FAILED",
+                    failure: failure, message: batch.reason, result: "host_verified_batch_unconfirmed")
+                if failed { clearHostHandoffState(runID: runID) }
+                else { _ = restoreTerminalHostHandoffIfNeeded() }
             }
         } catch {
             defaults.set("HOST_REFRESH_AWAITING_RELAUNCH", forKey: healthStateKey)

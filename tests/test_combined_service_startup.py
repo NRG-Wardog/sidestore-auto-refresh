@@ -311,6 +311,16 @@ class StartupPatchTests(unittest.TestCase):
 
 
 class ReadinessRegressionTests(unittest.TestCase):
+    def test_generated_refresh_readiness_uses_identity_before_mutation_token(self):
+        generator = (ROOT / "scripts/patch_combined_service_startup.py").read_text(encoding="utf-8")
+        handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        readiness_start = generator.index('handler = handler.replace("/*REFRESH_READINESS*/"')
+        readiness_end = generator.index('handler = handler.replace("/*SERVICE_PROBE*/"', readiness_start)
+        readiness_generator = generator[readiness_start:readiness_end]
+        self.assertIn("id: schedulerRunID ?? UUID().uuidString", generator)
+        self.assertNotIn("id: token.uuidString", readiness_generator)
+        self.assertLess(handler.index("/*REFRESH_READINESS*/"), handler.index("let token = UUID()"))
+
     def test_pipeline_phase_hook_is_v3_only(self):
         source = """        do {
             switch step {

@@ -161,7 +161,8 @@ def patch(live, side, product):
         handler = handler.replace("/*REFRESH_READINESS*/", '''
         let status = try await V3ServiceBridge.shared.request(operation: "snapshot")
         guard status["busy"] as? Bool == false else {
-            throw CombinedFailure(operation: "refresh", stage: .command, code: .busy, id: token.uuidString,
+            throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
+                id: schedulerRunID ?? UUID().uuidString,
                 retryable: true, safeCause: .operationInProgress)
         }''' if product == "v3" else "")
         handler = handler.replace("/*SERVICE_PROBE*/", '''

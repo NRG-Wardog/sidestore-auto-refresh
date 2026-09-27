@@ -122,6 +122,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case sourceRemoveFailed
         case sourceRemoveBusy
         case operationInProgress
+        case staleRefreshAttempt
         case knownSourcePolicyNetworkFailure
         case knownSourcePolicyInvalidResponse
         case catalogUnavailable
@@ -157,6 +158,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return true
             case .operationInProgress, .knownSourcePolicyNetworkFailure:
                 return true
+            case .staleRefreshAttempt:
+                return false
             case .knownSourcePolicyInvalidResponse:
                 return nil
             // The source is gone, so retrying the same request cannot succeed;
@@ -270,6 +273,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceRemoveFailed: return "SideStore could not confirm that the source was removed from its saved list."
             case .sourceRemoveBusy: return "SideStore was busy with another request, so it did not start removing this source."
             case .operationInProgress: return "Another SideStore operation is still active."
+            case .staleRefreshAttempt: return "This refresh request belonged to an expired scheduler run and was not started."
             case .knownSourcePolicyNetworkFailure: return "SideStore could not update its own known-source safety list."
             case .knownSourcePolicyInvalidResponse: return "SideStore could not read its own known-source safety list."
             case .catalogUnavailable: return "SideStore could not read this source's saved catalog data."
@@ -424,6 +428,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Wait for the current SideStore request to finish, reload Sources, then confirm removal again."
             case .operationInProgress:
                 return "Wait for the active SideStore operation to finish, then start Refresh again."
+            case .staleRefreshAttempt:
+                return "Return to Refresh and start a new refresh. This stale request did not reach SideStore or the device."
             case .knownSourcePolicyNetworkFailure:
                 return "Check the network, then retry from Sources. This error came from SideStore's known-source safety list, not the URL you entered."
             case .knownSourcePolicyInvalidResponse:

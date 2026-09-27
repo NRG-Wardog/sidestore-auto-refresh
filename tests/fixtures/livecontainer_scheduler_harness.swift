@@ -205,6 +205,94 @@ extension LiveContainerAutoRefreshScheduler {
         precondition(defaults.string(forKey: uncertainMutationKey) == nil)
         precondition(runLedger()[currentRun]?["state"] as? String == "completed")
 
+        // A missing handoff baseline is terminal for this exact run. It must
+        // not leave the Refresh All UI stuck at Verifying indefinitely.
+        clearTestState()
+        let noBaselineRun = UUID().uuidString
+        saveRunRecord(["run_id": noBaselineRun, "request_id": "", "origin": "unknown",
+                       "source": "relaunch", "state": "verifying",
+                       "started_at": Date().timeIntervalSince1970], runID: noBaselineRun)
+        defaults.set(true, forKey: hostHandoffKey)
+        defaults.set(noBaselineRun, forKey: hostHandoffRunKey)
+        defaults.set(Date().addingTimeInterval(-240), forKey: hostHandoffStartedKey)
+        verifyPendingHostHandoff()
+        let noBaselineTerminal = runLedger()[noBaselineRun]!
+        precondition(noBaselineTerminal["state"] as? String == "failed" &&
+                     noBaselineTerminal["terminal_intent"] as? String == "failed" &&
+                     noBaselineTerminal["result"] as? String == "host_baseline_unavailable",
+                     "missing host baseline must terminalize the correlated run")
+        precondition(defaults.dictionary(forKey: currentRunFailureKey)?["run_id"] as? String == noBaselineRun)
+        precondition(!defaults.bool(forKey: hostHandoffKey) &&
+                     defaults.string(forKey: hostHandoffRunKey) == nil &&
+                     defaults.object(forKey: hostBaselineKey) == nil,
+                     "terminal missing-baseline recovery must release its handoff metadata")
+
+        // Simulate process death after a terminal failure was written but before
+        // handoff metadata cleanup. Recovery restores the ledger's health/copy.
+        clearTestState()
+        let terminalHandoffRun = UUID().uuidString
+        let terminalFailureMessage = "The installed host profile did not advance after replacement."
+        saveRunRecord(["run_id": terminalHandoffRun, "request_id": "", "origin": "unknown",
+                       "source": "relaunch", "state": "failed", "health": "HOST_REFRESH_FAILED",
+                       "message": terminalFailureMessage,
+                       "terminal_intent": "failed"], runID: terminalHandoffRun)
+        defaults.set(true, forKey: hostHandoffKey)
+        defaults.set(terminalHandoffRun, forKey: hostHandoffRunKey)
+        defaults.set(["run_id": terminalHandoffRun], forKey: hostBaselineKey)
+        defaults.set("HOST_REFRESH_AWAITING_RELAUNCH", forKey: healthStateKey)
+        defaults.set("Stale awaiting message", forKey: lastErrorKey)
+        verifyPendingHostHandoff()
+        precondition(defaults.string(forKey: healthStateKey) == "HOST_REFRESH_FAILED" &&
+                     defaults.string(forKey: lastErrorKey) == terminalFailureMessage,
+                     "a leftover handoff marker must not overwrite a committed terminal failure")
+        precondition(!defaults.bool(forKey: hostHandoffKey) &&
+                     defaults.string(forKey: hostHandoffRunKey) == nil &&
+                     defaults.object(forKey: hostBaselineKey) == nil)
+
+        // Recreate the iOS bundle/profile read with a temporary app bundle.
+        // A renewed host profile alone is not batch success when the exact run
+        // has no complete app-result manifest.
+        clearTestState()
+        let fixtureRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let fixtureApp = fixtureRoot.appendingPathComponent("Host.app", isDirectory: true)
+        try! FileManager.default.createDirectory(at: fixtureApp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        let fixtureBundleID = "com.example.LiveContainer"
+        let info = ["CFBundleIdentifier": fixtureBundleID, "CFBundlePackageType": "APPL"]
+        let infoData = try! PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+        try! infoData.write(to: fixtureApp.appendingPathComponent("Info.plist"))
+        hostBundle = Bundle(url: fixtureApp)
+        precondition(hostBundle?.bundleIdentifier == fixtureBundleID,
+                     "the profile fixture must use the same host bundle identity as production")
+        let renewedExpiration = Date().addingTimeInterval(86_400 * 90)
+        let profile = ["UUID": "FIXTURE-PROFILE-UUID",
+                       "ApplicationIdentifierPrefix": ["ABCDE12345"],
+                       "Entitlements": ["application-identifier": "ABCDE12345." + fixtureBundleID],
+                       "ExpirationDate": renewedExpiration] as [String: Any]
+        let profilePlist = try! PropertyListSerialization.data(fromPropertyList: profile, format: .xml, options: 0)
+        let profileData = Data([0x30, 0x82, 0x01, 0x02]) + profilePlist + Data([0x01, 0x02])
+        try! profileData.write(to: fixtureApp.appendingPathComponent("embedded.mobileprovision"))
+        let incompleteBatchRun = UUID().uuidString
+        saveRunRecord(["run_id": incompleteBatchRun, "request_id": "", "origin": "home",
+                       "source": "manual", "state": "verifying",
+                       "started_at": Date().timeIntervalSince1970], runID: incompleteBatchRun)
+        defaults.set(true, forKey: hostHandoffKey)
+        defaults.set(incompleteBatchRun, forKey: hostHandoffRunKey)
+        defaults.set(Date().addingTimeInterval(-240), forKey: hostHandoffStartedKey)
+        defaults.set(["run_id": incompleteBatchRun, "expiration": Date().addingTimeInterval(-86_400),
+                      "identifier": "ABCDE12345." + fixtureBundleID,
+                      "uuid": "OLD-PROFILE-UUID"], forKey: hostBaselineKey)
+        defaults.removeObject(forKey: verificationKey)
+        verifyPendingHostHandoff()
+        let incompleteBatchTerminal = runLedger()[incompleteBatchRun]!
+        precondition(incompleteBatchTerminal["state"] as? String == "failed" &&
+                     incompleteBatchTerminal["result"] as? String == "host_verified_batch_unconfirmed" &&
+                     incompleteBatchTerminal["health"] as? String == "REFRESH_FAILED",
+                     "host profile renewal cannot report success without this run's complete batch manifest")
+        precondition(defaults.dictionary(forKey: currentRunFailureKey)?["run_id"] as? String == incompleteBatchRun)
+        precondition(!defaults.bool(forKey: hostHandoffKey) &&
+                     defaults.string(forKey: hostHandoffRunKey) == nil)
+
         clearTestState()
         activeRun = UUID()
         let coalesced = BGTask()

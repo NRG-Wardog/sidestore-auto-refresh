@@ -258,8 +258,12 @@ class RefreshHandler: NSObject {
         }
         guard let selectedRun else {
             if let schedulerRunID {
-                throw CombinedFailure(operation: "refresh", stage: .refreshVerification,
-                    code: .staleResult, id: schedulerRunID, retryable: false)
+                // Identity validation rejects this before service admission or
+                // device dispatch. This is a stale scheduler request, not an
+                // uncertain installation result that needs reconciliation.
+                throw CombinedFailure(operation: "refresh", stage: .command,
+                    code: .staleResult, id: schedulerRunID, retryable: false,
+                    safeCause: .staleRefreshAttempt)
             }
             throw CombinedFailure(operation: "refresh", stage: .command,
                 code: .busy, id: token.uuidString, retryable: true,

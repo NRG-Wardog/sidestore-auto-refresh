@@ -99,10 +99,22 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn('"authenticatedProvisioningIncomplete"', runtime_text)
         self.assertIn("V3AuthTerminalPolicy.resolve", runtime_text)
         self.assertIn("Signed in successfully, but provisioning could not be completed.", runtime_text)
-        self.assertIn('case "authenticatedProvisioningIncomplete"', host)
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        self.assertIn('case "authenticatedProvisioningIncomplete"', primitives)
+        self.assertIn("V3AuthStatusTextPolicy.label", host)
         self.assertNotIn('message = "Sign-in failed."', host)
         self.assertIn('response["failureKind"] = authKind.rawValue', runtime_text)
         self.assertIn('reply["failureKind"] as? String', host)
+
+    def test_reconciled_transport_failure_remains_visible_with_existing_account(self):
+        host = shell()
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        self.assertIn("V3AuthAttemptFailurePresentationPolicy.messageAfterReconciliation", host)
+        self.assertIn("currentAttemptFailureMessage = reconciledFailure", host)
+        self.assertIn("auth.currentAttemptFailureMessage", host)
+        self.assertIn("enum V3AuthAttemptFailurePresentationPolicy", primitives)
+        self.assertIn("existing account remains signed in", primitives)
+        self.assertIn("V3AuthFailureDiagnosticsPolicy.render", host)
 
     def test_provisioning_retry_keeps_typed_anisette_and_network_guidance(self):
         runtime_text = runtime()

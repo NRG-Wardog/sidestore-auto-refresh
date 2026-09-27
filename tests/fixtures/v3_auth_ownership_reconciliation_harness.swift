@@ -160,6 +160,29 @@ struct AuthOwnershipReconciliationHarness {
         precondition(!V3AuthPromptResponsePolicy.failureMessage(NSError(domain: "hidden", code: 2))
             .contains("hidden"), "unknown response failures do not expose a raw error domain")
 
+        precondition(V3AuthStatusTextPolicy.label(state: "timedOut", isSignedIn: false,
+            provisioningFinishedLater: false) == "Timed out",
+            "the visible status agrees with the sign-in timeout message")
+        precondition(V3AuthStatusTextPolicy.label(state: "promptExpired", isSignedIn: false,
+            provisioningFinishedLater: false) == "Verification expired",
+            "the visible status agrees with the expired verification prompt")
+        precondition(V3AuthAttemptFailurePresentationPolicy.messageAfterReconciliation(
+            authenticated: true, failureMessage: "Connection to SideStore was interrupted.") ==
+                "The sign-in attempt could not be confirmed. Your existing account remains signed in. Connection to SideStore was interrupted.",
+            "a transport failure remains visible after reconciliation finds the previous account")
+        precondition(V3AuthAttemptFailurePresentationPolicy.messageAfterReconciliation(
+            authenticated: false, failureMessage: "A failure") == nil,
+            "an unauthenticated snapshot follows the ordinary sign-in failure path")
+
+        let malformedDiagnostics = V3AuthFailureDiagnosticsPolicy.render([
+            "kind": "networkFailure", "stage": "network", "code": "interrupted",
+            "correlationID": current, "underlyingDomain": "redacted",
+            "underlyingCode": true, "retryable": 1
+        ], strictInt: V3WireContract.strictInt, strictBool: V3WireContract.strictBool)
+        precondition(malformedDiagnostics.contains("underlying=redacted/unknown") &&
+                     malformedDiagnostics.hasSuffix("retryable=unknown"),
+            "malformed diagnostic NSNumber values stay unknown rather than becoming false values")
+
         print("V3_AUTH_OWNERSHIP_RECONCILIATION_PASS")
     }
 }

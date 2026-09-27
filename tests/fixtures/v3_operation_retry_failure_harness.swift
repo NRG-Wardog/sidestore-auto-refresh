@@ -82,6 +82,19 @@ struct OperationRetryFailureHarness {
         precondition(oversizedDetails.recommendedAction.contains("transfer limit"))
         precondition(!oversizedDetails.recommendedAction.contains("signing"))
 
+        let staleRefresh = CombinedFailure(operation: "refresh", stage: .command,
+            code: .staleResult, id: UUID().uuidString, retryable: false,
+            safeCause: .staleRefreshAttempt)
+        let staleRefreshDetails = V3OperationFailureDetails(staleRefresh)
+        precondition(staleRefreshDetails.whatHappened.contains("expired scheduler run") &&
+                     staleRefreshDetails.whatHappened.contains("was not started"))
+        precondition(staleRefreshDetails.whatToDo.contains("start a new refresh") &&
+                     staleRefreshDetails.whatToDo.contains("did not reach SideStore or the device"))
+        precondition(staleRefreshDetails.retryDisposition == .blocked &&
+                     staleRefreshDetails.recoveryDestination == nil,
+                     "a stale pre-dispatch request must not suggest device reconciliation or blind retry")
+        precondition(staleRefreshDetails.recommendedAction.contains("was not started"))
+
         // Separately model opStart returning busy before the second pipeline begins.
         let blockedSession = UUID().uuidString
         let startFailureSession = UUID().uuidString

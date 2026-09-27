@@ -3472,6 +3472,8 @@ final class V3AuthStore: ObservableObject {
     @Published var attempts = 0
     @Published private(set) var revision = 0
     @Published var message = ""
+    @Published private(set) var currentAttemptFailureMessage = ""
+    @Published private(set) var currentAttemptFailureTechnical = ""
     @Published private(set) var promptResponseDiagnostics = ""
     @Published private(set) var promptResponseBlocked = false
     @Published var deliveryProgressMessage = ""
@@ -3525,6 +3527,8 @@ final class V3AuthStore: ObservableObject {
         revision = 0
         state = "working"
         message = ""
+        currentAttemptFailureMessage = ""
+        currentAttemptFailureTechnical = ""
         promptResponseDiagnostics = ""
         promptResponseBlocked = false
         deliveryProgressMessage = ""
@@ -3747,11 +3751,17 @@ final class V3AuthStore: ObservableObject {
         } catch {
             if isCancelling || Task.isCancelled { return }
             let failureMessage = V3FailureGuidance.message(error)
+            let failureTechnical = (error as? CombinedFailure)?.technicalDetails ?? ""
             // A lost start/poll reply does not prove Apple authentication
             // failed. Reconcile SideStore's account before publishing a
             // terminal sign-in error.
             await reconcile(force: true)
-            if signedIn { return }
+            if let reconciledFailure = V3AuthAttemptFailurePresentationPolicy.messageAfterReconciliation(
+                authenticated: signedIn, failureMessage: failureMessage) {
+                currentAttemptFailureMessage = reconciledFailure
+                currentAttemptFailureTechnical = failureTechnical
+                return
+            }
             state = "failed"
             message = failureMessage
         }
@@ -3938,14 +3948,9 @@ final class V3AuthStore: ObservableObject {
     }
 
     static func failureDetails(from failure: [String: Any]) -> String {
-        let kind = failure["kind"] as? String ?? ""
-        let stage = failure["stage"] as? String ?? ""
-        let code = failure["code"] as? String ?? ""
-        let correlation = failure["correlationID"] as? String ?? ""
-        let underlyingDomain = failure["underlyingDomain"] as? String ?? ""
-        let underlyingCode = failure["underlyingCode"] as? Int ?? 0
-        let retryable = failure["retryable"] as? Bool ?? false
-        return "kind=\(kind) stage=\(stage) code=\(code) correlation=\(correlation) underlying=\(underlyingDomain)/\(underlyingCode) retryable=\(retryable ? "yes" : "no")"
+        V3AuthFailureDiagnosticsPolicy.render(failure,
+            strictInt: V3ServiceBridge.strictInt,
+            strictBool: V3ServiceBridge.strictBool)
     }
 
     func answer(promptID: String, answer: [String: String]) {
@@ -4126,6 +4131,28 @@ struct V3SignInView: View {
                         .foregroundColor(auth.isSignedIn ? .green : .red)
                         .textSelection(.enabled)
                 }
+                if !auth.currentAttemptFailureMessage.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Sign-in attempt could not be confirmed")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.orange)
+                        Text(auth.currentAttemptFailureMessage)
+                            .font(.footnote)
+                            .foregroundColor(.orange)
+                            .textSelection(.enabled)
+                        if !auth.currentAttemptFailureTechnical.isEmpty {
+                            DisclosureGroup("Technical details") {
+                                Text(auth.currentAttemptFailureTechnical)
+                                    .font(.caption2)
+                                    .textSelection(.enabled)
+                            }
+                            Button("Copy Diagnostics") {
+                                UIPasteboard.general.string = auth.currentAttemptFailureTechnical
+                            }
+                            .font(.caption)
+                        }
+                    }
+                }
                 // V3_PROVISIONING_NEEDS_ATTENTION_V1: the authenticated fact above
                 // stays green while the provisioning problem is stated separately.
                 if auth.hasProvisioningProblem {
@@ -4247,16 +4274,8 @@ struct V3SignInView: View {
         }
     }
     private var statusText: String {
-        switch auth.state {
-        case "completed": return "Signed in"
-        case "authenticatedProvisioningIncomplete":
-            return auth.provisioningFinishedLater ? "Signed in" : "Signed in, provisioning needs attention"
-        case "awaitingPrompt": return "Needs your input"
-        case "failed": return "Failed"
-        case "cancelled": return "Cancelled"
-        case "working": return auth.isSignedIn ? "Finishing provisioning..." : "Working..."
-        default: return "Not started"
-        }
+        V3AuthStatusTextPolicy.label(state: auth.state, isSignedIn: auth.isSignedIn,
+            provisioningFinishedLater: auth.provisioningFinishedLater)
     }
 
     // V3_FINISH_LATER_PRESERVES_ACCOUNT_V1: closing the flow reloads the
