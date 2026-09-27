@@ -338,6 +338,7 @@ jobs:
             --ipa artifacts/LiveContainer-SideStore-v3.0.3-rc.ipa \
             --provenance artifacts/debug-evidence/candidate-provenance.json \
             --product v3.0.3-rc \
+            --side-source work/EmbeddedSideStore \
             --output artifacts/candidate-package-verification.json
 
       - name: Verify embedded CoreDevice transport executable

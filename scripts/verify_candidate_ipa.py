@@ -16,6 +16,7 @@ import tempfile
 import zipfile
 
 from audit_ipa_signing import inventory
+from patch_v3_service import HEADLESS_SIDESTORE_VIEW_FILES
 
 
 BASE = "Payload/LiveContainer.app"
@@ -44,6 +45,9 @@ REMOVED_SIDESTORE_INTENT_SYMBOLS = (
     "InstallIPAIntent", "IntentHandler", "ViewAppIntentHandler",
 )
 REMOVED_SIDESTORE_INTENT_INFO_KEYS = ("INIntentsSupported", "NSUserActivityTypes")
+SWIFT_TYPE_DECLARATION = re.compile(
+    r"(?m)^\s*(?:(?:public|private|internal|fileprivate|open)\s+)?"
+    r"(?:(?:final|indirect)\s+)*(?:class|struct|enum|protocol)\s+([A-Za-z_]\w*)")
 REMOVED_SIDESTORE_UI_SYMBOLS = (
     "ResignAltStoreViewController", "FeaturedViewController", "BrowseViewController",
     "FeaturedComponents", "BackgroundTaskManager",
@@ -202,6 +206,29 @@ def find_legacy_side_store_ui_symbols(executable: bytes) -> list[str]:
     return [name for name in REMOVED_SIDESTORE_UI_SYMBOLS if name.encode("utf-8") in executable]
 
 
+def excluded_side_store_view_type_names(side_source: Path,
+                                        view_files=HEADLESS_SIDESTORE_VIEW_FILES) -> list[str]:
+    synchronized_root = side_source / "SideStore"
+    excluded_paths = set(view_files)
+    removed_types: set[str] = set()
+    for relative in view_files:
+        path = synchronized_root / relative
+        if not path.is_file():
+            raise ValueError(f"headless SideStore UI source is missing: {relative}")
+        removed_types.update(SWIFT_TYPE_DECLARATION.findall(path.read_text(encoding="utf-8")))
+
+    retained_types: set[str] = set()
+    for path in synchronized_root.rglob("*.swift"):
+        if path.relative_to(synchronized_root).as_posix() in excluded_paths:
+            continue
+        retained_types.update(SWIFT_TYPE_DECLARATION.findall(path.read_text(encoding="utf-8")))
+    return sorted(removed_types - retained_types - {"Color"})
+
+
+def missing_excluded_ui_symbols(executable: bytes, expected_symbols: list[str]) -> list[str]:
+    return sorted(name for name in expected_symbols if name.encode("utf-8") in executable)
+
+
 def missing_required_background_modes(info: dict) -> list[str]:
     configured = set(info.get("UIBackgroundModes", []))
     return sorted(REQUIRED_BACKGROUND_MODES - configured)
@@ -257,7 +284,8 @@ def inspect_side_store_asset_catalog(asset_data: bytes) -> dict:
         return verify_side_store_assetutil_records(records)
 
 
-def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
+def verify(ipa: Path, provenance_path: Path, product: str,
+           side_source: Path | None = None) -> dict:
     raw = ipa.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
     size = len(raw)
@@ -318,6 +346,9 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
             raise ValueError("embedded SideStore still contains legacy app intent code: "
                              + ", ".join(legacy_intents))
         legacy_ui = find_legacy_side_store_ui_symbols(side_store_executable_data)
+        headless_view_symbols = excluded_side_store_view_type_names(side_source) if side_source else []
+        legacy_view_types = missing_excluded_ui_symbols(side_store_executable_data, headless_view_symbols)
+        legacy_ui = sorted(set(legacy_ui + legacy_view_types))
         if legacy_ui:
             raise ValueError("embedded SideStore still contains excluded presenter UI: "
                              + ", ".join(legacy_ui))
@@ -435,6 +466,7 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         "sidestore_storyboard_root": "absent",
         "sidestore_legacy_storyboard_nib_audio": "absent",
         "sidestore_legacy_app_intents": "absent",
+        "sidestore_excluded_view_type_count": len(headless_view_symbols),
         "sidestore_legacy_resign_ui": "absent",
         "sidestore_alternate_icon_sets": side_store_asset_report,
         "sidestore_primary_icon": side_store_primary_icon_report(side_store_asset_report),
@@ -454,9 +486,10 @@ def main() -> None:
     parser.add_argument("--ipa", required=True, type=Path)
     parser.add_argument("--provenance", required=True, type=Path)
     parser.add_argument("--product", required=True)
+    parser.add_argument("--side-source", type=Path)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    result = verify(args.ipa, args.provenance, args.product)
+    result = verify(args.ipa, args.provenance, args.product, side_source=args.side_source)
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(rendered, encoding="utf-8")
