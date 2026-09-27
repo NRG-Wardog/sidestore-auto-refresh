@@ -129,7 +129,7 @@ public final class V3ServiceBridge {
     public static var authSessionLifetime: TimeInterval {
         V3WireContract.authSessionLifetime
     }
-    public static func authSnapshot(_ reply: [String: Any]) -> [String: Bool]? {
+    public static func authSnapshot(_ reply: [String: Any]) -> V3AuthServiceSnapshot? {
         V3WireContract.authSnapshot(reply)
     }
     private var pending: [String: CheckedContinuation<Data, Error>] = [:]

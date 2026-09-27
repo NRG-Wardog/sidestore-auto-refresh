@@ -119,6 +119,12 @@ struct AuthOwnershipReconciliationHarness {
                         reportedState: "awaitingPrompt", authenticated: false,
                         authenticationActive: true) == nil,
                      "a confirmed inactive signed-out session exits the prompt state, while a live backend session remains owned")
+        let unrelatedSessionPresentation = V3AuthInactiveSessionResolutionPolicy.resolve(
+            reportedState: "awaitingPrompt", authenticated: false, authenticationActive: false,
+            anotherSessionActive: true)
+        precondition(unrelatedSessionPresentation?.state == "resultUnknown" &&
+                     unrelatedSessionPresentation?.message.contains("Another Apple sign-in session is active") == true,
+                     "a lost reply for this session is not misreported as signed out while another session owns authentication")
         precondition(V3AuthAttemptFailureCommitPolicy.shouldCommitConfirmedSignedOutFailure(
             snapshotConfirmed: true, authenticated: false, hasSession: false,
             cancellationConfirmed: true, state: "failed") &&
@@ -135,9 +141,10 @@ struct AuthOwnershipReconciliationHarness {
             "an authenticated-but-not-yet-provisioned account snapshot cannot hide the active Team/2FA prompt")
         let accountLagPresentation = V3AuthReconciliationPresentationPolicy.resolve(
             reportedState: "awaitingPrompt", authenticated: true, provisioningIncomplete: true)
-        let accountLagFacts = V3AuthSnapshotAuthorityPolicy.facts([
-            "authenticated": true, "provisioningIncomplete": true,
-            "provisioningRetryAvailable": false, "authenticationActive": true])
+        let accountLagFacts = V3AuthSnapshotAuthorityPolicy.facts(V3AuthServiceSnapshot(
+            authenticated: true, provisioningIncomplete: true,
+            provisioningRetryAvailable: false, authenticationActive: true,
+            authenticationSessionID: current))
         precondition(accountLagPresentation.state == "authenticatedProvisioningIncomplete" &&
                      accountLagFacts.authenticated && accountLagFacts.provisioningIncomplete &&
                      accountLagFacts.authenticationActive &&
@@ -272,7 +279,7 @@ struct AuthOwnershipReconciliationHarness {
             failedPromptRevision: 8, currentPromptRevision: 8,
             failedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,
             state: "authenticatedProvisioningIncomplete", promptSubmissionInProgress: false,
-            authenticationActive: true, pollFailureIsTransient: false,
+            activeSessionID: current, pollFailureIsTransient: false,
             cancellationInProgress: false, taskCancelled: false,
             now: now, sessionDeadline: deadline) &&
             !V3AuthPollMonitorRecoveryPolicy.shouldResume(
@@ -280,7 +287,7 @@ struct AuthOwnershipReconciliationHarness {
                 failedPromptRevision: 8, currentPromptRevision: 8,
                 failedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,
                 state: "authenticatedProvisioningIncomplete", promptSubmissionInProgress: false,
-                authenticationActive: false, pollFailureIsTransient: false,
+                activeSessionID: nil, pollFailureIsTransient: false,
                 cancellationInProgress: false, taskCancelled: false,
                 now: now, sessionDeadline: deadline),
             "a confirmed active provisioning session keeps a poller after XPC loss, but an inactive one does not")
@@ -289,19 +296,33 @@ struct AuthOwnershipReconciliationHarness {
             failedPromptRevision: 8, currentPromptRevision: 8,
             failedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,
             state: "working", promptSubmissionInProgress: false,
-            authenticationActive: true, pollFailureIsTransient: false,
+            activeSessionID: current, pollFailureIsTransient: false,
             cancellationInProgress: false, taskCancelled: false,
             now: now, sessionDeadline: deadline),
             "an unauthenticated but active SideSign session retains its host poller after a deterministic XPC read error")
+        precondition(!V3AuthPollMonitorRecoveryPolicy.shouldResume(
+            requestedSessionID: current, currentSessionID: current,
+            failedPromptRevision: 8, currentPromptRevision: 9,
+            failedPromptResponseGeneration: 4, currentPromptResponseGeneration: 5,
+            state: "awaitingPrompt", promptSubmissionInProgress: true,
+            activeSessionID: prior, pollFailureIsTransient: true,
+            cancellationInProgress: false, taskCancelled: false,
+            now: now, sessionDeadline: deadline),
+            "even a transient read error cannot poll this request when a different backend auth session is active")
         precondition(V3AuthPollMonitorRecoveryPolicy.shouldResumeAfterAmbiguousStart(
             requestedSessionID: current, currentSessionID: current,
-            authenticationActive: true, cancellationInProgress: false, taskCancelled: false) &&
+            activeSessionID: current, cancellationInProgress: false, taskCancelled: false) &&
             !V3AuthPollMonitorRecoveryPolicy.shouldResumeAfterAmbiguousStart(
                 requestedSessionID: prior, currentSessionID: current,
-                authenticationActive: true, cancellationInProgress: false, taskCancelled: false) &&
+                activeSessionID: current, cancellationInProgress: false, taskCancelled: false) &&
             !V3AuthPollMonitorRecoveryPolicy.shouldResumeAfterAmbiguousStart(
                 requestedSessionID: current, currentSessionID: current,
-                authenticationActive: false, cancellationInProgress: false, taskCancelled: false),
+                activeSessionID: nil, cancellationInProgress: false, taskCancelled: false) &&
+            !V3AuthPollMonitorRecoveryPolicy.shouldResumeAfterAmbiguousStart(
+                requestedSessionID: current, currentSessionID: current,
+                activeSessionID: prior, cancellationInProgress: false, taskCancelled: false) &&
+            V3AuthSessionCorrelationPolicy.hasOtherActiveSession(sessionID: current,
+                authenticationActive: true, activeSessionID: prior),
             "an authBegin reply lost after dispatch restarts polling only for its own active session")
 
         let authRequestID = UUID().uuidString
@@ -361,6 +382,14 @@ struct AuthOwnershipReconciliationHarness {
                      missingSessionUI.cancellationConfirmed &&
                      missingSessionUI.message.contains("start a new sign-in"),
                      "a retired service session resolves promptly to actionable state, not a ten-minute connection retry")
+        let unrelatedActiveSessionUI = V3AuthSessionUnavailablePolicy.resolve(
+            authenticated: false, provisioningIncomplete: false, snapshotConfirmed: true,
+            safeMessage: missingSession.safeMessage, recovery: missingSession.recovery,
+            anotherSessionActive: true)
+        precondition(unrelatedActiveSessionUI.state == "resultUnknown" &&
+                     unrelatedActiveSessionUI.message.contains("could not be matched") &&
+                     unrelatedActiveSessionUI.cancellationConfirmed,
+                     "the requested session is retired without claiming another active session failed")
         let authenticatedButIncomplete = V3AuthSessionUnavailablePolicy.resolve(
             authenticated: true, provisioningIncomplete: true, snapshotConfirmed: true,
             safeMessage: missingSession.safeMessage, recovery: missingSession.recovery)

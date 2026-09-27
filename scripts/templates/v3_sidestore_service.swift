@@ -820,13 +820,14 @@ final class V3SideStoreService: NSObject {
         let account = activeAccount?.appleID
             ?? (authenticated ? AuthManager.shared.currentAppleID : nil)
             ?? "Not signed in"
+        let activeAuthenticationSessionID = V3HeadlessRuntime.shared.auth.activeSessionIDForSnapshot
         _ = refreshAdmission.expire()
-        return ["updatedAt": Date(), "busy": mutationID != nil ||
-                    V3HeadlessRuntime.shared.auth.hasActiveSession ||
+        var response: [String: Any] = ["updatedAt": Date(), "busy": mutationID != nil ||
+                    activeAuthenticationSessionID != nil ||
                     V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive,
                  "account": account,
                  "authenticated": authenticated,
-                 "authenticationActive": V3HeadlessRuntime.shared.auth.hasActiveSession,
+                 "authenticationActive": activeAuthenticationSessionID != nil,
                  "provisioningIncomplete": authenticated && activeAccount == nil,
                 "provisioningRetryAvailable": V3HeadlessRuntime.shared.auth.canResumeProvisioning(),
                 "team": team?.name ?? "No active team", "teamID": team?.identifier ?? "",
@@ -852,5 +853,9 @@ final class V3SideStoreService: NSObject {
                              "idleTimeoutDisabled": UserDefaults.standard.isIdleTimeoutDisableEnabled,
                              "responseCachingDisabled": UserDefaults.standard.responseCachingDisabled,
                              "verboseOperations": UserDefaults.standard.isVerboseOperationsLoggingEnabled]]
+        if let activeSessionID = activeAuthenticationSessionID {
+            response["authenticationSessionID"] = activeSessionID
+        }
+        return response
     }
 }

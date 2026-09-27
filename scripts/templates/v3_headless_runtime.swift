@@ -509,6 +509,10 @@ final class V3AuthCenter {
         return session.terminal.isEmpty || session.task != nil
     }
 
+    var activeSessionIDForSnapshot: String? {
+        hasActiveSession ? activeID : nil
+    }
+
     func ownsActiveSession(_ id: String) -> Bool {
         activeID == id && sessions[id]?.terminal.isEmpty == true
     }

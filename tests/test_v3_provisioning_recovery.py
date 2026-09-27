@@ -299,7 +299,7 @@ class AuthSuccessIsNotProvisioningSuccessTests(unittest.TestCase):
         reconcile = store[start:store.index("private func run(sessionID requestedSession: String) async", start)]
         self.assertIn("let authoritative =", reconcile)
         self.assertIn("signedIn = true", reconcile)
-        self.assertIn("if incomplete || authenticationActive {", reconcile)
+        self.assertIn("if incomplete || authenticationActiveForCurrentSession {", reconcile)
         # A finished-later attempt must not fall back to "idle" / sign in again.
         self.assertNotIn('state = "idle"\n                team = ""\n            } else if', reconcile)
         self.assertIn('if authoritative {', reconcile)

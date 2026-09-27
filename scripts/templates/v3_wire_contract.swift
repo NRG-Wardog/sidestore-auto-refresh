@@ -26,17 +26,25 @@ enum V3WireContract {
         return number.intValue
     }
 
-    static func authSnapshot(_ reply: [String: Any]) -> [String: Bool]? {
+    static func authSnapshot(_ reply: [String: Any]) -> V3AuthServiceSnapshot? {
         guard let authenticated = strictBool(reply["authenticated"]),
               let provisioningIncomplete = strictBool(reply["provisioningIncomplete"]),
               let provisioningRetryAvailable = strictBool(reply["provisioningRetryAvailable"]),
               let authenticationActive = strictBool(reply["authenticationActive"]) else {
             return nil
         }
-        return ["authenticated": authenticated,
-                "provisioningIncomplete": provisioningIncomplete,
-                "provisioningRetryAvailable": provisioningRetryAvailable,
-                "authenticationActive": authenticationActive]
+        let authenticationSessionID = reply["authenticationSessionID"] as? String
+        if authenticationActive {
+            guard let authenticationSessionID,
+                  UUID(uuidString: authenticationSessionID)?.uuidString == authenticationSessionID else { return nil }
+        } else if authenticationSessionID != nil {
+            return nil
+        }
+        return V3AuthServiceSnapshot(authenticated: authenticated,
+            provisioningIncomplete: provisioningIncomplete,
+            provisioningRetryAvailable: provisioningRetryAvailable,
+            authenticationActive: authenticationActive,
+            authenticationSessionID: authenticationSessionID)
     }
 
     static func invalidRequestIdentity(from data: Data) -> (id: String?, operation: String?) {

@@ -286,15 +286,25 @@ struct CatalogResponseEncodingHarness {
         ] as [String: Any], format: .binary, options: 0)
         let decodedValidAuthBooleans = try! PropertyListSerialization.propertyList(
             from: validAuthBooleans, format: nil) as! [String: Any]
-        precondition(V3WireContract.authSnapshot(decodedValidAuthBooleans) == [
-            "authenticated": true, "provisioningIncomplete": false,
-            "provisioningRetryAvailable": false, "authenticationActive": false
-        ], "a valid structured auth snapshot decodes all booleans strictly")
-        precondition(V3WireContract.authSnapshot([
+        precondition(V3WireContract.authSnapshot(decodedValidAuthBooleans) == V3AuthServiceSnapshot(
+            authenticated: true, provisioningIncomplete: false,
+            provisioningRetryAvailable: false, authenticationActive: false,
+            authenticationSessionID: nil),
+            "a valid structured auth snapshot decodes all booleans strictly")
+        let activeAuthenticationSessionID = UUID().uuidString
+        let activeAuthSnapshot = V3WireContract.authSnapshot([
             "authenticated": true, "provisioningIncomplete": true,
-            "provisioningRetryAvailable": true, "authenticationActive": true
-        ])?["authenticationActive"] == true,
-            "the snapshot carries active-auth ownership separately from resumable certificate/session facts")
+            "provisioningRetryAvailable": true, "authenticationActive": true,
+            "authenticationSessionID": activeAuthenticationSessionID
+        ])
+        precondition(activeAuthSnapshot?.authenticationActive == true &&
+                     activeAuthSnapshot?.authenticationSessionID == activeAuthenticationSessionID,
+            "the snapshot carries the exact active auth session separately from account facts")
+        precondition(V3WireContract.authSnapshot([
+            "authenticated": false, "provisioningIncomplete": false,
+            "provisioningRetryAvailable": false, "authenticationActive": true
+        ]) == nil,
+            "active-auth status without a session UUID is rejected rather than treated as a correlated session")
 
         let readinessID = UUID().uuidString
         func readinessReply(_ value: [String: Any]) -> Data {

@@ -1829,10 +1829,9 @@ struct V3StatusPresentation: Equatable {
 // The global alert used to offer "Retry Connection" for essentially every
 // failure, which trained users to read every problem as a networking problem.
 // A source failure, a certificate failure, an auth failure and a pairing failure
-// each get the action that can actually resolve them, and "Retry Connection" is
-// only offered when the evidence points at connection or service readiness.
+// each get the action that can actually resolve them. Connection evidence opens
+// Connection Settings; it does not claim that reloading status retried a mutation.
 enum V3IssueAction: String, Equatable, CaseIterable {
-    case retryConnection
     case retrySource
     case reloadSources
     case openCertificates
@@ -1846,7 +1845,6 @@ enum V3IssueAction: String, Equatable, CaseIterable {
 
     var title: String {
         switch self {
-        case .retryConnection: return "Retry Connection"
         case .retrySource: return "Retry Source"
         case .reloadSources: return "Reload Sources"
         case .openCertificates: return "Open Certificates"
@@ -1866,7 +1864,7 @@ enum V3IssueAction: String, Equatable, CaseIterable {
         case .openCertificates: return "certificates"
         case .openAccount: return "signIn"
         case .showPairingSetup: return "pairing"
-        case .openConnectionCheck, .retryConnection: return "connection"
+        case .openConnectionCheck: return "connection"
         case .chooseIPA: return "ipa"
         case .openSetup: return "setup"
         case .retrySource, .reloadSources, .openSources: return "sources"
@@ -1958,9 +1956,9 @@ struct V3UserFacingIssue: Equatable {
                 if stage == CombinedFailure.Stage.serviceReadiness.rawValue { return .openSources }
                 return .retrySource
             case "setup": return .openSetup
-            // A connection destination is the only case that legitimately
-            // offers a connection action.
-            case "connection": return retryable == true ? .retryConnection : .openConnectionCheck
+            // Reloading a snapshot does not retry the failed mutation. Send the
+            // user to the connection settings that can resolve this evidence.
+            case "connection": return .openConnectionCheck
             default:
                 // No evidence points anywhere specific. Never assume networking.
                 return .dismiss
@@ -3082,7 +3080,13 @@ enum V3AuthReconciliationPresentationPolicy {
 
 enum V3AuthInactiveSessionResolutionPolicy {
     static func resolve(reportedState: String, authenticated: Bool,
-                        authenticationActive: Bool) -> V3AuthReconciliationPresentation? {
+                        authenticationActive: Bool,
+                        anotherSessionActive: Bool = false) -> V3AuthReconciliationPresentation? {
+        if anotherSessionActive && !authenticated &&
+           ["working", "awaitingPrompt", "resultUnknown"].contains(reportedState) {
+            return .init(state: "resultUnknown",
+                message: "Another Apple sign-in session is active. This request could not be matched to it. Wait for it to finish, then reload status.")
+        }
         guard !authenticated, !authenticationActive,
               ["working", "awaitingPrompt", "resultUnknown"].contains(reportedState) else { return nil }
         return .init(state: "failed",
@@ -3127,23 +3131,48 @@ enum V3AuthReconciliationSessionPolicy {
     }
 }
 
+enum V3AuthSessionCorrelationPolicy {
+    static func isActive(sessionID: String?, authenticationActive: Bool,
+                         activeSessionID: String?) -> Bool {
+        guard authenticationActive, let sessionID, let activeSessionID else { return false }
+        return sessionID == activeSessionID
+    }
+
+    static func hasOtherActiveSession(sessionID: String?, authenticationActive: Bool,
+                                      activeSessionID: String?) -> Bool {
+        guard authenticationActive, let activeSessionID else { return false }
+        guard let sessionID else { return true }
+        return sessionID != activeSessionID
+    }
+}
+
+struct V3AuthServiceSnapshot: Equatable {
+    let authenticated: Bool
+    let provisioningIncomplete: Bool
+    let provisioningRetryAvailable: Bool
+    let authenticationActive: Bool
+    let authenticationSessionID: String?
+}
+
 enum V3AuthSnapshotAuthorityPolicy {
     struct Facts: Equatable {
         let authenticated: Bool
         let provisioningIncomplete: Bool
         let provisioningRetryAvailable: Bool
         let authenticationActive: Bool
+        let authenticationSessionID: String?
     }
 
-    static func facts(_ snapshot: [String: Bool]) -> Facts {
-        Facts(authenticated: snapshot["authenticated"] == true,
-              provisioningIncomplete: snapshot["provisioningIncomplete"] == true,
-              provisioningRetryAvailable: snapshot["provisioningRetryAvailable"] == true,
-              authenticationActive: snapshot["authenticationActive"] == true)
+    static func facts(_ snapshot: V3AuthServiceSnapshot) -> Facts {
+        Facts(authenticated: snapshot.authenticated,
+              provisioningIncomplete: snapshot.provisioningIncomplete,
+              provisioningRetryAvailable: snapshot.provisioningRetryAvailable,
+              authenticationActive: snapshot.authenticationActive,
+              authenticationSessionID: snapshot.authenticationSessionID)
     }
 
     static func isAuthenticated(_ snapshot: [String: Bool]) -> Bool {
-        facts(snapshot).authenticated
+        snapshot["authenticated"] == true
     }
 
     static func needsSignIn(authenticated: Bool) -> Bool { !authenticated }
@@ -3165,13 +3194,20 @@ enum V3AuthSessionUnavailablePolicy {
 
     static func resolve(authenticated: Bool, provisioningIncomplete: Bool,
                         snapshotConfirmed: Bool, safeMessage: String,
-                        recovery: String) -> V3AuthSessionUnavailablePresentation {
+                        recovery: String, anotherSessionActive: Bool = false) -> V3AuthSessionUnavailablePresentation {
         guard snapshotConfirmed else {
             return V3AuthSessionUnavailablePresentation(
                 state: "resultUnknown",
                 message: "SideStore no longer has the active sign-in session. The current account and provisioning state could not be confirmed. Reload status before continuing.",
                 provisioningMessage: nil,
                 cancellationConfirmed: false)
+        }
+        if anotherSessionActive {
+            return V3AuthSessionUnavailablePresentation(
+                state: "resultUnknown",
+                message: "Another Apple sign-in session is active. This request could not be matched to it. Wait for it to finish, then reload status.",
+                provisioningMessage: nil,
+                cancellationConfirmed: true)
         }
         if authenticated && provisioningIncomplete {
             return V3AuthSessionUnavailablePresentation(
@@ -3246,10 +3282,10 @@ enum V3AuthPollFailureRacePolicy {
 enum V3AuthPollMonitorRecoveryPolicy {
     static func shouldResumeAfterAmbiguousStart(requestedSessionID: String,
                                                 currentSessionID: String?,
-                                                authenticationActive: Bool,
+                                                activeSessionID: String?,
                                                 cancellationInProgress: Bool,
                                                 taskCancelled: Bool) -> Bool {
-        currentSessionID == requestedSessionID && authenticationActive &&
+        currentSessionID == requestedSessionID && activeSessionID == requestedSessionID &&
             !cancellationInProgress && !taskCancelled
     }
 
@@ -3259,12 +3295,15 @@ enum V3AuthPollMonitorRecoveryPolicy {
                              failedPromptResponseGeneration: UInt64,
                              currentPromptResponseGeneration: UInt64,
                              state: String, promptSubmissionInProgress: Bool,
-                             authenticationActive: Bool = false,
+                             activeSessionID: String? = nil,
                              pollFailureIsTransient: Bool = false,
                              cancellationInProgress: Bool, taskCancelled: Bool,
                              reconciliationWasSuperseded: Bool = false,
                              now: Date = Date(), sessionDeadline: Date) -> Bool {
+        let authenticationActive = activeSessionID == requestedSessionID
+        let anotherSessionActive = activeSessionID != nil && !authenticationActive
         guard currentSessionID == requestedSessionID,
+              !anotherSessionActive,
               !cancellationInProgress, !taskCancelled,
               (["working", "awaitingPrompt"].contains(state) ||
                 (authenticationActive && ["completed", "authenticatedProvisioningIncomplete"].contains(state))) else { return false }
@@ -3275,6 +3314,15 @@ enum V3AuthPollMonitorRecoveryPolicy {
             promptSubmissionInProgress || pollFailureIsTransient || reconciliationWasSuperseded ||
             authenticationActive
     }
+}
+
+enum V3ShortcutRefreshFailurePolicy {
+    static func operationCreationFailure(correlationID: String) -> CombinedFailure {
+        CombinedFailure(operation: "refresh", stage: .command, code: .notReady,
+            id: correlationID, retryable: false)
+    }
+
+    static func propagate(_ error: Error) -> Error { error }
 }
 
 enum V3SetupTestAttemptPolicy {
