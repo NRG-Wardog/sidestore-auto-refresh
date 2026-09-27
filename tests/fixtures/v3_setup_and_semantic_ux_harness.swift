@@ -547,6 +547,11 @@ struct SetupAndSemanticUXHarness {
             precondition(startupFailure.recovery.lowercased().contains("copy diagnostics"),
                          "\(stage.rawValue) recovery must provide a useful diagnostics route")
         }
+        let bookmarkFailure = CombinedFailure(operation: "snapshot", stage: .bookmarkCreation,
+            id: UUID().uuidString, retryable: false)
+        precondition(bookmarkFailure.recovery.contains("internal shared SideStore folder") &&
+                     !bookmarkFailure.recovery.contains("Choose the file or folder"),
+                     "internal App Group bookmark failure must not direct users to an unrelated picker")
         let extensionFailure = CombinedFailure(operation: "snapshot", stage: .extensionDiscovery,
             id: UUID().uuidString, retryable: false)
         let extensionIssue = V3UserFacingIssue.make(extensionFailure)

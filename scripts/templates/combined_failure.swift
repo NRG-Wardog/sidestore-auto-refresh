@@ -491,7 +491,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case .storagePreparation:
             return "Check available storage and access to LiveContainer's shared App Group container. Keep existing data intact and copy diagnostics if preparation still fails."
         case .bookmarkCreation:
-            return "Choose the file or folder again and grant LiveContainer access when prompted. Keep existing data intact and copy diagnostics if access still fails."
+            return "LiveContainer could not create access to its internal shared SideStore folder. Check that the App Group container is available; copy diagnostics if the folder still cannot be accessed."
         case .extensionDiscovery:
             return "The combined app could not find its embedded LiveProcess extension. Confirm that the installed app is the combined LiveContainer + SideStore package; do not reset SideStore or guest data. Copy diagnostics if it continues."
         case .serviceReadiness:

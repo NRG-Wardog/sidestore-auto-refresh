@@ -349,6 +349,10 @@ class SourcesFeedbackTests(unittest.TestCase):
         self.assertIn("technicalDetails = details.technical", catch)
         self.assertIn("sourceAddRetryBlocked", sheet)
         self.assertIn("retryability unknown", sheet)
+        self.assertIn('case "sources": return "Open Sources"', sheet)
+        self.assertIn('case "sources": sharedModel.selectedTab = .sources', shell())
+        self.assertIn('case "sources": return "Open Sources"', sheet)
+        self.assertIn('case "sources": sharedModel.selectedTab = .sources', shell())
 
     def test_remove_busy_and_success(self):
         text = shell()

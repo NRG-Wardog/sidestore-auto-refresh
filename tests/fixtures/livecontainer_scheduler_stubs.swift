@@ -95,14 +95,17 @@ enum LiveContainerRefreshBridge {
                 underlying: NSError(domain: "DeviceGatewayError", code: 77), retryable: resultRetryable).wire
             if malformedFailure { wire["stage"] = "SECRET_TOKEN" }
             defaults.set(["version": 2, "schema": "LiveContainerRefreshManifestV2",
-                          "run_id": run, "expected_ids": ["spotify"], "results": [
+                          "run_id": run, "requested_ids": ["spotify"], "expected_ids": ["spotify"],
+                          "skipped_ids": [], "results": [
                 ["bundle_id": "spotify", "success": false, "failure": wire, "error": "SECRET_TOKEN private-server-response"] as [String: Any]]],
                 forKey: "liveContainerAutoRefreshVerification")
             return
         }
         defaults.set(["version": 2, "schema": "LiveContainerRefreshManifestV2",
                       "run_id": defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? "",
+                      "requested_ids": incomplete ? ["spotify", "other"] : ["spotify"],
                       "expected_ids": incomplete ? ["spotify", "other"] : ["spotify"],
+                      "skipped_ids": [],
                       "results": [["bundle_id": "spotify", "success": true]]],
                      forKey: "liveContainerAutoRefreshVerification")
     }

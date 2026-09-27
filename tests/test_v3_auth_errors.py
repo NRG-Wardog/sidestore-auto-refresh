@@ -258,6 +258,9 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("if snapshotConfirmed {", retry)
         self.assertIn("provisioningSessionUnavailable = !provisioningRetryAvailable", retry)
         self.assertNotIn("provisioningRetryAvailable || previouslyAvailable", retry)
+        runtime_text = runtime()
+        self.assertIn("V3ProvisioningResumeIdentityPolicy.select", runtime_text)
+        self.assertIn("authenticatedSessionAppleID: session?.authenticatedAppleID", runtime_text)
 
     def test_prompt_expiry_and_session_timeout_have_distinct_recovery_states(self):
         host = shell()

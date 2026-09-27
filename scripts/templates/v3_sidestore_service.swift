@@ -113,6 +113,9 @@ final class V3SideStoreService: NSObject {
             let failure = operation == "sourceRemoveConfirmed"
                 ? CombinedFailure(operation: "source", stage: .source, code: .busy, id: id,
                                   retryable: true, safeCause: .sourceRemoveBusy)
+                : operation == "opStart"
+                ? CombinedFailure(operation: operation, stage: .command, code: .busy, id: id,
+                                  retryable: true, safeCause: .operationInProgress)
                 : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
             var response: [String: Any] = ["version": 1, "id": id, "error": "busy", "failure": failure.wire]
             if ["opStart", "authBegin", "authRetryProvisioning"].contains(operation) {
@@ -146,6 +149,9 @@ final class V3SideStoreService: NSObject {
                                   retryable: true, safeCause: .sourceRemoveBusy)
                 : operation.hasPrefix("refreshAdmission")
                 ? CombinedFailure(operation: "refresh", stage: .command, code: .busy, id: id,
+                                  retryable: true, safeCause: .operationInProgress)
+                : operation == "opStart"
+                ? CombinedFailure(operation: operation, stage: .command, code: .busy, id: id,
                                   retryable: true, safeCause: .operationInProgress)
                 : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
             var response: [String: Any] = ["version": 1, "id": id, "error": "busy", "failure": failure.wire]

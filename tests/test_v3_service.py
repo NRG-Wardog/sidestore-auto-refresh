@@ -54,6 +54,7 @@ class ServicePatchTests(unittest.TestCase):
              "SideStore/Core/Operations/PipelineRunner.swift",
              "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
              "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift",
+             "AltStore/My Apps/MyAppsViewController.swift",
              "AltStore/Info.plist", "AltStore.xcodeproj/project.pbxproj",
              "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"])
         for source, root, pin, names in zip((live_source, side_source), roots, service.PINS, files):
@@ -83,6 +84,8 @@ class ServicePatchTests(unittest.TestCase):
             roots = self.fixture(directory)
             self.apply(roots)
             first = self.snapshot(directory)
+            my_apps = (roots[1] / "AltStore/My Apps/MyAppsViewController.swift").read_text(encoding="utf-8")
+            self.assertNotIn("UIApplication.didChangeAppIconNotification", my_apps)
             self.apply(roots)
             self.assertEqual(first, self.snapshot(directory))
             path = roots[0] / "SideStoreSupport/XPCClient.m"
@@ -220,8 +223,12 @@ class ServicePatchTests(unittest.TestCase):
         self.assertIn('forKey: "liveContainerAutoRefreshUncertainMutationRunID"', refresh)
         perform = refresh[refresh.index("private func performRefresh(identifier:"):]
         perform = perform[:perform.index("private func releaseRefreshAdmission")]
-        self.assertLess(perform.index("V3DirectRefreshPreflightPolicy.isBlocked"),
-                        perform.index("try await ensureServiceConnected()"))
+        preflight_positions = [index for index in range(len(perform))
+            if perform.startswith("V3DirectRefreshPreflightPolicy.isBlocked", index)]
+        self.assertEqual(len(preflight_positions), 2)
+        self.assertLess(preflight_positions[0], perform.index("try await ensureServiceConnected()"))
+        self.assertLess(perform.index("try await ensureServiceConnected()"), preflight_positions[1])
+        self.assertLess(preflight_positions[1], perform.index("let token = UUID()"))
         self.assertLess(perform.index("try await ensureServiceConnected()"), perform.index("v3RefreshToken = token"))
         self.assertLess(perform.index("v3RefreshToken = token"), perform.index("sharedDefaults.set([\"run_id\": directClaimID"))
         admission = perform.index('operation: "refreshAdmissionBegin"')
@@ -642,17 +649,17 @@ print("V3 headless wire contract PASS")
         if not compiler:
             self.skipTest("Swift compiler unavailable")
         source = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
-        gate = source[source.index("final class V3PromptCenter: @unchecked Sendable {"):]
-        gate = gate[:gate.index("\n}\n") + len("\n}\n")]
+        gate = source[source.index("enum V3PromptAnswerDisposition:"):]
+        gate = gate[:gate.index("\n@MainActor\nfinal class V3HeadlessRuntime")]
         program = "import Foundation\n" + gate + r'''
 @main struct PromptGateTests {
     static func main() async throws {
         let center = V3PromptCenter()
         let first = Task { try await center.park(promptID: "p1") }
         try await Task.sleep(nanoseconds: 20_000_000)
-        precondition(center.answer(promptID: "p1", answer: ["choice": "proceed"]))
-        precondition(!center.answer(promptID: "p1", answer: ["choice": "proceed"]))
-        precondition(!center.answer(promptID: "missing", answer: [:]))
+        precondition(center.answer(promptID: "p1", answer: ["choice": "proceed"]) == .accepted)
+        precondition(center.answer(promptID: "p1", answer: ["choice": "proceed"]) == .alreadySettled)
+        precondition(center.answer(promptID: "missing", answer: [:]) == .unavailable)
         let firstAnswer = try await first.value
         precondition(firstAnswer["choice"] == "proceed")
         let second = Task { try await center.park(promptID: "p2") }

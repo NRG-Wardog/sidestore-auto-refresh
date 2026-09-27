@@ -4,6 +4,7 @@ import Foundation
 // XPC carries a canonical UUID token; the service derives every path itself.
 enum V3IPAStaging {
     private static let directoryComponents = ["Library", "Application Support", "LiveContainer", "V3IPAStaging"]
+    static let orphanRetention: TimeInterval = 24 * 60 * 60
 
     private final class CopyStatus: @unchecked Sendable {
         private let lock = NSLock()
@@ -162,6 +163,44 @@ enum V3IPAStaging {
         } catch {
             throw CombinedIPAFileError(.fileAccess)
         }
+    }
+
+    /// Recover only unleased-by-age canonical IPA files after a process restart.
+    /// Live operation sessions are bounded to ten minutes, so a 24-hour age
+    /// cannot match an operation that still owns its staged file.
+    @discardableResult
+    static func cleanupOrphans(containerRoot: URL, now: Date = Date(),
+                               fileManager: FileManager = .default) throws -> Int {
+        let directory = try ensureDirectory(containerRoot: containerRoot, fileManager: fileManager)
+        let files: [URL]
+        do {
+            files = try fileManager.contentsOfDirectory(at: directory,
+                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles])
+        } catch {
+            throw CombinedIPAFileError(.stagingFailed)
+        }
+        var removed = 0
+        for file in files {
+            guard file.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL,
+                  file.pathExtension == "ipa" else { continue }
+            let token = file.deletingPathExtension().lastPathComponent
+            guard (try? canonicalToken(token)) == token,
+                  let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]),
+                  values.isRegularFile == true, values.isSymbolicLink != true,
+                  let modified = values.contentModificationDate,
+                  now.timeIntervalSince(modified) >= orphanRetention,
+                  file.resolvingSymlinksInPath().standardizedFileURL == file.standardizedFileURL else { continue }
+            do {
+                try fileManager.removeItem(at: file)
+                removed += 1
+            } catch {
+                // One undeletable orphan must not block staging or cleanup for
+                // the remaining canonical files.
+                continue
+            }
+        }
+        return removed
     }
 
     static func inspect<T>(token: String, containerRoot: URL,

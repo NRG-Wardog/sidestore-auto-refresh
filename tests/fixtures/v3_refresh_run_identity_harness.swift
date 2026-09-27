@@ -48,7 +48,15 @@ struct RefreshRunIdentityHarness {
         precondition(!V3DirectRefreshPreflightPolicy.isBlocked(activeRunID: nil,
             hostHandoffPending: false, uncertainMutationRunID: nil),
             "a direct refresh is admitted after scheduler and handoff ownership are clear")
-
+        let directPassedEarlyPreflight = !V3DirectRefreshPreflightPolicy.isBlocked(
+            activeRunID: nil, hostHandoffPending: false, uncertainMutationRunID: nil)
+        precondition(directPassedEarlyPreflight)
+        precondition(directPassedEarlyPreflight && V3DirectRefreshPreflightPolicy.isBlocked(
+            activeRunID: nil, hostHandoffPending: true, uncertainMutationRunID: nil),
+            "a host handoff created while connection startup suspends must fail the post-connect recheck")
+        precondition(directPassedEarlyPreflight && V3DirectRefreshPreflightPolicy.isBlocked(
+            activeRunID: nil, hostHandoffPending: false, uncertainMutationRunID: schedulerRun),
+            "an uncertain device mutation created while connection startup suspends must fail the post-connect recheck")
         let claimDeadline = Date().addingTimeInterval(30)
         precondition(V3DirectRefreshRunClaimPolicy.isActive(
             runID: directRun, deadline: claimDeadline),

@@ -110,6 +110,26 @@ final class V3PromptCenter: @unchecked Sendable {
     }
 }
 
+enum V3PromptResponseStatePolicy {
+    static func shouldReturnCurrentStateAfterAcceptedDuplicate(acceptedPromptID: String?,
+                                                               currentPromptID: String?,
+                                                               submittedPromptID: String) -> Bool {
+        acceptedPromptID == submittedPromptID && currentPromptID != submittedPromptID
+    }
+
+    static func responsePending(_ disposition: V3PromptAnswerDisposition,
+                                acceptedPromptID: String?, promptID: String,
+                                sessionID: String, revision: Int,
+                                state: String, prompt: [String: Any]?) -> [String: Any]? {
+        guard disposition != .accepted, acceptedPromptID == promptID,
+              prompt?["id"] as? String == promptID else { return nil }
+        var reply: [String: Any] = ["session": sessionID, "state": state,
+                                    "responsePending": true, "revision": revision]
+        if let prompt { reply["prompt"] = prompt }
+        return reply
+    }
+}
+
 @MainActor
 final class V3HeadlessRuntime {
     static let shared = V3HeadlessRuntime()
@@ -153,19 +173,6 @@ enum V3AuthFailureKind: String, Equatable {
     case network
     case accountRepairRequired
     case unknown
-}
-
-enum V3PromptResponseStatePolicy {
-    static func responsePending(_ disposition: V3PromptAnswerDisposition,
-                                acceptedPromptID: String?, promptID: String,
-                                sessionID: String, revision: Int,
-                                state: String, prompt: [String: Any]?) -> [String: Any]? {
-        guard disposition != .accepted, acceptedPromptID == promptID else { return nil }
-        var reply: [String: Any] = ["session": sessionID, "state": state,
-                                    "responsePending": true, "revision": revision]
-        if let prompt { reply["prompt"] = prompt }
-        return reply
-    }
 }
 
 func v3AuthFailureStage(_ kind: V3AuthFailureKind) -> CombinedFailure.Stage {
@@ -628,8 +635,15 @@ final class V3AuthCenter {
                 }
                 var failureWire = failure.wire
                 if let authKind { failureWire["kind"] = authKind.rawValue }
-                if resumeUnavailable { resumableProvisioning = nil }
-                else { resumableProvisioning = (submitted ?? activeAppleID?.lowercased() ?? "", failure.stage.rawValue) }
+                if resumeUnavailable {
+                    resumableProvisioning = nil
+                } else if let resumableAppleID = V3ProvisioningResumeIdentityPolicy.select(
+                    authenticatedSessionAppleID: session?.authenticatedAppleID,
+                    submittedAppleID: submitted, activeAppleID: activeAppleID) {
+                    resumableProvisioning = (resumableAppleID, failure.stage.rawValue)
+                } else {
+                    resumableProvisioning = nil
+                }
                 let message: String
                 if resumeUnavailable {
                     message = "Signed in successfully, but SideStore could not reuse the saved Apple session to retry provisioning. Sign in again with this Apple ID before retrying setup."
@@ -699,6 +713,12 @@ final class V3AuthCenter {
     func respond(id: String, promptID: String, answer: [String: String]) -> [String: Any]? {
         guard let session = sessions[id], session.terminal.isEmpty,
               !session.cancellationRequested else { return nil }
+        if V3PromptResponseStatePolicy.shouldReturnCurrentStateAfterAcceptedDuplicate(
+            acceptedPromptID: session.acceptedPromptID,
+            currentPromptID: session.prompt?["id"] as? String,
+            submittedPromptID: promptID) {
+            return poll(id: id)
+        }
         if let pending = V3PromptResponseStatePolicy.responsePending(.unavailable,
             acceptedPromptID: session.acceptedPromptID, promptID: promptID,
             sessionID: id, revision: session.revision, state: "awaitingPrompt", prompt: session.prompt) {
@@ -1370,6 +1390,12 @@ final class V3OperationCenter {
     func answer(id: String, promptID: String, answer: [String: String]) -> [String: Any]? {
         guard let session = sessions[id], case nil = session.terminal.value,
               !session.terminal.isCancellationRequested else { return nil }
+        if V3PromptResponseStatePolicy.shouldReturnCurrentStateAfterAcceptedDuplicate(
+            acceptedPromptID: session.acceptedPromptID,
+            currentPromptID: session.prompt?["id"] as? String,
+            submittedPromptID: promptID) {
+            return poll(id: id)
+        }
         if let pending = V3PromptResponseStatePolicy.responsePending(.unavailable,
             acceptedPromptID: session.acceptedPromptID, promptID: promptID,
             sessionID: id, revision: 0, state: "working", prompt: session.prompt) {

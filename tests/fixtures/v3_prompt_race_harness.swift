@@ -31,6 +31,20 @@ struct PromptRaceHarness {
         precondition(pendingReply?["responsePending"] as? Bool == true &&
                      pendingReply?["state"] as? String == "awaitingPrompt",
                      "a lost reply for an accepted response remains pending rather than becoming expired")
+        precondition(V3PromptResponseStatePolicy.responsePending(.unavailable,
+            acceptedPromptID: "prompt-a", promptID: "prompt-a", sessionID: "session",
+            revision: 3, state: "awaitingPrompt", prompt: ["id": "prompt-b"]) == nil,
+            "a duplicate for prompt A must not label prompt B as an A response that is still pending")
+        precondition(V3PromptResponseStatePolicy.shouldReturnCurrentStateAfterAcceptedDuplicate(
+            acceptedPromptID: "prompt-a", currentPromptID: "prompt-b",
+            submittedPromptID: "prompt-a"),
+            "a delayed duplicate for A must return the already-installed prompt B")
+        let newerPromptCanApply = V3AuthPollResponsePolicy.mayApply(
+            currentSessionID: "session", replySessionID: "session",
+            cancellationInProgress: false, currentRevision: 3, replyRevision: 5,
+            currentPromptID: "prompt-a", replyPromptID: "prompt-b")
+        precondition(newerPromptCanApply,
+            "the authoritative poll for B must advance beyond A and be accepted after the duplicate response")
         let answer = try await waiter.value
         precondition(answer["action"] == "sms")
         precondition(center.pendingCount == 0, "answered continuation was retained")

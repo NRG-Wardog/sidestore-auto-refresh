@@ -227,6 +227,16 @@ class RefreshHandler: NSObject {
             throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
                 id: UUID().uuidString, retryable: true, safeCause: .operationInProgress)
         }
+        // The connection startup above suspends. Recheck shared scheduler
+        // ownership after resuming so a handoff or uncertain mutation created
+        // during that await cannot be overwritten by this direct run.
+        if schedulerRunID == nil && V3DirectRefreshPreflightPolicy.isBlocked(
+            activeRunID: sharedDefaults.string(forKey: "liveContainerAutoRefreshActiveRunID"),
+            hostHandoffPending: sharedDefaults.bool(forKey: "liveContainerAutoRefreshHostHandoff"),
+            uncertainMutationRunID: sharedDefaults.string(forKey: "liveContainerAutoRefreshUncertainMutationRunID")) {
+            throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
+                id: UUID().uuidString, retryable: true, safeCause: .operationInProgress)
+        }
         let token = UUID(); v3RefreshToken = token
         defer { if v3RefreshToken == token { v3RefreshToken = nil } }
         let directClaimID = schedulerRunID == nil ? UUID().uuidString : nil

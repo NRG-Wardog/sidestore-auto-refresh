@@ -73,6 +73,23 @@ struct IPAStagingHarness {
         let siblingContents = try String(contentsOf: sibling, encoding: .utf8)
         precondition(siblingContents == "keep",
                      "invalid token traversed outside staging")
+
+        let staging = V3IPAStaging.stagingDirectory(containerRoot: root)
+        let cleanupNow = Date()
+        let stale = staging.appendingPathComponent(UUID().uuidString.lowercased() + ".ipa")
+        let recent = staging.appendingPathComponent(UUID().uuidString.lowercased() + ".ipa")
+        let unrelated = staging.appendingPathComponent("notes.ipa")
+        try bytes.write(to: stale)
+        try bytes.write(to: recent)
+        try bytes.write(to: unrelated)
+        try fm.setAttributes([.modificationDate: cleanupNow.addingTimeInterval(-V3IPAStaging.orphanRetention - 1)],
+                             ofItemAtPath: stale.path)
+        let removedOrphans = try V3IPAStaging.cleanupOrphans(containerRoot: root, now: cleanupNow)
+        precondition(removedOrphans == 1,
+                     "startup cleanup removes only canonical IPA files older than the bounded operation lifetime")
+        precondition(!fm.fileExists(atPath: stale.path) && fm.fileExists(atPath: recent.path) &&
+                     fm.fileExists(atPath: unrelated.path),
+                     "recent staged files and unrelated directory entries remain untouched")
         print("V3_IPA_STAGING_PASS")
     }
 }

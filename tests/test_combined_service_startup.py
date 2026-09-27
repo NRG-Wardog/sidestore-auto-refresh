@@ -311,15 +311,22 @@ class StartupPatchTests(unittest.TestCase):
 
 
 class ReadinessRegressionTests(unittest.TestCase):
-    def test_generated_refresh_readiness_uses_identity_before_mutation_token(self):
+    def test_direct_refresh_rechecks_after_connection_and_uses_service_admission(self):
         generator = (ROOT / "scripts/patch_combined_service_startup.py").read_text(encoding="utf-8")
         handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
-        readiness_start = generator.index('handler = handler.replace("/*REFRESH_READINESS*/"')
-        readiness_end = generator.index('handler = handler.replace("/*SERVICE_PROBE*/"', readiness_start)
-        readiness_generator = generator[readiness_start:readiness_end]
-        self.assertIn("id: schedulerRunID ?? UUID().uuidString", generator)
-        self.assertNotIn("id: token.uuidString", readiness_generator)
-        self.assertLess(handler.index("/*REFRESH_READINESS*/"), handler.index("let token = UUID()"))
+        self.assertIn('handler = handler.replace("/*REFRESH_READINESS*/", "")', generator)
+        perform = handler[handler.index("private func performRefresh(identifier:"):]
+        perform = perform[:perform.index("private func releaseRefreshAdmission")]
+        preflights = [index for index in range(len(perform))
+                      if perform.startswith("V3DirectRefreshPreflightPolicy.isBlocked", index)]
+        self.assertEqual(len(preflights), 2,
+                         "a fast local check and a post-connect recheck must guard the non-suspending claim")
+        connected = perform.index("try await ensureServiceConnected()")
+        token = perform.index("let token = UUID()")
+        self.assertLess(preflights[0], connected)
+        self.assertLess(connected, preflights[1])
+        self.assertLess(preflights[1], token)
+        self.assertLess(token, perform.index('operation: "refreshAdmissionBegin"'))
 
     def test_pipeline_phase_hook_is_v3_only(self):
         source = """        do {

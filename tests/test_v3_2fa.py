@@ -144,7 +144,10 @@ class V3TwoFactorTests(unittest.TestCase):
         self.assertIn("acceptedPromptID", backend)
         self.assertIn('"responsePending": true', backend)
         self.assertIn('strictBool(reply["responsePending"]) == true', host)
-        self.assertIn("!promptSubmitting", host[host.index("func answer(promptID:"):])
+        self.assertIn("V3AuthPromptResponsePolicy.maySubmit", host[host.index("func answer(promptID:"):])
+        self.assertIn("shouldReturnCurrentStateAfterAcceptedDuplicate", backend)
+        self.assertIn("if replyPromptID != promptID", host)
+        self.assertIn("apply(reply)", host[host.index("if replyPromptID != promptID"):])
         self.assertIn("promptResponseGeneration &+= 1", host)
 
     def test_delivery_mode_selected_before_request(self):

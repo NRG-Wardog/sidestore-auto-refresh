@@ -114,6 +114,13 @@ struct OperationRetryFailureHarness {
         precondition(removedCatalogSource.whatToDo.contains("Return to Sources") &&
                      !removedCatalogSource.whatHappened.contains("service is not ready"),
                      "a removed source must not be mislabeled as a starting service")
+        let sourceAddFailure = V3OperationFailureDetails(CombinedFailure(
+            operation: "source", stage: .source, code: .invalidResponse,
+            id: UUID().uuidString, retryable: false, safeCause: .sourceInvalidManifest))
+        precondition(sourceAddFailure.whatHappened.contains("valid source") &&
+                     sourceAddFailure.recommendedAction.contains("Sources") &&
+                     !sourceAddFailure.recommendedAction.contains("signing"),
+                     "a failed source add must retain source-specific recovery instead of generic signing advice")
 
         // Separately model opStart returning busy before the second pipeline begins.
         let blockedSession = UUID().uuidString
@@ -139,6 +146,14 @@ struct OperationRetryFailureHarness {
         precondition(!deterministicRetryStart.whatToDo.lowercased().contains("retry could not start") &&
                      deterministicRetryStart.whatToDo.contains("operation could not start"),
                      "a first opStart failure must not be described as a failed retry")
+        var busyStart = V3OperationRetryContext()
+        busyStart.recordStartFailure(CombinedFailure(operation: "install", stage: .command,
+            code: .busy, id: UUID().uuidString, retryable: true,
+            safeCause: .operationInProgress))
+        precondition(busyStart.whatHappened.contains("another SideStore operation is still active") &&
+                     busyStart.whatToDo.contains("Wait for the active SideStore operation") &&
+                     busyStart.retryDisposition == .prerequisite,
+                     "a backend-rejected start must direct users to contention recovery without offering Retry")
         precondition(startContext.technicalDetails.contains("previous_attempt_failure:"))
         print("V3_RETRY_SIGNING_STAGE_AND_START_FAILURE_PASS")
     }

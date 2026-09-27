@@ -38,6 +38,7 @@ struct V3UnifiedTabs: View {
         .environment(\.v3StatusStore, status)
         .accessibilityIdentifier("V3_UNIFIED_SHELL_V1")
         .task {
+            status.cleanupOrphanedStagedIPAs()
             status.reload(manual: false)
             routePendingSetup()
             if !UserDefaults.standard.bool(forKey: "V3NotificationsPromptShown") {
@@ -179,6 +180,7 @@ struct V3UnifiedTabs: View {
         case "signIn": status.signInPresented = true
         case "certificates": status.certificatesPresented = true
         case "ipa": status.beginInstallPicker()
+        case "sources": sharedModel.selectedTab = .sources
         case "setup": status.setupPresented = true
         case "connection": status.connectionPresented = true
         default: break
@@ -1343,6 +1345,16 @@ final class V3SideStoreStatusStore: ObservableObject {
                         waitsForPickerDismissal: false)
     }
 
+    func cleanupOrphanedStagedIPAs() {
+        guard let container = LCSharedUtils.appGroupPath() else { return }
+        do {
+            _ = try V3IPAStaging.cleanupOrphans(containerRoot: container)
+        } catch {
+            // Do not expose paths or filenames in user-copyable logs.
+            debugLog("[V3_INSTALL_UI] orphan_cleanup_failed")
+        }
+    }
+
     private func stageIPA(_ url: URL, attemptID: UUID, bookmark: Data?, title: String,
                           waitsForPickerDismissal: Bool) -> String? {
         do {
@@ -2011,6 +2023,7 @@ struct V3SourcesView: View {
             failedSourceInput = url
         }
     }
+
     private func isSubmissionBlocked(for input: String) -> Bool {
         guard let sourceFailure else { return false }
         return !V3SourceSubmissionPolicy.mayResubmit(retryable: sourceFailure.retryable,
@@ -2603,6 +2616,7 @@ struct V3OperationSheet: View {
         case "certificates": return "Open Certificates"
         case "ipa": return "Choose IPA Again"
         case "connection": return "Open Connection Check"
+        case "sources": return "Open Sources"
         // This destination opens the Setup Assistant, so it must say so. It read
         // "Open Connection Check" while routing to the assistant, which is the
         // same class of mislabel as offering a connection retry for a source
@@ -3904,6 +3918,10 @@ final class V3AuthStore: ObservableObject {
                 currentReconciliationGeneration: reconciliationGate.generation,
                 cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled) else { return }
             state = "resultUnknown"
+            prompt = nil
+            promptSubmitting = false
+            deliveryProgressMessage = ""
+            twoFactorTransientStep = nil
             cancellationConfirmed = false
             message = snapshotConfirmed
                 ? "SideStore confirmed account status but could not confirm whether this sign-in attempt finished. Cancel the unconfirmed session before starting another attempt."
@@ -4137,8 +4155,10 @@ final class V3AuthStore: ObservableObject {
     }
 
     func answer(promptID: String, answer: [String: String]) {
-        guard !isCancelling, !promptSubmitting, !promptID.isEmpty, let session,
-              prompt?["id"] as? String == promptID else { return }
+        guard !promptID.isEmpty, let session,
+              V3AuthPromptResponsePolicy.maySubmit(state: state,
+                currentPromptID: prompt?["id"] as? String, submittedPromptID: promptID,
+                isSubmitting: promptSubmitting, cancellationInProgress: isCancelling) else { return }
         if promptResponseBlocked && !["cancel", "changeMethod"].contains(answer["action"] ?? "") { return }
         promptResponseDiagnostics = ""
         promptResponseBlocked = false
@@ -4183,6 +4203,19 @@ final class V3AuthStore: ObservableObject {
                 let reply = try await V3ServiceBridge.shared.request(operation: "authRespond", target: session,
                     payload: ["prompt": promptID, "answer": answer])
                 if V3ServiceBridge.strictBool(reply["responsePending"]) == true {
+                    let replyRevision = V3ServiceBridge.strictInt(reply["revision"])
+                    let replyPromptID = (reply["prompt"] as? [String: Any])?["id"] as? String
+                    if replyPromptID != promptID {
+                        guard V3AuthSessionResponsePolicy.mayApplyReply(
+                            currentSessionID: self.session,
+                            replySessionID: reply["session"] as? String ?? "",
+                            cancellationInProgress: self.isCancelling,
+                            currentRevision: self.revision,
+                            replyRevision: replyRevision) else { return }
+                        self.promptResponseGeneration &+= 1
+                        apply(reply)
+                        return
+                    }
                     guard V3AuthSessionResponsePolicy.mayApplyReply(
                         currentSessionID: self.session,
                         replySessionID: reply["session"] as? String ?? "",
@@ -4190,9 +4223,9 @@ final class V3AuthStore: ObservableObject {
                         submittedPromptID: promptID,
                         currentPromptID: self.prompt?["id"] as? String,
                         currentRevision: self.revision,
-                        replyRevision: V3ServiceBridge.strictInt(reply["revision"])) else { return }
+                        replyRevision: replyRevision) else { return }
                     self.promptResponseGeneration &+= 1
-                    self.revision = V3ServiceBridge.strictInt(reply["revision"]) ?? self.revision
+                    self.revision = replyRevision ?? self.revision
                     self.promptSubmitting = true
                     self.deliveryProgressMessage = "Your response is being processed..."
                     return

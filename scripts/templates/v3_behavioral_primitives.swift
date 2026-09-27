@@ -886,6 +886,12 @@ enum V3AuthPromptSubmissionPolicy {
 }
 
 enum V3AuthPromptResponsePolicy {
+    static func maySubmit(state: String, currentPromptID: String?, submittedPromptID: String,
+                          isSubmitting: Bool, cancellationInProgress: Bool) -> Bool {
+        state == "awaitingPrompt" && currentPromptID == submittedPromptID &&
+            !isSubmitting && !cancellationInProgress
+    }
+
     static func shouldClearSubmissionFailure(oldPromptID: String?, newPromptID: String?,
                                              state: String) -> Bool {
         state == "awaitingPrompt" && oldPromptID != newPromptID
@@ -2115,13 +2121,23 @@ struct V3OperationFailureDetails {
         if stage == CombinedFailure.Stage.authentication.rawValue ||
            stage == CombinedFailure.Stage.filePreparation.rawValue ||
            safeCause == CombinedFailure.SafeCause.certificateUnavailable.rawValue ||
-           safeCause == CombinedFailure.SafeCause.provisioningProfileUnavailable.rawValue {
+           safeCause == CombinedFailure.SafeCause.provisioningProfileUnavailable.rawValue ||
+           safeCause == CombinedFailure.SafeCause.operationInProgress.rawValue {
             return .prerequisite
         }
         return retryable == true ? .allowed : .unknown
     }
 
     var recoveryDestination: String? {
+        if operation == "source" ||
+           [CombinedFailure.SafeCause.sourceNetworkFailure.rawValue,
+            CombinedFailure.SafeCause.sourceInvalidManifest.rawValue,
+            CombinedFailure.SafeCause.sourcePersistenceUnverified.rawValue,
+            CombinedFailure.SafeCause.sourceInvalidURL.rawValue,
+            CombinedFailure.SafeCause.sourceAddBusy.rawValue,
+            CombinedFailure.SafeCause.catalogSourceUnavailable.rawValue].contains(safeCause ?? "") {
+            return "sources"
+        }
         if safeCause == CombinedFailure.SafeCause.pairingRequired.rawValue { return "pairing" }
         if stage == CombinedFailure.Stage.authentication.rawValue { return "signIn" }
         if stage == CombinedFailure.Stage.filePreparation.rawValue { return "ipa" }
@@ -2162,11 +2178,21 @@ struct V3OperationFailureDetails {
         case "certificates": return "Open Certificates"
         case "connection": return "Open Connection Check"
         case "pairing": return "Open Pairing File"
+        case "sources": return "Open Sources"
         default: return nil
         }
     }
 
     var recommendedAction: String {
+        if operation == "source" ||
+           [CombinedFailure.SafeCause.sourceNetworkFailure.rawValue,
+            CombinedFailure.SafeCause.sourceInvalidManifest.rawValue,
+            CombinedFailure.SafeCause.sourcePersistenceUnverified.rawValue,
+            CombinedFailure.SafeCause.sourceInvalidURL.rawValue,
+            CombinedFailure.SafeCause.sourceAddBusy.rawValue,
+            CombinedFailure.SafeCause.catalogSourceUnavailable.rawValue].contains(safeCause ?? "") {
+            return whatToDo
+        }
         switch safeCause {
         case CombinedFailure.SafeCause.responseEncodingFailed.rawValue:
             return "Copy Diagnostics and report that the service could not encode its response. Repeating the same request will not help."
@@ -2174,6 +2200,8 @@ struct V3OperationFailureDetails {
             return "Copy Diagnostics and report that the service reply exceeded the transfer limit. Repeating the same request will fail again."
         case CombinedFailure.SafeCause.pairingRequired.rawValue:
             return "Add the pairing file, then start the refresh again."
+        case CombinedFailure.SafeCause.operationInProgress.rawValue:
+            return "Wait for the active SideStore operation to finish, then start this action again."
         case CombinedFailure.SafeCause.staleRefreshAttempt.rawValue:
             return "This stale refresh request was not started. Return to Refresh and start a new refresh."
         case CombinedFailure.SafeCause.signingNetworkConnectionLost.rawValue:
@@ -2250,6 +2278,12 @@ struct V3OperationRetryContext {
     var whatHappened: String {
         guard let currentFailure else { return "The operation failed." }
         guard retryCouldNotStart else { return currentFailure.whatHappened }
+        if currentFailure.safeCause == CombinedFailure.SafeCause.operationInProgress.rawValue {
+            if let previousFailure {
+                return "The retry could not start because another SideStore operation is still active. Previous attempt: \(previousFailure.whatHappened)"
+            }
+            return "The operation could not start because another SideStore operation is still active."
+        }
         if let previousFailure {
             if ["timedOut", "interrupted"].contains(currentFailure.code) {
                 return "The retry could not be confirmed as started. The previous operation may still be active. Previous attempt: \(previousFailure.whatHappened)"
@@ -2265,6 +2299,9 @@ struct V3OperationRetryContext {
     var whatToDo: String {
         guard let currentFailure else { return "Review the operation and try again only when it is safe." }
         guard retryCouldNotStart else { return currentFailure.recommendedAction }
+        if currentFailure.safeCause == CombinedFailure.SafeCause.operationInProgress.rawValue {
+            return "Wait for the active SideStore operation to finish, then start a fresh attempt."
+        }
         if previousFailure != nil {
             return "The retry could not start. \(currentFailure.recommendedAction)"
         }
@@ -2486,6 +2523,18 @@ enum V3ProvisioningResumeAvailabilityPolicy {
         let current = currentAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let resumable = resumableAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return !current.isEmpty && current == resumable
+    }
+}
+
+enum V3ProvisioningResumeIdentityPolicy {
+    static func select(authenticatedSessionAppleID: String?, submittedAppleID: String?,
+                       activeAppleID: String?) -> String? {
+        for candidate in [authenticatedSessionAppleID, submittedAppleID, activeAppleID] {
+            guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  !value.isEmpty else { continue }
+            return value
+        }
+        return nil
     }
 }
 

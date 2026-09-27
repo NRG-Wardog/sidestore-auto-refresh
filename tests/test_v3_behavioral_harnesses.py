@@ -145,8 +145,10 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         begin = runtime.index("enum V3PromptAnswerDisposition:")
         end = runtime.index("\n@MainActor\nfinal class V3HeadlessRuntime", begin)
         prompt_center = runtime[begin:end]
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_prompt_race_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run("import Foundation\n" + prompt_center + "\n" + harness,
+        self.compile_and_run(failure + "\n" + helper + "\n" + prompt_center + "\n" + harness,
                              "V3_PROMPT_RACE_PASS")
 
     def test_typed_authentication_provisioning_and_ppq_context_execute(self):
