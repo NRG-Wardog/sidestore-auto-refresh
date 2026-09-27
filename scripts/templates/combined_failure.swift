@@ -141,6 +141,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case authAttemptNotDispatched
         case authProvisioningRetryNotDispatched
         case authSessionUnavailable
+        case authResponseCapacityUnavailable
 
         fileprivate var inferredRetryable: Bool? {
             switch self {
@@ -189,6 +190,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return true
             case .authSessionUnavailable:
                 return false
+            case .authResponseCapacityUnavailable:
+                return true
             }
         }
     }
@@ -301,6 +304,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .authAttemptNotDispatched: return "SideStore did not start this sign-in attempt, so Apple authentication was not submitted."
             case .authProvisioningRetryNotDispatched: return "SideStore did not start the provisioning retry; the saved authentication session was not changed by this request."
             case .authSessionUnavailable: return "SideStore no longer has the active sign-in session."
+            case .authResponseCapacityUnavailable: return "SideStore could not start sign-in because it cannot safely reserve a response slot yet."
             }
         }
         switch stage {
@@ -493,6 +497,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Retry provisioning when the displayed prerequisite is ready."
             case .authSessionUnavailable:
                 return "Open Account & Signing and start a new sign-in. SideStore will reconcile the current account before proceeding."
+            case .authResponseCapacityUnavailable:
+                return "Wait for SideStore to release earlier request results, reload account status, then try again. No Apple credentials were submitted."
             }
         }
         switch stage {
@@ -568,6 +574,14 @@ public struct CombinedFailure: Error, LocalizedError {
         ["install", "update"].contains(operation) && stage == .installation && Self.verificationDomains.contains(underlyingDomain)
     }
     public var errorDescription: String? { message + "\n" + recovery + "\n" + technicalDetails }
+    /// Bind this semantic failure to the request/reply transaction carrying it.
+    /// Session IDs and request IDs are distinct: an auth poll can discover a
+    /// missing session while answering a different, current XPC request.
+    public func correlating(to id: String) -> CombinedFailure {
+        CombinedFailure(operation: operation, stage: stage, code: code, id: id,
+            underlying: NSError(domain: underlyingDomain, code: underlyingCode),
+            retryable: retryable, safeCause: safeCause, sourceStep: sourceStep)
+    }
     public var wire: [String: Any] {
         var result: [String: Any] = ["version": 1, "operation": operation, "stage": stage.rawValue, "code": code.rawValue,
             "correlationID": correlationID, "underlyingDomain": underlyingDomain, "underlyingCode": underlyingCode]

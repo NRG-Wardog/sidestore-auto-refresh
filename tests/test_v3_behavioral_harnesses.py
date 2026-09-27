@@ -86,6 +86,28 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         harness = (ROOT / "tests/fixtures/v3_operation_phase_progress_harness.swift").read_text(encoding="utf-8")
         self.compile_and_run(failure + "\n" + helper + "\n" + harness, "V3_OPERATION_PHASE_PROGRESS_PASS")
 
+    def test_delete_completion_pending_callback_remains_reconcilable(self):
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_operation_terminal_harness.swift").read_text(encoding="utf-8")
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        poll = shell[shell.index("private func pollLoop(id: String, generation: UUID)"):]
+        poll = poll[:poll.index("private func answerPrompt(")]
+        apply = shell[shell.index("private func apply(_ reply: [String: Any], generation: UUID, sessionID: String)"):]
+        apply = apply[:apply.index("private func applyCompletionSettlement(")]
+        completion = shell[shell.index("private func applyCompletionSettlement("):]
+        completion = completion[:completion.index("private func answerPrompt(")]
+        self.assertIn("if V3OperationCompletionPolicy.shouldContinuePolling", poll)
+        self.assertIn("applyCompletionSettlement(reply, sessionID: sessionID)", apply)
+        self.assertIn("completed successfully", completion)
+        self.assertIn("completedAwaitingBackendSettlement", completion)
+        self.assertIn("if completionAwaitingSettlement", shell)
+        self.assertIn("lastCheck: lastLibraryCheckAt", runtime)
+        self.assertIn("V3DeleteReconciliationPolicy.shouldCheckLibrary", runtime)
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        self.compile_and_run(failure + "\n" + helper + "\n" + harness,
+                             "V3_OPERATION_CANCELLATION_TERMINAL_PASS")
+
     def test_source_add_persistence_and_duplicate_semantics_execute(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
@@ -205,8 +227,13 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         policy_start = helper.index("enum V3AuthTerminalPolicy {")
         policy_end = helper.index("\n}\n", policy_start) + len("\n}\n")
         policy = helper[policy_start:policy_end]
+        post_policy_start = helper.index("struct V3AuthPostAuthenticationFailurePresentation: Equatable {")
+        post_policy_end = helper.index("\n}\n", helper.index(
+            "enum V3AuthPostAuthenticationFailurePolicy {", post_policy_start)) + len("\n}\n")
+        post_policy = helper[post_policy_start:post_policy_end]
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_provisioning_typed_guidance_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run("import Foundation\n" + guidance + "\n" + policy + "\n" + harness,
+        self.compile_and_run(failure + "\n" + guidance + "\n" + policy + "\n" + post_policy + "\n" + harness,
                              "V3_PROVISIONING_TYPED_GUIDANCE_PASS")
 
     def test_auth_2fa_jitless_and_prerequisite_error_contracts_execute(self):

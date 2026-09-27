@@ -43,7 +43,9 @@ enum V3WireContract {
             return (nil, nil)
         }
         let rawID = envelope["id"] as? String
-        let id = rawID.flatMap { UUID(uuidString: $0)?.uuidString == $0 ? $0 : nil }
+        // Preserve the caller's spelling so reply correlation remains exact;
+        // UUID(uuidString:) accepts lowercase forms as valid UUIDs too.
+        let id = rawID.flatMap { UUID(uuidString: $0) != nil ? $0 : nil }
         let rawOperation = envelope["operation"] as? String
         let operation = rawOperation.flatMap { operations.contains($0) ? $0 : nil } ?? "command"
         return (id, operation)

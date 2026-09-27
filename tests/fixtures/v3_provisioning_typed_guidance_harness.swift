@@ -157,6 +157,19 @@ struct ProvisioningTypedGuidanceHarness {
             authoritativeAccountMatches: true, provisioningFailed: false, cancelled: false)
             == "completed")
 
+        let postAuthenticationPortalFailure = V3AuthPostAuthenticationFailurePolicy.resolve(
+            cancelled: false, savedSessionUnavailable: false)
+        precondition(postAuthenticationPortalFailure.stage == .provisioning &&
+                     postAuthenticationPortalFailure.message ==
+                        "Signed in successfully, but provisioning could not be completed." &&
+                     !postAuthenticationPortalFailure.message.lowercased().contains("authentication service"),
+            "a portal/certificate failure after authentication is reported as provisioning failure")
+        let postAuthenticationCancellation = V3AuthPostAuthenticationFailurePolicy.resolve(
+            cancelled: true, savedSessionUnavailable: false)
+        precondition(postAuthenticationCancellation.stage == .provisioning &&
+                     postAuthenticationCancellation.message.contains("Provisioning was cancelled"),
+            "cancelling after Apple authentication preserves successful sign-in state")
+
         print("V3_PROVISIONING_TYPED_GUIDANCE_PASS")
     }
 }

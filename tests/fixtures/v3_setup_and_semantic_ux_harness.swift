@@ -101,6 +101,19 @@ struct SetupAndSemanticUXHarness {
         precondition(sourceFailure.primaryAction == .retrySource,
                      "a source failure must offer Retry Source, not Retry Connection")
         precondition(sourceFailure.recoveryDestination == "sources")
+        let sourceCapacity = issue("source", "command",
+            CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue, retryable: true)
+        precondition(sourceCapacity.primaryAction == .dismiss &&
+                     sourceCapacity.retryDisposition == .prerequisite,
+            "a source request blocked by response capacity must wait instead of immediately repeating the request")
+        let signInCapacity = V3UserFacingIssue.make(
+            CombinedFailure(operation: "signIn", stage: .command, code: .busy,
+                id: UUID().uuidString, retryable: true,
+                safeCause: .authResponseCapacityUnavailable))
+        precondition(signInCapacity.recoveryDestination == "signIn" &&
+                     signInCapacity.primaryAction == .openAccount &&
+                     signInCapacity.retryDisposition == .prerequisite,
+            "a rejected auth start preserves the response-capacity prerequisite without blaming a connection")
         // A signing failure is a certificate problem, so it offers Certificates.
         let certFailure = issue("command", "signing")
         precondition(certFailure.primaryAction == .openCertificates,
@@ -120,8 +133,13 @@ struct SetupAndSemanticUXHarness {
         precondition(networkFailure.primaryAction == .retryConnection)
         precondition(networkFailure.recoveryDestination == "connection")
         let serviceFailure = issue("catalog", "serviceReadiness", retryable: true)
-        precondition(serviceFailure.primaryAction == .retryConnection,
-                     "service readiness is a connection-class failure")
+        precondition(serviceFailure.primaryAction != .retryConnection &&
+                     serviceFailure.recoveryDestination == nil,
+                     "embedded SideStore readiness is not proof that Connection Settings will help")
+        let serviceXPCFailure = issue("status", "xpcConnection", retryable: true)
+        precondition(serviceXPCFailure.primaryAction != .retryConnection &&
+                     serviceXPCFailure.recoveryDestination == nil,
+                     "an interrupted SideStore XPC session does not route to VPN settings")
         let sourceNotReady = CombinedFailure(operation: "source", stage: .serviceReadiness,
             code: .notReady, id: UUID().uuidString, retryable: true)
         let sourceNotReadyIssue = V3UserFacingIssue.make(sourceNotReady)

@@ -152,7 +152,8 @@ class ServiceSidePropagationTests(unittest.TestCase):
         wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         self.assertIn('operations.contains($0) ? $0 : nil', wire)
         self.assertIn("guard data.count <= requestLimit", wire)
-        self.assertIn("UUID(uuidString: $0)?.uuidString == $0", wire)
+        self.assertIn("UUID(uuidString: $0) != nil ? $0 : nil", wire)
+        self.assertIn("UUID(uuidString:) accepts lowercase forms as valid UUIDs too", wire)
         for forbidden in ("payload", "target", "deadline"):
             self.assertNotIn(f'["{forbidden}"]', builder)
 

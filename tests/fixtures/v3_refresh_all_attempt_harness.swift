@@ -8,6 +8,17 @@ struct RefreshAllAttemptHarness {
         let newRequest = UUID().uuidString
         let newRun = UUID().uuidString
 
+        precondition(V3RefreshAllButtonPresentationPolicy.title(phase: .idle,
+            activeRunID: oldRun) == "Refresh Already Running" &&
+                     V3RefreshAllButtonPresentationPolicy.explainsConcurrentRun(
+                        phase: .idle, activeRunID: oldRun),
+            "a manager or scheduled refresh visibly explains why Home cannot start another run")
+        precondition(V3RefreshAllButtonPresentationPolicy.title(phase: .idle,
+            activeRunID: "") == "Refresh All" &&
+                     V3RefreshAllButtonPresentationPolicy.title(phase: .starting,
+                        activeRunID: oldRun) == "Starting Refresh...",
+            "the concurrent-run explanation does not change this attempt's own visible stages")
+
         func manifest(_ runID: String) -> [String: Any] {
             ["version": 2, "schema": "LiveContainerRefreshManifestV2", "run_id": runID,
              "expected_ids": ["fixture.app"],

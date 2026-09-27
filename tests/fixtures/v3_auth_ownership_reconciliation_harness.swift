@@ -2,7 +2,7 @@ import Foundation
 
 @main
 struct AuthOwnershipReconciliationHarness {
-    static func main() {
+    static func main() throws {
         let now = Date(timeIntervalSince1970: 20_000)
         let deadline = now.addingTimeInterval(600)
         let prior = UUID().uuidString
@@ -234,21 +234,40 @@ struct AuthOwnershipReconciliationHarness {
             now: deadline, sessionDeadline: deadline),
             "the replacement monitor owns deadline handling instead of abandoning a superseded prompt")
 
+        let authRequestID = UUID().uuidString
         let missingSession = CombinedFailure(operation: "signIn", stage: .authentication,
             code: .invalidResponse, id: current, retryable: false,
             safeCause: .authSessionUnavailable)
         precondition(!V3AuthPollRecoveryPolicy.isTransientTransportFailure(missingSession))
         let unavailableEnvelope: [String: Any] = [
-            "version": 1, "id": current, "failure": missingSession.wire
+            "version": 1, "id": authRequestID,
+            "failure": missingSession.correlating(to: authRequestID).wire
         ]
         let unavailableBytes = try PropertyListSerialization.data(fromPropertyList: unavailableEnvelope,
             format: .binary, options: 0)
         let unavailableReply = try PropertyListSerialization.propertyList(from: unavailableBytes,
             format: nil) as! [String: Any]
         let decodedUnavailable = CombinedFailure.decode(
-            unavailableReply["failure"] as! [String: Any], expectedID: current)
+            unavailableReply["failure"] as! [String: Any], expectedID: authRequestID)
         precondition(decodedUnavailable?.safeCause == .authSessionUnavailable,
-            "a retired auth session keeps its typed cause across the property-list boundary")
+            "a retired auth session keeps its typed cause when rebound to the poll request UUID")
+        precondition(decodedUnavailable?.correlationID == authRequestID &&
+                     decodedUnavailable?.stage == .authentication &&
+                     decodedUnavailable?.retryable == false &&
+                     CombinedFailure.decode(missingSession.wire, expectedID: authRequestID) == nil,
+            "the failure uses request correlation while retaining the separate session failure semantics")
+        var unavailableOwnership = V3AuthSessionOwnership()
+        unavailableOwnership.register(sessionID: current, deadline: deadline, now: now)
+        precondition(V3AuthSessionUnavailablePolicy.shouldRetireOwnership(
+            sessionID: current, currentSessionID: current, failure: decodedUnavailable!))
+        unavailableOwnership.clear(sessionID: current)
+        precondition(!unavailableOwnership.hasActiveSession(now: now),
+            "a validated missing-session cause clears only its host-side mutation owner")
+        unavailableOwnership.register(sessionID: prior, deadline: deadline, now: now)
+        precondition(!V3AuthSessionUnavailablePolicy.shouldRetireOwnership(
+            sessionID: current, currentSessionID: prior, failure: decodedUnavailable!) &&
+                     unavailableOwnership.owns(prior, now: now),
+            "a late failure cannot clear ownership for a newer sign-in session")
         let missingSessionUI = V3AuthSessionUnavailablePolicy.resolve(
             authenticated: false, provisioningIncomplete: false, snapshotConfirmed: true,
             safeMessage: missingSession.safeMessage, recovery: missingSession.recovery)
@@ -335,6 +354,17 @@ struct AuthOwnershipReconciliationHarness {
         precondition(provisioningNotDispatched.safeCause == .authProvisioningRetryNotDispatched &&
                      provisioningNotDispatched.safeMessage.contains("provisioning retry"),
                      "a rejected provisioning retry keeps its own non-dispatch meaning")
+        let authCapacityFailure = V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(
+            CombinedFailure(operation: "authBegin", stage: .command, code: .busy,
+                id: authRequestID, retryable: true,
+                safeCause: .responseCapacityUnavailable))
+        let authCapacityDetails = V3OperationFailureDetails(authCapacityFailure)
+        precondition(V3AuthAttemptStartFailurePolicy.isConfirmedNotDispatched(authCapacityFailure) &&
+                     authCapacityFailure.safeCause == .authResponseCapacityUnavailable &&
+                     authCapacityFailure.recovery.contains("release earlier request results") &&
+                     authCapacityDetails.retryDisposition == .prerequisite &&
+                     authCapacityDetails.recommendedAction.contains("reload status"),
+            "a reply-capacity rejection remains distinct from an active operation and submits no Apple credentials")
         precondition(!V3ProvisioningRetryRecoveryPolicy.availabilityAfterFailure(
             snapshotConfirmed: true, snapshotAllowsRetry: false, previouslyConfirmedAvailable: true),
             "a confirmed unavailable session cannot be overwritten by a retry catch")
@@ -409,6 +439,14 @@ struct AuthOwnershipReconciliationHarness {
         precondition(malformedDiagnostics.contains("underlying=redacted/unknown") &&
                      malformedDiagnostics.hasSuffix("retryable=unknown"),
             "malformed diagnostic NSNumber values stay unknown rather than becoming false values")
+
+        let lowercaseID = UUID().uuidString.lowercased()
+        let lowercaseInvalidRequest = try PropertyListSerialization.data(fromPropertyList: [
+            "id": lowercaseID, "operation": "authPoll", "unexpected": true
+        ] as [String: Any], format: .binary, options: 0)
+        let lowercaseIdentity = V3WireContract.invalidRequestIdentity(from: lowercaseInvalidRequest)
+        precondition(lowercaseIdentity.id == lowercaseID,
+            "invalid-request replies retain a valid lowercase UUID for exact caller correlation")
 
         print("V3_AUTH_OWNERSHIP_RECONCILIATION_PASS")
     }

@@ -352,6 +352,26 @@ enum V3AuthTerminalPolicy {
     }
 }
 
+struct V3AuthPostAuthenticationFailurePresentation: Equatable {
+    let stage: CombinedFailure.Stage
+    let message: String
+}
+
+enum V3AuthPostAuthenticationFailurePolicy {
+    static func resolve(cancelled: Bool, savedSessionUnavailable: Bool)
+        -> V3AuthPostAuthenticationFailurePresentation {
+        let message: String
+        if savedSessionUnavailable {
+            message = "Signed in successfully, but SideStore could not reuse the saved Apple session to retry provisioning. Sign in again with this Apple ID before retrying setup."
+        } else if cancelled {
+            message = "Signed in successfully. Provisioning was cancelled before setup finished."
+        } else {
+            message = "Signed in successfully, but provisioning could not be completed."
+        }
+        return V3AuthPostAuthenticationFailurePresentation(stage: .provisioning, message: message)
+    }
+}
+
 enum V3AuthAttemptAuthenticationPolicy {
     private static func normalized(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -763,6 +783,10 @@ struct V3OperationAttemptState {
         self.generation == generation && self.sessionID == sessionID && !isTerminal
     }
 
+    func owns(generation: UUID, sessionID: String) -> Bool {
+        self.generation == generation && self.sessionID == sessionID
+    }
+
     @discardableResult
     mutating func accept(state: String, generation: UUID, sessionID: String) -> Bool {
         guard matches(generation: generation, sessionID: sessionID) else { return false }
@@ -1005,6 +1029,12 @@ struct V3AuthStartCancellationRegistry {
 
 enum V3DeleteReconciliationPolicy {
     static let callbackGrace: TimeInterval = 5
+    static let libraryRecheckInterval: TimeInterval = 15
+
+    static func shouldCheckLibrary(lastCheck: Date?, now: Date) -> Bool {
+        guard let lastCheck else { return true }
+        return now.timeIntervalSince(lastCheck) >= libraryRecheckInterval
+    }
 
     static func shouldRequestCancellation(deadlineElapsed: Bool, backendPending: Bool,
                                          cancellationAlreadyRequested: Bool) -> Bool {
@@ -1023,6 +1053,38 @@ enum V3DeleteReconciliationPolicy {
 
     static func shouldReleaseMutationOwnership(backendSettled: Bool) -> Bool {
         backendSettled
+    }
+}
+
+enum V3OperationCompletionDisposition: Equatable {
+    case notCompleted
+    case completed
+    case completedAwaitingBackendSettlement
+}
+
+enum V3OperationCompletionPolicy {
+    static func disposition(state: String, backendSettled: Bool?) -> V3OperationCompletionDisposition {
+        guard state == "completed" else { return .notCompleted }
+        return backendSettled == true ? .completed : .completedAwaitingBackendSettlement
+    }
+
+    static func shouldContinuePolling(state: String, backendSettled: Bool?) -> Bool {
+        disposition(state: state, backendSettled: backendSettled) == .completedAwaitingBackendSettlement
+    }
+
+    static func requiresDeviceCheck(state: String, backendSettled: Bool?,
+                                    deviceCheckConfirmed: Bool) -> Bool {
+        shouldContinuePolling(state: state, backendSettled: backendSettled) && !deviceCheckConfirmed
+    }
+
+    static func mayDismiss(state: String, backendSettled: Bool?,
+                           deviceCheckConfirmed: Bool = false) -> Bool {
+        !requiresDeviceCheck(state: state, backendSettled: backendSettled,
+                             deviceCheckConfirmed: deviceCheckConfirmed)
+    }
+
+    static func pollInterval(state: String, backendSettled: Bool?) -> TimeInterval {
+        shouldContinuePolling(state: state, backendSettled: backendSettled) ? 5 : 1
     }
 }
 
@@ -1204,6 +1266,22 @@ enum V3ExtensionRemovalPromptPolicy {
 
 enum V3RefreshAllPhase: String {
     case idle, starting, refreshing, verifying, completed, failed
+}
+
+enum V3RefreshAllButtonPresentationPolicy {
+    static func title(phase: V3RefreshAllPhase, activeRunID: String) -> String {
+        switch phase {
+        case .starting: return "Starting Refresh..."
+        case .refreshing: return "Refreshing..."
+        case .verifying: return "Verifying..."
+        case .idle where !activeRunID.isEmpty: return "Refresh Already Running"
+        default: return "Refresh All"
+        }
+    }
+
+    static func explainsConcurrentRun(phase: V3RefreshAllPhase, activeRunID: String) -> Bool {
+        phase == .idle && !activeRunID.isEmpty
+    }
 }
 
 enum V3RefreshAllTerminalEvidencePolicy {
@@ -1615,6 +1693,7 @@ struct V3UserFacingIssue: Equatable {
                      whatHappened: String, whatToDo: String, technicalDetails: String) -> V3UserFacingIssue {
         let destination: String? = {
             if safeCause == CombinedFailure.SafeCause.pairingRequired.rawValue { return "pairing" }
+            if safeCause == CombinedFailure.SafeCause.authResponseCapacityUnavailable.rawValue { return "signIn" }
             if safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue ||
                safeCause == CombinedFailure.SafeCause.sourceRemoveBusy.rawValue { return "sources" }
             if operation == "source" && stage == CombinedFailure.Stage.serviceReadiness.rawValue {
@@ -1629,18 +1708,12 @@ struct V3UserFacingIssue: Equatable {
                 || stage == CombinedFailure.Stage.signing.rawValue {
                 return "certificates"
             }
-            if operation == "source" && stage == CombinedFailure.Stage.xpcConnection.rawValue {
-                return "connection"
-            }
             if operation == "source" || sourceStep == CombinedFailure.SourceStep.manifestParsing.rawValue
                 || sourceStep == CombinedFailure.SourceStep.sourceDownload.rawValue {
                 return "sources"
             }
             // Only these stages actually implicate connectivity or readiness.
             if stage == CombinedFailure.Stage.network.rawValue
-                || stage == CombinedFailure.Stage.xpcConnection.rawValue
-                || stage == CombinedFailure.Stage.extensionLaunch.rawValue
-                || stage == CombinedFailure.Stage.serviceReadiness.rawValue
                 || stage == CombinedFailure.Stage.coreDevice.rawValue
                 || stage == CombinedFailure.Stage.cdTunnel.rawValue
                 || stage == CombinedFailure.Stage.rsdDiscovery.rawValue
@@ -1677,6 +1750,7 @@ struct V3UserFacingIssue: Equatable {
                    safeCause == CombinedFailure.SafeCause.sourceInvalidURL.rawValue { return .openSources }
                 if [CombinedFailure.SafeCause.responseEncodingFailed.rawValue,
                     CombinedFailure.SafeCause.responseTooLarge.rawValue,
+                    CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue,
                     CombinedFailure.SafeCause.operationInProgress.rawValue].contains(safeCause ?? "") {
                     return .dismiss
                 }
@@ -1693,6 +1767,10 @@ struct V3UserFacingIssue: Equatable {
         }()
 
         let disposition: V3RetryDisposition = {
+            if safeCause == CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue ||
+               safeCause == CombinedFailure.SafeCause.authResponseCapacityUnavailable.rawValue {
+                return .prerequisite
+            }
             if retryable == false { return .blocked }
             if destination == "connection" && retryable == true { return .allowed }
             if retryable == true { return .allowed }
@@ -2207,7 +2285,8 @@ struct V3OperationFailureDetails {
            safeCause == CombinedFailure.SafeCause.certificateUnavailable.rawValue ||
            safeCause == CombinedFailure.SafeCause.provisioningProfileUnavailable.rawValue ||
            safeCause == CombinedFailure.SafeCause.operationInProgress.rawValue ||
-           safeCause == CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue {
+           safeCause == CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue ||
+           safeCause == CombinedFailure.SafeCause.authResponseCapacityUnavailable.rawValue {
             return .prerequisite
         }
         return retryable == true ? .allowed : .unknown
@@ -2224,6 +2303,7 @@ struct V3OperationFailureDetails {
             return "sources"
         }
         if safeCause == CombinedFailure.SafeCause.pairingRequired.rawValue { return "pairing" }
+        if safeCause == CombinedFailure.SafeCause.authResponseCapacityUnavailable.rawValue { return "signIn" }
         if stage == CombinedFailure.Stage.authentication.rawValue { return "signIn" }
         if stage == CombinedFailure.Stage.filePreparation.rawValue { return "ipa" }
         if safeCause == CombinedFailure.SafeCause.signingNetworkConnectionLost.rawValue ||
@@ -2232,9 +2312,6 @@ struct V3OperationFailureDetails {
             return "connection"
         }
         if stage == CombinedFailure.Stage.network.rawValue ||
-           stage == CombinedFailure.Stage.xpcConnection.rawValue ||
-           stage == CombinedFailure.Stage.extensionLaunch.rawValue ||
-           stage == CombinedFailure.Stage.serviceReadiness.rawValue ||
            safeCause == CombinedFailure.SafeCause.networkConnectionLost.rawValue ||
            safeCause == CombinedFailure.SafeCause.networkTimedOut.rawValue ||
            safeCause == CombinedFailure.SafeCause.networkUnavailable.rawValue ||
@@ -2269,6 +2346,10 @@ struct V3OperationFailureDetails {
     }
 
     var recommendedAction: String {
+        if safeCause == CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue ||
+           safeCause == CombinedFailure.SafeCause.authResponseCapacityUnavailable.rawValue {
+            return "Wait for SideStore to release earlier request results, reload status, then try again."
+        }
         switch safeCause ?? "" {
         case CombinedFailure.SafeCause.sourceNetworkFailure.rawValue:
             return "Open Sources. Check the network, then retry adding the source."
@@ -2784,6 +2865,12 @@ struct V3AuthSessionUnavailablePresentation: Equatable {
 }
 
 enum V3AuthSessionUnavailablePolicy {
+    static func shouldRetireOwnership(sessionID: String, currentSessionID: String?,
+                                      failure: CombinedFailure) -> Bool {
+        currentSessionID == sessionID && failure.operation == "signIn" &&
+            failure.stage == .authentication && failure.safeCause == .authSessionUnavailable
+    }
+
     static func resolve(authenticated: Bool, provisioningIncomplete: Bool,
                         snapshotConfirmed: Bool, safeMessage: String,
                         recovery: String) -> V3AuthSessionUnavailablePresentation {
@@ -3018,8 +3105,13 @@ enum V3AuthAttemptStartFailurePolicy {
                                        operation: String = "authBegin") -> CombinedFailure {
         let underlying: NSError? = failure.underlyingDomain == "none" && failure.underlyingCode == 0
             ? nil : NSError(domain: failure.underlyingDomain, code: failure.underlyingCode)
-        let cause: CombinedFailure.SafeCause = operation == "authRetryProvisioning"
-            ? .authProvisioningRetryNotDispatched : .authAttemptNotDispatched
+        let cause: CombinedFailure.SafeCause
+        if failure.safeCause == .responseCapacityUnavailable {
+            cause = .authResponseCapacityUnavailable
+        } else {
+            cause = operation == "authRetryProvisioning"
+                ? .authProvisioningRetryNotDispatched : .authAttemptNotDispatched
+        }
         return CombinedFailure(operation: "signIn", stage: failure.stage, code: failure.code,
             id: failure.correlationID, underlying: underlying,
             retryable: true, safeCause: cause)
@@ -3027,7 +3119,8 @@ enum V3AuthAttemptStartFailurePolicy {
 
     static func isConfirmedNotDispatched(_ failure: CombinedFailure) -> Bool {
         failure.safeCause == .authAttemptNotDispatched ||
-            failure.safeCause == .authProvisioningRetryNotDispatched
+            failure.safeCause == .authProvisioningRetryNotDispatched ||
+            failure.safeCause == .authResponseCapacityUnavailable
     }
 }
 

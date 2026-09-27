@@ -152,6 +152,11 @@ public final class V3ServiceBridge {
     public func hasUncertainOperationSession(_ sessionID: String) -> Bool {
         uncertainOperationSessions.contains(sessionID)
     }
+    /// Clear only a host owner for a session SideStore explicitly reports as
+    /// unavailable. Transport loss and malformed replies retain ownership.
+    public func confirmAuthSessionUnavailable(sessionID: String) {
+        authSessionOwnership.clear(sessionID: sessionID)
+    }
     public var processID: Int32 { RefreshHandler.shared.sideStorePid }
 
     init(readTimeout: TimeInterval = 30, commandTimeout: TimeInterval = 600, cancellationGrace: TimeInterval = 3) {

@@ -307,6 +307,11 @@ final class V3SideStoreService: NSObject {
                 } else if operation == "catalog" {
                     response["failure"] = CombinedFailure(operation: "catalog", stage: .catalog, code: .failed,
                         id: id, underlying: error, safeCause: .catalogUnavailable, sourceStep: .catalogRead).wire
+                } else if let structuredFailure = error as? CombinedFailure {
+                    // V3_WIRE_FAILURE_CORRELATION_V1: preserve the typed cause
+                    // but correlate the reply to this XPC request, not to the
+                    // auth/operation session that caused the failure.
+                    response["failure"] = structuredFailure.correlating(to: id).wire
                 } else {
                     response["failure"] = CombinedFailure.capture(error, operation: operation, stage: stage, id: id).wire
                 }

@@ -36,6 +36,13 @@ class ServicePatchTests(unittest.TestCase):
         self.assertIn("stage: .authentication", poll)
         self.assertIn("retryable: false", poll)
 
+    def test_typed_service_failure_is_correlated_to_reply_request_id(self):
+        source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        receive = source[source.index("private func receive("):source.index("private func invalidRequestReply")]
+        self.assertIn("structuredFailure.correlating(to: id).wire", receive)
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        self.assertIn("public func correlating(to id: String)", failure)
+
     def test_prompt_session_history_has_no_removed_single_identifier_reference(self):
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
         self.assertIsNone(re.search(r"\bsession\.acceptedPromptID\b", runtime))

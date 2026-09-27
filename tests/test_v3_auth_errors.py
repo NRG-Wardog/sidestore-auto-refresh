@@ -98,12 +98,17 @@ class V3AuthErrorTests(unittest.TestCase):
         host = shell()
         self.assertIn('"authenticatedProvisioningIncomplete"', runtime_text)
         self.assertIn("V3AuthTerminalPolicy.resolve", runtime_text)
-        self.assertIn("Signed in successfully, but provisioning could not be completed.", runtime_text)
+        self.assertIn("V3AuthPostAuthenticationFailurePolicy.resolve", runtime_text)
+        self.assertIn("postAuthentication.stage", runtime_text)
+        post_auth = runtime_text[runtime_text.index('if authenticatedOutcome == "authenticatedProvisioningIncomplete"'):]
+        post_auth = post_auth[:post_auth.index('} else if cancelled {')]
+        self.assertNotIn("v3ClassifyAuthError(error)", post_auth)
+        self.assertNotIn('response["failureKind"]', post_auth)
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         self.assertIn('case "authenticatedProvisioningIncomplete"', primitives)
         self.assertIn("V3AuthStatusTextPolicy.label", host)
         self.assertNotIn('message = "Sign-in failed."', host)
-        self.assertIn('response["failureKind"] = authKind.rawValue', runtime_text)
+        self.assertIn('wire["kind"] = kind.rawValue', runtime_text)
         self.assertIn('reply["failureKind"] as? String', host)
 
     def test_reconciled_transport_failure_remains_visible_without_claiming_attempt_success(self):
@@ -129,8 +134,12 @@ class V3AuthErrorTests(unittest.TestCase):
     def test_provisioning_retry_keeps_typed_anisette_and_network_guidance(self):
         runtime_text = runtime()
         host = shell()
-        self.assertIn("v3AuthFailureStage(authKind)", runtime_text)
-        self.assertIn('response["failureKind"] = authKind.rawValue', runtime_text)
+        self.assertIn("V3AuthPostAuthenticationFailurePolicy.resolve", runtime_text)
+        post_auth = runtime_text[runtime_text.index('if authenticatedOutcome == "authenticatedProvisioningIncomplete"'):]
+        post_auth = post_auth[:post_auth.index('} else if cancelled {')]
+        self.assertNotIn("v3ClassifyAuthError(error)", post_auth)
+        auth_failure = runtime_text[runtime_text.index("} else {\n                let failure = CombinedFailure.capture(error, operation: \"signIn\"") :]
+        self.assertIn("v3ClassifyAuthError(error)", auth_failure)
         self.assertIn('V3AuthStore.failureMessage(from: ["kind": failureKind])', host)
 
     def test_reauthentication_cancellation_reconciles_preexisting_account_state(self):

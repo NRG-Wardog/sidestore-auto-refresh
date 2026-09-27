@@ -512,6 +512,12 @@ struct V3RefreshAllButton: View {
             }
             .disabled(isBusy || isTerminal || !activeRun.isEmpty || status.presentation != nil || status.loading)
             .accessibilityValue(health.replacingOccurrences(of: "_", with: " ").lowercased())
+            if V3RefreshAllButtonPresentationPolicy.explainsConcurrentRun(
+                phase: attempt.phase, activeRunID: activeRun) {
+                Text("A scheduled or manager refresh is already running. Refresh All will be available when it finishes.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
             if phase == "completed" || phase == "failed" {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("What happened").font(.caption.weight(.semibold))
@@ -567,12 +573,7 @@ struct V3RefreshAllButton: View {
     private var isBusy: Bool { ["starting", "refreshing", "verifying"].contains(phase) }
     private var isTerminal: Bool { ["completed", "failed"].contains(phase) }
     private var buttonTitle: String {
-        switch phase {
-        case "starting": return "Starting Refresh..."
-        case "refreshing": return "Refreshing..."
-        case "verifying": return "Verifying..."
-        default: return "Refresh All"
-        }
+        V3RefreshAllButtonPresentationPolicy.title(phase: attempt.phase, activeRunID: activeRun)
     }
 
     private func start() {
@@ -2611,6 +2612,8 @@ struct V3OperationSheet: View {
     @State private var state = "working"
     @State private var progress = 0.0
     @State private var hasProgress = false
+    @State private var terminalBackendSettled: Bool?
+    @State private var deviceCheckConfirmedForCompletion = false
     @State private var operationPhase = V3OperationPhase.working
     @State private var prompt: [String: Any]?
     @State private var sourceOffer: [String: String]?
@@ -2666,6 +2669,11 @@ struct V3OperationSheet: View {
     private var isRunning: Bool { ["working", "awaitingPrompt", "cancelling"].contains(state) }
     private var displayProgress: Double { V3NormalizedProgress.displayValue(progress, state: state) }
     private var progressPercent: Int { V3NormalizedProgress.percent(progress, state: state) }
+    private var completionAwaitingSettlement: Bool {
+        V3OperationCompletionPolicy.requiresDeviceCheck(state: state,
+            backendSettled: terminalBackendSettled,
+            deviceCheckConfirmed: deviceCheckConfirmedForCompletion)
+    }
     var body: some View {
         NavigationView {
             List {
@@ -2768,8 +2776,14 @@ struct V3OperationSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(isRunning ? "Cancel" : "Done") {
-                        if isRunning { cancelAttempt() } else { acknowledgeAndDismiss() }
+                    Button(isRunning ? "Cancel" : (completionAwaitingSettlement ? "Reconcile" : "Done")) {
+                        if isRunning {
+                            cancelAttempt()
+                        } else if completionAwaitingSettlement {
+                            confirmUncertainRetirement = true
+                        } else {
+                            acknowledgeAndDismiss()
+                        }
                     }
                     .disabled(isTransitioning)
                 }
@@ -2958,26 +2972,46 @@ struct V3OperationSheet: View {
     private func confirmUncertainOperationAfterDeviceCheck() {
         guard let sessionID = uncertainSessionID else { return }
         guard V3ServiceBridge.shared.confirmUncertainOperationAfterDeviceCheck(sessionID: sessionID) else {
+            uncertainSessionID = nil
             needsDeviceConfirmation = false
             retryBlocked = true
-            message = "The operation has settled. Reload app status before starting another mutation."
-            whatToDo = "Check the installed app list and verify the result."
+            if state == "completed" {
+                terminalBackendSettled = true
+                deviceCheckConfirmedForCompletion = true
+                message = request.operation == "delete"
+                    ? "The app removal is verified and SideStore has finished the operation cleanup."
+                    : request.title + " completed successfully."
+                whatToDo = "Reload app status to confirm the result."
+            } else {
+                message = "The operation has settled. Reload app status before starting another mutation."
+                whatToDo = "Check the installed app list and verify the result."
+            }
             status.reload()
             return
         }
         uncertainSessionID = nil
         needsDeviceConfirmation = false
         retryBlocked = true
+        deviceCheckConfirmedForCompletion = state == "completed"
         status.reload()
-        message = "SideStore restarted after your device check. The previous operation result remains unknown."
-        whatToDo = "Wait for app status to reload, then verify the installed app before starting another operation."
-        technicalDetails += " service_retired_after_user_confirmation=yes outcome=unknown"
+        if state == "completed" {
+            message = "The app removal was verified. SideStore was restarted to clear a delete callback that did not settle."
+            whatToDo = "Reload app status to confirm the app remains absent, then tap Done."
+            technicalDetails += " service_retired_after_user_confirmation=yes delete_verified=yes"
+        } else {
+            message = "SideStore restarted after your device check. The previous operation result remains unknown."
+            whatToDo = "Wait for app status to reload, then verify the installed app before starting another operation."
+            technicalDetails += " service_retired_after_user_confirmation=yes outcome=unknown"
+        }
     }
     private func pollLoop(id: String, generation: UUID) async throws {
         while !Task.isCancelled {
-            try await Task.sleep(nanoseconds: 1_000_000_000)
+            let interval = V3OperationCompletionPolicy.pollInterval(
+                state: state, backendSettled: terminalBackendSettled)
+            try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             try Task.checkCancellation()
-            guard attempt.matches(generation: generation, sessionID: id) else { return }
+            guard attempt.owns(generation: generation, sessionID: id),
+                  !attempt.isTerminal || completionAwaitingSettlement else { return }
             let reply = try await V3ServiceBridge.shared.request(operation: "opPoll", target: id)
             guard let current = reply["state"] as? String else {
                 throw NSError(domain: "V3Operation", code: 2,
@@ -2985,11 +3019,23 @@ struct V3OperationSheet: View {
             }
             guard reply["session"] as? String == id else { return }
             apply(reply, generation: generation, sessionID: id)
+            if V3OperationCompletionPolicy.shouldContinuePolling(state: current,
+                backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"])) {
+                continue
+            }
             guard current == "working" || current == "awaitingPrompt" || current == "cancelling" else { return }
         }
     }
     private func apply(_ reply: [String: Any], generation: UUID, sessionID: String) {
-        guard let nextState = reply["state"] as? String,
+        guard let nextState = reply["state"] as? String else { return }
+        if nextState == "completed", state == "completed",
+           attempt.owns(generation: generation, sessionID: sessionID) {
+            let wasAwaitingSettlement = completionAwaitingSettlement
+            applyCompletionSettlement(reply, sessionID: sessionID)
+            if wasAwaitingSettlement && !completionAwaitingSettlement { status.reload() }
+            return
+        }
+        guard
               attempt.accept(state: nextState, generation: generation, sessionID: sessionID) else { return }
         state = nextState
         if !["working", "awaitingPrompt", "cancelling"].contains(nextState) {
@@ -3015,11 +3061,7 @@ struct V3OperationSheet: View {
             // Terminal success stays visible until the user presses Done.
             // Auto-dismissing here made successful fast operations look like
             // nothing happened.
-            if message.isEmpty { message = request.title + " completed successfully." }
-            whatToDo = "Reload app status to confirm the installed app and signing state."
-            technicalDetails = ""
-            recoveryDestination = nil
-            failureContext.reset()
+            applyCompletionSettlement(reply, sessionID: sessionID)
             recordRefresh("completed", "The operation completed. Reload the app list to confirm the result.")
             status.reload()
         case "cancelled":
@@ -3067,6 +3109,34 @@ struct V3OperationSheet: View {
             recoveryDestination = failureContext.currentFailure?.recoveryDestination
             recordRefresh("failed", message)
         default: break
+        }
+    }
+    private func applyCompletionSettlement(_ reply: [String: Any], sessionID: String) {
+        terminalBackendSettled = V3ServiceBridge.strictBool(reply["backendSettled"])
+        switch V3OperationCompletionPolicy.disposition(state: "completed",
+            backendSettled: terminalBackendSettled) {
+        case .completedAwaitingBackendSettlement:
+            needsDeviceConfirmation = true
+            uncertainSessionID = sessionID
+            retryBlocked = true
+            message = request.operation == "delete"
+                ? "The app was removed from the device, but SideStore is still waiting for the delete callback to settle."
+                : request.title + " completed, but SideStore has not confirmed that its backend session settled."
+            whatToDo = "Keep this screen open while SideStore finishes cleanup. If it remains here, check the device, then use Reconcile After Checking Device before starting another mutation."
+            technicalDetails = "backend_settled=no outcome=verified_completion_pending_callback"
+            recoveryDestination = nil
+        case .completed:
+            needsDeviceConfirmation = false
+            uncertainSessionID = nil
+            deviceCheckConfirmedForCompletion = false
+            retryBlocked = false
+            message = request.title + " completed successfully."
+            whatToDo = "Reload app status to confirm the installed app and signing state."
+            technicalDetails = ""
+            recoveryDestination = nil
+            failureContext.reset()
+        case .notCompleted:
+            break
         }
     }
     private func answerPrompt(id: String, answer: [String: String]) async {
@@ -3265,6 +3335,12 @@ struct V3OperationSheet: View {
         }
     }
     private func acknowledgeAndDismiss() {
+        guard V3OperationCompletionPolicy.mayDismiss(state: state,
+            backendSettled: terminalBackendSettled,
+            deviceCheckConfirmed: deviceCheckConfirmedForCompletion) else {
+            confirmUncertainRetirement = true
+            return
+        }
         guard attempt.beginTransition() else { return }
         isDismissing = true
         let oldTask = task
@@ -3825,7 +3901,8 @@ final class V3AuthStore: ObservableObject {
             }
             if let sessionFailure = pollFailure?.underlying as? CombinedFailure,
                sessionFailure.safeCause == .authSessionUnavailable {
-                resolveUnavailableAuthSession(sessionFailure, snapshotConfirmed: snapshotConfirmed)
+                resolveUnavailableAuthSession(sessionFailure, expectedSessionID: requestedSession,
+                    snapshotConfirmed: snapshotConfirmed)
                 return
             }
             if let pollFailure, prompt != nil {
@@ -3975,7 +4052,11 @@ final class V3AuthStore: ObservableObject {
     }
 
     private func resolveUnavailableAuthSession(_ failure: CombinedFailure,
+                                               expectedSessionID: String,
                                                snapshotConfirmed: Bool) {
+        guard V3AuthSessionUnavailablePolicy.shouldRetireOwnership(
+            sessionID: expectedSessionID, currentSessionID: session, failure: failure) else { return }
+        V3ServiceBridge.shared.confirmAuthSessionUnavailable(sessionID: expectedSessionID)
         let presentation = V3AuthSessionUnavailablePolicy.resolve(
             authenticated: signedIn, provisioningIncomplete: provisioningIncomplete,
             snapshotConfirmed: snapshotConfirmed, safeMessage: failure.safeMessage,
@@ -4104,7 +4185,8 @@ final class V3AuthStore: ObservableObject {
             }
             if let sessionFailure = pollFailure?.underlying as? CombinedFailure,
                sessionFailure.safeCause == .authSessionUnavailable {
-                resolveUnavailableAuthSession(sessionFailure, snapshotConfirmed: snapshotConfirmed)
+                resolveUnavailableAuthSession(sessionFailure, expectedSessionID: requestedSession,
+                    snapshotConfirmed: snapshotConfirmed)
                 return
             }
             state = "resultUnknown"
@@ -4304,7 +4386,8 @@ final class V3AuthStore: ObservableObject {
                 let underlying = failure.underlying
                 if let combined = underlying as? CombinedFailure,
                    combined.safeCause == .authSessionUnavailable {
-                    resolveUnavailableAuthSession(combined, snapshotConfirmed: snapshotConfirmed)
+                    resolveUnavailableAuthSession(combined, expectedSessionID: sessionID,
+                        snapshotConfirmed: snapshotConfirmed)
                     return
                 }
                 if provisioningRetry, signedIn, state != "completed", prompt != nil {

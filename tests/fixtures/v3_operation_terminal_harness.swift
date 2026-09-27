@@ -102,6 +102,40 @@ struct OperationTerminalHarness {
             state: "completed", backendSettled: nil, stopConfirmed: nil),
             "missing settlement evidence must preserve the staged IPA and mutation owner")
 
+        let deletePollNow = Date(timeIntervalSince1970: 100)
+        precondition(V3DeleteReconciliationPolicy.shouldCheckLibrary(lastCheck: nil, now: deletePollNow))
+        precondition(!V3DeleteReconciliationPolicy.shouldCheckLibrary(
+            lastCheck: deletePollNow, now: deletePollNow.addingTimeInterval(1)),
+            "after a verified absence, callback waiting must not refetch Core Data four times per second")
+        precondition(V3DeleteReconciliationPolicy.shouldCheckLibrary(
+            lastCheck: deletePollNow,
+            now: deletePollNow.addingTimeInterval(V3DeleteReconciliationPolicy.libraryRecheckInterval)),
+            "an unsettled delete periodically rechecks authoritative library state")
+
+        var deleteAttempt = V3OperationAttemptState()
+        let deleteGeneration = deleteAttempt.begin()
+        let deleteSession = deleteGeneration.uuidString
+        precondition(deleteAttempt.bind(sessionID: deleteSession, generation: deleteGeneration))
+        precondition(deleteAttempt.accept(state: "completed", generation: deleteGeneration,
+            sessionID: deleteSession))
+        precondition(deleteAttempt.owns(generation: deleteGeneration, sessionID: deleteSession) &&
+                     !deleteAttempt.matches(generation: deleteGeneration, sessionID: deleteSession),
+            "the sheet can consume a settlement update for its own terminal delete session")
+        let pendingDeleteDisposition = V3OperationCompletionPolicy.disposition(
+            state: "completed", backendSettled: false)
+        precondition(pendingDeleteDisposition == .completedAwaitingBackendSettlement &&
+                     V3OperationCompletionPolicy.shouldContinuePolling(state: "completed", backendSettled: false) &&
+                     !V3OperationCompletionPolicy.mayDismiss(state: "completed", backendSettled: false),
+            "native uninstall success plus library absence stays visible while backend callback is pending")
+        precondition(V3OperationCompletionPolicy.mayDismiss(state: "completed",
+            backendSettled: false, deviceCheckConfirmed: true),
+            "dismissal becomes available only after explicit device-check reconciliation or backend settlement")
+        precondition(V3OperationCompletionPolicy.disposition(
+            state: "completed", backendSettled: true) == .completed &&
+                     !V3OperationCompletionPolicy.shouldContinuePolling(state: "completed", backendSettled: true) &&
+                     V3OperationCompletionPolicy.mayDismiss(state: "completed", backendSettled: true),
+            "a late successful callback unlocks Done without changing the terminal success result")
+
         let preparation = V3OperationPreparationGate()
         var cancellations = 0
         preparation.installCancellation { cancellations += 1 }

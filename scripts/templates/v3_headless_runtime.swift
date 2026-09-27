@@ -635,20 +635,17 @@ final class V3AuthCenter {
                 // outcome discriminator, so the host never has to guess and can
                 // never present a successful sign-in as a failed one.
                 let resumeUnavailable = error is V3ProvisioningResumeUnavailableError
-                let authKind = resumeUnavailable ? nil : v3ClassifyAuthError(error)
+                let postAuthentication = V3AuthPostAuthenticationFailurePolicy.resolve(
+                    cancelled: cancelled, savedSessionUnavailable: resumeUnavailable)
                 let failure: CombinedFailure
                 if resumeUnavailable {
                     failure = CombinedFailure(operation: "signIn", stage: .provisioning, code: .notReady,
                                               id: id, retryable: false)
-                } else if let authKind {
-                    failure = CombinedFailure.capture(error, operation: "signIn",
-                        stage: v3AuthFailureStage(authKind), id: id, retryable: cancelled)
                 } else {
-                    failure = CombinedFailure.capture(error, operation: "signIn", stage: .provisioning,
+                    failure = CombinedFailure.capture(error, operation: "signIn", stage: postAuthentication.stage,
                         id: id, retryable: cancelled)
                 }
                 var failureWire = failure.wire
-                if let authKind { failureWire["kind"] = authKind.rawValue }
                 if resumeUnavailable {
                     resumableProvisioning = nil
                 } else if let resumableAppleID = V3ProvisioningResumeIdentityPolicy.select(
@@ -658,16 +655,7 @@ final class V3AuthCenter {
                 } else {
                     resumableProvisioning = nil
                 }
-                let message: String
-                if resumeUnavailable {
-                    message = "Signed in successfully, but SideStore could not reuse the saved Apple session to retry provisioning. Sign in again with this Apple ID before retrying setup."
-                } else if let authKind {
-                    message = "Signed in successfully, but \(V3AuthFailureDisplay.message(for: authKind.rawValue))"
-                } else if cancelled {
-                    message = "Signed in successfully. Provisioning was cancelled before setup finished."
-                } else {
-                    message = "Signed in successfully, but provisioning could not be completed."
-                }
+                let message = postAuthentication.message
                 var response: [String: Any] = [
                     "state": authenticatedOutcome,
                     "authenticated": true,
@@ -678,7 +666,6 @@ final class V3AuthCenter {
                     "code": failure.code.rawValue,
                     "failure": failureWire,
                     "technicalDetails": failure.technicalDetails]
-                if let authKind { response["failureKind"] = authKind.rawValue }
                 finish(id: id, response: response)
                 debugLog("[V3_AUTH] TERMINAL session=\(id) state=authenticatedProvisioningIncomplete outcome=\(cancelled ? "provisioningCancelled" : "provisioningFailed") stage=\(failure.stage.rawValue) code=\(failure.code.rawValue)")
             } else if cancelled {
@@ -1733,14 +1720,34 @@ final class V3OperationCenter {
         var cancellationRequestedAt: Date?
         var missingCallbackReconcileDeadline: Date?
         var lastLibraryPresence: Bool?
+        var lastLibraryCheckAt: Date?
+        var authoritativeAbsenceConfirmed = false
         var contract = V3DeleteCompletionContract()
         debugLog("[V3_OP] DELETE_RECONCILE_START session=\(id)")
         while !Task.isCancelled {
             try Task.checkCancellation()
             let backendResult = callback.result
             if case .failure(let error)? = backendResult { throw error }
-            let appIsPresent = try await authoritativeLibraryContains(bundleIdentifier: bundleIdentifier)
+            let now = Date()
+            let shouldCheckLibrary = !authoritativeAbsenceConfirmed ||
+                V3DeleteReconciliationPolicy.shouldCheckLibrary(lastCheck: lastLibraryCheckAt, now: now)
+            let appIsPresent: Bool
+            if shouldCheckLibrary {
+                appIsPresent = try await authoritativeLibraryContains(bundleIdentifier: bundleIdentifier)
+                lastLibraryCheckAt = now
+            } else {
+                // Native uninstall success plus a fresh-context absence check
+                // is already authoritative. While waiting only for the native
+                // callback, avoid four redundant Core Data counts per second;
+                // recheck periodically in case an external install occurs.
+                appIsPresent = false
+            }
             let nativeUninstallSucceeded = V3DeleteNativeSuccessRegistry.shared.contains(sessionID: id)
+            if appIsPresent || !nativeUninstallSucceeded {
+                authoritativeAbsenceConfirmed = false
+            } else {
+                authoritativeAbsenceConfirmed = true
+            }
             if lastLibraryPresence != appIsPresent {
                 lastLibraryPresence = appIsPresent
                 debugLog("[V3_OP] DELETE_LIBRARY_RECONCILE session=\(id) app_present=\(appIsPresent)")
@@ -1751,7 +1758,6 @@ final class V3OperationCenter {
             case .failure?: backendState = .failed
             case nil: backendState = .pending
             }
-            let now = Date()
             if !appIsPresent, backendState == .pending, nativeUninstallSucceeded,
                missingCallbackReconcileDeadline == nil {
                 missingCallbackReconcileDeadline = now.addingTimeInterval(5)

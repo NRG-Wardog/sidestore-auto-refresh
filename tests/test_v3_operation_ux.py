@@ -61,8 +61,12 @@ class SheetLifecycleTests(unittest.TestCase):
         apply = sheet[sheet.index("private func apply"):]
         completed = apply[apply.index('case "completed":'):]
         completed = completed[:completed.index("case ", 10)]
-        self.assertIn("completed successfully", completed)
+        self.assertIn("applyCompletionSettlement", completed)
         self.assertNotIn("dismiss()", completed)
+        settlement = sheet[sheet.index("private func applyCompletionSettlement("):]
+        settlement = settlement[:settlement.index("private func answerPrompt(")]
+        self.assertIn("completed successfully", settlement)
+        self.assertIn("completedAwaitingBackendSettlement", settlement)
 
     def test_retry_cancels_and_awaits_the_old_session(self):
         sheet = operation_sheet()
