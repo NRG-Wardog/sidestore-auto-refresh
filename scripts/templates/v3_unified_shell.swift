@@ -4421,8 +4421,8 @@ final class V3AuthStore: ObservableObject {
             failedPromptRevision: failedPromptRevision, currentPromptRevision: revision,
             failedPromptResponseGeneration: failedPromptResponseGeneration,
             currentPromptResponseGeneration: promptResponseGeneration, state: state,
-            pollFailureIsTransient: pollFailureIsTransient,
-            promptSubmissionInProgress: promptSubmitting, cancellationInProgress: isCancelling,
+            promptSubmissionInProgress: promptSubmitting,
+            pollFailureIsTransient: pollFailureIsTransient, cancellationInProgress: isCancelling,
             taskCancelled: Task.isCancelled,
             reconciliationWasSuperseded: reconciliationWasSuperseded,
             sessionDeadline: sessionDeadline) else { return false }
@@ -4449,9 +4449,10 @@ final class V3AuthStore: ObservableObject {
                     failedPromptRevision: failure.promptRevision, currentPromptRevision: revision,
                     failedPromptResponseGeneration: failure.promptResponseGeneration,
                     currentPromptResponseGeneration: promptResponseGeneration, state: state,
+                    promptSubmissionInProgress: promptSubmitting,
                     pollFailureIsTransient: (failure.underlying as? CombinedFailure)
                         .map(V3AuthPollRecoveryPolicy.isTransientTransportFailure) ?? false,
-                    promptSubmissionInProgress: promptSubmitting, cancellationInProgress: isCancelling,
+                    cancellationInProgress: isCancelling,
                     taskCancelled: Task.isCancelled,
                     reconciliationWasSuperseded: reconciliationGate.generation !=
                         (reconciliationGenerationBefore &+ 1),

@@ -46,6 +46,32 @@ class V3AuthErrorTests(unittest.TestCase):
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         self.assertIn("failure.safeCause == .authResponseCapacityUnavailable", primitives)
 
+    def test_auth_poll_recovery_calls_follow_swift_argument_declaration_order(self):
+        host_text = shell()
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        signature = primitives[primitives.index("static func shouldResume("):]
+        signature = signature[:signature.index(") -> Bool")]
+        self.assertLess(signature.index("promptSubmissionInProgress"),
+                        signature.index("pollFailureIsTransient"))
+        cursor = 0
+        call_count = 0
+        marker = "V3AuthPollMonitorRecoveryPolicy.shouldResume("
+        while True:
+            start = host_text.find(marker, cursor)
+            if start < 0:
+                break
+            ends = [position for position in (host_text.find(") {", start),
+                                                host_text.find(") else {", start))
+                    if position >= 0]
+            end = min(ends) if ends else -1
+            self.assertGreater(end, start)
+            call = host_text[start:end]
+            self.assertLess(call.index("promptSubmissionInProgress"),
+                            call.index("pollFailureIsTransient"))
+            cursor = end + 3
+            call_count += 1
+        self.assertEqual(call_count, 2)
+
     def test_handle_sign_in_result_is_implemented(self):
         text = runtime()
         self.assertIn("func handleSignInResult", text)
