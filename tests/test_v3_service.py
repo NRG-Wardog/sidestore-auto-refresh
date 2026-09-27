@@ -92,6 +92,8 @@ class ServicePatchTests(unittest.TestCase):
             info = plistlib.loads((side / "AltStore/Info.plist").read_bytes())
             self.assertNotIn("UIMainStoryboardFile", info)
             self.assertNotIn("UIBackgroundModes", info)
+            self.assertEqual(info["CFBundleIcons"]["CFBundlePrimaryIcon"]["CFBundleIconName"], "AppIcon")
+            self.assertNotIn("CFBundleAlternateIcons", info["CFBundleIcons"])
             scene_configs = info["UIApplicationSceneManifest"]["UISceneConfigurations"]
             for configurations in scene_configs.values():
                 for configuration in configurations:
@@ -111,9 +113,13 @@ class ServicePatchTests(unittest.TestCase):
                 '"My Apps/InstalledAppsCollectionHeaderView.xib"', '"My Apps/UpdateCollectionViewCell.xib"',
                 '"News/NewsCollectionViewCell.xib"', '"Settings/AboutPatreonHeaderView.xib"',
                 '"Settings/SettingsHeaderFooterView.xib"', '"Sources/Components/SourceHeaderView.xib"',
-                '"Components/BackgroundTaskManager.swift"', '"Resources/Silence.m4a"')
+                '"Components/BackgroundTaskManager.swift"', '"Resources/Silence.m4a"',
+                '"Settings/AltAppIconsViewController.swift"', '"Resources/AltIcons.plist"',
+                '"Resources/Icons.xcassets/Classic"', '"Resources/Icons.xcassets/Modern"')
             for path in removed_ui_resources:
                 self.assertIn(path, membership)
+            self.assertNotIn('"Resources/Icons.xcassets/AppIcon.appiconset"', membership,
+                             "the primary SideStore app icon remains part of the backend bundle")
             self.assertNotIn("ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES", project)
             self.assertEqual(project.count("ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO"), 2)
             app_delegate = (side / "AltStore/AppDelegate.swift").read_text()
@@ -244,6 +250,23 @@ class ServicePatchTests(unittest.TestCase):
 
 
 class RefreshAdmissionTemplateTests(unittest.TestCase):
+    def test_native_refresh_contention_has_typed_busy_guidance(self):
+        refresh = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        perform = refresh[refresh.index("func performRefresh(identifier:"):]
+        perform = perform[:perform.index("func releaseRefreshAdmission")]
+        self.assertGreaterEqual(perform.count("safeCause: .operationInProgress"), 3)
+
+    def test_operation_prompt_does_not_use_auth_only_revision_state(self):
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        auth = runtime[runtime.index("final class V3HeadlessAuthHandler:"):
+                       runtime.index("final class V3HeadlessPipelineHandler:")]
+        operation = runtime[runtime.index("final class V3HeadlessPipelineHandler:"):
+                            runtime.index("// MARK: - Headless operation sessions")]
+        self.assertIn("center.sessions[sessionID]?.revision += 1", auth)
+        operation_prompt = operation[operation.index("private func ask(kind:"):]
+        operation_prompt = operation_prompt[:operation_prompt.index("func resolveBundleIDMismatch")]
+        self.assertNotIn(".revision", operation_prompt)
+
     def test_refresh_owner_brackets_direct_refresh_and_confirms_release(self):
         refresh = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
         bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
@@ -274,6 +297,11 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertIn("pendingAuthStartSessions[id] = session", service)
         self.assertIn("pendingAuthStartSessions[id] = nil", service)
         self.assertIn("auth.cancelBeforeBegin(id: session)", service)
+        self.assertIn("operations.activeMutationID", service)
+        self.assertIn("hasConflictingOperationMutation", service)
+        self.assertIn("operations.activeMutationID != nil || refreshAdmission.isActive", service)
+        self.assertIn("completedCacheBudget.canReserve()", service)
+        self.assertIn("completedCacheBudget.remove(byteCount)", service)
         begin = runtime[runtime.index("func begin(deadline: Date, mode: BeginMode = .interactive,"):]
         begin = begin[:begin.index("    func run(id: String)")]
         self.assertIn("let requestExpired = Task.isCancelled", begin)

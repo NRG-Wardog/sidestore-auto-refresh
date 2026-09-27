@@ -9,7 +9,10 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import shutil
 import struct
+import subprocess
+import tempfile
 import zipfile
 
 from audit_ipa_signing import inventory
@@ -138,15 +141,50 @@ def find_legacy_side_store_resources(side_store_path: str, names: list[str]) -> 
         basename = name.rsplit("/", 1)[-1].lower()
         if (any(component.endswith((".storyboardc", ".nib")) for component in lower_components)
                 or suffix in {".storyboard", ".xib", ".nib"}
-                or basename == "silence.m4a"):
+                or basename in {"silence.m4a", "alticons.plist"}):
             excluded.append(name)
     return sorted(excluded)
+
+
+def verify_side_store_assetutil_records(records: list[dict]) -> dict:
+    if not isinstance(records, list) or not records:
+        raise ValueError("SideStore Assets.car has no readable asset records")
+    names = sorted({record.get("Name") for record in records
+                    if isinstance(record, dict) and isinstance(record.get("Name"), str)})
+    excluded = sorted({name.casefold() for name in names} & {"classic", "modern"})
+    if excluded:
+        raise ValueError("excluded SideStore alternate-icon assets remain: " + ", ".join(excluded))
+    primary_icons = [name for name in names if "appicon" in name.casefold()]
+    return {
+        "asset_catalog_record_count": len(records),
+        "appicon_asset_rendition_count": len(primary_icons),
+        "alternate_icon_sets": "Classic/Modern absent",
+    }
+
+
+def inspect_side_store_asset_catalog(asset_data: bytes) -> dict:
+    xcrun = shutil.which("xcrun")
+    if not xcrun:
+        raise ValueError("Xcode assetutil is required to inspect the embedded SideStore Assets.car")
+    with tempfile.TemporaryDirectory(prefix="v3-assets-") as directory:
+        catalog = Path(directory) / "Assets.car"
+        catalog.write_bytes(asset_data)
+        result = subprocess.run([xcrun, "assetutil", "--info", str(catalog)],
+                                capture_output=True, text=True, timeout=120)
+        if result.returncode != 0:
+            raise ValueError("Xcode assetutil could not inspect the embedded SideStore Assets.car")
+        try:
+            records = json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            raise ValueError("Xcode assetutil returned malformed asset metadata") from error
+        return verify_side_store_assetutil_records(records)
 
 
 def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
     raw = ipa.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
     size = len(raw)
+    side_store_asset_report = {}
     with zipfile.ZipFile(ipa) as archive:
         bad_member = archive.testzip()
         if bad_member:
@@ -182,6 +220,13 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         host = package_bundles[BASE]
         side_store_path = BASE + "/Frameworks/SideStoreApp.framework"
         side_store_info = package_bundles[side_store_path]["info"]
+        for icon_key in ("CFBundleIcons", "CFBundleIcons~ipad"):
+            icons = side_store_info.get(icon_key, {})
+            if isinstance(icons, dict) and icons.get("CFBundleAlternateIcons"):
+                raise ValueError("embedded SideStore still declares alternate app icons")
+        primary_icon = side_store_info.get("CFBundleIcons", {}).get("CFBundlePrimaryIcon", {})
+        if primary_icon.get("CFBundleIconName") != "AppIcon":
+            raise ValueError("the primary SideStore AppIcon declaration is missing")
         legacy_resources = find_legacy_side_store_resources(side_store_path, names)
         if legacy_resources:
             raise ValueError("embedded SideStore contains excluded UI/audio resources: "
@@ -190,6 +235,10 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
             raise ValueError("embedded SideStore still declares app background modes")
         if any(key in side_store_info for key in ("UIMainStoryboardFile", "UILaunchStoryboardName")):
             raise ValueError("embedded SideStore still declares a legacy UI storyboard")
+        asset_catalog_path = side_store_path + "/Assets.car"
+        if asset_catalog_path not in names:
+            raise ValueError("embedded SideStore Assets.car is missing")
+        side_store_asset_report = inspect_side_store_asset_catalog(archive.read(asset_catalog_path))
         scene_configurations = side_store_info.get("UIApplicationSceneManifest", {}).get(
             "UISceneConfigurations", {})
         for configurations in scene_configurations.values():
@@ -282,6 +331,8 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         "required_frameworks": sorted(REQUIRED_FRAMEWORKS),
         "sidestore_storyboard_root": "absent",
         "sidestore_legacy_storyboard_nib_audio": "absent",
+        "sidestore_alternate_icon_sets": side_store_asset_report,
+        "sidestore_primary_icon": "AppIcon preserved",
         "sidestore_legacy_background_modes": "absent",
         "app_group": REQUIRED_GROUP,
         "url_schemes": sorted(REQUIRED_SCHEMES),

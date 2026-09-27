@@ -62,8 +62,12 @@ def headless_project(text):
 				"My Apps/UpdateCollectionViewCell.xib",
 				"News/NewsCollectionViewCell.xib",
 				"Settings/AboutPatreonHeaderView.xib",
+				"Settings/AltAppIconsViewController.swift",
 				"Settings/Settings.storyboard",
 				"Settings/SettingsHeaderFooterView.xib",
+				"Resources/AltIcons.plist",
+				"Resources/Icons.xcassets/Classic",
+				"Resources/Icons.xcassets/Modern",
 				"Sources/Components/SourceHeaderView.xib",
 				"Sources/Sources.storyboard",
 				"iOS/LaunchScreen.storyboard",
@@ -103,6 +107,10 @@ def headless_info(text):
     info.pop("UIMainStoryboardFile", None)
     info.pop("UILaunchStoryboardName", None)
     info.pop("UIBackgroundModes", None)
+    for icon_key in ("CFBundleIcons", "CFBundleIcons~ipad"):
+        icons = info.get(icon_key)
+        if isinstance(icons, dict):
+            icons.pop("CFBundleAlternateIcons", None)
     scene_manifest = info.get("UIApplicationSceneManifest")
     if not isinstance(scene_manifest, dict):
         raise SystemExit("v3 service: SideStore scene manifest anchor is missing")

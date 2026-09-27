@@ -14,6 +14,16 @@ spec.loader.exec_module(verify_module)
 
 
 class CandidateArchiveSizeReportTests(unittest.TestCase):
+    def test_asset_catalog_rejects_removed_alternate_icons_and_keeps_primary_icon(self):
+        good = [{"Name": "AppIcon"}, {"Name": "SettingsGear"}]
+        report = verify_module.verify_side_store_assetutil_records(good)
+        self.assertEqual(report["alternate_icon_sets"], "Classic/Modern absent")
+        self.assertEqual(report["appicon_asset_rendition_count"], 1)
+        for forbidden in ("Classic", "Modern"):
+            with self.subTest(forbidden=forbidden):
+                with self.assertRaisesRegex(ValueError, "alternate-icon assets remain"):
+                    verify_module.verify_side_store_assetutil_records(good + [{"Name": forbidden}])
+
     def test_size_report_partitions_files_and_ranks_largest_members(self):
         files = {
             "Payload/LiveContainer.app/LiveContainer": b"h" * 100,
