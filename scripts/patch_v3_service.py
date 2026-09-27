@@ -125,6 +125,12 @@ def headless_info(text):
 
 def headless_background_fetch(text):
     text = replace(text, "import AVFoundation\n", "")
+    text = replace(text, "        self.prepareForBackgroundFetch()\n", "")
+    preparation_start = text.index("    private func prepareForBackgroundFetch()")
+    preparation_end = text.index(
+        "    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken",
+        preparation_start)
+    text = text[:preparation_start] + text[preparation_end:]
     start = text.index("    func application(_ application: UIApplication, didReceiveRemoteNotification")
     end = text.index("\nprivate extension AppDelegate\n{\n    func fetchSources(", start)
     replacement = '''    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void)

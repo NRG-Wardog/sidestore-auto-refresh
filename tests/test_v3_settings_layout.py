@@ -171,7 +171,8 @@ def generate() -> dict:
         live = workspace / "LiveContainer"
         side = workspace / "EmbeddedSideStore"
         shutil.copytree(PINNED, live)
-        shutil.copytree(PINNED_SIDESTORE, side)
+        shutil.copytree(PINNED_SIDESTORE, side, symlinks=True,
+                        ignore_dangling_symlinks=True)
         # The real patchers verify the pinned revision through git. The
         # disposable copies are not repositories, so the verified pin is supplied
         # directly while every other check in the patchers still runs for real.
