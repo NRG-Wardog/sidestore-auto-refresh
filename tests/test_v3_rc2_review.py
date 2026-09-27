@@ -456,12 +456,12 @@ class UserFacingIssueRoutingTests(unittest.TestCase):
                       "Show Pairing Setup", "Open Connection Settings", "Choose IPA Again"):
             self.assertIn(f'return "{title}"', primitives_text)
 
-    def test_retry_connection_is_only_offered_for_connection_evidence(self):
+    def test_connection_evidence_opens_settings_instead_of_claiming_retry(self):
         primitives_text = primitives()
         make = primitives_text[primitives_text.index("static func make(operation: String"):]
         make = make[:make.index("/// Builds an issue from a typed failure")]
-        # The connection destination is the only one that maps to a connection action.
-        self.assertIn('case "connection": return retryable == true ? .retryConnection : .openConnectionCheck', make)
+        # Connection evidence maps to the setting screen that can resolve it.
+        self.assertIn('case "connection": return .openConnectionCheck', make)
         # No destination at all must not assume networking.
         self.assertIn("default:\n                // No evidence points anywhere specific. Never assume networking.\n                return .dismiss", make)
         # And no cause is derived from a numeric code.
@@ -562,14 +562,14 @@ class UserFacingIssueRoutingTests(unittest.TestCase):
         self.assertNotIn('Button("OK") {', text)
 
     def test_retry_source_re_requests_the_sources_not_the_status_snapshot(self):
-        # A button labelled "Retry Source" that only reloads status leaves the
-        # user looking at the same stale catalog while claiming it retried.
+        # Source retry is a real source fetch; connection recovery opens settings.
         text = shell()
         self.assertIn("func performPrimaryIssueAction()", text)
         action = text[text.index("func performPrimaryIssueAction()"):]
         action = action[:action.index("\n    }")]
-        self.assertIn("case .retryConnection:\n            reload()", action)
+        self.assertNotIn("case .retryConnection:", action)
         self.assertIn("case .retrySource:\n            refreshSources()", action)
+        self.assertIn("default:\n            openIssueRecovery()", action)
         # The two retries are never collapsed into one branch again.
         self.assertNotIn("action == .retryConnection || action == .retrySource", text)
         self.assertIn("func refreshSources()", text)

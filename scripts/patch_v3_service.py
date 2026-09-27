@@ -11,7 +11,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 15
+PATCH_VERSION = 17
 
 
 def remove_pbx_object(text, object_marker):
@@ -293,6 +293,25 @@ def headless_app_intents(text, relative):
         text = text[:start] + "// " + marker + ": IPA installation is host-owned.\n\n" + text[end:]
         if "struct InstallIPAIntent" in text or "AppManager.shared.install(.url" in text:
             raise SystemExit("v3 service: legacy IPA installation shortcut removal is partial")
+        missing_operation_marker = "V3_SHORTCUT_REFRESH_CREATION_FAILURE_V1"
+        if missing_operation_marker not in text:
+            old_guard = '''            guard let operation else {
+                debugLog("[RefreshAllAppsIntent] backgroundRefresh instance is nil")
+                return''' + " " + '''
+            }
+'''
+            text = replace(text,
+                old_guard,
+                '''            guard let operation else {
+                debugLog("[RefreshAllAppsIntent] backgroundRefresh instance is nil")
+                // V3_SHORTCUT_REFRESH_CREATION_FAILURE_V1: always settle the intent continuation.
+                continuation.resume(throwing: V3ShortcutRefreshFailurePolicy.operationCreationFailure(
+                    correlationID: UUID().uuidString))
+                return
+            }
+''')
+        if "continuation.resume(throwing: V3ShortcutRefreshFailurePolicy.operationCreationFailure" not in text:
+            raise SystemExit("v3 service: nil refresh operation can still strand its continuation")
         return text
     if relative.endswith("AppShortcuts.swift"):
         start_marker = "        AppShortcut(intent: InstallIPAIntent(),"
@@ -306,6 +325,30 @@ def headless_app_intents(text, relative):
             raise SystemExit("v3 service: legacy IPA shortcut reference remains")
         return text
     raise SystemExit(f"v3 service: unsupported App Intent adapter source {relative}")
+
+
+def headless_widget_refresh_intent(text):
+    marker = "V3_SHORTCUT_WIDGET_FAILURE_PROPAGATION_V1"
+    if marker in text:
+        if 'debugLog("Failed to refresh apps via widget. \\(error)")' in text:
+            raise SystemExit("v3 service: widget intent still logs raw refresh errors")
+        return text
+    text = replace(text,
+        '''        catch
+        {
+            debugLog("Failed to refresh apps via widget. \\(error)")
+        }
+''',
+        '''        catch
+        {
+            // V3_SHORTCUT_WIDGET_FAILURE_PROPAGATION_V1: do not report success for a failed refresh.
+            debugLog("Widget refresh failed.")
+            throw V3ShortcutRefreshFailurePolicy.propagate(error)
+        }
+''')
+    if "throw V3ShortcutRefreshFailurePolicy.propagate(error)" not in text:
+        raise SystemExit("v3 service: widget refresh failure is swallowed")
+    return text
 
 
 def headless_app_intent_routing(text):
@@ -539,6 +582,8 @@ def patch(live, side):
          lambda s: headless_app_intents(s, "RefreshAllAppsIntent.swift"))
     edit(side, "AltStore/Intents/App Intents/AppShortcuts.swift",
          lambda s: headless_app_intents(s, "AppShortcuts.swift"))
+    edit(side, "AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift",
+         headless_widget_refresh_intent)
     edit(side, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
          patch_sign_in_operation)
     edit(side, "AltStore/Info.plist", headless_info)

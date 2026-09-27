@@ -106,6 +106,7 @@ class ServicePatchTests(unittest.TestCase):
              "AltStore/My Apps/MyAppsViewController.swift",
              "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
              "AltStore/Intents/App Intents/AppShortcuts.swift",
+             "AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift",
              "AltStore/Info.plist", "AltStore.xcodeproj/project.pbxproj",
              "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"])
         for source, root, pin, names in zip((live_source, side_source), roots, service.PINS, files):
@@ -325,11 +326,15 @@ class ServicePatchTests(unittest.TestCase):
             refresh_intent_source = (side / "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift").read_text(encoding="utf-8")
             shortcuts_source = (side / "AltStore/Intents/App Intents/AppShortcuts.swift").read_text(encoding="utf-8")
             self.assertIn("struct RefreshAllAppsIntent", refresh_intent_source)
-            self.assertIn("struct RefreshAllAppsWidgetIntent", refresh_intent_source)
             self.assertNotIn("struct InstallIPAIntent", refresh_intent_source)
             self.assertNotIn("AppManager.shared.install(.url", refresh_intent_source)
+            self.assertIn("V3ShortcutRefreshFailurePolicy.operationCreationFailure", refresh_intent_source)
+            self.assertIn("continuation.resume(throwing:", refresh_intent_source)
             self.assertIn("AppShortcut(intent: RefreshAllAppsIntent()", shortcuts_source)
             self.assertNotIn("InstallIPAIntent", shortcuts_source)
+            widget_intent_source = (side / "AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift").read_text(encoding="utf-8")
+            self.assertIn("throw V3ShortcutRefreshFailurePolicy.propagate(error)", widget_intent_source)
+            self.assertNotIn("debugLog(\"Failed to refresh apps via widget. \\(error)\")", widget_intent_source)
             self.assertNotIn("self.fetchSources", app_delegate)
             self.assertIn("completionHandler(.noData)", app_delegate)
             resolved = json.loads((side / "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved").read_text())

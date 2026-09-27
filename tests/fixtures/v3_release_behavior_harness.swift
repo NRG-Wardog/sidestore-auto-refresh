@@ -10,6 +10,7 @@ struct ReleaseBehaviorHarness {
         try operationRetryCancelAndLateResult()
         try backendMutationCancellationOrdering()
         try refreshTerminalResultWinsOnce()
+        shortcutRefreshFailuresAreNotReportedAsSuccess()
         settingsRollbackKeepsNewerWrites()
         print("V3_RELEASE_BEHAVIOR_PASS")
     }
@@ -123,5 +124,25 @@ struct ReleaseBehaviorHarness {
         let intB = versions.begin("int"); intValue = 30
         if versions.isCurrent(intA, for: "int") { intValue = 0 }
         require(intValue == 30, "stale Int failure rolled back a newer success")
+    }
+
+    private static func shortcutRefreshFailuresAreNotReportedAsSuccess() {
+        let correlationID = UUID().uuidString
+        let missingOperation = V3ShortcutRefreshFailurePolicy.operationCreationFailure(
+            correlationID: correlationID)
+        require(missingOperation.operation == "refresh" &&
+                missingOperation.stage == .command &&
+                missingOperation.code == .notReady &&
+                missingOperation.retryable == false &&
+                missingOperation.correlationID == correlationID,
+                "an unavailable refresh operation must settle the Shortcut request with a typed failure")
+        let refreshFailure = CombinedFailure(operation: "refresh", stage: .provisioning,
+            code: .failed, id: correlationID, retryable: false,
+            safeCause: .provisioningProfileUnavailable)
+        let widgetFailure = V3ShortcutRefreshFailurePolicy.propagate(refreshFailure) as? CombinedFailure
+        require(widgetFailure?.stage == .provisioning &&
+                widgetFailure?.safeCause == .provisioningProfileUnavailable &&
+                widgetFailure?.correlationID == correlationID,
+                "the widget Shortcut must preserve refresh failure instead of returning success")
     }
 }

@@ -128,16 +128,17 @@ struct SetupAndSemanticUXHarness {
                      "a pairing failure must offer Pairing Setup")
         precondition(pairingFailure.retryDisposition == .blocked,
                      "a non-retryable prerequisite must not offer Retry")
-        // Only genuine connection evidence offers a connection action.
+        // Only genuine connection evidence opens connection settings.
         let networkFailure = issue("refresh", "network", retryable: true)
-        precondition(networkFailure.primaryAction == .retryConnection)
+        precondition(networkFailure.primaryAction == .openConnectionCheck &&
+                     networkFailure.primaryAction.title == "Open Connection Settings")
         precondition(networkFailure.recoveryDestination == "connection")
         let serviceFailure = issue("catalog", "serviceReadiness", retryable: true)
-        precondition(serviceFailure.primaryAction != .retryConnection &&
+        precondition(serviceFailure.primaryAction != .openConnectionCheck &&
                      serviceFailure.recoveryDestination == nil,
                      "embedded SideStore readiness is not proof that Connection Settings will help")
         let serviceXPCFailure = issue("status", "xpcConnection", retryable: true)
-        precondition(serviceXPCFailure.primaryAction != .retryConnection &&
+        precondition(serviceXPCFailure.primaryAction != .openConnectionCheck &&
                      serviceXPCFailure.recoveryDestination == nil,
                      "an interrupted SideStore XPC session does not route to VPN settings")
         let sourceNotReady = CombinedFailure(operation: "source", stage: .serviceReadiness,
@@ -592,14 +593,13 @@ struct SetupAndSemanticUXHarness {
                      "a rejected remove must reload the source state rather than fetch manifests")
         precondition(sourceRemovalBusyIssue.whatToDo.contains("Wait for the current SideStore request"))
 
-        // A networking failure is the only case that may offer a connection retry,
-        // and it must still be routed by the typed stage rather than by a guess.
+        // A networking failure opens connection settings, routed by typed stage.
         let networkIssue = V3UserFacingIssue.make(
             CombinedFailure(operation: "status", stage: .network, code: .failed,
                             id: UUID().uuidString, safeCause: .networkConnectionLost))
         precondition(networkIssue.recoveryDestination == "connection")
-        precondition(networkIssue.primaryAction == .retryConnection,
-                     "a retryable connection failure is the one case that offers a retry")
+        precondition(networkIssue.primaryAction == .openConnectionCheck,
+                     "a connection failure opens settings instead of claiming the mutation was retried")
         // A connection-stage failure that is provably not retryable is inspected
         // rather than blindly retried.
         let blockedNetworkIssue = V3UserFacingIssue.make(
