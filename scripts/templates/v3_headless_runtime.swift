@@ -1242,6 +1242,7 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
 @MainActor
 final class V3OperationCenter {
     struct Session {
+        var kind: String
         var task: Task<Void, Never>?
         var watchdog: Task<Void, Never>?
         var preparation = V3OperationPreparationGate()
@@ -1271,7 +1272,7 @@ final class V3OperationCenter {
         }
         let id = requestedID
         if sessions[id] != nil { return terminalReply(id: id) }
-        sessions[id] = Session(deadline: deadline)
+        sessions[id] = Session(kind: kind, deadline: deadline)
         switch mutationRegistry.begin(id) {
         case .cancelledBeforeStart:
             sessions[id]?.preparation.finish()
@@ -1488,14 +1489,24 @@ final class V3OperationCenter {
         if settledSession.terminal.value != nil { return terminalReply(id: id) }
         let task = settledSession.task
         guard cancel(id: id) else { return nil }
+        if V3DeleteCancellationPolicy.cancelRequestReturnsBeforeDriverSettlement(
+            operation: settledSession.kind, driverIsRunning: task != nil) {
+            // Delete's native callback can outlive the request to cancel its
+            // detached PipelineRunner task. Return the current session state;
+            // the operation sheet keeps its correlated poller active.
+            return poll(id: id)
+        }
         if let task { await task.value }
         return terminalReply(id: id)
     }
 
     func cleanupIPA(token: String) throws {
         let canonical = try V3IPAStaging.canonicalToken(token)
-        guard !sessions.values.contains(where: {
-            $0.ipaToken == canonical && $0.terminal.isEmpty
+        guard !sessions.contains(where: { entry in
+            entry.value.ipaToken == canonical && V3StagedIPALeasePolicy.isLeased(
+                hasOperationTask: entry.value.task != nil,
+                preparationFinished: entry.value.preparation.isFinished,
+                ownsMutationRegistry: mutationRegistry.activeID == entry.key)
         }) else { throw V3SideStoreServiceError.busy }
         guard let root = V3IPAStaging.sideStoreContainerRoot() else {
             throw CombinedIPAFileError(.fileAccess)
@@ -1694,6 +1705,12 @@ final class V3OperationCenter {
         })
     }
 
+    private func isDeleteCancellationError(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let failure = error as? CombinedFailure { return failure.code == .cancelled }
+        return false
+    }
+
     private func deleteAndReconcile(id: String, app: InstalledApp,
                                     handler: V3HeadlessPipelineHandler,
                                     context: StandaloneOperationContext) async throws {
@@ -1731,9 +1748,23 @@ final class V3OperationCenter {
         debugLog("[V3_OP] DELETE_RECONCILE_START session=\(id)")
         while !Task.isCancelled {
             try Task.checkCancellation()
-            let backendResult = callback.result
-            if case .failure(let error)? = backendResult { throw error }
+            let callbackResult = callback.result
+            let cancellationWasRequested = cancellationRequestedAt != nil ||
+                sessions[id]?.terminal.isCancellationRequested == true
+            let callbackCancellationIsPending: Bool
+            if case .failure(let error)? = callbackResult {
+                callbackCancellationIsPending = V3DeleteCancellationPolicy.callbackCancellationRemainsPending(
+                    isCancellation: isDeleteCancellationError(error),
+                    cancellationRequested: cancellationWasRequested)
+                if !callbackCancellationIsPending { throw error }
+            } else {
+                callbackCancellationIsPending = false
+            }
             let now = Date()
+            if cancellationRequestedAt == nil,
+               sessions[id]?.terminal.isCancellationRequested == true {
+                cancellationRequestedAt = now
+            }
             let shouldThrottleLibrary = V3DeleteReconciliationPolicy.shouldThrottleLibraryChecks(
                 authoritativeAbsenceConfirmed: authoritativeAbsenceConfirmed,
                 cancellationRequested: cancellationRequestedAt != nil)
@@ -1761,9 +1792,9 @@ final class V3OperationCenter {
                 debugLog("[V3_OP] DELETE_LIBRARY_RECONCILE session=\(id) app_present=\(appIsPresent)")
             }
             let backendState: V3DeleteCompletionContract.BackendResult
-            switch backendResult {
+            switch callbackResult {
             case .success?: backendState = .succeeded
-            case .failure?: backendState = .failed
+            case .failure?: backendState = callbackCancellationIsPending ? .pending : .failed
             case nil: backendState = .pending
             }
             if !appIsPresent, backendState == .pending, nativeUninstallSucceeded,

@@ -66,6 +66,42 @@ class InstallFirstAttemptTests(unittest.TestCase):
         self.assertIn("hostStagingRoot", harness)
         self.assertIn("serviceStagingRoot", harness)
 
+    def test_service_cleanup_uses_the_full_staged_ipa_lease(self):
+        text = runtime()
+        start = text.index("func cleanupIPA(token: String)")
+        cleanup = text[start:text.index("func activeStagedIPATokens()", start)]
+        self.assertIn("V3StagedIPALeasePolicy.isLeased", cleanup)
+        self.assertIn("hasOperationTask: entry.value.task != nil", cleanup)
+        self.assertIn("preparationFinished: entry.value.preparation.isFinished", cleanup)
+        self.assertIn("ownsMutationRegistry: mutationRegistry.activeID == entry.key", cleanup)
+        self.assertNotIn("entry.value.terminal.isEmpty", cleanup)
+
+    def test_delete_cancel_keeps_mutation_owned_until_reconciliation(self):
+        backend = runtime()
+        cancel_wait = backend[backend.index("func cancelAndWait(id: String, knownStarted: Bool = false)"):]
+        cancel_wait = cancel_wait[:cancel_wait.index("func cleanupIPA(token: String)")]
+        self.assertIn("V3DeleteCancellationPolicy.cancelRequestReturnsBeforeDriverSettlement", cancel_wait)
+        self.assertIn("return poll(id: id)", cancel_wait)
+        deletion = backend[backend.index("private func deleteAndReconcile"):]
+        deletion = deletion[:deletion.index("private func authoritativeLibraryContains")]
+        self.assertIn("callbackCancellationRemainsPending", deletion)
+        self.assertIn("sessions[id]?.terminal.isCancellationRequested", deletion)
+        host = operation_sheet()
+        cancel = host[host.index("private func cancelAttempt()"):]
+        cancel = cancel[:cancel.index("private func acknowledgeAndDismiss")]
+        self.assertIn("V3DeleteCancellationPolicy.keepsHostPollMonitor", cancel)
+        self.assertIn("if !keepDeletePoller { oldTask?.cancel() }", cancel)
+        self.assertIn("if !keepDeletePoller { await oldTask?.value }", cancel)
+
+    def test_settled_cancel_clears_provisional_reconcile_ui_state(self):
+        sheet = operation_sheet()
+        apply = sheet[sheet.index("private func apply"):]
+        cancelled = apply[apply.index('case "cancelled"'):]
+        cancelled = cancelled[:cancelled.index("case ", 10)]
+        self.assertIn("terminalBackendSettled =", cancelled)
+        self.assertIn("needsDeviceConfirmation = outcomeUnknown", cancelled)
+        self.assertIn("uncertainSessionID = outcomeUnknown ? sessionID : nil", cancelled)
+
     def test_cleanup_fallback_requires_confirmed_backend_settlement_and_rejects_busy(self):
         host = shell()
         method = host[host.index("func cleanupStagedIPA(_ token: String"): ]

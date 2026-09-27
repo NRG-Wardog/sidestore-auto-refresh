@@ -471,13 +471,28 @@ struct AuthOwnershipReconciliationHarness {
         precondition(V3AuthUnknownResultRecoveryPolicy.action(isCancelling: false,
             cancellationConfirmed: false, hasSession: false) == .reloadStatus &&
             V3AuthUnknownResultRecoveryPolicy.action(isCancelling: false,
-                cancellationConfirmed: false, hasSession: true) == .cancelSession,
+                cancellationConfirmed: false, hasSession: true) == .cancelSession &&
+            V3AuthUnknownResultRecoveryPolicy.action(isCancelling: false,
+                cancellationConfirmed: true, hasSession: false) == .reloadStatus,
             "an unknown result without a live session offers status reload, not a fake local cancellation")
         precondition(V3AuthUnknownResultReconciliationPolicy.reportedState(
-            originalState: "resultUnknown", hasSession: false) == "working" &&
+            originalState: "resultUnknown", hasSession: false, authenticated: false) == "working" &&
             V3AuthUnknownResultReconciliationPolicy.reportedState(
-                originalState: "resultUnknown", hasSession: true) == "resultUnknown",
-            "only a fresh authoritative snapshot can resolve an unknown attempt after its session is gone")
+                originalState: "resultUnknown", hasSession: false, authenticated: true) == "resultUnknown" &&
+            V3AuthUnknownResultReconciliationPolicy.reportedState(
+                originalState: "resultUnknown", hasSession: true, authenticated: true) == "resultUnknown",
+            "an authenticated account snapshot cannot turn an uncorrelated attempt into success")
+        let signedInButUnknownAttempt = V3AuthReconciliationPresentationPolicy.resolve(
+            reportedState: V3AuthUnknownResultReconciliationPolicy.reportedState(
+                originalState: "resultUnknown", hasSession: false, authenticated: true),
+            authenticated: true, provisioningIncomplete: false)
+        precondition(signedInButUnknownAttempt.state == "resultUnknown" &&
+            !signedInButUnknownAttempt.message.contains("signed in successfully"),
+            "current account state and the latest sign-in attempt remain separate facts")
+        precondition(V3AuthCancellationFeedbackPolicy.statusLabel(isCancelling: true,
+            normalLabel: "Result not confirmed") == "Cancelling..." &&
+            V3AuthCancellationFeedbackPolicy.message(isCancelling: true) != nil,
+            "cancellation remains visibly acknowledged while the backend confirms it")
 
         let capacityRejection = CombinedFailure(operation: "authRetryProvisioning",
             stage: .serviceReadiness, code: .busy, id: UUID().uuidString,
@@ -485,7 +500,11 @@ struct AuthOwnershipReconciliationHarness {
         let capacityNotDispatched = V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(
             capacityRejection, operation: "authRetryProvisioning")
         precondition(capacityNotDispatched.safeCause == .authResponseCapacityUnavailable &&
-            V3AuthProvisioningRetryDispatchPolicy.isConfirmedNotDispatched(capacityNotDispatched),
+            V3AuthProvisioningRetryDispatchPolicy.isConfirmedNotDispatched(capacityNotDispatched) &&
+            V3AuthProvisioningRetryDispatchPolicy.whatHappened(capacityNotDispatched)
+                .contains("provisioning retry") &&
+            !V3AuthProvisioningRetryDispatchPolicy.whatHappened(capacityNotDispatched)
+                .contains("start sign-in"),
             "provisioning response-capacity rejection keeps its known pre-dispatch cause")
         precondition(!V3AuthProvisioningRetryDispatchPolicy.isConfirmedNotDispatched(
             CombinedFailure(operation: "signIn", stage: .network, id: UUID().uuidString,

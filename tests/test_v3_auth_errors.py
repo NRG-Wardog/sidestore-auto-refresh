@@ -38,6 +38,7 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("case .reloadStatus:", host_text)
         self.assertIn("reloadAuthoritativeAccountStatus()", host_text)
         self.assertIn("V3AuthUnknownResultReconciliationPolicy.reportedState", host_text)
+        self.assertIn("V3AuthCancellationFeedbackPolicy.statusLabel", host_text)
         self.assertNotIn('"promptExpired" || auth.state == "resultUnknown") {', host_text)
 
     def test_provisioning_capacity_rejection_keeps_confirmed_pre_dispatch_guidance(self):
@@ -45,6 +46,7 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("V3AuthProvisioningRetryDispatchPolicy.isConfirmedNotDispatched", host_text)
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         self.assertIn("failure.safeCause == .authResponseCapacityUnavailable", primitives)
+        self.assertIn("SideStore could not start the provisioning retry", primitives)
 
     def test_auth_poll_recovery_calls_follow_swift_argument_declaration_order(self):
         host_text = shell()

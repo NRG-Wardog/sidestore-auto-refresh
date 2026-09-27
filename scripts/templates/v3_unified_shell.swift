@@ -2784,7 +2784,8 @@ struct V3OperationSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(isRunning ? "Cancel" : (completionAwaitingSettlement ? "Reconcile" : "Done")) {
+                    Button(isRunning ? (state == "cancelling" ? "Cancelling..." : "Cancel") :
+                        (completionAwaitingSettlement ? "Reconcile" : "Done")) {
                         if isRunning {
                             cancelAttempt()
                         } else if completionAwaitingSettlement {
@@ -2793,7 +2794,7 @@ struct V3OperationSheet: View {
                             acknowledgeAndDismiss()
                         }
                     }
-                    .disabled(isTransitioning)
+                    .disabled(isTransitioning || state == "cancelling")
                 }
             }
         }
@@ -3043,7 +3044,8 @@ struct V3OperationSheet: View {
                 guard attempt.owns(generation: generation, sessionID: id),
                       V3OperationCompletionPolicy.shouldRetrySettlementPollFailure(
                         state: state, backendSettled: terminalBackendSettled,
-                        outcomeUnknown: needsDeviceConfirmation),
+                        outcomeUnknown: needsDeviceConfirmation,
+                        cancellationRequested: userRequestedCancellation),
                       !Task.isCancelled else { throw error }
                 settlementRetryDelay = V3OperationCompletionPolicy.nextSettlementPollRetryDelay(
                     current: interval)
@@ -3115,13 +3117,29 @@ struct V3OperationSheet: View {
         case "cancelled":
             // Keep cancellation visible and distinguish the user's Cancel
             // action from a backend cancellation that arrived independently.
-            let cancellation = V3OperationCancellationPresentationPolicy.resolve(
-                userRequested: userRequestedCancellation)
-            message = cancellation.message
-            whatToDo = cancellation.whatToDo
-            technicalDetails = ""
+            terminalBackendSettled = V3ServiceBridge.strictBool(reply["backendSettled"])
+            let outcomeUnknown = V3OperationCancellationResolutionPolicy.requiresReconciliation(
+                backendSettled: terminalBackendSettled,
+                outcomeUnknown: V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true)
+            needsDeviceConfirmation = outcomeUnknown
+            uncertainSessionID = outcomeUnknown ? sessionID : nil
+            retryBlocked = outcomeUnknown
             recoveryDestination = nil
-            retryBlocked = false
+            if outcomeUnknown {
+                message = request.operation == "delete"
+                    ? "SideStore has not confirmed that the app was removed or that deletion stopped."
+                    : "SideStore has not confirmed that the device operation stopped."
+                whatToDo = "Keep this screen open while SideStore reconciles the result. Do not start another operation yet."
+                technicalDetails = "backend_settled=no outcome=unknown"
+            } else {
+                let cancellation = V3OperationCancellationPresentationPolicy.resolve(
+                    userRequested: userRequestedCancellation)
+                message = cancellation.message
+                whatToDo = cancellation.whatToDo
+                technicalDetails = ""
+                recoveryDestination = nil
+                deviceCheckConfirmedForCompletion = false
+            }
         case "waitingForAuthentication":
             status.signInPresented = true
             message = "Sign in first, then run this action again."
@@ -3353,7 +3371,9 @@ struct V3OperationSheet: View {
         }
     }
     private func cancelAttempt() {
-        guard isRunning, attempt.beginTransition() else { return }
+        guard isRunning, state != "cancelling", attempt.beginTransition() else { return }
+        let keepDeletePoller = V3DeleteCancellationPolicy.keepsHostPollMonitor(
+            operation: request.operation)
         userRequestedCancellation = true
         state = "cancelling"
         message = ""
@@ -3364,17 +3384,21 @@ struct V3OperationSheet: View {
         startedGeneration = nil
         prompt = nil
         Task { @MainActor in
-            oldTask?.cancel()
+            if !keepDeletePoller { oldTask?.cancel() }
             do {
                 let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: oldSession)
-                await oldTask?.value
+                if !keepDeletePoller { await oldTask?.value }
                 guard attempt.generation == transitionGeneration else { return }
                 uncertainSessionID = nil
                 if attempt.sessionID == nil {
                     _ = attempt.bind(sessionID: oldSession, generation: transitionGeneration)
                 }
                 apply(reply, generation: transitionGeneration, sessionID: oldSession)
-                if ["working", "cancelling"].contains(state) {
+                if keepDeletePoller && state == "cancelling" {
+                    message = "Cancellation was requested. SideStore is waiting for the delete result."
+                    whatToDo = "Keep this screen open. Do not start another operation until the delete result is confirmed."
+                    retryBlocked = true
+                } else if ["working", "cancelling"].contains(state) {
                     let failure = CombinedFailure(operation: request.operation, stage: .command,
                         code: .invalidResponse, id: oldSession, retryable: false)
                     failureContext.recordStartFailure(failure)
@@ -3382,7 +3406,7 @@ struct V3OperationSheet: View {
                     presentCurrentFailure()
                 }
             } catch {
-                await oldTask?.value
+                if !keepDeletePoller { await oldTask?.value }
                 guard attempt.generation == transitionGeneration else { return }
                 state = "failed"
                 let failure = (error as? CombinedFailure) ?? CombinedFailure.capture(error,
@@ -3906,13 +3930,15 @@ final class V3AuthStore: ObservableObject {
                 provisioningTechnical = notDispatched.technicalDetails
                 if signedIn {
                     if state == "completed" {
-                        message = notDispatched.safeMessage + " " + notDispatched.recovery
+                        message = V3AuthProvisioningRetryDispatchPolicy.whatHappened(notDispatched) +
+                            " " + notDispatched.recovery
                         return
                     }
                     state = "authenticatedProvisioningIncomplete"
                     provisioningIncomplete = true
                     message = "Apple ID signed in successfully."
-                    provisioningMessage = notDispatched.safeMessage + " " + notDispatched.recovery
+                    provisioningMessage = V3AuthProvisioningRetryDispatchPolicy.whatHappened(notDispatched) +
+                        " " + notDispatched.recovery
                     if snapshotConfirmed {
                         provisioningSessionUnavailable = !provisioningRetryAvailable
                         if provisioningSessionUnavailable {
@@ -3924,7 +3950,8 @@ final class V3AuthStore: ObservableObject {
                     }
                 } else {
                     state = "failed"
-                    message = notDispatched.safeMessage + " " + notDispatched.recovery
+                    message = V3AuthProvisioningRetryDispatchPolicy.whatHappened(notDispatched) +
+                        " " + notDispatched.recovery
                     provisioningMessage = ""
                     provisioningRetryAvailable = false
                 }
@@ -4032,9 +4059,6 @@ final class V3AuthStore: ObservableObject {
             expectedSessionID: expectedSession, currentSessionID: session) else { return false }
         let ticket = reconciliationGate.begin(sessionID: session, state: state, revision: revision)
         let reportedTerminalState = state
-        let reconciliationState = V3AuthUnknownResultReconciliationPolicy.reportedState(
-            originalState: reportedTerminalState, hasSession: session != nil)
-        let resolvesUnknownAttempt = reportedTerminalState == "resultUnknown" && session == nil
         do {
             let snapshot = try await V3ServiceBridge.shared.request(operation: "snapshot")
             guard reconciliationGate.mayApply(ticket, sessionID: session,
@@ -4044,6 +4068,11 @@ final class V3AuthStore: ObservableObject {
                 return false
             }
             let accountFacts = V3AuthSnapshotAuthorityPolicy.facts(authSnapshot)
+            let reconciliationState = V3AuthUnknownResultReconciliationPolicy.reportedState(
+                originalState: reportedTerminalState, hasSession: session != nil,
+                authenticated: accountFacts.authenticated)
+            let resolvesUnknownAttempt = reportedTerminalState == "resultUnknown" && session == nil &&
+                !accountFacts.authenticated
             if V3AuthReconciliationPresentationPolicy.shouldPreserveActivePrompt(
                 reportedState: reportedTerminalState, hasPrompt: prompt != nil,
                 activeSessionMatches: session != nil && (expectedSession == nil || expectedSession == session),
@@ -4077,11 +4106,6 @@ final class V3AuthStore: ObservableObject {
                     previousFailureMessage: previousFailureMessage)
                 state = presentation.state
                 message = presentation.message
-                if resolvesUnknownAttempt {
-                    cancellationConfirmed = true
-                    cancellationWasAttempted = false
-                    currentAttemptFailure.clear()
-                }
                 team = snapshot["team"] as? String ?? ""
                 if incomplete {
                     provisioningIncomplete = true
@@ -4776,7 +4800,7 @@ final class V3AuthStore: ObservableObject {
     }
 
     func cancel() {
-        guard !(state == "resultUnknown" && session == nil && !cancellationConfirmed) else {
+        guard !(state == "resultUnknown" && session == nil) else {
             reloadAuthoritativeAccountStatus()
             return
         }
@@ -4789,6 +4813,9 @@ final class V3AuthStore: ObservableObject {
         cancellationWasAttempted = true
         isCancelling = true
         cancellationConfirmed = false
+        if let cancellationMessage = V3AuthCancellationFeedbackPolicy.message(isCancelling: true) {
+            message = cancellationMessage
+        }
         let oldTask = task
         let oldSession = session
         task?.cancel()
@@ -5047,8 +5074,9 @@ struct V3SignInView: View {
         }
     }
     private var statusText: String {
-        V3AuthStatusTextPolicy.label(state: auth.state, isSignedIn: auth.isSignedIn,
-            provisioningFinishedLater: auth.provisioningFinishedLater)
+        V3AuthCancellationFeedbackPolicy.statusLabel(isCancelling: auth.isCancelling,
+            normalLabel: V3AuthStatusTextPolicy.label(state: auth.state, isSignedIn: auth.isSignedIn,
+                provisioningFinishedLater: auth.provisioningFinishedLater))
     }
 
     // V3_FINISH_LATER_PRESERVES_ACCOUNT_V1: closing the flow reloads the

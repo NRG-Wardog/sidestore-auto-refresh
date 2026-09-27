@@ -727,7 +727,9 @@ struct V3DeleteCompletionContract {
         guard terminal == nil else { return terminal }
         if backend == .failed {
             terminal = .failed
-        } else if !appStillInAuthoritativeLibrary && backend == .succeeded {
+        } else if !appStillInAuthoritativeLibrary &&
+                    (backend == .succeeded ||
+                     (backend == .pending && nativeUninstallSucceeded && deadlineExpired)) {
             terminal = .completed
         } else if backend == .pending && deadlineExpired {
             // This is provisional. Keep the contract open so the late callback
@@ -740,28 +742,66 @@ struct V3DeleteCompletionContract {
     }
 }
 
+enum V3DeleteCancellationPolicy {
+    static func callbackCancellationRemainsPending(isCancellation: Bool,
+                                                   cancellationRequested: Bool) -> Bool {
+        isCancellation && cancellationRequested
+    }
+
+    static func cancelRequestReturnsBeforeDriverSettlement(operation: String,
+                                                            driverIsRunning: Bool) -> Bool {
+        operation == "delete" && driverIsRunning
+    }
+
+    static func keepsHostPollMonitor(operation: String) -> Bool {
+        operation == "delete"
+    }
+}
+
+enum V3OperationCancellationResolutionPolicy {
+    static func requiresReconciliation(backendSettled: Bool?, outcomeUnknown: Bool) -> Bool {
+        outcomeUnknown || backendSettled != true
+    }
+}
+
 final class V3DeleteNativeSuccessRegistry: @unchecked Sendable {
     static let shared = V3DeleteNativeSuccessRegistry()
+    static let retentionInterval: TimeInterval = 10 * 60
+    static let maximumEntries = 512
     private let lock = NSLock()
-    private var sessions: Set<String> = []
+    private var sessions: [String: Date] = [:]
 
-    func record(sessionID: String) {
+    func record(sessionID: String, now: Date = Date()) {
         guard UUID(uuidString: sessionID) != nil else { return }
         lock.lock()
-        sessions.insert(sessionID)
+        pruneLocked(now: now)
+        sessions[sessionID] = now.addingTimeInterval(Self.retentionInterval)
+        if sessions.count > Self.maximumEntries {
+            let oldest = sessions.sorted { $0.value < $1.value }
+            for (id, _) in oldest.prefix(sessions.count - Self.maximumEntries) {
+                sessions.removeValue(forKey: id)
+            }
+        }
         lock.unlock()
     }
 
-    func contains(sessionID: String) -> Bool {
+    func contains(sessionID: String, now: Date = Date()) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return sessions.contains(sessionID)
+        pruneLocked(now: now)
+        guard sessions[sessionID] != nil else { return false }
+        sessions[sessionID] = now.addingTimeInterval(Self.retentionInterval)
+        return true
     }
 
     func remove(sessionID: String) {
         lock.lock()
-        sessions.remove(sessionID)
+        sessions.removeValue(forKey: sessionID)
         lock.unlock()
+    }
+
+    private func pruneLocked(now: Date) {
+        sessions = sessions.filter { $0.value > now }
     }
 }
 
@@ -1141,9 +1181,11 @@ enum V3OperationCompletionPolicy {
     }
 
     static func shouldRetrySettlementPollFailure(state: String, backendSettled: Bool?,
-                                                  outcomeUnknown: Bool) -> Bool {
+                                                  outcomeUnknown: Bool,
+                                                  cancellationRequested: Bool = false) -> Bool {
         shouldContinuePolling(state: state, backendSettled: backendSettled,
-                              outcomeUnknown: outcomeUnknown)
+                              outcomeUnknown: outcomeUnknown) ||
+            (state == "cancelling" && cancellationRequested)
     }
 
     static func requiresDeviceCheck(state: String, backendSettled: Bool?,
@@ -1178,7 +1220,7 @@ enum V3OperationProvisionalOutcomePolicy {
     static func canResolve(currentState: String?, currentBackendSettled: Bool?,
                            currentOutcomeUnknown: Bool, nextState: String?,
                            nextBackendSettled: Bool?, nextOutcomeUnknown: Bool) -> Bool {
-        ["reconciling", "failed"].contains(currentState ?? "") &&
+        ["reconciling", "failed", "cancelled"].contains(currentState ?? "") &&
             currentOutcomeUnknown && currentBackendSettled == false &&
             nextBackendSettled == true && !nextOutcomeUnknown &&
             ["completed", "failed", "cancelled"].contains(nextState ?? "")
@@ -3225,14 +3267,27 @@ enum V3AuthUnknownResultRecoveryAction: Equatable {
 enum V3AuthUnknownResultRecoveryPolicy {
     static func action(isCancelling: Bool, cancellationConfirmed: Bool,
                        hasSession: Bool) -> V3AuthUnknownResultRecoveryAction {
-        guard !isCancelling, !cancellationConfirmed else { return .none }
-        return hasSession ? .cancelSession : .reloadStatus
+        guard !isCancelling else { return .none }
+        if !hasSession { return .reloadStatus }
+        return cancellationConfirmed ? .none : .cancelSession
     }
 }
 
 enum V3AuthUnknownResultReconciliationPolicy {
-    static func reportedState(originalState: String, hasSession: Bool) -> String {
-        originalState == "resultUnknown" && !hasSession ? "working" : originalState
+    static func reportedState(originalState: String, hasSession: Bool,
+                              authenticated: Bool) -> String {
+        originalState == "resultUnknown" && !hasSession && !authenticated
+            ? "working" : originalState
+    }
+}
+
+enum V3AuthCancellationFeedbackPolicy {
+    static func statusLabel(isCancelling: Bool, normalLabel: String) -> String {
+        isCancelling ? "Cancelling..." : normalLabel
+    }
+
+    static func message(isCancelling: Bool) -> String? {
+        isCancelling ? "Cancellation requested. Waiting for SideStore to confirm the sign-in stopped." : nil
     }
 }
 
@@ -3333,6 +3388,12 @@ enum V3AuthProvisioningRetryDispatchPolicy {
     static func isConfirmedNotDispatched(_ failure: CombinedFailure) -> Bool {
         failure.safeCause == .authProvisioningRetryNotDispatched ||
             failure.safeCause == .authResponseCapacityUnavailable
+    }
+
+    static func whatHappened(_ failure: CombinedFailure) -> String {
+        failure.safeCause == .authResponseCapacityUnavailable
+            ? "SideStore could not start the provisioning retry because it could not reserve a safe response slot."
+            : failure.safeMessage
     }
 }
 

@@ -155,8 +155,9 @@ class V3BehavioralHarnessTests(unittest.TestCase):
     def test_operation_cancellation_request_cannot_overwrite_native_terminal(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_operation_terminal_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run("import Foundation\n" + failure + "\n" + helper + "\n" + harness,
+        self.compile_and_run("import Foundation\n" + failure + "\n" + wire + "\n" + helper + "\n" + harness,
                              "V3_OPERATION_CANCELLATION_TERMINAL_PASS")
 
 

@@ -2,7 +2,7 @@ import Foundation
 
 @main
 struct OperationTerminalHarness {
-    static func main() async {
+    static func main() async throws {
         let cancelThenSuccess = V3OperationTerminalResponse()
         precondition(cancelThenSuccess.requestCancellation())
         precondition(cancelThenSuccess.value == nil,
@@ -24,6 +24,33 @@ struct OperationTerminalHarness {
         precondition(cancelledByBackend.requestCancellation())
         precondition(cancelledByBackend.setIfEmpty(["state": "cancelled", "stopConfirmed": true]))
         precondition(cancelledByBackend.value?["stopConfirmed"] as? Bool == true)
+
+        precondition(V3DeleteCancellationPolicy.callbackCancellationRemainsPending(
+            isCancellation: true, cancellationRequested: true) &&
+            !V3DeleteCancellationPolicy.callbackCancellationRemainsPending(
+                isCancellation: true, cancellationRequested: false) &&
+            V3DeleteCancellationPolicy.cancelRequestReturnsBeforeDriverSettlement(
+                operation: "delete", driverIsRunning: true) &&
+            !V3DeleteCancellationPolicy.cancelRequestReturnsBeforeDriverSettlement(
+                operation: "install", driverIsRunning: true) &&
+            V3DeleteCancellationPolicy.keepsHostPollMonitor(operation: "delete"),
+            "delete cancellation returns an unsettled reply and keeps its session poller and mutation owner")
+        let deleteCancelID = UUID().uuidString
+        let nextMutationID = UUID().uuidString
+        var deleteCancellationOwner = V3OperationMutationRegistry()
+        precondition(deleteCancellationOwner.begin(deleteCancelID) == .started)
+        precondition(V3DeleteCancellationPolicy.callbackCancellationRemainsPending(
+            isCancellation: true, cancellationRequested: true) &&
+            deleteCancellationOwner.begin(nextMutationID) == .busy,
+            "opStart remains busy after Cancel until Delete's native result is reconciled")
+        precondition(deleteCancellationOwner.finish(deleteCancelID) &&
+            deleteCancellationOwner.begin(nextMutationID) == .started,
+            "a new mutation is admitted only after the Delete owner actually finishes")
+        precondition(!V3OperationCancellationResolutionPolicy.requiresReconciliation(
+            backendSettled: true, outcomeUnknown: false) &&
+            V3OperationCancellationResolutionPolicy.requiresReconciliation(
+                backendSettled: false, outcomeUnknown: false),
+            "settled cancellation clears the temporary Reconcile UI state")
 
         let failureWins = V3OperationTerminalResponse()
         precondition(failureWins.setIfEmpty(["state": "failed", "stage": "signing"]))
@@ -51,15 +78,57 @@ struct OperationTerminalHarness {
             deadlineExpired: false, progress: 0.01) == .failed,
             "a late typed backend failure resolves the provisional timeout as failure")
 
+        var nativeSuccessWhileCallbackPending = V3DeleteCompletionContract()
+        precondition(nativeSuccessWhileCallbackPending.resolve(backend: .pending,
+            nativeUninstallSucceeded: true, appStillInAuthoritativeLibrary: false,
+            deadlineExpired: true, progress: 0.01) == .completed,
+            "native uninstall success plus authoritative absence is verified completion while callback settlement remains pending")
+
         let provisionalTerminal = V3OperationTerminalResponse()
         precondition(provisionalTerminal.finishOrResolve(["state": "reconciling",
             "outcomeUnknown": true], backendSettled: false))
+        let provisionalSessionID = UUID().uuidString
+        let pollRequestID = UUID().uuidString
+        let provisionalDeleteFailure = CombinedFailure(operation: "delete", stage: .command,
+            code: .timedOut, id: provisionalSessionID)
+        var provisionalReply = provisionalTerminal.reply(
+            sessionID: provisionalSessionID, backendSettled: false)!
+        provisionalReply["failure"] = provisionalDeleteFailure.wire
+        let provisionalEnvelope: [String: Any] = ["version": 1, "id": pollRequestID,
+            "ok": true, "result": provisionalReply]
+        let provisionalEncoded = V3ResponseEncoder.encodeDetailed(provisionalEnvelope,
+            operation: "opPoll", limit: V3WireContract.responseLimit)
+        precondition(provisionalEncoded.fallbackToken == nil)
+        precondition(V3ServiceReadinessReply.decode(provisionalEncoded.data,
+            requestID: pollRequestID) == .ready,
+            "the service envelope carries a plist-safe reconciling result to the host")
+        let provisionalDecoded = try PropertyListSerialization.propertyList(
+            from: provisionalEncoded.data, format: nil) as! [String: Any]
+        let provisionalFields = provisionalDecoded["result"] as! [String: Any]
+        precondition(provisionalFields["state"] as? String == "reconciling" &&
+            provisionalFields["outcomeUnknown"] as? Bool == true &&
+            provisionalFields["backendSettled"] as? Bool == false &&
+            CombinedFailure.decode(provisionalFields["failure"] as? [String: Any] ?? [:],
+                expectedID: provisionalSessionID)?.stage == .command,
+            "the actual binary plist round trip preserves the provisional state and correlated safe failure")
         precondition(!provisionalTerminal.finishOrResolve(["state": "completed"], backendSettled: false),
             "a provisional unknown result cannot resolve before backend settlement")
         precondition(provisionalTerminal.finishOrResolve(["state": "completed"], backendSettled: true),
             "settled callback success atomically resolves only the provisional result")
         precondition(provisionalTerminal.value?["state"] as? String == "completed" &&
             provisionalTerminal.value?["backendSettled"] as? Bool == true)
+        let completedEnvelope: [String: Any] = ["version": 1, "id": pollRequestID,
+            "ok": true, "result": provisionalTerminal.reply(
+                sessionID: provisionalSessionID, backendSettled: true)!]
+        let completedEncoded = V3ResponseEncoder.encodeDetailed(completedEnvelope,
+            operation: "opPoll", limit: V3WireContract.responseLimit)
+        let completedDecoded = try PropertyListSerialization.propertyList(
+            from: completedEncoded.data, format: nil) as! [String: Any]
+        let completedFields = completedDecoded["result"] as! [String: Any]
+        precondition(completedFields["state"] as? String == "completed" &&
+            completedFields["backendSettled"] as? Bool == true &&
+            V3ServiceReadinessReply.decode(completedEncoded.data, requestID: pollRequestID) == .ready,
+            "the settled callback terminal survives service encoding and host envelope validation")
 
         let provisionalFailure = V3OperationTerminalResponse()
         precondition(provisionalFailure.finishOrResolve(["state": "reconciling",
@@ -71,6 +140,22 @@ struct OperationTerminalHarness {
             "late failure keeps the callback's typed failure envelope")
         precondition(!provisionalFailure.finishOrResolve(["state": "completed"], backendSettled: true),
             "a resolved terminal result remains write-once")
+
+        let settledCancellation = V3OperationTerminalResponse()
+        precondition(settledCancellation.finishOrResolve(["state": "reconciling",
+            "outcomeUnknown": true], backendSettled: false))
+        precondition(settledCancellation.finishOrResolve(["state": "cancelled",
+            "stopConfirmed": true], backendSettled: true) &&
+            settledCancellation.value?["state"] as? String == "cancelled" &&
+            settledCancellation.value?["backendSettled"] as? Bool == true,
+            "a confirmed late cancellation resolves provisional state to a settled terminal")
+        precondition(V3StagedIPALeasePolicy.isLeased(hasOperationTask: true,
+            preparationFinished: true, ownsMutationRegistry: false) &&
+            V3StagedIPALeasePolicy.isLeased(hasOperationTask: false,
+                preparationFinished: true, ownsMutationRegistry: true) &&
+            !V3StagedIPALeasePolicy.isLeased(hasOperationTask: false,
+                preparationFinished: true, ownsMutationRegistry: false),
+            "IPA cleanup waits for task, preparation, and mutation ownership to end")
 
         var lateDeleteAttempt = V3OperationAttemptState()
         let lateDeleteGeneration = lateDeleteAttempt.begin()
@@ -120,6 +205,16 @@ struct OperationTerminalHarness {
         precondition(delayedStartRegistry.cancel(forgottenSessionID) == .recordedBeforeStart)
         precondition(delayedStartRegistry.begin(forgottenSessionID) == .cancelledBeforeStart,
             "opCancel before the delayed start must prevent the mutation from launching")
+        let deleteOwnerID = UUID().uuidString
+        var deleteOwner = V3OperationMutationRegistry()
+        precondition(deleteOwner.begin(deleteOwnerID) == .started)
+        let replacementID = UUID().uuidString
+        precondition(V3DeleteCancellationPolicy.callbackCancellationRemainsPending(
+            isCancellation: true, cancellationRequested: true) &&
+            deleteOwner.begin(replacementID) == .busy,
+            "a cancelled PipelineRunner callback cannot release deletion ownership before authoritative reconciliation")
+        precondition(deleteOwner.finish(deleteOwnerID) && deleteOwner.begin(replacementID) == .started,
+            "a replacement mutation starts only after the confirmed delete owner finishes")
         precondition(V3OperationStartDispatchPolicy.provesNotDispatched(resultWasReturned: false))
         precondition(!V3OperationStartDispatchPolicy.provesNotDispatched(resultWasReturned: true),
             "cancellation after opStart produced a session must not erase operation ownership")
@@ -155,6 +250,13 @@ struct OperationTerminalHarness {
             "missing settlement evidence must preserve the staged IPA and mutation owner")
 
         let deletePollNow = Date(timeIntervalSince1970: 100)
+        let nativeMarkerID = UUID().uuidString
+        let nativeMarker = V3DeleteNativeSuccessRegistry()
+        nativeMarker.record(sessionID: nativeMarkerID, now: deletePollNow)
+        precondition(nativeMarker.contains(sessionID: nativeMarkerID, now: deletePollNow) &&
+            !nativeMarker.contains(sessionID: nativeMarkerID,
+                now: deletePollNow.addingTimeInterval(V3DeleteNativeSuccessRegistry.retentionInterval + 1)),
+            "late native delete markers expire within a bounded interval")
         precondition(V3DeleteReconciliationPolicy.shouldCheckLibrary(lastCheck: nil, now: deletePollNow))
         precondition(!V3DeleteReconciliationPolicy.shouldCheckLibrary(
             lastCheck: deletePollNow, now: deletePollNow.addingTimeInterval(1)),
@@ -253,8 +355,14 @@ struct OperationTerminalHarness {
         precondition(V3OperationCompletionPolicy.shouldRetrySettlementPollFailure(
             state: "completed", backendSettled: false, outcomeUnknown: false) &&
             !V3OperationCompletionPolicy.shouldRetrySettlementPollFailure(
-                state: "completed", backendSettled: true, outcomeUnknown: false),
-            "a transient poll timeout does not end completed-but-unsettled monitoring, while settlement is absorbing")
+                state: "completed", backendSettled: true, outcomeUnknown: false) &&
+            V3OperationCompletionPolicy.shouldRetrySettlementPollFailure(
+                state: "cancelling", backendSettled: false, outcomeUnknown: false,
+                cancellationRequested: true) &&
+            !V3OperationCompletionPolicy.shouldRetrySettlementPollFailure(
+                state: "cancelling", backendSettled: false, outcomeUnknown: false,
+                cancellationRequested: false),
+            "transient poll timeouts preserve unsettled/cancel-requested monitoring, while settled results are absorbing")
         precondition(V3OperationCompletionPolicy.nextSettlementPollRetryDelay(current: 1) == 5 &&
             V3OperationCompletionPolicy.nextSettlementPollRetryDelay(current: 5) == 10 &&
             V3OperationCompletionPolicy.nextSettlementPollRetryDelay(current: 20) == 30 &&
