@@ -216,10 +216,10 @@ public final class V3ServiceBridge {
             if error is CancellationError { throw CancellationError() }
             monitorOperationSessionIfNeeded(operation: operation, sessionID: operationSessionID)
             let annotated = V3CatalogRequestContext.annotating(error, requestedOperation: operation, requestID: id)
-            if operation == "authBegin" {
+            if ["authBegin", "authRetryProvisioning"].contains(operation) {
                 let failure = (annotated as? CombinedFailure) ?? CombinedFailure.capture(
                     annotated, operation: "signIn", stage: .xpcConnection, id: id)
-                throw V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(failure)
+                throw V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(failure, operation: operation)
             }
             throw annotated
         }
@@ -231,9 +231,10 @@ public final class V3ServiceBridge {
         if mutation {
             guard scopedSessionControl || scopedAuthSessionControl || replacesAuthSession || scopedRefreshAdmissionControl ||
                     (!isMutating && RefreshHandler.shared.v3RefreshToken == nil) else {
-                if operation == "authBegin" {
-                    throw CombinedFailure(operation: "signIn", stage: .command, code: .busy,
-                        id: id, retryable: true, safeCause: .authAttemptNotDispatched)
+                if ["authBegin", "authRetryProvisioning"].contains(operation) {
+                    let failure = CombinedFailure(operation: "signIn", stage: .command,
+                        code: .busy, id: id, retryable: true)
+                    throw V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(failure, operation: operation)
                 }
                 if operation == "sourceRemoveConfirmed" {
                     throw CombinedFailure(operation: "source", stage: .source, code: .busy,
@@ -287,8 +288,12 @@ public final class V3ServiceBridge {
                 pending[id] = continuation
                 pendingOperations[id] = operation
                 guard let client = RefreshHandler.shared.client else {
-                    settle(id, .failure(CombinedFailure(operation: operation, stage: .xpcConnection,
-                        code: .interrupted, id: id, retryable: V3WireContract.readOperations.contains(operation))))
+                    let failure = CombinedFailure(operation: operation, stage: .xpcConnection,
+                        code: .interrupted, id: id, retryable: V3WireContract.readOperations.contains(operation))
+                    let terminalFailure = ["authBegin", "authRetryProvisioning"].contains(operation)
+                        ? V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(failure, operation: operation)
+                        : failure
+                    settle(id, .failure(terminalFailure))
                     return
                 }
                 // Track ownership only once a valid request is about to cross
@@ -379,7 +384,7 @@ public final class V3ServiceBridge {
         do {
             result = try V3CatalogRequestContext.classifyReply(response, operation: operation, id: id)
         } catch {
-            let authBeginNotDispatched = operation == "authBegin" &&
+            let authStartNotDispatched = ["authBegin", "authRetryProvisioning"].contains(operation) &&
                 V3NotDispatchedReplyPolicy.confirms(response, requestID: id,
                     maximumBytes: V3WireContract.responseLimit)
             if operation == "opStart", serviceRejectedOperationStart(response, requestID: id),
@@ -396,10 +401,10 @@ public final class V3ServiceBridge {
             } else {
                 monitorOperationSessionIfNeeded(operation: operation, sessionID: operationSessionID)
             }
-            if authBeginNotDispatched {
+            if authStartNotDispatched {
                 let failure = (error as? CombinedFailure) ?? CombinedFailure.capture(
                     error, operation: "signIn", stage: .authentication, id: id)
-                throw V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(failure)
+                throw V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(failure, operation: operation)
             }
             throw error
         }

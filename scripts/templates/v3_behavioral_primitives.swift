@@ -2356,6 +2356,13 @@ struct V3RefreshRunIdentitySelection: Equatable {
     }
 }
 
+enum V3DirectRefreshPreflightPolicy {
+    static func isBlocked(activeRunID: String?, hostHandoffPending: Bool,
+                          uncertainMutationRunID: String?) -> Bool {
+        activeRunID != nil || hostHandoffPending || uncertainMutationRunID != nil
+    }
+}
+
 enum V3DirectRefreshRunClaimPolicy {
     static let defaultsKey = "liveContainerAutoRefreshDirectRunClaim"
 
@@ -2529,6 +2536,39 @@ enum V3AuthReconciliationPresentationPolicy {
     }
 }
 
+struct V3AuthReconciliationTicket: Equatable {
+    let generation: UInt64
+    let sessionID: String?
+    let state: String
+    let revision: Int
+}
+
+struct V3AuthReconciliationGate {
+    private(set) var generation: UInt64 = 0
+
+    mutating func invalidate() {
+        generation &+= 1
+    }
+
+    mutating func begin(sessionID: String?, state: String, revision: Int) -> V3AuthReconciliationTicket {
+        generation &+= 1
+        return V3AuthReconciliationTicket(generation: generation, sessionID: sessionID,
+            state: state, revision: revision)
+    }
+
+    func mayApply(_ ticket: V3AuthReconciliationTicket, sessionID: String?,
+                  state: String, revision: Int) -> Bool {
+        ticket.generation == generation && ticket.sessionID == sessionID &&
+            ticket.state == state && ticket.revision == revision
+    }
+}
+
+enum V3AuthSnapshotAuthorityPolicy {
+    static func isAuthenticated(_ snapshot: [String: Bool]) -> Bool {
+        snapshot["authenticated"] == true
+    }
+}
+
 enum V3AuthPollRecoveryPolicy {
     static func isTransientTransportFailure(_ failure: CombinedFailure) -> Bool {
         failure.code == .timedOut ||
@@ -2628,16 +2668,20 @@ struct V3AuthAttemptFailureNotice: Equatable {
 }
 
 enum V3AuthAttemptStartFailurePolicy {
-    static func confirmedNotDispatched(_ failure: CombinedFailure) -> CombinedFailure {
+    static func confirmedNotDispatched(_ failure: CombinedFailure,
+                                       operation: String = "authBegin") -> CombinedFailure {
         let underlying: NSError? = failure.underlyingDomain == "none" && failure.underlyingCode == 0
             ? nil : NSError(domain: failure.underlyingDomain, code: failure.underlyingCode)
+        let cause: CombinedFailure.SafeCause = operation == "authRetryProvisioning"
+            ? .authProvisioningRetryNotDispatched : .authAttemptNotDispatched
         return CombinedFailure(operation: "signIn", stage: failure.stage, code: failure.code,
             id: failure.correlationID, underlying: underlying,
-            retryable: true, safeCause: .authAttemptNotDispatched)
+            retryable: true, safeCause: cause)
     }
 
     static func isConfirmedNotDispatched(_ failure: CombinedFailure) -> Bool {
-        failure.safeCause == .authAttemptNotDispatched
+        failure.safeCause == .authAttemptNotDispatched ||
+            failure.safeCause == .authProvisioningRetryNotDispatched
     }
 }
 

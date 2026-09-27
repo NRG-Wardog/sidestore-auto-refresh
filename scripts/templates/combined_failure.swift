@@ -138,6 +138,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case responseTooLarge
         case pairingRequired
         case authAttemptNotDispatched
+        case authProvisioningRetryNotDispatched
 
         fileprivate var inferredRetryable: Bool? {
             switch self {
@@ -179,6 +180,8 @@ public struct CombinedFailure: Error, LocalizedError {
             case .pairingRequired:
                 return false
             case .authAttemptNotDispatched:
+                return true
+            case .authProvisioningRetryNotDispatched:
                 return true
             }
         }
@@ -289,6 +292,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .responseTooLarge: return "SideStore produced a response that is too large to transfer."
             case .pairingRequired: return "A pairing file is required before this device can be refreshed."
             case .authAttemptNotDispatched: return "SideStore did not start this sign-in attempt, so Apple authentication was not submitted."
+            case .authProvisioningRetryNotDispatched: return "SideStore did not start the provisioning retry; the saved authentication session was not changed by this request."
             }
         }
         switch stage {
@@ -469,6 +473,14 @@ public struct CombinedFailure: Error, LocalizedError {
                     return "Wait for SideStore to finish starting, then start sign-in again."
                 }
                 return "Resolve the displayed prerequisite, then start sign-in again."
+            case .authProvisioningRetryNotDispatched:
+                if code == .busy {
+                    return "Wait for the active SideStore operation to finish, then retry provisioning."
+                }
+                if stage == .serviceReadiness {
+                    return "Wait for SideStore to finish starting, then retry provisioning."
+                }
+                return "Retry provisioning when the displayed prerequisite is ready."
             }
         }
         switch stage {

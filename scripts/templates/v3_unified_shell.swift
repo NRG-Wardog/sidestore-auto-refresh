@@ -3493,6 +3493,7 @@ final class V3AuthStore: ObservableObject {
     @Published var promptSubmitting = false
     @Published private(set) var isCancelling = false
     @Published private(set) var cancellationConfirmed = true
+    @Published private(set) var cancellationWasAttempted = false
     // V3_PROVISIONING_RECOVERY_STATE_V1: a successful Apple sign-in and a failed
     // provisioning attempt are two separate facts and are stored separately, so
     // neither can be presented as the other. The typed provisioning guidance and
@@ -3513,6 +3514,7 @@ final class V3AuthStore: ObservableObject {
     @Published private(set) var signedIn = false
     private var session: String?
     private var task: Task<Void, Never>?
+    private var reconciliationGate = V3AuthReconciliationGate()
 
     // V3_AUTH_SUCCESS_IS_NOT_PROVISIONING_SUCCESS_V1: authentication succeeded
     // whenever the service reports an authenticated terminal, regardless of
@@ -3535,6 +3537,7 @@ final class V3AuthStore: ObservableObject {
         guard canBegin else { return }
         task?.cancel()
         let requestedSession = UUID().uuidString
+        reconciliationGate.invalidate()
         session = requestedSession
         attempts = 0
         revision = 0
@@ -3549,6 +3552,7 @@ final class V3AuthStore: ObservableObject {
         previousFailure = nil
         promptSubmitting = false
         cancellationConfirmed = true
+        cancellationWasAttempted = false
         signedIn = false
         clearProvisioningOutcome()
         task = Task { await run(sessionID: requestedSession) }
@@ -3577,7 +3581,9 @@ final class V3AuthStore: ObservableObject {
         guard !isCancelling, !["working", "awaitingPrompt", "resultUnknown"].contains(state) else { return }
         let previouslyAvailable = provisioningRetryAvailable
         task?.cancel()
-        session = UUID().uuidString
+        let requestedSession = UUID().uuidString
+        reconciliationGate.invalidate()
+        session = requestedSession
         attempts = 0
         revision = 0
         state = "working"
@@ -3614,6 +3620,7 @@ final class V3AuthStore: ObservableObject {
                 // The saved session is gone. Fall back to a full, honest sign-in
                 // instead of silently claiming provisioning was retried.
                 await reconcile(force: true)
+                guard !Task.isCancelled, session == requestedSession else { return }
                 if signedIn {
                     if state == "completed" { return }
                     state = "authenticatedProvisioningIncomplete"
@@ -3634,7 +3641,33 @@ final class V3AuthStore: ObservableObject {
             try await pollLoop(id: id, sessionDeadline: sessionDeadline)
         } catch {
             if isCancelling || Task.isCancelled { return }
+            if let notDispatched = error as? CombinedFailure,
+               notDispatched.safeCause == .authProvisioningRetryNotDispatched {
+                let snapshotConfirmed = await reconcile(force: true)
+                guard !Task.isCancelled, session == requestedSession else { return }
+                provisioningTechnical = notDispatched.technicalDetails
+                if signedIn {
+                    if state == "completed" {
+                        message = notDispatched.safeMessage + " " + notDispatched.recovery
+                        return
+                    }
+                    state = "authenticatedProvisioningIncomplete"
+                    provisioningIncomplete = true
+                    message = "Apple ID signed in successfully."
+                    provisioningMessage = notDispatched.safeMessage + " " + notDispatched.recovery
+                    provisioningRetryAvailable = snapshotConfirmed
+                        ? (provisioningRetryAvailable || previouslyAvailable) : previouslyAvailable
+                    provisioningSessionUnavailable = false
+                } else {
+                    state = "failed"
+                    message = notDispatched.safeMessage + " " + notDispatched.recovery
+                    provisioningMessage = ""
+                    provisioningRetryAvailable = false
+                }
+                return
+            }
             let snapshotConfirmed = await reconcile(force: true)
+            guard !Task.isCancelled, session == requestedSession else { return }
             provisioningTechnical = (error as? CombinedFailure)?.technicalDetails ?? ""
             if signedIn {
                 if state == "completed" { return }
@@ -3671,16 +3704,20 @@ final class V3AuthStore: ObservableObject {
     @discardableResult
     func reconcile(force: Bool = false) async -> Bool {
         guard force || !["working", "awaitingPrompt"].contains(state) else { return false }
+        let ticket = reconciliationGate.begin(sessionID: session, state: state, revision: revision)
         let reportedTerminalState = state
         do {
             let snapshot = try await V3ServiceBridge.shared.request(operation: "snapshot")
+            guard reconciliationGate.mayApply(ticket, sessionID: session,
+                state: state, revision: revision) else { return false }
             guard let authSnapshot = V3ServiceBridge.authSnapshot(snapshot) else {
                 message = "SideStore returned account status that could not be validated. Reload status and try again."
                 return false
             }
-            let account = snapshot["account"] as? String ?? "Not signed in"
-            let authoritative = (authSnapshot["authenticated"] ?? false) ||
-                !account.isEmpty && account != "Not signed in"
+            // A persisted account row can outlive an authenticated Apple
+            // session. Only SideStore's explicit session fact proves that
+            // authentication is currently active.
+            let authoritative = V3AuthSnapshotAuthorityPolicy.isAuthenticated(authSnapshot)
             let incomplete = authSnapshot["provisioningIncomplete"] ?? false
             let canRetryProvisioning = authSnapshot["provisioningRetryAvailable"] ?? false
             if authoritative {
@@ -3727,6 +3764,8 @@ final class V3AuthStore: ObservableObject {
             }
             return true
         } catch {
+            guard reconciliationGate.mayApply(ticket, sessionID: session,
+                state: state, revision: revision) else { return false }
             if state == "idle" { message = "Could not confirm the current SideStore account. Reload status and try again." }
             return false
         }
@@ -3759,6 +3798,7 @@ final class V3AuthStore: ObservableObject {
             if let notDispatched = error as? CombinedFailure,
                V3AuthAttemptStartFailurePolicy.isConfirmedNotDispatched(notDispatched) {
                 await reconcile(force: true)
+                guard !Task.isCancelled, session == requestedSession else { return }
                 state = "failed"
                 cancellationConfirmed = true
                 session = nil
@@ -3773,6 +3813,7 @@ final class V3AuthStore: ObservableObject {
             // display, but keep the attempt outcome unknown until its session
             // is cancelled or a correlated terminal reply arrives.
             let snapshotConfirmed = await reconcile(force: true)
+            guard !Task.isCancelled, session == requestedSession else { return }
             state = "resultUnknown"
             cancellationConfirmed = false
             message = snapshotConfirmed
@@ -4033,6 +4074,7 @@ final class V3AuthStore: ObservableObject {
                     deliveryProgressMessage = ""
                     twoFactorTransientStep = nil
                     message = "That verification session expired. Start a new sign-in to request another verification code."
+                    await reconcile(force: true)
                     return
                 }
                 guard V3AuthSessionResponsePolicy.mayApplyReply(
@@ -4067,6 +4109,8 @@ final class V3AuthStore: ObservableObject {
             isCancelling: isCancelling, cancellationConfirmed: cancellationConfirmed,
             hasSession: session != nil)
         guard !isCancelling, hasActiveAttempt || canRetryCancellation else { return }
+        reconciliationGate.invalidate()
+        cancellationWasAttempted = true
         isCancelling = true
         cancellationConfirmed = false
         let oldTask = task
@@ -4082,6 +4126,7 @@ final class V3AuthStore: ObservableObject {
                 if let terminalReply { apply(terminalReply) }
                 await reconcile(force: true)
                 cancellationConfirmed = true
+                cancellationWasAttempted = false
                 if !signedIn, terminalReply == nil {
                     state = "cancelled"
                     message = "Sign-in was cancelled before an authentication session was confirmed."
@@ -4225,7 +4270,8 @@ struct V3SignInView: View {
                 if V3AuthCancellationRetryPolicy.canRetry(isCancelling: auth.isCancelling,
                     cancellationConfirmed: auth.cancellationConfirmed,
                     hasSession: auth.hasSession) {
-                    Button("Retry Cancellation", role: .cancel) { auth.cancel() }
+                    Button(auth.cancellationWasAttempted ? "Retry Cancellation" : "Cancel Unconfirmed Sign-In",
+                           role: .cancel) { auth.cancel() }
                 }
                 if !V3AuthCancellationRetryPolicy.canRetry(isCancelling: auth.isCancelling,
                     cancellationConfirmed: auth.cancellationConfirmed,
@@ -6057,6 +6103,8 @@ final class V3SetupStore: ObservableObject {
             verification = V3SetupStepState(state: "complete", detail: "Refresh verified")
             if let date = manifest?["date"] as? Date {
                 lastVerified = date
+            } else if let verifiedAt = (runRecord["manifest_summary"] as? [String: Any])?["verified_at"] as? Date {
+                lastVerified = verifiedAt
             } else if let terminalAt = runRecord["terminal_at"] as? TimeInterval {
                 lastVerified = Date(timeIntervalSince1970: terminalAt)
             }

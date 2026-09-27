@@ -39,6 +39,16 @@ struct RefreshRunIdentityHarness {
         precondition(brokenSchedulerClaim == nil,
             "scheduler origin alone cannot reuse a run after its active claim disappeared")
 
+        precondition(V3DirectRefreshPreflightPolicy.isBlocked(activeRunID: nil,
+            hostHandoffPending: true, uncertainMutationRunID: nil),
+            "a direct refresh cannot overwrite the manifest while host handoff is unresolved")
+        precondition(V3DirectRefreshPreflightPolicy.isBlocked(activeRunID: nil,
+            hostHandoffPending: false, uncertainMutationRunID: schedulerRun),
+            "a direct refresh cannot start while another run's mutation outcome is uncertain")
+        precondition(!V3DirectRefreshPreflightPolicy.isBlocked(activeRunID: nil,
+            hostHandoffPending: false, uncertainMutationRunID: nil),
+            "a direct refresh is admitted after scheduler and handoff ownership are clear")
+
         let claimDeadline = Date().addingTimeInterval(30)
         precondition(V3DirectRefreshRunClaimPolicy.isActive(
             runID: directRun, deadline: claimDeadline),

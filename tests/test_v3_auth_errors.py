@@ -142,7 +142,7 @@ class V3AuthErrorTests(unittest.TestCase):
                       (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
         self.assertIn("V3ServiceBridge.authSnapshot(snapshot)", shell_text)
         self.assertIn('V3ServiceBridge.strictBool(reply["resumable"])', shell_text)
-        self.assertIn('authSnapshot["authenticated"] ?? false', shell_text)
+        self.assertIn("V3AuthSnapshotAuthorityPolicy.isAuthenticated(authSnapshot)", shell_text)
         self.assertIn("V3AuthReconciliationPresentationPolicy.resolve", shell_text)
         self.assertIn("The sign-in attempt was cancelled. SideStore currently reports an account as signed in.",
                       (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
@@ -164,7 +164,7 @@ class V3AuthErrorTests(unittest.TestCase):
 
     def test_failed_unconfirmed_cancel_has_an_available_retry_action(self):
         host = shell()
-        self.assertIn('Button("Retry Cancellation", role: .cancel) { auth.cancel() }', host)
+        self.assertIn('Button(auth.cancellationWasAttempted ? "Retry Cancellation" : "Cancel Unconfirmed Sign-In"', host)
         self.assertIn("V3AuthCancellationRetryPolicy.canRetry", host)
         cancel = host[host.index("func cancel() {", host.index("final class V3AuthStore")):]
         self.assertIn("canRetryCancellation", cancel)
@@ -174,7 +174,8 @@ class V3AuthErrorTests(unittest.TestCase):
         sign_in = host[host.index("final class V3AuthStore"):host.index("struct V3SignInLink")]
         self.assertIn("func reconcile(force: Bool = false) async", sign_in)
         self.assertIn('request(operation: "snapshot")', sign_in)
-        self.assertIn('snapshot["account"] as? String', sign_in)
+        self.assertIn("V3AuthSnapshotAuthorityPolicy.isAuthenticated(authSnapshot)", sign_in)
+        self.assertNotIn("!account.isEmpty", sign_in)
         self.assertIn("signedIn = false", sign_in)
         self.assertIn(".task { await auth.reconcile() }", host)
 
@@ -231,8 +232,11 @@ class V3AuthErrorTests(unittest.TestCase):
     def test_correlated_not_dispatched_auth_start_does_not_require_cancellation(self):
         bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
         host = shell()
-        self.assertIn("authBeginNotDispatched", bridge)
+        self.assertIn("authStartNotDispatched", bridge)
         self.assertIn("V3AuthAttemptStartFailurePolicy.confirmedNotDispatched", bridge)
+        client_guard = bridge[bridge.index("guard let client = RefreshHandler.shared.client else {"):]
+        client_guard = client_guard[:client_guard.index("// Track ownership")]
+        self.assertIn("V3AuthAttemptStartFailurePolicy.confirmedNotDispatched", client_guard)
         run = host[host.index("private func run(sessionID requestedSession: String)"):]
         run = run[:run.index("    private func pollLoop(")]
         self.assertLess(run.index("isConfirmedNotDispatched"), run.index('state = "resultUnknown"'))
@@ -250,6 +254,8 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("previouslyConfirmedAvailable: previouslyAvailable", retry)
         self.assertNotIn("provisioningRetryAvailable = true", retry)
         self.assertNotIn('The saved Apple session is no longer available. Sign in again', retry)
+        self.assertIn("authProvisioningRetryNotDispatched", retry)
+        self.assertIn("provisioningRetryAvailable = snapshotConfirmed", retry)
 
     def test_prompt_expiry_and_session_timeout_have_distinct_recovery_states(self):
         host = shell()
@@ -258,7 +264,31 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn('state == "timedOut"', host)
         self.assertIn('case "promptExpired": return "Verification expired"', host)
         self.assertIn('case "timedOut": return "Sign-in timed out"', host)
+        start = host.index('if V3ServiceBridge.strictBool(reply["promptExpired"]) == true')
+        end = host.index("guard V3AuthSessionResponsePolicy.mayApplyReply", start)
+        expiry = host[start:end]
+        reconcile = expiry.index("await reconcile(force: true)")
+        self.assertLess(expiry.index('message = "That verification session expired.'), reconcile)
+        self.assertGreater(expiry.rfind("return"), reconcile)
         self.assertNotIn("Choose a verification method again.", host)
+
+    def test_auth_reconciliation_rechecks_attempt_generation_after_snapshot(self):
+        host = shell()
+        sign_in = host[host.index("final class V3AuthStore"):host.index("struct V3SignInLink")]
+        reconcile = sign_in[sign_in.index("func reconcile(force: Bool = false)"):]
+        reconcile = reconcile[:reconcile.index("private func run(sessionID")]
+        self.assertIn("reconciliationGate.begin(sessionID: session, state: state, revision: revision)", reconcile)
+        self.assertIn("reconciliationGate.mayApply(ticket, sessionID: session", reconcile)
+        self.assertIn("reconciliationGate.invalidate()", sign_in[sign_in.index("func begin()"):
+            sign_in.index("var canBegin")])
+        self.assertIn("V3AuthReconciliationGate", (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+
+    def test_first_unconfirmed_cancel_is_not_mislabeled_as_retry(self):
+        host = shell()
+        self.assertIn('@Published private(set) var cancellationWasAttempted = false', host)
+        self.assertIn('cancellationWasAttempted ? "Retry Cancellation" : "Cancel Unconfirmed Sign-In"', host)
+        self.assertIn('cancellationWasAttempted = true', host)
+        self.assertIn('cancellationWasAttempted = false', host)
 
     def test_auth_cancel_consumes_terminal_reply_and_reconciles_account(self):
         host = shell()

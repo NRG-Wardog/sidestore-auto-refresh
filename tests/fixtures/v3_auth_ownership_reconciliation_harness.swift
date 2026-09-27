@@ -88,6 +88,37 @@ struct AuthOwnershipReconciliationHarness {
         precondition(signedOutTimeout.state == "timedOut",
                      "a signed-out snapshot does not turn an unconfirmed timeout into a different result")
 
+        let persistedAccountButNoSession = ["authenticated": false,
+            "provisioningIncomplete": false, "provisioningRetryAvailable": false]
+        precondition(!V3AuthSnapshotAuthorityPolicy.isAuthenticated(persistedAccountButNoSession),
+            "a persisted account label cannot override SideStore's explicit unauthenticated session fact")
+        precondition(V3AuthSnapshotAuthorityPolicy.isAuthenticated([
+            "authenticated": true, "provisioningIncomplete": true,
+            "provisioningRetryAvailable": false]),
+            "an authenticated session remains signed in while provisioning is incomplete")
+
+        var reconciliationGate = V3AuthReconciliationGate()
+        let oldSnapshotTicket = reconciliationGate.begin(sessionID: prior,
+            state: "failed", revision: 4)
+        precondition(reconciliationGate.mayApply(oldSnapshotTicket, sessionID: prior,
+            state: "failed", revision: 4), "the current snapshot request owns its result")
+        reconciliationGate.invalidate() // begin() installs a new auth attempt
+        precondition(!reconciliationGate.mayApply(oldSnapshotTicket, sessionID: current,
+            state: "working", revision: 0),
+            "a delayed snapshot from the previous attempt cannot overwrite a newer sign-in")
+        let promptTicket = reconciliationGate.begin(sessionID: current,
+            state: "awaitingPrompt", revision: 8)
+        precondition(!reconciliationGate.mayApply(promptTicket, sessionID: current,
+            state: "awaitingPrompt", revision: 9),
+            "a snapshot cannot overwrite a newer prompt revision in the same session")
+        let newestSnapshotTicket = reconciliationGate.begin(sessionID: current,
+            state: "failed", revision: 9)
+        precondition(!reconciliationGate.mayApply(promptTicket, sessionID: current,
+            state: "failed", revision: 9) &&
+                     reconciliationGate.mayApply(newestSnapshotTicket, sessionID: current,
+                        state: "failed", revision: 9),
+            "the most recent reconciliation wins when account snapshots return out of order")
+
         precondition(V3ProvisioningResumeAvailabilityPolicy.canResume(
             authenticated: true, currentAppleID: "Dev@Example.com", resumableAppleID: "dev@example.com"))
         precondition(!V3ProvisioningResumeAvailabilityPolicy.canResume(
@@ -135,6 +166,13 @@ struct AuthOwnershipReconciliationHarness {
                      authStartNotDispatched.safeCause == .authAttemptNotDispatched &&
                      authStartNotDispatched.safeMessage.contains("was not submitted"),
                      "a correlated not-dispatched auth start must not be treated as an unknown active session")
+        let provisioningNotDispatched = V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(
+            CombinedFailure(operation: "authRetryProvisioning", stage: .command,
+                code: .busy, id: UUID().uuidString, retryable: true),
+            operation: "authRetryProvisioning")
+        precondition(provisioningNotDispatched.safeCause == .authProvisioningRetryNotDispatched &&
+                     provisioningNotDispatched.safeMessage.contains("provisioning retry"),
+                     "a rejected provisioning retry keeps its own non-dispatch meaning")
         precondition(!V3ProvisioningRetryRecoveryPolicy.availabilityAfterFailure(
             snapshotConfirmed: true, snapshotAllowsRetry: false, previouslyConfirmedAvailable: true),
             "a confirmed unavailable session cannot be overwritten by a retry catch")

@@ -206,6 +206,9 @@ class ServicePatchTests(unittest.TestCase):
         self.assertIn('removeObject(forKey: "liveContainerAutoRefreshExpectedRunID")', refresh)
         self.assertIn("V3DirectRefreshRunClaimPolicy.defaultsKey", refresh)
         self.assertIn("V3DirectRefreshRunClaimPolicy.isActive", refresh)
+        self.assertIn("V3DirectRefreshPreflightPolicy.isBlocked", refresh)
+        self.assertIn('forKey: "liveContainerAutoRefreshHostHandoff"', refresh)
+        self.assertIn('forKey: "liveContainerAutoRefreshUncertainMutationRunID"', refresh)
         perform = refresh[refresh.index("private func performRefresh(identifier:"):]
         perform = perform[:perform.index("private func releaseRefreshAdmission")]
         self.assertLess(perform.index("try await ensureServiceConnected()"), perform.index("v3RefreshToken = token"))

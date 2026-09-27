@@ -177,6 +177,7 @@ enum LiveContainerAutoRefreshScheduler {
             "verified": verified, "expected_count": expected.count,
             "result_count": results.count, "failed_count": failed,
             "skipped_count": skipped.count]
+        if let verifiedAt = manifest["date"] as? Date { summary["verified_at"] = verifiedAt }
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
         for key in ["requested_ids", "expected_ids", "skipped_ids"] {
             guard let values = manifest[key] as? [String] else { continue }

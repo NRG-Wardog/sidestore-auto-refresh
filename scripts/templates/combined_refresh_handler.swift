@@ -220,8 +220,10 @@ class RefreshHandler: NSObject {
             throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
                 id: UUID().uuidString, retryable: true, safeCause: .operationInProgress)
         }
-        if schedulerRunID == nil,
-           sharedDefaults.string(forKey: "liveContainerAutoRefreshActiveRunID") != nil {
+        if schedulerRunID == nil && V3DirectRefreshPreflightPolicy.isBlocked(
+            activeRunID: sharedDefaults.string(forKey: "liveContainerAutoRefreshActiveRunID"),
+            hostHandoffPending: sharedDefaults.bool(forKey: "liveContainerAutoRefreshHostHandoff"),
+            uncertainMutationRunID: sharedDefaults.string(forKey: "liveContainerAutoRefreshUncertainMutationRunID")) {
             throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
                 id: UUID().uuidString, retryable: true, safeCause: .operationInProgress)
         }
