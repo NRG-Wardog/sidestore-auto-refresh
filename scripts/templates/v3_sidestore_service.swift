@@ -65,14 +65,25 @@ final class V3SideStoreService: NSObject {
             reply(encode(["id": id, "version": 1, "ok": true], operation: operation))
             return
         }
-        guard tasks[id] == nil else { reply(encode(["version": 1, "id": id, "error": "busy",
-            "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire],
-            operation: operation)); return }
+        guard tasks[id] == nil else {
+            let failure = operation == "sourceRemoveConfirmed"
+                ? CombinedFailure(operation: "source", stage: .source, code: .busy, id: id,
+                                  retryable: true, safeCause: .sourceRemoveBusy)
+                : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
+            reply(encode(["version": 1, "id": id, "error": "busy", "failure": failure.wire],
+                         operation: operation))
+            return
+        }
         let mutation = !V3WireContract.readOperations.contains(operation)
         guard !mutation || (mutationID == nil && completed.count < 512) else {
-            reply(encode(["version": 1, "id": id, "error": "busy",
-                "failure": CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true).wire],
-                operation: operation)); return }
+            let failure = operation == "sourceRemoveConfirmed"
+                ? CombinedFailure(operation: "source", stage: .source, code: .busy, id: id,
+                                  retryable: true, safeCause: .sourceRemoveBusy)
+                : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
+            reply(encode(["version": 1, "id": id, "error": "busy", "failure": failure.wire],
+                         operation: operation))
+            return
+        }
         if mutation { mutationID = id }
         tasks[id] = Task { @MainActor in
             defer {
@@ -112,9 +123,24 @@ final class V3SideStoreService: NSObject {
                     stage = .serviceReadiness
                 }
                 if operation == "sourceRemoveConfirmed" {
-                    response["failure"] = CombinedFailure(operation: "source", stage: .source, code: .failed,
-                        id: id, underlying: error, safeCause: .sourceRemoveFailed,
-                        sourceStep: .catalogRead).wire
+                    if let serviceError = error as? ServiceError, case .notReady = serviceError {
+                        response["failure"] = CombinedFailure(operation: "source", stage: .serviceReadiness,
+                            code: .notReady, id: id, retryable: true).wire
+                    } else if let headlessError = error as? V3SideStoreServiceError,
+                              case .notReady = headlessError {
+                        response["failure"] = CombinedFailure(operation: "source", stage: .serviceReadiness,
+                            code: .notReady, id: id, retryable: true).wire
+                    } else if let serviceError = error as? ServiceError, case .busy = serviceError {
+                        response["failure"] = CombinedFailure(operation: "source", stage: .source,
+                            code: .busy, id: id, retryable: true, safeCause: .sourceRemoveBusy).wire
+                    } else if let headlessError = error as? V3SideStoreServiceError, case .busy = headlessError {
+                        response["failure"] = CombinedFailure(operation: "source", stage: .source,
+                            code: .busy, id: id, retryable: true, safeCause: .sourceRemoveBusy).wire
+                    } else {
+                        response["failure"] = CombinedFailure(operation: "source", stage: .source, code: .failed,
+                            id: id, underlying: error, safeCause: .sourceRemoveFailed,
+                            sourceStep: .catalogRead).wire
+                    }
                 } else if let serviceError = error as? ServiceError {
                     let code: CombinedFailure.Code
                     switch serviceError {

@@ -304,6 +304,13 @@ struct SetupAndSemanticUXHarness {
         precondition(sourceRemovalIssue.primaryAction.title == "Reload Sources")
         precondition(sourceRemovalIssue.whatToDo.contains("confirm whether the source is gone"))
 
+        let sourceRemovalBusy = CombinedFailure(operation: "source", stage: .source, code: .busy,
+            id: UUID().uuidString, retryable: true, safeCause: .sourceRemoveBusy)
+        let sourceRemovalBusyIssue = V3UserFacingIssue.make(sourceRemovalBusy)
+        precondition(sourceRemovalBusyIssue.primaryAction == .reloadSources,
+                     "a rejected remove must reload the source state rather than fetch manifests")
+        precondition(sourceRemovalBusyIssue.whatToDo.contains("Wait for the current SideStore request"))
+
         // A networking failure is the only case that may offer a connection retry,
         // and it must still be routed by the typed stage rather than by a guess.
         let networkIssue = V3UserFacingIssue.make(

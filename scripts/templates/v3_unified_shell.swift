@@ -2520,6 +2520,8 @@ struct V3OperationSheet: View {
     @State private var technicalDetails = ""
     @State private var recoveryDestination: String?
     @State private var retryBlocked = false
+    @State private var needsDeviceConfirmation = false
+    @State private var confirmUncertainRetirement = false
     @State private var stagedIPACleaned = false
     @State private var copied = false
     private var retryAllowed: Bool {
@@ -2604,6 +2606,11 @@ struct V3OperationSheet: View {
                     if !whatToDo.isEmpty {
                         Section("What you can do") {
                             Text(whatToDo).font(.footnote)
+                            if needsDeviceConfirmation, uncertainSessionID != nil {
+                                Button("Reconcile After Checking Device") {
+                                    confirmUncertainRetirement = true
+                                }
+                            }
                             if let destination = recoveryDestination,
                                let action = recoveryActionTitle(for: destination) {
                                 Button(action) { openRecoveryDestination(destination) }
@@ -2655,6 +2662,15 @@ struct V3OperationSheet: View {
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .interactiveDismissDisabled(true)
+        .confirmationDialog("Check the device before restarting SideStore?", isPresented: $confirmUncertainRetirement,
+                            titleVisibility: .visible) {
+            Button("I checked; restart SideStore", role: .destructive) {
+                confirmUncertainOperationAfterDeviceCheck()
+            }
+            Button("Keep Waiting", role: .cancel) {}
+        } message: {
+            Text("Use this only after confirming the device is no longer installing, updating, refreshing, or deleting the app.")
+        }
         .task {
             if request.operation == "installSharedIPA" {
                 status.installOperationDidPresent(attemptID: request.installAttemptID,
@@ -2673,8 +2689,9 @@ struct V3OperationSheet: View {
                     var cancellationConfirmed = !mustConfirmCancel
                     if let oldSession {
                         do {
-                            _ = try await V3ServiceBridge.shared.request(operation: "opCancel", target: oldSession)
-                            cancellationConfirmed = true
+                            let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: oldSession)
+                            cancellationConfirmed = reply["backendSettled"] as? Bool
+                                ?? reply["stopConfirmed"] as? Bool ?? true
                         } catch { cancellationConfirmed = false }
                     }
                     await oldTask?.value
@@ -2771,6 +2788,15 @@ struct V3OperationSheet: View {
                 failureContext.recordStartFailure(failure)
             }
             presentCurrentFailure()
+            if !backendSessionStarted,
+               V3ServiceBridge.shared.hasUncertainOperationSession(generation.uuidString) {
+                needsDeviceConfirmation = true
+                uncertainSessionID = generation.uuidString
+                retryBlocked = true
+                message = "SideStore may have received the operation start, but did not confirm its state."
+                whatToDo = "Check the device before starting another mutation. If no operation is running, use Reconcile After Checking Device."
+                technicalDetails += " backend_settled=no outcome=unknown"
+            }
         }
     }
 
@@ -2796,6 +2822,24 @@ struct V3OperationSheet: View {
         technicalDetails = failureContext.technicalDetails
         recoveryDestination = failureContext.currentFailure?.recoveryDestination
         recordRefresh("failed", message)
+    }
+    private func confirmUncertainOperationAfterDeviceCheck() {
+        guard let sessionID = uncertainSessionID else { return }
+        guard V3ServiceBridge.shared.confirmUncertainOperationAfterDeviceCheck(sessionID: sessionID) else {
+            needsDeviceConfirmation = false
+            retryBlocked = true
+            message = "The operation has settled. Reload app status before starting another mutation."
+            whatToDo = "Check the installed app list and verify the result."
+            status.reload()
+            return
+        }
+        uncertainSessionID = nil
+        needsDeviceConfirmation = false
+        retryBlocked = true
+        status.reload()
+        message = "SideStore restarted after your device check. The previous operation result remains unknown."
+        whatToDo = "Wait for app status to reload, then verify the installed app before starting another operation."
+        technicalDetails += " service_retired_after_user_confirmation=yes outcome=unknown"
     }
     private func pollLoop(id: String, generation: UUID) async throws {
         while !Task.isCancelled {
@@ -2873,10 +2917,19 @@ struct V3OperationSheet: View {
                 code: CombinedFailure.Code(rawValue: reply["code"] as? String ?? "") ?? .failed,
                 id: sessionID, retryable: reply["retryable"] as? Bool)
             failureContext.recordPipelineFailure(failure)
-            retryBlocked = false
+            let outcomeUnknown = reply["outcomeUnknown"] as? Bool == true ||
+                reply["backendSettled"] as? Bool == false
+            needsDeviceConfirmation = outcomeUnknown
+            if outcomeUnknown { uncertainSessionID = sessionID }
+            retryBlocked = !V3OperationRetrySafetyPolicy.canRetry(
+                backendSettled: reply["backendSettled"] as? Bool,
+                outcomeUnknown: outcomeUnknown)
             message = failureContext.whatHappened
-            whatToDo = failureContext.whatToDo
-            technicalDetails = failureContext.technicalDetails
+            whatToDo = outcomeUnknown
+                ? "The backend has not confirmed that the operation stopped. Do not retry yet; wait for status reconciliation and reload before starting another mutation."
+                : failureContext.whatToDo
+            technicalDetails = failureContext.technicalDetails +
+                (outcomeUnknown ? " backend_settled=no outcome=unknown" : "")
             recoveryDestination = failureContext.currentFailure?.recoveryDestination
             recordRefresh("failed", message)
         default: break
@@ -2934,7 +2987,23 @@ struct V3OperationSheet: View {
             oldTask?.cancel()
             do {
                 if let oldSession {
-                    _ = try await V3ServiceBridge.shared.request(operation: "opCancel", target: oldSession)
+                    let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: oldSession)
+                    if reply["backendSettled"] as? Bool == false || reply["outcomeUnknown"] as? Bool == true {
+                        await oldTask?.value
+                        guard attempt.transitionInFlight, attempt.generation == transitionGeneration else { return }
+                        let failure = CombinedFailure(operation: request.operation, stage: .command,
+                            code: .timedOut, id: transitionGeneration.uuidString)
+                        failureContext.recordStartFailure(failure)
+                        attempt.endTransition()
+                        retryBlocked = true
+                        needsDeviceConfirmation = true
+                        uncertainSessionID = oldSession
+                        state = "failed"
+                        message = failureContext.whatHappened
+                        whatToDo = "The previous operation has not settled. Check the device; do not start another mutation until the result is reconciled."
+                        technicalDetails = failureContext.technicalDetails + " backend_settled=no outcome=unknown"
+                        return
+                    }
                 }
                 await oldTask?.value
                 guard attempt.transitionInFlight, attempt.generation == transitionGeneration else { return }
@@ -2952,6 +3021,8 @@ struct V3OperationSheet: View {
                     id: transitionGeneration.uuidString)
                 failureContext.recordStartFailure(failure)
                 retryBlocked = true
+                needsDeviceConfirmation = oldSession != nil
+                if oldSession != nil { uncertainSessionID = oldSession }
                 presentCurrentFailure()
             }
         }
@@ -2993,6 +3064,8 @@ struct V3OperationSheet: View {
                     id: transitionGeneration.uuidString)
                 failureContext.recordPipelineFailure(failure)
                 retryBlocked = true
+                needsDeviceConfirmation = true
+                uncertainSessionID = oldSession
                 message = "SideStore could not confirm that the operation stopped. It may still be running."
                 whatToDo = "Reconnect and reload operation status before trying another mutation."
                 technicalDetails = failure.technicalDetails
@@ -3011,7 +3084,19 @@ struct V3OperationSheet: View {
             let cancellationTarget = uncertainSessionID ?? oldSession
             if let cancellationTarget {
                 do {
-                    _ = try await V3ServiceBridge.shared.request(operation: "opCancel", target: cancellationTarget)
+                    let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: cancellationTarget)
+                    let backendSettled = reply["backendSettled"] as? Bool
+                        ?? reply["stopConfirmed"] as? Bool ?? true
+                    guard backendSettled else {
+                        isDismissing = false
+                        attempt.endTransition()
+                        needsDeviceConfirmation = true
+                        uncertainSessionID = cancellationTarget
+                        retryBlocked = true
+                        message = "SideStore has not confirmed that the operation stopped."
+                        whatToDo = "Check the device. If no operation is still running, use Reconcile After Checking Device."
+                        return
+                    }
                     uncertainSessionID = nil
                 } catch {
                     if uncertainSessionID != nil {
@@ -3431,9 +3516,14 @@ final class V3AuthStore: ObservableObject {
                     message = ""
                     clearProvisioningOutcome()
                 }
-            } else if state == "idle" || state == "completed" {
-                state = "idle"
+            } else {
+                signedIn = false
                 team = ""
+                if state == "idle" || state == "completed" || state == "authenticatedProvisioningIncomplete" {
+                    state = "idle"
+                    prompt = nil
+                    clearProvisioningOutcome()
+                }
             }
         } catch {
             if state == "idle" { message = "Could not confirm the current SideStore account. Reload status and try again." }
@@ -3464,6 +3554,7 @@ final class V3AuthStore: ObservableObject {
             try await Task.sleep(nanoseconds: 1_000_000_000)
             try Task.checkCancellation()
             let reply = try await V3ServiceBridge.shared.request(operation: "authPoll", target: id)
+            guard !isCancelling, session == id else { throw CancellationError() }
             apply(reply)
             guard let current = reply["state"] as? String, current == "working" || current == "awaitingPrompt" else { return }
         }
@@ -3563,7 +3654,7 @@ final class V3AuthStore: ObservableObject {
     }
 
     func answer(promptID: String, answer: [String: String]) {
-        guard !promptID.isEmpty, let session,
+        guard !isCancelling, !promptID.isEmpty, let session,
               prompt?["id"] as? String == promptID else { return }
         promptSubmitting = true
         previousFailure = V3AuthPromptFailurePolicy.clearingAfterSubmission(
@@ -3604,10 +3695,13 @@ final class V3AuthStore: ObservableObject {
             do {
                 let reply = try await V3ServiceBridge.shared.request(operation: "authRespond", target: session,
                     payload: ["prompt": promptID, "answer": answer])
-                guard self.session == session, reply["session"] as? String == session else { return }
+                guard V3AuthSessionResponsePolicy.mayApplyReply(
+                    currentSessionID: self.session,
+                    replySessionID: reply["session"] as? String ?? "",
+                    cancellationInProgress: self.isCancelling) else { return }
                 apply(reply)
             } catch {
-                guard self.session == session else { return }
+                guard self.session == session, !self.isCancelling else { return }
                 promptSubmitting = false
                 message = "The response could not be submitted. Check the connection, then try once more."
             }

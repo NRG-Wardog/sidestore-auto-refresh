@@ -403,6 +403,7 @@ final class V3AuthCenter {
     struct Session {
         var task: Task<Void, Never>?
         var watchdog: Task<Void, Never>?
+        var preparation = V3OperationPreparationGate()
         var prompt: [String: Any]?
         var attempts = 0
         var terminal = V3TerminalResponse()
@@ -555,8 +556,11 @@ final class V3AuthCenter {
     }
 
     func respond(id: String, promptID: String, answer: [String: String]) -> [String: Any]? {
-        guard let session = sessions[id], case nil = session.terminal.value,
-              session.prompt?["id"] as? String == promptID else { return nil }
+        guard let session = sessions[id],
+              V3AuthSessionResponsePolicy.mayRespond(
+                terminalIsEmpty: session.terminal.isEmpty,
+                cancellationRequested: session.cancellationRequested,
+                promptMatches: session.prompt?["id"] as? String == promptID) else { return nil }
         guard V3HeadlessRuntime.shared.prompts.answer(promptID: promptID, answer: answer) else {
             return ["session": id, "state": "promptExpired"]
         }
@@ -1044,9 +1048,11 @@ final class V3OperationCenter {
         sessions[id] = Session(deadline: deadline)
         switch mutationRegistry.begin(id) {
         case .cancelledBeforeStart:
+            sessions[id]?.preparation.finish()
             finish(id: id, response: ["state": "cancelled"])
             return terminalReply(id: id)
         case .busy:
+            sessions[id]?.preparation.finish()
             let failure = CombinedFailure(operation: kind, stage: .command, code: .busy, id: id, retryable: true)
             finish(id: id, response: ["state": "failed", "failedToStart": true, "stage": failure.stage.rawValue,
                 "code": failure.code.rawValue, "message": failure.message,
@@ -1057,14 +1063,22 @@ final class V3OperationCenter {
         }
         if kind == "installSharedIPA" { sessions[id]?.ipaToken = target }
         guard AuthManager.shared.isAuthenticated else {
+            sessions[id]?.preparation.finish()
             finish(id: id, response: ["state": "waitingForAuthentication"])
             mutationRegistry.finish(id)
             return terminalReply(id: id)
         }
         do {
             let driver = try await makeDriver(id: id, kind: kind, target: target)
+            sessions[id]?.preparation.finish()
             guard sessions[id]?.terminal.isEmpty == true, mutationRegistry.activeID == id else {
                 cleanupTemporaryIPA(id: id)
+                return terminalReply(id: id)
+            }
+            if sessions[id]?.terminal.isCancellationRequested == true {
+                cleanupTemporaryIPA(id: id)
+                finish(id: id, response: ["state": "cancelled", "stopConfirmed": true])
+                mutationRegistry.finish(id)
                 return terminalReply(id: id)
             }
             sessions[id]?.task = Task { @MainActor in await self.drive(id: id, driver: driver) }
@@ -1074,7 +1088,13 @@ final class V3OperationCenter {
                 self.expire(id: id)
             }
         } catch {
+            sessions[id]?.preparation.finish()
             cleanupTemporaryIPA(id: id)
+            if sessions[id]?.terminal.isCancellationRequested == true {
+                finish(id: id, response: ["state": "cancelled", "stopConfirmed": true])
+                mutationRegistry.finish(id)
+                return terminalReply(id: id)
+            }
             var failure = terminalFailure(id: id, kind: kind, error: error)
             failure["failedToStart"] = true
             finish(id: id, response: failure)
@@ -1168,13 +1188,16 @@ final class V3OperationCenter {
         guard session.terminal.requestCancellation() else { return true }
         session.watchdog?.cancel()
         session.group?.cancel()
+        if session.task == nil, !session.preparation.isFinished {
+            _ = session.preparation.requestCancellation()
+        }
         if let promptID = session.prompt?["id"] as? String {
             _ = V3HeadlessRuntime.shared.prompts.cancel(promptID: promptID)
         }
         session.prompt = nil
         sessions[id] = session
         V3SideStoreService.shared.cancellations[id]?()
-        if session.task == nil {
+        if session.task == nil, session.preparation.isFinished {
             finish(id: id, response: ["state": "cancelled", "stopConfirmed": true])
             V3SideStoreService.shared.cancellations.removeValue(forKey: id)
             cleanupTemporaryIPA(id: id)
@@ -1191,8 +1214,14 @@ final class V3OperationCenter {
             cleanupSessions()
             return ["session": id, "state": "cancelled", "stopConfirmed": true]
         }
-        if session.terminal.value != nil { return terminalReply(id: id) }
-        let task = session.task
+        if session.terminal.value != nil, session.preparation.isFinished { return terminalReply(id: id) }
+        if !session.preparation.isFinished {
+            _ = cancel(id: id)
+            await session.preparation.wait()
+        }
+        guard let settledSession = sessions[id] else { return nil }
+        if settledSession.terminal.value != nil { return terminalReply(id: id) }
+        let task = settledSession.task
         guard cancel(id: id) else { return nil }
         if let task { await task.value }
         return terminalReply(id: id)
@@ -1602,6 +1631,7 @@ final class V3OperationCenter {
                         continuation.resume(throwing: error)
                     }
                 }
+                sessions[sessionID]?.preparation.installCancellation { downloadTask.cancel() }
                 downloadTask.resume()
             }
             guard sessions[sessionID]?.terminal.isEmpty == true,

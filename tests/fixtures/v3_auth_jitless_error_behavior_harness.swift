@@ -28,6 +28,21 @@ struct V3AuthJITLessErrorBehaviorHarness {
         precondition(V3AuthTerminalPolicy.resolve(authenticationSucceeded: false,
             authoritativeAccountMatches: false, provisioningFailed: false, cancelled: true) == "cancelled")
 
+        let sessionID = UUID().uuidString
+        precondition(V3AuthSessionResponsePolicy.mayRespond(
+            terminalIsEmpty: true, cancellationRequested: false, promptMatches: true))
+        precondition(!V3AuthSessionResponsePolicy.mayRespond(
+            terminalIsEmpty: true, cancellationRequested: true, promptMatches: true),
+            "a late 2FA answer must not resume a cancelled authentication prompt")
+        precondition(V3AuthSessionResponsePolicy.mayApplyReply(
+            currentSessionID: sessionID, replySessionID: sessionID, cancellationInProgress: false))
+        precondition(!V3AuthSessionResponsePolicy.mayApplyReply(
+            currentSessionID: sessionID, replySessionID: sessionID, cancellationInProgress: true),
+            "a late authRespond reply must not replace the authCancel terminal result")
+        precondition(!V3AuthSessionResponsePolicy.mayApplyReply(
+            currentSessionID: UUID().uuidString, replySessionID: sessionID, cancellationInProgress: false),
+            "a response from an earlier auth session must be ignored")
+
         precondition(V3TwoFactorStep.afterDeliveryChoice("trustedDevice", phoneCount: 0) == .deliveryRequested)
         precondition(V3TwoFactorStep.afterDelivery("trustedDevice") == .enterVerificationCode)
         precondition(V3TwoFactorStep.afterDeliveryChoice("sms", phoneCount: 2) == .choosePhoneNumber)

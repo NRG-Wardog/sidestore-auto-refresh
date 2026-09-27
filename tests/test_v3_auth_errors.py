@@ -105,6 +105,7 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("func reconcile(force: Bool = false) async", sign_in)
         self.assertIn('request(operation: "snapshot")', sign_in)
         self.assertIn('snapshot["account"] as? String', sign_in)
+        self.assertIn("signedIn = false", sign_in)
         self.assertIn(".task { await auth.reconcile() }", host)
 
     def test_auth_cancel_consumes_terminal_reply_and_reconciles_account(self):
@@ -116,6 +117,8 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("await reconcile(force: true)", cancel)
         self.assertIn("if !signedIn, terminalReply == nil", cancel)
         self.assertNotIn('state = "cancelled"\n                message = "Sign-in was cancelled."', cancel)
+        self.assertIn("V3AuthSessionResponsePolicy.mayApplyReply", store)
+        self.assertIn("V3AuthSessionResponsePolicy.mayRespond", runtime())
         run = store[store.index("private func run() async {"):]
         run = run[:run.index("private func pollLoop", 1)]
         self.assertIn("if isCancelling { return }", run)

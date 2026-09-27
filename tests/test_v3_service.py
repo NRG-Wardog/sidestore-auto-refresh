@@ -91,6 +91,7 @@ class ServicePatchTests(unittest.TestCase):
             side = roots[1]
             info = plistlib.loads((side / "AltStore/Info.plist").read_bytes())
             self.assertNotIn("UIMainStoryboardFile", info)
+            self.assertNotIn("UIBackgroundModes", info)
             scene_configs = info["UIApplicationSceneManifest"]["UISceneConfigurations"]
             for configurations in scene_configs.values():
                 for configuration in configurations:
@@ -99,8 +100,27 @@ class ServicePatchTests(unittest.TestCase):
             self.assertNotIn("UILaunchStoryboardName", info)
             project = (side / "AltStore.xcodeproj/project.pbxproj").read_text()
             self.assertNotIn("Starscream", project)
-            self.assertIn('"iOS/LaunchScreen.storyboard"', project)
-            self.assertIn('"iOS/Main.storyboard"', project)
+            exception_anchor = project.index("A8EEC8CB2F4B146B00F2436D")
+            member_start = project.index("membershipExceptions = (", exception_anchor)
+            member_end = project.index(");", member_start)
+            membership = project[member_start:member_end]
+            removed_ui_resources = (
+                '"iOS/LaunchScreen.storyboard"', '"iOS/Main.storyboard"',
+                '"Authentication/Authentication.storyboard"', '"Settings/Settings.storyboard"',
+                '"Sources/Sources.storyboard"', '"Components/AppBannerView.xib"',
+                '"My Apps/InstalledAppsCollectionHeaderView.xib"', '"My Apps/UpdateCollectionViewCell.xib"',
+                '"News/NewsCollectionViewCell.xib"', '"Settings/AboutPatreonHeaderView.xib"',
+                '"Settings/SettingsHeaderFooterView.xib"', '"Sources/Components/SourceHeaderView.xib"',
+                '"Components/BackgroundTaskManager.swift"', '"Resources/Silence.m4a"')
+            for path in removed_ui_resources:
+                self.assertIn(path, membership)
+            self.assertNotIn("ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES", project)
+            self.assertEqual(project.count("ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO"), 2)
+            app_delegate = (side / "AltStore/AppDelegate.swift").read_text()
+            self.assertNotIn("BackgroundTaskManager.shared", app_delegate)
+            self.assertNotIn("AppManager.shared.backgroundRefresh", app_delegate)
+            self.assertNotIn("self.fetchSources", app_delegate)
+            self.assertIn("completionHandler(.noData)", app_delegate)
             resolved = json.loads((side / "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved").read_text())
             self.assertNotIn("starscream", [pin["identity"] for pin in resolved["pins"]])
             jit = (roots[0] / "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift").read_text(encoding="utf-8")
@@ -177,6 +197,15 @@ class ServicePatchTests(unittest.TestCase):
             self.assertNotIn(token, service + runtime)
         self.assertNotIn("present(", service + runtime)
         self.assertNotIn("dismiss(", service + runtime)
+
+    def test_source_remove_preserves_busy_and_service_readiness_causes(self):
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        receive = service[service.index("private func receive("):service.index("private func invalidRequestReply")]
+        self.assertIn("safeCause: .sourceRemoveBusy", receive)
+        self.assertIn("case .notReady = serviceError", receive)
+        self.assertIn("case .notReady = headlessError", receive)
+        self.assertIn("code: .notReady, id: id, retryable: true", receive)
+        self.assertIn("safeCause: .sourceRemoveFailed", receive)
 
     def test_headless_operation_inventory(self):
         contract = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")

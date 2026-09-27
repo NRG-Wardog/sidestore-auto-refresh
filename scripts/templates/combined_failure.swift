@@ -120,6 +120,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case sourcePersistenceUnverified
         case sourceInvalidURL
         case sourceRemoveFailed
+        case sourceRemoveBusy
         case catalogUnavailable
         case catalogSourceUnavailable
         // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: the service built a reply it
@@ -149,6 +150,8 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceInvalidManifest, .sourcePersistenceUnverified, .sourceInvalidURL,
                  .sourceRemoveFailed, .catalogUnavailable:
                 return false
+            case .sourceRemoveBusy:
+                return true
             // The source is gone, so retrying the same request cannot succeed;
             // the recovery is to reload the source list, not to retry.
             case .catalogSourceUnavailable:
@@ -258,6 +261,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourcePersistenceUnverified: return "SideStore could not confirm that the source was saved."
             case .sourceInvalidURL: return "The source URL is invalid."
             case .sourceRemoveFailed: return "SideStore could not confirm that the source was removed from its saved list."
+            case .sourceRemoveBusy: return "SideStore was busy with another request, so it did not start removing this source."
             case .catalogUnavailable: return "SideStore could not read this source's saved catalog data."
             case .catalogSourceUnavailable: return "This source is no longer in the SideStore source list."
             case .responseEncodingFailed: return "SideStore could not encode the response for this request."
@@ -406,6 +410,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Enter a valid HTTP or HTTPS source URL, then preview it again."
             case .sourceRemoveFailed:
                 return "Reload Sources and confirm whether the source is gone. If it remains, remove it again."
+            case .sourceRemoveBusy:
+                return "Wait for the current SideStore request to finish, reload Sources, then confirm removal again."
             case .catalogUnavailable:
                 return "Reload the catalog. If it continues, copy the safe diagnostics."
             case .catalogSourceUnavailable:

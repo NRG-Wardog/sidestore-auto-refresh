@@ -2,7 +2,7 @@ import Foundation
 
 @main
 struct OperationTerminalHarness {
-    static func main() {
+    static func main() async {
         let cancelThenSuccess = V3OperationTerminalResponse()
         precondition(cancelThenSuccess.requestCancellation())
         precondition(cancelThenSuccess.value == nil,
@@ -30,6 +30,30 @@ struct OperationTerminalHarness {
         precondition(!failureWins.requestCancellation())
         precondition(!failureWins.setIfEmpty(["state": "completed"]))
         precondition(failureWins.value?["stage"] as? String == "signing")
+
+        let preparation = V3OperationPreparationGate()
+        var cancellations = 0
+        preparation.installCancellation { cancellations += 1 }
+        let waiter = Task { await preparation.wait() }
+        while preparation.pendingWaiterCount == 0 { await Task.yield() }
+        precondition(preparation.requestCancellation())
+        precondition(cancellations == 1,
+                     "cancellation must reach the in-flight URLSession download before it is reported stopped")
+        precondition(!preparation.isFinished,
+                     "preparation cancellation must await its completion callback")
+        precondition(preparation.requestCancellation())
+        precondition(cancellations == 1, "repeated cancellation must not forward twice")
+        preparation.finish()
+        await waiter.value
+        precondition(preparation.isFinished)
+
+        let cancelBeforeTaskCreation = V3OperationPreparationGate()
+        precondition(cancelBeforeTaskCreation.requestCancellation())
+        var lateTaskCancellation = 0
+        cancelBeforeTaskCreation.installCancellation { lateTaskCancellation += 1 }
+        precondition(lateTaskCancellation == 1,
+                     "a download created after cancellation must be cancelled before resume")
+        cancelBeforeTaskCreation.finish()
 
         print("V3_OPERATION_CANCELLATION_TERMINAL_PASS")
     }

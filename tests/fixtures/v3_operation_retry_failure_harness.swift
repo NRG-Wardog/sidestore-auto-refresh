@@ -16,6 +16,9 @@ struct OperationRetryFailureHarness {
         precondition(context.currentFailure?.stage == "signing")
         precondition(context.retryDisposition == .unknown,
                      "unknown signing retryability must be shown honestly")
+        precondition(V3OperationRetrySafetyPolicy.canRetry(backendSettled: true, outcomeUnknown: false))
+        precondition(!V3OperationRetrySafetyPolicy.canRetry(backendSettled: false, outcomeUnknown: true),
+                     "an uncertain native result must block a new mutation")
 
         precondition(registry.finish(firstSession))
         context.beginRetry()

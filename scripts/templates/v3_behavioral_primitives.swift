@@ -782,6 +782,18 @@ final class V3TerminalResponse: @unchecked Sendable {
     var isEmpty: Bool { if case nil = value { return true }; return false }
 }
 
+enum V3AuthSessionResponsePolicy {
+    static func mayRespond(terminalIsEmpty: Bool, cancellationRequested: Bool,
+                           promptMatches: Bool) -> Bool {
+        terminalIsEmpty && !cancellationRequested && promptMatches
+    }
+
+    static func mayApplyReply(currentSessionID: String?, replySessionID: String,
+                              cancellationInProgress: Bool) -> Bool {
+        !cancellationInProgress && currentSessionID == replySessionID
+    }
+}
+
 enum V3DeleteReconciliationPolicy {
     static let callbackGrace: TimeInterval = 5
 
@@ -850,6 +862,89 @@ final class V3OperationTerminalResponse: @unchecked Sendable {
         response["session"] = sessionID
         response["backendSettled"] = backendSettled
         return response
+    }
+}
+
+// Owns pre-driver work such as resolving or downloading a URL IPA. The session
+// is not stopped until this gate finishes; cancellation is forwarded to the
+// concrete preparation task and callers can await its settlement.
+final class V3OperationPreparationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var finished = false
+    private var cancellationRequested = false
+    private var cancellationAction: (() -> Void)?
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    var isFinished: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return finished
+    }
+
+    var isCancellationRequested: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancellationRequested
+    }
+
+    var pendingWaiterCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return waiters.count
+    }
+
+    func installCancellation(_ action: @escaping () -> Void) {
+        lock.lock()
+        if finished {
+            lock.unlock()
+            return
+        }
+        cancellationAction = action
+        let shouldCancel = cancellationRequested
+        lock.unlock()
+        if shouldCancel { action() }
+    }
+
+    @discardableResult
+    func requestCancellation() -> Bool {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return false
+        }
+        let firstRequest = !cancellationRequested
+        cancellationRequested = true
+        let action = firstRequest ? cancellationAction : nil
+        lock.unlock()
+        action?()
+        return true
+    }
+
+    func finish() {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        cancellationAction = nil
+        let pending = waiters
+        waiters.removeAll()
+        lock.unlock()
+        for continuation in pending { continuation.resume() }
+    }
+
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if finished {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                waiters.append(continuation)
+                lock.unlock()
+            }
+        }
     }
 }
 
@@ -1242,7 +1337,8 @@ struct V3UserFacingIssue: Equatable {
                      whatHappened: String, whatToDo: String, technicalDetails: String) -> V3UserFacingIssue {
         let destination: String? = {
             if safeCause == CombinedFailure.SafeCause.pairingRequired.rawValue { return "pairing" }
-            if safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue { return "sources" }
+            if safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue ||
+               safeCause == CombinedFailure.SafeCause.sourceRemoveBusy.rawValue { return "sources" }
             if stage == CombinedFailure.Stage.authentication.rawValue { return "signIn" }
             if stage == CombinedFailure.Stage.filePreparation.rawValue { return "ipa" }
             if sourceStep == CombinedFailure.SourceStep.provisioningProfileFetch.rawValue
@@ -1290,7 +1386,8 @@ struct V3UserFacingIssue: Equatable {
             case "pairing": return .showPairingSetup
             case "ipa": return .chooseIPA
             case "sources":
-                return safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue
+                return safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue ||
+                       safeCause == CombinedFailure.SafeCause.sourceRemoveBusy.rawValue
                     ? .reloadSources : .retrySource
             case "setup": return .openSetup
             // A connection destination is the only case that legitimately
@@ -1934,5 +2031,11 @@ struct V3OperationRetryContext {
     var retryDisposition: V3RetryDisposition {
         guard let currentFailure else { return .unknown }
         return currentFailure.retryDisposition
+    }
+}
+
+enum V3OperationRetrySafetyPolicy {
+    static func canRetry(backendSettled: Bool?, outcomeUnknown: Bool) -> Bool {
+        !outcomeUnknown && (backendSettled ?? true)
     }
 }

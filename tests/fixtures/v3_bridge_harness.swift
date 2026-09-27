@@ -85,6 +85,23 @@ struct BridgeTests {
         async let b: Void = bridge.connect()
         _ = try await (a, b)
         precondition(handler.connects == 1, "launch must be coalesced")
+        let invalidStartSession = UUID().uuidString
+        do {
+            _ = try await bridge.request(operation: "opStart",
+                payload: ["kind": "install", "session": invalidStartSession, "unplistable": NSNull()])
+            preconditionFailure("unplistable opStart payload was accepted")
+        } catch {}
+        precondition(!bridge.isMutating,
+                     "local plist encoding failure must not retain a synthetic operation session")
+        let oversizedStartSession = UUID().uuidString
+        do {
+            _ = try await bridge.request(operation: "opStart",
+                payload: ["kind": "install", "session": oversizedStartSession,
+                          "extra": String(repeating: "x", count: 20_000)])
+            preconditionFailure("oversized opStart request was accepted")
+        } catch {}
+        precondition(!bridge.isMutating,
+                     "local request-size rejection must not retain a synthetic operation session")
         let value = try await bridge.request(operation: "snapshot")
         precondition(value["account"] as? String == "fixture")
         precondition(client.operations == ["snapshot"], "cold launch/status triggered a mutation")
@@ -187,6 +204,19 @@ struct BridgeTests {
             precondition(Date() < ownershipDeadline, "the monitor did not observe backend settlement")
             await Task.yield()
         }
+        let unresolvedSession = UUID().uuidString
+        client.operationState = "working"
+        client.backendSettled = false
+        _ = try await bridge.request(operation: "opStart",
+            payload: ["kind": "delete", "session": unresolvedSession])
+        client.operationState = "failed"
+        let unresolved = try await bridge.request(operation: "opPoll", target: unresolvedSession)
+        precondition(unresolved["outcomeUnknown"] as? Bool == true && bridge.isMutating)
+        let stopsBeforeConfirmation = handler.stops
+        precondition(bridge.confirmUncertainOperationAfterDeviceCheck(sessionID: unresolvedSession),
+                     "user-confirmed device reconciliation must retire the uncertain backend process")
+        precondition(handler.stops == stopsBeforeConfirmation + 1 && !bridge.isMutating,
+                     "the explicit confirmed-reconciliation path must release the host mutation gate")
         print("V3 lifecycle PASS")
     }
 }
