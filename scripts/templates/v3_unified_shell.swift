@@ -3224,6 +3224,7 @@ struct V3OperationSheet: View {
 struct V3PromptSection: View {
     let prompt: [String: Any]
     @Binding var isSubmitting: Bool
+    var isSubmissionBlocked = false
     let onAnswer: ([String: String]) -> Void
     @State private var fields: [String: String] = [:]
     @State private var selected: Set<String> = []
@@ -3287,7 +3288,7 @@ struct V3PromptSection: View {
                         respond(answer)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled((fields["code"] ?? "").isEmpty || isSubmitting)
+                    .disabled((fields["code"] ?? "").isEmpty || isSubmitting || isSubmissionBlocked)
                     Button("Change Verification Method", systemImage: "arrow.uturn.backward") {
                         var answer = fields
                         answer["action"] = "changeMethod"
@@ -3389,7 +3390,8 @@ struct V3PromptSection: View {
                         answer["action"] = option["id"] ?? ""
                         respond(answer)
                     }
-                    .disabled(isSubmitting)
+                    .disabled(isSubmitting || (isSubmissionBlocked &&
+                        !["cancel", "changeMethod"].contains(option["id"] ?? "")))
                 }
             }
             }
@@ -3423,7 +3425,8 @@ struct V3PromptSection: View {
             }
         }
         .buttonStyle(.bordered)
-        .disabled(isSubmitting)
+        .disabled(isSubmitting || (isSubmissionBlocked &&
+            !["cancel", "changeMethod"].contains(option["id"] ?? "")))
     }
     private func twoFactorCancelButton() -> some View {
         Button("Cancel Sign In", role: .cancel) {
@@ -3457,6 +3460,8 @@ final class V3AuthStore: ObservableObject {
     @Published var attempts = 0
     @Published private(set) var revision = 0
     @Published var message = ""
+    @Published private(set) var promptResponseDiagnostics = ""
+    @Published private(set) var promptResponseBlocked = false
     @Published var deliveryProgressMessage = ""
     @Published var twoFactorTransientStep: V3TwoFactorStep?
     @Published var team = ""
@@ -3508,6 +3513,8 @@ final class V3AuthStore: ObservableObject {
         revision = 0
         state = "working"
         message = ""
+        promptResponseDiagnostics = ""
+        promptResponseBlocked = false
         deliveryProgressMessage = ""
         twoFactorTransientStep = nil
         prompt = nil
@@ -3539,6 +3546,7 @@ final class V3AuthStore: ObservableObject {
     // and 2FA again.
     func retryProvisioning() {
         guard !isCancelling, !["working", "awaitingPrompt"].contains(state) else { return }
+        let previouslyAvailable = provisioningRetryAvailable
         task?.cancel()
         session = UUID().uuidString
         attempts = 0
@@ -3548,12 +3556,14 @@ final class V3AuthStore: ObservableObject {
         prompt = nil
         previousFailure = nil
         promptSubmitting = false
+        promptResponseDiagnostics = ""
+        promptResponseBlocked = false
         clearProvisioningOutcome()
-        task = Task { await runProvisioningRetry() }
+        task = Task { await runProvisioningRetry(previouslyAvailable: previouslyAvailable) }
     }
     var canRetryProvisioning: Bool { provisioningRetryAvailable }
 
-    private func runProvisioningRetry() async {
+    private func runProvisioningRetry(previouslyAvailable: Bool) async {
         guard let requestedSession = session else { return }
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "authRetryProvisioning",
@@ -3590,14 +3600,22 @@ final class V3AuthStore: ObservableObject {
             try await pollLoop(id: id)
         } catch {
             if isCancelling || Task.isCancelled { return }
-            await reconcile(force: true)
+            let snapshotConfirmed = await reconcile(force: true)
             provisioningTechnical = (error as? CombinedFailure)?.technicalDetails ?? ""
             if signedIn {
                 if state == "completed" { return }
+                if snapshotConfirmed && provisioningSessionUnavailable {
+                    provisioningMessage = "Apple ID is signed in, but the saved provisioning session is unavailable. Open Account & Signing to sign in again before retrying setup."
+                    provisioningRetryAvailable = false
+                    return
+                }
                 state = "authenticatedProvisioningIncomplete"
                 provisioningMessage = "Retry Provisioning could not be confirmed. Your last confirmed state is still signed in. Reload status, then try again."
-                provisioningRetryAvailable = true
-                provisioningSessionUnavailable = false
+                provisioningRetryAvailable = V3ProvisioningRetryRecoveryPolicy.availabilityAfterFailure(
+                    snapshotConfirmed: snapshotConfirmed,
+                    snapshotAllowsRetry: provisioningRetryAvailable,
+                    previouslyConfirmedAvailable: previouslyAvailable)
+                provisioningSessionUnavailable = snapshotConfirmed ? provisioningSessionUnavailable : false
             } else {
                 state = "failed"
                 message = "The provisioning retry could not be started, and SideStore could not confirm the account state. Check Account & Signing, then reload status."
@@ -3616,8 +3634,9 @@ final class V3AuthStore: ObservableObject {
         provisioningFinishedLater = true
     }
 
-    func reconcile(force: Bool = false) async {
-        guard force || !["working", "awaitingPrompt"].contains(state) else { return }
+    @discardableResult
+    func reconcile(force: Bool = false) async -> Bool {
+        guard force || !["working", "awaitingPrompt"].contains(state) else { return false }
         do {
             let snapshot = try await V3ServiceBridge.shared.request(operation: "snapshot")
             let account = snapshot["account"] as? String ?? "Not signed in"
@@ -3668,8 +3687,10 @@ final class V3AuthStore: ObservableObject {
                     clearProvisioningOutcome()
                 }
             }
+            return true
         } catch {
             if state == "idle" { message = "Could not confirm the current SideStore account. Reload status and try again." }
+            return false
         }
     }
 
@@ -3741,6 +3762,8 @@ final class V3AuthStore: ObservableObject {
         if reply["authenticated"] as? Bool == true { signedIn = true }
         if oldPromptID != (prompt?["id"] as? String) {
             promptSubmitting = false
+            promptResponseDiagnostics = ""
+            promptResponseBlocked = false
             if state == "awaitingPrompt" {
                 if V3AuthPromptResponsePolicy.shouldClearSubmissionFailure(
                     oldPromptID: oldPromptID, newPromptID: prompt?["id"] as? String,
@@ -3848,6 +3871,9 @@ final class V3AuthStore: ObservableObject {
     func answer(promptID: String, answer: [String: String]) {
         guard !isCancelling, !promptID.isEmpty, let session,
               prompt?["id"] as? String == promptID else { return }
+        if promptResponseBlocked && !["cancel", "changeMethod"].contains(answer["action"] ?? "") { return }
+        promptResponseDiagnostics = ""
+        promptResponseBlocked = false
         promptSubmitting = true
         previousFailure = V3AuthPromptFailurePolicy.clearingAfterSubmission(
             previousFailure, promptKind: prompt?["kind"] as? String)
@@ -3919,6 +3945,8 @@ final class V3AuthStore: ObservableObject {
                     submittedPromptID: promptID, cancellationInProgress: self.isCancelling) else { return }
                 promptSubmitting = false
                 message = V3AuthPromptResponsePolicy.failureMessage(error)
+                promptResponseDiagnostics = V3AuthPromptResponsePolicy.diagnostics(error)
+                promptResponseBlocked = V3AuthPromptResponsePolicy.blocksResubmission(error)
             }
         }
     }
@@ -4096,8 +4124,22 @@ struct V3SignInView: View {
                         }
                     }
                 }
-                V3PromptSection(prompt: prompt, isSubmitting: $auth.promptSubmitting) { answer in
+                V3PromptSection(prompt: prompt, isSubmitting: $auth.promptSubmitting,
+                    isSubmissionBlocked: auth.promptResponseBlocked && (prompt["kind"] as? String == "twoFactor")) { answer in
                     auth.answer(promptID: prompt["id"] as? String ?? "", answer: answer)
+                }
+                if !auth.promptResponseDiagnostics.isEmpty {
+                    Section("Verification response") {
+                        DisclosureGroup("Technical details") {
+                            Text(auth.promptResponseDiagnostics)
+                                .font(.caption2)
+                                .textSelection(.enabled)
+                        }
+                        Button("Copy Diagnostics", systemImage: "doc.on.doc") {
+                            UIPasteboard.general.string = auth.promptResponseDiagnostics
+                        }
+                        .font(.caption)
+                    }
                 }
             }
             Section("About") {

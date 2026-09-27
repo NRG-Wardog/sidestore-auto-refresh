@@ -418,6 +418,8 @@ enum Constants { static let defaultAccountRepairMessage = "" }
                        "SNAPSHOT_READY", "READINESS_TIMEOUT", "READINESS_INVALID_RESPONSE"):
             self.assertIn(marker, handler + startup)
         self.assertIn("id.uuidString", handler)
+        self.assertIn("V3ServiceReadinessReply.decode(response, requestID: requestID)", startup)
+        self.assertNotIn('result["ok"] as? Bool', startup)
 
     def test_reconnect_and_mutation_safety_invariants(self):
         handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")

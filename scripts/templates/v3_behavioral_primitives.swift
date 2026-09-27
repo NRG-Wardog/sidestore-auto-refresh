@@ -859,6 +859,26 @@ enum V3AuthPromptResponsePolicy {
         }
         return "The verification response could not be confirmed. The exact underlying cause could not be safely identified. Check the sign-in status before trying again."
     }
+
+    static func diagnostics(_ error: Error) -> String {
+        if let failure = error as? CombinedFailure { return failure.technicalDetails }
+        return "schema=1 operation=authRespond stage=command code=failed correlation=unavailable underlying_domain=redacted underlying_code=redacted retryable=unknown"
+    }
+
+    static func blocksResubmission(_ error: Error) -> Bool {
+        (error as? CombinedFailure)?.retryable == false
+    }
+}
+
+enum V3TwoFactorRetryPolicy {
+    static func shouldReuseCredentialsForCodeRetry(authFailureKind: String?) -> Bool {
+        authFailureKind == "invalidCode"
+    }
+
+    static func recoveryMessage(authFailureKind: String?) -> String? {
+        guard shouldReuseCredentialsForCodeRetry(authFailureKind: authFailureKind) else { return nil }
+        return "The verification code was not accepted. Enter a new code and try again."
+    }
 }
 
 struct V3AuthStartCancellationRegistry {
@@ -2195,7 +2215,7 @@ enum V3OperationStartDispatchPolicy {
 enum V3RequestRetirementPolicy {
     private static let sessionControls: Set<String> = [
         "opStart", "opPoll", "opAnswer", "opCancel",
-        "authPoll", "authRespond", "authCancel"
+        "authPoll", "authRespond"
     ]
 
     static func shouldRetireServiceIfRequestStaysPending(_ operation: String) -> Bool {
@@ -2248,6 +2268,14 @@ struct V3AuthSessionOwnership {
         deadlines = deadlines.filter { $0.value > now }
     }
 
+    mutating func clear(sessionID: String) {
+        deadlines.removeValue(forKey: sessionID)
+    }
+
+    mutating func clearAll() {
+        deadlines.removeAll()
+    }
+
     mutating func hasActiveSession(now: Date = Date()) -> Bool {
         prune(now: now)
         return !deadlines.isEmpty
@@ -2264,6 +2292,24 @@ enum V3ProvisioningResumeAvailabilityPolicy {
         let current = currentAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let resumable = resumableAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return !current.isEmpty && current == resumable
+    }
+}
+
+enum V3ProvisioningResumeExecutionPolicy {
+    static func mayUseCachedSignIn(forceProvisioningRetry: Bool) -> Bool {
+        !forceProvisioningRetry
+    }
+
+    static func mayPromptForCredentials(forceProvisioningRetry: Bool) -> Bool {
+        !forceProvisioningRetry
+    }
+}
+
+enum V3ProvisioningRetryRecoveryPolicy {
+    static func availabilityAfterFailure(snapshotConfirmed: Bool,
+                                         snapshotAllowsRetry: Bool,
+                                         previouslyConfirmedAvailable: Bool) -> Bool {
+        snapshotConfirmed ? snapshotAllowsRetry : previouslyConfirmedAvailable
     }
 }
 

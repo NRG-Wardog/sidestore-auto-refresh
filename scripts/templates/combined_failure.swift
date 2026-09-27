@@ -764,3 +764,26 @@ public struct CombinedIPAFileError: Error, LocalizedError, CustomNSError {
         }
     }
 }
+
+private func v3StrictPlistInteger(_ value: Any?) -> Int? {
+    guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+          ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(String(cString: number.objCType)) else {
+        return nil
+    }
+    return number.intValue
+}
+
+enum V3NotDispatchedReplyPolicy {
+    static func confirms(_ data: Data, requestID: String, maximumBytes: Int) -> Bool {
+        guard maximumBytes > 0, !data.isEmpty, data.count <= maximumBytes,
+              let reply = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              v3StrictPlistInteger(reply["version"]) == 1,
+              reply["id"] as? String == requestID,
+              reply["error"] as? String != nil,
+              let notDispatched = reply["operationNotDispatched"] as? NSNumber,
+              CFGetTypeID(notDispatched) == CFBooleanGetTypeID(), notDispatched.boolValue,
+              let failure = reply["failure"] as? [String: Any],
+              CombinedFailure.decode(failure, expectedID: requestID) != nil else { return false }
+        return true
+    }
+}

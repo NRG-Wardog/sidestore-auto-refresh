@@ -205,6 +205,8 @@ struct SetupAndSemanticUXHarness {
         precondition(V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("authRetryProvisioning"))
         precondition(V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("refreshAdmissionBegin"))
         precondition(!V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("authPoll"))
+        precondition(V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("authCancel"),
+                     "an unconfirmed cancellation must retire the service after its bounded recovery grace")
         precondition(!V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("opPoll"))
         precondition(!V3IdleReadRetirementPolicy.shouldRetireService(
             operation: "authPoll", hostMutationActive: false, refreshAttemptActive: false),

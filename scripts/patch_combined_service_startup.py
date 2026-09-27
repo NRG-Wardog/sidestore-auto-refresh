@@ -190,12 +190,11 @@ def patch(live, side, product):
                     Task { @MainActor in
                         guard self.launchID == id else { return }
                         pending = false
-                        guard response.count <= V3WireContract.responseLimit,
-                              let result = try? PropertyListSerialization.propertyList(from: response, format: nil) as? [String: Any],
-                              result["id"] as? String == requestID else { invalid = true; return }
-                        if let replyError = result["error"] as? String { lastSnapshotError = replyError }
-                        else if result["ok"] as? Bool != true { lastSnapshotError = "missing-ok" }
-                        ready = result["ok"] as? Bool == true
+                        switch V3ServiceReadinessReply.decode(response, requestID: requestID) {
+                        case .invalid: invalid = true
+                        case .failed(let replyError): lastSnapshotError = replyError
+                        case .ready: ready = true
+                        }
                     }
                 }
             }

@@ -129,6 +129,11 @@ class V3AuthErrorTests(unittest.TestCase):
         host = shell()
         self.assertIn("authSessionOwnership.hasActiveSession()", bridge)
         self.assertIn("updateAuthSessionOwnership(operation: operation", bridge)
+        self.assertIn("V3NotDispatchedReplyPolicy.confirms(response, requestID: id,", bridge)
+        self.assertIn("authSessionOwnership.clearAll()", bridge)
+        self.assertIn("authSessionOwnership.clear(sessionID: sessionID)", bridge)
+        self.assertIn('"authBegin", "authRetryProvisioning"].contains(operation)', service)
+        self.assertIn('"operationNotDispatched"] = true', service)
         self.assertIn('"provisioningRetryAvailable": V3HeadlessRuntime.shared.auth.canResumeProvisioning()', service)
         self.assertIn('let canRetryProvisioning = snapshot["provisioningRetryAvailable"] as? Bool == true', host)
         self.assertIn("shouldReconcileAfterTerminal(current)", host)
@@ -136,6 +141,14 @@ class V3AuthErrorTests(unittest.TestCase):
                         host.index("private func apply(_ reply: [String: Any])")]
         self.assertIn("await reconcile(force: true)", poll_loop)
         self.assertIn("V3AuthPromptResponsePolicy.failureMessage(error)", host)
+        self.assertIn("V3AuthPromptResponsePolicy.diagnostics(error)", host)
+        self.assertIn("Button(\"Copy Diagnostics\", systemImage: \"doc.on.doc\")", host)
+        self.assertIn("isSubmissionBlocked: auth.promptResponseBlocked", host)
+        retry = host[host.index("private func runProvisioningRetry(previouslyAvailable:"):]
+        retry = retry[:retry.index("// V3_FINISH_LATER_PRESERVES_ACCOUNT_V1")]
+        self.assertIn("let snapshotConfirmed = await reconcile(force: true)", retry)
+        self.assertIn("snapshotConfirmed && provisioningSessionUnavailable", retry)
+        self.assertIn("V3ProvisioningRetryRecoveryPolicy.availabilityAfterFailure", retry)
 
     def test_auth_transport_failure_reconciles_before_showing_failed(self):
         host = shell()
@@ -145,11 +158,13 @@ class V3AuthErrorTests(unittest.TestCase):
 
     def test_provisioning_retry_transport_failure_does_not_claim_saved_session_is_gone(self):
         host = shell()
-        retry = host[host.index("private func runProvisioningRetry()"):]
+        retry = host[host.index("private func runProvisioningRetry(previouslyAvailable:"):]
         retry = retry[:retry.index("    // V3_FINISH_LATER_PRESERVES_ACCOUNT_V1")]
         self.assertIn("await reconcile(force: true)", retry)
         self.assertIn("provisioningSessionUnavailable = true", retry)
-        self.assertIn("provisioningSessionUnavailable = false", retry)
+        self.assertIn("snapshotConfirmed && provisioningSessionUnavailable", retry)
+        self.assertIn("previouslyConfirmedAvailable: previouslyAvailable", retry)
+        self.assertNotIn("provisioningRetryAvailable = true", retry)
         self.assertNotIn('The saved Apple session is no longer available. Sign in again', retry)
 
     def test_prompt_expiry_and_session_timeout_have_distinct_recovery_states(self):

@@ -199,7 +199,7 @@ class RecoveryActionLabelTests(unittest.TestCase):
         # A second interactive begin would re-request credentials and 2FA.
         self.assertEqual(shell().count('request(operation: "authBegin",'), 1)
         self.assertIn("func retryProvisioning()", store)
-        self.assertIn("func runProvisioningRetry()", store)
+        self.assertIn("func runProvisioningRetry(previouslyAvailable:", store)
         self.assertIn("func finishProvisioningLater()", store)
 
     def test_finish_later_preserves_the_account_and_reloads(self):

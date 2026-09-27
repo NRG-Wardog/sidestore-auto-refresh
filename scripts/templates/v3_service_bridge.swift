@@ -199,7 +199,7 @@ public final class V3ServiceBridge {
         let replacesAuthSession = ["authBegin", "authRetryProvisioning"].contains(operation) &&
             authSessionOwnership.hasActiveSession()
         let mutation = !V3WireContract.readOperations.contains(operation) ||
-            ["opAnswer", "opCancel"].contains(operation)
+            ["opAnswer", "opCancel", "authCancel"].contains(operation)
         do {
             try await connect()
         } catch {
@@ -358,6 +358,11 @@ public final class V3ServiceBridge {
                 uncertainOperationSessions.remove(sessionID)
                 knownOperationSessions.removeValue(forKey: sessionID)
                 operationMonitors.removeValue(forKey: sessionID)?.cancel()
+            } else if ["authBegin", "authRetryProvisioning"].contains(operation),
+                      let sessionID = operationSessionID,
+                      V3NotDispatchedReplyPolicy.confirms(response, requestID: id,
+                          maximumBytes: V3WireContract.responseLimit) {
+                authSessionOwnership.clear(sessionID: sessionID)
             } else {
                 monitorOperationSessionIfNeeded(operation: operation, sessionID: operationSessionID)
             }
@@ -379,6 +384,9 @@ public final class V3ServiceBridge {
     public func disconnected() {
         for task in cancellationRecovery.values { task.cancel() }
         cancellationRecovery.removeAll()
+        // Every caller first requests SideStore service retirement. Auth state
+        // cannot outlive that process; clear host-only owners from lost starts.
+        authSessionOwnership.clearAll()
         for task in operationMonitors.values { task.cancel() }
         operationMonitors.removeAll()
         // XPC loss does not prove that native InstallationProxy/device work
@@ -477,13 +485,8 @@ public final class V3ServiceBridge {
     }
 
     private func serviceRejectedOperationStart(_ data: Data, requestID: String) -> Bool {
-        guard let reply = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              V3WireContract.strictInt(reply["version"]) == 1,
-              reply["id"] as? String == requestID else { return false }
-        guard reply["error"] as? String != nil,
-              let envelope = reply["failure"] as? [String: Any],
-              CombinedFailure.decode(envelope, expectedID: requestID) != nil else { return false }
-        return V3WireContract.strictBool(reply["operationNotDispatched"]) == true
+        V3NotDispatchedReplyPolicy.confirms(data, requestID: requestID,
+            maximumBytes: V3WireContract.responseLimit)
     }
 
     private func pruneKnownOperationSessions() {

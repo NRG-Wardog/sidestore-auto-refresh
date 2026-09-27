@@ -393,6 +393,8 @@ func v3OperationErrorGuidance(_ error: OperationError) -> (message: String, hint
 
 // MARK: - Authentication state machine
 
+struct V3ProvisioningResumeUnavailableError: Error {}
+
 @MainActor
 final class V3AuthCenter {
     // V3_PROVISIONING_RESUME_V1: how a begin request should be served.
@@ -405,6 +407,7 @@ final class V3AuthCenter {
     }
 
     struct Session {
+        var mode: BeginMode = .interactive
         var task: Task<Void, Never>?
         var watchdog: Task<Void, Never>?
         var prompt: [String: Any]?
@@ -486,7 +489,12 @@ final class V3AuthCenter {
             debugLog("[V3_AUTH] PROVISIONING_RESUME authenticated=true previous_stage=\(resumable.stage)")
         }
         let previousID = activeID
-        sessions[id] = Session(deadline: deadline)
+        var newSession = Session(deadline: deadline)
+        newSession.mode = mode
+        if mode == .resumeProvisioning {
+            newSession.authenticatedAppleID = AuthManager.shared.currentAppleID?.lowercased()
+        }
+        sessions[id] = newSession
         activeID = id
         // Reserve ownership before the first suspension. A cancel or a newer
         // auth begin can now find this exact session while the previous task
@@ -527,7 +535,9 @@ final class V3AuthCenter {
             let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
             let context = StandaloneOperationContext(steps: .signIn, dbBackgroundContext: background)
             let handler = V3HeadlessAuthHandler(sessionID: id)
-            let operation = try SignInOperation(context: context, signInHandler: handler, anisetteServerHandler: handler)
+            let forceProvisioningRetry = sessions[id]?.mode == .resumeProvisioning
+            let operation = try SignInOperation(context: context, signInHandler: handler,
+                anisetteServerHandler: handler, v3ForceProvisioningRetry: forceProvisioningRetry)
             let result = try await operation.execute()
             let account = result.team.account ?? ALTAccount(appleID: "", identifier: result.team.identifier)
             await handler.handleSignInResult(.success((account, result.session)))
@@ -556,17 +566,24 @@ final class V3AuthCenter {
                 // carry stage/code/failure/technicalDetails and an explicit
                 // outcome discriminator, so the host never has to guess and can
                 // never present a successful sign-in as a failed one.
-                let failure = CombinedFailure.capture(error, operation: "signIn", stage: .provisioning, id: id,
-                                                      retryable: cancelled)
-                resumableProvisioning = (submitted ?? activeAppleID?.lowercased() ?? "", failure.stage.rawValue)
+                let resumeUnavailable = error is V3ProvisioningResumeUnavailableError
+                let failure = resumeUnavailable
+                    ? CombinedFailure(operation: "signIn", stage: .provisioning, code: .notReady,
+                                      id: id, retryable: false)
+                    : CombinedFailure.capture(error, operation: "signIn", stage: .provisioning, id: id,
+                                              retryable: cancelled)
+                if resumeUnavailable { resumableProvisioning = nil }
+                else { resumableProvisioning = (submitted ?? activeAppleID?.lowercased() ?? "", failure.stage.rawValue) }
                 let response: [String: Any] = [
                     "state": authenticatedOutcome,
                     "authenticated": true,
                     "outcome": cancelled ? "provisioningCancelled" : "provisioningFailed",
-                    "resumable": AuthManager.shared.isAuthenticated,
-                    "message": cancelled
-                        ? "Signed in successfully. Provisioning was cancelled before setup finished."
-                        : "Signed in successfully, but provisioning could not be completed.",
+                    "resumable": AuthManager.shared.isAuthenticated && !resumeUnavailable,
+                    "message": resumeUnavailable
+                        ? "Signed in successfully, but SideStore could not reuse the saved Apple session to retry provisioning. Sign in again with this Apple ID before retrying setup."
+                        : (cancelled
+                            ? "Signed in successfully. Provisioning was cancelled before setup finished."
+                            : "Signed in successfully, but provisioning could not be completed."),
                     "stage": failure.stage.rawValue,
                     "code": failure.code.rawValue,
                     "failure": failure.wire,
@@ -804,8 +821,11 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
             ["id": "cancel", "label": "Cancel Sign In"]
         ]
         if phoneNumbers.isEmpty { methods.removeAll { ["sms", "voice"].contains($0["id"] ?? "") } }
+        let priorKind = V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure?["kind"] as? String
+        let message = V3TwoFactorRetryPolicy.recoveryMessage(authFailureKind: priorKind)
+            ?? "Choose how Apple should send your verification code."
         let answer = try await ask(kind: "twoFactor", title: "Choose Verification Method",
-            message: "Choose how Apple should send your verification code.",
+            message: message,
             fields: [["key": "step", "label": "step", "secure": "false", "value": V3TwoFactorStep.chooseDeliveryMethod.rawValue]],
             options: methods)
         switch answer["action"] {
@@ -841,7 +861,8 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
         case .sms: acknowledgement = "Verification code requested by SMS."
         case .voice: acknowledgement = "Verification call requested."
         }
-        let message = failure?.userMessage ?? acknowledgement
+        let priorKind = V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure?["kind"] as? String
+        let message = failure?.userMessage ?? V3TwoFactorRetryPolicy.recoveryMessage(authFailureKind: priorKind) ?? acknowledgement
         let answer = try await ask(kind: "twoFactor", title: "Enter Verification Code", message: message,
             fields: [["key": "step", "label": "step", "secure": "false", "value": V3TwoFactorStep.afterDelivery(mode.rawValue)?.rawValue ?? V3TwoFactorStep.enterVerificationCode.rawValue],
                      ["key": "mode", "label": "mode", "secure": "false", "value": mode.rawValue],

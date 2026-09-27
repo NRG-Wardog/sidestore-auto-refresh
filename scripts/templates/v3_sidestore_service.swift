@@ -114,7 +114,9 @@ final class V3SideStoreService: NSObject {
                                   retryable: true, safeCause: .sourceRemoveBusy)
                 : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
             var response: [String: Any] = ["version": 1, "id": id, "error": "busy", "failure": failure.wire]
-            if operation == "opStart" { response["operationNotDispatched"] = true }
+            if ["opStart", "authBegin", "authRetryProvisioning"].contains(operation) {
+                response["operationNotDispatched"] = true
+            }
             reply(encode(response, operation: operation))
             return
         }
@@ -143,7 +145,9 @@ final class V3SideStoreService: NSObject {
                                   retryable: true, safeCause: .operationInProgress)
                 : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
             var response: [String: Any] = ["version": 1, "id": id, "error": "busy", "failure": failure.wire]
-            if operation == "opStart" { response["operationNotDispatched"] = true }
+            if ["opStart", "authBegin", "authRetryProvisioning"].contains(operation) {
+                response["operationNotDispatched"] = true
+            }
             reply(encode(response, operation: operation))
             return
         }
@@ -183,6 +187,10 @@ final class V3SideStoreService: NSObject {
                 if operation == "opStart",
                    V3OperationStartDispatchPolicy.provesNotDispatched(
                     resultWasReturned: response["result"] != nil) {
+                    response["operationNotDispatched"] = true
+                } else if ["authBegin", "authRetryProvisioning"].contains(operation),
+                          response["result"] == nil,
+                          (error is ServiceError || error is V3SideStoreServiceError) {
                     response["operationNotDispatched"] = true
                 }
                 var stage: CombinedFailure.Stage
@@ -323,16 +331,15 @@ final class V3SideStoreService: NSObject {
     // must be a valid UUID and the operation must be on the allow list. Nothing
     // from the payload is echoed back.
     private func invalidRequestReply(for data: Data) -> [String: Any] {
-        let envelope = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any]
-        let rawID = envelope?["id"] as? String
-        let id = (rawID.flatMap { UUID(uuidString: $0) != nil } ?? false) ? rawID! : UUID().uuidString
-        let rawOperation = envelope?["operation"] as? String
-        let operation = (rawOperation.flatMap { V3WireContract.operations.contains($0) } ?? false)
-            ? rawOperation! : "command"
+        let identity = V3WireContract.invalidRequestIdentity(from: data)
+        let id = identity.id ?? UUID().uuidString
+        let operation = identity.operation ?? "command"
         var response: [String: Any] = ["version": 1, "id": id, "error": "invalidRequest",
                 "failure": CombinedFailure(operation: operation, stage: .command,
                     code: .invalidConfiguration, id: id).wire]
-        if operation == "opStart" { response["operationNotDispatched"] = true }
+        if ["opStart", "authBegin", "authRetryProvisioning"].contains(operation) {
+            response["operationNotDispatched"] = true
+        }
         return response
     }
 

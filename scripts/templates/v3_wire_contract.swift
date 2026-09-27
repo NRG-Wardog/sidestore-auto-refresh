@@ -25,6 +25,19 @@ enum V3WireContract {
         }
         return number.intValue
     }
+
+    static func invalidRequestIdentity(from data: Data) -> (id: String?, operation: String?) {
+        guard data.count <= requestLimit,
+              let envelope = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
+            return (nil, nil)
+        }
+        let rawID = envelope["id"] as? String
+        let id = rawID.flatMap { UUID(uuidString: $0)?.uuidString == $0 ? $0 : nil }
+        let rawOperation = envelope["operation"] as? String
+        let operation = rawOperation.flatMap { operations.contains($0) ? $0 : nil } ?? "command"
+        return (id, operation)
+    }
+
     static let operations: Set<String> = ["snapshot", "catalog", "appIcon", "cancel", "refreshSources",
         "refreshAdmissionBegin", "refreshAdmissionEnd",
         "signOut", "syncAppIDs", "clearCache", "jit", "backupResult",
@@ -167,5 +180,22 @@ struct V3MutationReplyCacheBudget {
 
     mutating func remove(_ byteCount: Int) {
         storedBytes = max(0, storedBytes - max(0, byteCount))
+    }
+}
+
+enum V3ServiceReadinessReply: Equatable {
+    case invalid
+    case failed(String)
+    case ready
+
+    static func decode(_ data: Data, requestID: String) -> V3ServiceReadinessReply {
+        guard !data.isEmpty, data.count <= V3WireContract.responseLimit,
+              let reply = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              V3WireContract.strictInt(reply["version"]) == 1,
+              reply["id"] as? String == requestID else { return .invalid }
+        if let error = reply["error"] as? String { return .failed(error) }
+        guard V3WireContract.strictBool(reply["ok"]) == true,
+              reply["result"] as? [String: Any] != nil else { return .invalid }
+        return .ready
     }
 }

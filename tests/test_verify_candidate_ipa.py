@@ -15,10 +15,10 @@ spec.loader.exec_module(verify_module)
 
 class CandidateArchiveSizeReportTests(unittest.TestCase):
     def test_asset_catalog_rejects_removed_alternate_icons_and_keeps_primary_icon(self):
-        good = [{"Name": "AppIcon"}, {"Name": "SettingsGear"}]
+        good = [{"Name": "AppIcon"}, {"Name": "Classic"}, {"Name": "Modern"}, {"Name": "SettingsGear"}]
         report = verify_module.verify_side_store_assetutil_records(good)
-        self.assertEqual(report["alternate_icon_sets"], "Classic/Modern and 11 alternate app icons absent")
-        self.assertEqual(report["appicon_asset_rendition_count"], 1)
+        self.assertEqual(report["alternate_icon_sets"], "11 alternate app icons absent; Classic/Modern previews retained")
+        self.assertEqual(report["appicon_named_asset_name_count"], 1)
         forbidden_names = sorted(verify_module.REMOVED_SIDESTORE_ICON_NAMES)
         for forbidden in forbidden_names:
             with self.subTest(forbidden=forbidden):

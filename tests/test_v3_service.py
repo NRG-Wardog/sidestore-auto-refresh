@@ -43,6 +43,7 @@ class ServicePatchTests(unittest.TestCase):
             ["LiveContainer/LCBootstrap.m", "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
             ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift",
              "SideStore/Core/Operations/PipelineRunner.swift",
+             "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
              "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift",
              "AltStore/Info.plist", "AltStore.xcodeproj/project.pbxproj",
              "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"])
@@ -92,8 +93,9 @@ class ServicePatchTests(unittest.TestCase):
             info = plistlib.loads((side / "AltStore/Info.plist").read_bytes())
             self.assertNotIn("UIMainStoryboardFile", info)
             self.assertNotIn("UIBackgroundModes", info)
-            self.assertEqual(info["CFBundleIcons"]["CFBundlePrimaryIcon"]["CFBundleIconName"], "AppIcon")
-            self.assertNotIn("CFBundleAlternateIcons", info["CFBundleIcons"])
+            icons = info.get("CFBundleIcons", {})
+            self.assertIsInstance(icons.get("CFBundlePrimaryIcon"), dict)
+            self.assertNotIn("CFBundleAlternateIcons", icons)
             scene_configs = info["UIApplicationSceneManifest"]["UISceneConfigurations"]
             for configurations in scene_configs.values():
                 for configuration in configurations:
@@ -113,13 +115,32 @@ class ServicePatchTests(unittest.TestCase):
                 '"My Apps/InstalledAppsCollectionHeaderView.xib"', '"My Apps/UpdateCollectionViewCell.xib"',
                 '"News/NewsCollectionViewCell.xib"', '"Settings/AboutPatreonHeaderView.xib"',
                 '"Settings/SettingsHeaderFooterView.xib"', '"Sources/Components/SourceHeaderView.xib"',
+                '"Settings/PatreonViewController.swift"', '"Settings/LicensesViewController.swift"',
+                '"Settings/RefreshAttemptsViewController.swift"',
+                '"Settings/Error Log/ErrorDetailsViewController.swift"',
+                '"Settings/Error Log/ErrorLogTableViewCell.swift"',
+                '"Settings/Error Log/ErrorLogViewController.swift"',
                 '"Components/BackgroundTaskManager.swift"', '"Resources/Silence.m4a"',
                 '"Settings/AltAppIconsViewController.swift"', '"Resources/AltIcons.plist"',
-                '"Resources/Icons.xcassets/Classic"', '"Resources/Icons.xcassets/Modern"')
+                '"Resources/Icons.xcassets/Modern/BlueIcon.appiconset"',
+                '"Resources/Icons.xcassets/Modern/DarkIcon.appiconset"',
+                '"Resources/Icons.xcassets/Modern/HoneydewIcon.appiconset"',
+                '"Resources/Icons.xcassets/Modern/PrideIcon.appiconset"',
+                '"Resources/Icons.xcassets/Modern/SandyIcon.appiconset"',
+                '"Resources/Icons.xcassets/Modern/SkyIcon.appiconset"',
+                '"Resources/Icons.xcassets/Modern/SnowIcon.appiconset"',
+                '"Resources/Icons.xcassets/Modern/StarburstIcon.appiconset"',
+                '"Resources/Icons.xcassets/Modern/StormIcon.appiconset"',
+                '"Resources/Icons.xcassets/Modern/VistaIcon.appiconset"',
+                '"Resources/Icons.xcassets/Modern/WinterIcon.appiconset"')
             for path in removed_ui_resources:
                 self.assertIn(path, membership)
             self.assertNotIn('"Resources/Icons.xcassets/AppIcon.appiconset"', membership,
                              "the primary SideStore app icon remains part of the backend bundle")
+            self.assertNotIn('"Resources/Icons.xcassets/Classic"', membership,
+                             "the runtime-selected Classic preview images remain available")
+            self.assertNotIn('"Resources/Icons.xcassets/Modern"', membership,
+                             "the runtime-selected Modern preview images remain available")
             self.assertNotIn("ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES", project)
             self.assertEqual(project.count("ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO"), 2)
             app_delegate = (side / "AltStore/AppDelegate.swift").read_text()
@@ -145,6 +166,17 @@ class ServicePatchTests(unittest.TestCase):
             uninstall = (roots[1] / "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift").read_text(encoding="utf-8")
             self.assertIn("V3_DELETE_NATIVE_SUCCESS_EVIDENCE_V1", uninstall)
             self.assertIn("await handler.recordNativeUninstallSucceeded()", uninstall)
+            sign_in = (roots[1] / "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift").read_text()
+            self.assertIn("V3_PROVISIONING_RETRY_BYPASSES_CACHED_SIGNIN_V1", sign_in)
+            self.assertIn("V3ProvisioningResumePolicy.mayUseCachedSignIn", sign_in)
+            self.assertIn("handleSignInResult(.success(silentResult))", sign_in)
+            self.assertIn("V3ProvisioningResumeUnavailableError()", sign_in)
+            self.assertIn("retryCredentials: (String, String)?", sign_in)
+            self.assertIn("V3TwoFactorRetryPolicy.shouldReuseCredentialsForCodeRetry", sign_in)
+            self.assertIn("if self.isCancelled || error is CancellationError", sign_in)
+            self.assertIn("!(error is V3ProvisioningResumeUnavailableError)", sign_in)
+            self.assertLess(sign_in.index("handleSignInResult(.success(silentResult))"),
+                            sign_in.index("self.provisioningLoop("))
 
     def test_service_and_startup_adapters_compose_on_pinned_sources(self):
         startup = module("patch_combined_service_startup")
@@ -302,6 +334,7 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertIn("operations.activeMutationID != nil || refreshAdmission.isActive", service)
         self.assertIn("completedCacheBudget.canReserve()", service)
         self.assertIn("completedCacheBudget.remove(byteCount)", service)
+        self.assertIn('["opStart", "authBegin", "authRetryProvisioning"].contains(operation)', service)
         begin = runtime[runtime.index("func begin(deadline: Date, mode: BeginMode = .interactive,"):]
         begin = begin[:begin.index("    func run(id: String)")]
         self.assertIn("let requestExpired = Task.isCancelled", begin)

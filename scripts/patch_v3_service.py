@@ -11,7 +11,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 3
+PATCH_VERSION = 4
 
 
 def remove_pbx_object(text, object_marker):
@@ -63,11 +63,26 @@ def headless_project(text):
 				"News/NewsCollectionViewCell.xib",
 				"Settings/AboutPatreonHeaderView.xib",
 				"Settings/AltAppIconsViewController.swift",
+				"Settings/PatreonViewController.swift",
+				"Settings/LicensesViewController.swift",
+				"Settings/RefreshAttemptsViewController.swift",
+				"Settings/Error Log/ErrorDetailsViewController.swift",
+				"Settings/Error Log/ErrorLogTableViewCell.swift",
+				"Settings/Error Log/ErrorLogViewController.swift",
 				"Settings/Settings.storyboard",
 				"Settings/SettingsHeaderFooterView.xib",
 				"Resources/AltIcons.plist",
-				"Resources/Icons.xcassets/Classic",
-				"Resources/Icons.xcassets/Modern",
+				"Resources/Icons.xcassets/Modern/BlueIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/DarkIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/HoneydewIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/PrideIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/SandyIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/SkyIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/SnowIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/StarburstIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/StormIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/VistaIcon.appiconset",
+				"Resources/Icons.xcassets/Modern/WinterIcon.appiconset",
 				"Sources/Components/SourceHeaderView.xib",
 				"Sources/Sources.storyboard",
 				"iOS/LaunchScreen.storyboard",
@@ -167,6 +182,91 @@ def replace(text, old, new):
     return text.replace(old, new, 1)
 
 
+def patch_sign_in_operation(text):
+    marker = "V3_PROVISIONING_RETRY_BYPASSES_CACHED_SIGNIN_V1"
+    if marker in text:
+        required = (
+            "v3ForceProvisioningRetry: Bool",
+            "V3ProvisioningResumePolicy.mayUseCachedSignIn",
+            "V3ProvisioningResumePolicy.mayPromptForCredentials",
+            "V3ProvisioningResumeUnavailableError()",
+            "handleSignInResult(.success(silentResult))",
+            "V3TwoFactorRetryPolicy.shouldReuseCredentialsForCodeRetry",
+            "if self.isCancelled || error is CancellationError",
+            "!(error is V3ProvisioningResumeUnavailableError)",
+        )
+        if text.count(marker) != 1 or any(value not in text for value in required):
+            raise SystemExit("v3 service: provisioning retry SignInOperation patch is partial")
+        return text
+
+    text = replace(text,
+        "    let skipCertificateProvisioning: Bool\n",
+        "    let skipCertificateProvisioning: Bool\n"
+        "    // V3_PROVISIONING_RETRY_BYPASSES_CACHED_SIGNIN_V1\n"
+        "    let v3ForceProvisioningRetry: Bool\n")
+    text = replace(text,
+        "        skipCertificateProvisioning: Bool = false\n",
+        "        skipCertificateProvisioning: Bool = false,\n"
+        "        v3ForceProvisioningRetry: Bool = false\n")
+    text = replace(text,
+        "        self.skipCertificateProvisioning = skipCertificateProvisioning\n",
+        "        self.skipCertificateProvisioning = skipCertificateProvisioning\n"
+        "        self.v3ForceProvisioningRetry = v3ForceProvisioningRetry\n")
+    text = replace(text,
+        "            if var session = AuthManager.shared.session,\n",
+        "            if V3ProvisioningResumePolicy.mayUseCachedSignIn(\n"
+        "                forceProvisioningRetry: self.v3ForceProvisioningRetry),\n"
+        "               var session = AuthManager.shared.session,\n")
+    text = replace(text,
+        "        let (account, session) = if let silentResult = try await self.silentSignIn() {\n"
+        "            silentResult\n"
+        "        } else {\n"
+        "            try await self.authenticationLoop()\n"
+        "        }\n",
+        "        let (account, session) = if let silentResult = try await self.silentSignIn() {\n"
+        "            await self.signInHandler.handleSignInResult(.success(silentResult))\n"
+        "            silentResult\n"
+        "        } else if V3ProvisioningResumePolicy.mayPromptForCredentials(\n"
+        "            forceProvisioningRetry: self.v3ForceProvisioningRetry) {\n"
+        "            try await self.authenticationLoop()\n"
+        "        } else {\n"
+        "            throw V3ProvisioningResumeUnavailableError()\n"
+        "        }\n")
+    text = replace(text,
+        "        while true {\n"
+        "            let (appleID, password) = try await handler.credentials()\n",
+        "        var retryCredentials: (String, String)?\n"
+        "        while true {\n"
+        "            let credentials: (String, String)\n"
+        "            if let retry = retryCredentials {\n"
+        "                credentials = retry\n"
+        "                retryCredentials = nil\n"
+        "            } else {\n"
+        "                credentials = try await handler.credentials()\n"
+        "            }\n"
+        "            let (appleID, password) = credentials\n")
+    text = replace(text,
+        "            } catch {\n"
+        "                self.debugLog(\"[SignInOperation] authenticationLoop: Attempt failed with error: \\(error)\")\n",
+        "            } catch {\n"
+        "                if self.isCancelled || error is CancellationError { throw OperationError.cancelled }\n"
+        "                self.debugLog(\"[SignInOperation] authenticationLoop: Attempt failed with error: \\(error)\")\n")
+    text = replace(text,
+        "                await handler.handleSignInResult(.failure(error))\n",
+        "                await handler.handleSignInResult(.failure(error))\n"
+        "                if V3TwoFactorRetryPolicy.shouldReuseCredentialsForCodeRetry(\n"
+        "                    authFailureKind: v3ClassifyAuthError(error)?.rawValue) {\n"
+        "                    retryCredentials = (appleID, password)\n"
+        "                }\n")
+    text = replace(text,
+        "            if !AuthManager.shared.hasStoredPassword &&\n"
+        "               !AuthManager.shared.hasStoredXcodeToken\n",
+        "            if !AuthManager.shared.hasStoredPassword &&\n"
+        "               !AuthManager.shared.hasStoredXcodeToken &&\n"
+        "               !(error is V3ProvisioningResumeUnavailableError)\n")
+    return text
+
+
 def patch(live, side):
     roots = (live, side)
     for root, pin in zip(roots, PINS):
@@ -230,6 +330,8 @@ def patch(live, side):
             (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8") + \
             (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8")
     edit(side, "AltStore/AppDelegate.swift", sidestore_app_delegate)
+    edit(side, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+         patch_sign_in_operation)
     edit(side, "AltStore/Info.plist", headless_info)
     edit(side, "AltStore.xcodeproj/project.pbxproj", headless_project)
     def remove_starscream_pin(text):

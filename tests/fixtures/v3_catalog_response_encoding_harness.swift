@@ -217,16 +217,59 @@ struct CatalogResponseEncodingHarness {
         precondition(!V3RefreshAdmissionCancellationAckPolicy.accepts(
             Data(repeating: 0, count: V3WireContract.responseLimit + 1), cancellationID: cancellationID))
 
+        let rejectedStartID = UUID().uuidString
+        let rejectedStartFailure = CombinedFailure(operation: "signIn", stage: .serviceReadiness,
+            code: .busy, id: rejectedStartID, retryable: true)
+        let rejectedStart = try! PropertyListSerialization.data(fromPropertyList: [
+            "version": 1, "id": rejectedStartID, "error": "busy",
+            "failure": rejectedStartFailure.wire, "operationNotDispatched": true
+        ] as [String: Any], format: .binary, options: 0)
+        precondition(V3NotDispatchedReplyPolicy.confirms(rejectedStart, requestID: rejectedStartID),
+                     "a correlated typed service rejection may release a phantom host owner")
+        let ambiguousStart = try! PropertyListSerialization.data(fromPropertyList: [
+            "version": 1, "id": rejectedStartID, "error": "busy",
+            "failure": rejectedStartFailure.wire
+        ] as [String: Any], format: .binary, options: 0)
+        precondition(!V3NotDispatchedReplyPolicy.confirms(ambiguousStart, requestID: rejectedStartID),
+                     "an unmarked error cannot prove the auth operation never started")
+
+        let readinessID = UUID().uuidString
+        func readinessReply(_ value: [String: Any]) -> Data {
+            try! PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
+        }
+        precondition(V3ServiceReadinessReply.decode(readinessReply([
+            "version": 1, "id": readinessID, "ok": true, "result": ["busy": false]
+        ]), requestID: readinessID) == .ready)
+        if case .invalid = V3ServiceReadinessReply.decode(readinessReply([
+            "version": 1, "id": readinessID, "ok": 1, "result": ["busy": false]
+        ]), requestID: readinessID) {} else {
+            preconditionFailure("NSNumber(1) is not a Boolean readiness acknowledgment")
+        }
+        if case .invalid = V3ServiceReadinessReply.decode(readinessReply([
+            "version": 1.0, "id": readinessID, "ok": true, "result": ["busy": false]
+        ]), requestID: readinessID) {} else {
+            preconditionFailure("a plist real cannot impersonate the readiness protocol version")
+        }
+        if case .invalid = V3ServiceReadinessReply.decode(readinessReply([
+            "version": 1, "id": readinessID, "ok": true
+        ]), requestID: readinessID) {} else {
+            preconditionFailure("readiness requires the typed snapshot result payload")
+        }
+        precondition(V3ServiceReadinessReply.decode(readinessReply([
+            "version": 1, "id": readinessID, "error": "notReady"
+        ]), requestID: readinessID) == .failed("notReady"))
+
         var replyBudget = V3MutationReplyCacheBudget()
         precondition(replyBudget.canReserve())
         let nearBudget = V3MutationReplyCacheBudget.maximumStoredBytes - V3WireContract.responseLimit
         precondition(replyBudget.record(nearBudget))
-        precondition(!replyBudget.canReserve(),
+        precondition(replyBudget.canReserve(),
                      "the cache must reserve room for one maximum-size mutation reply")
+        precondition(replyBudget.record(V3WireContract.responseLimit))
+        precondition(!replyBudget.canReserve())
+        precondition(!replyBudget.record(1), "reply-cache accounting must never exceed its byte ceiling")
         replyBudget.remove(V3WireContract.responseLimit)
         precondition(replyBudget.canReserve())
-        precondition(replyBudget.record(V3WireContract.responseLimit))
-        precondition(!replyBudget.record(1), "reply-cache accounting must never exceed its byte ceiling")
 
         // V3_REFRESH_ADMISSION_WIRE_V1: reservation/release must cross the
         // actual plist contract as mutations with a run-scoped UUID.
@@ -264,6 +307,20 @@ struct CatalogResponseEncodingHarness {
             fromPropertyList: missingAuthSessionDeadline, format: .binary, options: 0)
         precondition(V3WireContract.decodeRequest(missingAuthDeadlineData) == nil,
                      "auth start must carry its separate authoritative session deadline")
+
+        let invalidRequestID = UUID().uuidString
+        let invalidRequestData = try! PropertyListSerialization.data(fromPropertyList: [
+            "id": invalidRequestID, "operation": "authBegin", "padding": "x"
+        ] as [String: Any], format: .binary, options: 0)
+        let invalidIdentity = V3WireContract.invalidRequestIdentity(from: invalidRequestData)
+        precondition(invalidIdentity.id == invalidRequestID && invalidIdentity.operation == "authBegin")
+        let oversizedInvalidRequest = try! PropertyListSerialization.data(fromPropertyList: [
+            "id": invalidRequestID, "operation": "authBegin",
+            "padding": String(repeating: "x", count: V3WireContract.requestLimit * 2)
+        ] as [String: Any], format: .binary, options: 0)
+        let oversizedIdentity = V3WireContract.invalidRequestIdentity(from: oversizedInvalidRequest)
+        precondition(oversizedIdentity.id == nil && oversizedIdentity.operation == nil,
+                     "an over-limit request is not reparsed for correlation")
 
         print("V3_CATALOG_RESPONSE_ENCODING_PASS")
     }

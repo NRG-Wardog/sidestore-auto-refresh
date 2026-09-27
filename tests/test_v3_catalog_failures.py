@@ -141,7 +141,7 @@ class ServiceSidePropagationTests(unittest.TestCase):
     def test_invalid_request_is_correlated_when_the_envelope_is_well_formed(self):
         text = service()
         start = text.index("private func receive(")
-        block = text[start:text.index("completed = completed.filter", start)]
+        block = text[start:text.index("let expiredReplies = completed.compactMap", start)]
         # Both rejection paths ask the same correlated builder.
         self.assertEqual(block.count("encode(invalidRequestReply(for: data))"), 2)
         builder_start = text.index("private func invalidRequestReply(")
@@ -149,14 +149,16 @@ class ServiceSidePropagationTests(unittest.TestCase):
         self.assertIn('"error": "invalidRequest"', builder)
         self.assertIn("code: .invalidConfiguration, id: id", builder)
         # Only trusted envelope fields are echoed back, never the payload.
-        self.assertIn('V3WireContract.operations.contains($0)', builder)
-        self.assertIn("UUID(uuidString: $0) != nil", builder)
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        self.assertIn('operations.contains($0) ? $0 : nil', wire)
+        self.assertIn("guard data.count <= requestLimit", wire)
+        self.assertIn("UUID(uuidString: $0)?.uuidString == $0", wire)
         for forbidden in ("payload", "target", "deadline"):
             self.assertNotIn(f'["{forbidden}"]', builder)
 
     def test_encode_call_sites_preserve_the_operation(self):
         text = normalized(service())
-        head, _, tail = text.partition("completed = completed.filter")
+        head, _, tail = text.partition("let expiredReplies = completed.compactMap")
         # Only reply emission sites are counted. A bare "encode(" also matches the
         # encoder's own declaration and its internal call to the shared encoder,
         # neither of which is a reply, so the sites are named explicitly.

@@ -30,7 +30,7 @@ REQUIRED_BACKGROUND_IDS = {
     "com.kdt.livecontainer.sidestore.automatic-refresh.watchdog",
 }
 REMOVED_SIDESTORE_ICON_NAMES = {
-    "classic", "modern", "blueicon", "darkicon", "honeydewicon", "prideicon",
+    "blueicon", "darkicon", "honeydewicon", "prideicon",
     "sandyicon", "skyicon", "snowicon", "starbursticon", "stormicon", "vistaicon", "wintericon",
 }
 PRIVATE_EXTENSIONS = {".p12", ".p8", ".pem", ".key", ".mobileprovision", ".log", ".crash", ".ips"}
@@ -161,8 +161,8 @@ def verify_side_store_assetutil_records(records: list[dict]) -> dict:
     primary_icons = [name for name in names if "appicon" in name.casefold()]
     return {
         "asset_catalog_record_count": len(records),
-        "appicon_asset_rendition_count": len(primary_icons),
-        "alternate_icon_sets": "Classic/Modern and 11 alternate app icons absent",
+        "appicon_named_asset_name_count": len(primary_icons),
+        "alternate_icon_sets": "11 alternate app icons absent; Classic/Modern previews retained",
     }
 
 
@@ -228,9 +228,14 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
             icons = side_store_info.get(icon_key, {})
             if isinstance(icons, dict) and icons.get("CFBundleAlternateIcons"):
                 raise ValueError("embedded SideStore still declares alternate app icons")
-        primary_icon = side_store_info.get("CFBundleIcons", {}).get("CFBundlePrimaryIcon", {})
-        if primary_icon.get("CFBundleIconName") != "AppIcon":
-            raise ValueError("the primary SideStore AppIcon declaration is missing")
+        icon_container = side_store_info.get("CFBundleIcons", {})
+        primary_icon = icon_container.get("CFBundlePrimaryIcon", {}) if isinstance(icon_container, dict) else {}
+        primary_icon_files = primary_icon.get("CFBundleIconFiles", []) if isinstance(primary_icon, dict) else []
+        primary_icon_members = [name for name in names
+                                if name.startswith(side_store_path + "/AppIcon")
+                                and Path(name).suffix.lower() == ".png"]
+        if not primary_icon_files or not primary_icon_members:
+            raise ValueError("the primary SideStore AppIcon declaration or PNG renditions are missing")
         legacy_resources = find_legacy_side_store_resources(side_store_path, names)
         if legacy_resources:
             raise ValueError("embedded SideStore contains excluded UI/audio resources: "
@@ -336,7 +341,10 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         "sidestore_storyboard_root": "absent",
         "sidestore_legacy_storyboard_nib_audio": "absent",
         "sidestore_alternate_icon_sets": side_store_asset_report,
-        "sidestore_primary_icon": "AppIcon preserved",
+        "sidestore_primary_icon": {
+            "declared": primary_icon_files,
+            "png_renditions": len(primary_icon_members),
+        },
         "sidestore_legacy_background_modes": "absent",
         "app_group": REQUIRED_GROUP,
         "url_schemes": sorted(REQUIRED_SCHEMES),
