@@ -11,7 +11,67 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 17
+PATCH_VERSION = 19
+HEADLESS_SIDESTORE_VIEW_FILES = (
+    "Views/Components/AppInfoView.swift",
+    "Views/Components/BundleResourceBrowserView.swift",
+    "Views/Components/CodeResourcesViewer.swift",
+    "Views/Components/InfoPlistContainerView.swift",
+    "Views/Components/MachOResourceViewer.swift",
+    "Views/Components/UIKit/CollapsingMarkdownView.swift",
+    "Views/MyApps/DeleteAppAlertViewController.swift",
+    "Views/Settings/Advanced/Anisette/AnisetteDataView.swift",
+    "Views/Settings/Advanced/BackupRestore/BackupAndRestoreView.swift",
+    "Views/Settings/Advanced/Certificates/ActiveCertSectionView.swift",
+    "Views/Settings/Advanced/Certificates/CertificateDetailView.swift",
+    "Views/Settings/Advanced/Certificates/CertificateExporter.swift",
+    "Views/Settings/Advanced/Certificates/CertificateRowView.swift",
+    "Views/Settings/Advanced/Certificates/CertificateTypes.swift",
+    "Views/Settings/Advanced/Certificates/CertificatesListView.swift",
+    "Views/Settings/Advanced/Certificates/CertificatesView.swift",
+    "Views/Settings/Advanced/Certificates/CertificatesViewModel.swift",
+    "Views/Settings/Advanced/Certificates/PrivateKeyTextEditor.swift",
+    "Views/Settings/Advanced/Certificates/PrivateKeyTextInputView.swift",
+    "Views/Settings/Advanced/Certificates/RevokeAlertViewController.swift",
+    "Views/Settings/Advanced/Certificates/SetCertificateAlertViewController.swift",
+    "Views/Settings/Advanced/Certificates/SignableCertificatesListViewController.swift",
+    "Views/Settings/Advanced/Connection/ConnectionConfigView.swift",
+    "Views/Settings/Advanced/DeveloperServices/AppGroups/AppGroupsListView.swift",
+    "Views/Settings/Advanced/DeveloperServices/AppIDs/AppIDDetailView.swift",
+    "Views/Settings/Advanced/DeveloperServices/AppIDs/AppIDsListView.swift",
+    "Views/Settings/Advanced/DeveloperServices/Certificates/CertificatePortalDetailView.swift",
+    "Views/Settings/Advanced/DeveloperServices/Certificates/CertificatesPortalListView.swift",
+    "Views/Settings/Advanced/DeveloperServices/DeveloperServicesView.swift",
+    "Views/Settings/Advanced/DeveloperServices/DeveloperServicesViewModel.swift",
+    "Views/Settings/Advanced/DeveloperServices/Devices/DevicesListView.swift",
+    "Views/Settings/Advanced/DeveloperServices/Profiles/CreateManualProfileView.swift",
+    "Views/Settings/Advanced/DeveloperServices/Profiles/ProfilePortalDetailView.swift",
+    "Views/Settings/Advanced/DeveloperServices/Profiles/ProfilesListView.swift",
+    "Views/Settings/Advanced/JIT/SideJITServerConfigView.swift",
+    "Views/Settings/Advanced/NetworkDiscovery/BonjourDiscoveryView.swift",
+    "Views/Settings/Advanced/NetworkDiscovery/BonjourDiscoveryViewModel.swift",
+    "Views/Settings/Advanced/SideSign/SideSignConfigurationView.swift",
+    "Views/Settings/Advanced/UserCustomizations/ThemePickerView.swift",
+    "Views/Settings/Advanced/UserCustomizations/UserCustomizationsView.swift",
+    "Views/Settings/Advanced/WirelessPair/WirelessPairTargetDialog.swift",
+    "Views/Settings/Advanced/WirelessPair/WirelessPairView.swift",
+    "Views/Settings/Advanced/WirelessPair/WirelessPairViewModel.swift",
+    "Views/Settings/Auth/ExportAccountAlertViewController.swift",
+    "Views/Settings/Auth/ImportAccountAlertController.swift",
+    "Views/Settings/Auth/ResetAdiAlertViewController.swift",
+    "Views/Settings/Auth/RevokeCertificatesAlertViewController.swift",
+    "Views/Settings/Auth/SignOutAlertViewController.swift",
+    "Views/Settings/Diagnostics/DeveloperOptionsView.swift",
+    "Views/Settings/Diagnostics/ExperimentalFeaturesView.swift",
+    "Views/Settings/Diagnostics/OperationsLoggingControlView.swift",
+    "Views/Settings/TechyThings/ErrorLog/ConsoleLogView.swift",
+    "Views/Settings/TechyThings/HealthCheck/HealthCheckView.swift",
+    "Views/Settings/TechyThings/HealthCheck/HealthCheckViewModel.swift",
+    "Views/Settings/TechyThings/StorageExplorer/DirectoryExplorerView.swift",
+    "Views/Settings/TechyThings/StorageExplorer/StorageExplorerView.swift",
+    "Views/Settings/TechyThings/StorageExplorer/StorageExplorerViewModel.swift",
+    "Views/SplashView.swift",
+)
 
 
 def remove_pbx_object(text, object_marker):
@@ -170,6 +230,11 @@ def headless_project(text):
 			);
 			target = BFD247692284B9A500981D42 /* SideStore */;
 		};'''
+    view_exclusions = "".join(f'\t\t\t\t"{path}",\n' for path in HEADLESS_SIDESTORE_VIEW_FILES)
+    headless_side_store_source_exception = replace(
+        headless_side_store_source_exception,
+        '\t\t\t\t"Handlers/SignInFlowHandler.swift",\n',
+        '\t\t\t\t"Handlers/SignInFlowHandler.swift",\n' + view_exclusions)
     text = replace(text, side_store_source_exception, headless_side_store_source_exception)
     # Starscream is linked by the pinned project but has no source references
     # in that checkout. Remove its product and package lock so it is not fetched

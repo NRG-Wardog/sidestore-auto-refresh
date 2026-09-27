@@ -305,6 +305,19 @@ class ServicePatchTests(unittest.TestCase):
                              "the runtime-selected Modern preview images remain available")
             self.assertNotIn("ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES", project)
             self.assertEqual(project.count("ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO"), 2)
+            side_exception_anchor = project.index("A8EECF492F4B195000F2436D")
+            side_member_start = project.index("membershipExceptions = (", side_exception_anchor)
+            side_member_end = project.index(");", side_member_start)
+            side_membership = project[side_member_start:side_member_end]
+            for path in service.HEADLESS_SIDESTORE_VIEW_FILES:
+                self.assertIn(f'"{path}"', side_membership)
+            for retained_backend_dependency in (
+                '"Views/Components/CustomAppIDAlertViewController.swift"',
+                '"Views/Settings/Advanced/Connection/ConnectionConfig.swift"',
+                '"Views/Settings/Advanced/CacheMgmt/CacheManagementView.swift"',
+                '"Views/Settings/Advanced/CacheMgmt/CacheViewModel.swift"',
+            ):
+                self.assertNotIn(retained_backend_dependency, side_membership)
             app_delegate = (side / "AltStore/AppDelegate.swift").read_text()
             self.assertNotIn("import Intents", app_delegate)
             self.assertNotIn("handlerFor intent: INIntent", app_delegate)

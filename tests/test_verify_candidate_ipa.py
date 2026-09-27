@@ -132,6 +132,8 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
             b"SideStore\x00ResignAltStoreViewController\x00NewsCollectionViewCell\x00AppIDsViewController\x00"),
             ["ResignAltStoreViewController", "NewsCollectionViewCell", "AppIDsViewController"])
         excluded_ui_symbols = (
+            "SourceComponents", "SourceHeaderView", "AppInfoView", "CertificatesView",
+            "DeveloperServicesView", "HealthCheckView", "StorageExplorerView",
             "AuthenticationViewController", "InstructionsViewController",
             "SelectTeamViewController", "MyAppsViewController", "SettingsViewController",
             "LaunchViewController", "HeaderContentViewController", "NavigationBarAppearance",
