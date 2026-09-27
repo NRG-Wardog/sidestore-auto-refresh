@@ -2470,16 +2470,16 @@ enum V3AuthStatusTextPolicy {
 }
 
 enum V3AuthFailureDiagnosticsPolicy {
-    static func render(_ failure: [String: Any],
-                       strictInt: (Any?) -> Int?, strictBool: (Any?) -> Bool?) -> String {
+    static func render(_ failure: [String: Any], underlyingCode: Int?,
+                       retryableValue: Bool?) -> String {
         let kind = failure["kind"] as? String ?? ""
         let stage = failure["stage"] as? String ?? ""
         let code = failure["code"] as? String ?? ""
         let correlation = failure["correlationID"] as? String ?? ""
         let underlyingDomain = failure["underlyingDomain"] as? String ?? ""
-        let underlyingCode = strictInt(failure["underlyingCode"]).map(String.init) ?? "unknown"
-        let retryable = strictBool(failure["retryable"]).map { $0 ? "yes" : "no" } ?? "unknown"
-        return "kind=\(kind) stage=\(stage) code=\(code) correlation=\(correlation) underlying=\(underlyingDomain)/\(underlyingCode) retryable=\(retryable)"
+        let codeText = underlyingCode.map(String.init) ?? "unknown"
+        let retryableText = retryableValue.map { $0 ? "yes" : "no" } ?? "unknown"
+        return "kind=\(kind) stage=\(stage) code=\(code) correlation=\(correlation) underlying=\(underlyingDomain)/\(codeText) retryable=\(retryableText)"
     }
 }
 

@@ -3949,8 +3949,8 @@ final class V3AuthStore: ObservableObject {
 
     static func failureDetails(from failure: [String: Any]) -> String {
         V3AuthFailureDiagnosticsPolicy.render(failure,
-            strictInt: V3ServiceBridge.strictInt,
-            strictBool: V3ServiceBridge.strictBool)
+            underlyingCode: V3ServiceBridge.strictInt(failure["underlyingCode"]),
+            retryableValue: V3ServiceBridge.strictBool(failure["retryable"]))
     }
 
     func answer(promptID: String, answer: [String: String]) {

@@ -174,11 +174,14 @@ struct AuthOwnershipReconciliationHarness {
             authenticated: false, failureMessage: "A failure") == nil,
             "an unauthenticated snapshot follows the ordinary sign-in failure path")
 
-        let malformedDiagnostics = V3AuthFailureDiagnosticsPolicy.render([
+        let malformedFailure: [String: Any] = [
             "kind": "networkFailure", "stage": "network", "code": "interrupted",
             "correlationID": current, "underlyingDomain": "redacted",
             "underlyingCode": true, "retryable": 1
-        ], strictInt: V3WireContract.strictInt, strictBool: V3WireContract.strictBool)
+        ]
+        let malformedDiagnostics = V3AuthFailureDiagnosticsPolicy.render(malformedFailure,
+            underlyingCode: V3WireContract.strictInt(malformedFailure["underlyingCode"]),
+            retryableValue: V3WireContract.strictBool(malformedFailure["retryable"]))
         precondition(malformedDiagnostics.contains("underlying=redacted/unknown") &&
                      malformedDiagnostics.hasSuffix("retryable=unknown"),
             "malformed diagnostic NSNumber values stay unknown rather than becoming false values")
