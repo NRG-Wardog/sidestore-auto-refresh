@@ -3,10 +3,16 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from package_livecontainer_combined import adapt
+from package_livecontainer_combined import adapt, verify_side_store_intent_runtime_symbols
 
 
 class CombinedPackagingTests(unittest.TestCase):
+    def test_backend_keeps_only_the_runtime_symbols_required_by_host_intents(self):
+        verify_side_store_intent_runtime_symbols(
+            b"9SideStore20RefreshAllAppsIntentV\x009SideStore26RefreshAllAppsWidgetIntentV")
+        with self.assertRaisesRegex(ValueError, "RefreshAllAppsWidgetIntent"):
+            verify_side_store_intent_runtime_symbols(b"9SideStore20RefreshAllAppsIntentV")
+
     def test_upstream_adapter_retains_transformations(self):
         script = '''brew install ldid
 wget https://github.com/LiveContainer/SideStore/releases/download/nightly/SideStore.ipa

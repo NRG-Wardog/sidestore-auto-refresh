@@ -11,6 +11,18 @@ import subprocess
 
 from audit_ipa_signing import inventory
 
+REQUIRED_SIDESTORE_INTENT_SYMBOLS = (
+    b"9SideStore20RefreshAllAppsIntentV",
+    b"9SideStore26RefreshAllAppsWidgetIntentV",
+)
+
+
+def verify_side_store_intent_runtime_symbols(executable):
+    missing = [symbol.decode("ascii") for symbol in REQUIRED_SIDESTORE_INTENT_SYMBOLS
+               if symbol not in executable]
+    if missing:
+        raise ValueError("headless backend is missing host App Intent runtime adapters: " + ", ".join(missing))
+
 
 def replace_once(text, old, new):
     if text.count(old) != 1:
@@ -87,6 +99,7 @@ def verify(path, side_product=None):
         executable = archive.read(embedded + '/SideStore')
         assert executable[:4] == b'\xcf\xfa\xed\xfe', 'Expected arm64 Mach-O'
         assert struct.unpack_from('<I', executable, 12)[0] == 6, 'SideStore must be MH_DYLIB'
+        verify_side_store_intent_runtime_symbols(executable)
         assert archive.read(embedded + '/LCAppInfo.plist')
         assert b'liveContainerAutoRefreshVerification' in executable, 'Patched embedded operation missing'
         host_code = archive.read(base + '/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI')
