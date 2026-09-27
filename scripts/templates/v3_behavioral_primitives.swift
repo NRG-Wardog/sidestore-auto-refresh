@@ -2394,9 +2394,11 @@ struct V3OperationFailureDetails {
     }
 
     var recommendedAction: String {
-        if safeCause == CombinedFailure.SafeCause.responseEncodingFailed.rawValue ||
-           safeCause == CombinedFailure.SafeCause.responseTooLarge.rawValue {
-            return whatToDo
+        if safeCause == CombinedFailure.SafeCause.responseEncodingFailed.rawValue {
+            return "Copy Diagnostics and report that the service could not encode its response. Repeating the same request will not help."
+        }
+        if safeCause == CombinedFailure.SafeCause.responseTooLarge.rawValue {
+            return "Copy Diagnostics and report that the service reply exceeded the transfer limit. Repeating the same request will fail again."
         }
         if safeCause == CombinedFailure.SafeCause.catalogUnavailable.rawValue {
             return "Reload this source's catalog. If it still cannot be read, copy Diagnostics and report the local catalog failure."
@@ -2426,10 +2428,6 @@ struct V3OperationFailureDetails {
             return "Open Sources and review the source request. Copy Diagnostics if the result remains unclear."
         }
         switch safeCause ?? "" {
-        case CombinedFailure.SafeCause.responseEncodingFailed.rawValue:
-            return "Copy Diagnostics and report that the service could not encode its response. Repeating the same request will not help."
-        case CombinedFailure.SafeCause.responseTooLarge.rawValue:
-            return "Copy Diagnostics and report that the service reply exceeded the transfer limit. Repeating the same request will fail again."
         case CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue:
             return "Wait for SideStore to release earlier request results, check the current state, then retry this action."
         case CombinedFailure.SafeCause.pairingRequired.rawValue:
