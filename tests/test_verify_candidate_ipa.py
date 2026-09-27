@@ -128,6 +128,9 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
             "NSUserActivityTypes": ["com.example.legacy"],
         }), ["INIntentsSupported", "NSUserActivityTypes"])
         self.assertEqual(verify_module.find_legacy_side_store_intent_info_keys({}), [])
+        self.assertEqual(verify_module.find_legacy_side_store_ui_symbols(
+            b"SideStore\x00ResignAltStoreViewController\x00"), ["ResignAltStoreViewController"])
+        self.assertEqual(verify_module.find_legacy_side_store_ui_symbols(b"SideStore"), [])
 
 
 if __name__ == "__main__":

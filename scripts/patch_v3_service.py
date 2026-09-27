@@ -11,7 +11,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 11
+PATCH_VERSION = 12
 
 
 def remove_pbx_object(text, object_marker):
@@ -41,6 +41,24 @@ def remove_pbx_object(text, object_marker):
     return text[:line_start] + text[end:]
 
 
+def remove_headless_widget_build_edge(text):
+    # The combined host already ships its own LiveContainer widget. The old
+    # SideStore widget target remains available to standalone SideStore builds,
+    # but the headless backend neither embeds nor builds that extension.
+    text = replace(text,
+        "\t\t\t\tBF98917B250AABF4002ACF50 /* Embed Foundation Extensions */,\n", "")
+    text = replace(text,
+        "\t\t\t\tBF989176250AABF4002ACF50 /* PBXTargetDependency */,\n", "")
+    for marker in (
+        "BF98917B250AABF4002ACF50 /* Embed Foundation Extensions */",
+        "BF989177250AABF4002ACF50 /* AltWidgetExtension.appex in Embed Foundation Extensions */",
+        "BF989176250AABF4002ACF50 /* PBXTargetDependency */",
+        "BF989175250AABF4002ACF50 /* PBXContainerItemProxy */",
+    ):
+        text = remove_pbx_object(text, marker)
+    return text
+
+
 def headless_project(text):
     side_exception = '''A8EEC8CB2F4B146B00F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -56,11 +74,28 @@ def headless_project(text):
 				Resources/ReleaseEntitlements.plist,
 				"Components/BackgroundTaskManager.swift",
 				"Browse/FeaturedViewController.swift",
+				"Browse/BrowseViewController.swift",
+				"Browse/FeaturedComponents.swift",
+				"Browse/ScreenshotCollectionViewCell.swift",
+				"News/NewsViewController.swift",
+				"TabBarController.swift",
+				"Components/ForwardingNavigationController.swift",
+				"Components/NavigationBar.swift",
+				"App Detail/AppContentViewController.swift",
+				"App Detail/AppContentViewControllerCells.swift",
+				"App Detail/AppDetailCollectionViewController.swift",
+				"App Detail/AppPermissionsCard.swift",
+				"App Detail/AppViewController.swift",
+				"App Detail/Screenshots/AppScreenshotsViewController.swift",
+				"App Detail/Screenshots/PreviewAppScreenshotsViewController.swift",
+				"App Detail/Screenshots/AppScreenshotCollectionViewCell.swift",
+				"Components/AppCardCollectionViewCell.swift",
 				"LaunchViewController.swift",
 				"Resources/Silence.m4a",
 				"Authentication/Authentication.storyboard",
 				"Authentication/AuthenticationViewController.swift",
 				"Authentication/InstructionsViewController.swift",
+				"Authentication/ResignAltStoreViewController.swift",
 				"Authentication/SelectTeamViewController.swift",
 				"Authentication/tvOS/Authentication.storyboard",
 				"Components/AppBannerView.xib",
@@ -109,7 +144,13 @@ def headless_project(text):
 				"Resources/Icons.xcassets/Modern/WinterIcon.appiconset",
 				"Sources/Components/SourceHeaderView.xib",
 				"Sources/Components/tvOS/SourceHeaderView.xib",
+				"Sources/Components/SourceComponents.swift",
+				"Sources/Components/SourceHeaderView.swift",
+				"Sources/Components/AddSourceTextFieldCell.swift",
 				"Sources/AddSourceViewController.swift",
+				"Sources/SourcesViewController.swift",
+				"Sources/SourceDetailViewController.swift",
+				"Sources/SourceDetailContentViewController.swift",
 				"Sources/Sources.storyboard",
 				"Sources/tvOS/Sources.storyboard",
 				"iOS/LaunchScreen.storyboard",
@@ -184,6 +225,7 @@ def headless_project(text):
     if text.count(icon_setting) != 2:
         raise SystemExit("v3 service: expected Debug and Release alternate-icon settings")
     text = text.replace(icon_setting, "ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;")
+    text = remove_headless_widget_build_edge(text)
     return text
 
 
@@ -242,10 +284,12 @@ def headless_auth_manager(text):
     return text
 
 
-def headless_app_manager_sign_in(text):
+def headless_app_manager_ui(text):
     marker = "V3_HEADLESS_APP_MANAGER_SIGNIN_REMOVED_V1"
     if marker in text:
-        if "AuthManager.shared.signIn(\n                    presentingViewController:" in text:
+        if ("AuthManager.shared.signIn(\n                    presentingViewController:" in text
+                or "import Intents\n" in text
+                or "ResignAltStoreViewController" in text):
             raise SystemExit("v3 service: legacy AppManager sign-in wrapper removal is partial")
         return text
     start_marker = "    func signIn(presentingViewController: UIViewController?,\n"
@@ -257,7 +301,13 @@ def headless_app_manager_sign_in(text):
     old = text[start:end]
     if "AuthManager.shared.signIn" not in old:
         raise SystemExit("v3 service: AppManager sign-in wrapper no longer targets AuthManager")
-    return text[:start] + "    // " + marker + ": interactive sign-in is owned by the LiveContainer host.\n" + text[end:]
+    text = text[:start] + "    // " + marker + ": interactive sign-in is owned by the LiveContainer host.\n" + text[end:]
+    text = replace(text,
+        "isResignActive: presentingViewController is ResignAltStoreViewController",
+        "isResignActive: false // V3 headless backend has no embedded resign presenter")
+    if "ResignAltStoreViewController" in text:
+        raise SystemExit("v3 service: legacy resign presenter still reaches AppManager")
+    return replace(text, "import Intents\n", "")
 
 
 def headless_app_intent_routing(text):
@@ -486,7 +536,7 @@ def patch(live, side):
             (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8")
     edit(side, "AltStore/AppDelegate.swift", sidestore_app_delegate)
     edit(side, "SideStore/Core/Auth/AuthManager.swift", headless_auth_manager)
-    edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager_sign_in)
+    edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui)
     edit(side, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
          patch_sign_in_operation)
     edit(side, "AltStore/Info.plist", headless_info)
@@ -707,17 +757,36 @@ static void V3InitializeUIKitFixes(void) {
 def verify_sign_in_operation(side, pinned_ref):
     relative = "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"
     source = subprocess.check_output(
-        ["git", "-C", str(side), "show", f"{pinned_ref}:{relative}"], text=True)
+        ["git", "-C", str(side), "show", f"{pinned_ref}:{relative}"],
+        text=True, encoding="utf-8")
     expected = patch_sign_in_operation(source)
     actual = (side / relative).read_text(encoding="utf-8")
     if actual != expected:
         raise SystemExit("v3 service: SignInOperation differs from the exact generated pinned patch")
 
 
+def verify_headless_ui_adapters(side, pinned_ref):
+    adapters = (
+        ("SideStore/Core/Auth/AuthManager.swift", headless_auth_manager),
+        ("AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui),
+    )
+    for relative, transform in adapters:
+        source = subprocess.check_output(
+            ["git", "-C", str(side), "show", f"{pinned_ref}:{relative}"],
+            text=True, encoding="utf-8")
+        expected = transform(source)
+        actual = (side / relative).read_text(encoding="utf-8")
+        if actual != expected:
+            raise SystemExit(f"v3 service: {relative} differs from its exact pinned headless UI patch")
+
+
 if __name__ == "__main__":
     if len(sys.argv) == 4 and sys.argv[1] == "--verify-sign-in-operation":
         verify_sign_in_operation(Path(sys.argv[2]).resolve(), sys.argv[3])
         print("pinned SignInOperation patch verified")
+    elif len(sys.argv) == 4 and sys.argv[1] == "--verify-headless-ui-adapters":
+        verify_headless_ui_adapters(Path(sys.argv[2]).resolve(), sys.argv[3])
+        print("pinned headless auth/UI adapter patches verified")
     else:
         if len(sys.argv) != 3:
             raise SystemExit("usage: patch_v3_service.py LIVE_CONTAINER SIDE_STORE")

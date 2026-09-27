@@ -43,6 +43,17 @@ REMOVED_SIDESTORE_INTENT_SYMBOLS = (
     "ShortcutsProvider", "IntentHandler", "ViewAppIntentHandler",
 )
 REMOVED_SIDESTORE_INTENT_INFO_KEYS = ("INIntentsSupported", "NSUserActivityTypes")
+REMOVED_SIDESTORE_UI_SYMBOLS = (
+    "ResignAltStoreViewController", "FeaturedViewController", "BrowseViewController",
+    "NewsViewController", "TabBarController", "SourcesViewController",
+    "SourceDetailViewController", "SourceDetailContentViewController",
+    "AppViewController", "AppContentViewController", "AppDetailCollectionViewController",
+    "AppScreenshotsViewController", "PreviewAppScreenshotsViewController",
+    "AppScreenshotCollectionViewCell", "AppCardCollectionViewCell",
+    "ScreenshotCollectionViewCell", "ForwardingNavigationController",
+    "LargeIconCollectionViewCell", "IconButtonCollectionReusableView",
+    "AddSourceTextFieldCell",
+)
 
 
 def architectures(data: bytes) -> set[str]:
@@ -172,6 +183,10 @@ def find_legacy_side_store_intent_info_keys(info: dict) -> list[str]:
     return [key for key in REMOVED_SIDESTORE_INTENT_INFO_KEYS if key in info]
 
 
+def find_legacy_side_store_ui_symbols(executable: bytes) -> list[str]:
+    return [name for name in REMOVED_SIDESTORE_UI_SYMBOLS if name.encode("utf-8") in executable]
+
+
 def verify_side_store_assetutil_records(records: list[dict]) -> dict:
     if not isinstance(records, list) or not records:
         raise ValueError("SideStore Assets.car has no readable asset records")
@@ -271,10 +286,15 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
             raise ValueError("embedded SideStore contains excluded UI/audio resources: "
                              + ", ".join(legacy_resources[:8]))
         side_store_executable = side_store_path + "/" + side_store_info["CFBundleExecutable"]
-        legacy_intents = find_legacy_side_store_intent_symbols(archive.read(side_store_executable))
+        side_store_executable_data = archive.read(side_store_executable)
+        legacy_intents = find_legacy_side_store_intent_symbols(side_store_executable_data)
         if legacy_intents:
             raise ValueError("embedded SideStore still contains legacy app intent code: "
                              + ", ".join(legacy_intents))
+        legacy_ui = find_legacy_side_store_ui_symbols(side_store_executable_data)
+        if legacy_ui:
+            raise ValueError("embedded SideStore still contains excluded presenter UI: "
+                             + ", ".join(legacy_ui))
         if "UIBackgroundModes" in side_store_info:
             raise ValueError("embedded SideStore still declares app background modes")
         if any(key in side_store_info for key in ("UIMainStoryboardFile", "UILaunchStoryboardName")):
@@ -381,6 +401,7 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         "sidestore_storyboard_root": "absent",
         "sidestore_legacy_storyboard_nib_audio": "absent",
         "sidestore_legacy_app_intents": "absent",
+        "sidestore_legacy_resign_ui": "absent",
         "sidestore_alternate_icon_sets": side_store_asset_report,
         "sidestore_primary_icon": side_store_primary_icon_report(side_store_asset_report),
         "sidestore_legacy_background_modes": "absent",

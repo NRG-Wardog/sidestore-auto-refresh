@@ -148,6 +148,27 @@ class ServicePatchTests(unittest.TestCase):
             self.assertIn(".downloadAlert", (roots[0] / "LiveContainerSwiftUI/Views/LCTabView.swift").read_text())
             self.assertNotIn("LCUtils.openSideStore", (roots[0] / "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift").read_text(encoding="utf-8"))
 
+    def test_pinned_headless_ui_adapter_verifier_rejects_drift(self):
+        side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        if not side_source:
+            self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the pinned source checkout")
+        real_check_output = service.subprocess.check_output
+
+        def read_pinned_source(arguments, **kwargs):
+            relative = arguments[-1].split(":", 1)[1]
+            return real_check_output(["git", "-C", side_source, "show",
+                f"{service.PINS[1]}:{relative}"], text=True, encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as name:
+            roots = self.fixture(Path(name))
+            self.apply(roots)
+            with mock.object(service.subprocess, "check_output", side_effect=read_pinned_source):
+                service.verify_headless_ui_adapters(roots[1], service.PINS[1])
+                manager = roots[1] / "AltStore/Managing Apps/AppManager.swift"
+                manager.write_text(manager.read_text(encoding="utf-8") + "\n// drift\n", encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    service.verify_headless_ui_adapters(roots[1], service.PINS[1])
+
     def test_prepared_sidestore_has_no_automatic_storyboard_root_or_unused_starscream(self):
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
@@ -170,6 +191,13 @@ class ServicePatchTests(unittest.TestCase):
             self.assertNotIn("NSUserActivityTypes", info)
             project = (side / "AltStore.xcodeproj/project.pbxproj").read_text()
             self.assertNotIn("Starscream", project)
+            for widget_edge in ("BF989175250AABF4002ACF50", "BF989176250AABF4002ACF50",
+                                "BF989177250AABF4002ACF50", "BF98917B250AABF4002ACF50"):
+                self.assertNotIn(widget_edge, project)
+            self.assertIn("BF989166250AABF3002ACF50 /* AltWidgetExtension */", project,
+                          "keep the upstream widget target available for standalone SideStore")
+            self.assertIn("0ED4AEC92E6DDB2A0039E2C0 /* PBXTargetDependency */", project,
+                          "the SideBackup backend dependency remains in the project")
             self.assertIn("C0DE00000000000000000001", project)
             self.assertIn('"Intents/ViewApp.intentdefinition"', project)
             side_shared_exclusion = project[project.index("C0DE00000000000000000001"):]
@@ -182,8 +210,25 @@ class ServicePatchTests(unittest.TestCase):
             removed_ui_resources = (
                 '"iOS/LaunchScreen.storyboard"', '"iOS/Main.storyboard"',
                 '"tvOS/Main.storyboard"',
+                '"Browse/BrowseViewController.swift"',
                 '"Browse/FeaturedViewController.swift"', '"LaunchViewController.swift"',
+                '"Browse/FeaturedComponents.swift"',
+                '"Browse/ScreenshotCollectionViewCell.swift"',
+                '"News/NewsViewController.swift"',
+                '"TabBarController.swift"',
+                '"Components/ForwardingNavigationController.swift"',
+                '"Components/NavigationBar.swift"',
+                '"App Detail/AppContentViewController.swift"',
+                '"App Detail/AppContentViewControllerCells.swift"',
+                '"App Detail/AppDetailCollectionViewController.swift"',
+                '"App Detail/AppPermissionsCard.swift"',
+                '"App Detail/AppViewController.swift"',
+                '"App Detail/Screenshots/AppScreenshotsViewController.swift"',
+                '"App Detail/Screenshots/PreviewAppScreenshotsViewController.swift"',
+                '"App Detail/Screenshots/AppScreenshotCollectionViewCell.swift"',
+                '"Components/AppCardCollectionViewCell.swift"',
                 '"Authentication/tvOS/Authentication.storyboard"',
+                '"Authentication/ResignAltStoreViewController.swift"',
                 '"Core/Intents/ViewAppIntentHandler.swift"',
                 '"Intents/App Intents/AppShortcuts.swift"',
                 '"Intents/App Intents/RefreshAllAppsIntent.swift"',
@@ -205,6 +250,12 @@ class ServicePatchTests(unittest.TestCase):
                 '"Settings/tvOS/AboutPatreonHeaderView.xib"',
                 '"Settings/tvOS/SettingsHeaderFooterView.xib"',
                 '"Sources/Components/tvOS/SourceHeaderView.xib"',
+                '"Sources/Components/SourceComponents.swift"',
+                '"Sources/Components/SourceHeaderView.swift"',
+                '"Sources/Components/AddSourceTextFieldCell.swift"',
+                '"Sources/SourcesViewController.swift"',
+                '"Sources/SourceDetailViewController.swift"',
+                '"Sources/SourceDetailContentViewController.swift"',
                 '"My Apps/InstalledAppsCollectionHeaderView.xib"', '"My Apps/UpdateCollectionViewCell.xib"',
                 '"News/NewsCollectionViewCell.xib"', '"Settings/AboutPatreonHeaderView.xib"',
                 '"Settings/SettingsHeaderFooterView.xib"', '"Sources/Components/SourceHeaderView.xib"',
@@ -247,6 +298,8 @@ class ServicePatchTests(unittest.TestCase):
             self.assertNotIn("import UIKit", auth_manager)
             app_manager = (side / "AltStore/Managing Apps/AppManager.swift").read_text(encoding="utf-8")
             self.assertNotIn("func signIn(presentingViewController:", app_manager)
+            self.assertNotIn("import Intents", app_manager)
+            self.assertNotIn("ResignAltStoreViewController", app_manager)
             self.assertIn("V3_HEADLESS_APP_MANAGER_SIGNIN_REMOVED_V1", app_manager)
             self.assertNotIn("prepareForBackgroundFetch", app_delegate)
             self.assertNotIn("requestAuthorization(options: [.alert, .badge, .sound])", app_delegate,
@@ -298,12 +351,15 @@ class ServicePatchTests(unittest.TestCase):
             self.assertLess(sign_in.index("handleSignInResult(.success(silentResult))", start_authentication),
                             sign_in.index("self.provisioningLoop(", start_authentication))
 
-    def test_workflow_verifies_only_the_exact_pinned_signin_patch(self):
+    def test_workflow_verifies_exact_pinned_signin_and_headless_adapter_patches(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
-        self.assertIn("SideStore/Core/Auth SideStore/Core/Anisette", workflow)
+        self.assertIn("SideStore/Core/Anisette", workflow)
+        self.assertIn("AltStore/Managing Apps/AppManager.swift", workflow)
+        self.assertIn("--verify-headless-ui-adapters", workflow)
         self.assertIn("--verify-sign-in-operation", workflow)
         self.assertIn('"$EMBEDDED_SIDESTORE_REF"', workflow)
         patcher = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
+        self.assertIn('"--verify-headless-ui-adapters"', patcher)
         self.assertIn('git", "-C", str(side), "show", f"{pinned_ref}:{relative}"', patcher)
         self.assertIn("actual != expected", patcher)
 
