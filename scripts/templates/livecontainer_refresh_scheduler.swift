@@ -16,6 +16,7 @@ enum LiveContainerAutoRefreshScheduler {
     static let lastTaskKey = "liveContainerAutoRefreshLastTaskTrigger"
     static let lastAttemptKey = "liveContainerAutoRefreshLastAttempt"
     static let activeRunKey = "liveContainerAutoRefreshActiveRunID"
+    static let directRunClaimKey = V3DirectRefreshRunClaimPolicy.defaultsKey
     static let activeManualRequestKey = "liveContainerAutoRefreshActiveRequestID"
     static let activeManualOriginKey = "liveContainerAutoRefreshActiveManualOrigin"
     static let activeManualOriginRunKey = "liveContainerAutoRefreshActiveManualOriginRunID"
@@ -210,6 +211,14 @@ enum LiveContainerAutoRefreshScheduler {
     private static func beginRun(source: String, manual: Bool, requestID: String? = nil,
                                  manualOrigin: String? = nil) -> UUID? {
         guard activeRun == nil else { return nil }
+        if let directClaim = defaults.dictionary(forKey: directRunClaimKey) {
+            if V3DirectRefreshRunClaimPolicy.isActive(
+                runID: directClaim["run_id"] as? String,
+                deadline: directClaim["deadline"] as? Date) {
+                return nil
+            }
+            defaults.removeObject(forKey: directRunClaimKey)
+        }
         if !manual, let last = defaults.object(forKey: lastAttemptKey) as? Date,
            Date().timeIntervalSince(last) < coalescingWindow { return nil }
         let id = UUID()
@@ -383,6 +392,7 @@ enum LiveContainerAutoRefreshScheduler {
         // the scheduler relinquishes active ownership.
         runRecord["manifest"] = manifest
         runRecord["state"] = "verifying"
+        runRecord["terminal_intent"] = "verified"
         runRecord["updated_at"] = Date().timeIntervalSince1970
         saveRunRecord(runRecord, runID: runID)
 
@@ -399,12 +409,6 @@ enum LiveContainerAutoRefreshScheduler {
         let skippedCount = (manifest["skipped_ids"] as? [String])?.count ?? 0
         let terminalDetail = skippedCount == 0 ? detail :
             "Refresh completed for the verified app targets; \(skippedCount) running app(s) were skipped."
-        runRecord["state"] = "completed"
-        runRecord["message"] = terminalDetail
-        runRecord["terminal_at"] = Date().timeIntervalSince1970
-        runRecord["updated_at"] = Date().timeIntervalSince1970
-        saveRunRecord(runRecord, runID: runID)
-
         if defaults.string(forKey: uncertainMutationKey) == runID { defaults.removeObject(forKey: uncertainMutationKey) }
         defaults.set(Date().addingTimeInterval(6 * 60 * 60), forKey: earliestEligibleKey)
         defaults.removeObject(forKey: nextRetryKey)
@@ -416,6 +420,15 @@ enum LiveContainerAutoRefreshScheduler {
         if let deadline = defaults.object(forKey: deadlineKey) as? Date {
             defaults.set(deadline, forKey: satisfiedDeadlineKey)
         }
+        // Publish the authoritative terminal ledger only after the run marker
+        // is cleared and verified health is durable. A crash before this write
+        // is recovered from terminal_intent=verified and the saved manifest.
+        runRecord["state"] = "completed"
+        runRecord["message"] = terminalDetail
+        runRecord["health"] = "REFRESH_SUCCEEDED"
+        runRecord["terminal_at"] = Date().timeIntervalSince1970
+        runRecord["updated_at"] = Date().timeIntervalSince1970
+        saveRunRecord(runRecord, runID: runID)
         record(source: source, result: "verified", detail: terminalDetail)
         cancelDeadlineProtection()
         publishRunState("completed", runID: runID, requestID: requestID, origin: origin)
@@ -438,9 +451,6 @@ enum LiveContainerAutoRefreshScheduler {
             runRecord["updated_at"] = Date().timeIntervalSince1970
             saveRunRecord(runRecord, runID: runID)
         }
-        if let activeRun { endRun(activeRun) }
-        else if defaults.string(forKey: activeRunKey) == runID, let id = UUID(uuidString: runID) { endRun(id) }
-
         let requestValue = runRecord["request_id"] as? String ?? ""
         let requestID = requestValue.isEmpty ? nil : requestValue
         let origin = runRecord["origin"] as? String
@@ -457,15 +467,24 @@ enum LiveContainerAutoRefreshScheduler {
             structured = CombinedFailure(operation: "refresh", stage: .refreshVerification, id: runID)
         }
         let safeMessage = String(((suppliedFailureMatches ? message : nil) ?? structured.safeMessage).prefix(2048))
-        runRecord["state"] = "failed"
+        // Persist a terminal intent before releasing the run marker. If iOS
+        // stops LiveContainer between the release and final ledger write,
+        // startup recovery can complete this exact failure instead of leaving
+        // an orphaned running/verifying row.
+        runRecord["terminal_intent"] = "failed"
+        runRecord["state"] = "failing"
         runRecord["message"] = safeMessage
         runRecord["health"] = health
+        runRecord["failure"] = structured.wire
         runRecord["active_run_id"] = "none"
         runRecord["manifest_run_id"] = ((runRecord["manifest"] as? [String: Any])?["run_id"] as? String) ?? "unknown"
-        runRecord["failure"] = structured.wire
-        runRecord["terminal_at"] = Date().timeIntervalSince1970
+        runRecord["source"] = source
+        runRecord["result"] = result
         runRecord["updated_at"] = Date().timeIntervalSince1970
         saveRunRecord(runRecord, runID: runID)
+        if let activeRun { endRun(activeRun) }
+        else if defaults.string(forKey: activeRunKey) == runID, let id = UUID(uuidString: runID) { endRun(id) }
+
         var terminalFailure: [String: Any] = [
             "run_id": runID, "request_id": requestValue, "origin": origin ?? "unknown",
             "source": source, "network_preflight": runRecord["network_preflight"] as? String ?? "unknown",
@@ -485,6 +504,10 @@ enum LiveContainerAutoRefreshScheduler {
         defaults.set(terminalFailure, forKey: currentRunFailureKey)
         defaults.set(health, forKey: healthStateKey)
         defaults.set(safeMessage, forKey: lastErrorKey)
+        runRecord["state"] = "failed"
+        runRecord["terminal_at"] = Date().timeIntervalSince1970
+        runRecord["updated_at"] = Date().timeIntervalSince1970
+        saveRunRecord(runRecord, runID: runID)
         record(source: source, result: result, detail: safeMessage)
         publishRunState("failed", runID: runID, requestID: requestID, origin: origin)
         notify(title: "Refresh failed", body: safeMessage, kind: "failed", runID: runID,
@@ -720,10 +743,55 @@ enum LiveContainerAutoRefreshScheduler {
         }
     }
 
+    private static func recoverOrphanedRunLedger() {
+        let ledger = runLedger()
+        for (runID, record) in ledger {
+            let storedManifest = record["manifest"] as? [String: Any]
+            let sharedManifest = defaults.dictionary(forKey: verificationKey)
+            let manifest = storedManifest ?? (sharedManifest?["run_id"] as? String == runID ? sharedManifest : nil)
+            let manifestIsComplete = manifest.map {
+                $0["run_id"] as? String == runID &&
+                    CombinedVerification.hasCompleteTerminalResults($0, runID: runID)
+            } ?? false
+            let hostHandoffPending = defaults.bool(forKey: hostHandoffKey) &&
+                defaults.string(forKey: hostHandoffRunKey) == runID
+            guard let action = V3RefreshTerminalRecoveryPolicy.action(
+                state: record["state"] as? String ?? "unknown",
+                terminalIntent: record["terminal_intent"] as? String,
+                manifestIsComplete: manifestIsComplete,
+                hostHandoffPending: hostHandoffPending) else { continue }
+
+            switch action {
+            case .finalizeVerified:
+                guard let manifest else { continue }
+                defaults.set(manifest, forKey: verificationKey)
+                _ = markVerified(runID: runID, source: "relaunch_recovery",
+                    detail: "All requested installed-app results were confirmed before LiveContainer closed.")
+            case .finalizeFailed:
+                let failure = (record["failure"] as? [String: Any]).flatMap {
+                    CombinedFailure.decode($0, expectedID: runID)
+                }
+                _ = markFailed(runID: runID,
+                    source: record["source"] as? String ?? "relaunch_recovery",
+                    health: record["health"] as? String ?? "REFRESH_FAILED",
+                    failure: failure, message: record["message"] as? String,
+                    result: record["result"] as? String ?? "failure")
+            case .markInterrupted:
+                if defaults.string(forKey: activeRunKey) == runID { continue }
+                _ = markFailed(runID: runID, source: "relaunch_recovery", health: "REFRESH_INTERRUPTED",
+                    failure: CombinedFailure(operation: "refresh", stage: .refreshVerification,
+                        code: .interrupted, id: runID, retryable: true),
+                    message: "Refresh was interrupted before its terminal result was recorded.",
+                    result: "interrupted")
+            }
+        }
+    }
+
     static func register() {
         guard !registered else { return }
         registered = true
         hostBundle = Bundle.main
+        recoverOrphanedRunLedger()
         // A durable marker from a terminated process is not a live mutex.
         if let interruptedRunID = defaults.string(forKey: activeRunKey) {
             defaults.set(interruptedRunID, forKey: uncertainMutationKey)

@@ -101,26 +101,48 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("Signed in successfully, but provisioning could not be completed.", runtime_text)
         self.assertIn('case "authenticatedProvisioningIncomplete"', host)
         self.assertNotIn('message = "Sign-in failed."', host)
+        self.assertIn('response["failureKind"] = authKind.rawValue', runtime_text)
+        self.assertIn('reply["failureKind"] as? String', host)
+
+    def test_provisioning_retry_keeps_typed_anisette_and_network_guidance(self):
+        runtime_text = runtime()
+        host = shell()
+        self.assertIn("v3AuthFailureStage(authKind)", runtime_text)
+        self.assertIn('response["failureKind"] = authKind.rawValue', runtime_text)
+        self.assertIn('V3AuthStore.failureMessage(from: ["kind": failureKind])', host)
 
     def test_reauthentication_cancellation_reconciles_preexisting_account_state(self):
         runtime_text = runtime()
         shell_text = shell()
         self.assertIn("accountAppleIDAtStart", runtime_text)
-        self.assertIn("accountExistedBeforeAttempt", runtime_text)
-        self.assertIn("accountExistedBeforeAttempt: accountExistedBeforeAttempt", runtime_text)
+        self.assertIn("V3AuthAttemptAuthenticationPolicy.confirms", runtime_text)
         self.assertIn('["timedOut", "failed", "cancelled"].contains(state)',
                       (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+        self.assertIn("V3ServiceBridge.authSnapshot(snapshot)", shell_text)
+        self.assertIn('V3ServiceBridge.strictBool(reply["resumable"])', shell_text)
         self.assertIn("The sign-in attempt was cancelled. Your existing account remains signed in.", shell_text)
+        self.assertIn("previousFailure.map { Self.failureMessage(from: $0) }", shell_text)
         self.assertIn("await reconcile(force: true)", shell_text[shell_text.index("func cancel() {", shell_text.index("final class V3AuthStore")):])
 
     def test_auth_poll_transport_timeout_keeps_bounded_session_monitoring(self):
         host = shell()
-        poll = host[host.index("private func pollLoop(id: String)"):host.index("private func apply(", host.index("private func pollLoop(id: String)"))]
+        auth_store = host.index("final class V3AuthStore")
+        poll_start = host.index("private func pollLoop(id: String, sessionDeadline: Date)", auth_store)
+        poll = host[poll_start:host.index("private func apply(_ reply: [String: Any])", poll_start)]
         self.assertIn("V3AuthPollRecoveryPolicy.shouldRetry", poll)
         self.assertIn("sessionDeadline", poll)
+        self.assertIn("requestDeadline: sessionDeadline", poll)
+        self.assertIn("guard Date() < sessionDeadline", poll)
         self.assertIn("continue", poll)
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         self.assertIn("enum V3AuthPollRecoveryPolicy", primitives)
+
+    def test_failed_unconfirmed_cancel_has_an_available_retry_action(self):
+        host = shell()
+        self.assertIn('Button("Retry Cancellation", role: .cancel) { auth.cancel() }', host)
+        self.assertIn("V3AuthCancellationRetryPolicy.canRetry", host)
+        cancel = host[host.index("func cancel() {", host.index("final class V3AuthStore")):]
+        self.assertIn("canRetryCancellation", cancel)
 
     def test_sign_in_reopening_reconciles_authoritative_side_store_snapshot(self):
         host = shell()
@@ -155,10 +177,11 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn('"authBegin", "authRetryProvisioning"].contains(operation)', service)
         self.assertIn('"operationNotDispatched"] = true', service)
         self.assertIn('"provisioningRetryAvailable": V3HeadlessRuntime.shared.auth.canResumeProvisioning()', service)
-        self.assertIn('let canRetryProvisioning = snapshot["provisioningRetryAvailable"] as? Bool == true', host)
+        self.assertIn("guard let authSnapshot = V3ServiceBridge.authSnapshot(snapshot) else", host)
+        self.assertIn('let canRetryProvisioning = authSnapshot["provisioningRetryAvailable"]', host)
         self.assertIn("shouldReconcileAfterTerminal(current)", host)
-        poll_loop = host[host.index("private func pollLoop(id: String) async throws"):
-                        host.index("private func apply(_ reply: [String: Any])")]
+        poll_start = host.index("private func pollLoop(id: String, sessionDeadline: Date)")
+        poll_loop = host[poll_start:host.index("private func apply(_ reply: [String: Any])", poll_start)]
         self.assertIn("await reconcile(force: true)", poll_loop)
         self.assertIn("V3AuthPromptResponsePolicy.failureMessage(error)", host)
         self.assertIn("V3AuthPromptResponsePolicy.diagnostics(error)", host)
@@ -210,7 +233,8 @@ class V3AuthErrorTests(unittest.TestCase):
         run = store[store.index("private func run(sessionID requestedSession: String) async {"):]
         run = run[:run.index("private func pollLoop", 1)]
         self.assertIn("if isCancelling || Task.isCancelled { return }", run)
-        self.assertIn('target: requestedSession, payload: ["session": requestedSession]', run)
+        self.assertIn('target: requestedSession,', run)
+        self.assertIn('payload: ["session": requestedSession, "sessionDeadline": sessionDeadline]', run)
         self.assertIn("session = requestedSession", store[store.index("func begin() {"):])
         self.assertNotIn(".task { auth.begin() }", host)
 

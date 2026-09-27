@@ -213,9 +213,9 @@ class StoreFeedbackTests(unittest.TestCase):
         view = text[text.index("struct V3AccountSettings"):]
         view = view[:view.index('Section("Device")')]
         self.assertNotIn("Sign In / Re-authenticate", view)
-        self.assertIn('"Re-authenticate"', view)
-        reauth = view[view.index('"Re-authenticate"') - 700:view.index('"Re-authenticate"') + 100]
-        self.assertIn("needsSignIn", reauth)
+        self.assertIn('"Sign-In Status"', view)
+        status_link = view[view.index('"Sign-In Status"') - 700:view.index('"Sign-In Status"') + 100]
+        self.assertIn("needsSignIn", status_link)
 
 
 class ProvisioningClassificationTests(unittest.TestCase):

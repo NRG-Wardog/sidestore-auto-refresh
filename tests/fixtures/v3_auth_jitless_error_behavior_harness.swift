@@ -25,10 +25,18 @@ struct V3AuthJITLessErrorBehaviorHarness {
         precondition(V3AuthTerminalPolicy.resolve(authenticationSucceeded: false,
             authoritativeAccountMatches: true, provisioningFailed: false, cancelled: true)
             == "authenticatedProvisioningIncomplete")
-        precondition(V3AuthTerminalPolicy.resolve(authenticationSucceeded: false,
-            authoritativeAccountMatches: true, accountExistedBeforeAttempt: true,
-            provisioningFailed: false, cancelled: true) == "cancelled",
+        precondition(!V3AuthAttemptAuthenticationPolicy.confirms(
+            authenticationCallbackSeen: false, submittedAppleID: "dev@example.com",
+            activeAppleID: "dev@example.com", accountAppleIDAtStart: "dev@example.com"),
             "a pre-existing active account does not prove re-authentication succeeded")
+        precondition(V3AuthAttemptAuthenticationPolicy.confirms(
+            authenticationCallbackSeen: false, submittedAppleID: "new@example.com",
+            activeAppleID: "new@example.com", accountAppleIDAtStart: "old@example.com"),
+            "a newly active submitted account is evidence of successful authentication")
+        precondition(V3AuthAttemptAuthenticationPolicy.confirms(
+            authenticationCallbackSeen: true, submittedAppleID: "dev@example.com",
+            activeAppleID: nil, accountAppleIDAtStart: "dev@example.com"),
+            "the attempt's typed success callback is authoritative even for the same account")
         precondition(V3AuthTerminalPolicy.resolve(authenticationSucceeded: false,
             authoritativeAccountMatches: false, provisioningFailed: false, cancelled: true) == "cancelled")
 

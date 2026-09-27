@@ -123,6 +123,15 @@ public final class V3ServiceBridge {
     public static func strictBool(_ value: Any?) -> Bool? {
         V3WireContract.strictBool(value)
     }
+    public static func strictInt(_ value: Any?) -> Int? {
+        V3WireContract.strictInt(value)
+    }
+    public static var authSessionLifetime: TimeInterval {
+        V3WireContract.authSessionLifetime
+    }
+    public static func authSnapshot(_ reply: [String: Any]) -> [String: Bool]? {
+        V3WireContract.authSnapshot(reply)
+    }
     private var pending: [String: CheckedContinuation<Data, Error>] = [:]
     private var pendingOperations: [String: String] = [:]
     private var timeouts: [String: Task<Void, Never>] = [:]
@@ -176,7 +185,8 @@ public final class V3ServiceBridge {
         knownOperationSessions.removeValue(forKey: sessionID)
     }
 
-    public func request(operation: String, target: String = "", cursor: Int? = nil, payload: [String: Any]? = nil) async throws -> [String: Any] {
+    public func request(operation: String, target: String = "", cursor: Int? = nil,
+                        payload: [String: Any]? = nil, requestDeadline: Date? = nil) async throws -> [String: Any] {
         try Task.checkCancellation()
         // V3_CATALOG_OPERATION_CONTEXT_V1: the request correlation is minted
         // before connecting, so a failure that happens before the service
@@ -231,14 +241,22 @@ public final class V3ServiceBridge {
         defer { if activeMutation == id { activeMutation = nil } }
         let isBoundedSessionCreation = ["authBegin", "authRetryProvisioning",
             "refreshAdmissionBegin", "refreshAdmissionEnd"].contains(operation)
-        let timeout = (V3WireContract.readOperations.contains(operation) || operation == "opCancel" ||
+        let configuredTimeout = (V3WireContract.readOperations.contains(operation) || operation == "opCancel" ||
             isBoundedSessionCreation) ? readTimeout : commandTimeout
+        let timeout = requestDeadline.map { min(configuredTimeout, max(0, $0.timeIntervalSinceNow)) }
+            ?? configuredTimeout
+        guard timeout > 0 else {
+            throw CombinedFailure(operation: operation, stage: V3CatalogRequestContext.hostStage(for: operation),
+                                  code: .timedOut, id: id, retryable: true)
+        }
         var message: [String: Any] = ["version": 1, "id": id, "operation": operation,
                                       "target": target, "deadline": Date().addingTimeInterval(timeout)]
         if let cursor { message["cursor"] = cursor }
         var requestPayload = payload ?? [:]
         if ["authBegin", "authRetryProvisioning"].contains(operation) {
-            requestPayload["sessionDeadline"] = Date().addingTimeInterval(V3WireContract.authSessionLifetime)
+            if requestPayload["sessionDeadline"] as? Date == nil {
+                requestPayload["sessionDeadline"] = Date().addingTimeInterval(V3WireContract.authSessionLifetime)
+            }
         }
         if operation == "opCancel" {
             requestPayload["knownStarted"] = knownOperationSessions[target] != nil

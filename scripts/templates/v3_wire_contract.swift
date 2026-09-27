@@ -26,6 +26,17 @@ enum V3WireContract {
         return number.intValue
     }
 
+    static func authSnapshot(_ reply: [String: Any]) -> [String: Bool]? {
+        guard let authenticated = strictBool(reply["authenticated"]),
+              let provisioningIncomplete = strictBool(reply["provisioningIncomplete"]),
+              let provisioningRetryAvailable = strictBool(reply["provisioningRetryAvailable"]) else {
+            return nil
+        }
+        return ["authenticated": authenticated,
+                "provisioningIncomplete": provisioningIncomplete,
+                "provisioningRetryAvailable": provisioningRetryAvailable]
+    }
+
     static func invalidRequestIdentity(from data: Data) -> (id: String?, operation: String?) {
         guard data.count <= requestLimit,
               let envelope = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {

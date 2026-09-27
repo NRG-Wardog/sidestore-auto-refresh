@@ -77,6 +77,23 @@ struct RefreshAllAttemptHarness {
         precondition(!failedAttempt.observe(record(failureRequest, failureRun, "completed", manifest(failureRun))))
         precondition(failedAttempt.phase == .failed, "failure was not absorbing")
 
+        precondition(V3RefreshTerminalRecoveryPolicy.action(state: "verifying",
+            terminalIntent: "verified", manifestIsComplete: true,
+            hostHandoffPending: false) == .finalizeVerified,
+            "a crash after run release recovers only the committed verified manifest")
+        precondition(V3RefreshTerminalRecoveryPolicy.action(state: "failing",
+            terminalIntent: "failed", manifestIsComplete: false,
+            hostHandoffPending: false) == .finalizeFailed,
+            "a crash after run release preserves its committed failure intent")
+        precondition(V3RefreshTerminalRecoveryPolicy.action(state: "running",
+            terminalIntent: nil, manifestIsComplete: false,
+            hostHandoffPending: false) == .markInterrupted,
+            "an orphan running ledger entry becomes an explicit interrupted result")
+        precondition(V3RefreshTerminalRecoveryPolicy.action(state: "verifying",
+            terminalIntent: nil, manifestIsComplete: false,
+            hostHandoffPending: true) == nil,
+            "a pending host handoff is not prematurely marked terminal")
+
         print("V3_REFRESH_ALL_REQUEST_TERMINAL_PASS")
     }
 }

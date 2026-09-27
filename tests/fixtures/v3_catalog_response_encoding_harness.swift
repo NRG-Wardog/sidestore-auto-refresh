@@ -246,6 +246,27 @@ struct CatalogResponseEncodingHarness {
             "Boolean auth revisions must not pass as integer revisions")
         precondition(V3WireContract.strictInt(NSNumber(value: 7)) == 7,
             "valid integer auth revisions remain accepted")
+        let malformedAuthBooleans = try! PropertyListSerialization.data(fromPropertyList: [
+            "authenticated": NSNumber(value: 1), "resumable": NSNumber(value: true)
+        ] as [String: Any], format: .binary, options: 0)
+        let decodedAuthBooleans = try! PropertyListSerialization.propertyList(
+            from: malformedAuthBooleans, format: nil) as! [String: Any]
+        precondition(V3WireContract.authSnapshot(decodedAuthBooleans) == nil,
+            "an auth snapshot with an integer Boolean is rejected as a whole")
+        precondition(V3WireContract.strictBool(decodedAuthBooleans["authenticated"]) == nil,
+            "integer one cannot authenticate a user through a nested reply")
+        precondition(V3WireContract.strictBool(decodedAuthBooleans["resumable"]) == true,
+            "a real serialized Boolean remains accepted")
+        let validAuthBooleans = try! PropertyListSerialization.data(fromPropertyList: [
+            "authenticated": true, "provisioningIncomplete": false,
+            "provisioningRetryAvailable": false
+        ] as [String: Any], format: .binary, options: 0)
+        let decodedValidAuthBooleans = try! PropertyListSerialization.propertyList(
+            from: validAuthBooleans, format: nil) as! [String: Any]
+        precondition(V3WireContract.authSnapshot(decodedValidAuthBooleans) == [
+            "authenticated": true, "provisioningIncomplete": false,
+            "provisioningRetryAvailable": false
+        ], "a valid structured auth snapshot decodes all booleans strictly")
 
         let readinessID = UUID().uuidString
         func readinessReply(_ value: [String: Any]) -> Data {

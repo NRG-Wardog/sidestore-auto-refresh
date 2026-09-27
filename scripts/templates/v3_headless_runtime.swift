@@ -142,6 +142,17 @@ enum V3AuthFailureKind: String, Equatable {
     case unknown
 }
 
+func v3AuthFailureStage(_ kind: V3AuthFailureKind) -> CombinedFailure.Stage {
+    switch kind {
+    case .anisette: return .anisette
+    case .network: return .network
+    case .unknown: return .provisioning
+    case .invalidCredentials, .appSpecificPasswordRequired, .invalidCode,
+         .rateLimited, .serviceUnavailable, .accountRepairRequired:
+        return .authentication
+    }
+}
+
 // Classifies the actual typed error from SignInOperation.authenticationLoop().
 // Returns nil for cancellation-class results, which must clear any stored
 // failure instead of being displayed. Evidence for each mapping is the pinned
@@ -556,14 +567,14 @@ final class V3AuthCenter {
             let session = sessions[id]
             let activeAppleID = DatabaseManager.shared.activeAccount()?.appleID
             let submitted = session?.submittedAppleID?.lowercased()
-            let accountMatches = submitted != nil && submitted == activeAppleID?.lowercased()
-            let accountExistedBeforeAttempt = submitted != nil && session?.accountAppleIDAtStart == submitted
-            let authenticationSucceeded = session?.authenticatedAppleID != nil
+            let authenticationSucceeded = V3AuthAttemptAuthenticationPolicy.confirms(
+                authenticationCallbackSeen: session?.authenticatedAppleID != nil,
+                submittedAppleID: submitted, activeAppleID: activeAppleID,
+                accountAppleIDAtStart: session?.accountAppleIDAtStart)
             let cancelled = error is CancellationError || session?.cancellationRequested == true
             let authenticatedOutcome = V3AuthTerminalPolicy.resolve(
                 authenticationSucceeded: authenticationSucceeded,
-                authoritativeAccountMatches: accountMatches,
-                accountExistedBeforeAttempt: accountExistedBeforeAttempt,
+                authoritativeAccountMatches: false,
                 provisioningFailed: !cancelled,
                 cancelled: cancelled)
 
@@ -574,27 +585,43 @@ final class V3AuthCenter {
                 // outcome discriminator, so the host never has to guess and can
                 // never present a successful sign-in as a failed one.
                 let resumeUnavailable = error is V3ProvisioningResumeUnavailableError
-                let failure = resumeUnavailable
-                    ? CombinedFailure(operation: "signIn", stage: .provisioning, code: .notReady,
-                                      id: id, retryable: false)
-                    : CombinedFailure.capture(error, operation: "signIn", stage: .provisioning, id: id,
-                                              retryable: cancelled)
+                let authKind = resumeUnavailable ? nil : v3ClassifyAuthError(error)
+                let failure: CombinedFailure
+                if resumeUnavailable {
+                    failure = CombinedFailure(operation: "signIn", stage: .provisioning, code: .notReady,
+                                              id: id, retryable: false)
+                } else if let authKind {
+                    failure = CombinedFailure.capture(error, operation: "signIn",
+                        stage: v3AuthFailureStage(authKind), id: id, retryable: cancelled)
+                } else {
+                    failure = CombinedFailure.capture(error, operation: "signIn", stage: .provisioning,
+                        id: id, retryable: cancelled)
+                }
+                var failureWire = failure.wire
+                if let authKind { failureWire["kind"] = authKind.rawValue }
                 if resumeUnavailable { resumableProvisioning = nil }
                 else { resumableProvisioning = (submitted ?? activeAppleID?.lowercased() ?? "", failure.stage.rawValue) }
-                let response: [String: Any] = [
+                let message: String
+                if resumeUnavailable {
+                    message = "Signed in successfully, but SideStore could not reuse the saved Apple session to retry provisioning. Sign in again with this Apple ID before retrying setup."
+                } else if let authKind {
+                    message = "Signed in successfully, but \(V3AuthFailureDisplay.message(for: authKind.rawValue))"
+                } else if cancelled {
+                    message = "Signed in successfully. Provisioning was cancelled before setup finished."
+                } else {
+                    message = "Signed in successfully, but provisioning could not be completed."
+                }
+                var response: [String: Any] = [
                     "state": authenticatedOutcome,
                     "authenticated": true,
                     "outcome": cancelled ? "provisioningCancelled" : "provisioningFailed",
                     "resumable": AuthManager.shared.isAuthenticated && !resumeUnavailable,
-                    "message": resumeUnavailable
-                        ? "Signed in successfully, but SideStore could not reuse the saved Apple session to retry provisioning. Sign in again with this Apple ID before retrying setup."
-                        : (cancelled
-                            ? "Signed in successfully. Provisioning was cancelled before setup finished."
-                            : "Signed in successfully, but provisioning could not be completed."),
+                    "message": message,
                     "stage": failure.stage.rawValue,
                     "code": failure.code.rawValue,
-                    "failure": failure.wire,
+                    "failure": failureWire,
                     "technicalDetails": failure.technicalDetails]
+                if let authKind { response["failureKind"] = authKind.rawValue }
                 finish(id: id, response: response)
                 debugLog("[V3_AUTH] TERMINAL session=\(id) state=authenticatedProvisioningIncomplete outcome=\(cancelled ? "provisioningCancelled" : "provisioningFailed") stage=\(failure.stage.rawValue) code=\(failure.code.rawValue)")
             } else if cancelled {
@@ -662,7 +689,11 @@ final class V3AuthCenter {
 
     func expire(id: String) {
         guard var session = sessions[id], session.terminal.isEmpty else { return }
-        let authenticated = session.authenticatedAppleID != nil || AuthManager.shared.isAuthenticated
+        let activeAppleID = DatabaseManager.shared.activeAccount()?.appleID
+        let authenticated = V3AuthAttemptAuthenticationPolicy.confirms(
+            authenticationCallbackSeen: session.authenticatedAppleID != nil,
+            submittedAppleID: session.submittedAppleID, activeAppleID: activeAppleID,
+            accountAppleIDAtStart: session.accountAppleIDAtStart)
         let authenticatedAppleID = (session.authenticatedAppleID ?? AuthManager.shared.currentAppleID)?.lowercased()
         if authenticated, AuthManager.shared.isAuthenticated,
            let authenticatedAppleID, !authenticatedAppleID.isEmpty,

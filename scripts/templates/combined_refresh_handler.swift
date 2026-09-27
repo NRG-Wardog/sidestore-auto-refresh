@@ -210,21 +210,48 @@ class RefreshHandler: NSObject {
         }
         let token = UUID(); v3RefreshToken = token
         defer { if v3RefreshToken == token { v3RefreshToken = nil } }
+        let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
+        guard let sharedDefaults = defaults else {
+            throw CombinedFailure(operation: "refresh", stage: .xpcConnection,
+                code: .invalidConfiguration, id: token.uuidString)
+        }
+        let directClaimID = schedulerRunID == nil ? UUID().uuidString : nil
+        if let directClaimID {
+            let existingClaim = sharedDefaults.dictionary(forKey: V3DirectRefreshRunClaimPolicy.defaultsKey)
+            guard !V3DirectRefreshRunClaimPolicy.isActive(
+                runID: existingClaim?["run_id"] as? String,
+                deadline: existingClaim?["deadline"] as? Date) else {
+                throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
+                    id: directClaimID, retryable: true, safeCause: .operationInProgress)
+            }
+            sharedDefaults.set(["run_id": directClaimID,
+                "deadline": Date().addingTimeInterval(V3RefreshAdmissionLease.lifetime)],
+                forKey: V3DirectRefreshRunClaimPolicy.defaultsKey)
+        }
+        defer {
+            if let directClaimID,
+               sharedDefaults.dictionary(forKey: V3DirectRefreshRunClaimPolicy.defaultsKey)?["run_id"] as? String == directClaimID {
+                sharedDefaults.removeObject(forKey: V3DirectRefreshRunClaimPolicy.defaultsKey)
+            }
+        }
         try await ensureServiceConnected()
         /*REFRESH_READINESS*/
         try Task.checkCancellation()
-        let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
         let selectedRun = V3RefreshRunIdentitySelection.select(
             schedulerRunID: schedulerRunID,
             expectedRunID: defaults?.string(forKey: "liveContainerAutoRefreshExpectedRunID"),
             activeRunID: defaults?.string(forKey: "liveContainerAutoRefreshActiveRunID"),
-            newRunID: UUID().uuidString)
+            newRunID: directClaimID ?? UUID().uuidString)
         guard let client else {
             throw CombinedFailure(operation: "refresh", stage: .xpcConnection, code: .invalidConfiguration, id: token.uuidString)
         }
         guard let selectedRun else {
-            throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
-                code: .busy, id: schedulerRunID ?? token.uuidString, retryable: true,
+            if let schedulerRunID {
+                throw CombinedFailure(operation: "refresh", stage: .refreshVerification,
+                    code: .staleResult, id: schedulerRunID, retryable: false)
+            }
+            throw CombinedFailure(operation: "refresh", stage: .command,
+                code: .busy, id: token.uuidString, retryable: true,
                 safeCause: .operationInProgress)
         }
         let run = selectedRun.runID

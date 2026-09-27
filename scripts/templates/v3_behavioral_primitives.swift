@@ -300,12 +300,27 @@ enum V3TwoFactorStep: String, Equatable {
 
 enum V3AuthTerminalPolicy {
     static func resolve(authenticationSucceeded: Bool, authoritativeAccountMatches: Bool,
-                        accountExistedBeforeAttempt: Bool = false,
                         provisioningFailed: Bool, cancelled: Bool) -> String {
-        if authenticationSucceeded || (authoritativeAccountMatches && !accountExistedBeforeAttempt) {
+        if authenticationSucceeded || authoritativeAccountMatches {
             return provisioningFailed || cancelled ? "authenticatedProvisioningIncomplete" : "completed"
         }
         return cancelled ? "cancelled" : "failed"
+    }
+}
+
+enum V3AuthAttemptAuthenticationPolicy {
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    static func confirms(authenticationCallbackSeen: Bool, submittedAppleID: String?,
+                         activeAppleID: String?, accountAppleIDAtStart: String?) -> Bool {
+        if authenticationCallbackSeen { return true }
+        guard let submitted = normalized(submittedAppleID),
+              normalized(activeAppleID) == submitted else { return false }
+        return normalized(accountAppleIDAtStart) != submitted
     }
 }
 
@@ -2213,6 +2228,23 @@ enum V3OperationStartDispatchPolicy {
     }
 }
 
+enum V3RefreshTerminalRecoveryPolicy {
+    enum Action: Equatable {
+        case finalizeVerified
+        case finalizeFailed
+        case markInterrupted
+    }
+
+    static func action(state: String, terminalIntent: String?, manifestIsComplete: Bool,
+                       hostHandoffPending: Bool) -> Action? {
+        guard !["completed", "failed"].contains(state) else { return nil }
+        if terminalIntent == "verified" && manifestIsComplete { return .finalizeVerified }
+        if terminalIntent == "failed" { return .finalizeFailed }
+        if hostHandoffPending { return nil }
+        return ["running", "verifying", "failing"].contains(state) ? .markInterrupted : nil
+    }
+}
+
 struct V3RefreshRunIdentitySelection: Equatable {
     let runID: String
     let schedulerOwned: Bool
@@ -2228,6 +2260,16 @@ struct V3RefreshRunIdentitySelection: Equatable {
         guard activeRunID == nil else { return nil }
         guard let generated = UUID(uuidString: newRunID), generated.uuidString == newRunID else { return nil }
         return Self(runID: newRunID, schedulerOwned: false)
+    }
+}
+
+enum V3DirectRefreshRunClaimPolicy {
+    static let defaultsKey = "liveContainerAutoRefreshDirectRunClaim"
+
+    static func isActive(runID: String?, deadline: Date?, now: Date = Date()) -> Bool {
+        guard let runID, let parsed = UUID(uuidString: runID), parsed.uuidString == runID,
+              let deadline else { return false }
+        return deadline > now
     }
 }
 
@@ -2362,16 +2404,36 @@ enum V3AuthTimeoutReconciliationPolicy {
 }
 
 enum V3AuthPollRecoveryPolicy {
+    static func isTransientTransportFailure(_ failure: CombinedFailure) -> Bool {
+        failure.code == .timedOut ||
+            failure.code == .interrupted && failure.stage == .xpcConnection
+    }
+
     static func shouldRetry(_ failure: CombinedFailure, now: Date = Date(),
                             sessionDeadline: Date) -> Bool {
-        guard now < sessionDeadline else { return false }
-        if failure.code == .timedOut { return true }
-        return failure.code == .interrupted && failure.stage == .xpcConnection
+        now < sessionDeadline && isTransientTransportFailure(failure)
+    }
+
+    static func shouldFinishTimedOut(_ failure: CombinedFailure, now: Date = Date(),
+                                     sessionDeadline: Date) -> Bool {
+        now >= sessionDeadline && isTransientTransportFailure(failure)
     }
 
     static func retryDelay(attempt: Int) -> TimeInterval {
         let backoff: [TimeInterval] = [1, 2, 5, 10]
         return backoff[min(max(0, attempt), backoff.count - 1)]
+    }
+
+    static func retryDelay(attempt: Int, remaining: TimeInterval) -> TimeInterval {
+        guard remaining.isFinite, remaining > 0 else { return 0 }
+        return min(retryDelay(attempt: attempt), remaining)
+    }
+}
+
+enum V3AuthCancellationRetryPolicy {
+    static func canRetry(isCancelling: Bool, cancellationConfirmed: Bool,
+                         state: String, hasSession: Bool) -> Bool {
+        !isCancelling && !cancellationConfirmed && hasSession && state == "failed"
     }
 }
 

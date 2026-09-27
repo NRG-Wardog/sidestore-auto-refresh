@@ -38,6 +38,14 @@ struct RefreshRunIdentityHarness {
             activeRunID: nil, newRunID: unrelatedNewRun)
         precondition(brokenSchedulerClaim == nil,
             "scheduler origin alone cannot reuse a run after its active claim disappeared")
+
+        let claimDeadline = Date().addingTimeInterval(30)
+        precondition(V3DirectRefreshRunClaimPolicy.isActive(
+            runID: directRun, deadline: claimDeadline),
+            "a direct AppIntent leaves a cross-entrypoint claim while its refresh is active")
+        precondition(!V3DirectRefreshRunClaimPolicy.isActive(
+            runID: directRun, deadline: Date(timeIntervalSince1970: 0)),
+            "a stale direct claim expires after process loss")
         print("V3_REFRESH_RUN_IDENTITY_PASS")
     }
 }

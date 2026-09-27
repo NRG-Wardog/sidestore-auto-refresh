@@ -195,7 +195,7 @@ class RecoveryActionLabelTests(unittest.TestCase):
     def test_retry_provisioning_uses_a_distinct_operation(self):
         store = auth_store()
         self.assertIn('request(operation: "authRetryProvisioning",', store)
-        self.assertIn('payload: ["session": requestedSession]', store)
+        self.assertIn('payload: ["session": requestedSession, "sessionDeadline": sessionDeadline]', store)
         # A second interactive begin would re-request credentials and 2FA.
         self.assertEqual(shell().count('request(operation: "authBegin",'), 1)
         self.assertIn("func retryProvisioning()", store)
@@ -265,7 +265,7 @@ class AuthSuccessIsNotProvisioningSuccessTests(unittest.TestCase):
     def test_provisioning_terminal_has_one_uniform_wire_shape(self):
         body = runtime()
         start = body.index('if authenticatedOutcome == "authenticatedProvisioningIncomplete" {')
-        end = body.index("} else if cancelled {", start)
+        end = body.index("} else if cancelled {", body.index("finish(id: id, response: response)", start))
         terminal = body[start:end]
         for token in ('"outcome"', '"resumable"', '"stage"', '"code"',
                       '"failure"', '"technicalDetails"'):
@@ -289,8 +289,8 @@ class AuthSuccessIsNotProvisioningSuccessTests(unittest.TestCase):
     def test_host_treats_an_authenticated_session_as_signed_in(self):
         text = shell()
         self.assertIn("var needsSignIn: Bool { account == \"Not signed in\" && !authenticated }", text)
-        self.assertIn("authenticated = snapshot[\"authenticated\"] as? Bool ?? false", text)
-        self.assertIn("provisioningIncomplete = snapshot[\"provisioningIncomplete\"] as? Bool ?? false", text)
+        self.assertIn("authenticated = V3ServiceBridge.strictBool(snapshot[\"authenticated\"]) ?? false", text)
+        self.assertIn("provisioningIncomplete = V3ServiceBridge.strictBool(snapshot[\"provisioningIncomplete\"]) ?? false", text)
 
     def test_reconcile_resolves_finish_later_as_signed_in(self):
         store = auth_store()

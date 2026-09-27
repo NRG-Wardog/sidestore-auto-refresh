@@ -203,11 +203,25 @@ class ServicePatchTests(unittest.TestCase):
         self.assertIn('forKey: "liveContainerAutoRefreshActiveRunID"', refresh)
         self.assertIn("if !selectedRun.schedulerOwned", refresh)
         self.assertIn('removeObject(forKey: "liveContainerAutoRefreshExpectedRunID")', refresh)
+        self.assertIn("V3DirectRefreshRunClaimPolicy.defaultsKey", refresh)
+        self.assertIn("V3DirectRefreshRunClaimPolicy.isActive", refresh)
         bridge = (ROOT / "scripts/patch_livecontainer_autorefresh.py").read_text(encoding="utf-8")
         self.assertIn("startScheduledRefresh(", bridge)
         self.assertIn("runID: runID.uuidString", bridge)
         scheduler = (ROOT / "scripts/templates/livecontainer_refresh_scheduler.swift").read_text(encoding="utf-8")
         self.assertIn("LiveContainerRefreshBridge.refreshAllApps(runID: runID)", scheduler)
+        self.assertIn("V3DirectRefreshRunClaimPolicy.isActive", scheduler)
+
+    def test_refresh_terminal_intent_recovers_crash_after_active_release(self):
+        scheduler = (ROOT / "scripts/templates/livecontainer_refresh_scheduler.swift").read_text(encoding="utf-8")
+        verified = scheduler[scheduler.index("private static func markVerified"):scheduler.index("private static func markFailed")]
+        failed = scheduler[scheduler.index("private static func markFailed"):scheduler.index("private static func verifyPendingHostHandoff")]
+        self.assertLess(verified.index('runRecord["terminal_intent"] = "verified"'), verified.index("endRun("))
+        self.assertLess(verified.index("endRun("), verified.index('runRecord["state"] = "completed"'))
+        self.assertLess(failed.index('runRecord["terminal_intent"] = "failed"'), failed.index("endRun("))
+        self.assertLess(failed.index("endRun("), failed.index('runRecord["state"] = "failed"'))
+        self.assertIn("recoverOrphanedRunLedger()", scheduler)
+        self.assertIn("V3RefreshTerminalRecoveryPolicy.action", scheduler)
 
     def test_service_and_startup_adapters_compose_on_pinned_sources(self):
         startup = module("patch_combined_service_startup")

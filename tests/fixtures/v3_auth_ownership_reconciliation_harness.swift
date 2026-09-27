@@ -103,9 +103,22 @@ struct AuthOwnershipReconciliationHarness {
         precondition(V3AuthPollRecoveryPolicy.shouldRetry(pollTimeout, now: now,
             sessionDeadline: pollDeadline),
             "one lost auth poll keeps monitoring the same session")
+        precondition(V3AuthPollRecoveryPolicy.retryDelay(attempt: 3, remaining: 0.25) == 0.25,
+            "the final poll backoff is clamped to the exact session deadline")
+        precondition(V3AuthPollRecoveryPolicy.retryDelay(attempt: 0, remaining: 0) == 0,
+            "no polling retry starts after the session deadline")
+        precondition(V3AuthCancellationRetryPolicy.canRetry(isCancelling: false,
+            cancellationConfirmed: false, state: "failed", hasSession: true),
+            "an unconfirmed cancellation failure exposes a usable recovery action")
+        precondition(!V3AuthCancellationRetryPolicy.canRetry(isCancelling: false,
+            cancellationConfirmed: true, state: "failed", hasSession: true),
+            "confirmed cancellation does not offer a duplicate cancellation")
         precondition(!V3AuthPollRecoveryPolicy.shouldRetry(pollTimeout, now: pollDeadline,
             sessionDeadline: pollDeadline),
             "auth poll recovery stops at the bounded session deadline")
+        precondition(V3AuthPollRecoveryPolicy.shouldFinishTimedOut(pollTimeout, now: pollDeadline,
+            sessionDeadline: pollDeadline),
+            "a transport failure at the deadline terminates polling as timed out")
         let authFailure = CombinedFailure(operation: "authPoll", stage: .authentication,
             code: .invalidResponse, id: current, retryable: false)
         precondition(!V3AuthPollRecoveryPolicy.shouldRetry(authFailure, now: now,

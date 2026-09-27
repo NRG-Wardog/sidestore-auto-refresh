@@ -1170,8 +1170,8 @@ final class V3SideStoreStatusStore: ObservableObject {
         certificate = snapshot["certificate"] as? String ?? "Unknown"
         certificateExpiration = (snapshot["certificateExpiration"] as? Date).flatMap { $0 == .distantPast ? nil : $0 }
         pairing = snapshot["pairing"] as? String ?? "Unknown"
-        authenticated = snapshot["authenticated"] as? Bool ?? false
-        provisioningIncomplete = snapshot["provisioningIncomplete"] as? Bool ?? false
+        authenticated = V3ServiceBridge.strictBool(snapshot["authenticated"]) ?? false
+        provisioningIncomplete = V3ServiceBridge.strictBool(snapshot["provisioningIncomplete"]) ?? false
         updatedAt = snapshot["updatedAt"] as? Date
         installedApps = (snapshot["installedApps"] as? [[String: Any]] ?? []).compactMap(V3SideStoreApp.init)
         sources = (snapshot["sources"] as? [[String: Any]] ?? []).compactMap(V3SideStoreSource.init)
@@ -2297,16 +2297,15 @@ struct V3AccountSettings: View {
                 }
                 .accessibilityHint("Apple ID is signed in. Retry provisioning or finish later.")
             }
-            // Re-authenticate and Sign Out exist only for a signed-in account.
-            // When signed out, the section above already offers Sign In, so a
-            // second sign-in row and a meaningless Sign Out must not appear.
+            // Account status is available only for a signed-in account. When
+            // signed out, the section above already offers Sign In.
             if !status.needsSignIn {
                 NavigationLink {
                     V3SignInView().environmentObject(status)
                 } label: {
-                    Label("Re-authenticate", systemImage: "person.badge.key.fill")
+                    Label("Sign-In Status", systemImage: "person.badge.key.fill")
                 }
-                .accessibilityHint("Sign in again with the current account")
+                .accessibilityHint("Review the current Apple sign-in state")
             }
             Button {
                 status.syncAppIDs()
@@ -3565,9 +3564,11 @@ final class V3AuthStore: ObservableObject {
 
     private func runProvisioningRetry(previouslyAvailable: Bool) async {
         guard let requestedSession = session else { return }
+        let sessionDeadline = Date().addingTimeInterval(V3ServiceBridge.authSessionLifetime)
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "authRetryProvisioning",
-                target: requestedSession, payload: ["session": requestedSession])
+                target: requestedSession,
+                payload: ["session": requestedSession, "sessionDeadline": sessionDeadline])
             guard V3AuthSessionResponsePolicy.mayAcceptStartedSession(
                 expectedSessionID: requestedSession, replySessionID: reply["session"] as? String,
                 currentSessionID: session, cancellationInProgress: isCancelling) else {
@@ -3597,7 +3598,7 @@ final class V3AuthStore: ObservableObject {
                 return
             }
             session = id
-            try await pollLoop(id: id)
+            try await pollLoop(id: id, sessionDeadline: sessionDeadline)
         } catch {
             if isCancelling || Task.isCancelled { return }
             let snapshotConfirmed = await reconcile(force: true)
@@ -3640,10 +3641,15 @@ final class V3AuthStore: ObservableObject {
         let reportedTerminalState = state
         do {
             let snapshot = try await V3ServiceBridge.shared.request(operation: "snapshot")
+            guard let authSnapshot = V3ServiceBridge.authSnapshot(snapshot) else {
+                message = "SideStore returned account status that could not be validated. Reload status and try again."
+                return false
+            }
             let account = snapshot["account"] as? String ?? "Not signed in"
-            let authoritative = (snapshot["authenticated"] as? Bool ?? false) || !account.isEmpty && account != "Not signed in"
-            let incomplete = snapshot["provisioningIncomplete"] as? Bool ?? false
-            let canRetryProvisioning = snapshot["provisioningRetryAvailable"] as? Bool == true
+            let authoritative = authSnapshot["authenticated"] ||
+                !account.isEmpty && account != "Not signed in"
+            let incomplete = authSnapshot["provisioningIncomplete"]
+            let canRetryProvisioning = authSnapshot["provisioningRetryAvailable"]
             if let reconciled = V3AuthTimeoutReconciliationPolicy.reconciledState(
                 reportedState: state, authenticated: authoritative, provisioningIncomplete: incomplete) {
                 state = reconciled
@@ -3676,11 +3682,15 @@ final class V3AuthStore: ObservableObject {
                 } else {
                     state = "completed"
                     team = snapshot["team"] as? String ?? ""
-                    message = reportedTerminalState == "cancelled"
-                        ? "The sign-in attempt was cancelled. Your existing account remains signed in."
-                        : (reportedTerminalState == "failed"
-                            ? "The sign-in attempt did not complete. Your existing account remains signed in."
-                            : "")
+                    if reportedTerminalState == "cancelled" {
+                        message = "The sign-in attempt was cancelled. Your existing account remains signed in."
+                    } else if reportedTerminalState == "failed" {
+                        let previousFailureMessage = previousFailure.map { Self.failureMessage(from: $0) }
+                        message = "The sign-in attempt did not complete. Your existing account remains signed in."
+                        if let previousFailureMessage { message += " " + previousFailureMessage }
+                    } else {
+                        message = ""
+                    }
                     clearProvisioningOutcome()
                 }
             } else {
@@ -3704,8 +3714,10 @@ final class V3AuthStore: ObservableObject {
             state = "working"
             message = ""
             prompt = nil
+            let sessionDeadline = Date().addingTimeInterval(V3ServiceBridge.authSessionLifetime)
             let reply = try await V3ServiceBridge.shared.request(operation: "authBegin",
-                target: requestedSession, payload: ["session": requestedSession])
+                target: requestedSession,
+                payload: ["session": requestedSession, "sessionDeadline": sessionDeadline])
             guard V3AuthSessionResponsePolicy.mayAcceptStartedSession(
                 expectedSessionID: requestedSession, replySessionID: reply["session"] as? String,
                 currentSessionID: session, cancellationInProgress: isCancelling) else {
@@ -3718,7 +3730,7 @@ final class V3AuthStore: ObservableObject {
                               userInfo: [NSLocalizedDescriptionKey: "The service did not start sign-in."])
             }
             session = id
-            try await pollLoop(id: id)
+            try await pollLoop(id: id, sessionDeadline: sessionDeadline)
         } catch {
             if isCancelling || Task.isCancelled { return }
             let failureMessage = V3FailureGuidance.message(error)
@@ -3732,15 +3744,22 @@ final class V3AuthStore: ObservableObject {
         }
     }
 
-    private func pollLoop(id: String) async throws {
-        let sessionDeadline = Date().addingTimeInterval(V3WireContract.authSessionLifetime)
+    private func pollLoop(id: String, sessionDeadline: Date) async throws {
         var pollFailureCount = 0
         while !Task.isCancelled {
             try await Task.sleep(nanoseconds: 1_000_000_000)
             try Task.checkCancellation()
+            guard Date() < sessionDeadline else {
+                state = "timedOut"
+                message = "Sign-in timed out. Checking the current SideStore account..."
+                prompt = nil
+                await reconcile(force: true)
+                return
+            }
             let reply: [String: Any]
             do {
-                reply = try await V3ServiceBridge.shared.request(operation: "authPoll", target: id)
+                reply = try await V3ServiceBridge.shared.request(operation: "authPoll", target: id,
+                    requestDeadline: sessionDeadline)
                 if message == "Connection to SideStore was interrupted. Waiting for the current sign-in result..." {
                     message = ""
                 }
@@ -3749,15 +3768,31 @@ final class V3AuthStore: ObservableObject {
                 where V3AuthPollRecoveryPolicy.shouldRetry(failure, sessionDeadline: sessionDeadline) {
                 pollFailureCount += 1
                 message = "Connection to SideStore was interrupted. Waiting for the current sign-in result..."
-                let delay = V3AuthPollRecoveryPolicy.retryDelay(attempt: pollFailureCount - 1)
+                let delay = V3AuthPollRecoveryPolicy.retryDelay(attempt: pollFailureCount - 1,
+                    remaining: sessionDeadline.timeIntervalSinceNow)
+                guard delay > 0 else {
+                    state = "timedOut"
+                    message = "Sign-in timed out. Checking the current SideStore account..."
+                    prompt = nil
+                    await reconcile(force: true)
+                    return
+                }
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 continue
+            } catch let failure as CombinedFailure
+                where V3AuthPollRecoveryPolicy.shouldFinishTimedOut(
+                    failure, sessionDeadline: sessionDeadline) {
+                state = "timedOut"
+                message = "Sign-in timed out. Checking the current SideStore account..."
+                prompt = nil
+                await reconcile(force: true)
+                return
             }
             guard V3AuthPollResponsePolicy.mayApply(
                 currentSessionID: session, replySessionID: reply["session"] as? String ?? "",
                 cancellationInProgress: isCancelling,
                 currentRevision: revision,
-                replyRevision: V3WireContract.strictInt(reply["revision"]),
+                replyRevision: V3ServiceBridge.strictInt(reply["revision"]),
                 currentPromptID: prompt?["id"] as? String,
                 replyPromptID: (reply["prompt"] as? [String: Any])?["id"] as? String) else {
                 continue
@@ -3769,6 +3804,13 @@ final class V3AuthStore: ObservableObject {
                 await reconcile(force: true)
                 return
             }
+            if Date() >= sessionDeadline && (current == "working" || current == "awaitingPrompt") {
+                state = "timedOut"
+                message = "Sign-in timed out. Checking the current SideStore account..."
+                prompt = nil
+                await reconcile(force: true)
+                return
+            }
             guard current == "working" || current == "awaitingPrompt" else { return }
         }
     }
@@ -3776,11 +3818,11 @@ final class V3AuthStore: ObservableObject {
     private func apply(_ reply: [String: Any]) {
         let oldPromptID = prompt?["id"] as? String
         state = reply["state"] as? String ?? state
-        attempts = V3WireContract.strictInt(reply["attempts"]) ?? attempts
-        revision = V3WireContract.strictInt(reply["revision"]) ?? revision
+        attempts = V3ServiceBridge.strictInt(reply["attempts"]) ?? attempts
+        revision = V3ServiceBridge.strictInt(reply["revision"]) ?? revision
         prompt = reply["prompt"] as? [String: Any]
         previousFailure = V3AuthPromptFailurePolicy.applying(reply: reply, current: previousFailure)
-        if reply["authenticated"] as? Bool == true { signedIn = true }
+        if V3ServiceBridge.strictBool(reply["authenticated"]) == true { signedIn = true }
         if oldPromptID != (prompt?["id"] as? String) {
             promptSubmitting = false
             promptResponseDiagnostics = ""
@@ -3807,12 +3849,16 @@ final class V3AuthStore: ObservableObject {
             message = "Apple ID signed in successfully."
             prompt = nil
             deliveryProgressMessage = ""
-            provisioningMessage = reply["message"] as? String ?? "Provisioning could not be completed."
+            if let failureKind = reply["failureKind"] as? String {
+                provisioningMessage = V3AuthStore.failureMessage(from: ["kind": failureKind])
+            } else {
+                provisioningMessage = reply["message"] as? String ?? "Provisioning could not be completed."
+            }
             provisioningStage = reply["stage"] as? String ?? ""
             provisioningCode = reply["code"] as? String ?? ""
             provisioningTechnical = reply["technicalDetails"] as? String ?? ""
             provisioningCorrelation = (reply["failure"] as? [String: Any])?["correlationID"] as? String ?? ""
-            provisioningRetryAvailable = reply["resumable"] as? Bool ?? false
+            provisioningRetryAvailable = V3ServiceBridge.strictBool(reply["resumable"]) ?? false
             provisioningSessionUnavailable = false
             if !provisioningRetryAvailable {
                 provisioningMessage += " The saved provisioning session is not ready to retry yet. Finish Later, then reopen Account & Signing to reload status."
@@ -3938,7 +3984,7 @@ final class V3AuthStore: ObservableObject {
                     reply["state"] as? String == "promptExpired" {
                     guard self.session == session, !self.isCancelling,
                           self.prompt?["id"] as? String == promptID else { return }
-                    if let replyRevision = V3WireContract.strictInt(reply["revision"]), replyRevision >= revision {
+                    if let replyRevision = V3ServiceBridge.strictInt(reply["revision"]), replyRevision >= revision {
                         revision = replyRevision
                     }
                     state = "promptExpired"
@@ -3957,7 +4003,7 @@ final class V3AuthStore: ObservableObject {
                     submittedPromptID: promptID,
                     currentPromptID: self.prompt?["id"] as? String,
                     currentRevision: self.revision,
-                    replyRevision: V3WireContract.strictInt(reply["revision"])) else { return }
+                    replyRevision: V3ServiceBridge.strictInt(reply["revision"])) else { return }
                 apply(reply)
             } catch {
                 guard V3AuthPromptSubmissionPolicy.mayShowFailure(
@@ -3977,7 +4023,11 @@ final class V3AuthStore: ObservableObject {
     }
 
     func cancel() {
-        guard !isCancelling, ["working", "awaitingPrompt", "promptExpired"].contains(state) else { return }
+        let hasActiveAttempt = ["working", "awaitingPrompt", "promptExpired"].contains(state)
+        let canRetryCancellation = V3AuthCancellationRetryPolicy.canRetry(
+            isCancelling: isCancelling, cancellationConfirmed: cancellationConfirmed,
+            state: state, hasSession: session != nil)
+        guard !isCancelling, hasActiveAttempt || canRetryCancellation else { return }
         isCancelling = true
         cancellationConfirmed = false
         let oldTask = task
@@ -4108,6 +4158,11 @@ struct V3SignInView: View {
                         Label(auth.signInButtonTitle, systemImage: "person.badge.key.fill")
                     }
                     .disabled(!auth.canBegin)
+                }
+                if V3AuthCancellationRetryPolicy.canRetry(isCancelling: auth.isCancelling,
+                    cancellationConfirmed: auth.cancellationConfirmed, state: auth.state,
+                    hasSession: auth.session != nil) {
+                    Button("Retry Cancellation", role: .cancel) { auth.cancel() }
                 }
                 if auth.state == "working" || auth.state == "awaitingPrompt" || auth.state == "promptExpired" {
                     Button(auth.isCancelling ? "Cancelling..." : "Cancel Sign In", role: .cancel) { auth.cancel() }
