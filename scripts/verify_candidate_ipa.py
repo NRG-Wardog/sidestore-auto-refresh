@@ -34,6 +34,7 @@ REQUIRED_BACKGROUND_IDS = {
     "com.kdt.livecontainer.sidestore.automatic-refresh.watchdog",
 }
 REQUIRED_BACKGROUND_MODES = {"processing", "fetch"}
+REQUIRED_DEAD10CC_MARKER = b"DEAD10CC_FIX_E98699A registered both observers in guest process"
 REMOVED_SIDESTORE_ICON_NAMES = {
     "blueicon", "darkicon", "honeydewicon", "prideicon",
     "sandyicon", "skyicon", "snowicon", "starbursticon", "stormicon", "vistaicon", "wintericon",
@@ -199,6 +200,10 @@ def missing_required_background_modes(info: dict) -> list[str]:
     return sorted(REQUIRED_BACKGROUND_MODES - configured)
 
 
+def has_required_dead10cc_marker(executable: bytes) -> bool:
+    return REQUIRED_DEAD10CC_MARKER in executable
+
+
 def verify_side_store_assetutil_records(records: list[dict]) -> dict:
     if not isinstance(records, list) or not records:
         raise ValueError("SideStore Assets.car has no readable asset records")
@@ -309,6 +314,13 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         if legacy_ui:
             raise ValueError("embedded SideStore still contains excluded presenter UI: "
                              + ", ".join(legacy_ui))
+        shared_framework_path = BASE + "/Frameworks/LiveContainerShared.framework"
+        shared_framework = package_bundles.get(shared_framework_path)
+        if not shared_framework or not shared_framework.get("executable_present"):
+            raise ValueError("LiveContainerShared framework executable is missing")
+        shared_executable = shared_framework_path + "/" + shared_framework["info"]["CFBundleExecutable"]
+        if not has_required_dead10cc_marker(archive.read(shared_executable)):
+            raise ValueError("packaged LiveContainerShared executable is missing the Dead10CC lifecycle fix")
         if "UIBackgroundModes" in side_store_info:
             raise ValueError("embedded SideStore still declares app background modes")
         if any(key in side_store_info for key in ("UIMainStoryboardFile", "UILaunchStoryboardName")):
@@ -412,6 +424,7 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         "architectures": arch_report,
         "liveprocess_extension": live_process_path,
         "required_frameworks": sorted(REQUIRED_FRAMEWORKS),
+        "dead10cc_lifecycle_fix": "verified in LiveContainerShared",
         "sidestore_storyboard_root": "absent",
         "sidestore_legacy_storyboard_nib_audio": "absent",
         "sidestore_legacy_app_intents": "absent",

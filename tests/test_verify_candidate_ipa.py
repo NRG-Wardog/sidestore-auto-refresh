@@ -153,6 +153,11 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
         self.assertEqual(verify_module.missing_required_background_modes({}),
                          ["fetch", "processing"])
 
+    def test_livecontainer_shared_requires_prepared_dead10cc_patch_marker(self):
+        marker = verify_module.REQUIRED_DEAD10CC_MARKER
+        self.assertTrue(verify_module.has_required_dead10cc_marker(b"MachO\x00" + marker))
+        self.assertFalse(verify_module.has_required_dead10cc_marker(b"MachO"))
+
 
 if __name__ == "__main__":
     unittest.main()
