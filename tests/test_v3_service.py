@@ -33,15 +33,6 @@ class ServicePatchTests(unittest.TestCase):
         self.assertIsNone(re.search(r"\bsession\.acceptedPromptID\b", runtime))
         self.assertGreaterEqual(runtime.count("session.acceptedPromptIDs"), 4)
 
-    def test_headless_patch_removes_only_hidden_app_icon_ui_observer(self):
-        observer = ("        NotificationCenter.default.addObserver(self, selector: "
-                    "#selector(MyAppsViewController.didChangeAppIcon(_:)), name: "
-                    "UIApplication.didChangeAppIconNotification, object: nil)\n")
-        source = "class HiddenMyAppsViewController {\n" + observer + "    }\n"
-        patched = service.remove_legacy_app_icon_observer(source)
-        self.assertNotIn("didChangeAppIconNotification", patched)
-        self.assertIn("class HiddenMyAppsViewController", patched)
-
     def test_inflight_request_id_replay_never_claims_operation_was_not_dispatched(self):
         service_source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         replay = service_source[service_source.index("guard tasks[id] == nil else {"):]
@@ -98,8 +89,11 @@ class ServicePatchTests(unittest.TestCase):
             roots = self.fixture(directory)
             self.apply(roots)
             first = self.snapshot(directory)
-            my_apps = (roots[1] / "AltStore/My Apps/MyAppsViewController.swift").read_text(encoding="utf-8")
-            self.assertNotIn("UIApplication.didChangeAppIconNotification", my_apps)
+            project = (roots[1] / "AltStore.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+            exception_anchor = project.index("A8EEC8CB2F4B146B00F2436D")
+            member_start = project.index("membershipExceptions = (", exception_anchor)
+            member_end = project.index(");", member_start)
+            self.assertIn('"My Apps/MyAppsViewController.swift"', project[member_start:member_end])
             self.apply(roots)
             self.assertEqual(first, self.snapshot(directory))
             path = roots[0] / "SideStoreSupport/XPCClient.m"
@@ -136,6 +130,7 @@ class ServicePatchTests(unittest.TestCase):
             membership = project[member_start:member_end]
             removed_ui_resources = (
                 '"iOS/LaunchScreen.storyboard"', '"iOS/Main.storyboard"',
+                '"My Apps/MyAppsViewController.swift"',
                 '"Authentication/Authentication.storyboard"', '"Settings/Settings.storyboard"',
                 '"Sources/Sources.storyboard"', '"Components/AppBannerView.xib"',
                 '"My Apps/InstalledAppsCollectionHeaderView.xib"', '"My Apps/UpdateCollectionViewCell.xib"',
