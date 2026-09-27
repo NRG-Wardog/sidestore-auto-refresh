@@ -473,6 +473,15 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         self.assertIn("V3RefreshAllTerminalEvidencePolicy.verifiedSummary", check)
         self.assertIn('runRecord["terminal_at"] as? TimeInterval', check)
 
+    def test_cancelled_setup_test_task_cannot_write_into_next_attempt(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        setup = source[source.index("final class V3SetupStore"):source.index("struct V3SetupAssistantView")]
+        self.assertIn("private var testAttemptID: String?", setup)
+        self.assertIn("testAttemptID = nil", setup[setup.index("func cancelTest() {"):])
+        self.assertIn("checkTestResult(attemptID: requestID)", setup)
+        self.assertIn("V3SetupTestAttemptPolicy.mayApply", setup)
+        self.assertIn("catch is CancellationError", setup)
+
     def test_partial_manifest_does_not_verify(self):
         compiler = shutil.which("swiftc")
         if not compiler:

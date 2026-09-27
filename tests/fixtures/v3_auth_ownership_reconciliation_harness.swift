@@ -97,6 +97,25 @@ struct AuthOwnershipReconciliationHarness {
         precondition(signedOutTimeout.message.contains("no account is currently signed in") &&
                      !signedOutTimeout.message.contains("Checking the current SideStore account"),
                      "a confirmed signed-out snapshot must end the transient checking copy")
+        precondition(V3AuthReconciliationPresentationPolicy.shouldPreserveActivePrompt(
+            reportedState: "awaitingPrompt", hasPrompt: true,
+            activeSessionMatches: true, cancellationInProgress: false),
+            "an authenticated-but-not-yet-provisioned account snapshot cannot hide the active Team/2FA prompt")
+        let accountLagPresentation = V3AuthReconciliationPresentationPolicy.resolve(
+            reportedState: "awaitingPrompt", authenticated: true, provisioningIncomplete: true)
+        precondition(accountLagPresentation.state == "authenticatedProvisioningIncomplete" &&
+                     V3AuthReconciliationPresentationPolicy.shouldPreserveActivePrompt(
+                        reportedState: "awaitingPrompt", hasPrompt: true,
+                        activeSessionMatches: true, cancellationInProgress: false),
+                     "an incomplete account row cannot replace the still-owned Team prompt")
+        precondition(!V3AuthReconciliationPresentationPolicy.shouldPreserveActivePrompt(
+            reportedState: "awaitingPrompt", hasPrompt: true,
+            activeSessionMatches: false, cancellationInProgress: false),
+            "a stale session snapshot cannot preserve another session's prompt")
+        precondition(!V3AuthReconciliationPresentationPolicy.shouldPreserveActivePrompt(
+            reportedState: "awaitingPrompt", hasPrompt: true,
+            activeSessionMatches: true, cancellationInProgress: true),
+            "confirmed cancellation retires an active prompt instead of resuming it")
 
         let persistedAccountButNoSession = ["authenticated": false,
             "provisioningIncomplete": false, "provisioningRetryAvailable": false]
@@ -186,6 +205,14 @@ struct AuthOwnershipReconciliationHarness {
             cancellationInProgress: true, taskCancelled: false,
             now: now, sessionDeadline: deadline),
             "authoritative cancellation never restarts polling")
+        precondition(V3AuthPollMonitorRecoveryPolicy.shouldResume(
+            requestedSessionID: current, currentSessionID: current,
+            failedPromptRevision: 8, currentPromptRevision: 9,
+            failedPromptResponseGeneration: 4, currentPromptResponseGeneration: 5,
+            state: "awaitingPrompt", promptSubmissionInProgress: true,
+            cancellationInProgress: false, taskCancelled: false,
+            now: deadline, sessionDeadline: deadline),
+            "the replacement monitor owns deadline handling instead of abandoning a superseded prompt")
         precondition(!V3AuthAttemptFailureCommitPolicy.mayCommit(
             requestedSessionID: prior, currentSessionID: current,
             capturedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,

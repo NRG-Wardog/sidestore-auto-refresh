@@ -3833,6 +3833,17 @@ final class V3AuthStore: ObservableObject {
                 message = "SideStore returned account status that could not be validated. Reload status and try again."
                 return false
             }
+            if V3AuthReconciliationPresentationPolicy.shouldPreserveActivePrompt(
+                reportedState: reportedTerminalState, hasPrompt: prompt != nil,
+                activeSessionMatches: session != nil && (expectedSession == nil || expectedSession == session),
+                cancellationInProgress: isCancelling) {
+                // The exact SideSign prompt/session is the current authority
+                // while credentials, 2FA, or team selection are in flight. A
+                // separate account snapshot can observe authenticated=true
+                // before provisioning activates its account row; it must not
+                // replace an answerable prompt with a terminal UI state.
+                return true
+            }
             // A persisted account row can outlive an authenticated Apple
             // session. Only SideStore's explicit session fact proves that
             // authentication is currently active.
@@ -3895,11 +3906,11 @@ final class V3AuthStore: ObservableObject {
     }
 
     private func run(sessionID requestedSession: String) async {
+        let sessionDeadline = Date().addingTimeInterval(V3ServiceBridge.authSessionLifetime)
         do {
             state = "working"
             message = ""
             prompt = nil
-            let sessionDeadline = Date().addingTimeInterval(V3ServiceBridge.authSessionLifetime)
             let reply = try await V3ServiceBridge.shared.request(operation: "authBegin",
                 target: requestedSession,
                 payload: ["session": requestedSession, "sessionDeadline": sessionDeadline])
@@ -6111,6 +6122,7 @@ final class V3SetupStore: ObservableObject {
     private var testTask: Task<Void, Never>?
     private var testRequestID: String?
     private var testRunID: String?
+    private var testAttemptID: String?
 
     private var groupDefaults: UserDefaults? {
         UserDefaults(suiteName: "group.com.SideStore.SideStore")
@@ -6349,6 +6361,7 @@ final class V3SetupStore: ObservableObject {
             testRunning = false
             testRequestID = nil
             testRunID = nil
+            testAttemptID = nil
             testTask = nil
             recordFailure(operation: failure.operation, stage: failure.stage.rawValue,
                           code: failure.code.rawValue, correlation: failure.correlationID,
@@ -6361,6 +6374,7 @@ final class V3SetupStore: ObservableObject {
         testRunning = true
         testRequestID = requestID
         testRunID = nil
+        testAttemptID = requestID
         testLedgerState = ""
         testSummarySchema = ""
         verification = V3SetupStepState(state: "running", detail: "Test refresh running…")
@@ -6374,22 +6388,32 @@ final class V3SetupStore: ObservableObject {
                 while !Task.isCancelled && Date() < deadline {
                     try await Task.sleep(nanoseconds: 2_000_000_000)
                     try Task.checkCancellation()
-                    if await checkTestResult() { return }
+                    if await checkTestResult(attemptID: requestID) { return }
                 }
-                if !Task.isCancelled {
+                if V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: requestID,
+                    currentAttemptID: testAttemptID, taskCancelled: Task.isCancelled) {
                     verification = V3SetupStepState(state: "warning", detail: "No verified result yet. Check Refresh Manager for progress.")
                     NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=timeout")
                 }
+            } catch is CancellationError {
+                return
             } catch {
+                guard V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: requestID,
+                    currentAttemptID: testAttemptID, taskCancelled: Task.isCancelled) else { return }
                 recordError(error, operation: "refresh")
                 NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=error")
             }
+            guard V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: requestID,
+                currentAttemptID: testAttemptID, taskCancelled: Task.isCancelled) else { return }
             testRunning = false
         }
     }
 
-    private func checkTestResult() async -> Bool {
+    private func checkTestResult(attemptID: String) async -> Bool {
+        guard V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: attemptID,
+            currentAttemptID: testAttemptID, taskCancelled: Task.isCancelled) else { return false }
         guard let requestID = testRequestID,
+              requestID == attemptID,
               let ledger = groupDefaults?.dictionary(forKey: "liveContainerAutoRefreshRunLedger"),
               let runRecord = V3RefreshAllAttemptState.record(in: ledger, requestID: requestID),
               let runID = runRecord["run_id"] as? String else { return false }
@@ -6493,6 +6517,7 @@ final class V3SetupStore: ObservableObject {
     }
 
     func cancelTest() {
+        testAttemptID = nil
         testTask?.cancel()
         testTask = nil
         testRunning = false

@@ -17,7 +17,7 @@ def template():
 class RefreshClassificationTests(unittest.TestCase):
     def test_setup_test_refresh_stops_on_unverified_terminal_ledger_state(self):
         host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        setup_check = host[host.index("private func checkTestResult() async -> Bool"):]
+        setup_check = host[host.index("private func checkTestResult(attemptID: String) async -> Bool"):]
         setup_check = setup_check[:setup_check.index("func cancelTest()")]
         self.assertIn("V3SetupRefreshTerminalEvidencePolicy.outcome", setup_check)
         self.assertIn("case .completedUnverified:", setup_check)

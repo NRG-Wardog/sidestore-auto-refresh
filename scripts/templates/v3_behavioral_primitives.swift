@@ -2610,6 +2610,13 @@ struct V3AuthReconciliationPresentation: Equatable {
 }
 
 enum V3AuthReconciliationPresentationPolicy {
+    static func shouldPreserveActivePrompt(reportedState: String, hasPrompt: Bool,
+                                           activeSessionMatches: Bool,
+                                           cancellationInProgress: Bool) -> Bool {
+        hasPrompt && activeSessionMatches && !cancellationInProgress &&
+            ["working", "awaitingPrompt"].contains(reportedState)
+    }
+
     static func resolve(reportedState: String, authenticated: Bool,
                         provisioningIncomplete: Bool,
                         previousFailureMessage: String? = nil) -> V3AuthReconciliationPresentation {
@@ -2750,11 +2757,20 @@ enum V3AuthPollMonitorRecoveryPolicy {
                              reconciliationWasSuperseded: Bool = false,
                              now: Date = Date(), sessionDeadline: Date) -> Bool {
         guard currentSessionID == requestedSessionID,
-              !cancellationInProgress, !taskCancelled, now < sessionDeadline,
+              !cancellationInProgress, !taskCancelled,
               ["working", "awaitingPrompt"].contains(state) else { return false }
+        _ = now
+        _ = sessionDeadline // PollLoop owns deadline terminalization on resume.
         return failedPromptRevision != currentPromptRevision ||
             failedPromptResponseGeneration != currentPromptResponseGeneration ||
             promptSubmissionInProgress || reconciliationWasSuperseded
+    }
+}
+
+enum V3SetupTestAttemptPolicy {
+    static func mayApply(capturedAttemptID: String, currentAttemptID: String?,
+                         taskCancelled: Bool) -> Bool {
+        !taskCancelled && currentAttemptID == capturedAttemptID
     }
 }
 

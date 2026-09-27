@@ -145,6 +145,19 @@ struct RefreshAllAttemptHarness {
                         hasVerifiedManifest: false, hasVerifiedSummary: true) == .verified,
             "either authoritative per-run manifest or valid compact summary can verify completion")
 
+        let firstTestAttempt = UUID().uuidString
+        let secondTestAttempt = UUID().uuidString
+        var activeTestAttempt: String? = firstTestAttempt
+        precondition(V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: firstTestAttempt,
+            currentAttemptID: activeTestAttempt, taskCancelled: false))
+        activeTestAttempt = nil // Cancel R1 before its Task resumes from cancellation.
+        activeTestAttempt = secondTestAttempt
+        precondition(!V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: firstTestAttempt,
+            currentAttemptID: activeTestAttempt, taskCancelled: false) &&
+                     V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: secondTestAttempt,
+                        currentAttemptID: activeTestAttempt, taskCancelled: false),
+            "a cancelled Test Refresh R1 cannot overwrite the new R2 UI or diagnostics")
+
         precondition(V3RefreshTerminalRecoveryPolicy.action(state: "verifying",
             terminalIntent: "verified", manifestIsComplete: true,
             hostHandoffPending: false) == .finalizeVerified,

@@ -31,6 +31,21 @@ struct PromptRaceHarness {
         precondition(pendingReply?["responsePending"] as? Bool == true &&
                      pendingReply?["state"] as? String == "awaitingPrompt",
                      "a lost reply for an accepted response remains pending rather than becoming expired")
+        let currentAcceptedReply = V3PromptResponseStatePolicy.responsePending(.alreadySettled,
+            acceptedPromptID: prompt, promptID: prompt, sessionID: "session",
+            revision: 2, state: "awaitingPrompt", prompt: ["id": prompt])
+        precondition(currentAcceptedReply?["responsePending"] as? Bool == true,
+                     "a duplicate tap while SideSign still owns the accepted prompt remains pending")
+        let outerReply: [String: Any] = ["version": 1, "id": UUID().uuidString,
+            "ok": true, "result": currentAcceptedReply ?? [:]]
+        let outerBytes = try PropertyListSerialization.data(fromPropertyList: outerReply,
+            format: .binary, options: 0)
+        let outerRoundTrip = try PropertyListSerialization.propertyList(from: outerBytes,
+            format: nil) as! [String: Any]
+        let decodedResult = outerRoundTrip["result"] as! [String: Any]
+        precondition(decodedResult["responsePending"] as? Bool == true &&
+                     decodedResult["prompt"] as? [String: Any] != nil,
+                     "a duplicate-current prompt result survives the actual XPC plist envelope")
         precondition(V3PromptResponseStatePolicy.responsePending(.unavailable,
             acceptedPromptID: "prompt-a", promptID: "prompt-a", sessionID: "session",
             revision: 3, state: "awaitingPrompt", prompt: ["id": "prompt-b"]) == nil,
