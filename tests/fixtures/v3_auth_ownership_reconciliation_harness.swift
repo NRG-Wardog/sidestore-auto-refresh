@@ -108,10 +108,10 @@ struct AuthOwnershipReconciliationHarness {
         precondition(V3AuthPollRecoveryPolicy.retryDelay(attempt: 0, remaining: 0) == 0,
             "no polling retry starts after the session deadline")
         precondition(V3AuthCancellationRetryPolicy.canRetry(isCancelling: false,
-            cancellationConfirmed: false, state: "failed", hasSession: true),
+            cancellationConfirmed: false, hasSession: true),
             "an unconfirmed cancellation failure exposes a usable recovery action")
         precondition(!V3AuthCancellationRetryPolicy.canRetry(isCancelling: false,
-            cancellationConfirmed: true, state: "failed", hasSession: true),
+            cancellationConfirmed: true, hasSession: true),
             "confirmed cancellation does not offer a duplicate cancellation")
         precondition(!V3AuthPollRecoveryPolicy.shouldRetry(pollTimeout, now: pollDeadline,
             sessionDeadline: pollDeadline),
