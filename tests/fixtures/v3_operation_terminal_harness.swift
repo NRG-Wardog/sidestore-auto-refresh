@@ -154,7 +154,14 @@ struct OperationTerminalHarness {
             "verifiedDeleteCompletion": true,
             "sourceStep": "native_uninstall+authoritative_library_absence"
         ]
-        precondition(pendingCallbackTerminal.finishOrResolve(verifiedDeleteReply, backendSettled: false),
+        let verifiedDeleteWireData = try PropertyListSerialization.data(
+            fromPropertyList: verifiedDeleteReply, format: .binary, options: 0)
+        let verifiedDeleteWire = try PropertyListSerialization.propertyList(
+            from: verifiedDeleteWireData, options: [], format: nil) as! [String: Any]
+        let verifiedDeleteProof = V3OperationReplyFieldPolicy.strictBoolean(
+            verifiedDeleteWire["verifiedDeleteCompletion"]) == true
+        precondition(verifiedDeleteProof &&
+            pendingCallbackTerminal.finishOrResolve(verifiedDeleteWire, backendSettled: false),
             "native success plus fresh library absence resolves the visible result without claiming the runner callback settled")
         let pendingCallbackSession = UUID().uuidString
         let pendingCallbackFields = pendingCallbackTerminal.reply(
@@ -201,6 +208,20 @@ struct OperationTerminalHarness {
             !V3OperationTerminalAcceptancePolicy.isSettledTerminal(state: "cancelled",
                 backendSettled: true, stopConfirmed: true, outcomeUnknown: malformedOutcomeIsUnknown),
             "a numeric plist value cannot masquerade as the Boolean false needed to accept a terminal")
+        let malformedDeleteProof = try PropertyListSerialization.data(
+            fromPropertyList: ["verifiedDeleteCompletion": NSNumber(value: 1)],
+            format: .binary, options: 0)
+        let malformedDeleteProofReply = try PropertyListSerialization.propertyList(
+            from: malformedDeleteProof, options: [], format: nil) as! [String: Any]
+        let malformedDeleteProofAccepted = V3OperationReplyFieldPolicy.strictBoolean(
+            malformedDeleteProofReply["verifiedDeleteCompletion"]) == true
+        precondition(!malformedDeleteProofAccepted &&
+            !V3OperationProvisionalOutcomePolicy.canResolve(
+                currentState: "reconciling", currentBackendSettled: false,
+                currentOutcomeUnknown: true, nextState: "completed", nextBackendSettled: false,
+                nextOutcomeUnknown: false, nextOperation: "delete",
+                verifiedDeleteCompletion: malformedDeleteProofAccepted),
+            "a numeric plist value cannot authorize provisional delete completion")
         let validFalseOutcomeUnknown = try PropertyListSerialization.data(
             fromPropertyList: ["outcomeUnknown": false], format: .binary, options: 0)
         let validFalseReply = try PropertyListSerialization.propertyList(

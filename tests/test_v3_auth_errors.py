@@ -186,12 +186,31 @@ class V3AuthErrorTests(unittest.TestCase):
         host = shell()
         run = host[host.index("private func run(sessionID requestedSession: String)"):]
         run = run[:run.index("    private func pollLoop(")]
+        failure_path = run[run.index("let underlyingError = pollFailure?.underlying ?? error"):]
         preserve = "V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState"
-        self.assertIn(preserve, run)
-        self.assertLess(run.index(preserve), run.index('state = "resultUnknown"'))
+        self.assertIn(preserve, failure_path)
+        self.assertLess(failure_path.index("safeCause == .authSessionUnavailable"), failure_path.index(preserve))
+        self.assertLess(failure_path.index("restartPollMonitorAfterSupersededFailure"), failure_path.index(preserve))
+        self.assertIn("retireInactiveAuthSession: !sessionUnavailable", failure_path)
+        self.assertLess(failure_path.index(preserve), failure_path.index('state = "resultUnknown"'))
+        self.assertIn("shouldCommitConfirmedSignedOutFailure", failure_path)
         monitor = host[host.index("private func continuePollingAfterSupersededFailure"):]
         self.assertIn(preserve, monitor)
+        self.assertLess(monitor.index("V3AuthPollMonitorRecoveryPolicy.shouldResume"), monitor.index(preserve))
+        self.assertIn("retireInactiveAuthSession: !sessionUnavailable", monitor)
+        self.assertLess(monitor.index("safeCause == .authSessionUnavailable"), monitor.index(preserve))
         self.assertLess(monitor.index(preserve), monitor.index('state = "resultUnknown"'))
+        reconcile = host[host.index("func reconcile(force:"):host.index("private func resolveUnavailableAuthSession")]
+        self.assertIn("reconcileAuthSessionOwnership", reconcile)
+        self.assertIn("authenticationActive: authenticationActive", reconcile)
+        self.assertIn("retireInactiveAuthSession: Bool = true", host)
+        self.assertIn("session = nil", reconcile)
+        self.assertIn("&& accountFacts.authenticationActive", reconcile)
+        self.assertIn("V3AuthInactiveSessionResolutionPolicy.resolve", reconcile)
+        self.assertIn("provisioningRetryBlockedByActiveSession = authenticationActive", reconcile)
+        self.assertIn("shouldCommitConfirmedSignedOutFailure", run)
+        poll_loop = host[host.index("private func pollLoop(id: String, sessionDeadline: Date)"):]
+        self.assertIn("state == \"authenticatedProvisioningIncomplete\" && !provisioningRetryBlockedByActiveSession", poll_loop)
 
     def test_provisioning_retry_keeps_typed_anisette_and_network_guidance(self):
         runtime_text = runtime()
@@ -243,7 +262,7 @@ class V3AuthErrorTests(unittest.TestCase):
     def test_sign_in_reopening_reconciles_authoritative_side_store_snapshot(self):
         host = shell()
         sign_in = host[host.index("final class V3AuthStore"):host.index("struct V3SignInLink")]
-        self.assertIn("func reconcile(force: Bool = false, expectedSession: String? = nil) async", sign_in)
+        self.assertIn("func reconcile(force: Bool = false, expectedSession: String? = nil,", sign_in)
         self.assertIn('request(operation: "snapshot")', sign_in)
         self.assertIn("let authoritative = accountFacts.authenticated", sign_in)
         self.assertNotIn("!account.isEmpty", sign_in)
@@ -364,7 +383,7 @@ class V3AuthErrorTests(unittest.TestCase):
     def test_auth_reconciliation_rechecks_attempt_generation_after_snapshot(self):
         host = shell()
         sign_in = host[host.index("final class V3AuthStore"):host.index("struct V3SignInLink")]
-        reconcile = sign_in[sign_in.index("func reconcile(force: Bool = false, expectedSession: String? = nil)"):]
+        reconcile = sign_in[sign_in.index("func reconcile(force: Bool = false, expectedSession: String? = nil,"):]
         reconcile = reconcile[:reconcile.index("private func run(sessionID")]
         self.assertIn("reconciliationGate.begin(sessionID: session, state: state, revision: revision)", reconcile)
         self.assertIn("reconciliationGate.mayApply(ticket, sessionID: session", reconcile)

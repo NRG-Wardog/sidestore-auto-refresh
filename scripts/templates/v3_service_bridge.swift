@@ -157,6 +157,11 @@ public final class V3ServiceBridge {
     public func confirmAuthSessionUnavailable(sessionID: String) {
         authSessionOwnership.clear(sessionID: sessionID)
     }
+    /// A validated service snapshot can retire a host owner when it proves
+    /// there is no active authentication task, even if the terminal poll was lost.
+    public func reconcileAuthSessionOwnership(sessionID: String, authenticationActive: Bool) {
+        authSessionOwnership.reconcile(sessionID: sessionID, authenticationActive: authenticationActive)
+    }
     public var processID: Int32 { RefreshHandler.shared.sideStorePid }
 
     init(readTimeout: TimeInterval = 30, commandTimeout: TimeInterval = 600, cancellationGrace: TimeInterval = 3) {

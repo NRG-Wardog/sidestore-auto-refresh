@@ -765,13 +765,17 @@ enum V3OperationCancellationResolutionPolicy {
 }
 
 enum V3OperationReplyFieldPolicy {
+    static func strictBoolean(_ rawValue: Any?) -> Bool? {
+        guard let rawValue, let value = rawValue as? NSNumber,
+              CFGetTypeID(value) == CFBooleanGetTypeID() else { return nil }
+        return value.boolValue
+    }
+
     // Missing is accepted for older service replies. A present malformed value
     // must fail closed because it cannot prove a terminal result is settled.
     static func outcomeUnknown(_ rawValue: Any?) -> Bool {
         guard let rawValue else { return false }
-        guard let value = rawValue as? NSNumber,
-              CFGetTypeID(value) == CFBooleanGetTypeID() else { return true }
-        return value.boolValue
+        return strictBoolean(rawValue) ?? true
     }
 }
 
@@ -1304,7 +1308,8 @@ final class V3OperationTerminalResponse: @unchecked Sendable {
                 nextBackendSettled: response["backendSettled"] as? Bool,
                 nextOutcomeUnknown: response["outcomeUnknown"] as? Bool == true,
                 nextOperation: response["operation"] as? String,
-                verifiedDeleteCompletion: response["verifiedDeleteCompletion"] as? Bool == true) else { return false }
+                verifiedDeleteCompletion: V3OperationReplyFieldPolicy.strictBoolean(
+                    response["verifiedDeleteCompletion"]) == true) else { return false }
         storage = response
         return true
     }
@@ -2947,6 +2952,11 @@ struct V3AuthSessionOwnership {
         deadlines.removeValue(forKey: sessionID)
     }
 
+    mutating func reconcile(sessionID: String, authenticationActive: Bool) {
+        guard !authenticationActive else { return }
+        clear(sessionID: sessionID)
+    }
+
     mutating func clearAll() {
         deadlines.removeAll()
     }
@@ -3023,7 +3033,8 @@ enum V3AuthReconciliationPresentationPolicy {
 
     static func resolve(reportedState: String, authenticated: Bool,
                         provisioningIncomplete: Bool,
-                        previousFailureMessage: String? = nil) -> V3AuthReconciliationPresentation {
+                        previousFailureMessage: String? = nil,
+                        authenticationActive: Bool = false) -> V3AuthReconciliationPresentation {
         guard authenticated else {
             switch reportedState {
             case "timedOut":
@@ -3033,6 +3044,10 @@ enum V3AuthReconciliationPresentationPolicy {
             default:
                 return .init(state: reportedState, message: "")
             }
+        }
+        if authenticationActive {
+            return .init(state: "authenticatedProvisioningIncomplete",
+                message: "Apple ID signed in successfully. SideStore is still finishing provisioning.")
         }
         switch reportedState {
         case "failed":
@@ -3062,6 +3077,16 @@ enum V3AuthReconciliationPresentationPolicy {
                 ? .init(state: "authenticatedProvisioningIncomplete", message: "Apple ID signed in successfully.")
                 : .init(state: "completed", message: "")
         }
+    }
+}
+
+enum V3AuthInactiveSessionResolutionPolicy {
+    static func resolve(reportedState: String, authenticated: Bool,
+                        authenticationActive: Bool) -> V3AuthReconciliationPresentation? {
+        guard !authenticated, !authenticationActive,
+              ["working", "awaitingPrompt", "resultUnknown"].contains(reportedState) else { return nil }
+        return .init(state: "failed",
+            message: "SideStore confirmed that no account is currently signed in. You can start a new sign-in.")
     }
 }
 
@@ -3225,18 +3250,21 @@ enum V3AuthPollMonitorRecoveryPolicy {
                              failedPromptResponseGeneration: UInt64,
                              currentPromptResponseGeneration: UInt64,
                              state: String, promptSubmissionInProgress: Bool,
+                             authenticationActive: Bool = false,
                              pollFailureIsTransient: Bool = false,
                              cancellationInProgress: Bool, taskCancelled: Bool,
                              reconciliationWasSuperseded: Bool = false,
                              now: Date = Date(), sessionDeadline: Date) -> Bool {
         guard currentSessionID == requestedSessionID,
               !cancellationInProgress, !taskCancelled,
-              ["working", "awaitingPrompt"].contains(state) else { return false }
+              (["working", "awaitingPrompt"].contains(state) ||
+                (authenticationActive && ["completed", "authenticatedProvisioningIncomplete"].contains(state))) else { return false }
         _ = now
         _ = sessionDeadline // PollLoop owns deadline terminalization on resume.
         return failedPromptRevision != currentPromptRevision ||
             failedPromptResponseGeneration != currentPromptResponseGeneration ||
-            promptSubmissionInProgress || pollFailureIsTransient || reconciliationWasSuperseded
+            promptSubmissionInProgress || pollFailureIsTransient || reconciliationWasSuperseded ||
+            authenticationActive
     }
 }
 
@@ -3308,6 +3336,14 @@ enum V3AuthAttemptFailureCommitPolicy {
                                                         state: String) -> Bool {
         snapshotConfirmed && authenticated &&
             ["completed", "authenticatedProvisioningIncomplete"].contains(state)
+    }
+
+    static func shouldCommitConfirmedSignedOutFailure(snapshotConfirmed: Bool,
+                                                       authenticated: Bool,
+                                                       hasSession: Bool,
+                                                       cancellationConfirmed: Bool,
+                                                       state: String) -> Bool {
+        snapshotConfirmed && !authenticated && !hasSession && cancellationConfirmed && state == "failed"
     }
 }
 

@@ -3087,7 +3087,8 @@ struct V3OperationSheet: View {
             currentOutcomeUnknown: needsDeviceConfirmation, nextState: nextState,
             nextBackendSettled: replyBackendSettled, nextOutcomeUnknown: replyOutcomeUnknown,
             nextOperation: reply["operation"] as? String,
-            verifiedDeleteCompletion: reply["verifiedDeleteCompletion"] as? Bool == true)
+            verifiedDeleteCompletion: V3OperationReplyFieldPolicy.strictBoolean(
+                reply["verifiedDeleteCompletion"]) == true)
         guard resolvesProvisionalUnknown ||
               attempt.accept(state: nextState, generation: generation, sessionID: sessionID) else { return }
         state = nextState
@@ -4110,7 +4111,8 @@ final class V3AuthStore: ObservableObject {
     }
 
     @discardableResult
-    func reconcile(force: Bool = false, expectedSession: String? = nil) async -> Bool {
+    func reconcile(force: Bool = false, expectedSession: String? = nil,
+                   retireInactiveAuthSession: Bool = true) async -> Bool {
         guard force || !["working", "awaitingPrompt"].contains(state) else { return false }
         guard V3AuthReconciliationSessionPolicy.mayStart(
             expectedSessionID: expectedSession, currentSessionID: session) else { return false }
@@ -4125,15 +4127,10 @@ final class V3AuthStore: ObservableObject {
                 return false
             }
             let accountFacts = V3AuthSnapshotAuthorityPolicy.facts(authSnapshot)
-            let reconciliationState = V3AuthUnknownResultReconciliationPolicy.reportedState(
-                originalState: reportedTerminalState, hasSession: session != nil,
-                authenticated: accountFacts.authenticated)
-            let resolvesUnknownAttempt = reportedTerminalState == "resultUnknown" && session == nil &&
-                !accountFacts.authenticated
             if V3AuthReconciliationPresentationPolicy.shouldPreserveActivePrompt(
                 reportedState: reportedTerminalState, hasPrompt: prompt != nil,
                 activeSessionMatches: session != nil && (expectedSession == nil || expectedSession == session),
-                cancellationInProgress: isCancelling) {
+                cancellationInProgress: isCancelling) && accountFacts.authenticationActive {
                 // The exact SideSign prompt/session is the current authority
                 // while credentials, 2FA, or team selection are in flight. A
                 // separate account snapshot can observe authenticated=true
@@ -4151,6 +4148,19 @@ final class V3AuthStore: ObservableObject {
             let incomplete = accountFacts.provisioningIncomplete
             let canRetryProvisioning = accountFacts.provisioningRetryAvailable
             let authenticationActive = accountFacts.authenticationActive
+            if retireInactiveAuthSession, !authenticationActive,
+               let ownerSessionID = expectedSession ?? session {
+                V3ServiceBridge.shared.reconcileAuthSessionOwnership(
+                    sessionID: ownerSessionID, authenticationActive: false)
+                if session == ownerSessionID { session = nil }
+                cancellationConfirmed = true
+                cancellationWasAttempted = false
+            }
+            let reconciliationState = V3AuthUnknownResultReconciliationPolicy.reportedState(
+                originalState: reportedTerminalState, hasSession: session != nil,
+                authenticated: accountFacts.authenticated)
+            let resolvesUnknownAttempt = reportedTerminalState == "resultUnknown" && session == nil &&
+                !accountFacts.authenticated
             if authoritative {
                 // V3_FINISH_LATER_RECONCILES_AS_SIGNED_IN_V1: authoritative state
                 // wins. A finished-later provisioning attempt still reconciles as
@@ -4168,11 +4178,12 @@ final class V3AuthStore: ObservableObject {
                 let presentation = V3AuthReconciliationPresentationPolicy.resolve(
                     reportedState: reconciliationState, authenticated: true,
                     provisioningIncomplete: incomplete,
-                    previousFailureMessage: previousFailureMessage)
+                    previousFailureMessage: previousFailureMessage,
+                    authenticationActive: authenticationActive)
                 state = presentation.state
                 message = presentation.message
                 team = snapshot["team"] as? String ?? ""
-                if incomplete {
+                if incomplete || authenticationActive {
                     provisioningIncomplete = true
                     // The service still reports an authenticated session whose
                     // provisioning never activated an account. Preserve any
@@ -4183,7 +4194,7 @@ final class V3AuthStore: ObservableObject {
                     }
                     // The account snapshot alone does not prove the process-local
                     // authenticated session needed to resume provisioning survived.
-                    provisioningRetryAvailable = canRetryProvisioning
+                    provisioningRetryAvailable = authenticationActive ? false : canRetryProvisioning
                     provisioningRetryBlockedByActiveSession = authenticationActive
                     provisioningSessionUnavailable = !canRetryProvisioning && !authenticationActive
                     if canRetryProvisioning && reportedTerminalState == "resultUnknown" {
@@ -4199,10 +4210,22 @@ final class V3AuthStore: ObservableObject {
             } else {
                 signedIn = false
                 team = ""
-                let signedOutPresentation = V3AuthReconciliationPresentationPolicy.resolve(
-                    reportedState: reconciliationState, authenticated: false,
-                    provisioningIncomplete: false)
-                if resolvesUnknownAttempt {
+                provisioningRetryBlockedByActiveSession = authenticationActive
+                let inactiveSessionPresentation = V3AuthInactiveSessionResolutionPolicy.resolve(
+                    reportedState: reportedTerminalState, authenticated: false,
+                    authenticationActive: authenticationActive)
+                let signedOutPresentation = inactiveSessionPresentation ??
+                    V3AuthReconciliationPresentationPolicy.resolve(
+                        reportedState: reconciliationState, authenticated: false,
+                        provisioningIncomplete: false)
+                if let inactiveSessionPresentation {
+                    state = inactiveSessionPresentation.state
+                    message = inactiveSessionPresentation.message
+                    prompt = nil
+                    promptSubmitting = false
+                    deliveryProgressMessage = ""
+                    twoFactorTransientStep = nil
+                } else if resolvesUnknownAttempt {
                     state = "failed"
                     cancellationConfirmed = true
                     cancellationWasAttempted = false
@@ -4337,9 +4360,13 @@ final class V3AuthStore: ObservableObject {
             // display, but keep the attempt outcome unknown until its session
             // is cancelled or a correlated terminal reply arrives.
             let reconciliationGenerationBefore = reconciliationGate.generation
-            let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)
-            if V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState(
-                snapshotConfirmed: snapshotConfirmed, authenticated: signedIn, state: state) {
+            let sessionUnavailable = ((pollFailure?.underlying ?? error) as? CombinedFailure)?.safeCause == .authSessionUnavailable
+            let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession,
+                retireInactiveAuthSession: !sessionUnavailable)
+            if let sessionFailure = pollFailure?.underlying as? CombinedFailure,
+               sessionFailure.safeCause == .authSessionUnavailable {
+                resolveUnavailableAuthSession(sessionFailure, expectedSessionID: requestedSession,
+                    snapshotConfirmed: snapshotConfirmed)
                 return
             }
             if let pollFailure,
@@ -4352,6 +4379,18 @@ final class V3AuthStore: ObservableObject {
                     provisioningRetry: false,
                     reconciliationWasSuperseded: reconciliationGate.generation !=
                         (reconciliationGenerationBefore &+ 1)) {
+                return
+            }
+            if V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState(
+                snapshotConfirmed: snapshotConfirmed, authenticated: signedIn, state: state) {
+                return
+            }
+            if V3AuthAttemptFailureCommitPolicy.shouldCommitConfirmedSignedOutFailure(
+                snapshotConfirmed: snapshotConfirmed, authenticated: signedIn,
+                hasSession: session != nil, cancellationConfirmed: cancellationConfirmed,
+                state: state) {
+                currentAttemptFailure.record(snapshotConfirmed: true, authenticated: false,
+                    failureMessage: failureMessage, technicalDetails: failureTechnical)
                 return
             }
             guard V3AuthAttemptFailureCommitPolicy.mayCommit(
@@ -4372,12 +4411,6 @@ final class V3AuthStore: ObservableObject {
                         reconciliationWasSuperseded: reconciliationGate.generation !=
                             (reconciliationGenerationBefore &+ 1))
                 }
-                return
-            }
-            if let sessionFailure = pollFailure?.underlying as? CombinedFailure,
-               sessionFailure.safeCause == .authSessionUnavailable {
-                resolveUnavailableAuthSession(sessionFailure, expectedSessionID: requestedSession,
-                    snapshotConfirmed: snapshotConfirmed)
                 return
             }
             state = "resultUnknown"
@@ -4401,7 +4434,8 @@ final class V3AuthStore: ObservableObject {
             try await Task.sleep(nanoseconds: 1_000_000_000)
             try Task.checkCancellation()
             guard !isCancelling, session == id else { throw CancellationError() }
-            if ["completed", "authenticatedProvisioningIncomplete", "failed", "cancelled"].contains(state) {
+            if ["completed", "failed", "timedOut", "promptExpired", "cancelled"].contains(state) ||
+               (state == "authenticatedProvisioningIncomplete" && !provisioningRetryBlockedByActiveSession) {
                 return
             }
             guard Date() < sessionDeadline else {
@@ -4528,6 +4562,7 @@ final class V3AuthStore: ObservableObject {
             failedPromptResponseGeneration: failedPromptResponseGeneration,
             currentPromptResponseGeneration: promptResponseGeneration, state: state,
             promptSubmissionInProgress: promptSubmitting,
+            authenticationActive: provisioningRetryBlockedByActiveSession,
             pollFailureIsTransient: pollFailureIsTransient, cancellationInProgress: isCancelling,
             taskCancelled: Task.isCancelled,
             reconciliationWasSuperseded: reconciliationWasSuperseded,
@@ -4549,9 +4584,13 @@ final class V3AuthStore: ObservableObject {
                 return
             } catch let failure as V3AuthPollFailure where failure.sessionID == sessionID {
                 let reconciliationGenerationBefore = reconciliationGate.generation
-                let snapshotConfirmed = await reconcile(force: true, expectedSession: sessionID)
-                if V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState(
-                    snapshotConfirmed: snapshotConfirmed, authenticated: signedIn, state: state) {
+                let sessionUnavailable = (failure.underlying as? CombinedFailure)?.safeCause == .authSessionUnavailable
+                let snapshotConfirmed = await reconcile(force: true, expectedSession: sessionID,
+                    retireInactiveAuthSession: !sessionUnavailable)
+                if let combined = failure.underlying as? CombinedFailure,
+                   combined.safeCause == .authSessionUnavailable {
+                    resolveUnavailableAuthSession(combined, expectedSessionID: sessionID,
+                        snapshotConfirmed: snapshotConfirmed)
                     return
                 }
                 if V3AuthPollMonitorRecoveryPolicy.shouldResume(
@@ -4560,6 +4599,7 @@ final class V3AuthStore: ObservableObject {
                     failedPromptResponseGeneration: failure.promptResponseGeneration,
                     currentPromptResponseGeneration: promptResponseGeneration, state: state,
                     promptSubmissionInProgress: promptSubmitting,
+                    authenticationActive: provisioningRetryBlockedByActiveSession,
                     pollFailureIsTransient: (failure.underlying as? CombinedFailure)
                         .map(V3AuthPollRecoveryPolicy.isTransientTransportFailure) ?? false,
                     cancellationInProgress: isCancelling,
@@ -4583,6 +4623,20 @@ final class V3AuthStore: ObservableObject {
                     if Task.isCancelled { return }
                     continue
                 }
+                if V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState(
+                    snapshotConfirmed: snapshotConfirmed, authenticated: signedIn, state: state) {
+                    return
+                }
+                let failedMessage = V3FailureGuidance.message(failure.underlying)
+                let failedTechnical = (failure.underlying as? CombinedFailure)?.technicalDetails ?? ""
+                if V3AuthAttemptFailureCommitPolicy.shouldCommitConfirmedSignedOutFailure(
+                    snapshotConfirmed: snapshotConfirmed, authenticated: signedIn,
+                    hasSession: session != nil, cancellationConfirmed: cancellationConfirmed,
+                    state: state) {
+                    currentAttemptFailure.record(snapshotConfirmed: true, authenticated: false,
+                        failureMessage: failedMessage, technicalDetails: failedTechnical)
+                    return
+                }
                 guard V3AuthAttemptFailureCommitPolicy.mayCommit(
                     requestedSessionID: sessionID, currentSessionID: session,
                     capturedPromptResponseGeneration: failure.promptResponseGeneration,
@@ -4591,12 +4645,6 @@ final class V3AuthStore: ObservableObject {
                     currentReconciliationGeneration: reconciliationGate.generation,
                     cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled) else { return }
                 let underlying = failure.underlying
-                if let combined = underlying as? CombinedFailure,
-                   combined.safeCause == .authSessionUnavailable {
-                    resolveUnavailableAuthSession(combined, expectedSessionID: sessionID,
-                        snapshotConfirmed: snapshotConfirmed)
-                    return
-                }
                 if provisioningRetry, signedIn, state != "completed", prompt != nil {
                     state = "resultUnknown"
                     prompt = nil
@@ -4649,6 +4697,7 @@ final class V3AuthStore: ObservableObject {
         state = reply["state"] as? String ?? state
         if ["completed", "authenticatedProvisioningIncomplete", "failed", "timedOut", "promptExpired", "cancelled"].contains(state) {
             currentAttemptFailure.clear()
+            provisioningRetryBlockedByActiveSession = false
         }
         attempts = V3ServiceBridge.strictInt(reply["attempts"]) ?? attempts
         revision = V3ServiceBridge.strictInt(reply["revision"]) ?? revision
