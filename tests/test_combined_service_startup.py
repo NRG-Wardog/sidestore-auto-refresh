@@ -377,11 +377,13 @@ class ReadinessRegressionTests(unittest.TestCase):
         helper = generated_pipeline[generated_pipeline.index("// LC_SIGNING_CAUSE_CLASSIFIER_V1"):]
         failure_model = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         behavioral_model = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        wire_model = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         failure_model = "\n".join(line for line in failure_model.splitlines()
                                     if not line.startswith("import "))
         behavioral_model = "\n".join(line for line in behavioral_model.splitlines()
                                        if not line.startswith("import "))
-        source = """import Foundation
+        source = wire_model + """
+import Foundation
 import CoreFoundation
 enum Constants { static let defaultAccountRepairMessage = "" }
 """ + actual_side_sign_types + failure_model + behavioral_model + """

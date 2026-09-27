@@ -1891,7 +1891,8 @@ struct V3UserFacingIssue: Equatable {
                      safeCause: String?, sourceStep: String?, retryable: Bool?,
                      whatHappened: String, whatToDo: String, technicalDetails: String) -> V3UserFacingIssue {
         let destination: String? = {
-            if safeCause == CombinedFailure.SafeCause.pairingRequired.rawValue { return "pairing" }
+            if safeCause == CombinedFailure.SafeCause.pairingRequired.rawValue ||
+               safeCause == CombinedFailure.SafeCause.invalidPairingFile.rawValue { return "pairing" }
             if safeCause == CombinedFailure.SafeCause.authResponseCapacityUnavailable.rawValue { return "signIn" }
             if safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue ||
                safeCause == CombinedFailure.SafeCause.sourceRemoveBusy.rawValue { return "sources" }
@@ -2520,7 +2521,8 @@ struct V3OperationFailureDetails {
             CombinedFailure.SafeCause.catalogSourceUnavailable.rawValue].contains(safeCause ?? "") {
             return "sources"
         }
-        if safeCause == CombinedFailure.SafeCause.pairingRequired.rawValue { return "pairing" }
+        if safeCause == CombinedFailure.SafeCause.pairingRequired.rawValue ||
+           safeCause == CombinedFailure.SafeCause.invalidPairingFile.rawValue { return "pairing" }
         if safeCause == CombinedFailure.SafeCause.authResponseCapacityUnavailable.rawValue { return "signIn" }
         if stage == CombinedFailure.Stage.authentication.rawValue { return "signIn" }
         if stage == CombinedFailure.Stage.filePreparation.rawValue { return "ipa" }
@@ -2602,6 +2604,8 @@ struct V3OperationFailureDetails {
             return "Wait for SideStore to release earlier request results, check the current state, then retry this action."
         case CombinedFailure.SafeCause.pairingRequired.rawValue:
             return "Add the pairing file, then start the refresh again."
+        case CombinedFailure.SafeCause.invalidPairingFile.rawValue:
+            return "Open Pairing File and replace the saved pairing record, then retry."
         case CombinedFailure.SafeCause.operationInProgress.rawValue:
             return "Wait for the active SideStore operation to finish, then start this action again."
         case CombinedFailure.SafeCause.staleRefreshAttempt.rawValue:
@@ -3094,6 +3098,25 @@ enum V3AuthInactiveSessionResolutionPolicy {
     }
 }
 
+struct V3AuthOtherSessionPresentation: Equatable {
+    let state: String
+    let message: String
+    let clearPrompt: Bool
+}
+
+enum V3AuthOtherSessionReconciliationPolicy {
+    static func resolve(reportedState: String, authenticated: Bool,
+                        anotherSessionActive: Bool) -> V3AuthOtherSessionPresentation? {
+        guard anotherSessionActive,
+              ["idle", "working", "awaitingPrompt", "resultUnknown",
+               "authenticatedProvisioningIncomplete"].contains(reportedState) else { return nil }
+        let accountState = authenticated ? "Apple ID is signed in, but " : ""
+        return .init(state: "resultUnknown",
+            message: accountState + "another sign-in session is active. This request could not be matched to it. Wait for it to finish, then reload status.",
+            clearPrompt: true)
+    }
+}
+
 struct V3AuthReconciliationTicket: Equatable {
     let generation: UInt64
     let sessionID: String?
@@ -3311,10 +3334,31 @@ enum V3AuthPollMonitorRecoveryPolicy {
 enum V3ShortcutRefreshFailurePolicy {
     static func operationCreationFailure(correlationID: String) -> CombinedFailure {
         CombinedFailure(operation: "refresh", stage: .command, code: .notReady,
-            id: correlationID, retryable: false)
+            id: correlationID, safeCause: .refreshCouldNotStart)
+    }
+
+    static func createOperation<Operation>(correlationID: String,
+                                           create: () throws -> Operation?) throws -> Operation {
+        do {
+            guard let operation = try create() else {
+                throw operationCreationFailure(correlationID: correlationID)
+            }
+            return operation
+        } catch {
+            throw propagate(error)
+        }
     }
 
     static func propagate(_ error: Error) -> Error { error }
+}
+
+enum V3PairingFailureClassificationPolicy {
+    static func classify(typedInvalidPairing: Bool, operation: String, id: String,
+                         underlying: Error?) -> CombinedFailure? {
+        guard typedInvalidPairing else { return nil }
+        return CombinedFailure(operation: operation, stage: .pairing, code: .invalidResponse,
+            id: id, underlying: underlying, retryable: false, safeCause: .invalidPairingFile)
+    }
 }
 
 enum V3SetupTestAttemptPolicy {
@@ -3500,6 +3544,12 @@ enum V3AuthStatusTextPolicy {
 }
 
 enum V3AuthFailureDiagnosticsPolicy {
+    static func shouldShowTerminalDetails(state: String, hasPrompt: Bool,
+                                          hasFailure: Bool) -> Bool {
+        hasFailure && !hasPrompt && ["failed", "timedOut", "promptExpired", "resultUnknown"]
+            .contains(state)
+    }
+
     static func render(_ failure: [String: Any], underlyingCode: Int?,
                        retryableValue: Bool?) -> String {
         let kind = failure["kind"] as? String ?? ""

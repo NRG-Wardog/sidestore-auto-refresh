@@ -51,7 +51,13 @@ enum V3WireContract {
               let authenticationActive = strictBool(reply["authenticationActive"]) else {
             return nil
         }
-        let authenticationSessionID = reply["authenticationSessionID"] as? String
+        let authenticationSessionID: String?
+        if let rawAuthenticationSessionID = reply["authenticationSessionID"] {
+            guard let value = rawAuthenticationSessionID as? String else { return nil }
+            authenticationSessionID = value
+        } else {
+            authenticationSessionID = nil
+        }
         if authenticationActive {
             guard let authenticationSessionID,
                   UUID(uuidString: authenticationSessionID)?.uuidString == authenticationSessionID else { return nil }

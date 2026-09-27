@@ -138,6 +138,8 @@ public struct CombinedFailure: Error, LocalizedError {
         // and it must not be reported as any of them.
         case responseTooLarge
         case pairingRequired
+        case invalidPairingFile
+        case refreshCouldNotStart
         case authAttemptNotDispatched
         case authProvisioningRetryNotDispatched
         case authSessionUnavailable
@@ -184,6 +186,10 @@ public struct CombinedFailure: Error, LocalizedError {
                 return false
             case .pairingRequired:
                 return false
+            case .invalidPairingFile:
+                return false
+            case .refreshCouldNotStart:
+                return nil
             case .authAttemptNotDispatched:
                 return true
             case .authProvisioningRetryNotDispatched:
@@ -301,6 +307,8 @@ public struct CombinedFailure: Error, LocalizedError {
             case .responseEncodingFailed: return "SideStore could not encode the response for this request."
             case .responseTooLarge: return "SideStore produced a response that is too large to transfer."
             case .pairingRequired: return "A pairing file is required before this device can be refreshed."
+            case .invalidPairingFile: return "The existing pairing file was rejected by the device."
+            case .refreshCouldNotStart: return "SideStore could not start the refresh operation. The exact cause could not be safely identified."
             case .authAttemptNotDispatched: return "SideStore did not start this sign-in attempt, so Apple authentication was not submitted."
             case .authProvisioningRetryNotDispatched: return "SideStore did not start the provisioning retry; the saved authentication session was not changed by this request."
             case .authSessionUnavailable: return "SideStore no longer has the active sign-in session."
@@ -479,6 +487,10 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "The service reply exceeded the transfer limit. Copy Diagnostics and report this response-size issue; repeating the same request will fail again."
             case .pairingRequired:
                 return "Add the pairing file, then retry the refresh."
+            case .invalidPairingFile:
+                return "Open Pairing File and replace the invalid pairing record, then retry."
+            case .refreshCouldNotStart:
+                return "Check Refresh History for an active run. If none started, try Refresh All again when SideStore is ready; copy Diagnostics if it repeats."
             case .authAttemptNotDispatched:
                 if code == .busy {
                     return "Wait for the active SideStore operation to finish, then start sign-in again."

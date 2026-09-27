@@ -125,6 +125,15 @@ struct AuthOwnershipReconciliationHarness {
         precondition(unrelatedSessionPresentation?.state == "resultUnknown" &&
                      unrelatedSessionPresentation?.message.contains("Another Apple sign-in session is active") == true,
                      "a lost reply for this session is not misreported as signed out while another session owns authentication")
+        let misleadingSignedInPresentation = V3AuthReconciliationPresentationPolicy.resolve(
+            reportedState: "awaitingPrompt", authenticated: true, provisioningIncomplete: false)
+        let authenticatedWithUnrelatedSession = V3AuthOtherSessionReconciliationPolicy.resolve(
+            reportedState: "awaitingPrompt", authenticated: true, anotherSessionActive: true)
+        precondition(misleadingSignedInPresentation.state == "completed" &&
+                     authenticatedWithUnrelatedSession?.state == "resultUnknown" &&
+                     authenticatedWithUnrelatedSession?.clearPrompt == true &&
+                     authenticatedWithUnrelatedSession?.message.contains("Apple ID is signed in") == true,
+                     "an account-level signed-in fact cannot complete session A or leave its prompt visible when the service owns session B")
         precondition(V3AuthAttemptFailureCommitPolicy.shouldCommitConfirmedSignedOutFailure(
             snapshotConfirmed: true, authenticated: false, hasSession: false,
             cancellationConfirmed: true, state: "failed") &&
@@ -685,6 +694,15 @@ struct AuthOwnershipReconciliationHarness {
         precondition(malformedDiagnostics.contains("underlying=redacted/unknown") &&
                      malformedDiagnostics.hasSuffix("retryable=unknown"),
             "malformed diagnostic NSNumber values stay unknown rather than becoming false values")
+        precondition(V3AuthFailureDiagnosticsPolicy.shouldShowTerminalDetails(
+            state: "failed", hasPrompt: false, hasFailure: true) &&
+            V3AuthFailureDiagnosticsPolicy.shouldShowTerminalDetails(
+                state: "resultUnknown", hasPrompt: false, hasFailure: true) &&
+            !V3AuthFailureDiagnosticsPolicy.shouldShowTerminalDetails(
+                state: "failed", hasPrompt: true, hasFailure: true) &&
+            !V3AuthFailureDiagnosticsPolicy.shouldShowTerminalDetails(
+                state: "idle", hasPrompt: false, hasFailure: true),
+            "terminal auth failure details remain visible after the prompt is dismissed but stay hidden for an active prompt or idle state")
 
         let lowercaseID = UUID().uuidString.lowercased()
         let lowercaseInvalidRequest = try PropertyListSerialization.data(fromPropertyList: [

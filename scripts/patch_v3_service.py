@@ -11,7 +11,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 19
+PATCH_VERSION = 21
 HEADLESS_SIDESTORE_VIEW_FILES = (
     "Views/Components/AppInfoView.swift",
     "Views/Components/BundleResourceBrowserView.swift",
@@ -358,25 +358,47 @@ def headless_app_intents(text, relative):
         text = text[:start] + "// " + marker + ": IPA installation is host-owned.\n\n" + text[end:]
         if "struct InstallIPAIntent" in text or "AppManager.shared.install(.url" in text:
             raise SystemExit("v3 service: legacy IPA installation shortcut removal is partial")
-        missing_operation_marker = "V3_SHORTCUT_REFRESH_CREATION_FAILURE_V1"
-        if missing_operation_marker not in text:
-            old_guard = '''            guard let operation else {
-                debugLog("[RefreshAllAppsIntent] backgroundRefresh instance is nil")
-                return''' + " " + '''
-            }
-'''
-            text = replace(text,
-                old_guard,
-                '''            guard let operation else {
-                debugLog("[RefreshAllAppsIntent] backgroundRefresh instance is nil")
-                // V3_SHORTCUT_REFRESH_CREATION_FAILURE_V1: always settle the intent continuation.
-                continuation.resume(throwing: V3ShortcutRefreshFailurePolicy.operationCreationFailure(
-                    correlationID: UUID().uuidString))
+        error_preserved_marker = "V3_SHORTCUT_REFRESH_ERROR_PRESERVED_V1"
+        if error_preserved_marker not in text:
+            old_start = "let operation = try? AppManager.shared.backgroundRefresh("
+            if text.count(old_start) != 1:
+                raise SystemExit("v3 service: refresh operation creation anchor changed")
+            text = text.replace(old_start,
+                '''// V3_SHORTCUT_REFRESH_ERROR_PRESERVED_V1: preserve native creation failures.
+            let operation: BackgroundRefreshAppsOperation
+            do {
+                operation = try V3ShortcutRefreshFailurePolicy.createOperation(
+                correlationID: UUID().uuidString) {
+                try AppManager.shared.backgroundRefresh(''', 1)
+            old_boundary = re.compile(
+                r"            \}\r?\n[ \t]*\r?\n            guard let operation else \{")
+            if len(old_boundary.findall(text)) != 1:
+                raise SystemExit("v3 service: refresh completion closure boundary changed")
+            text = old_boundary.sub("            }\n            }\n\n            guard let operation else {", text, count=1)
+            old_guard = re.compile(
+                r"            guard let operation else \{\r?\n"
+                r"                debugLog\(\"\[RefreshAllAppsIntent\] backgroundRefresh instance is nil\"\)\r?\n"
+                r"                return[ \t]*\r?\n"
+                r"            \}\r?\n[ \t]*\r?\n")
+            if len(old_guard.findall(text)) != 1:
+                raise SystemExit("v3 service: refresh nil-operation guard changed")
+            text = old_guard.sub("", text, count=1)
+            post_creation = re.compile(
+                r"            \}\r?\n[ \t]*\r?\n            operation\.ignoresServerNotFoundError")
+            if len(post_creation.findall(text)) != 1:
+                raise SystemExit("v3 service: refresh operation post-creation anchor changed")
+            text = post_creation.sub(
+                '''            }
+            } catch {
+                continuation.resume(throwing: V3ShortcutRefreshFailurePolicy.propagate(error))
                 return
             }
-''')
-        if "continuation.resume(throwing: V3ShortcutRefreshFailurePolicy.operationCreationFailure" not in text:
-            raise SystemExit("v3 service: nil refresh operation can still strand its continuation")
+
+            operation.ignoresServerNotFoundError''', text, count=1)
+        if ("try? AppManager.shared.backgroundRefresh" in text or
+                "V3ShortcutRefreshFailurePolicy.createOperation" not in text or
+                "continuation.resume(throwing: V3ShortcutRefreshFailurePolicy.propagate(error))" not in text):
+            raise SystemExit("v3 service: refresh creation errors are not preserved")
         return text
     if relative.endswith("AppShortcuts.swift"):
         start_marker = "        AppShortcut(intent: InstallIPAIntent(),"

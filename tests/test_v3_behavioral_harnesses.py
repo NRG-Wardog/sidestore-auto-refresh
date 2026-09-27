@@ -85,6 +85,13 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         harness = (ROOT / "tests/fixtures/v3_release_behavior_harness.swift").read_text(encoding="utf-8")
         self.compile_and_run(helper + "\n" + failure + "\n" + harness, "V3_RELEASE_BEHAVIOR_PASS")
 
+    def test_invalid_pairing_remains_typed_and_actionable(self):
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_pairing_failure_guidance_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run(failure + "\n" + helper + "\n" + harness,
+                             "V3_PAIRING_FAILURE_GUIDANCE_PASS")
+
     def test_service_admission_retains_active_backend_operation_ownership(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")

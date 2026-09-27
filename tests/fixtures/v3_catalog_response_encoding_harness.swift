@@ -292,11 +292,14 @@ struct CatalogResponseEncodingHarness {
             authenticationSessionID: nil),
             "a valid structured auth snapshot decodes all booleans strictly")
         let activeAuthenticationSessionID = UUID().uuidString
-        let activeAuthSnapshot = V3WireContract.authSnapshot([
+        let activeAuthWire = try! PropertyListSerialization.data(fromPropertyList: [
             "authenticated": true, "provisioningIncomplete": true,
             "provisioningRetryAvailable": true, "authenticationActive": true,
             "authenticationSessionID": activeAuthenticationSessionID
-        ])
+        ] as [String: Any], format: .binary, options: 0)
+        let decodedActiveAuthWire = try! PropertyListSerialization.propertyList(
+            from: activeAuthWire, format: nil) as! [String: Any]
+        let activeAuthSnapshot = V3WireContract.authSnapshot(decodedActiveAuthWire)
         precondition(activeAuthSnapshot?.authenticationActive == true &&
                      activeAuthSnapshot?.authenticationSessionID == activeAuthenticationSessionID,
             "the snapshot carries the exact active auth session separately from account facts")
@@ -305,6 +308,15 @@ struct CatalogResponseEncodingHarness {
             "provisioningRetryAvailable": false, "authenticationActive": true
         ]) == nil,
             "active-auth status without a session UUID is rejected rather than treated as a correlated session")
+        let malformedInactiveAuthWire = try! PropertyListSerialization.data(fromPropertyList: [
+            "authenticated": false, "provisioningIncomplete": false,
+            "provisioningRetryAvailable": false, "authenticationActive": false,
+            "authenticationSessionID": NSNumber(value: 1)
+        ] as [String: Any], format: .binary, options: 0)
+        let decodedMalformedInactiveAuthWire = try! PropertyListSerialization.propertyList(
+            from: malformedInactiveAuthWire, format: nil) as! [String: Any]
+        precondition(V3WireContract.authSnapshot(decodedMalformedInactiveAuthWire) == nil,
+            "a non-string session ID cannot be silently dropped from an inactive snapshot")
 
         let readinessID = UUID().uuidString
         func readinessReply(_ value: [String: Any]) -> Data {

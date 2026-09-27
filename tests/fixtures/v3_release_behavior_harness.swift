@@ -10,7 +10,7 @@ struct ReleaseBehaviorHarness {
         try operationRetryCancelAndLateResult()
         try backendMutationCancellationOrdering()
         try refreshTerminalResultWinsOnce()
-        shortcutRefreshFailuresAreNotReportedAsSuccess()
+        try shortcutRefreshFailuresAreNotReportedAsSuccess()
         settingsRollbackKeepsNewerWrites()
         print("V3_RELEASE_BEHAVIOR_PASS")
     }
@@ -126,16 +126,43 @@ struct ReleaseBehaviorHarness {
         require(intValue == 30, "stale Int failure rolled back a newer success")
     }
 
-    private static func shortcutRefreshFailuresAreNotReportedAsSuccess() {
+    private static func shortcutRefreshFailuresAreNotReportedAsSuccess() throws {
         let correlationID = UUID().uuidString
         let missingOperation = V3ShortcutRefreshFailurePolicy.operationCreationFailure(
             correlationID: correlationID)
         require(missingOperation.operation == "refresh" &&
                 missingOperation.stage == .command &&
                 missingOperation.code == .notReady &&
-                missingOperation.retryable == false &&
+                missingOperation.retryable == nil &&
+                missingOperation.safeCause == .refreshCouldNotStart &&
+                missingOperation.message.contains("exact cause could not be safely identified") &&
+                !missingOperation.recovery.localizedCaseInsensitiveContains("connection") &&
                 missingOperation.correlationID == correlationID,
                 "an unavailable refresh operation must settle the Shortcut request with a typed failure")
+        let expectedNetworkFailure = NSError(domain: "NSURLErrorDomain", code: -1005)
+        do {
+            _ = try V3ShortcutRefreshFailurePolicy.createOperation(correlationID: correlationID) {
+                throw expectedNetworkFailure
+            } as String
+            require(false, "a thrown refresh creation error was swallowed")
+        } catch let actual as NSError {
+            require(actual.domain == expectedNetworkFailure.domain &&
+                    actual.code == expectedNetworkFailure.code,
+                    "the Shortcut creation adapter must preserve the original thrown error")
+        }
+        let operation = try V3ShortcutRefreshFailurePolicy.createOperation(correlationID: correlationID) {
+            Optional("started")
+        }
+        require(operation == "started", "a successful Shortcut refresh creation was changed")
+        do {
+            _ = try V3ShortcutRefreshFailurePolicy.createOperation(correlationID: correlationID) {
+                Optional<String>.none
+            }
+            require(false, "nil refresh operation was reported as success")
+        } catch let failure as CombinedFailure {
+            require(failure.safeCause == .refreshCouldNotStart && failure.correlationID == correlationID,
+                    "nil refresh operation must settle as the correlated no-start failure")
+        }
         let refreshFailure = CombinedFailure(operation: "refresh", stage: .provisioning,
             code: .failed, id: correlationID, retryable: false,
             safeCause: .provisioningProfileUnavailable)

@@ -15,6 +15,7 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
         if not compiler:
             self.skipTest("Swift compiler unavailable")
         program = "\n".join([
+            (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8"),
             (TEMPLATES / "combined_failure.swift").read_text(encoding="utf-8"),
             (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8"),
             (ROOT / "tests/fixtures/v3_device_acceptance_regressions_harness.swift").read_text(encoding="utf-8"),

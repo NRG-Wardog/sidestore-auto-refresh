@@ -3,6 +3,7 @@ import CoreData
 import CryptoKit
 import UIKit
 import SideSign
+import Minimuxer
 
 // V3_HEADLESS_RUNTIME_V1: SideStore executes as a headless backend. No window,
 // presenter, view controller, picker, alert, or remotely rendered view exists
@@ -1586,7 +1587,18 @@ final class V3OperationCenter {
         // underlying domain/code, retryable). No arbitrary userInfo, file
         // paths, or auth secrets ever leave the SideStore process.
         // The session id is the end-to-end correlation identifier.
-        let failure = CombinedFailure.capture(error, operation: kind, stage: stage, id: id)
+        let typedSource: Error = (error as? MinimuxerServiceError)?.error ?? error
+        let invalidPairing: Bool
+        if let minimuxerError = typedSource as? MinimuxerError,
+           case .invalidPairing(_, _) = minimuxerError {
+            invalidPairing = true
+        } else {
+            invalidPairing = false
+        }
+        let failure = V3PairingFailureClassificationPolicy.classify(
+            typedInvalidPairing: invalidPairing, operation: kind, id: id,
+            underlying: typedSource) ??
+            ((error as? CombinedFailure) ?? CombinedFailure.capture(error, operation: kind, stage: stage, id: id))
         var terminal: [String: Any] = ["state": "failed", "stage": failure.stage.rawValue,
             "code": failure.code.rawValue, "message": failure.message,
             "technical": failure.technicalDetails, "failure": failure.wire]

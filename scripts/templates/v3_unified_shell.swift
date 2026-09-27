@@ -4265,14 +4265,18 @@ final class V3AuthStore: ObservableObject {
             }
             if anotherSessionActive {
                 provisioningRetryBlockedByActiveSession = true
-                if ["idle", "working", "awaitingPrompt", "resultUnknown"].contains(reportedTerminalState) {
-                    state = "resultUnknown"
-                    message = "Another Apple sign-in session is active. This request could not be matched to it. Wait for it to finish, then reload status."
-                    prompt = nil
-                    promptSubmitting = false
-                    deliveryProgressMessage = ""
-                    twoFactorTransientStep = nil
-                    cancellationConfirmed = true
+                if let presentation = V3AuthOtherSessionReconciliationPolicy.resolve(
+                    reportedState: reportedTerminalState, authenticated: authoritative,
+                    anotherSessionActive: true) {
+                    state = presentation.state
+                    message = presentation.message
+                    if presentation.clearPrompt {
+                        prompt = nil
+                        promptSubmitting = false
+                        deliveryProgressMessage = ""
+                        twoFactorTransientStep = nil
+                        cancellationConfirmed = true
+                    }
                 } else if state == "completed" {
                     message = "Apple ID is signed in. Another sign-in or provisioning session is active; wait for it to finish before starting another account action."
                 }
@@ -5088,6 +5092,25 @@ struct V3SignInView: View {
                         .foregroundColor(auth.state == "resultUnknown" || auth.state == "timedOut" ||
                             auth.state == "cancelled" ? .orange : (auth.isSignedIn ? .green : .red))
                         .textSelection(.enabled)
+                }
+                if V3AuthFailureDiagnosticsPolicy.shouldShowTerminalDetails(
+                    state: auth.state, hasPrompt: auth.prompt != nil,
+                    hasFailure: auth.previousFailure != nil),
+                   let failure = auth.previousFailure {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Sign-in diagnostics")
+                            .font(.subheadline.weight(.semibold))
+                        DisclosureGroup("Technical details") {
+                            Text(V3AuthStore.failureDetails(from: failure))
+                                .font(.caption2)
+                                .textSelection(.enabled)
+                        }
+                        Button("Copy Diagnostics", systemImage: "doc.on.doc") {
+                            UIPasteboard.general.string = V3AuthStore.failureDetails(from: failure)
+                        }
+                        .font(.caption)
+                    }
+                    .padding(.vertical, 4)
                 }
                 if !auth.currentAttemptFailure.message.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
