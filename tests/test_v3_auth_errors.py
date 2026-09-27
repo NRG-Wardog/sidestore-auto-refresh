@@ -263,8 +263,13 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn('"authBegin", "authRetryProvisioning"].contains(operation)', service)
         self.assertIn('"operationNotDispatched"] = true', service)
         self.assertIn('"provisioningRetryAvailable": V3HeadlessRuntime.shared.auth.canResumeProvisioning()', service)
+        self.assertIn('"authenticationActive": V3HeadlessRuntime.shared.auth.hasActiveSession', service)
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        self.assertIn("V3AuthSessionAdmissionPolicy.mayStartNewSession(hasActiveSession: hasActiveSession)", runtime)
         self.assertIn("guard let authSnapshot = V3ServiceBridge.authSnapshot(snapshot) else", host)
         self.assertIn("let accountFacts = V3AuthSnapshotAuthorityPolicy.facts(authSnapshot)", host)
+        self.assertIn("let authenticationActive = accountFacts.authenticationActive", host)
+        self.assertIn("provisioningRetryBlockedByActiveSession = authenticationActive", host)
         self.assertIn("let canRetryProvisioning = accountFacts.provisioningRetryAvailable", host)
         self.assertIn("shouldReconcileAfterTerminal(current)", host)
         poll_start = host.index("private func pollLoop(id: String, sessionDeadline: Date)")
@@ -282,6 +287,7 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("V3AuthProvisioningRecoveryPolicy.resolve", host)
         self.assertIn("recovery.showRetryProvisioning", host)
         self.assertIn("recovery.showFinishLater", host)
+        self.assertIn("recovery.blockedByActiveSession", host)
 
     def test_auth_transport_failure_keeps_attempt_outcome_unknown(self):
         host = shell()

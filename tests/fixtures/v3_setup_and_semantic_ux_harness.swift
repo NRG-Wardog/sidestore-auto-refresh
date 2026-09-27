@@ -217,24 +217,39 @@ struct SetupAndSemanticUXHarness {
             isAuthContinuation: false, responseCapacityAvailable: true),
             "mutations must wait until the live authentication/provisioning session terminates")
         precondition(V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
-            "authBegin", ownsActiveSession: false),
-            "a new authentication attempt must reach the backend supersession/cancel path")
+            "authBegin", ownsActiveSession: false, authenticationActive: false),
+            "a new authentication attempt is admitted only after the current backend auth session is idle")
+        precondition(!V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
+            "authBegin", ownsActiveSession: false, authenticationActive: true),
+            "a stale auth screen cannot supersede another active authentication session")
+        precondition(V3AuthSessionAdmissionPolicy.mayStartNewSession(hasActiveSession: false) &&
+            !V3AuthSessionAdmissionPolicy.mayStartNewSession(hasActiveSession: true) &&
+            V3ServiceMutationBusyCausePolicy.safeCause(operation: "authRetryProvisioning",
+                anotherMutationActive: false, responseCapacityAvailable: true,
+                refreshActive: false, refreshRelease: false, authenticationActive: true,
+                isAuthContinuation: false) == .operationInProgress,
+            "active authentication ownership blocks retry admission with an actionable typed conflict")
         precondition(V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
             anotherMutationActive: false, authenticationActive: true,
             isAuthContinuation: V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
-                "authBegin", ownsActiveSession: false), responseCapacityAvailable: true),
-            "a new sign-in must be able to supersede a stranded backend auth session")
+                "authBegin", ownsActiveSession: false, authenticationActive: true), responseCapacityAvailable: true) == false,
+            "a stale auth begin cannot cancel and replace an active session through mutation admission")
         precondition(V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
-            "authRespond", ownsActiveSession: true),
+            "authRetryProvisioning", ownsActiveSession: false, authenticationActive: false) &&
+            !V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
+                "authRetryProvisioning", ownsActiveSession: false, authenticationActive: true),
+            "provisioning resume is unavailable while another auth session owns the backend")
+        precondition(V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
+            "authRespond", ownsActiveSession: true, authenticationActive: true),
             "the active session must accept its own prompt response")
         precondition(!V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
-            "authRespond", ownsActiveSession: false),
+            "authRespond", ownsActiveSession: false, authenticationActive: true),
             "another session must not answer a prompt it does not own")
         precondition(V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
-            "authCancel", ownsActiveSession: true),
+            "authCancel", ownsActiveSession: true, authenticationActive: true),
             "the active session must have a scoped cancellation path")
         precondition(!V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
-            "authCancel", ownsActiveSession: false),
+            "authCancel", ownsActiveSession: false, authenticationActive: true),
             "cancellation must not target another live auth session")
         precondition(V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
             anotherMutationActive: false, authenticationActive: true,
@@ -318,7 +333,7 @@ struct SetupAndSemanticUXHarness {
         precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
             anotherMutationActive: false, authenticationActive: false,
             isAuthContinuation: V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
-                "authBegin", ownsActiveSession: false), responseCapacityAvailable: true,
+                "authBegin", ownsActiveSession: false, authenticationActive: false), responseCapacityAvailable: true,
             refreshActive: refreshLease.isActive),
             "authentication cannot begin after refresh has atomically acquired ownership")
         precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,

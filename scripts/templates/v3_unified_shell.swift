@@ -3815,6 +3815,7 @@ final class V3AuthStore: ObservableObject {
     @Published private(set) var provisioningCorrelation = ""
     @Published private(set) var provisioningRetryAvailable = false
     @Published private(set) var provisioningSessionUnavailable = false
+    @Published private(set) var provisioningRetryBlockedByActiveSession = false
     @Published private(set) var provisioningFinishedLater = false
     @Published private(set) var provisioningIncomplete = false
     // Sticky once the service reports an authenticated terminal. It survives a
@@ -3879,6 +3880,7 @@ final class V3AuthStore: ObservableObject {
         provisioningCorrelation = ""
         provisioningRetryAvailable = false
         provisioningSessionUnavailable = false
+        provisioningRetryBlockedByActiveSession = false
         provisioningFinishedLater = false
         provisioningIncomplete = false
     }
@@ -3910,7 +3912,8 @@ final class V3AuthStore: ObservableObject {
     var canRetryProvisioning: Bool {
         V3AuthProvisioningRecoveryPolicy.resolve(state: state, hasSession: session != nil,
             signedIn: signedIn, provisioningRetryAvailable: provisioningRetryAvailable,
-            isCancelling: isCancelling, cancellationConfirmed: cancellationConfirmed)
+            isCancelling: isCancelling, cancellationConfirmed: cancellationConfirmed,
+            authenticationActive: provisioningRetryBlockedByActiveSession)
             .showRetryProvisioning
     }
 
@@ -3983,12 +3986,22 @@ final class V3AuthStore: ObservableObject {
                     provisioningMessage = V3AuthProvisioningRetryDispatchPolicy.whatHappened(notDispatched) +
                         " " + notDispatched.recovery
                     if snapshotConfirmed {
-                        provisioningSessionUnavailable = !provisioningRetryAvailable
+                        provisioningSessionUnavailable = !provisioningRetryAvailable &&
+                            !provisioningRetryBlockedByActiveSession
+                        if provisioningRetryBlockedByActiveSession {
+                            provisioningMessage = "Another sign-in or provisioning attempt is still active. Wait for it to finish, then reload status before retrying provisioning."
+                        }
                         if provisioningSessionUnavailable {
-                            provisioningMessage = "Apple ID is signed in, but the saved provisioning session is unavailable. Open Account & Signing to sign in again before retrying setup."
+                            provisioningMessage = "Apple ID is signed in, but the saved provisioning session is unavailable. Finish Later, then reopen Account & Signing to sign in again before retrying provisioning."
                         }
                     } else {
                         provisioningRetryAvailable = previouslyAvailable
+                        provisioningRetryBlockedByActiveSession =
+                            notDispatched.safeCause == .operationInProgress
+                        if provisioningRetryBlockedByActiveSession {
+                            provisioningRetryAvailable = false
+                            provisioningMessage = "Another sign-in or provisioning attempt is already active. Reload status after it finishes before retrying."
+                        }
                         provisioningSessionUnavailable = false
                     }
                 } else {
@@ -4136,6 +4149,7 @@ final class V3AuthStore: ObservableObject {
             let authoritative = accountFacts.authenticated
             let incomplete = accountFacts.provisioningIncomplete
             let canRetryProvisioning = accountFacts.provisioningRetryAvailable
+            let authenticationActive = accountFacts.authenticationActive
             if authoritative {
                 // V3_FINISH_LATER_RECONCILES_AS_SIGNED_IN_V1: authoritative state
                 // wins. A finished-later provisioning attempt still reconciles as
@@ -4169,11 +4183,14 @@ final class V3AuthStore: ObservableObject {
                     // The account snapshot alone does not prove the process-local
                     // authenticated session needed to resume provisioning survived.
                     provisioningRetryAvailable = canRetryProvisioning
-                    provisioningSessionUnavailable = !canRetryProvisioning
+                    provisioningRetryBlockedByActiveSession = authenticationActive
+                    provisioningSessionUnavailable = !canRetryProvisioning && !authenticationActive
                     if canRetryProvisioning && reportedTerminalState == "resultUnknown" {
                         provisioningMessage = "Apple ID is signed in, but provisioning is incomplete. The previous sign-in attempt remains unconfirmed; you can retry provisioning in a new session."
+                    } else if authenticationActive {
+                        provisioningMessage = "Another sign-in or provisioning attempt is still active. Wait for it to finish, then reload status before retrying provisioning."
                     } else if !canRetryProvisioning {
-                        provisioningMessage = "Apple ID is signed in, but the saved provisioning session is unavailable. Open Account & Signing to sign in again before retrying setup."
+                        provisioningMessage = "Apple ID is signed in, but the saved provisioning session is unavailable. Finish Later, then reopen Account & Signing to sign in again before retrying provisioning."
                     }
                 } else {
                     clearProvisioningOutcome()
@@ -5064,7 +5081,8 @@ struct V3SignInView: View {
                         state: auth.state, hasSession: auth.hasSession, signedIn: auth.isSignedIn,
                         provisioningRetryAvailable: auth.provisioningRetryAvailable,
                         isCancelling: auth.isCancelling,
-                        cancellationConfirmed: auth.cancellationConfirmed)
+                        cancellationConfirmed: auth.cancellationConfirmed,
+                        authenticationActive: auth.provisioningRetryBlockedByActiveSession)
                     if recovery.showCancellationInstruction {
                         Text("Cancel the unconfirmed sign-in before retrying provisioning.")
                             .font(.caption).foregroundColor(.secondary)
@@ -5078,7 +5096,11 @@ struct V3SignInView: View {
                         .disabled(!auth.canRetryProvisioning)
                     }
                     if auth.provisioningSessionUnavailable {
-                        Text("The saved Apple session is no longer available. Sign in again to retry provisioning.")
+                        Text("Finish Later, then reopen Account & Signing to sign in again before retrying provisioning.")
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                    if recovery.blockedByActiveSession {
+                        Text("Another sign-in or provisioning attempt is still active. Wait for it to finish, then reload status.")
                             .font(.caption).foregroundColor(.secondary)
                     }
                     if recovery.showFinishLater {

@@ -282,14 +282,19 @@ struct CatalogResponseEncodingHarness {
             "a real serialized Boolean remains accepted")
         let validAuthBooleans = try! PropertyListSerialization.data(fromPropertyList: [
             "authenticated": true, "provisioningIncomplete": false,
-            "provisioningRetryAvailable": false
+            "provisioningRetryAvailable": false, "authenticationActive": false
         ] as [String: Any], format: .binary, options: 0)
         let decodedValidAuthBooleans = try! PropertyListSerialization.propertyList(
             from: validAuthBooleans, format: nil) as! [String: Any]
         precondition(V3WireContract.authSnapshot(decodedValidAuthBooleans) == [
             "authenticated": true, "provisioningIncomplete": false,
-            "provisioningRetryAvailable": false
+            "provisioningRetryAvailable": false, "authenticationActive": false
         ], "a valid structured auth snapshot decodes all booleans strictly")
+        precondition(V3WireContract.authSnapshot([
+            "authenticated": true, "provisioningIncomplete": true,
+            "provisioningRetryAvailable": true, "authenticationActive": true
+        ])?["authenticationActive"] == true,
+            "the snapshot carries active-auth ownership separately from resumable certificate/session facts")
 
         let readinessID = UUID().uuidString
         func readinessReply(_ value: [String: Any]) -> Data {

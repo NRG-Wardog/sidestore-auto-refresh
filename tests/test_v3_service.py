@@ -51,6 +51,9 @@ class ServicePatchTests(unittest.TestCase):
     def test_service_admission_uses_typed_busy_cause_policy(self):
         source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         self.assertIn("V3ServiceMutationBusyCausePolicy.safeCause", source)
+        self.assertIn("authenticationActive: authenticationActive", source)
+        self.assertIn("safeCause: .operationInProgress", source)
+        self.assertIn("guard !V3HeadlessRuntime.shared.auth.hasActiveSession else { throw ServiceError.busy }", source)
         self.assertIn("responseCapacityAvailable: responseCapacityAvailable", source)
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         self.assertIn("case CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue:", primitives)

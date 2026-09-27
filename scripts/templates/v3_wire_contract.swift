@@ -29,12 +29,14 @@ enum V3WireContract {
     static func authSnapshot(_ reply: [String: Any]) -> [String: Bool]? {
         guard let authenticated = strictBool(reply["authenticated"]),
               let provisioningIncomplete = strictBool(reply["provisioningIncomplete"]),
-              let provisioningRetryAvailable = strictBool(reply["provisioningRetryAvailable"]) else {
+              let provisioningRetryAvailable = strictBool(reply["provisioningRetryAvailable"]),
+              let authenticationActive = strictBool(reply["authenticationActive"]) else {
             return nil
         }
         return ["authenticated": authenticated,
                 "provisioningIncomplete": provisioningIncomplete,
-                "provisioningRetryAvailable": provisioningRetryAvailable]
+                "provisioningRetryAvailable": provisioningRetryAvailable,
+                "authenticationActive": authenticationActive]
     }
 
     static func invalidRequestIdentity(from data: Data) -> (id: String?, operation: String?) {

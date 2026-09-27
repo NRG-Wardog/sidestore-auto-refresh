@@ -105,9 +105,10 @@ struct AuthOwnershipReconciliationHarness {
             reportedState: "awaitingPrompt", authenticated: true, provisioningIncomplete: true)
         let accountLagFacts = V3AuthSnapshotAuthorityPolicy.facts([
             "authenticated": true, "provisioningIncomplete": true,
-            "provisioningRetryAvailable": false])
+            "provisioningRetryAvailable": false, "authenticationActive": true])
         precondition(accountLagPresentation.state == "authenticatedProvisioningIncomplete" &&
                      accountLagFacts.authenticated && accountLagFacts.provisioningIncomplete &&
+                     accountLagFacts.authenticationActive &&
                      V3AuthReconciliationPresentationPolicy.shouldPreserveActivePrompt(
                         reportedState: "awaitingPrompt", hasPrompt: true,
                         activeSessionMatches: true, cancellationInProgress: false),
@@ -122,12 +123,13 @@ struct AuthOwnershipReconciliationHarness {
             "confirmed cancellation retires an active prompt instead of resuming it")
 
         let persistedAccountButNoSession = ["authenticated": false,
-            "provisioningIncomplete": false, "provisioningRetryAvailable": false]
+            "provisioningIncomplete": false, "provisioningRetryAvailable": false,
+            "authenticationActive": false]
         precondition(!V3AuthSnapshotAuthorityPolicy.isAuthenticated(persistedAccountButNoSession),
             "a persisted account label cannot override SideStore's explicit unauthenticated session fact")
         precondition(V3AuthSnapshotAuthorityPolicy.isAuthenticated([
             "authenticated": true, "provisioningIncomplete": true,
-            "provisioningRetryAvailable": false]),
+            "provisioningRetryAvailable": false, "authenticationActive": false]),
             "an authenticated session remains signed in while provisioning is incomplete")
         precondition(V3AuthSnapshotAuthorityPolicy.needsSignIn(authenticated: false) &&
                      !V3AuthSnapshotAuthorityPolicy.needsSignIn(authenticated: true),
@@ -503,6 +505,13 @@ struct AuthOwnershipReconciliationHarness {
             cancellationConfirmed: false)
         precondition(!unconfirmedProvisioningRecovery.showRetryProvisioning,
             "a provisioning retry is hidden until an authoritative account snapshot confirms the previous session is absent")
+        let backendBusyProvisioningRecovery = V3AuthProvisioningRecoveryPolicy.resolve(
+            state: "resultUnknown", hasSession: false, signedIn: true,
+            provisioningRetryAvailable: true, isCancelling: false,
+            cancellationConfirmed: true, authenticationActive: true)
+        precondition(!backendBusyProvisioningRecovery.showRetryProvisioning &&
+            backendBusyProvisioningRecovery.blockedByActiveSession,
+            "an independently active backend authentication session blocks a stale retry action")
         let activeUnknownProvisioningRecovery = V3AuthProvisioningRecoveryPolicy.resolve(
             state: "resultUnknown", hasSession: true, signedIn: true,
             provisioningRetryAvailable: true, isCancelling: false,
@@ -511,6 +520,14 @@ struct AuthOwnershipReconciliationHarness {
             !activeUnknownProvisioningRecovery.showFinishLater &&
             activeUnknownProvisioningRecovery.showCancellationInstruction,
             "an unconfirmed live auth session must be cancelled before provisioning can be retried")
+        let unavailableProvisioningRecovery = V3AuthProvisioningRecoveryPolicy.resolve(
+            state: "resultUnknown", hasSession: false, signedIn: true,
+            provisioningRetryAvailable: false, isCancelling: false,
+            cancellationConfirmed: true, authenticationActive: false)
+        precondition(!unavailableProvisioningRecovery.showRetryProvisioning &&
+            unavailableProvisioningRecovery.showFinishLater &&
+            !unavailableProvisioningRecovery.showCancellationInstruction,
+            "when the saved retry session is gone, a signed-in user gets Finish Later instead of an impossible cancellation instruction")
         precondition(V3AuthCancellationFeedbackPolicy.statusLabel(isCancelling: true,
             normalLabel: "Result not confirmed") == "Cancelling..." &&
             V3AuthCancellationFeedbackPolicy.message(isCancelling: true) != nil,
@@ -532,6 +549,16 @@ struct AuthOwnershipReconciliationHarness {
             CombinedFailure(operation: "signIn", stage: .network, id: UUID().uuidString,
                 retryable: true, safeCause: .networkConnectionLost)),
             "an unrelated network failure does not enter confirmed-not-dispatched recovery")
+        let authSessionBusy = CombinedFailure(operation: "authRetryProvisioning",
+            stage: .serviceReadiness, code: .busy, id: UUID().uuidString,
+            retryable: true, safeCause: .operationInProgress)
+        let authSessionBusyStart = V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(
+            authSessionBusy, operation: "authRetryProvisioning")
+        precondition(authSessionBusyStart.safeCause == .operationInProgress &&
+            V3AuthProvisioningRetryDispatchPolicy.isConfirmedNotDispatched(authSessionBusyStart) &&
+            V3AuthProvisioningRetryDispatchPolicy.whatHappened(authSessionBusyStart)
+                .contains("Another sign-in or provisioning attempt is already active"),
+            "a backend auth-session conflict remains a typed, no-dispatch prerequisite instead of superseding that session")
 
         let malformedFailure: [String: Any] = [
             "kind": "networkFailure", "stage": "network", "code": "interrupted",

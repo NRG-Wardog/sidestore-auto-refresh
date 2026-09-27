@@ -124,9 +124,11 @@ final class V3SideStoreService: NSObject {
         }
         let mutation = !V3WireContract.readOperations.contains(operation)
         let target = request["target"] as? String ?? ""
+        let authenticationActive = V3HeadlessRuntime.shared.auth.hasActiveSession
         let authContinuation = V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
             operation,
-            ownsActiveSession: V3HeadlessRuntime.shared.auth.ownsActiveSession(target))
+            ownsActiveSession: V3HeadlessRuntime.shared.auth.ownsActiveSession(target),
+            authenticationActive: authenticationActive)
         let operationMutationActive = V3ServiceMutationAdmissionPolicy.hasConflictingOperationMutation(
             operation: operation, target: target,
             activeOperationID: V3HeadlessRuntime.shared.operations.activeMutationID)
@@ -143,7 +145,7 @@ final class V3SideStoreService: NSObject {
                 completedReplyCount: completed.count))
         guard V3ServiceMutationAdmissionPolicy.admits(isMutation: mutation,
             anotherMutationActive: mutationID != nil || operationMutationActive,
-            authenticationActive: V3HeadlessRuntime.shared.auth.hasActiveSession,
+            authenticationActive: authenticationActive,
             isAuthContinuation: authContinuation,
             responseCapacityAvailable: responseCapacityAvailable,
             refreshActive: refreshAdmission.isActive,
@@ -153,7 +155,7 @@ final class V3SideStoreService: NSObject {
                 anotherMutationActive: mutationID != nil || operationMutationActive,
                 responseCapacityAvailable: responseCapacityAvailable,
                 refreshActive: refreshAdmission.isActive, refreshRelease: refreshRelease,
-                authenticationActive: V3HeadlessRuntime.shared.auth.hasActiveSession,
+                authenticationActive: authenticationActive,
                 isAuthContinuation: authContinuation)
             let sourceRemoval = safeCause == .sourceRemoveBusy
             let failure = CombinedFailure(
@@ -256,7 +258,10 @@ final class V3SideStoreService: NSObject {
                     case .notFound: code = .unavailable
                     case .invalidRequest: code = .invalidConfiguration
                     }
-                    if operation.hasPrefix("refreshAdmission") {
+                    if ["authBegin", "authRetryProvisioning"].contains(operation) && code == .busy {
+                        response["failure"] = CombinedFailure(operation: "signIn", stage: .serviceReadiness,
+                            code: .busy, id: id, retryable: true, safeCause: .operationInProgress).wire
+                    } else if operation.hasPrefix("refreshAdmission") {
                         response["failure"] = CombinedFailure(operation: "refresh",
                             stage: .command, code: code, id: id,
                             retryable: code == .busy,
@@ -524,6 +529,7 @@ final class V3SideStoreService: NSObject {
                   let session = payload["session"] as? String, session == target else {
                 throw ServiceError.invalidRequest
             }
+            guard !V3HeadlessRuntime.shared.auth.hasActiveSession else { throw ServiceError.busy }
             return await V3HeadlessRuntime.shared.auth.begin(deadline: deadline,
                 requestDeadline: request["deadline"] as? Date, sessionID: session)
         case "authRetryProvisioning":
@@ -535,6 +541,7 @@ final class V3SideStoreService: NSObject {
                   let session = payload["session"] as? String, session == target else {
                 throw ServiceError.invalidRequest
             }
+            guard !V3HeadlessRuntime.shared.auth.hasActiveSession else { throw ServiceError.busy }
             return await V3HeadlessRuntime.shared.auth.begin(deadline: deadline,
                 mode: .resumeProvisioning, requestDeadline: request["deadline"] as? Date,
                 sessionID: session)
@@ -817,9 +824,10 @@ final class V3SideStoreService: NSObject {
         return ["updatedAt": Date(), "busy": mutationID != nil ||
                     V3HeadlessRuntime.shared.auth.hasActiveSession ||
                     V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive,
-                "account": account,
-                "authenticated": authenticated,
-                "provisioningIncomplete": authenticated && activeAccount == nil,
+                 "account": account,
+                 "authenticated": authenticated,
+                 "authenticationActive": V3HeadlessRuntime.shared.auth.hasActiveSession,
+                 "provisioningIncomplete": authenticated && activeAccount == nil,
                 "provisioningRetryAvailable": V3HeadlessRuntime.shared.auth.canResumeProvisioning(),
                 "team": team?.name ?? "No active team", "teamID": team?.identifier ?? "",
                 "signing": team == nil ? "Sign in required" : "Team selected",

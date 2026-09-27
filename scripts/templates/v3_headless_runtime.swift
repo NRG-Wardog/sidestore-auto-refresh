@@ -489,7 +489,8 @@ final class V3AuthCenter {
 
     func canResumeProvisioning() -> Bool {
         let currentAppleID = AuthManager.shared.currentAppleID
-        return V3ProvisioningResumeAvailabilityPolicy.canResume(
+        return V3AuthSessionAdmissionPolicy.mayStartNewSession(hasActiveSession: hasActiveSession) &&
+            V3ProvisioningResumeAvailabilityPolicy.canResume(
             authenticated: AuthManager.shared.isAuthenticated,
             currentAppleID: currentAppleID,
             resumableAppleID: resumableProvisioning?.appleID,

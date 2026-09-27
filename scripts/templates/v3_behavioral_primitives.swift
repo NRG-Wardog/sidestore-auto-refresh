@@ -3076,12 +3076,14 @@ enum V3AuthSnapshotAuthorityPolicy {
         let authenticated: Bool
         let provisioningIncomplete: Bool
         let provisioningRetryAvailable: Bool
+        let authenticationActive: Bool
     }
 
     static func facts(_ snapshot: [String: Bool]) -> Facts {
         Facts(authenticated: snapshot["authenticated"] == true,
               provisioningIncomplete: snapshot["provisioningIncomplete"] == true,
-              provisioningRetryAvailable: snapshot["provisioningRetryAvailable"] == true)
+              provisioningRetryAvailable: snapshot["provisioningRetryAvailable"] == true,
+              authenticationActive: snapshot["authenticationActive"] == true)
     }
 
     static func isAuthenticated(_ snapshot: [String: Bool]) -> Bool {
@@ -3301,24 +3303,34 @@ enum V3AuthUnknownResultReconciliationPolicy {
     }
 }
 
+enum V3AuthSessionAdmissionPolicy {
+    static func mayStartNewSession(hasActiveSession: Bool) -> Bool {
+        !hasActiveSession
+    }
+}
+
 struct V3AuthProvisioningRecoveryPresentation: Equatable {
     let showCancellationInstruction: Bool
     let showRetryProvisioning: Bool
     let showFinishLater: Bool
+    let blockedByActiveSession: Bool
 }
 
 enum V3AuthProvisioningRecoveryPolicy {
     static func resolve(state: String, hasSession: Bool, signedIn: Bool,
                         provisioningRetryAvailable: Bool, isCancelling: Bool,
-                        cancellationConfirmed: Bool) -> V3AuthProvisioningRecoveryPresentation {
+                        cancellationConfirmed: Bool,
+                        authenticationActive: Bool = false) -> V3AuthProvisioningRecoveryPresentation {
         let noSessionResumeIsSafe = state == "resultUnknown" && !hasSession && signedIn &&
-            provisioningRetryAvailable
+            provisioningRetryAvailable && !authenticationActive
         let retryAllowed = !isCancelling && cancellationConfirmed && provisioningRetryAvailable &&
+            !authenticationActive &&
             (state != "resultUnknown" || noSessionResumeIsSafe)
         return V3AuthProvisioningRecoveryPresentation(
             showCancellationInstruction: state == "resultUnknown" && hasSession,
             showRetryProvisioning: retryAllowed,
-            showFinishLater: signedIn && (!hasSession || state != "resultUnknown"))
+            showFinishLater: signedIn && (!hasSession || state != "resultUnknown"),
+            blockedByActiveSession: authenticationActive)
     }
 }
 
@@ -3409,6 +3421,8 @@ enum V3AuthAttemptStartFailurePolicy {
         let cause: CombinedFailure.SafeCause
         if failure.safeCause == .responseCapacityUnavailable {
             cause = .authResponseCapacityUnavailable
+        } else if failure.safeCause == .operationInProgress {
+            cause = .operationInProgress
         } else {
             cause = operation == "authRetryProvisioning"
                 ? .authProvisioningRetryNotDispatched : .authAttemptNotDispatched
@@ -3421,20 +3435,26 @@ enum V3AuthAttemptStartFailurePolicy {
     static func isConfirmedNotDispatched(_ failure: CombinedFailure) -> Bool {
         failure.safeCause == .authAttemptNotDispatched ||
             failure.safeCause == .authProvisioningRetryNotDispatched ||
-            failure.safeCause == .authResponseCapacityUnavailable
+            failure.safeCause == .authResponseCapacityUnavailable ||
+            failure.safeCause == .operationInProgress
     }
 }
 
 enum V3AuthProvisioningRetryDispatchPolicy {
     static func isConfirmedNotDispatched(_ failure: CombinedFailure) -> Bool {
         failure.safeCause == .authProvisioningRetryNotDispatched ||
-            failure.safeCause == .authResponseCapacityUnavailable
+            failure.safeCause == .authResponseCapacityUnavailable ||
+            failure.safeCause == .operationInProgress
     }
 
     static func whatHappened(_ failure: CombinedFailure) -> String {
-        failure.safeCause == .authResponseCapacityUnavailable
-            ? "SideStore could not start the provisioning retry because it could not reserve a safe response slot."
-            : failure.safeMessage
+        if failure.safeCause == .authResponseCapacityUnavailable {
+            return "SideStore could not start the provisioning retry because it could not reserve a safe response slot."
+        }
+        if failure.safeCause == .operationInProgress {
+            return "Another sign-in or provisioning attempt is already active."
+        }
+        return failure.safeMessage
     }
 }
 
@@ -3470,12 +3490,11 @@ enum V3ServiceMutationAdmissionPolicy {
     }
 
     static func permitsAuthenticationControl(_ operation: String,
-                                              ownsActiveSession: Bool) -> Bool {
+                                              ownsActiveSession: Bool,
+                                              authenticationActive: Bool) -> Bool {
         if ["authBegin", "authRetryProvisioning"].contains(operation) {
-            // V3AuthCenter.begin() explicitly cancels and awaits its previous
-            // session before launching this new request. This admission keeps
-            // that recovery path reachable after a host-side transport failure.
-            return true
+            return V3AuthSessionAdmissionPolicy.mayStartNewSession(
+                hasActiveSession: authenticationActive)
         }
         return ownsActiveSession && ["authRespond", "authCancel"].contains(operation)
     }
