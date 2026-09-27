@@ -2149,6 +2149,17 @@ enum V3OperationStartDispatchPolicy {
     }
 }
 
+enum V3RequestRetirementPolicy {
+    private static let sessionControls: Set<String> = [
+        "opStart", "opPoll", "opAnswer", "opCancel",
+        "authPoll", "authRespond", "authCancel"
+    ]
+
+    static func shouldRetireServiceIfRequestStaysPending(_ operation: String) -> Bool {
+        !sessionControls.contains(operation)
+    }
+}
+
 enum V3ServiceMutationAdmissionPolicy {
     static func admits(isMutation: Bool, anotherMutationActive: Bool,
                        authenticationActive: Bool, isAuthContinuation: Bool,
@@ -2182,6 +2193,7 @@ enum V3ServiceMutationAdmissionPolicy {
 
 struct V3RefreshAdmissionLease {
     private(set) var runID: String?
+    private(set) var requestID: String?
     private(set) var expiresAt: Date?
 
     var isActive: Bool { runID != nil }
@@ -2189,18 +2201,22 @@ struct V3RefreshAdmissionLease {
     mutating func expire(now: Date = Date()) -> Bool {
         guard let expiresAt, expiresAt <= now else { return false }
         runID = nil
+        requestID = nil
         self.expiresAt = nil
         return true
     }
 
-    mutating func acquire(runID: String, authenticationActive: Bool,
+    mutating func acquire(runID: String, requestID: String,
+                          authenticationActive: Bool,
                           anotherMutationActive: Bool, deadline: Date,
                           now: Date = Date()) -> Bool {
         _ = expire(now: now)
         guard let parsed = UUID(uuidString: runID), parsed.uuidString == runID,
+              let parsedRequest = UUID(uuidString: requestID), parsedRequest.uuidString == requestID,
               self.runID == nil, !authenticationActive, !anotherMutationActive,
               deadline > now else { return false }
         self.runID = runID
+        self.requestID = requestID
         expiresAt = deadline
         return true
     }
@@ -2211,6 +2227,16 @@ struct V3RefreshAdmissionLease {
     mutating func release(runID: String) -> Bool {
         guard self.runID == runID else { return false }
         self.runID = nil
+        requestID = nil
+        expiresAt = nil
+        return true
+    }
+
+    @discardableResult
+    mutating func release(requestID: String) -> Bool {
+        guard self.requestID == requestID else { return false }
+        runID = nil
+        self.requestID = nil
         expiresAt = nil
         return true
     }

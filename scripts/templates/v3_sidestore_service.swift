@@ -32,6 +32,7 @@ final class V3SideStoreService: NSObject {
     var completed: [String: (data: Data, deadline: Date)] = [:]
     var mutationID: String?
     private var refreshAdmission = V3RefreshAdmissionLease()
+    private var pendingRefreshAdmissionRequests: Set<String> = []
     private var knownSourcesUpdateTask: Task<Void, Error>?
 
     @objc(execute:reply:)
@@ -66,11 +67,18 @@ final class V3SideStoreService: NSObject {
                 reply(encode(invalidRequestReply(for: data), operation: operation))
                 return
             }
+            let isPendingRefreshAdmission = cancelScope == "request" &&
+                (pendingRefreshAdmissionRequests.contains(target) || refreshAdmission.requestID == target)
             if !V3HeadlessRuntime.shared.cancelSession(target, scope: cancelScope) {
                 tasks[target]?.cancel()
                 cancellations[target]?()
             }
-            reply(encode(["id": id, "version": 1, "ok": true], operation: operation))
+            var cancellationReply: [String: Any] = ["id": id, "version": 1, "ok": true]
+            if isPendingRefreshAdmission {
+                _ = refreshAdmission.release(requestID: target)
+                cancellationReply["refreshAdmissionReleased"] = true
+            }
+            reply(encode(cancellationReply, operation: operation))
             return
         }
         guard tasks[id] == nil else {
@@ -109,10 +117,12 @@ final class V3SideStoreService: NSObject {
             return
         }
         if mutation { mutationID = id }
+        if operation == "refreshAdmissionBegin" { pendingRefreshAdmissionRequests.insert(id) }
         tasks[id] = Task { @MainActor in
             defer {
                 tasks[id] = nil
                 cancellations[id] = nil
+                pendingRefreshAdmissionRequests.remove(id)
                 if mutationID == id { mutationID = nil }
             }
             var response: [String: Any] = ["version": 1, "id": id]
@@ -299,13 +309,23 @@ final class V3SideStoreService: NSObject {
         case "refreshAdmissionBegin":
             guard let deadline = request["deadline"] as? Date,
                   refreshAdmission.acquire(runID: target,
+                    requestID: id,
                     authenticationActive: V3HeadlessRuntime.shared.auth.hasActiveSession,
                     anotherMutationActive: mutationID != nil && mutationID != id,
-                    deadline: deadline) else {
+                    // Keep admission closed beyond the host's matching 600s
+                    // timeout so service teardown can retire a still-running
+                    // native refresh before a later mutation is admitted.
+                    deadline: deadline.addingTimeInterval(60)) else {
                 throw ServiceError.busy
             }
             return ["runID": target, "admitted": true]
         case "refreshAdmissionEnd":
+            guard let parsed = UUID(uuidString: target), parsed.uuidString == target else {
+                throw ServiceError.invalidRequest
+            }
+            if !refreshAdmission.isActive {
+                return ["runID": target, "released": true, "alreadyReleased": true]
+            }
             guard refreshAdmission.release(runID: target) else {
                 throw ServiceError.notFound
             }
@@ -633,9 +653,10 @@ final class V3SideStoreService: NSObject {
     }
 
     // Upstream SideStore refreshes its server-owned allow/block source lists at
-    // launch. The headless backend has no launch screen, so source preview and
-    // add run a bounded cached preflight before AppManager.fetchSource relies on
-    // UserDefaults.blockedSources. Concurrent source requests join one update.
+    // launch. The headless backend has no launch screen, so source preview, add,
+    // and source refresh run a bounded cached preflight before AppManager source
+    // operations rely on UserDefaults.blockedSources. Concurrent callers share
+    // one UpdateKnownSourcesOperation with a 15-second total time bound.
     private func ensureKnownSourcesUpdated() async throws {
         let defaults = UserDefaults.standard
         let hasCachedBlocklist = defaults.blockedSources != nil
@@ -649,10 +670,16 @@ final class V3SideStoreService: NSObject {
             return
         }
         let task = Task<Void, Error> { @MainActor in
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                AppManager.shared.updateKnownSources { result in
-                    continuation.resume(with: result.map { _ in () })
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    _ = try await UpdateKnownSourcesOperation().execute()
                 }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: 15_000_000_000)
+                    throw URLError(.timedOut)
+                }
+                _ = try await group.next()
+                group.cancelAll()
             }
         }
         knownSourcesUpdateTask = task

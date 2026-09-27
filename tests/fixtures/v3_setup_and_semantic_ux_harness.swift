@@ -161,12 +161,20 @@ struct SetupAndSemanticUXHarness {
             isAuthContinuation: false, responseCapacityAvailable: true),
             "read-only status remains available while mutation admission is gated")
 
+        precondition(V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("authBegin"))
+        precondition(V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("authRetryProvisioning"))
+        precondition(V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("refreshAdmissionBegin"))
+        precondition(!V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("authPoll"))
+        precondition(!V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("opPoll"))
+
         // V3_REFRESH_ADMISSION_LEASE_V1: the scheduler's direct XPC refresh
         // path acquires this same service-owned lease before dispatch. Its
         // MainActor serialization closes the gap between a readiness snapshot
         // and the native refresh call.
         let runA = UUID().uuidString
         let runB = UUID().uuidString
+        let refreshRequestA = UUID().uuidString
+        let refreshRequestB = UUID().uuidString
         let leaseDeadline = Date().addingTimeInterval(60)
         precondition(V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
             operation: "refreshAdmissionBegin", target: runA, activeRunID: runA,
@@ -193,13 +201,13 @@ struct SetupAndSemanticUXHarness {
             refreshAttemptActive: true),
             "the refresh exception must not authorize unrelated host mutations")
         var refreshLease = V3RefreshAdmissionLease()
-        precondition(!refreshLease.acquire(runID: runA, authenticationActive: true,
+        precondition(!refreshLease.acquire(runID: runA, requestID: refreshRequestA, authenticationActive: true,
             anotherMutationActive: false, deadline: leaseDeadline),
             "refresh cannot acquire ownership while authentication is active")
-        precondition(refreshLease.acquire(runID: runA, authenticationActive: false,
+        precondition(refreshLease.acquire(runID: runA, requestID: refreshRequestA, authenticationActive: false,
             anotherMutationActive: false, deadline: leaseDeadline),
             "a ready scheduler run acquires refresh ownership")
-        precondition(!refreshLease.acquire(runID: runB, authenticationActive: false,
+        precondition(!refreshLease.acquire(runID: runB, requestID: refreshRequestB, authenticationActive: false,
             anotherMutationActive: false, deadline: leaseDeadline),
             "a second scheduler run cannot overlap the current refresh")
         precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
@@ -220,6 +228,8 @@ struct SetupAndSemanticUXHarness {
             "only the owner can release the refresh gate")
         precondition(!refreshLease.release(runID: runB),
             "a stale run cannot release another run's refresh lease")
+        precondition(!refreshLease.release(requestID: refreshRequestB),
+            "a cancelled unrelated request cannot release another run's refresh lease")
         precondition(refreshLease.release(runID: runA) && !refreshLease.isActive,
             "terminal refresh releases admission for the next request")
         precondition(V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
@@ -229,10 +239,15 @@ struct SetupAndSemanticUXHarness {
             "the next mutation is admitted after the run-scoped lease is released")
         var expiringLease = V3RefreshAdmissionLease()
         let expiry = Date(timeIntervalSince1970: 1_000)
-        precondition(expiringLease.acquire(runID: runB, authenticationActive: false,
+        precondition(expiringLease.acquire(runID: runB, requestID: refreshRequestB, authenticationActive: false,
             anotherMutationActive: false, deadline: expiry, now: Date(timeIntervalSince1970: 900)))
         precondition(expiringLease.expire(now: expiry) && !expiringLease.isActive,
             "a lost host terminal reply cannot leave refresh admission held forever")
+        var cancelledLease = V3RefreshAdmissionLease()
+        precondition(cancelledLease.acquire(runID: runA, requestID: refreshRequestA,
+            authenticationActive: false, anotherMutationActive: false, deadline: leaseDeadline))
+        precondition(cancelledLease.release(requestID: refreshRequestA) && !cancelledLease.isActive,
+            "a request-scoped cancel releases only its own pre-dispatch refresh lease")
 
         // V3_KNOWN_SOURCE_PREFLIGHT_V1: the headless source path refreshes the
         // canonical source blocklist on first use and then reuses it for six

@@ -7,6 +7,7 @@ class RefreshHandler: NSObject {
     var client: RefreshClient?
     var v3RefreshToken: UUID?
     var v3RefreshAdmissionRunID: String?
+    var v3RefreshDispatchedRunID: String?
     private var extensionProcess: NSExtension?
     private var listener: NSXPCListener?
     private var connection: NSXPCConnection?
@@ -215,6 +216,7 @@ class RefreshHandler: NSObject {
         }
         v3RefreshAdmissionRunID = run
         defer { if v3RefreshAdmissionRunID == run { v3RefreshAdmissionRunID = nil } }
+        defer { if v3RefreshDispatchedRunID == run { v3RefreshDispatchedRunID = nil } }
         // The readiness snapshot above is useful to explain current status,
         // but it is not an ownership claim: authentication could begin after
         // that snapshot and before this legacy XPC call. Reserve the mutation
@@ -242,16 +244,22 @@ class RefreshHandler: NSObject {
                     if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
                     refreshContinuation = continuation
                     defaults?.set(run, forKey: "liveContainerAutoRefreshUncertainMutationRunID")
+                    v3RefreshDispatchedRunID = run
                     client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName, refreshRunID: run)
                 }
-            }, onCancel: { Task { @MainActor in if self.v3RefreshToken == token { self.v3_stopService() } } })
+            }, onCancel: { Task { @MainActor in
+                if self.v3RefreshToken == token && self.v3RefreshDispatchedRunID == run {
+                    self.v3_stopService()
+                }
+            } })
         } catch {
             timeout.cancel()
-            // A timed-out/cancelled refresh retires the SideStore service. Its
-            // in-memory lease then disappears with that process; avoid
-            // reconnecting solely to release a lease in a retired service.
-            if !Task.isCancelled, !(error is CancellationError),
-               (error as? CombinedFailure)?.code != .timedOut {
+            // Before native dispatch, cancellation only needs to release the
+            // admission lease. After dispatch, timeout/cancellation retires the
+            // SideStore process, so avoid reconnecting to release its old state.
+            if v3RefreshDispatchedRunID != run ||
+               (!Task.isCancelled && !(error is CancellationError) &&
+                (error as? CombinedFailure)?.code != .timedOut) {
                 await releaseRefreshAdmission(run)
             }
             throw error

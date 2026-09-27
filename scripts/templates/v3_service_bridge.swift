@@ -219,8 +219,10 @@ public final class V3ServiceBridge {
             if !scopedSessionControl { activeMutation = id }
         }
         defer { if activeMutation == id { activeMutation = nil } }
-        let timeout = (V3WireContract.readOperations.contains(operation) || operation == "opCancel")
-            ? readTimeout : commandTimeout
+        let isBoundedSessionCreation = ["authBegin", "authRetryProvisioning",
+            "refreshAdmissionBegin", "refreshAdmissionEnd"].contains(operation)
+        let timeout = (V3WireContract.readOperations.contains(operation) || operation == "opCancel" ||
+            isBoundedSessionCreation) ? readTimeout : commandTimeout
         var message: [String: Any] = ["version": 1, "id": id, "operation": operation,
                                       "target": target, "deadline": Date().addingTimeInterval(timeout)]
         if let cursor { message["cursor"] = cursor }
@@ -258,7 +260,11 @@ public final class V3ServiceBridge {
                 }
                 client.v3Execute(data) { response in
                     Task { @MainActor in
-                        self.cancellationRecovery.removeValue(forKey: id)?.cancel()
+                        let cancelledSessionCreation = self.pending[id] == nil &&
+                            ["authBegin", "authRetryProvisioning", "refreshAdmissionBegin"].contains(operation)
+                        if !cancelledSessionCreation {
+                            self.cancellationRecovery.removeValue(forKey: id)?.cancel()
+                        }
                         guard response.count <= V3WireContract.responseLimit else {
                             // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: a reply that
                             // arrived but exceeded the transport limit is its own
@@ -277,12 +283,12 @@ public final class V3ServiceBridge {
                 timeouts[id] = Task { @MainActor in
                     do { try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000)) } catch { return }
                     if self.pending[id] != nil {
-                        let retireIfStuck = !["opStart", "opPoll", "opAnswer", "opCancel",
-                            "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning"].contains(operation)
+                        let retireIfStuck = V3RequestRetirementPolicy
+                            .shouldRetireServiceIfRequestStaysPending(operation)
                         self.monitorOperationSessionIfNeeded(operation: operation, sessionID: operationSessionID)
                         let (cancelTarget, cancelScope) = self.remoteCancellation(operation: operation,
                             operationSessionID: operationSessionID, requestID: id)
-                        self.cancelRemote(cancelTarget, scope: cancelScope,
+                        self.cancelRemote(cancelTarget, requestID: id, scope: cancelScope,
                                           mutation: mutation, retireIfStuck: retireIfStuck)
                         // V3_CATALOG_FAILURE_STAGE_V1: a read timeout is reported
                         // against the request's own operation and stage, so a
@@ -303,12 +309,12 @@ public final class V3ServiceBridge {
             }, onCancel: {
             Task { @MainActor in
                 guard self.pending[id] != nil else { return }
-                let retireIfStuck = !["opStart", "opPoll", "opAnswer", "opCancel",
-                    "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning"].contains(operation)
+                let retireIfStuck = V3RequestRetirementPolicy
+                    .shouldRetireServiceIfRequestStaysPending(operation)
                 self.monitorOperationSessionIfNeeded(operation: operation, sessionID: operationSessionID)
                 let (cancelTarget, cancelScope) = self.remoteCancellation(operation: operation,
                     operationSessionID: operationSessionID, requestID: id)
-                self.cancelRemote(cancelTarget, scope: cancelScope,
+                self.cancelRemote(cancelTarget, requestID: id, scope: cancelScope,
                                   mutation: mutation, retireIfStuck: retireIfStuck)
                 self.settle(id, .failure(CancellationError()))
             }
@@ -363,20 +369,30 @@ public final class V3ServiceBridge {
         }
     }
 
-    private func cancelRemote(_ target: String, scope: String = "request",
+    private func cancelRemote(_ target: String, requestID: String, scope: String = "request",
                               mutation: Bool = false, retireIfStuck: Bool = true) {
-        let value: [String: Any] = ["version": 1, "id": UUID().uuidString, "operation": "cancel",
+        let cancellationID = UUID().uuidString
+        let value: [String: Any] = ["version": 1, "id": cancellationID, "operation": "cancel",
                                     "target": target, "payload": ["scope": scope],
                                     "deadline": Date().addingTimeInterval(30)]
         if let data = try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0) {
-            RefreshHandler.shared.client?.v3Execute(data) { _ in }
+            RefreshHandler.shared.client?.v3Execute(data) { response in
+                Task { @MainActor in
+                    guard let reply = try? PropertyListSerialization.propertyList(from: response, format: nil) as? [String: Any],
+                          reply["id"] as? String == cancellationID,
+                          V3WireContract.strictBool(reply["refreshAdmissionReleased"]) == true else { return }
+                    self.cancellationRecovery.removeValue(forKey: requestID)?.cancel()
+                }
+            }
         }
         if mutation && retireIfStuck {
             // Keep the host mutation gate held until completion or process retirement.
             // A native callback that never returns cannot strand the product forever.
-            cancellationRecovery[target] = Task { @MainActor in
+            // The recovery key is the request ID, while the remote cancellation
+            // target may be an operation/auth session ID.
+            cancellationRecovery[requestID] = Task { @MainActor in
                 do { try await Task.sleep(nanoseconds: UInt64(cancellationGrace * 1_000_000_000)) } catch { return }
-                guard cancellationRecovery[target] != nil else { return }
+                guard cancellationRecovery[requestID] != nil else { return }
                 RefreshHandler.shared.v3_stopService()
                 disconnected()
             }

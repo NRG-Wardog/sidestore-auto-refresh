@@ -247,6 +247,7 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
     def test_refresh_owner_brackets_direct_refresh_and_confirms_release(self):
         refresh = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
         bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         begin = refresh.index('operation: "refreshAdmissionBegin"')
         dispatch = refresh.index("client.refreshAllApps(", begin)
         release = refresh.index("await releaseRefreshAdmission(run)", dispatch)
@@ -258,6 +259,14 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertIn('reply["runID"] as? String == runID', refresh)
         self.assertIn('strictBool(reply["released"]) == true', refresh)
         self.assertIn("self.v3_stopService()", refresh)
+        self.assertIn("v3RefreshDispatchedRunID", refresh)
+        self.assertIn("refreshAdmission.release(requestID: target)", service)
+        self.assertIn('cancellationReply["refreshAdmissionReleased"] = true', service)
+        self.assertIn("pendingRefreshAdmissionRequests", service)
+        end_case = service[service.index('case "refreshAdmissionEnd":'):]
+        self.assertIn("UUID(uuidString: target)", end_case)
+        self.assertIn("cancelledSessionCreation", bridge)
+        self.assertIn("V3RequestRetirementPolicy", bridge)
 
 
 class WireExecutionTests(unittest.TestCase):

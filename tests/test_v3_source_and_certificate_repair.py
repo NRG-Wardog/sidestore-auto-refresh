@@ -37,7 +37,8 @@ class SourceAddPersistenceContractTests(unittest.TestCase):
                         refresh_sources.index("AppManager.shared.updateAllSources"))
         preflight = region(service, "private func ensureKnownSourcesUpdated()", "private func snapshot()")
         for token in ("V3KnownSourcePreflightPolicy.shouldRefresh", "knownSourcesUpdateTask",
-                      "AppManager.shared.updateKnownSources", "v3KnownSourcesUpdatedAt"):
+                      "UpdateKnownSourcesOperation().execute()", "withThrowingTaskGroup",
+                      "15_000_000_000", "v3KnownSourcesUpdatedAt"):
             self.assertIn(token, preflight)
 
     def test_headless_add_uses_persisted_check_save_and_fresh_context_verification(self):

@@ -62,6 +62,7 @@ final class RefreshHandler {
     static let shared = RefreshHandler()
     var sideStorePid: Int32 = 123
     var v3RefreshToken: UUID?
+    var v3RefreshAdmissionRunID: String?
     var client: FakeClient? = FakeClient()
     var connects = 0
     var stops = 0
