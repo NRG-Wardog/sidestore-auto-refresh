@@ -206,9 +206,17 @@ struct AuthOwnershipReconciliationHarness {
             failedPromptRevision: 8, currentPromptRevision: 8,
             failedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,
             state: "awaitingPrompt", promptSubmissionInProgress: false,
-            hasCurrentPrompt: true, cancellationInProgress: false,
+            pollFailureIsTransient: false, cancellationInProgress: false,
             taskCancelled: false, now: now, sessionDeadline: deadline),
-            "a still-current answerable prompt keeps its poll monitor after a poll error")
+            "a deterministic poll failure with no response progress does not retry just because a prompt is visible")
+        precondition(V3AuthPollMonitorRecoveryPolicy.shouldResume(
+            requestedSessionID: current, currentSessionID: current,
+            failedPromptRevision: 8, currentPromptRevision: 8,
+            failedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,
+            state: "awaitingPrompt", promptSubmissionInProgress: false,
+            pollFailureIsTransient: true, cancellationInProgress: false,
+            taskCancelled: false, now: now, sessionDeadline: deadline),
+            "a transient poll transport error retains the current prompt and backs off")
         precondition(!V3AuthPollMonitorRecoveryPolicy.shouldResume(
             requestedSessionID: current, currentSessionID: current,
             failedPromptRevision: 8, currentPromptRevision: 9,
@@ -225,6 +233,35 @@ struct AuthOwnershipReconciliationHarness {
             cancellationInProgress: false, taskCancelled: false,
             now: deadline, sessionDeadline: deadline),
             "the replacement monitor owns deadline handling instead of abandoning a superseded prompt")
+
+        let missingSession = CombinedFailure(operation: "signIn", stage: .authentication,
+            code: .invalidResponse, id: current, retryable: false,
+            safeCause: .authSessionUnavailable)
+        precondition(!V3AuthPollRecoveryPolicy.isTransientTransportFailure(missingSession))
+        let unavailableEnvelope: [String: Any] = [
+            "version": 1, "id": current, "failure": missingSession.wire
+        ]
+        let unavailableBytes = try PropertyListSerialization.data(fromPropertyList: unavailableEnvelope,
+            format: .binary, options: 0)
+        let unavailableReply = try PropertyListSerialization.propertyList(from: unavailableBytes,
+            format: nil) as! [String: Any]
+        let decodedUnavailable = CombinedFailure.decode(
+            unavailableReply["failure"] as! [String: Any], expectedID: current)
+        precondition(decodedUnavailable?.safeCause == .authSessionUnavailable,
+            "a retired auth session keeps its typed cause across the property-list boundary")
+        let missingSessionUI = V3AuthSessionUnavailablePolicy.resolve(
+            authenticated: false, provisioningIncomplete: false, snapshotConfirmed: true,
+            safeMessage: missingSession.safeMessage, recovery: missingSession.recovery)
+        precondition(missingSessionUI.state == "failed" &&
+                     missingSessionUI.cancellationConfirmed &&
+                     missingSessionUI.message.contains("start a new sign-in"),
+                     "a retired service session resolves promptly to actionable state, not a ten-minute connection retry")
+        let authenticatedButIncomplete = V3AuthSessionUnavailablePolicy.resolve(
+            authenticated: true, provisioningIncomplete: true, snapshotConfirmed: true,
+            safeMessage: missingSession.safeMessage, recovery: missingSession.recovery)
+        precondition(authenticatedButIncomplete.state == "authenticatedProvisioningIncomplete" &&
+                     authenticatedButIncomplete.provisioningMessage?.contains("saved provisioning session") == true,
+                     "session loss after Apple authentication is shown as provisioning recovery")
         precondition(!V3AuthAttemptFailureCommitPolicy.mayCommit(
             requestedSessionID: prior, currentSessionID: current,
             capturedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,

@@ -453,7 +453,7 @@ class UserFacingIssueRoutingTests(unittest.TestCase):
         self.assertIn("static func make(operation: String, stage: String", primitives_text)
         # Every requested action has a real title.
         for title in ("Retry Source", "Open Certificates", "Open Account & Signing",
-                      "Show Pairing Setup", "Open Connection Check", "Choose IPA Again"):
+                      "Show Pairing Setup", "Open Connection Settings", "Choose IPA Again"):
             self.assertIn(f'return "{title}"', primitives_text)
 
     def test_retry_connection_is_only_offered_for_connection_evidence(self):
@@ -531,14 +531,15 @@ class UserFacingIssueRoutingTests(unittest.TestCase):
         self.assertNotIn("addSource", code)
 
     def test_operation_recovery_action_names_where_it_actually_goes(self):
-        # The "setup" destination opens the Setup Assistant but read "Open
-        # Connection Check", which is the same class of mislabel as offering a
+        # The "setup" destination opens the Setup Assistant but must read
+        # "Open Setup Assistant", which is distinct from opening connection
+        # settings and avoids the same class of mislabel as offering a
         # connection retry for a source failure.
         text = shell()
         titles = text[text.index("private func recoveryActionTitle(for destination: String)"):]
         titles = titles[:titles.index("\n    }")]
         self.assertIn('case "setup": return "Open Setup Assistant"', titles)
-        self.assertNotIn('case "setup": return "Open Connection Check"', titles)
+        self.assertNotIn('case "setup": return "Open Connection Settings"', titles)
         # And the route it names must be the one the destination is handled by.
         self.assertIn('case "setup": status.setupPresented = true', text)
 

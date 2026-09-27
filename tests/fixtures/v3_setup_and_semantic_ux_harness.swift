@@ -166,8 +166,20 @@ struct SetupAndSemanticUXHarness {
         let activeMutationFailure = CombinedFailure(operation: "refresh", stage: .command,
             code: .busy, id: UUID().uuidString, retryable: true, safeCause: .operationInProgress)
         precondition(activeMutationFailure.message.contains("Another SideStore operation") &&
-                     activeMutationFailure.recovery.contains("Wait for the active SideStore operation"),
-                     "refresh contention must tell the user to wait for mutation ownership")
+                     activeMutationFailure.recovery.contains("check the action's current state") &&
+                     !activeMutationFailure.recovery.contains("start Refresh again"),
+                     "busy recovery must stay with the requested action rather than misroute other mutations to Refresh")
+        let capacityFailure = CombinedFailure(operation: "signOut", stage: .command,
+            code: .busy, id: UUID().uuidString, retryable: true,
+            safeCause: .responseCapacityUnavailable)
+        precondition(capacityFailure.message.contains("cannot safely accept another") &&
+                     capacityFailure.recovery.contains("release earlier request results"),
+                     "request-cache capacity has distinct wait guidance from an active device mutation")
+        precondition(V3CatalogRetryPresentationPolicy.action(for: .allowed) == .retry &&
+                     V3CatalogRetryPresentationPolicy.action(for: .unknown) == .retryWithUnknownDisposition &&
+                     V3CatalogRetryPresentationPolicy.action(for: .prerequisite) == .noRetry &&
+                     V3CatalogRetryPresentationPolicy.action(for: .blocked) == .noRetry,
+                     "catalog retry copy is explicit about uncertainty and never encourages retry before prerequisites")
         precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
             anotherMutationActive: false, authenticationActive: true,
             isAuthContinuation: false, responseCapacityAvailable: true),
@@ -431,6 +443,12 @@ struct SetupAndSemanticUXHarness {
         precondition(mismatch.detail.lowercased().contains("refresh the jit-less certificate copy"))
         precondition(!mismatch.detail.lowercased().contains("broken"))
         precondition(mismatch.severity == .warning)
+        precondition(V3JITLessSetupActionPolicy.action(for: .activeCertificateMissing) == .openCertificates &&
+                     V3JITLessSetupActionPolicy.action(for: .activeCertificateRevoked) == .openCertificates,
+                     "missing or revoked SideStore active certificates must go to Certificates, not JIT-Less import")
+        precondition(V3JITLessSetupActionPolicy.action(for: .setupRequired) == .setUp &&
+                     V3JITLessSetupActionPolicy.action(for: .certificateMismatch) == .refreshCertificate,
+                     "a valid active certificate routes setup and stale-copy repair to the canonical import flow")
 
         // V3_SNAPSHOT_GATE_V1: the activity, not a shared busy flag, decides
         // what a snapshot request does. The previous gate took a single `loading`

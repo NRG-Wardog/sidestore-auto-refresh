@@ -11,7 +11,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 8
+PATCH_VERSION = 9
 
 
 def remove_pbx_object(text, object_marker):
@@ -86,7 +86,9 @@ def headless_project(text):
 				"Resources/Icons.xcassets/Modern/VistaIcon.appiconset",
 				"Resources/Icons.xcassets/Modern/WinterIcon.appiconset",
 				"Sources/Components/SourceHeaderView.xib",
+				"Sources/AddSourceViewController.swift",
 				"Sources/Sources.storyboard",
+				"Sources/tvOS/Sources.storyboard",
 				"iOS/LaunchScreen.storyboard",
 				"iOS/Main.storyboard",
 			);

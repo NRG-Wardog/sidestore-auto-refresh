@@ -48,6 +48,14 @@ class SheetLifecycleTests(unittest.TestCase):
         for destination in ("signIn", "certificates", "ipa", "setup", "connection"):
             self.assertIn('case "' + destination + '"', route)
 
+    def test_terminal_install_cover_swipe_does_not_send_redundant_cancel(self):
+        sheet = operation_sheet()
+        dismissal = sheet[sheet.index(".onDisappear {"):]
+        self.assertIn("let wasTerminal = attempt.isTerminal", dismissal)
+        self.assertIn("V3OperationCoverDismissalPolicy.mustConfirmBackendStop", dismissal)
+        self.assertIn("mustConfirmCancel ? attempt.supersede() : nil", dismissal)
+        self.assertIn('let terminalOutcome = wasTerminal &&', dismissal)
+
     def test_success_stays_visible_until_done(self):
         sheet = operation_sheet()
         apply = sheet[sheet.index("private func apply"):]

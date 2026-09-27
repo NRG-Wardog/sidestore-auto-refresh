@@ -177,6 +177,10 @@ struct RefreshAllAttemptHarness {
             pendingAge: 0, pendingState: "completed", activeRunID: "manager-run",
             activeRunRequestID: "manager-request") == .waitForActiveRun,
             "a terminal prior Test does not overlap a different active manager refresh")
+        precondition(V3SetupTestRequestPolicy.select(pendingRequestID: "request-r1",
+            pendingAge: 40, pendingState: "completed", activeRunID: nil,
+            activeRunRequestID: nil) == .resumeExisting("request-r1"),
+            "after Stop Waiting, a terminal R1 result is consumed before another test request is created")
         precondition(V3SetupTestRequestPolicy.select(pendingRequestID: "request-old",
             pendingAge: 1, pendingState: "running", activeRunID: "manager-run",
             activeRunRequestID: "manager-request") == .waitForActiveRun,

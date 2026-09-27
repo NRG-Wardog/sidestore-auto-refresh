@@ -80,6 +80,18 @@ struct OperationTerminalHarness {
             "a terminal reply for another operation session must not release this session's gate")
         precondition(V3OperationTerminalAcceptancePolicy.isSettledTerminal(
             state: "completed", backendSettled: true, stopConfirmed: nil))
+        precondition(!V3OperationCoverDismissalPolicy.mustConfirmBackendStop(
+            isRunning: false, hasSession: true, sessionIsTerminal: true,
+            hasUncertainSession: false, transitionInFlight: false),
+            "a swipe after a confirmed terminal result must not issue a redundant opCancel")
+        precondition(V3OperationCoverDismissalPolicy.mustConfirmBackendStop(
+            isRunning: true, hasSession: true, sessionIsTerminal: false,
+            hasUncertainSession: false, transitionInFlight: false),
+            "a running operation still requires backend stop confirmation")
+        precondition(V3OperationCoverDismissalPolicy.mustConfirmBackendStop(
+            isRunning: false, hasSession: true, sessionIsTerminal: true,
+            hasUncertainSession: true, transitionInFlight: false),
+            "an outcome-unknown session still requires authoritative stop confirmation")
         precondition(!V3OperationTerminalAcceptancePolicy.isSettledTerminal(
             state: "failed", backendSettled: true, stopConfirmed: nil, outcomeUnknown: true),
             "a settled callback must not erase an explicitly unknown device outcome")

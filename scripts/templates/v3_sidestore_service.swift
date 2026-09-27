@@ -142,17 +142,18 @@ final class V3SideStoreService: NSObject {
             responseCapacityAvailable: responseCapacityAvailable,
             refreshActive: refreshAdmission.isActive,
             isRefreshRelease: refreshRelease) else {
-            let failure = operation == "sourceRemoveConfirmed"
-                ? CombinedFailure(operation: "source", stage: .source, code: .busy, id: id,
-                                  retryable: true, safeCause: .sourceRemoveBusy)
-                : operation.hasPrefix("refreshAdmission")
-                ? CombinedFailure(operation: "refresh", stage: .command, code: .busy, id: id,
-                                  retryable: true, safeCause: .operationInProgress)
-                : operation == "opStart"
-                ? CombinedFailure(operation: operation, stage: .command, code: .busy, id: id,
-                                  retryable: true, safeCause: .operationInProgress)
-                : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id,
-                                  retryable: true, safeCause: .operationInProgress)
+            let safeCause = V3ServiceMutationBusyCausePolicy.safeCause(
+                operation: operation,
+                anotherMutationActive: mutationID != nil || operationMutationActive,
+                responseCapacityAvailable: responseCapacityAvailable,
+                refreshActive: refreshAdmission.isActive, refreshRelease: refreshRelease,
+                authenticationActive: V3HeadlessRuntime.shared.auth.hasActiveSession,
+                isAuthContinuation: authContinuation)
+            let sourceRemoval = safeCause == .sourceRemoveBusy
+            let failure = CombinedFailure(
+                operation: sourceRemoval ? "source" : operation.hasPrefix("refreshAdmission") ? "refresh" : operation,
+                stage: sourceRemoval ? .source : .command,
+                code: .busy, id: id, retryable: true, safeCause: safeCause)
             var response: [String: Any] = ["version": 1, "id": id, "error": "busy", "failure": failure.wire]
             if ["opStart", "authBegin", "authRetryProvisioning"].contains(operation) {
                 response["operationNotDispatched"] = true
@@ -528,7 +529,11 @@ final class V3SideStoreService: NSObject {
                 mode: .resumeProvisioning, requestDeadline: request["deadline"] as? Date,
                 sessionID: session)
         case "authPoll":
-            guard let reply = V3HeadlessRuntime.shared.auth.poll(id: target) else { throw ServiceError.invalidRequest }
+            guard let reply = V3HeadlessRuntime.shared.auth.poll(id: target) else {
+                throw CombinedFailure(operation: "signIn", stage: .authentication,
+                    code: .invalidResponse, id: target, retryable: false,
+                    safeCause: .authSessionUnavailable)
+            }
             return reply
         case "authRespond":
             guard let answer = payload["answer"] as? [String: String],

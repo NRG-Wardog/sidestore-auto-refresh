@@ -52,6 +52,27 @@ class JITLessOwnershipTests(unittest.TestCase):
         self.assertIn("status.returnToSetupAfterJITLess", shell)
         self.assertIn("V3CanonicalJITLessCertificateUpdated", shell)
 
+    def test_quick_setup_jitless_actions_match_certificate_state(self):
+        shell = SHELL.read_text(encoding="utf-8")
+        view_start = shell.index("struct V3SetupAssistantView")
+        section_start = shell.index('Section("JIT-Less Mode")', view_start)
+        setup = shell[section_start:shell.index('Section("Network")', section_start)]
+        primitives = PRIMITIVES.read_text(encoding="utf-8")
+        self.assertIn("V3JITLessSetupActionPolicy.action", setup)
+        self.assertIn("case .openCertificates:", setup)
+        self.assertIn("case .setupRequired: return .setUp", primitives)
+        self.assertIn(".activeCertificateMissing, .activeCertificateRevoked, .activeCertificateExpired:", primitives)
+        self.assertNotIn("case .setupRequired, .activeCertificateMissing:", setup)
+
+    def test_quick_setup_routes_missing_active_certificate_to_certificates(self):
+        shell = SHELL.read_text(encoding="utf-8")
+        view_start = shell.index("struct V3SetupAssistantView")
+        section_start = shell.index('Section("JIT-Less Mode")', view_start)
+        setup = shell[section_start:shell.index('Section("Network")', section_start)]
+        self.assertIn("V3JITLessSetupActionPolicy.action", setup)
+        self.assertIn("case .openCertificates:", setup)
+        self.assertNotIn("case .setupRequired, .activeCertificateMissing:", setup)
+
 
 if __name__ == "__main__":
     unittest.main()

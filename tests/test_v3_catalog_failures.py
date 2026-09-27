@@ -433,6 +433,13 @@ class CatalogFailureMessageTests(unittest.TestCase):
 class CatalogViewValidationTests(unittest.TestCase):
     """Items 14 and 16: the view must not hide or invent a failure."""
 
+    def test_catalog_retry_cta_respects_prerequisite_and_unknown_dispositions(self):
+        view = catalog_view()
+        self.assertIn("V3CatalogRetryPresentationPolicy.action", view)
+        self.assertIn('Button("Retry Catalog")', view)
+        self.assertIn('Button("Try Catalog Again (retryability unknown)")', view)
+        self.assertIn("case .prerequisite, .blocked: return .noRetry", (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+
     def test_cancellation_is_not_presented_as_a_catalog_failure(self):
         view = catalog_view()
         self.assertIn("catch is CancellationError {", view)

@@ -493,6 +493,9 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         self.assertIn("if shouldPostRequest", start)
         self.assertIn("The current refresh continues in the background", cancel)
         self.assertNotIn("removeObject(forKey: Self.pendingTestRequestIDKey)", cancel)
+        assistant = source[source.index("struct V3SetupAssistantView"):source.index("private struct V3HomeView")]
+        self.assertIn(".onDisappear {", assistant)
+        self.assertIn("if setup.testRunning { setup.cancelTest() }", assistant)
 
     def test_partial_manifest_does_not_verify(self):
         compiler = shutil.which("swiftc")

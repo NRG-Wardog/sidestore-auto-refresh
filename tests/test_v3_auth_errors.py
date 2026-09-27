@@ -304,7 +304,7 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertGreaterEqual(sign_in.count("restartPollMonitorAfterSupersededFailure(sessionID: requestedSession"), 4)
         recovery = sign_in[sign_in.index("private func restartPollMonitorAfterSupersededFailure"):]
         self.assertIn("V3AuthPollMonitorRecoveryPolicy.shouldResume", recovery)
-        self.assertIn("hasCurrentPrompt: prompt != nil", recovery)
+        self.assertIn("pollFailureIsTransient: pollFailureIsTransient", recovery)
         self.assertIn("task = Task", recovery)
         self.assertIn("continuePollingAfterSupersededFailure", recovery)
         self.assertIn("sessionDeadline: sessionDeadline", recovery)

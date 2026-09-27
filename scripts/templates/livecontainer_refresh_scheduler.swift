@@ -924,7 +924,9 @@ enum LiveContainerAutoRefreshScheduler {
     }
     static func runNow(requestID: String? = nil, origin: String? = nil) {
         Task { @MainActor in
-            await requestNotificationPermission()
+            // Manual refresh must reach scheduler admission promptly. The
+            // system permission dialog is requested only by the explicit
+            // notification-settings action, not as part of a refresh request.
             verifyPendingHostHandoff()
             await execute(source: "manual", manualRequestID: requestID, manualOrigin: origin)
         }

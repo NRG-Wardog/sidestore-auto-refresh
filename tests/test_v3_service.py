@@ -28,10 +28,25 @@ results = module("patch_refresh_result_bridge")
 
 
 class ServicePatchTests(unittest.TestCase):
+    def test_missing_auth_poll_session_is_typed_as_session_unavailable(self):
+        source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        poll = source[source.index('case "authPoll":'):source.index('case "authRespond":')]
+        self.assertIn("safeCause: .authSessionUnavailable", poll)
+        self.assertIn("operation: \"signIn\"", poll)
+        self.assertIn("stage: .authentication", poll)
+        self.assertIn("retryable: false", poll)
+
     def test_prompt_session_history_has_no_removed_single_identifier_reference(self):
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
         self.assertIsNone(re.search(r"\bsession\.acceptedPromptID\b", runtime))
         self.assertGreaterEqual(runtime.count("session.acceptedPromptIDs"), 4)
+
+    def test_service_admission_uses_typed_busy_cause_policy(self):
+        source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        self.assertIn("V3ServiceMutationBusyCausePolicy.safeCause", source)
+        self.assertIn("responseCapacityAvailable: responseCapacityAvailable", source)
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        self.assertIn("case CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue:", primitives)
 
     def test_inflight_request_id_replay_never_claims_operation_was_not_dispatched(self):
         service_source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
@@ -133,6 +148,7 @@ class ServicePatchTests(unittest.TestCase):
                 '"My Apps/MyAppsViewController.swift"',
                 '"Authentication/Authentication.storyboard"', '"Settings/Settings.storyboard"',
                 '"Sources/Sources.storyboard"', '"Components/AppBannerView.xib"',
+                '"Sources/AddSourceViewController.swift"', '"Sources/tvOS/Sources.storyboard"',
                 '"My Apps/InstalledAppsCollectionHeaderView.xib"', '"My Apps/UpdateCollectionViewCell.xib"',
                 '"News/NewsCollectionViewCell.xib"', '"Settings/AboutPatreonHeaderView.xib"',
                 '"Settings/SettingsHeaderFooterView.xib"', '"Sources/Components/SourceHeaderView.xib"',

@@ -30,6 +30,23 @@ struct OperationServiceAdmissionHarness {
             operation: "refreshAdmissionBegin", target: UUID().uuidString,
             activeOperationID: registry.activeID),
             "authoritative backend settlement releases admission ownership")
+        precondition(V3ServiceMutationBusyCausePolicy.safeCause(operation: "settingsSet",
+            anotherMutationActive: false, responseCapacityAvailable: false,
+            refreshActive: false, refreshRelease: false,
+            authenticationActive: false, isAuthContinuation: false) == .responseCapacityUnavailable,
+            "reply-cache admission pressure is not falsely blamed on a running operation")
+        precondition(V3ServiceMutationBusyCausePolicy.safeCause(operation: "settingsSet",
+            anotherMutationActive: true, responseCapacityAvailable: false,
+            refreshActive: false, refreshRelease: false,
+            authenticationActive: false, isAuthContinuation: false) == .operationInProgress,
+            "an actual mutation owner remains the known busy cause when multiple guards reject")
+        let capacityFailure = CombinedFailure(operation: "settingsSet", stage: .command,
+            code: .busy, id: UUID().uuidString, retryable: true,
+            safeCause: .responseCapacityUnavailable)
+        precondition(capacityFailure.safeMessage.contains("cannot safely accept") &&
+                     capacityFailure.recovery.contains("release earlier request results") &&
+                     V3OperationFailureDetails(capacityFailure).retryDisposition == .prerequisite,
+                     "capacity pressure has truthful wait guidance and no immediate Retry CTA")
 
         precondition(V3StagedIPALeasePolicy.isLeased(hasOperationTask: true,
             preparationFinished: true, ownsMutationRegistry: false),

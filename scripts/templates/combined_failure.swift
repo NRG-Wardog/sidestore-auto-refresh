@@ -123,6 +123,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case sourceRemoveBusy
         case sourceAddBusy
         case operationInProgress
+        case responseCapacityUnavailable
         case staleRefreshAttempt
         case knownSourcePolicyNetworkFailure
         case knownSourcePolicyInvalidResponse
@@ -139,6 +140,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case pairingRequired
         case authAttemptNotDispatched
         case authProvisioningRetryNotDispatched
+        case authSessionUnavailable
 
         fileprivate var inferredRetryable: Bool? {
             switch self {
@@ -160,6 +162,8 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceRemoveBusy, .sourceAddBusy:
                 return true
             case .operationInProgress, .knownSourcePolicyNetworkFailure:
+                return true
+            case .responseCapacityUnavailable:
                 return true
             case .staleRefreshAttempt:
                 return false
@@ -183,6 +187,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return true
             case .authProvisioningRetryNotDispatched:
                 return true
+            case .authSessionUnavailable:
+                return false
             }
         }
     }
@@ -283,6 +289,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceRemoveBusy: return "SideStore was busy with another request, so it did not start removing this source."
             case .sourceAddBusy: return "SideStore was busy with another request, so it did not confirm adding this source."
             case .operationInProgress: return "Another SideStore operation is still active."
+            case .responseCapacityUnavailable: return "SideStore cannot safely accept another state-changing request yet."
             case .staleRefreshAttempt: return "This refresh request belonged to an expired scheduler run and was not started."
             case .knownSourcePolicyNetworkFailure: return "SideStore could not update its own known-source safety list."
             case .knownSourcePolicyInvalidResponse: return "SideStore could not read its own known-source safety list."
@@ -293,6 +300,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .pairingRequired: return "A pairing file is required before this device can be refreshed."
             case .authAttemptNotDispatched: return "SideStore did not start this sign-in attempt, so Apple authentication was not submitted."
             case .authProvisioningRetryNotDispatched: return "SideStore did not start the provisioning retry; the saved authentication session was not changed by this request."
+            case .authSessionUnavailable: return "SideStore no longer has the active sign-in session."
             }
         }
         switch stage {
@@ -424,7 +432,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .networkConnectionLost, .networkTimedOut, .networkUnavailable:
                 return "Reconnect, check LocalDevVPN if enabled, and retry when the connection is stable."
             case .signingNetworkConnectionLost, .signingNetworkTimedOut, .signingNetworkUnavailable:
-                return "Your current connection may still be healthy. Retry once. If this happens again, open Connection Check."
+                return "Your current connection may still be healthy. Retry once. If this happens again, open Connection Settings."
             case .developerPortalRejectedRequest, .developerPortalInvalidResponse:
                 return "Check Account & Signing and Certificates. If it repeats, keep these diagnostics for support before retrying."
             case .provisioningProfileUnavailable, .certificateUnavailable:
@@ -448,7 +456,9 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceAddBusy:
                 return "Wait for the current SideStore request to finish, reload Sources, then preview and confirm the add again."
             case .operationInProgress:
-                return "Wait for the active SideStore operation to finish, then start Refresh again."
+                return "Wait for the active SideStore request to finish, check the action's current state, then retry that action if needed."
+            case .responseCapacityUnavailable:
+                return "Wait for SideStore to release earlier request results, check the current state, then retry this action."
             case .staleRefreshAttempt:
                 return "Return to Refresh and start a new refresh. This stale request did not reach SideStore or the device."
             case .knownSourcePolicyNetworkFailure:
@@ -481,6 +491,8 @@ public struct CombinedFailure: Error, LocalizedError {
                     return "Wait for SideStore to finish starting, then retry provisioning."
                 }
                 return "Retry provisioning when the displayed prerequisite is ready."
+            case .authSessionUnavailable:
+                return "Open Account & Signing and start a new sign-in. SideStore will reconcile the current account before proceeding."
             }
         }
         switch stage {

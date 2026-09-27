@@ -179,6 +179,14 @@ class EveryEntryPointUsesThePolicyTests(unittest.TestCase):
         self.assertIn("A pairing file is required before this device can be refreshed.", view)
         self.assertIn(".disabled(manualRefreshBlocked)", view)
 
+    def test_manual_scheduler_admits_before_any_notification_permission_prompt(self):
+        scheduler = (ROOT / "scripts/templates/livecontainer_refresh_scheduler.swift").read_text(encoding="utf-8")
+        start = scheduler.index("static func runNow(")
+        end = scheduler.index("\n    static func recoverAfterLaunchOrResume()", start)
+        run_now = scheduler[start:end]
+        self.assertNotIn("requestNotificationPermission", run_now)
+        self.assertIn("await execute(source: \"manual\", manualRequestID: requestID", run_now)
+
     def test_targeted_refresh(self):
         body = targeted_refresh()
         self.assertIn("V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing)", body)

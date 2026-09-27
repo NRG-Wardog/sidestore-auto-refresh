@@ -484,7 +484,7 @@ struct V3DeviceAcceptanceRegressionsHarness {
         precondition(details.whatHappened ==
             "The connection to the provisioning service was interrupted during signing.")
         precondition(details.recommendedAction ==
-            "Your current connection may still be healthy. Retry once. If this happens again, open Connection Check.")
+            "Your current connection may still be healthy. Retry once. If this happens again, open Connection Settings.")
         precondition(details.recoveryDestination == "connection")
 
         let diagnostic = V3RefreshAllFailureDiagnostics.text(

@@ -1546,7 +1546,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         } catch {
             let serviceReportsBusy = (error as? CombinedFailure).map {
                 $0.code == .busy ||
-                    $0.safeCause == CombinedFailure.SafeCause.operationInProgress.rawValue
+                    $0.safeCause == .operationInProgress
             } ?? false
             guard V3StagedIPACleanupFallbackPolicy.mayDeleteLocally(
                 serviceReportsBusy: serviceReportsBusy,
@@ -2126,9 +2126,15 @@ struct V3CatalogView: View {
                     if failure?.safeCause == CombinedFailure.SafeCause.catalogSourceUnavailable.rawValue {
                         Button("Return to Sources") { dismiss() }
                     }
-                    if failure?.retryDisposition != .blocked {
-                        Button("Retry") { Task { await load() } }
+                    switch V3CatalogRetryPresentationPolicy.action(
+                        for: failure?.retryDisposition ?? .unknown) {
+                    case .retry:
+                        Button("Retry Catalog") { Task { await load() } }.disabled(loadInFlight)
+                    case .retryWithUnknownDisposition:
+                        Button("Try Catalog Again (retryability unknown)") { Task { await load() } }
                             .disabled(loadInFlight)
+                    case .noRetry:
+                        EmptyView()
                     }
                 }
             }
@@ -2646,10 +2652,10 @@ struct V3OperationSheet: View {
         case "signIn": return "Open Account & Signing"
         case "certificates": return "Open Certificates"
         case "ipa": return "Choose IPA Again"
-        case "connection": return "Open Connection Check"
+        case "connection": return "Open Connection Settings"
         case "sources": return "Open Sources"
         // This destination opens the Setup Assistant, so it must say so. It read
-        // "Open Connection Check" while routing to the assistant, which is the
+        // "Open Connection Settings" while routing to the assistant, which is the
         // same class of mislabel as offering a connection retry for a source
         // failure.
         case "setup": return "Open Setup Assistant"
@@ -2791,12 +2797,20 @@ struct V3OperationSheet: View {
             if !isDismissing {
                 isDismissing = true
                 let oldTask = task
-                let mustConfirmCancel = isRunning || uncertainSessionID != nil
-                let oldSession = uncertainSessionID ?? attempt.supersede()
+                let wasTerminal = attempt.isTerminal
+                let terminalOutcome = wasTerminal &&
+                    ["completed", "failed", "cancelled", "timedOut"].contains(state)
+                    ? state : "cancelled"
+                let mustConfirmCancel = V3OperationCoverDismissalPolicy.mustConfirmBackendStop(
+                    isRunning: isRunning, hasSession: attempt.sessionID != nil,
+                    sessionIsTerminal: wasTerminal,
+                    hasUncertainSession: uncertainSessionID != nil,
+                    transitionInFlight: attempt.transitionInFlight)
+                let oldSession = uncertainSessionID ?? (mustConfirmCancel ? attempt.supersede() : nil)
                 oldTask?.cancel()
                 Task { @MainActor in
                     var cancellationConfirmed = !mustConfirmCancel
-                    var confirmedOutcome = "cancelled"
+                    var confirmedOutcome = terminalOutcome
                     if let oldSession {
                         do {
                             let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: oldSession)
@@ -3782,6 +3796,8 @@ final class V3AuthStore: ObservableObject {
                     sessionDeadline: sessionDeadline,
                     failedPromptRevision: pollFailure.promptRevision,
                     failedPromptResponseGeneration: pollFailure.promptResponseGeneration,
+                    pollFailureIsTransient: (pollFailure.underlying as? CombinedFailure)
+                        .map(V3AuthPollRecoveryPolicy.isTransientTransportFailure) ?? false,
                     provisioningRetry: true,
                     reconciliationWasSuperseded: reconciliationGate.generation !=
                         (reconciliationGenerationBefore &+ 1)) {
@@ -3799,10 +3815,36 @@ final class V3AuthStore: ObservableObject {
                         sessionDeadline: sessionDeadline,
                         failedPromptRevision: pollFailure.promptRevision,
                         failedPromptResponseGeneration: pollFailure.promptResponseGeneration,
+                        pollFailureIsTransient: (pollFailure.underlying as? CombinedFailure)
+                            .map(V3AuthPollRecoveryPolicy.isTransientTransportFailure) ?? false,
                         provisioningRetry: true,
                         reconciliationWasSuperseded: reconciliationGate.generation !=
                             (reconciliationGenerationBefore &+ 1))
                 }
+                return
+            }
+            if let sessionFailure = pollFailure?.underlying as? CombinedFailure,
+               sessionFailure.safeCause == .authSessionUnavailable {
+                resolveUnavailableAuthSession(sessionFailure, snapshotConfirmed: snapshotConfirmed)
+                return
+            }
+            if let pollFailure, prompt != nil {
+                let underlying = pollFailure.underlying
+                state = "resultUnknown"
+                prompt = nil
+                promptSubmitting = false
+                deliveryProgressMessage = ""
+                twoFactorTransientStep = nil
+                cancellationConfirmed = false
+                message = "Apple ID is signed in, but SideStore could not confirm the current verification or provisioning response. Cancel the unconfirmed session before starting another attempt."
+                provisioningMessage = V3FailureGuidance.message(underlying)
+                provisioningTechnical = (underlying as? CombinedFailure)?.technicalDetails ?? ""
+                provisioningIncomplete = true
+                provisioningRetryAvailable = false
+                provisioningSessionUnavailable = false
+                currentAttemptFailure.record(snapshotConfirmed: snapshotConfirmed,
+                    authenticated: signedIn, failureMessage: V3FailureGuidance.message(underlying),
+                    technicalDetails: provisioningTechnical)
                 return
             }
             provisioningTechnical = ((pollFailure?.underlying ?? error) as? CombinedFailure)?.technicalDetails ?? ""
@@ -3932,6 +3974,46 @@ final class V3AuthStore: ObservableObject {
         }
     }
 
+    private func resolveUnavailableAuthSession(_ failure: CombinedFailure,
+                                               snapshotConfirmed: Bool) {
+        let presentation = V3AuthSessionUnavailablePolicy.resolve(
+            authenticated: signedIn, provisioningIncomplete: provisioningIncomplete,
+            snapshotConfirmed: snapshotConfirmed, safeMessage: failure.safeMessage,
+            recovery: failure.recovery)
+        session = nil
+        cancellationConfirmed = presentation.cancellationConfirmed
+        cancellationWasAttempted = false
+        prompt = nil
+        promptSubmitting = false
+        deliveryProgressMessage = ""
+        twoFactorTransientStep = nil
+        state = presentation.state
+        message = presentation.message
+        if let provisioningMessage = presentation.provisioningMessage {
+            provisioningIncomplete = true
+            self.provisioningMessage = provisioningMessage
+            provisioningTechnical = failure.technicalDetails
+            provisioningStage = failure.stage.rawValue
+            provisioningCode = failure.code.rawValue
+            provisioningCorrelation = failure.correlationID
+            provisioningRetryAvailable = false
+            provisioningSessionUnavailable = true
+            provisioningFinishedLater = false
+        } else {
+            clearProvisioningOutcome()
+            if signedIn {
+                currentAttemptFailure.clear()
+            } else {
+                currentAttemptFailure.record(snapshotConfirmed: snapshotConfirmed,
+                    authenticated: false, failureMessage: failure.safeMessage,
+                    technicalDetails: failure.technicalDetails)
+            }
+        }
+        task = nil
+        NSLog("[V3_AUTH_UI] SESSION_UNAVAILABLE state=%@ signed_in=%d snapshot_confirmed=%d",
+              presentation.state, signedIn ? 1 : 0, snapshotConfirmed ? 1 : 0)
+    }
+
     private func run(sessionID requestedSession: String) async {
         let sessionDeadline = Date().addingTimeInterval(V3ServiceBridge.authSessionLifetime)
         do {
@@ -3993,6 +4075,8 @@ final class V3AuthStore: ObservableObject {
                     sessionDeadline: sessionDeadline,
                     failedPromptRevision: pollFailure.promptRevision,
                     failedPromptResponseGeneration: pollFailure.promptResponseGeneration,
+                    pollFailureIsTransient: (pollFailure.underlying as? CombinedFailure)
+                        .map(V3AuthPollRecoveryPolicy.isTransientTransportFailure) ?? false,
                     provisioningRetry: false,
                     reconciliationWasSuperseded: reconciliationGate.generation !=
                         (reconciliationGenerationBefore &+ 1)) {
@@ -4010,10 +4094,17 @@ final class V3AuthStore: ObservableObject {
                         sessionDeadline: sessionDeadline,
                         failedPromptRevision: pollFailure.promptRevision,
                         failedPromptResponseGeneration: pollFailure.promptResponseGeneration,
+                        pollFailureIsTransient: (pollFailure.underlying as? CombinedFailure)
+                            .map(V3AuthPollRecoveryPolicy.isTransientTransportFailure) ?? false,
                         provisioningRetry: false,
                         reconciliationWasSuperseded: reconciliationGate.generation !=
                             (reconciliationGenerationBefore &+ 1))
                 }
+                return
+            }
+            if let sessionFailure = pollFailure?.underlying as? CombinedFailure,
+               sessionFailure.safeCause == .authSessionUnavailable {
+                resolveUnavailableAuthSession(sessionFailure, snapshotConfirmed: snapshotConfirmed)
                 return
             }
             state = "resultUnknown"
@@ -4144,6 +4235,7 @@ final class V3AuthStore: ObservableObject {
     private func restartPollMonitorAfterSupersededFailure(sessionID: String,
         sessionDeadline: Date, failedPromptRevision: Int,
         failedPromptResponseGeneration: UInt64,
+        pollFailureIsTransient: Bool,
         provisioningRetry: Bool,
         reconciliationWasSuperseded: Bool) -> Bool {
         guard V3AuthPollMonitorRecoveryPolicy.shouldResume(
@@ -4153,7 +4245,7 @@ final class V3AuthStore: ObservableObject {
             currentPromptResponseGeneration: promptResponseGeneration, state: state,
             promptSubmissionInProgress: promptSubmitting, cancellationInProgress: isCancelling,
             taskCancelled: Task.isCancelled,
-            hasCurrentPrompt: prompt != nil,
+            pollFailureIsTransient: pollFailureIsTransient,
             reconciliationWasSuperseded: reconciliationWasSuperseded,
             sessionDeadline: sessionDeadline) else { return false }
         task = Task { @MainActor [weak self] in
@@ -4181,11 +4273,14 @@ final class V3AuthStore: ObservableObject {
                     currentPromptResponseGeneration: promptResponseGeneration, state: state,
                     promptSubmissionInProgress: promptSubmitting, cancellationInProgress: isCancelling,
                     taskCancelled: Task.isCancelled,
-                    hasCurrentPrompt: prompt != nil,
+                    pollFailureIsTransient: (failure.underlying as? CombinedFailure)
+                        .map(V3AuthPollRecoveryPolicy.isTransientTransportFailure) ?? false,
                     reconciliationWasSuperseded: reconciliationGate.generation !=
                         (reconciliationGenerationBefore &+ 1),
                     sessionDeadline: sessionDeadline) {
-                    if prompt != nil &&
+                    if let combined = failure.underlying as? CombinedFailure,
+                       V3AuthPollRecoveryPolicy.isTransientTransportFailure(combined),
+                       prompt != nil &&
                        failure.promptResponseGeneration == promptResponseGeneration &&
                        failure.promptRevision == revision && !promptSubmitting {
                         message = "Connection to SideStore was interrupted while checking this verification request. The current response is still available."
@@ -4207,6 +4302,29 @@ final class V3AuthStore: ObservableObject {
                     currentReconciliationGeneration: reconciliationGate.generation,
                     cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled) else { return }
                 let underlying = failure.underlying
+                if let combined = underlying as? CombinedFailure,
+                   combined.safeCause == .authSessionUnavailable {
+                    resolveUnavailableAuthSession(combined, snapshotConfirmed: snapshotConfirmed)
+                    return
+                }
+                if provisioningRetry, signedIn, state != "completed", prompt != nil {
+                    state = "resultUnknown"
+                    prompt = nil
+                    promptSubmitting = false
+                    deliveryProgressMessage = ""
+                    twoFactorTransientStep = nil
+                    cancellationConfirmed = false
+                    message = "Apple ID is signed in, but SideStore could not confirm the current verification or provisioning response. Cancel the unconfirmed session before starting another attempt."
+                    provisioningMessage = V3FailureGuidance.message(underlying)
+                    provisioningTechnical = (underlying as? CombinedFailure)?.technicalDetails ?? ""
+                    provisioningIncomplete = true
+                    provisioningRetryAvailable = false
+                    provisioningSessionUnavailable = false
+                    currentAttemptFailure.record(snapshotConfirmed: snapshotConfirmed,
+                        authenticated: signedIn, failureMessage: V3FailureGuidance.message(underlying),
+                        technicalDetails: provisioningTechnical)
+                    return
+                }
                 if provisioningRetry, signedIn, state != "completed" {
                     state = "authenticatedProvisioningIncomplete"
                     provisioningIncomplete = true
@@ -6822,16 +6940,17 @@ struct V3SetupAssistantView: View {
                         }
                         .font(.caption)
                     } else {
-                        switch status.jitlessReadiness ?? .unknown {
-                        case .setupRequired, .activeCertificateMissing:
+                        switch V3JITLessSetupActionPolicy.action(
+                            for: status.jitlessReadiness ?? .unknown) {
+                        case .setUp:
                             Button("Set Up JIT-Less") { openCanonicalJITLessSetup() }
-                        case .needsCertificateRefresh, .certificateMismatch, .revoked:
+                        case .refreshCertificate:
                             Button("Refresh JIT-Less Certificate") { openCanonicalJITLessSetup() }
-                        case .activeCertificateRevoked, .activeCertificateExpired:
+                        case .openCertificates:
                             Button("Open Certificates") { status.certificatesPresented = true }
-                        case .unknown, .certificateImported:
+                        case .openSetup:
                             Button("Open JIT-Less Setup") { openCanonicalJITLessSetup() }
-                        case .ready, .notRequired:
+                        case .none:
                             EmptyView()
                         }
                     }
@@ -7000,6 +7119,9 @@ struct V3SetupAssistantView: View {
                     await setup.recalculate(status: status)
                 }
             }
+        }
+        .onDisappear {
+            if setup.testRunning { setup.cancelTest() }
         }
     }
     private func coredeviceState() -> V3SetupStepState {

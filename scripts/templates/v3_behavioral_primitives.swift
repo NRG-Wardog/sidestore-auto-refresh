@@ -285,6 +285,28 @@ struct V3JITLessPresentation: Equatable {
     }
 }
 
+enum V3JITLessSetupAction: Equatable {
+    case setUp
+    case refreshCertificate
+    case openCertificates
+    case openSetup
+    case none
+}
+
+enum V3JITLessSetupActionPolicy {
+    static func action(for readiness: V3JITLessReadiness) -> V3JITLessSetupAction {
+        switch readiness {
+        case .setupRequired: return .setUp
+        case .needsCertificateRefresh, .certificateMismatch, .revoked:
+            return .refreshCertificate
+        case .activeCertificateMissing, .activeCertificateRevoked, .activeCertificateExpired:
+            return .openCertificates
+        case .certificateImported, .unknown: return .openSetup
+        case .ready, .notRequired: return .none
+        }
+    }
+}
+
 enum V3TwoFactorStep: String, Equatable {
     case chooseDeliveryMethod
     case choosePhoneNumber
@@ -764,6 +786,16 @@ struct V3OperationAttemptState {
 
     mutating func endTransition() {
         transitionInFlight = false
+    }
+}
+
+enum V3OperationCoverDismissalPolicy {
+    static func mustConfirmBackendStop(isRunning: Bool, hasSession: Bool,
+                                       sessionIsTerminal: Bool,
+                                       hasUncertainSession: Bool,
+                                       transitionInFlight: Bool) -> Bool {
+        hasUncertainSession ||
+            (!sessionIsTerminal && (isRunning || hasSession || transitionInFlight))
     }
 }
 
@@ -1541,7 +1573,7 @@ enum V3IssueAction: String, Equatable, CaseIterable {
         case .openCertificates: return "Open Certificates"
         case .openAccount: return "Open Account & Signing"
         case .showPairingSetup: return "Show Pairing Setup"
-        case .openConnectionCheck: return "Open Connection Check"
+        case .openConnectionCheck: return "Open Connection Settings"
         case .chooseIPA: return "Choose IPA Again"
         case .openSetup: return "Open Setup Assistant"
         case .openSources: return "Open Sources"
@@ -2048,6 +2080,22 @@ enum V3RetryDisposition: Equatable {
     case blocked
 }
 
+enum V3CatalogRetryPresentation: Equatable {
+    case retry
+    case retryWithUnknownDisposition
+    case noRetry
+}
+
+enum V3CatalogRetryPresentationPolicy {
+    static func action(for disposition: V3RetryDisposition) -> V3CatalogRetryPresentation {
+        switch disposition {
+        case .allowed: return .retry
+        case .unknown: return .retryWithUnknownDisposition
+        case .prerequisite, .blocked: return .noRetry
+        }
+    }
+}
+
 // V3_REFRESH_PREREQUISITE_POLICY_V1
 // One authoritative prerequisite contract for every refresh entry point. Home
 // Refresh All, Setup Assistant Test Refresh, Refresh Manager Manual Refresh,
@@ -2158,7 +2206,8 @@ struct V3OperationFailureDetails {
            stage == CombinedFailure.Stage.filePreparation.rawValue ||
            safeCause == CombinedFailure.SafeCause.certificateUnavailable.rawValue ||
            safeCause == CombinedFailure.SafeCause.provisioningProfileUnavailable.rawValue ||
-           safeCause == CombinedFailure.SafeCause.operationInProgress.rawValue {
+           safeCause == CombinedFailure.SafeCause.operationInProgress.rawValue ||
+           safeCause == CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue {
             return .prerequisite
         }
         return retryable == true ? .allowed : .unknown
@@ -2212,7 +2261,7 @@ struct V3OperationFailureDetails {
         case "signIn": return "Open Account & Signing"
         case "ipa": return "Choose IPA Again"
         case "certificates": return "Open Certificates"
-        case "connection": return "Open Connection Check"
+        case "connection": return "Open Connection Settings"
         case "pairing": return "Open Pairing File"
         case "sources": return "Open Sources"
         default: return nil
@@ -2245,6 +2294,8 @@ struct V3OperationFailureDetails {
             return "Copy Diagnostics and report that the service could not encode its response. Repeating the same request will not help."
         case CombinedFailure.SafeCause.responseTooLarge.rawValue:
             return "Copy Diagnostics and report that the service reply exceeded the transfer limit. Repeating the same request will fail again."
+        case CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue:
+            return "Wait for SideStore to release earlier request results, check the current state, then retry this action."
         case CombinedFailure.SafeCause.pairingRequired.rawValue:
             return "Add the pairing file, then start the refresh again."
         case CombinedFailure.SafeCause.operationInProgress.rawValue:
@@ -2252,11 +2303,11 @@ struct V3OperationFailureDetails {
         case CombinedFailure.SafeCause.staleRefreshAttempt.rawValue:
             return "This stale refresh request was not started. Return to Refresh and start a new refresh."
         case CombinedFailure.SafeCause.signingNetworkConnectionLost.rawValue:
-            return "Your current connection may still be healthy. Retry once. If this happens again, open Connection Check."
+            return "Your current connection may still be healthy. Retry once. If this happens again, open Connection Settings."
         case CombinedFailure.SafeCause.signingNetworkTimedOut.rawValue:
-            return "The provisioning service timed out for this request. Retry once. If it happens again, open Connection Check."
+            return "The provisioning service timed out for this request. Retry once. If it happens again, open Connection Settings."
         case CombinedFailure.SafeCause.signingNetworkUnavailable.rawValue:
-            return "The provisioning service could not be reached for this request. Retry once. If it happens again, open Connection Check."
+            return "The provisioning service could not be reached for this request. Retry once. If it happens again, open Connection Settings."
         default: break
         }
         switch recoveryDestination {
@@ -2725,9 +2776,50 @@ enum V3AuthSnapshotAuthorityPolicy {
     static func needsSignIn(authenticated: Bool) -> Bool { !authenticated }
 }
 
+struct V3AuthSessionUnavailablePresentation: Equatable {
+    let state: String
+    let message: String
+    let provisioningMessage: String?
+    let cancellationConfirmed: Bool
+}
+
+enum V3AuthSessionUnavailablePolicy {
+    static func resolve(authenticated: Bool, provisioningIncomplete: Bool,
+                        snapshotConfirmed: Bool, safeMessage: String,
+                        recovery: String) -> V3AuthSessionUnavailablePresentation {
+        if authenticated && provisioningIncomplete {
+            return V3AuthSessionUnavailablePresentation(
+                state: "authenticatedProvisioningIncomplete",
+                message: "Apple ID signed in successfully.",
+                provisioningMessage: "The saved provisioning session is no longer available. Open Account & Signing to sign in again before retrying setup.",
+                cancellationConfirmed: true)
+        }
+        if authenticated {
+            return V3AuthSessionUnavailablePresentation(
+                state: "completed",
+                message: "SideStore confirmed that the account is signed in.",
+                provisioningMessage: nil,
+                cancellationConfirmed: true)
+        }
+        let message = snapshotConfirmed
+            ? safeMessage + " " + recovery
+            : "SideStore no longer has the active sign-in session and could not confirm the account state. Reload status before starting a new sign-in."
+        return V3AuthSessionUnavailablePresentation(
+            state: "failed", message: message, provisioningMessage: nil,
+            cancellationConfirmed: true)
+    }
+}
+
 enum V3AuthPollRecoveryPolicy {
     static func isTransientTransportFailure(_ failure: CombinedFailure) -> Bool {
-        failure.code == .timedOut ||
+        if failure.safeCause == .authSessionUnavailable { return false }
+        let networkTransportCause = failure.safeCause.map {
+            [.networkConnectionLost, .networkTimedOut, .networkUnavailable].contains($0)
+        } ?? false
+        if networkTransportCause {
+            return failure.stage == .xpcConnection
+        }
+        return failure.code == .timedOut ||
             failure.code == .interrupted && failure.stage == .xpcConnection
     }
 
@@ -2772,7 +2864,7 @@ enum V3AuthPollMonitorRecoveryPolicy {
                              failedPromptResponseGeneration: UInt64,
                              currentPromptResponseGeneration: UInt64,
                              state: String, promptSubmissionInProgress: Bool,
-                             hasCurrentPrompt: Bool = false,
+                             pollFailureIsTransient: Bool = false,
                              cancellationInProgress: Bool, taskCancelled: Bool,
                              reconciliationWasSuperseded: Bool = false,
                              now: Date = Date(), sessionDeadline: Date) -> Bool {
@@ -2783,7 +2875,7 @@ enum V3AuthPollMonitorRecoveryPolicy {
         _ = sessionDeadline // PollLoop owns deadline terminalization on resume.
         return failedPromptRevision != currentPromptRevision ||
             failedPromptResponseGeneration != currentPromptResponseGeneration ||
-            promptSubmissionInProgress || hasCurrentPrompt || reconciliationWasSuperseded
+            promptSubmissionInProgress || pollFailureIsTransient || reconciliationWasSuperseded
     }
 }
 
@@ -2811,7 +2903,8 @@ enum V3SetupTestRequestPolicy {
             return .waitForActiveRun
         }
         if let pendingRequestID, ["completed", "failed"].contains(pendingState ?? "") {
-            return (activeRunID?.isEmpty == false) ? .waitForActiveRun : .startNew
+            return (activeRunID?.isEmpty == false)
+                ? .waitForActiveRun : .resumeExisting(pendingRequestID)
         }
         if let pendingRequestID {
             if pendingState != nil {
@@ -2985,6 +3078,21 @@ enum V3ServiceMutationAdmissionPolicy {
                                              anotherHostMutationActive: Bool = false) -> Bool {
         ["refreshAdmissionBegin", "refreshAdmissionEnd"].contains(operation) &&
             refreshAttemptActive && !anotherHostMutationActive && !target.isEmpty && activeRunID == target
+    }
+}
+
+enum V3ServiceMutationBusyCausePolicy {
+    static func safeCause(operation: String, anotherMutationActive: Bool,
+                          responseCapacityAvailable: Bool, refreshActive: Bool,
+                          refreshRelease: Bool, authenticationActive: Bool,
+                          isAuthContinuation: Bool) -> CombinedFailure.SafeCause {
+        let ownershipConflict = anotherMutationActive || (refreshActive && !refreshRelease) ||
+            (authenticationActive && !isAuthContinuation)
+        if !ownershipConflict && !responseCapacityAvailable {
+            return .responseCapacityUnavailable
+        }
+        if operation == "sourceRemoveConfirmed" { return .sourceRemoveBusy }
+        return .operationInProgress
     }
 }
 
