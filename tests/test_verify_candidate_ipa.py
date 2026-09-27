@@ -111,6 +111,24 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
         self.assertEqual(verify_module.find_legacy_side_store_resources(
             prefix, [prefix + "/SideStore", prefix + "/Assets.car"]), [])
 
+    def test_side_store_package_rejects_legacy_intent_resources_and_code(self):
+        prefix = "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework"
+        forbidden = [
+            prefix + "/Metadata.appintents/root.ssu.yaml",
+            prefix + "/ViewApp.intentdefinition",
+            prefix + "/Intents.intentdefinition",
+        ]
+        self.assertEqual(verify_module.find_legacy_side_store_resources(prefix, forbidden),
+                         sorted(forbidden))
+        executable = b"SideStore\x00RefreshAllAppsIntent\x00ShortcutsProvider\x00"
+        self.assertEqual(verify_module.find_legacy_side_store_intent_symbols(executable),
+                         ["RefreshAllAppsIntent", "ShortcutsProvider"])
+        self.assertEqual(verify_module.find_legacy_side_store_intent_info_keys({
+            "INIntentsSupported": ["RefreshAllIntent"],
+            "NSUserActivityTypes": ["com.example.legacy"],
+        }), ["INIntentsSupported", "NSUserActivityTypes"])
+        self.assertEqual(verify_module.find_legacy_side_store_intent_info_keys({}), [])
+
 
 if __name__ == "__main__":
     unittest.main()

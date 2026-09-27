@@ -11,7 +11,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 10
+PATCH_VERSION = 11
 
 
 def remove_pbx_object(text, object_marker):
@@ -55,14 +55,34 @@ def headless_project(text):
 				Info.plist,
 				Resources/ReleaseEntitlements.plist,
 				"Components/BackgroundTaskManager.swift",
+				"Browse/FeaturedViewController.swift",
+				"LaunchViewController.swift",
 				"Resources/Silence.m4a",
 				"Authentication/Authentication.storyboard",
+				"Authentication/AuthenticationViewController.swift",
+				"Authentication/InstructionsViewController.swift",
+				"Authentication/SelectTeamViewController.swift",
+				"Authentication/tvOS/Authentication.storyboard",
 				"Components/AppBannerView.xib",
+				"Components/tvOS/AppBannerView.xib",
 				"My Apps/InstalledAppsCollectionHeaderView.xib",
 				"My Apps/UpdateCollectionViewCell.xib",
+				"My Apps/tvOS/InstalledAppsCollectionHeaderView.xib",
+				"My Apps/tvOS/UpdateCollectionViewCell.xib",
+				"My Apps/MyAppsComponents.swift",
+				"My Apps/InstalledAppsCollectionHeaderView.swift",
+				"My Apps/UpdateCollectionViewCell.swift",
 				"My Apps/MyAppsViewController.swift",
 				"News/NewsCollectionViewCell.xib",
+				"News/tvOS/NewsCollectionViewCell.xib",
+				"Core/Intents/ViewAppIntentHandler.swift",
+				"Intents/App Intents/AppShortcuts.swift",
+				"Intents/App Intents/RefreshAllAppsIntent.swift",
+				"Intents/App Intents/RefreshAllAppsWidgetIntent.swift",
+				"Intents/Legacy/IntentHandler.swift",
+				"Intents/Legacy/Intents.intentdefinition",
 				"Settings/AboutPatreonHeaderView.xib",
+				"Settings/tvOS/AboutPatreonHeaderView.xib",
 				"Settings/AltAppIconsViewController.swift",
 				"Settings/SettingsViewController.swift",
 				"Settings/PatreonViewController.swift",
@@ -73,6 +93,8 @@ def headless_project(text):
 				"Settings/Error Log/ErrorLogViewController.swift",
 				"Settings/Settings.storyboard",
 				"Settings/SettingsHeaderFooterView.xib",
+				"Settings/tvOS/Settings.storyboard",
+				"Settings/tvOS/SettingsHeaderFooterView.xib",
 				"Resources/AltIcons.plist",
 				"Resources/Icons.xcassets/Modern/BlueIcon.appiconset",
 				"Resources/Icons.xcassets/Modern/DarkIcon.appiconset",
@@ -86,16 +108,60 @@ def headless_project(text):
 				"Resources/Icons.xcassets/Modern/VistaIcon.appiconset",
 				"Resources/Icons.xcassets/Modern/WinterIcon.appiconset",
 				"Sources/Components/SourceHeaderView.xib",
+				"Sources/Components/tvOS/SourceHeaderView.xib",
 				"Sources/AddSourceViewController.swift",
 				"Sources/Sources.storyboard",
 				"Sources/tvOS/Sources.storyboard",
 				"iOS/LaunchScreen.storyboard",
 				"iOS/Main.storyboard",
+			"tvOS/Main.storyboard",
 			);
 			platformFiltersByRelativePath = {'''
     if text.count(side_exception) != 1:
         raise SystemExit("v3 service: SideStore resource-exclusion anchor changed")
     text = text.replace(side_exception, headless_exception, 1)
+    shared_exception_id = "C0DE00000000000000000001"
+    if shared_exception_id in text:
+        raise SystemExit("v3 service: shared intent exclusion object ID is already present")
+    shared_group = '''A8EEC3482F4B0D8600F2436D /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (A8EEC36B2F4B0D8700F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */, A82BE360304AAF490055C3DE /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Shared; sourceTree = "<group>"; };'''
+    headless_shared_group = '''A8EEC3482F4B0D8600F2436D /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (A8EEC36B2F4B0D8700F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */, A82BE360304AAF490055C3DE /* PBXFileSystemSynchronizedBuildFileExceptionSet */, C0DE00000000000000000001 /* V3 SideStore intent definition exclusion */, ); explicitFileTypes = {}; explicitFolders = (); path = Shared; sourceTree = "<group>"; };'''
+    text = replace(text, shared_group, headless_shared_group)
+    side_store_source_exception = '''A8EECF492F4B195000F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Tests/UITests/UITests.swift,
+				Tests/UITests/UITestsLaunchTests.swift,
+				Tests/UnitTests/datastructures/DataStructuresTests.swift,
+				Tests/UnitTests/datastructures/LinkedHashMapTests.swift,
+				Tests/UnitTests/datastructures/TreeMapTests.swift,
+				"Utils/misc/xcmapping-diff-reporter/xcmapping-diff.py",
+			);
+			target = BFD247692284B9A500981D42 /* SideStore */;
+		};'''
+    headless_side_store_source_exception = '''A8EECF492F4B195000F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Tests/UITests/UITests.swift,
+				Tests/UITests/UITestsLaunchTests.swift,
+				Tests/UnitTests/datastructures/DataStructuresTests.swift,
+				Tests/UnitTests/datastructures/LinkedHashMapTests.swift,
+				Tests/UnitTests/datastructures/TreeMapTests.swift,
+				"Utils/misc/xcmapping-diff-reporter/xcmapping-diff.py",
+				"Handlers/SignInFlowHandler.swift",
+			);
+			target = BFD247692284B9A500981D42 /* SideStore */;
+		};'''
+    text = replace(text, side_store_source_exception, headless_side_store_source_exception)
+    shared_intent_exception = '''		C0DE00000000000000000001 /* V3 SideStore intent definition exclusion */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Intents/ViewApp.intentdefinition",
+			);
+			target = BFD247692284B9A500981D42 /* SideStore */;
+		};
+'''
+    text = replace(text, "/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */",
+        shared_intent_exception + "/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */")
     # Starscream is linked by the pinned project but has no source references
     # in that checkout. Remove its product and package lock so it is not fetched
     # or linked into the backend build.
@@ -126,6 +192,8 @@ def headless_info(text):
     info.pop("UIMainStoryboardFile", None)
     info.pop("UILaunchStoryboardName", None)
     info.pop("UIBackgroundModes", None)
+    info.pop("INIntentsSupported", None)
+    info.pop("NSUserActivityTypes", None)
     for icon_key in ("CFBundleIcons", "CFBundleIcons~ipad"):
         icons = info.get(icon_key)
         if isinstance(icons, dict):
@@ -148,6 +216,67 @@ def headless_info(text):
     if removed != 1:
         raise SystemExit(f"v3 service: expected one configured scene storyboard, found {removed}")
     return plistlib.dumps(info, fmt=plistlib.FMT_XML, sort_keys=False).decode("utf-8")
+
+
+def headless_auth_manager(text):
+    start_marker = "    @discardableResult\n    func signIn(\n        presentingViewController: UIViewController? = nil,"
+    end_marker = "    // Developer Portal Operations"
+    if "V3_HEADLESS_AUTH_ENTRYPOINT_V1" in text:
+        if "SignInFlowHandler" in text or "presentingViewController: UIViewController? = nil" in text:
+            raise SystemExit("v3 service: legacy UIKit sign-in entry point removal is partial")
+        return text
+    if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+        raise SystemExit("v3 service: AuthManager sign-in entry point changed")
+    start = text.index(start_marker)
+    end = text.index(end_marker, start)
+    old = text[start:end]
+    if "SignInFlowHandler" not in old or "SignInOperation" not in old:
+        raise SystemExit("v3 service: AuthManager sign-in wrapper no longer matches the UI-only path")
+    text = text[:start] + (
+        "    // V3_HEADLESS_AUTH_ENTRYPOINT_V1: LiveContainer owns credentials and 2FA UI; "
+        "the embedded service still executes SignInOperation through V3HeadlessAuthHandler.\n"
+    ) + text[end:]
+    text = replace(text, "@preconcurrency import UIKit\n", "")
+    if "UIViewController" in text or "SignInFlowHandler" in text:
+        raise SystemExit("v3 service: UIKit sign-in presentation remains in AuthManager")
+    return text
+
+
+def headless_app_manager_sign_in(text):
+    marker = "V3_HEADLESS_APP_MANAGER_SIGNIN_REMOVED_V1"
+    if marker in text:
+        if "AuthManager.shared.signIn(\n                    presentingViewController:" in text:
+            raise SystemExit("v3 service: legacy AppManager sign-in wrapper removal is partial")
+        return text
+    start_marker = "    func signIn(presentingViewController: UIViewController?,\n"
+    end_marker = "\n    func deactivateApps("
+    if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+        raise SystemExit("v3 service: AppManager UIKit sign-in wrapper changed")
+    start = text.index(start_marker)
+    end = text.index(end_marker, start)
+    old = text[start:end]
+    if "AuthManager.shared.signIn" not in old:
+        raise SystemExit("v3 service: AppManager sign-in wrapper no longer targets AuthManager")
+    return text[:start] + "    // " + marker + ": interactive sign-in is owned by the LiveContainer host.\n" + text[end:]
+
+
+def headless_app_intent_routing(text):
+    marker = "V3_HEADLESS_INTENT_ROUTING_REMOVED_V1"
+    if marker in text:
+        if "handlerFor intent: INIntent" in text or "import Intents" in text:
+            raise SystemExit("v3 service: legacy SideStore App Intent routing removal is partial")
+        return text
+    text = replace(text, "import Intents\n", "")
+    text = replace(text, "    private let intentHandler = IntentHandler()\n", "")
+    text = replace(text, "    private let viewAppIntentHandler = ViewAppIntentHandler()\n", "")
+    start_marker = "    #if !os(tvOS)\n    func application(_ application: UIApplication, handlerFor intent: INIntent) -> Any?\n"
+    end_marker = "    #endif"
+    if text.count(start_marker) != 1:
+        raise SystemExit("v3 service: AppDelegate App Intent handler anchor changed")
+    start = text.index(start_marker)
+    end = text.index(end_marker, start) + len(end_marker)
+    text = text[:start] + "    // " + marker + ": LiveContainer declares the host-owned intents.\n" + text[end:]
+    return text
 
 
 def headless_background_fetch(text):
@@ -349,12 +478,15 @@ def patch(live, side):
     # The shared combined-startup adapter owns structured refresh error/result encoding.
     def sidestore_app_delegate(s):
         s = headless_background_fetch(s)
+        s = headless_app_intent_routing(s)
         return s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + \
             (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8") + \
             (TEMPLATES / "v3_ipa_staging.swift").read_text(encoding="utf-8") + \
             (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8") + \
             (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8")
     edit(side, "AltStore/AppDelegate.swift", sidestore_app_delegate)
+    edit(side, "SideStore/Core/Auth/AuthManager.swift", headless_auth_manager)
+    edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager_sign_in)
     edit(side, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
          patch_sign_in_operation)
     edit(side, "AltStore/Info.plist", headless_info)

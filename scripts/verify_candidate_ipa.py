@@ -38,6 +38,11 @@ REMOVED_SIDESTORE_ICON_NAMES = {
     "sandyicon", "skyicon", "snowicon", "starbursticon", "stormicon", "vistaicon", "wintericon",
 }
 PRIVATE_EXTENSIONS = {".p12", ".p8", ".pem", ".key", ".mobileprovision", ".log", ".crash", ".ips"}
+REMOVED_SIDESTORE_INTENT_SYMBOLS = (
+    "InstallIPAIntent", "RefreshAllAppsIntent", "RefreshAllAppsWidgetIntent",
+    "ShortcutsProvider", "IntentHandler", "ViewAppIntentHandler",
+)
+REMOVED_SIDESTORE_INTENT_INFO_KEYS = ("INIntentsSupported", "NSUserActivityTypes")
 
 
 def architectures(data: bytes) -> set[str]:
@@ -152,10 +157,19 @@ def find_legacy_side_store_resources(side_store_path: str, names: list[str]) -> 
         suffix = Path(name).suffix.lower()
         basename = name.rsplit("/", 1)[-1].lower()
         if (any(component.endswith((".storyboardc", ".nib")) for component in lower_components)
-                or suffix in {".storyboard", ".xib", ".nib"}
+                or "metadata.appintents" in lower_components
+                or suffix in {".storyboard", ".xib", ".nib", ".intentdefinition"}
                 or basename in {"silence.m4a", "alticons.plist"}):
             excluded.append(name)
     return sorted(excluded)
+
+
+def find_legacy_side_store_intent_symbols(executable: bytes) -> list[str]:
+    return [name for name in REMOVED_SIDESTORE_INTENT_SYMBOLS if name.encode("utf-8") in executable]
+
+
+def find_legacy_side_store_intent_info_keys(info: dict) -> list[str]:
+    return [key for key in REMOVED_SIDESTORE_INTENT_INFO_KEYS if key in info]
 
 
 def verify_side_store_assetutil_records(records: list[dict]) -> dict:
@@ -244,6 +258,10 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         host = package_bundles[BASE]
         side_store_path = BASE + "/Frameworks/SideStoreApp.framework"
         side_store_info = package_bundles[side_store_path]["info"]
+        legacy_intent_keys = find_legacy_side_store_intent_info_keys(side_store_info)
+        if legacy_intent_keys:
+            raise ValueError("embedded SideStore still declares its legacy intents or activities: "
+                             + ", ".join(legacy_intent_keys))
         for icon_key in ("CFBundleIcons", "CFBundleIcons~ipad"):
             icons = side_store_info.get(icon_key, {})
             if isinstance(icons, dict) and icons.get("CFBundleAlternateIcons"):
@@ -252,6 +270,11 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         if legacy_resources:
             raise ValueError("embedded SideStore contains excluded UI/audio resources: "
                              + ", ".join(legacy_resources[:8]))
+        side_store_executable = side_store_path + "/" + side_store_info["CFBundleExecutable"]
+        legacy_intents = find_legacy_side_store_intent_symbols(archive.read(side_store_executable))
+        if legacy_intents:
+            raise ValueError("embedded SideStore still contains legacy app intent code: "
+                             + ", ".join(legacy_intents))
         if "UIBackgroundModes" in side_store_info:
             raise ValueError("embedded SideStore still declares app background modes")
         if any(key in side_store_info for key in ("UIMainStoryboardFile", "UILaunchStoryboardName")):
@@ -357,6 +380,7 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         "required_frameworks": sorted(REQUIRED_FRAMEWORKS),
         "sidestore_storyboard_root": "absent",
         "sidestore_legacy_storyboard_nib_audio": "absent",
+        "sidestore_legacy_app_intents": "absent",
         "sidestore_alternate_icon_sets": side_store_asset_report,
         "sidestore_primary_icon": side_store_primary_icon_report(side_store_asset_report),
         "sidestore_legacy_background_modes": "absent",

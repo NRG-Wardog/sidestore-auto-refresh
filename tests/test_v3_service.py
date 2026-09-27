@@ -92,7 +92,14 @@ class ServicePatchTests(unittest.TestCase):
             ["MultitaskSupport/AppSceneViewController." + suffix for suffix in ("h", "m")] +
             ["LiveContainer/LCBootstrap.m", "LiveContainer/LCSharedUtils.m", "LiveProcess/main.m",
              "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
-            ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift",
+            ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",
+             "AltStore/Managing Apps/AppManager.swift",
+             "AltStore/Authentication/AuthenticationViewController.swift",
+             "AltStore/Authentication/InstructionsViewController.swift",
+             "AltStore/Authentication/ResignAltStoreViewController.swift",
+             "AltStore/Authentication/SelectTeamViewController.swift",
+             "SideStore/Core/Auth/AuthManager.swift", "SideStore/Handlers/SignInFlowHandler.swift",
+             "SideStore/Core/Operations/PipelineExecutor.swift",
              "SideStore/Core/Operations/PipelineRunner.swift",
              "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
              "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift",
@@ -159,18 +166,45 @@ class ServicePatchTests(unittest.TestCase):
                     self.assertNotIn("UISceneStoryboardFile", configuration)
                     self.assertNotIn("UILaunchStoryboardName", configuration)
             self.assertNotIn("UILaunchStoryboardName", info)
+            self.assertNotIn("INIntentsSupported", info)
+            self.assertNotIn("NSUserActivityTypes", info)
             project = (side / "AltStore.xcodeproj/project.pbxproj").read_text()
             self.assertNotIn("Starscream", project)
+            self.assertIn("C0DE00000000000000000001", project)
+            self.assertIn('"Intents/ViewApp.intentdefinition"', project)
+            side_shared_exclusion = project[project.index("C0DE00000000000000000001"):]
+            side_shared_exclusion = side_shared_exclusion[:side_shared_exclusion.index("};")]
+            self.assertIn("target = BFD247692284B9A500981D42 /* SideStore */", side_shared_exclusion)
             exception_anchor = project.index("A8EEC8CB2F4B146B00F2436D")
             member_start = project.index("membershipExceptions = (", exception_anchor)
             member_end = project.index(");", member_start)
             membership = project[member_start:member_end]
             removed_ui_resources = (
                 '"iOS/LaunchScreen.storyboard"', '"iOS/Main.storyboard"',
+                '"tvOS/Main.storyboard"',
+                '"Browse/FeaturedViewController.swift"', '"LaunchViewController.swift"',
+                '"Authentication/tvOS/Authentication.storyboard"',
+                '"Core/Intents/ViewAppIntentHandler.swift"',
+                '"Intents/App Intents/AppShortcuts.swift"',
+                '"Intents/App Intents/RefreshAllAppsIntent.swift"',
+                '"Intents/App Intents/RefreshAllAppsWidgetIntent.swift"',
+                '"Intents/Legacy/IntentHandler.swift"',
+                '"Intents/Legacy/Intents.intentdefinition"',
                 '"My Apps/MyAppsViewController.swift"',
+                '"My Apps/tvOS/InstalledAppsCollectionHeaderView.xib"',
+                '"My Apps/tvOS/UpdateCollectionViewCell.xib"',
+                '"My Apps/MyAppsComponents.swift"',
+                '"My Apps/InstalledAppsCollectionHeaderView.swift"',
+                '"My Apps/UpdateCollectionViewCell.swift"',
                 '"Authentication/Authentication.storyboard"', '"Settings/Settings.storyboard"',
                 '"Sources/Sources.storyboard"', '"Components/AppBannerView.xib"',
+                '"Components/tvOS/AppBannerView.xib"',
                 '"Sources/AddSourceViewController.swift"', '"Sources/tvOS/Sources.storyboard"',
+                '"News/tvOS/NewsCollectionViewCell.xib"',
+                '"Settings/tvOS/Settings.storyboard"',
+                '"Settings/tvOS/AboutPatreonHeaderView.xib"',
+                '"Settings/tvOS/SettingsHeaderFooterView.xib"',
+                '"Sources/Components/tvOS/SourceHeaderView.xib"',
                 '"My Apps/InstalledAppsCollectionHeaderView.xib"', '"My Apps/UpdateCollectionViewCell.xib"',
                 '"News/NewsCollectionViewCell.xib"', '"Settings/AboutPatreonHeaderView.xib"',
                 '"Settings/SettingsHeaderFooterView.xib"', '"Sources/Components/SourceHeaderView.xib"',
@@ -204,6 +238,16 @@ class ServicePatchTests(unittest.TestCase):
             self.assertNotIn("ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES", project)
             self.assertEqual(project.count("ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO"), 2)
             app_delegate = (side / "AltStore/AppDelegate.swift").read_text()
+            self.assertNotIn("import Intents", app_delegate)
+            self.assertNotIn("handlerFor intent: INIntent", app_delegate)
+            self.assertNotIn("ViewAppIntentHandler()", app_delegate)
+            auth_manager = (side / "SideStore/Core/Auth/AuthManager.swift").read_text()
+            self.assertNotIn("SignInFlowHandler", auth_manager)
+            self.assertNotIn("UIViewController", auth_manager)
+            self.assertNotIn("import UIKit", auth_manager)
+            app_manager = (side / "AltStore/Managing Apps/AppManager.swift").read_text(encoding="utf-8")
+            self.assertNotIn("func signIn(presentingViewController:", app_manager)
+            self.assertIn("V3_HEADLESS_APP_MANAGER_SIGNIN_REMOVED_V1", app_manager)
             self.assertNotIn("prepareForBackgroundFetch", app_delegate)
             self.assertNotIn("requestAuthorization(options: [.alert, .badge, .sound])", app_delegate,
                              "the embedded backend must not request a second app's notification permission")
