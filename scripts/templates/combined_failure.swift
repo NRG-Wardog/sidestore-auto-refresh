@@ -229,9 +229,11 @@ public struct CombinedFailure: Error, LocalizedError {
         let domain = error?.domain ?? "none"
         underlyingDomain = Self.domains.contains(domain) ? domain : "redacted"
         underlyingCode = error?.code ?? 0
-        self.safeCause = safeCause
+        let inferredSourceAddBusy = operation == "sourceAddConfirmed" && code == .busy
+            ? SafeCause.sourceAddBusy : nil
+        self.safeCause = safeCause ?? inferredSourceAddBusy
         self.sourceStep = sourceStep
-        self.retryable = retryable ?? safeCause?.inferredRetryable
+        self.retryable = retryable ?? self.safeCause?.inferredRetryable
     }
     private static let operations: Set<String> = ["connect", "status", "command", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit"]
     private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError"]

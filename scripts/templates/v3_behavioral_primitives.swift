@@ -137,7 +137,8 @@ enum V3SourceAddPersistencePolicy {
 
 enum V3SourceAddFailurePolicy {
     static func normalized(_ failure: CombinedFailure) -> CombinedFailure {
-        guard failure.operation == "sourceAddConfirmed", failure.safeCause == nil else { return failure }
+        guard failure.operation == "source", failure.stage == .command,
+              failure.safeCause == nil else { return failure }
         let stage: CombinedFailure.Stage = [.notReady, .unavailable].contains(failure.code)
             ? .serviceReadiness : .source
         let cause: CombinedFailure.SafeCause? = failure.code == .busy ? .sourceAddBusy : nil
