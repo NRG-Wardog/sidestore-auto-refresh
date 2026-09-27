@@ -463,8 +463,8 @@ class V3SetupAcceptanceTests(unittest.TestCase):
     def test_history_never_satisfies_current_test(self):
         source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         self.assertEqual(source.count('detail: "Refresh verified"'), 1)
-        check = source[source.index("private func checkTestResult"):
-                      source.index("private func checkTestResult") + 3000]
+        check_start = source.index("private func checkTestResult")
+        check = source[check_start:source.index("func cancelTest()", check_start)]
         self.assertIn('detail: "Refresh verified"', check)
         self.assertIn("testRequestID", check)
         self.assertIn("V3RefreshAllAttemptState.record(in: ledger, requestID: requestID)", check)

@@ -249,7 +249,7 @@ public final class V3ServiceBridge {
                         id: id, retryable: true, safeCause: .operationInProgress)
                 }
                 throw CombinedFailure(operation: operation, stage: .command, code: .busy,
-                                      id: id, retryable: true)
+                                      id: id, retryable: true, safeCause: .operationInProgress)
             }
             if !scopedSessionControl && !scopedAuthSessionControl { activeMutation = id }
         }

@@ -46,15 +46,6 @@ class ServicePatchTests(unittest.TestCase):
         admission = admission[:admission.index("if mutation { mutationID = id }")]
         self.assertIn('response["operationNotDispatched"] = true', admission)
 
-    def test_inflight_request_id_replay_never_claims_operation_was_not_dispatched(self):
-        service_source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
-        replay = service_source[service_source.index("guard tasks[id] == nil else {"):]
-        replay = replay[:replay.index("let mutation =")]
-        self.assertNotIn('"operationNotDispatched"', replay)
-        admission = service_source[service_source.index("guard V3ServiceMutationAdmissionPolicy.admits"):]
-        admission = admission[:admission.index("if mutation { mutationID = id }")]
-        self.assertIn('response["operationNotDispatched"] = true', admission)
-
     def fixture(self, directory):
         live_source = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
         side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
@@ -622,7 +613,7 @@ func base(_ operation: String) -> [String: Any] {
 }
 for operation in ["authBegin", "authRetryProvisioning", "authPoll", "authRespond", "opStart", "opPoll", "opAnswer",
                   "certList", "certRevoke", "devTeams", "sourcePreview", "sourceAddConfirmed",
-                  "pairingImportData", "settingsGet", "settingsSet", "anisetteList",
+                  "pairingImportData", "settingsGet", "settingsSet", "anisetteList", "ipaActiveTokens",
                   "sidesignGet", "logTail", "healthSnapshot", "accountExport", "accountImport"] {
     var request = base(operation)
     if operation == "authBegin" || operation == "authRetryProvisioning" {
@@ -633,8 +624,15 @@ for operation in ["authBegin", "authRetryProvisioning", "authPoll", "authRespond
         request["payload"] = ["kind": "install", "answer": ["choice": "proceed"]]
     }
     precondition(V3WireContract.decodeRequest(encode(request), now: now) != nil, operation)
-    precondition(V3WireContract.readOperations.contains(operation) == ["authPoll", "opPoll", "certList", "devTeams", "sourcePreview", "settingsGet", "anisetteList", "sidesignGet", "logTail", "healthSnapshot"].contains(operation), operation)
+    precondition(V3WireContract.readOperations.contains(operation) == ["authPoll", "opPoll", "certList", "devTeams", "sourcePreview", "settingsGet", "anisetteList", "ipaActiveTokens", "sidesignGet", "logTail", "healthSnapshot"].contains(operation), operation)
 }
+let leasedToken = UUID().uuidString.lowercased()
+let tokenReply: [String: Any] = ["version": 1, "id": UUID().uuidString,
+    "ok": true, "result": ["tokens": [leasedToken]]]
+let encodedReply = try PropertyListSerialization.data(fromPropertyList: tokenReply, format: .binary, options: 0)
+let decodedReply = try PropertyListSerialization.propertyList(from: encodedReply, format: nil) as! [String: Any]
+let decodedTokens = ((decodedReply["result"] as! [String: Any])["tokens"] as! [String])
+precondition(decodedTokens == [leasedToken], "the staged IPA lease list survives a property-list reply round trip")
 for removed in ["panel", "signIn", "install", "refreshApp", "addSource", "removeSource", "importPairing", "setSetting", "update", "activate", "deactivate", "remove", "delete", "backup", "restore", "installURL", "installSharedIPA"] {
     precondition(V3WireContract.decodeRequest(encode(base(removed)), now: now) == nil, removed)
 }

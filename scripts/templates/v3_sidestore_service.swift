@@ -116,7 +116,8 @@ final class V3SideStoreService: NSObject {
                 : operation == "opStart"
                 ? CombinedFailure(operation: operation, stage: .command, code: .busy, id: id,
                                   retryable: true, safeCause: .operationInProgress)
-                : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
+                : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id,
+                                  retryable: true, safeCause: .operationInProgress)
             var response: [String: Any] = ["version": 1, "id": id, "error": "busy", "failure": failure.wire]
             reply(encode(response, operation: operation))
             return
@@ -150,7 +151,8 @@ final class V3SideStoreService: NSObject {
                 : operation == "opStart"
                 ? CombinedFailure(operation: operation, stage: .command, code: .busy, id: id,
                                   retryable: true, safeCause: .operationInProgress)
-                : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
+                : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id,
+                                  retryable: true, safeCause: .operationInProgress)
             var response: [String: Any] = ["version": 1, "id": id, "error": "busy", "failure": failure.wire]
             if ["opStart", "authBegin", "authRetryProvisioning"].contains(operation) {
                 response["operationNotDispatched"] = true

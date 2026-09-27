@@ -130,6 +130,21 @@ struct RefreshAllAttemptHarness {
         precondition(!failedAttempt.observe(record(failureRequest, failureRun, "completed", manifest(failureRun))))
         precondition(failedAttempt.phase == .failed, "failure was not absorbing")
 
+        precondition(V3SetupRefreshTerminalEvidencePolicy.outcome(state: "running",
+            hasVerifiedManifest: false, hasVerifiedSummary: false) == .pending,
+            "an active setup test keeps monitoring")
+        precondition(V3SetupRefreshTerminalEvidencePolicy.outcome(state: "failed",
+            hasVerifiedManifest: false, hasVerifiedSummary: false) == .failed,
+            "a terminal scheduler failure ends setup polling even when it has no success manifest")
+        precondition(V3SetupRefreshTerminalEvidencePolicy.outcome(state: "completed",
+            hasVerifiedManifest: false, hasVerifiedSummary: false) == .completedUnverified,
+            "a completed ledger with missing or malformed proof fails promptly instead of timing out")
+        precondition(V3SetupRefreshTerminalEvidencePolicy.outcome(state: "completed",
+            hasVerifiedManifest: true, hasVerifiedSummary: false) == .verified &&
+                     V3SetupRefreshTerminalEvidencePolicy.outcome(state: "completed",
+                        hasVerifiedManifest: false, hasVerifiedSummary: true) == .verified,
+            "either authoritative per-run manifest or valid compact summary can verify completion")
+
         precondition(V3RefreshTerminalRecoveryPolicy.action(state: "verifying",
             terminalIntent: "verified", manifestIsComplete: true,
             hostHandoffPending: false) == .finalizeVerified,

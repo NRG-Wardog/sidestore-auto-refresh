@@ -60,6 +60,12 @@ class InstallFirstAttemptTests(unittest.TestCase):
         self.assertIn("preservingTokens: protectedTokens", status)
         self.assertIn("catch {", status)
         self.assertIn("await status.cleanupOrphanedStagedIPAs()", host)
+        startup = host[host.index(".task {", host.index("struct V3UnifiedTabs")):]
+        startup = startup[:startup.index(".onReceive(NotificationCenter")]
+        self.assertLess(startup.index("status.reload(manual: false)"),
+                        startup.index("await status.cleanupOrphanedStagedIPAs()"))
+        self.assertLess(startup.index("routePendingSetup()"),
+                        startup.index("await status.cleanupOrphanedStagedIPAs()"))
         service_source = service()
         runtime_source = runtime()
         wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")

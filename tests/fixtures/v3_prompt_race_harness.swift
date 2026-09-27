@@ -39,6 +39,22 @@ struct PromptRaceHarness {
             acceptedPromptID: "prompt-a", currentPromptID: "prompt-b",
             submittedPromptID: "prompt-a"),
             "a delayed duplicate for A must return the already-installed prompt B")
+        let acceptedA = V3PromptResponseStatePolicy.recordAcceptedPrompt([], promptID: "prompt-a")
+        let acceptedAB = V3PromptResponseStatePolicy.recordAcceptedPrompt(acceptedA, promptID: "prompt-b")
+        precondition(V3PromptResponseStatePolicy.shouldReturnCurrentStateAfterAcceptedDuplicate(
+            acceptedPromptID: nil, acceptedPromptIDs: acceptedAB, currentPromptID: nil,
+            submittedPromptID: "prompt-a", sessionTerminal: true),
+            "a delayed duplicate for an earlier accepted prompt resolves to the terminal session result")
+        var boundedAcceptedPrompts: [String] = []
+        for index in 0..<80 {
+            boundedAcceptedPrompts = V3PromptResponseStatePolicy.recordAcceptedPrompt(
+                boundedAcceptedPrompts, promptID: "prompt-\(index)")
+        }
+        precondition(boundedAcceptedPrompts.count == 64 && boundedAcceptedPrompts.last == "prompt-79" &&
+                     !V3PromptResponseStatePolicy.shouldReturnCurrentStateAfterAcceptedDuplicate(
+                        acceptedPromptID: nil, acceptedPromptIDs: boundedAcceptedPrompts,
+                        currentPromptID: nil, submittedPromptID: "prompt-0", sessionTerminal: true),
+                     "accepted-prompt replay history stays bounded")
         let newerPromptCanApply = V3AuthPollResponsePolicy.mayApply(
             currentSessionID: "session", replySessionID: "session",
             cancellationInProgress: false, currentRevision: 3, replyRevision: 5,

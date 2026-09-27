@@ -112,12 +112,21 @@ final class V3PromptCenter: @unchecked Sendable {
 
 enum V3PromptResponseStatePolicy {
     static func shouldReturnCurrentStateAfterAcceptedDuplicate(acceptedPromptID: String?,
+                                                               acceptedPromptIDs: [String] = [],
                                                                currentPromptID: String?,
                                                                submittedPromptID: String,
                                                                sessionTerminal: Bool = false,
                                                                cancellationRequested: Bool = false) -> Bool {
-        acceptedPromptID == submittedPromptID &&
+        (acceptedPromptID == submittedPromptID || acceptedPromptIDs.contains(submittedPromptID)) &&
             (sessionTerminal || cancellationRequested || currentPromptID != submittedPromptID)
+    }
+
+    static func recordAcceptedPrompt(_ acceptedPromptIDs: [String], promptID: String,
+                                     limit: Int = 64) -> [String] {
+        guard !promptID.isEmpty, limit > 0 else { return [] }
+        var values = acceptedPromptIDs.filter { !$0.isEmpty && $0 != promptID }
+        values.append(promptID)
+        return Array(values.suffix(limit))
     }
 
     static func responsePending(_ disposition: V3PromptAnswerDisposition,
@@ -467,7 +476,7 @@ final class V3AuthCenter {
         var previousFailure: [String: Any]?
         var terminalAt: Date?
         var cancellationRequested = false
-        var acceptedPromptID: String?
+        var acceptedPromptIDs: [String] = []
         var submittedAppleID: String?
         var authenticatedAppleID: String?
         var accountAppleIDAtStart: String?
@@ -718,7 +727,7 @@ final class V3AuthCenter {
     func respond(id: String, promptID: String, answer: [String: String]) -> [String: Any]? {
         guard let session = sessions[id] else { return nil }
         if V3PromptResponseStatePolicy.shouldReturnCurrentStateAfterAcceptedDuplicate(
-            acceptedPromptID: session.acceptedPromptID,
+            acceptedPromptID: nil, acceptedPromptIDs: session.acceptedPromptIDs,
             currentPromptID: session.prompt?["id"] as? String,
             submittedPromptID: promptID, sessionTerminal: !session.terminal.isEmpty,
             cancellationRequested: session.cancellationRequested) {
@@ -741,7 +750,10 @@ final class V3AuthCenter {
             return ["session": id, "state": "promptExpired",
                     "revision": sessions[id]?.revision ?? session.revision]
         }
-        sessions[id]?.acceptedPromptID = promptID
+        if let current = sessions[id] {
+            sessions[id]?.acceptedPromptIDs = V3PromptResponseStatePolicy.recordAcceptedPrompt(
+                current.acceptedPromptIDs, promptID: promptID)
+        }
         sessions[id]?.attempts += 1
         sessions[id]?.revision += 1
         // Clear previous failure on successful response to credentials prompt
@@ -1254,7 +1266,7 @@ final class V3OperationCenter {
         var terminalAt: Date?
         var ipaToken: String?
         var temporaryIPADirectory: URL?
-        var acceptedPromptID: String?
+        var acceptedPromptIDs: [String] = []
     }
 
     var sessions: [String: Session] = [:]
@@ -1396,7 +1408,7 @@ final class V3OperationCenter {
     func answer(id: String, promptID: String, answer: [String: String]) -> [String: Any]? {
         guard let session = sessions[id] else { return nil }
         if V3PromptResponseStatePolicy.shouldReturnCurrentStateAfterAcceptedDuplicate(
-            acceptedPromptID: session.acceptedPromptID,
+            acceptedPromptID: nil, acceptedPromptIDs: session.acceptedPromptIDs,
             currentPromptID: session.prompt?["id"] as? String,
             submittedPromptID: promptID, sessionTerminal: session.terminal.value != nil,
             cancellationRequested: session.terminal.isCancellationRequested) {
@@ -1419,7 +1431,10 @@ final class V3OperationCenter {
         guard disposition == .accepted else {
             return ["session": id, "state": "promptExpired"]
         }
-        sessions[id]?.acceptedPromptID = promptID
+        if let current = sessions[id] {
+            sessions[id]?.acceptedPromptIDs = V3PromptResponseStatePolicy.recordAcceptedPrompt(
+                current.acceptedPromptIDs, promptID: promptID)
+        }
         return poll(id: id)
     }
 

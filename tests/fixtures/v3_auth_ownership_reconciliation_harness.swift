@@ -162,6 +162,30 @@ struct AuthOwnershipReconciliationHarness {
             reconciliationGenerationBefore: 12, currentReconciliationGeneration: 13,
             cancellationInProgress: false, taskCancelled: false),
             "a poll failure cannot commit resultUnknown after a newer 2FA response begins")
+        precondition(V3AuthPollMonitorRecoveryPolicy.shouldResume(
+            requestedSessionID: current, currentSessionID: current,
+            failedPromptRevision: 8, currentPromptRevision: 9,
+            failedPromptResponseGeneration: 4, currentPromptResponseGeneration: 5,
+            state: "awaitingPrompt", promptSubmissionInProgress: true,
+            cancellationInProgress: false, taskCancelled: false,
+            now: now, sessionDeadline: deadline),
+            "a poll error reconciled after a newer answer must restart monitoring that same session")
+        precondition(!V3AuthPollMonitorRecoveryPolicy.shouldResume(
+            requestedSessionID: current, currentSessionID: current,
+            failedPromptRevision: 8, currentPromptRevision: 8,
+            failedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,
+            state: "awaitingPrompt", promptSubmissionInProgress: false,
+            cancellationInProgress: false, taskCancelled: false,
+            now: now, sessionDeadline: deadline),
+            "a current poll error with no newer user response follows its failure path")
+        precondition(!V3AuthPollMonitorRecoveryPolicy.shouldResume(
+            requestedSessionID: current, currentSessionID: current,
+            failedPromptRevision: 8, currentPromptRevision: 9,
+            failedPromptResponseGeneration: 4, currentPromptResponseGeneration: 5,
+            state: "awaitingPrompt", promptSubmissionInProgress: true,
+            cancellationInProgress: true, taskCancelled: false,
+            now: now, sessionDeadline: deadline),
+            "authoritative cancellation never restarts polling")
         precondition(!V3AuthAttemptFailureCommitPolicy.mayCommit(
             requestedSessionID: prior, currentSessionID: current,
             capturedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,

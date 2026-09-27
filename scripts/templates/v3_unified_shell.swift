@@ -38,7 +38,6 @@ struct V3UnifiedTabs: View {
         .environment(\.v3StatusStore, status)
         .accessibilityIdentifier("V3_UNIFIED_SHELL_V1")
         .task {
-            await status.cleanupOrphanedStagedIPAs()
             status.reload(manual: false)
             routePendingSetup()
             if !UserDefaults.standard.bool(forKey: "V3NotificationsPromptShown") {
@@ -52,6 +51,10 @@ struct V3UnifiedTabs: View {
                     LCUtils.appGroupUserDefault.removeObject(forKey: "LCLaunchExtensionFileBookmark")
                 } else { dispatchURL(url) }
             }
+            // Orphan pruning needs a SideStore ownership query and can wait for
+            // a cold service start. Launch it only after first status and any
+            // incoming install/setup route have been admitted.
+            await status.cleanupOrphanedStagedIPAs()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             status.reload(manual: false)
@@ -3767,8 +3770,19 @@ final class V3AuthStore: ObservableObject {
                 currentPromptResponseGeneration: promptResponseGeneration,
                 reconciliationGenerationBefore: reconciliationGenerationBefore,
                 currentReconciliationGeneration: reconciliationGate.generation,
-                cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled) else { return }
-            provisioningTechnical = (error as? CombinedFailure)?.technicalDetails ?? ""
+                cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled) else {
+                if let pollFailure {
+                    restartPollMonitorAfterSupersededFailure(sessionID: requestedSession,
+                        sessionDeadline: sessionDeadline,
+                        failedPromptRevision: pollFailure.promptRevision,
+                        failedPromptResponseGeneration: pollFailure.promptResponseGeneration,
+                        provisioningRetry: true,
+                        reconciliationWasSuperseded: reconciliationGate.generation !=
+                            (reconciliationGenerationBefore &+ 1))
+                }
+                return
+            }
+            provisioningTechnical = ((pollFailure?.underlying ?? error) as? CombinedFailure)?.technicalDetails ?? ""
             if signedIn {
                 if state == "completed" { return }
                 if snapshotConfirmed && provisioningSessionUnavailable {
@@ -3777,7 +3791,10 @@ final class V3AuthStore: ObservableObject {
                     return
                 }
                 state = "authenticatedProvisioningIncomplete"
-                provisioningMessage = "Retry Provisioning could not be confirmed. Your last confirmed state is still signed in. Reload status, then try again."
+                provisioningMessage = pollFailure.map {
+                    "Apple ID is signed in, but SideStore could not confirm the provisioning result. " +
+                        V3FailureGuidance.message($0.underlying)
+                } ?? "Retry Provisioning could not be confirmed. Your last confirmed state is still signed in. Reload status, then try again."
                 provisioningRetryAvailable = V3ProvisioningRetryRecoveryPolicy.availabilityAfterFailure(
                     snapshotConfirmed: snapshotConfirmed,
                     snapshotAllowsRetry: provisioningRetryAvailable,
@@ -3939,7 +3956,18 @@ final class V3AuthStore: ObservableObject {
                 currentPromptResponseGeneration: promptResponseGeneration,
                 reconciliationGenerationBefore: reconciliationGenerationBefore,
                 currentReconciliationGeneration: reconciliationGate.generation,
-                cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled) else { return }
+                cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled) else {
+                if let pollFailure {
+                    restartPollMonitorAfterSupersededFailure(sessionID: requestedSession,
+                        sessionDeadline: sessionDeadline,
+                        failedPromptRevision: pollFailure.promptRevision,
+                        failedPromptResponseGeneration: pollFailure.promptResponseGeneration,
+                        provisioningRetry: false,
+                        reconciliationWasSuperseded: reconciliationGate.generation !=
+                            (reconciliationGenerationBefore &+ 1))
+                }
+                return
+            }
             state = "resultUnknown"
             prompt = nil
             promptSubmitting = false
@@ -4058,6 +4086,89 @@ final class V3AuthStore: ObservableObject {
                 return
             }
             guard current == "working" || current == "awaitingPrompt" else { return }
+        }
+    }
+
+    // A poll can fail while an answer is being submitted. The old monitor then
+    // unwinds, and its catch awaits an account snapshot. If that answer wins
+    // during reconciliation, the failure is stale and must hand ownership to a
+    // replacement monitor for the same bounded session.
+    private func restartPollMonitorAfterSupersededFailure(sessionID: String,
+        sessionDeadline: Date, failedPromptRevision: Int,
+        failedPromptResponseGeneration: UInt64,
+        provisioningRetry: Bool,
+        reconciliationWasSuperseded: Bool) {
+        guard V3AuthPollMonitorRecoveryPolicy.shouldResume(
+            requestedSessionID: sessionID, currentSessionID: session,
+            failedPromptRevision: failedPromptRevision, currentPromptRevision: revision,
+            failedPromptResponseGeneration: failedPromptResponseGeneration,
+            currentPromptResponseGeneration: promptResponseGeneration, state: state,
+            promptSubmissionInProgress: promptSubmitting, cancellationInProgress: isCancelling,
+            taskCancelled: Task.isCancelled,
+            reconciliationWasSuperseded: reconciliationWasSuperseded,
+            sessionDeadline: sessionDeadline) else { return }
+        task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.continuePollingAfterSupersededFailure(sessionID: sessionID,
+                sessionDeadline: sessionDeadline, provisioningRetry: provisioningRetry)
+        }
+    }
+
+    private func continuePollingAfterSupersededFailure(sessionID: String,
+        sessionDeadline: Date, provisioningRetry: Bool) async {
+        while !Task.isCancelled, !isCancelling, session == sessionID {
+            do {
+                try await pollLoop(id: sessionID, sessionDeadline: sessionDeadline)
+                return
+            } catch let failure as V3AuthPollFailure where failure.sessionID == sessionID {
+                let reconciliationGenerationBefore = reconciliationGate.generation
+                let snapshotConfirmed = await reconcile(force: true, expectedSession: sessionID)
+                if V3AuthPollMonitorRecoveryPolicy.shouldResume(
+                    requestedSessionID: sessionID, currentSessionID: session,
+                    failedPromptRevision: failure.promptRevision, currentPromptRevision: revision,
+                    failedPromptResponseGeneration: failure.promptResponseGeneration,
+                    currentPromptResponseGeneration: promptResponseGeneration, state: state,
+                    promptSubmissionInProgress: promptSubmitting, cancellationInProgress: isCancelling,
+                    taskCancelled: Task.isCancelled,
+                    reconciliationWasSuperseded: reconciliationGate.generation !=
+                        (reconciliationGenerationBefore &+ 1),
+                    sessionDeadline: sessionDeadline) {
+                    continue
+                }
+                guard V3AuthAttemptFailureCommitPolicy.mayCommit(
+                    requestedSessionID: sessionID, currentSessionID: session,
+                    capturedPromptResponseGeneration: failure.promptResponseGeneration,
+                    currentPromptResponseGeneration: promptResponseGeneration,
+                    reconciliationGenerationBefore: reconciliationGenerationBefore,
+                    currentReconciliationGeneration: reconciliationGate.generation,
+                    cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled) else { return }
+                let underlying = failure.underlying
+                if provisioningRetry, signedIn, state != "completed" {
+                    state = "authenticatedProvisioningIncomplete"
+                    provisioningIncomplete = true
+                    message = "Apple ID signed in successfully."
+                    provisioningMessage = "SideStore could not confirm the provisioning result. " +
+                        V3FailureGuidance.message(underlying)
+                    provisioningTechnical = (underlying as? CombinedFailure)?.technicalDetails ?? ""
+                    provisioningSessionUnavailable = false
+                    return
+                }
+                state = "resultUnknown"
+                prompt = nil
+                promptSubmitting = false
+                deliveryProgressMessage = ""
+                twoFactorTransientStep = nil
+                cancellationConfirmed = false
+                message = snapshotConfirmed
+                    ? "SideStore confirmed account status but could not confirm whether this sign-in attempt finished. Cancel the unconfirmed session before starting another attempt."
+                    : "SideStore could not confirm the sign-in result. Cancel the unconfirmed session before starting another attempt."
+                currentAttemptFailure.record(snapshotConfirmed: snapshotConfirmed,
+                    authenticated: signedIn, failureMessage: V3FailureGuidance.message(underlying),
+                    technicalDetails: (underlying as? CombinedFailure)?.technicalDetails ?? "")
+                return
+            } catch {
+                return
+            }
         }
     }
 
@@ -5992,6 +6103,8 @@ final class V3SetupStore: ObservableObject {
     @Published var failureCode = ""
     @Published var failureCorrelation = ""
     @Published var failureRetryable = ""
+    @Published var testLedgerState = ""
+    @Published var testSummarySchema = ""
     @Published var testRunning = false
     @Published var lastVerified: Date?
     @Published var diagnostics = ""
@@ -6248,6 +6361,8 @@ final class V3SetupStore: ObservableObject {
         testRunning = true
         testRequestID = requestID
         testRunID = nil
+        testLedgerState = ""
+        testSummarySchema = ""
         verification = V3SetupStepState(state: "running", detail: "Test refresh running…")
         verificationGuidance = ""
         NSLog("[V3_SETUP] TEST_REFRESH_START request_id=%@ origin=setupAssistant", requestID)
@@ -6281,6 +6396,7 @@ final class V3SetupStore: ObservableObject {
         if let testRunID, testRunID != runID { return false }
         testRunID = runID
         let runState = runRecord["state"] as? String ?? ""
+        testLedgerState = runState
         guard runState == "completed" || runState == "failed" else { return false }
         let manifest = runRecord["manifest"] as? [String: Any]
         let verifiedManifest = manifest.map {
@@ -6289,13 +6405,43 @@ final class V3SetupStore: ObservableObject {
         } ?? false
         let verifiedSummary = V3RefreshAllTerminalEvidencePolicy.verifiedSummary(
             runRecord["manifest_summary"] as? [String: Any], record: runRecord, runID: runID)
-        guard verifiedManifest || verifiedSummary else {
-            if runState == "failed" {
-                verification = V3SetupStepState(state: "failed", detail: runRecord["message"] as? String ?? "Refresh failed")
-                testRunning = false
-                return true
-            }
+        let summary = runRecord["manifest_summary"] as? [String: Any]
+        testSummarySchema = summary?["schema"] as? String ?? "missing"
+        switch V3SetupRefreshTerminalEvidencePolicy.outcome(state: runState,
+            hasVerifiedManifest: verifiedManifest, hasVerifiedSummary: verifiedSummary) {
+        case .pending:
             return false
+        case .failed:
+            let wire = runRecord["failure"] as? [String: Any]
+            if let failure = wire.flatMap({ CombinedFailure.decode($0, expectedID: runID) }),
+               failure.operation == "refresh" {
+                recordFailure(operation: failure.operation, stage: failure.stage.rawValue,
+                    code: failure.code.rawValue, correlation: failure.correlationID,
+                    retryable: failure.retryable.map { $0 ? "true" : "false" } ?? "")
+                verification = V3SetupStepState(state: "failed",
+                    detail: runRecord["message"] as? String ?? failure.safeMessage)
+                verificationGuidance = failure.recovery
+            } else {
+                recordFailure(operation: "refresh", stage: CombinedFailure.Stage.refreshVerification.rawValue,
+                    code: "unknown", correlation: runID, retryable: "unknown")
+                verification = V3SetupStepState(state: "failed",
+                    detail: runRecord["message"] as? String ?? "Refresh failed, but no safe underlying cause was available.")
+                verificationGuidance = "Open Refresh Manager to inspect this run, then try Test Refresh again. Copy Diagnostics if the result remains unclear."
+            }
+            testRunning = false
+            NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=failed run_id=%@", runID)
+            return true
+        case .completedUnverified:
+            recordFailure(operation: "refresh", stage: CombinedFailure.Stage.refreshVerification.rawValue,
+                code: "invalidResponse", correlation: runID, retryable: "false")
+            verification = V3SetupStepState(state: "failed",
+                detail: "SideStore reported that refresh completed, but this run's result could not be verified.")
+            verificationGuidance = "Open Refresh Manager to reconcile the run, then run Test Refresh again. Copy Diagnostics if the result remains missing."
+            testRunning = false
+            NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=unverified_completion run_id=%@", runID)
+            return true
+        case .verified:
+            break
         }
         let results = manifest?["results"] as? [[String: Any]] ?? []
         if runState == "completed" && (verifiedSummary || results.allSatisfy({ $0["success"] as? Bool == true })) {
@@ -6388,6 +6534,10 @@ final class V3SetupStore: ObservableObject {
         }
         if !failureOperation.isEmpty {
             lines.append("Last structured failure: operation=\(failureOperation) stage=\(failureStage) code=\(failureCode) correlation=\(failureCorrelation) retryable=\(failureRetryable)")
+        }
+        if !testLedgerState.isEmpty {
+            lines.append("Test refresh terminal state: \(testLedgerState)")
+            lines.append("Verification summary schema: \(testSummarySchema.isEmpty ? "none" : testSummarySchema)")
         }
         diagnostics = lines.joined(separator: "\n")
     }

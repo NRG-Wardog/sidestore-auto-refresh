@@ -806,6 +806,16 @@ struct V3OperationMutationRegistry {
     }
 }
 
+// A staged IPA remains owned while any session task can still inspect it,
+// preparation has not settled, or the global mutation registry still assigns
+// the native mutation to that session. Age alone never releases a live lease.
+enum V3StagedIPALeasePolicy {
+    static func isLeased(hasOperationTask: Bool, preparationFinished: Bool,
+                         ownsMutationRegistry: Bool) -> Bool {
+        hasOperationTask || !preparationFinished || ownsMutationRegistry
+    }
+}
+
 // Terminal responses are write-once. Callback and cancellation paths may race,
 // so the first terminal result is authoritative and later results are ignored.
 final class V3TerminalResponse: @unchecked Sendable {
@@ -1195,6 +1205,25 @@ enum V3RefreshAllTerminalEvidencePolicy {
     static func count(_ key: String, in summary: [String: Any]?) -> Int? {
         guard let summary else { return nil }
         return integer(summary[key])
+    }
+}
+
+enum V3SetupRefreshTerminalOutcome: Equatable {
+    case pending
+    case failed
+    case completedUnverified
+    case verified
+}
+
+enum V3SetupRefreshTerminalEvidencePolicy {
+    static func outcome(state: String, hasVerifiedManifest: Bool,
+                        hasVerifiedSummary: Bool) -> V3SetupRefreshTerminalOutcome {
+        switch state {
+        case "failed": return .failed
+        case "completed":
+            return hasVerifiedManifest || hasVerifiedSummary ? .verified : .completedUnverified
+        default: return .pending
+        }
     }
 }
 
@@ -2707,6 +2736,25 @@ enum V3AuthPollFailureRacePolicy {
             (requestedRevision != currentRevision ||
              requestedPromptResponseGeneration != currentPromptResponseGeneration ||
              promptSubmissionInProgress)
+    }
+}
+
+enum V3AuthPollMonitorRecoveryPolicy {
+    static func shouldResume(requestedSessionID: String, currentSessionID: String?,
+                             failedPromptRevision: Int,
+                             currentPromptRevision: Int,
+                             failedPromptResponseGeneration: UInt64,
+                             currentPromptResponseGeneration: UInt64,
+                             state: String, promptSubmissionInProgress: Bool,
+                             cancellationInProgress: Bool, taskCancelled: Bool,
+                             reconciliationWasSuperseded: Bool = false,
+                             now: Date = Date(), sessionDeadline: Date) -> Bool {
+        guard currentSessionID == requestedSessionID,
+              !cancellationInProgress, !taskCancelled, now < sessionDeadline,
+              ["working", "awaitingPrompt"].contains(state) else { return false }
+        return failedPromptRevision != currentPromptRevision ||
+            failedPromptResponseGeneration != currentPromptResponseGeneration ||
+            promptSubmissionInProgress || reconciliationWasSuperseded
     }
 }
 

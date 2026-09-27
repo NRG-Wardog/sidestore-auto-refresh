@@ -296,6 +296,15 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("V3AuthPollFailureRacePolicy.shouldIgnore", sign_in)
         self.assertIn("promptResponseGeneration &+= 1", sign_in)
 
+    def test_superseded_poll_failure_restarts_monitor_for_sign_in_and_provisioning(self):
+        sign_in = shell()[shell().index("final class V3AuthStore"):shell().index("struct V3SignInLink")]
+        self.assertEqual(sign_in.count("restartPollMonitorAfterSupersededFailure(sessionID: requestedSession"), 2)
+        recovery = sign_in[sign_in.index("private func restartPollMonitorAfterSupersededFailure"):]
+        self.assertIn("V3AuthPollMonitorRecoveryPolicy.shouldResume", recovery)
+        self.assertIn("task = Task", recovery)
+        self.assertIn("continuePollingAfterSupersededFailure", recovery)
+        self.assertIn("sessionDeadline: sessionDeadline", recovery)
+
     def test_first_unconfirmed_cancel_is_not_mislabeled_as_retry(self):
         host = shell()
         self.assertIn('@Published private(set) var cancellationWasAttempted = false', host)
