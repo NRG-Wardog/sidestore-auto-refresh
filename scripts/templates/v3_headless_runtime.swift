@@ -8,6 +8,12 @@ import SideSign
 // presenter, view controller, picker, alert, or remotely rendered view exists
 // on any normal path below. Every human decision crosses the bridge as data.
 
+enum V3PromptAnswerDisposition: Equatable {
+    case accepted
+    case alreadySettled
+    case unavailable
+}
+
 // Parked continuations resume from cancellation callbacks that run off-actor,
 // so this center stays non-isolated and guards its boxes with a lock.
 final class V3PromptCenter: @unchecked Sendable {
@@ -56,12 +62,19 @@ final class V3PromptCenter: @unchecked Sendable {
         })
     }
 
-    func answer(promptID: String, answer: [String: String]) -> Bool {
+    func answer(promptID: String, answer: [String: String]) -> V3PromptAnswerDisposition {
         lock.lock()
         let pending = boxes[promptID]
         lock.unlock()
-        guard let pending else { return false }
-        return settle(promptID: promptID, pending: pending, result: .success(answer))
+        guard let pending else { return .unavailable }
+        if settle(promptID: promptID, pending: pending, result: .success(answer)) { return .accepted }
+        lock.lock()
+        let stillPresent = boxes[promptID] === pending
+        let alreadyAnswered: Bool
+        if case .success? = pending.result { alreadyAnswered = true }
+        else { alreadyAnswered = false }
+        lock.unlock()
+        return stillPresent && alreadyAnswered ? .alreadySettled : .unavailable
     }
 
     @discardableResult
@@ -140,6 +153,19 @@ enum V3AuthFailureKind: String, Equatable {
     case network
     case accountRepairRequired
     case unknown
+}
+
+enum V3PromptResponseStatePolicy {
+    static func responsePending(_ disposition: V3PromptAnswerDisposition,
+                                acceptedPromptID: String?, promptID: String,
+                                sessionID: String, revision: Int,
+                                state: String, prompt: [String: Any]?) -> [String: Any]? {
+        guard disposition != .accepted, acceptedPromptID == promptID else { return nil }
+        var reply: [String: Any] = ["session": sessionID, "state": state,
+                                    "responsePending": true, "revision": revision]
+        if let prompt { reply["prompt"] = prompt }
+        return reply
+    }
 }
 
 func v3AuthFailureStage(_ kind: V3AuthFailureKind) -> CombinedFailure.Stage {
@@ -431,6 +457,7 @@ final class V3AuthCenter {
         var previousFailure: [String: Any]?
         var terminalAt: Date?
         var cancellationRequested = false
+        var acceptedPromptID: String?
         var submittedAppleID: String?
         var authenticatedAppleID: String?
         var accountAppleIDAtStart: String?
@@ -670,15 +697,25 @@ final class V3AuthCenter {
     }
 
     func respond(id: String, promptID: String, answer: [String: String]) -> [String: Any]? {
-        guard let session = sessions[id],
-              V3AuthSessionResponsePolicy.mayRespond(
-                terminalIsEmpty: session.terminal.isEmpty,
-                cancellationRequested: session.cancellationRequested,
-                promptMatches: session.prompt?["id"] as? String == promptID) else { return nil }
-        guard V3HeadlessRuntime.shared.prompts.answer(promptID: promptID, answer: answer) else {
+        guard let session = sessions[id], session.terminal.isEmpty,
+              !session.cancellationRequested else { return nil }
+        if let pending = V3PromptResponseStatePolicy.responsePending(.unavailable,
+            acceptedPromptID: session.acceptedPromptID, promptID: promptID,
+            sessionID: id, revision: session.revision, state: "awaitingPrompt", prompt: session.prompt) {
+            return pending
+        }
+        guard session.prompt?["id"] as? String == promptID else { return nil }
+        let disposition = V3HeadlessRuntime.shared.prompts.answer(promptID: promptID, answer: answer)
+        if let pending = V3PromptResponseStatePolicy.responsePending(disposition,
+            acceptedPromptID: session.acceptedPromptID, promptID: promptID,
+            sessionID: id, revision: session.revision, state: "awaitingPrompt", prompt: session.prompt) {
+            return pending
+        }
+        guard disposition == .accepted else {
             return ["session": id, "state": "promptExpired",
                     "revision": sessions[id]?.revision ?? session.revision]
         }
+        sessions[id]?.acceptedPromptID = promptID
         sessions[id]?.attempts += 1
         sessions[id]?.revision += 1
         // Clear previous failure on successful response to credentials prompt
@@ -1191,6 +1228,7 @@ final class V3OperationCenter {
         var terminalAt: Date?
         var ipaToken: String?
         var temporaryIPADirectory: URL?
+        var acceptedPromptID: String?
     }
 
     var sessions: [String: Session] = [:]
@@ -1331,11 +1369,23 @@ final class V3OperationCenter {
 
     func answer(id: String, promptID: String, answer: [String: String]) -> [String: Any]? {
         guard let session = sessions[id], case nil = session.terminal.value,
-              !session.terminal.isCancellationRequested,
-              session.prompt?["id"] as? String == promptID else { return nil }
-        guard V3HeadlessRuntime.shared.prompts.answer(promptID: promptID, answer: answer) else {
+              !session.terminal.isCancellationRequested else { return nil }
+        if let pending = V3PromptResponseStatePolicy.responsePending(.unavailable,
+            acceptedPromptID: session.acceptedPromptID, promptID: promptID,
+            sessionID: id, revision: 0, state: "working", prompt: session.prompt) {
+            return pending
+        }
+        guard session.prompt?["id"] as? String == promptID else { return nil }
+        let disposition = V3HeadlessRuntime.shared.prompts.answer(promptID: promptID, answer: answer)
+        if let pending = V3PromptResponseStatePolicy.responsePending(disposition,
+            acceptedPromptID: session.acceptedPromptID, promptID: promptID,
+            sessionID: id, revision: 0, state: "working", prompt: session.prompt) {
+            return pending
+        }
+        guard disposition == .accepted else {
             return ["session": id, "state": "promptExpired"]
         }
+        sessions[id]?.acceptedPromptID = promptID
         return poll(id: id)
     }
 

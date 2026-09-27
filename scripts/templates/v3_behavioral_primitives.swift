@@ -1169,10 +1169,15 @@ enum V3RefreshAllTerminalEvidencePolicy {
               summary["run_id"] as? String == runID,
               let verified = summary["verified"] as? NSNumber,
               CFGetTypeID(verified) == CFBooleanGetTypeID(), verified.boolValue,
-              integer(summary["expected_count"]).map({ $0 > 0 }) == true,
-              integer(summary["result_count"]) == integer(summary["expected_count"]),
+              let expectedCount = integer(summary["expected_count"]),
+              expectedCount > 0, expectedCount <= 1024,
+              integer(summary["result_count"]) == expectedCount,
               integer(summary["failed_count"]) == 0,
-              integer(summary["skipped_count"]).map({ $0 >= 0 }) == true,
+              let skippedCount = integer(summary["skipped_count"]),
+              skippedCount >= 0, skippedCount <= 1024,
+              let requestedCount = integer(summary["requested_count"]),
+              requestedCount <= 1024,
+              expectedCount + skippedCount == requestedCount,
               record["run_id"] as? String == runID,
               record["state"] as? String == "completed",
               record["terminal_intent"] as? String == "verified",
@@ -1561,7 +1566,6 @@ struct V3UserFacingIssue: Equatable {
             if stage == CombinedFailure.Stage.network.rawValue
                 || stage == CombinedFailure.Stage.xpcConnection.rawValue
                 || stage == CombinedFailure.Stage.extensionLaunch.rawValue
-                || stage == CombinedFailure.Stage.extensionDiscovery.rawValue
                 || stage == CombinedFailure.Stage.serviceReadiness.rawValue
                 || stage == CombinedFailure.Stage.coreDevice.rawValue
                 || stage == CombinedFailure.Stage.cdTunnel.rawValue
@@ -2197,6 +2201,17 @@ struct V3OperationFailureDetails {
     }
 }
 
+struct V3OperationPromptFailureDetails {
+    let failure: V3OperationFailureDetails
+    let blocksResubmission: Bool
+
+    init(_ combinedFailure: CombinedFailure) {
+        let details = V3OperationFailureDetails(combinedFailure)
+        failure = details
+        blocksResubmission = details.retryDisposition != .allowed
+    }
+}
+
 // Keeps the failed pipeline stage across a Retry transition. A failure while
 // creating the next backend session is explicitly separate from pipeline failure.
 struct V3OperationRetryContext {
@@ -2250,7 +2265,10 @@ struct V3OperationRetryContext {
     var whatToDo: String {
         guard let currentFailure else { return "Review the operation and try again only when it is safe." }
         guard retryCouldNotStart else { return currentFailure.recommendedAction }
-        return "The retry could not start. \(currentFailure.recommendedAction)"
+        if previousFailure != nil {
+            return "The retry could not start. \(currentFailure.recommendedAction)"
+        }
+        return "The operation could not start. \(currentFailure.recommendedAction)"
     }
 
     var technicalDetails: String {
@@ -2504,7 +2522,16 @@ enum V3AuthReconciliationPresentationPolicy {
     static func resolve(reportedState: String, authenticated: Bool,
                         provisioningIncomplete: Bool,
                         previousFailureMessage: String? = nil) -> V3AuthReconciliationPresentation {
-        guard authenticated else { return .init(state: reportedState, message: "") }
+        guard authenticated else {
+            switch reportedState {
+            case "timedOut":
+                return .init(state: "timedOut", message: "Sign-in timed out. SideStore reports that no account is currently signed in.")
+            case "cancelled":
+                return .init(state: "cancelled", message: "Sign-in was cancelled. SideStore reports that no account is currently signed in.")
+            default:
+                return .init(state: reportedState, message: "")
+            }
+        }
         switch reportedState {
         case "failed":
             var message = provisioningIncomplete
@@ -2561,12 +2588,24 @@ struct V3AuthReconciliationGate {
         ticket.generation == generation && ticket.sessionID == sessionID &&
             ticket.state == state && ticket.revision == revision
     }
+
+    func ownsSingleReconciliation(after priorGeneration: UInt64) -> Bool {
+        generation == (priorGeneration &+ 1)
+    }
+}
+
+enum V3AuthReconciliationSessionPolicy {
+    static func mayStart(expectedSessionID: String?, currentSessionID: String?) -> Bool {
+        expectedSessionID == nil || expectedSessionID == currentSessionID
+    }
 }
 
 enum V3AuthSnapshotAuthorityPolicy {
     static func isAuthenticated(_ snapshot: [String: Bool]) -> Bool {
         snapshot["authenticated"] == true
     }
+
+    static func needsSignIn(authenticated: Bool) -> Bool { !authenticated }
 }
 
 enum V3AuthPollRecoveryPolicy {
@@ -2593,6 +2632,33 @@ enum V3AuthPollRecoveryPolicy {
     static func retryDelay(attempt: Int, remaining: TimeInterval) -> TimeInterval {
         guard remaining.isFinite, remaining > 0 else { return 0 }
         return min(retryDelay(attempt: attempt), remaining)
+    }
+}
+
+enum V3AuthPollFailureRacePolicy {
+    static func shouldIgnore(requestedSessionID: String, currentSessionID: String?,
+                             requestedRevision: Int, currentRevision: Int,
+                             requestedPromptResponseGeneration: UInt64,
+                             currentPromptResponseGeneration: UInt64,
+                             promptSubmissionInProgress: Bool) -> Bool {
+        currentSessionID == requestedSessionID &&
+            (requestedRevision != currentRevision ||
+             requestedPromptResponseGeneration != currentPromptResponseGeneration ||
+             promptSubmissionInProgress)
+    }
+}
+
+enum V3AuthAttemptFailureCommitPolicy {
+    static func mayCommit(requestedSessionID: String, currentSessionID: String?,
+                          capturedPromptResponseGeneration: UInt64,
+                          currentPromptResponseGeneration: UInt64,
+                          reconciliationGenerationBefore: UInt64,
+                          currentReconciliationGeneration: UInt64,
+                          cancellationInProgress: Bool, taskCancelled: Bool) -> Bool {
+        !cancellationInProgress && !taskCancelled &&
+            currentSessionID == requestedSessionID &&
+            currentPromptResponseGeneration == capturedPromptResponseGeneration &&
+            currentReconciliationGeneration == (reconciliationGenerationBefore &+ 1)
     }
 }
 

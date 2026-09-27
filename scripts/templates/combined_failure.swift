@@ -486,10 +486,14 @@ public struct CombinedFailure: Error, LocalizedError {
         switch stage {
         case .command where operation == "delete" && code == .timedOut:
             return "Reload the installed app list and verify the deletion before trying another delete."
-        case .hostContainer, .storagePreparation, .bookmarkCreation:
-            return "Keep existing data intact. Return to the host, check available storage, and use Retry Connection. Copy these diagnostics if it fails again."
+        case .hostContainer:
+            return "Reopen LiveContainer and check that it can access its shared App Group container. Keep existing data intact and copy diagnostics if the host container is still unavailable."
+        case .storagePreparation:
+            return "Check available storage and access to LiveContainer's shared App Group container. Keep existing data intact and copy diagnostics if preparation still fails."
+        case .bookmarkCreation:
+            return "Choose the file or folder again and grant LiveContainer access when prompted. Keep existing data intact and copy diagnostics if access still fails."
         case .extensionDiscovery:
-            return "Check that the installed combined package retains LiveProcess and its extension registration. Do not reset SideStore or guest data."
+            return "The combined app could not find its embedded LiveProcess extension. Confirm that the installed app is the combined LiveContainer + SideStore package; do not reset SideStore or guest data. Copy diagnostics if it continues."
         case .serviceReadiness:
             return "Wait for SideStore to finish starting, then retry the request."
         case .authentication, .provisioning, .signing: return "Review Account and Signing, then explicitly retry. Never share credentials or private keys."

@@ -67,7 +67,8 @@ struct RefreshAllAttemptHarness {
             "version": 1, "schema": "LiveContainerRefreshManifestSummaryV1",
             "run_id": compactRun, "verified": true,
             "expected_count": 3, "result_count": 3, "failed_count": 0, "skipped_count": 1,
-            "requested_ids": ["a.app", "b.app", "c.app"],
+            "requested_count": 4,
+            "requested_ids": ["a.app", "b.app", "c.app", "d.app"],
             "expected_ids": ["a.app", "b.app", "c.app"], "skipped_ids": ["d.app"]
         ] as [String: Any]
         var compactAttempt = V3RefreshAllAttemptState()
@@ -79,12 +80,33 @@ struct RefreshAllAttemptHarness {
         unverifiedSummary["manifest_summary"] = [
             "version": 1, "schema": "LiveContainerRefreshManifestSummaryV1",
             "run_id": compactRun, "verified": 1,
-            "expected_count": 3, "result_count": 3, "failed_count": 0, "skipped_count": 0
+            "expected_count": 3, "result_count": 3, "failed_count": 0, "skipped_count": 0,
+            "requested_count": 3
         ] as [String: Any]
         var unverifiedAttempt = V3RefreshAllAttemptState()
         unverifiedAttempt.begin(requestID: compactRequest)
         precondition(unverifiedAttempt.observe(unverifiedSummary) && unverifiedAttempt.phase == .failed,
                      "a numeric truthy value cannot impersonate a verified terminal summary")
+
+        for malformedCounts: [String: Any] in [
+            ["expected_count": 1025, "result_count": 1025, "failed_count": 0,
+             "skipped_count": 0, "requested_count": 1025],
+            ["expected_count": 3, "result_count": 3, "failed_count": 0,
+             "skipped_count": 0, "requested_count": 4],
+            ["expected_count": 3.5, "result_count": 3, "failed_count": 0,
+             "skipped_count": 0, "requested_count": 3],
+            ["expected_count": true, "result_count": 3, "failed_count": 0,
+             "skipped_count": 0, "requested_count": 3]
+        ] {
+            var malformed = compactTerminal
+            var summary = compactTerminal["manifest_summary"] as! [String: Any]
+            for (key, value) in malformedCounts { summary[key] = value }
+            malformed["manifest_summary"] = summary
+            var rejected = V3RefreshAllAttemptState()
+            rejected.begin(requestID: compactRequest)
+            precondition(rejected.observe(malformed) && rejected.phase == .failed,
+                         "oversized, inconsistent, fractional, or Boolean summary counts cannot prove success")
+        }
 
         // An old global manifest cannot verify a new run. The per-run terminal
         // record must contain a complete manifest carrying the same run_id.

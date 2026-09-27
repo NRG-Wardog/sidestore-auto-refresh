@@ -158,13 +158,7 @@ def patch(live, side, product):
         handler = template("combined_refresh_handler.swift")
         handler = handler.replace("/*MUTATION_GUARD*/", ", !V3ServiceBridge.shared.isMutating" if product == "v3" else "")
         handler = handler.replace("/*DISCONNECTED*/", "V3ServiceBridge.shared.disconnected()" if product == "v3" else "")
-        handler = handler.replace("/*REFRESH_READINESS*/", '''
-        let status = try await V3ServiceBridge.shared.request(operation: "snapshot")
-        guard status["busy"] as? Bool == false else {
-            throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
-                id: schedulerRunID ?? UUID().uuidString,
-                retryable: true, safeCause: .operationInProgress)
-        }''' if product == "v3" else "")
+        handler = handler.replace("/*REFRESH_READINESS*/", "")
         handler = handler.replace("/*SERVICE_PROBE*/", '''
         let until = Date().addingTimeInterval(30)
         var ready = false

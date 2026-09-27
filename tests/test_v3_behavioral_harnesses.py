@@ -142,7 +142,7 @@ class V3BehavioralHarnessTests(unittest.TestCase):
 
     def test_prompt_cancellation_and_duplicate_answers_execute(self):
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
-        begin = runtime.index("final class V3PromptCenter:")
+        begin = runtime.index("enum V3PromptAnswerDisposition:")
         end = runtime.index("\n@MainActor\nfinal class V3HeadlessRuntime", begin)
         prompt_center = runtime[begin:end]
         harness = (ROOT / "tests/fixtures/v3_prompt_race_harness.swift").read_text(encoding="utf-8")

@@ -316,6 +316,17 @@ class PromptTechnicalTests(unittest.TestCase):
         text = shell()
         self.assertIn(".textSelection(.enabled)", text)
 
+    def test_operation_prompt_preserves_typed_failure_and_blocks_unsafe_resubmission(self):
+        sheet = operation_sheet()
+        catch = sheet[sheet.index("private func answerPrompt(id:"):sheet.index("private func addSourceAndRetry")]
+        self.assertIn("V3OperationPromptFailureDetails(failure)", catch)
+        self.assertIn("promptFailure.failure.whatHappened", catch)
+        self.assertIn("promptFailure.failure.recommendedAction", catch)
+        self.assertIn("promptFailure.failure.technical", catch)
+        self.assertIn("promptResponseBlocked = promptFailure.blocksResubmission", catch)
+        self.assertNotIn("Check the connection, then try once more", catch)
+        self.assertIn("isSubmissionBlocked: promptResponseBlocked", sheet)
+
 
 class SourcesFeedbackTests(unittest.TestCase):
     def test_add_busy_and_success(self):
@@ -327,6 +338,17 @@ class SourcesFeedbackTests(unittest.TestCase):
         self.assertIn('return "Source added."', behavior)
         self.assertIn('return "Source already added."', behavior)
         self.assertNotIn('notice = "Source added."', text)
+
+    def test_source_add_retry_failure_keeps_what_happened_recovery_and_diagnostics_separate(self):
+        sheet = operation_sheet()
+        catch = sheet[sheet.index("private func addSourceAndRetry(id:"):sheet.index("private func retry()")]
+        self.assertIn("sourceAddFailure = details", catch)
+        self.assertIn("retryBlocked = true", catch)
+        self.assertIn("message = details.whatHappened", catch)
+        self.assertIn("whatToDo = details.recommendedAction", catch)
+        self.assertIn("technicalDetails = details.technical", catch)
+        self.assertIn("sourceAddRetryBlocked", sheet)
+        self.assertIn("retryability unknown", sheet)
 
     def test_remove_busy_and_success(self):
         text = shell()

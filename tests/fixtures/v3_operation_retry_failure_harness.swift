@@ -74,6 +74,18 @@ struct OperationRetryFailureHarness {
         precondition(encodingDetails.recommendedAction.contains("Copy Diagnostics"))
         precondition(!encodingDetails.recommendedAction.contains("signing"))
         precondition(!encodingFailure.recovery.contains("Reload the request"))
+        let encodingPromptFailure = V3OperationPromptFailureDetails(encodingFailure)
+        precondition(encodingPromptFailure.blocksResubmission &&
+                     encodingPromptFailure.failure.whatHappened == encodingFailure.safeMessage &&
+                     encodingPromptFailure.failure.technical.contains("responseEncodingFailed") &&
+                     encodingPromptFailure.failure.recommendedAction.contains("Repeating the same request will not help"),
+                     "an operation prompt must retain typed deterministic failure details and block duplicate submission")
+        let retryablePromptFailure = V3OperationPromptFailureDetails(CombinedFailure(
+            operation: "install", stage: .network, id: UUID().uuidString,
+            retryable: true, safeCause: .networkConnectionLost))
+        precondition(!retryablePromptFailure.blocksResubmission &&
+                     retryablePromptFailure.failure.whatHappened.contains("connection was lost"),
+                     "only a typed retryable response failure leaves the answer available")
 
         let oversizedFailure = CombinedFailure(operation: "catalog", stage: .catalog,
             id: UUID().uuidString, retryable: false, safeCause: .responseTooLarge)
@@ -124,6 +136,9 @@ struct OperationRetryFailureHarness {
         deterministicRetryStart.recordStartFailure(encodingFailure)
         precondition(deterministicRetryStart.whatToDo.contains("same request will not help"),
                      "retry-start copy must preserve deterministic response-encoding guidance")
+        precondition(!deterministicRetryStart.whatToDo.lowercased().contains("retry could not start") &&
+                     deterministicRetryStart.whatToDo.contains("operation could not start"),
+                     "a first opStart failure must not be described as a failed retry")
         precondition(startContext.technicalDetails.contains("previous_attempt_failure:"))
         print("V3_RETRY_SIGNING_STAGE_AND_START_FAILURE_PASS")
     }

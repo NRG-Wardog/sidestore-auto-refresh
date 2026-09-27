@@ -28,6 +28,15 @@ results = module("patch_refresh_result_bridge")
 
 
 class ServicePatchTests(unittest.TestCase):
+    def test_headless_patch_removes_only_hidden_app_icon_ui_observer(self):
+        observer = ("        NotificationCenter.default.addObserver(self, selector: "
+                    "#selector(MyAppsViewController.didChangeAppIcon(_:)), name: "
+                    "UIApplication.didChangeAppIconNotification, object: nil)\n")
+        source = "class HiddenMyAppsViewController {\n" + observer + "    }\n"
+        patched = service.remove_legacy_app_icon_observer(source)
+        self.assertNotIn("didChangeAppIconNotification", patched)
+        self.assertIn("class HiddenMyAppsViewController", patched)
+
     def fixture(self, directory):
         live_source = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
         side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
@@ -211,11 +220,16 @@ class ServicePatchTests(unittest.TestCase):
         self.assertIn('forKey: "liveContainerAutoRefreshUncertainMutationRunID"', refresh)
         perform = refresh[refresh.index("private func performRefresh(identifier:"):]
         perform = perform[:perform.index("private func releaseRefreshAdmission")]
+        self.assertLess(perform.index("V3DirectRefreshPreflightPolicy.isBlocked"),
+                        perform.index("try await ensureServiceConnected()"))
         self.assertLess(perform.index("try await ensureServiceConnected()"), perform.index("v3RefreshToken = token"))
         self.assertLess(perform.index("v3RefreshToken = token"), perform.index("sharedDefaults.set([\"run_id\": directClaimID"))
         admission = perform.index('operation: "refreshAdmissionBegin"')
         renewal = perform.index("sharedDefaults.set([\"run_id\": directClaimID", admission)
         self.assertLess(admission, renewal)
+        startup = (ROOT / "scripts/patch_combined_service_startup.py").read_text(encoding="utf-8")
+        self.assertIn('handler = handler.replace("/*REFRESH_READINESS*/", "")', startup)
+        self.assertNotIn('let status = try await V3ServiceBridge.shared.request(operation: "snapshot")', refresh)
         self.assertIn("V3RefreshAdmissionLease.lifetime + 60", perform)
         bridge = (ROOT / "scripts/patch_livecontainer_autorefresh.py").read_text(encoding="utf-8")
         self.assertIn("startScheduledRefresh(", bridge)
@@ -235,6 +249,7 @@ class ServicePatchTests(unittest.TestCase):
         self.assertIn("recoverOrphanedRunLedger()", scheduler)
         self.assertIn("V3RefreshTerminalRecoveryPolicy.action", scheduler)
         self.assertIn("private static func terminalManifestSummary", scheduler)
+        self.assertIn('"requested_count": (manifest["requested_ids"] as? [String] ?? []).count', scheduler)
         self.assertIn('runRecord.removeValue(forKey: "manifest")', scheduler)
         self.assertIn('["completed", "failed"].contains(currentState)', scheduler)
         host_handoff = scheduler[scheduler.index("private static func verifyPendingHostHandoff"):

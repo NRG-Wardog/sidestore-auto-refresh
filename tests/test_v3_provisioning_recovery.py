@@ -288,7 +288,8 @@ class AuthSuccessIsNotProvisioningSuccessTests(unittest.TestCase):
 
     def test_host_treats_an_authenticated_session_as_signed_in(self):
         text = shell()
-        self.assertIn("var needsSignIn: Bool { account == \"Not signed in\" && !authenticated }", text)
+        self.assertIn("var needsSignIn: Bool { V3AuthSnapshotAuthorityPolicy.needsSignIn(authenticated: authenticated) }", text)
+        self.assertNotIn('account == "Not signed in" && !authenticated', text)
         self.assertIn("authenticated = V3ServiceBridge.strictBool(snapshot[\"authenticated\"]) ?? false", text)
         self.assertIn("provisioningIncomplete = V3ServiceBridge.strictBool(snapshot[\"provisioningIncomplete\"]) ?? false", text)
 

@@ -10,7 +10,7 @@ struct PromptRaceHarness {
                 _ = try await waiter.value
                 preconditionFailure("cancelled prompt returned an answer")
             } catch is CancellationError {}
-            precondition(!center.answer(promptID: id, answer: ["code": "duplicate"]))
+            precondition(center.answer(promptID: id, answer: ["code": "duplicate"]) == .unavailable)
         }
         precondition(center.pendingCount == 0, "cancellation retained a prompt continuation")
 
@@ -22,12 +22,20 @@ struct PromptRaceHarness {
             await Task.yield()
         }
         precondition(center.pendingCount == 1, "prompt continuation was not installed")
-        precondition(center.answer(promptID: prompt, answer: ["action": "sms"]))
-        precondition(!center.answer(promptID: prompt, answer: ["action": "voice"]),
+        precondition(center.answer(promptID: prompt, answer: ["action": "sms"]) == .accepted)
+        precondition(center.answer(promptID: prompt, answer: ["action": "voice"]) == .alreadySettled,
                      "rapid duplicate answer was accepted")
+        let pendingReply = V3PromptResponseStatePolicy.responsePending(.unavailable,
+            acceptedPromptID: prompt, promptID: prompt, sessionID: "session",
+            revision: 2, state: "awaitingPrompt", prompt: ["id": prompt])
+        precondition(pendingReply?["responsePending"] as? Bool == true &&
+                     pendingReply?["state"] as? String == "awaitingPrompt",
+                     "a lost reply for an accepted response remains pending rather than becoming expired")
         let answer = try await waiter.value
         precondition(answer["action"] == "sms")
         precondition(center.pendingCount == 0, "answered continuation was retained")
+        precondition(center.answer(promptID: prompt, answer: ["action": "voice"]) == .unavailable,
+                     "a consumed prompt cannot accept another response")
         print("V3_PROMPT_RACE_PASS")
     }
 }

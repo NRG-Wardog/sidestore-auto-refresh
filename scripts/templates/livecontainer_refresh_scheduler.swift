@@ -166,7 +166,7 @@ enum LiveContainerAutoRefreshScheduler {
             return ["version": 1, "schema": "LiveContainerRefreshManifestSummaryV1",
                     "run_id": runID, "verified": verified,
                     "expected_count": 0, "result_count": 0,
-                    "failed_count": 0, "skipped_count": 0]
+                    "failed_count": 0, "skipped_count": 0, "requested_count": 0]
         }
         let expected = manifest["expected_ids"] as? [String] ?? []
         let results = manifest["results"] as? [[String: Any]] ?? []
@@ -176,7 +176,8 @@ enum LiveContainerAutoRefreshScheduler {
             "schema": "LiveContainerRefreshManifestSummaryV1", "run_id": runID,
             "verified": verified, "expected_count": expected.count,
             "result_count": results.count, "failed_count": failed,
-            "skipped_count": skipped.count]
+            "skipped_count": skipped.count,
+            "requested_count": (manifest["requested_ids"] as? [String] ?? []).count]
         if let verifiedAt = manifest["date"] as? Date { summary["verified_at"] = verifiedAt }
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
         for key in ["requested_ids", "expected_ids", "skipped_ids"] {

@@ -209,21 +209,21 @@ class RefreshHandler: NSObject {
             throw CombinedFailure(operation: "refresh", stage: .xpcConnection,
                 code: .invalidConfiguration, id: UUID().uuidString)
         }
-        // Readiness can await connection startup. Do not reserve the local
-        // handler token or publish a direct claim until after this preflight;
-        // if a scheduler run starts meanwhile, the direct entry exits without
-        // making the scheduler fail its own later handler call.
-        try await ensureServiceConnected()
-        /*REFRESH_READINESS*/
-        try Task.checkCancellation()
-        guard v3RefreshToken == nil /*MUTATION_GUARD*/ else {
-            throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
-                id: UUID().uuidString, retryable: true, safeCause: .operationInProgress)
-        }
         if schedulerRunID == nil && V3DirectRefreshPreflightPolicy.isBlocked(
             activeRunID: sharedDefaults.string(forKey: "liveContainerAutoRefreshActiveRunID"),
             hostHandoffPending: sharedDefaults.bool(forKey: "liveContainerAutoRefreshHostHandoff"),
             uncertainMutationRunID: sharedDefaults.string(forKey: "liveContainerAutoRefreshUncertainMutationRunID")) {
+            throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
+                id: UUID().uuidString, retryable: true, safeCause: .operationInProgress)
+        }
+        // Connect and verify service readiness before claiming local mutation
+        // state. The authoritative refreshAdmissionBegin request serializes
+        // against active service mutations below, so a separate full snapshot
+        // here would only duplicate the readiness probe.
+        try await ensureServiceConnected()
+        /*REFRESH_READINESS*/
+        try Task.checkCancellation()
+        guard v3RefreshToken == nil /*MUTATION_GUARD*/ else {
             throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
                 id: UUID().uuidString, retryable: true, safeCause: .operationInProgress)
         }
@@ -279,11 +279,9 @@ class RefreshHandler: NSObject {
         v3RefreshAdmissionRunID = run
         defer { if v3RefreshAdmissionRunID == run { v3RefreshAdmissionRunID = nil } }
         defer { if v3RefreshDispatchedRunID == run { v3RefreshDispatchedRunID = nil } }
-        // The readiness snapshot above is useful to explain current status,
-        // but it is not an ownership claim: authentication could begin after
-        // that snapshot and before this legacy XPC call. Reserve the mutation
-        // through the SideStore command gate before starting the direct refresh
-        // path. Authentication and refresh admission are serialized there.
+        // Reserve mutation ownership through the SideStore command gate before
+        // starting the legacy XPC refresh path. Authentication and refresh
+        // admission are serialized there.
         let admission = try await V3ServiceBridge.shared.request(
             operation: "refreshAdmissionBegin", target: run)
         guard admission["runID"] as? String == run,

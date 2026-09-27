@@ -137,6 +137,16 @@ class V3TwoFactorTests(unittest.TestCase):
                       (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
         self.assertIn("auth.deliveryProgressMessage", host)
 
+    def test_duplicate_accepted_prompt_response_remains_pending_until_terminal_reply(self):
+        backend = runtime()
+        host = shell()
+        self.assertIn("enum V3PromptAnswerDisposition", backend)
+        self.assertIn("acceptedPromptID", backend)
+        self.assertIn('"responsePending": true', backend)
+        self.assertIn('strictBool(reply["responsePending"]) == true', host)
+        self.assertIn("!promptSubmitting", host[host.index("func answer(promptID:"):])
+        self.assertIn("promptResponseGeneration &+= 1", host)
+
     def test_delivery_mode_selected_before_request(self):
         # The prompt includes the active mode in fields, which the handler
         # reads to know which delivery method the user chose.

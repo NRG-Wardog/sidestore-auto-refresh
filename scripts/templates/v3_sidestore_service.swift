@@ -127,7 +127,7 @@ final class V3SideStoreService: NSObject {
             operation,
             ownsActiveSession: V3HeadlessRuntime.shared.auth.ownsActiveSession(target))
         let operationMutationActive = V3ServiceMutationAdmissionPolicy.hasConflictingOperationMutation(
-            operation, target: target,
+            operation: operation, target: target,
             activeOperationID: V3HeadlessRuntime.shared.operations.activeMutationID)
         let refreshRelease = operation == "refreshAdmissionEnd" && refreshAdmission.owns(target)
         let controlReply = V3MutationReplyCacheBudget.isControlReply(operation: operation)

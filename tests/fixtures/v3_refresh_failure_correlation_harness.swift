@@ -50,6 +50,20 @@ struct RefreshFailureCorrelationHarness {
         precondition(V3RefreshAllFailureDiagnostics.text(
             requestID: homeRequest, runID: homeRun, record: managerTerminal) == nil,
             "a previous run failure was reused")
+
+        var compactFailureRecord = failed
+        compactFailureRecord["manifest_summary"] = [
+            "requested_ids": ["host.app", "guest.app"],
+            "expected_ids": ["host.app"], "skipped_ids": ["guest.app"]
+        ] as [String: Any]
+        compactFailureRecord.removeValue(forKey: "manifest")
+        let compactFailureDiagnostic = V3RefreshAllFailureDiagnostics.text(
+            requestID: homeRequest, runID: homeRun, record: compactFailureRecord)!
+        precondition(compactFailureDiagnostic.contains("target_app_ids=host.app,guest.app") &&
+                     compactFailureDiagnostic.contains("attempted_app_ids=host.app") &&
+                     compactFailureDiagnostic.contains("skipped_app_ids=guest.app"),
+                     "terminal compaction must retain current-run target IDs in copied diagnostics")
+
         precondition(!attempt.observe(runRecord(request: homeRequest, run: homeRun, state: "completed")),
             "a late success changed the terminal failure")
         let mismatchedFailure = runRecord(request: homeRequest, run: homeRun, state: "failed",

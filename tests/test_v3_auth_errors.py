@@ -118,7 +118,7 @@ class V3AuthErrorTests(unittest.TestCase):
         run = host[host.index("private func run(sessionID requestedSession: String)"):]
         run = run[:run.index("    private func pollLoop(")]
         self.assertIn('state = "resultUnknown"', run)
-        self.assertIn("snapshotConfirmed = await reconcile(force: true)", run)
+        self.assertIn("snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)", run)
         self.assertIn('"resultUnknown"].contains(state)', host)
         self.assertIn('"resultUnknown" ? "Cancel Unconfirmed Sign-In"', host)
         self.assertIn("could not confirm that the sign-in request stopped", host)
@@ -172,7 +172,7 @@ class V3AuthErrorTests(unittest.TestCase):
     def test_sign_in_reopening_reconciles_authoritative_side_store_snapshot(self):
         host = shell()
         sign_in = host[host.index("final class V3AuthStore"):host.index("struct V3SignInLink")]
-        self.assertIn("func reconcile(force: Bool = false) async", sign_in)
+        self.assertIn("func reconcile(force: Bool = false, expectedSession: String? = nil) async", sign_in)
         self.assertIn('request(operation: "snapshot")', sign_in)
         self.assertIn("V3AuthSnapshotAuthorityPolicy.isAuthenticated(authSnapshot)", sign_in)
         self.assertNotIn("!account.isEmpty", sign_in)
@@ -208,14 +208,14 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("shouldReconcileAfterTerminal(current)", host)
         poll_start = host.index("private func pollLoop(id: String, sessionDeadline: Date)")
         poll_loop = host[poll_start:host.index("private func apply(_ reply: [String: Any])", poll_start)]
-        self.assertIn("await reconcile(force: true)", poll_loop)
+        self.assertIn("await reconcile(force: true, expectedSession: id)", poll_loop)
         self.assertIn("V3AuthPromptResponsePolicy.failureMessage(error)", host)
         self.assertIn("V3AuthPromptResponsePolicy.diagnostics(error)", host)
         self.assertIn("Button(\"Copy Diagnostics\", systemImage: \"doc.on.doc\")", host)
         self.assertIn("isSubmissionBlocked: auth.promptResponseBlocked", host)
         retry = host[host.index("private func runProvisioningRetry(previouslyAvailable:"):]
         retry = retry[:retry.index("// V3_FINISH_LATER_PRESERVES_ACCOUNT_V1")]
-        self.assertIn("let snapshotConfirmed = await reconcile(force: true)", retry)
+        self.assertIn("let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)", retry)
         self.assertIn("snapshotConfirmed && provisioningSessionUnavailable", retry)
         self.assertIn("V3ProvisioningRetryRecoveryPolicy.availabilityAfterFailure", retry)
 
@@ -223,7 +223,7 @@ class V3AuthErrorTests(unittest.TestCase):
         host = shell()
         run = host[host.index("private func run(sessionID requestedSession: String)"):]
         run = run[:run.index("    private func pollLoop(")]
-        self.assertLess(run.index("let snapshotConfirmed = await reconcile(force: true)"),
+        self.assertLess(run.index("let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)"),
                         run.index('state = "resultUnknown"'))
         unknownOutcome = run[run.index("let failureMessage = V3FailureGuidance.message(error)"):]
         self.assertNotIn('state = "failed"', unknownOutcome)
@@ -248,14 +248,16 @@ class V3AuthErrorTests(unittest.TestCase):
         host = shell()
         retry = host[host.index("private func runProvisioningRetry(previouslyAvailable:"):]
         retry = retry[:retry.index("    // V3_FINISH_LATER_PRESERVES_ACCOUNT_V1")]
-        self.assertIn("await reconcile(force: true)", retry)
+        self.assertIn("await reconcile(force: true, expectedSession: requestedSession)", retry)
         self.assertIn("provisioningSessionUnavailable = true", retry)
         self.assertIn("snapshotConfirmed && provisioningSessionUnavailable", retry)
         self.assertIn("previouslyConfirmedAvailable: previouslyAvailable", retry)
         self.assertNotIn("provisioningRetryAvailable = true", retry)
         self.assertNotIn('The saved Apple session is no longer available. Sign in again', retry)
         self.assertIn("authProvisioningRetryNotDispatched", retry)
-        self.assertIn("provisioningRetryAvailable = snapshotConfirmed", retry)
+        self.assertIn("if snapshotConfirmed {", retry)
+        self.assertIn("provisioningSessionUnavailable = !provisioningRetryAvailable", retry)
+        self.assertNotIn("provisioningRetryAvailable || previouslyAvailable", retry)
 
     def test_prompt_expiry_and_session_timeout_have_distinct_recovery_states(self):
         host = shell()
@@ -267,7 +269,7 @@ class V3AuthErrorTests(unittest.TestCase):
         start = host.index('if V3ServiceBridge.strictBool(reply["promptExpired"]) == true')
         end = host.index("guard V3AuthSessionResponsePolicy.mayApplyReply", start)
         expiry = host[start:end]
-        reconcile = expiry.index("await reconcile(force: true)")
+        reconcile = expiry.index("await reconcile(force: true, expectedSession: session)")
         self.assertLess(expiry.index('message = "That verification session expired.'), reconcile)
         self.assertGreater(expiry.rfind("return"), reconcile)
         self.assertNotIn("Choose a verification method again.", host)
@@ -275,13 +277,18 @@ class V3AuthErrorTests(unittest.TestCase):
     def test_auth_reconciliation_rechecks_attempt_generation_after_snapshot(self):
         host = shell()
         sign_in = host[host.index("final class V3AuthStore"):host.index("struct V3SignInLink")]
-        reconcile = sign_in[sign_in.index("func reconcile(force: Bool = false)"):]
+        reconcile = sign_in[sign_in.index("func reconcile(force: Bool = false, expectedSession: String? = nil)"):]
         reconcile = reconcile[:reconcile.index("private func run(sessionID")]
         self.assertIn("reconciliationGate.begin(sessionID: session, state: state, revision: revision)", reconcile)
         self.assertIn("reconciliationGate.mayApply(ticket, sessionID: session", reconcile)
         self.assertIn("reconciliationGate.invalidate()", sign_in[sign_in.index("func begin()"):
             sign_in.index("var canBegin")])
         self.assertIn("V3AuthReconciliationGate", (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+        self.assertIn("V3AuthReconciliationSessionPolicy.mayStart", sign_in)
+        self.assertIn("expectedSession: requestedSession", sign_in)
+        self.assertIn("V3AuthAttemptFailureCommitPolicy.mayCommit", sign_in)
+        self.assertIn("V3AuthPollFailureRacePolicy.shouldIgnore", sign_in)
+        self.assertIn("promptResponseGeneration &+= 1", sign_in)
 
     def test_first_unconfirmed_cancel_is_not_mislabeled_as_retry(self):
         host = shell()
@@ -300,7 +307,10 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("if !signedIn, terminalReply == nil", cancel)
         self.assertNotIn('state = "cancelled"\n                message = "Sign-in was cancelled."', cancel)
         self.assertIn("V3AuthSessionResponsePolicy.mayApplyReply", store)
-        self.assertIn("V3AuthSessionResponsePolicy.mayRespond", runtime())
+        runtime_text = runtime()
+        self.assertIn("session.terminal.isEmpty", runtime_text)
+        self.assertIn("!session.cancellationRequested", runtime_text)
+        self.assertIn('"responsePending": true', runtime_text)
         run = store[store.index("private func run(sessionID requestedSession: String) async {"):]
         run = run[:run.index("private func pollLoop", 1)]
         self.assertIn("if isCancelling || Task.isCancelled { return }", run)

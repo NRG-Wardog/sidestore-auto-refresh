@@ -334,9 +334,12 @@ struct CatalogResponseEncodingHarness {
         precondition(replyBudget.record(V3WireContract.responseLimit, controlResponse: true))
         precondition(!replyBudget.canReserve(maximumResponseBytes: 1, preservingControlCapacity: false),
                      "reply-cache accounting must never exceed its byte ceiling")
-        precondition(V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: false) == 504 &&
-                     V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: true) == 512,
-                     "ordinary replies preserve bounded slots for terminal controls")
+        let ordinaryReplyLimit = V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: false)
+        let allReplyLimit = V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: true)
+        precondition(ordinaryReplyLimit == 480 && allReplyLimit == 512,
+                     "ordinary replies preserve 32 bounded slots for interactive controls")
+        precondition(allReplyLimit - ordinaryReplyLimit == V3MutationReplyCacheBudget.reservedControlReplies,
+                     "the configured reply reserve remains executable and symmetric")
         for operation in ["refreshAdmissionEnd", "authRespond", "opAnswer"] {
             precondition(V3MutationReplyCacheBudget.isControlReply(operation: operation),
                          "session continuation \(operation) must use the reserved reply capacity")

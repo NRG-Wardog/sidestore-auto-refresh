@@ -78,6 +78,13 @@ struct AuthOwnershipReconciliationHarness {
                          !incompleteAccount.message.contains("signed in successfully"),
                 "an incomplete account snapshot cannot replace the terminal \(terminal) attempt result")
         }
+        for terminal in ["timedOut", "cancelled", "resultUnknown", "failed", "promptExpired"] {
+            let completeAccount = V3AuthReconciliationPresentationPolicy.resolve(
+                reportedState: terminal, authenticated: true, provisioningIncomplete: false)
+            precondition(completeAccount.state == terminal &&
+                         !completeAccount.message.contains("signed in successfully"),
+                "a complete account snapshot cannot rewrite the terminal \(terminal) attempt result")
+        }
         let successfulIncompleteAccount = V3AuthReconciliationPresentationPolicy.resolve(
             reportedState: "working", authenticated: true, provisioningIncomplete: true)
         precondition(successfulIncompleteAccount.state == "authenticatedProvisioningIncomplete" &&
@@ -87,6 +94,9 @@ struct AuthOwnershipReconciliationHarness {
             reportedState: "timedOut", authenticated: false, provisioningIncomplete: false)
         precondition(signedOutTimeout.state == "timedOut",
                      "a signed-out snapshot does not turn an unconfirmed timeout into a different result")
+        precondition(signedOutTimeout.message.contains("no account is currently signed in") &&
+                     !signedOutTimeout.message.contains("Checking the current SideStore account"),
+                     "a confirmed signed-out snapshot must end the transient checking copy")
 
         let persistedAccountButNoSession = ["authenticated": false,
             "provisioningIncomplete": false, "provisioningRetryAvailable": false]
@@ -96,6 +106,9 @@ struct AuthOwnershipReconciliationHarness {
             "authenticated": true, "provisioningIncomplete": true,
             "provisioningRetryAvailable": false]),
             "an authenticated session remains signed in while provisioning is incomplete")
+        precondition(V3AuthSnapshotAuthorityPolicy.needsSignIn(authenticated: false) &&
+                     !V3AuthSnapshotAuthorityPolicy.needsSignIn(authenticated: true),
+            "a persisted email is display metadata and cannot override the session's authenticated fact")
 
         var reconciliationGate = V3AuthReconciliationGate()
         let oldSnapshotTicket = reconciliationGate.begin(sessionID: prior,
@@ -118,6 +131,55 @@ struct AuthOwnershipReconciliationHarness {
                      reconciliationGate.mayApply(newestSnapshotTicket, sessionID: current,
                         state: "failed", revision: 9),
             "the most recent reconciliation wins when account snapshots return out of order")
+
+        precondition(V3AuthReconciliationSessionPolicy.mayStart(
+            expectedSessionID: prior, currentSessionID: prior))
+        precondition(!V3AuthReconciliationSessionPolicy.mayStart(
+            expectedSessionID: prior, currentSessionID: current),
+            "a stale start task cannot mint a new reconciliation ticket for its replacement attempt")
+
+        precondition(V3AuthPollFailureRacePolicy.shouldIgnore(
+            requestedSessionID: current, currentSessionID: current,
+            requestedRevision: 8, currentRevision: 9,
+            requestedPromptResponseGeneration: 3, currentPromptResponseGeneration: 4,
+            promptSubmissionInProgress: false),
+            "a poll failure from before a completed or failed 2FA response cannot replace that response")
+        precondition(V3AuthPollFailureRacePolicy.shouldIgnore(
+            requestedSessionID: current, currentSessionID: current,
+            requestedRevision: 9, currentRevision: 9,
+            requestedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,
+            promptSubmissionInProgress: true),
+            "poll failures cannot overwrite an answer that is still being submitted")
+        precondition(!V3AuthPollFailureRacePolicy.shouldIgnore(
+            requestedSessionID: current, currentSessionID: current,
+            requestedRevision: 9, currentRevision: 9,
+            requestedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,
+            promptSubmissionInProgress: false),
+            "a current poll failure remains reportable when no newer answer exists")
+        precondition(!V3AuthAttemptFailureCommitPolicy.mayCommit(
+            requestedSessionID: current, currentSessionID: current,
+            capturedPromptResponseGeneration: 4, currentPromptResponseGeneration: 5,
+            reconciliationGenerationBefore: 12, currentReconciliationGeneration: 13,
+            cancellationInProgress: false, taskCancelled: false),
+            "a poll failure cannot commit resultUnknown after a newer 2FA response begins")
+        precondition(!V3AuthAttemptFailureCommitPolicy.mayCommit(
+            requestedSessionID: prior, currentSessionID: current,
+            capturedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,
+            reconciliationGenerationBefore: 12, currentReconciliationGeneration: 13,
+            cancellationInProgress: false, taskCancelled: false),
+            "an old attempt's catch cannot write into its replacement session")
+        precondition(!V3AuthAttemptFailureCommitPolicy.mayCommit(
+            requestedSessionID: current, currentSessionID: current,
+            capturedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,
+            reconciliationGenerationBefore: 12, currentReconciliationGeneration: 13,
+            cancellationInProgress: true, taskCancelled: false),
+            "authoritative cancellation prevents a late failure write")
+        precondition(V3AuthAttemptFailureCommitPolicy.mayCommit(
+            requestedSessionID: current, currentSessionID: current,
+            capturedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,
+            reconciliationGenerationBefore: 12, currentReconciliationGeneration: 13,
+            cancellationInProgress: false, taskCancelled: false),
+            "the current attempt may commit its own failure when no newer response exists")
 
         precondition(V3ProvisioningResumeAvailabilityPolicy.canResume(
             authenticated: true, currentAppleID: "Dev@Example.com", resumableAppleID: "dev@example.com"))

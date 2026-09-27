@@ -11,7 +11,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 6
+PATCH_VERSION = 7
 
 
 def remove_pbx_object(text, object_marker):
@@ -236,14 +236,17 @@ def patch_sign_in_operation(text):
         "        } else {\n"
         "            try await self.authenticationLoop()\n"
         "        }\n",
-        "        let (account, session) = if let silentResult = try await self.silentSignIn() {\n"
-        "            await self.signInHandler.handleSignInResult(.success(silentResult))\n"
+        "        let silentResult = try await self.silentSignIn()\n"
+        "        let (account, session) = if let silentResult {\n"
         "            silentResult\n"
         "        } else if V3ProvisioningResumeExecutionPolicy.mayPromptForCredentials(\n"
         "            forceProvisioningRetry: self.v3ForceProvisioningRetry) {\n"
         "            try await self.authenticationLoop()\n"
         "        } else {\n"
         "            throw V3ProvisioningResumeUnavailableError()\n"
+        "        }\n"
+        "        if let silentResult {\n"
+        "            await self.signInHandler.handleSignInResult(.success(silentResult))\n"
         "        }\n")
     text = replace(text,
         "        while true {\n"
@@ -280,6 +283,15 @@ def patch_sign_in_operation(text):
         "               !AuthManager.shared.hasStoredXcodeToken &&\n"
         "               !(error is V3ProvisioningResumeUnavailableError)\n")
     return text
+
+
+def remove_legacy_app_icon_observer(text):
+    # SideStore is built as a headless backend in v3. This observer exists only
+    # in its hidden My Apps screen, and the notification symbol is not part of
+    # the public UIKit API in the release SDK.
+    return replace(text,
+        "        NotificationCenter.default.addObserver(self, selector: #selector(MyAppsViewController.didChangeAppIcon(_:)), name: UIApplication.didChangeAppIconNotification, object: nil)\n",
+        "")
 
 
 def patch(live, side):
@@ -347,6 +359,8 @@ def patch(live, side):
     edit(side, "AltStore/AppDelegate.swift", sidestore_app_delegate)
     edit(side, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
          patch_sign_in_operation)
+    edit(side, "AltStore/My Apps/MyAppsViewController.swift",
+         remove_legacy_app_icon_observer)
     edit(side, "AltStore/Info.plist", headless_info)
     edit(side, "AltStore.xcodeproj/project.pbxproj", headless_project)
     def remove_starscream_pin(text):

@@ -539,6 +539,21 @@ struct SetupAndSemanticUXHarness {
         precondition(blockedNetworkIssue.primaryAction == .openConnectionCheck)
         precondition(blockedNetworkIssue.retryDisposition == .blocked)
 
+        for stage: CombinedFailure.Stage in [.hostContainer, .storagePreparation, .bookmarkCreation] {
+            let startupFailure = CombinedFailure(operation: "snapshot", stage: stage,
+                id: UUID().uuidString, retryable: false)
+            precondition(!startupFailure.recovery.localizedCaseInsensitiveContains("retry connection"),
+                         "\(stage.rawValue) recovery must not offer a connection retry without a matching action")
+            precondition(startupFailure.recovery.lowercased().contains("copy diagnostics"),
+                         "\(stage.rawValue) recovery must provide a useful diagnostics route")
+        }
+        let extensionFailure = CombinedFailure(operation: "snapshot", stage: .extensionDiscovery,
+            id: UUID().uuidString, retryable: false)
+        let extensionIssue = V3UserFacingIssue.make(extensionFailure)
+        precondition(extensionIssue.recoveryDestination != "connection" &&
+                     extensionFailure.recovery.contains("embedded LiveProcess extension"),
+                     "a missing LiveProcess extension is a package issue, not a connection failure")
+
         // A certificate failure must never be described as a connection problem.
         let certificateIssue = V3UserFacingIssue.make(
             CombinedFailure(operation: "refresh", stage: .signing, code: .failed,
