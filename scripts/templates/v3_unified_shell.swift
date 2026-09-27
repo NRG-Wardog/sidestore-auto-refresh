@@ -3623,6 +3623,11 @@ final class V3AuthStore: ObservableObject {
             let account = snapshot["account"] as? String ?? "Not signed in"
             let authoritative = (snapshot["authenticated"] as? Bool ?? false) || !account.isEmpty && account != "Not signed in"
             let incomplete = snapshot["provisioningIncomplete"] as? Bool ?? false
+            let canRetryProvisioning = snapshot["provisioningRetryAvailable"] as? Bool == true
+            if let reconciled = V3AuthTimeoutReconciliationPolicy.reconciledState(
+                reportedState: state, authenticated: authoritative, provisioningIncomplete: incomplete) {
+                state = reconciled
+            }
             if authoritative {
                 // V3_FINISH_LATER_RECONCILES_AS_SIGNED_IN_V1: authoritative state
                 // wins. A finished-later provisioning attempt still reconciles as
@@ -3641,9 +3646,13 @@ final class V3AuthStore: ObservableObject {
                     if provisioningMessage.isEmpty {
                         provisioningMessage = "Device provisioning did not complete. Retry provisioning, or finish later and come back."
                     }
-                    // The service only reports an authenticated session here, so
-                    // the saved session is present and a retry can skip 2FA.
-                    provisioningRetryAvailable = true
+                    // The account snapshot alone does not prove the process-local
+                    // authenticated session needed to resume provisioning survived.
+                    provisioningRetryAvailable = canRetryProvisioning
+                    provisioningSessionUnavailable = !canRetryProvisioning
+                    if !canRetryProvisioning {
+                        provisioningMessage = "Apple ID is signed in, but the saved provisioning session is unavailable. Open Account & Signing to sign in again before retrying setup."
+                    }
                 } else {
                     state = "completed"
                     team = snapshot["team"] as? String ?? ""
@@ -3713,7 +3722,12 @@ final class V3AuthStore: ObservableObject {
             }
             guard !Task.isCancelled, !isCancelling, session == id else { throw CancellationError() }
             apply(reply)
-            guard let current = reply["state"] as? String, current == "working" || current == "awaitingPrompt" else { return }
+            guard let current = reply["state"] as? String else { return }
+            if V3AuthTimeoutReconciliationPolicy.shouldReconcileAfterTerminal(current) {
+                await reconcile(force: true)
+                return
+            }
+            guard current == "working" || current == "awaitingPrompt" else { return }
         }
     }
 
@@ -3728,6 +3742,9 @@ final class V3AuthStore: ObservableObject {
         if oldPromptID != (prompt?["id"] as? String) {
             promptSubmitting = false
             if state == "awaitingPrompt" {
+                if V3AuthPromptResponsePolicy.shouldClearSubmissionFailure(
+                    oldPromptID: oldPromptID, newPromptID: prompt?["id"] as? String,
+                    state: state) { message = "" }
                 deliveryProgressMessage = ""
                 twoFactorTransientStep = nil
             }
@@ -3901,7 +3918,7 @@ final class V3AuthStore: ObservableObject {
                     currentPromptID: self.prompt?["id"] as? String,
                     submittedPromptID: promptID, cancellationInProgress: self.isCancelling) else { return }
                 promptSubmitting = false
-                message = "The response could not be submitted. Check the connection, then try once more."
+                message = V3AuthPromptResponsePolicy.failureMessage(error)
             }
         }
     }

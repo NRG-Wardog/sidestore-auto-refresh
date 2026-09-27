@@ -424,6 +424,14 @@ final class V3AuthCenter {
     // lowercased Apple ID and the typed stage are stored; never a token.
     private(set) var resumableProvisioning: (appleID: String, stage: String)?
 
+    func canResumeProvisioning() -> Bool {
+        let currentAppleID = AuthManager.shared.currentAppleID
+        return V3ProvisioningResumeAvailabilityPolicy.canResume(
+            authenticated: AuthManager.shared.isAuthenticated,
+            currentAppleID: currentAppleID,
+            resumableAppleID: resumableProvisioning?.appleID)
+    }
+
     var sessions: [String: Session] = [:]
     private var activeID: String?
     private var cancelledBeforeBegin = V3AuthStartCancellationRegistry()
@@ -1004,7 +1012,6 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
         defer {
             if center.sessions[sessionID]?.prompt?["id"] as? String == promptID {
                 center.sessions[sessionID]?.prompt = nil
-                center.sessions[sessionID]?.revision += 1
             }
         }
         return try await V3HeadlessRuntime.shared.prompts.park(promptID: promptID) {
@@ -1127,6 +1134,7 @@ final class V3OperationCenter {
 
     var sessions: [String: Session] = [:]
     private var mutationRegistry = V3OperationMutationRegistry()
+    var activeMutationID: String? { mutationRegistry.activeID }
 
     func start(kind: String, target: String, value: Bool?, sessionID requestedID: String,
                deadline: Date) async -> [String: Any] {

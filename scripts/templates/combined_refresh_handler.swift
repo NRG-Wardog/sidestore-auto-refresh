@@ -198,7 +198,8 @@ class RefreshHandler: NSObject {
             throw CombinedFailure(operation: "refresh", stage: .command, code: .invalidConfiguration, id: UUID().uuidString)
         }
         guard v3RefreshToken == nil /*MUTATION_GUARD*/ else {
-            throw CombinedFailure(operation: "refresh", stage: .command, code: .busy, id: UUID().uuidString, retryable: true)
+            throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
+                id: UUID().uuidString, retryable: true, safeCause: .operationInProgress)
         }
         let token = UUID(); v3RefreshToken = token
         defer { if v3RefreshToken == token { v3RefreshToken = nil } }
@@ -212,7 +213,7 @@ class RefreshHandler: NSObject {
         }
         guard v3RefreshAdmissionRunID == nil else {
             throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
-                code: .busy, id: run, retryable: true)
+                code: .busy, id: run, retryable: true, safeCause: .operationInProgress)
         }
         v3RefreshAdmissionRunID = run
         defer { if v3RefreshAdmissionRunID == run { v3RefreshAdmissionRunID = nil } }

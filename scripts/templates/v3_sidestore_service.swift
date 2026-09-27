@@ -46,6 +46,7 @@ final class V3SideStoreService: NSObject {
     var tasks: [String: Task<Void, Never>] = [:]
     var cancellations: [String: () -> Void] = [:]
     var completed: [String: (data: Data, deadline: Date)] = [:]
+    private var completedCacheBudget = V3MutationReplyCacheBudget()
     var mutationID: String?
     private var refreshAdmission = V3RefreshAdmissionLease()
     private var pendingRefreshAdmissionRequests: Set<String> = []
@@ -74,7 +75,13 @@ final class V3SideStoreService: NSObject {
             reply(encode(invalidRequestReply(for: data)))
             return
         }
-        completed = completed.filter { $0.value.deadline > Date() }
+        let expiredReplies = completed.compactMap { key, value in
+            value.deadline <= Date() ? (key, value.data.count) : nil
+        }
+        for (key, byteCount) in expiredReplies {
+            completed.removeValue(forKey: key)
+            completedCacheBudget.remove(byteCount)
+        }
         _ = refreshAdmission.expire()
         if let previous = completed[id] { reply(previous.data); return }
         if operation == "cancel" {
@@ -116,12 +123,16 @@ final class V3SideStoreService: NSObject {
         let authContinuation = V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
             operation,
             ownsActiveSession: V3HeadlessRuntime.shared.auth.ownsActiveSession(target))
+        let operationMutationActive = V3ServiceMutationAdmissionPolicy.hasConflictingOperationMutation(
+            operation, target: target,
+            activeOperationID: V3HeadlessRuntime.shared.operations.activeMutationID)
         let refreshRelease = operation == "refreshAdmissionEnd" && refreshAdmission.owns(target)
         guard V3ServiceMutationAdmissionPolicy.admits(isMutation: mutation,
-            anotherMutationActive: mutationID != nil,
+            anotherMutationActive: mutationID != nil || operationMutationActive,
             authenticationActive: V3HeadlessRuntime.shared.auth.hasActiveSession,
             isAuthContinuation: authContinuation,
-            responseCapacityAvailable: completed.count < 512,
+            responseCapacityAvailable: completed.count < 512 &&
+                completedCacheBudget.canReserve(),
             refreshActive: refreshAdmission.isActive,
             isRefreshRelease: refreshRelease) else {
             let failure = operation == "sourceRemoveConfirmed"
@@ -282,7 +293,16 @@ final class V3SideStoreService: NSObject {
                 }
             }
             let encoded = encode(response, operation: operation)
-            if mutation { completed[id] = (encoded, deadline) }
+            if mutation {
+                if completedCacheBudget.record(encoded.count) {
+                    completed[id] = (encoded, deadline)
+                } else {
+                    // Admission reserves one full maximum-size response for
+                    // this serialized mutation. Reaching this branch means an
+                    // internal cache-accounting invariant was violated.
+                    debugLog("[V3_WIRE] mutation_reply_cache_reservation_failed operation=\(operation)")
+                }
+            }
             reply(encoded)
         }
         Task { @MainActor in
@@ -350,7 +370,8 @@ final class V3SideStoreService: NSObject {
             guard refreshAdmission.acquire(runID: target,
                     requestID: id,
                     authenticationActive: V3HeadlessRuntime.shared.auth.hasActiveSession,
-                    anotherMutationActive: mutationID != nil && mutationID != id
+                    anotherMutationActive: (mutationID != nil && mutationID != id) ||
+                        V3HeadlessRuntime.shared.operations.activeMutationID != nil
                     // This ownership lifetime follows the native refresh timeout,
                     // not the short XPC begin-request deadline.
                     ) else {
@@ -755,10 +776,12 @@ final class V3SideStoreService: NSObject {
             ?? "Not signed in"
         _ = refreshAdmission.expire()
         return ["updatedAt": Date(), "busy": mutationID != nil ||
-                    V3HeadlessRuntime.shared.auth.hasActiveSession || refreshAdmission.isActive,
+                    V3HeadlessRuntime.shared.auth.hasActiveSession ||
+                    V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive,
                 "account": account,
                 "authenticated": authenticated,
                 "provisioningIncomplete": authenticated && activeAccount == nil,
+                "provisioningRetryAvailable": V3HeadlessRuntime.shared.auth.canResumeProvisioning(),
                 "team": team?.name ?? "No active team", "teamID": team?.identifier ?? "",
                 "signing": team == nil ? "Sign in required" : "Team selected",
                 "certificate": CertificateManager.shared.activeCertificate == nil ? "No active certificate" : "Active certificate available",

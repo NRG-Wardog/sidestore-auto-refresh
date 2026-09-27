@@ -123,6 +123,20 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertNotIn('let deadline = request["deadline"] as? Date', auth_cases)
         self.assertIn("V3AuthSessionExpiryPolicy.response(authenticated: authenticated,", runtime())
 
+    def test_auth_session_ownership_protects_reads_and_reconciles_timeout(self):
+        bridge = BRIDGE.read_text(encoding="utf-8")
+        service = SERVICE.read_text(encoding="utf-8")
+        host = shell()
+        self.assertIn("authSessionOwnership.hasActiveSession()", bridge)
+        self.assertIn("updateAuthSessionOwnership(operation: operation", bridge)
+        self.assertIn('"provisioningRetryAvailable": V3HeadlessRuntime.shared.auth.canResumeProvisioning()', service)
+        self.assertIn('let canRetryProvisioning = snapshot["provisioningRetryAvailable"] as? Bool == true', host)
+        self.assertIn("shouldReconcileAfterTerminal(current)", host)
+        poll_loop = host[host.index("private func pollLoop(id: String) async throws"):
+                        host.index("private func apply(_ reply: [String: Any])")]
+        self.assertIn("await reconcile(force: true)", poll_loop)
+        self.assertIn("V3AuthPromptResponsePolicy.failureMessage(error)", host)
+
     def test_auth_transport_failure_reconciles_before_showing_failed(self):
         host = shell()
         run = host[host.index("private func run(sessionID requestedSession: String)"):]

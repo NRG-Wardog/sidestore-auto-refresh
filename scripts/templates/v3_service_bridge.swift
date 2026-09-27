@@ -135,8 +135,10 @@ public final class V3ServiceBridge {
     private let commandTimeout: TimeInterval
     private let cancellationGrace: TimeInterval
     private var activeMutation: String?
+    private var authSessionOwnership = V3AuthSessionOwnership()
     public var isMutating: Bool {
-        activeMutation != nil || !activeOperationSessions.isEmpty || !cancellationRecovery.isEmpty
+        authSessionOwnership.hasActiveSession() || activeMutation != nil ||
+            !activeOperationSessions.isEmpty || !cancellationRecovery.isEmpty
     }
     public func hasUncertainOperationSession(_ sessionID: String) -> Bool {
         uncertainOperationSessions.contains(sessionID)
@@ -192,6 +194,10 @@ public final class V3ServiceBridge {
         }()
         let scopedSessionControl = ["opAnswer", "opCancel"].contains(operation) &&
             activeOperationSessions.contains(target)
+        let scopedAuthSessionControl = ["authRespond", "authCancel"].contains(operation) &&
+            authSessionOwnership.owns(target)
+        let replacesAuthSession = ["authBegin", "authRetryProvisioning"].contains(operation) &&
+            authSessionOwnership.hasActiveSession()
         let mutation = !V3WireContract.readOperations.contains(operation) ||
             ["opAnswer", "opCancel"].contains(operation)
         do {
@@ -207,7 +213,7 @@ public final class V3ServiceBridge {
             refreshAttemptActive: RefreshHandler.shared.v3RefreshToken != nil,
             anotherHostMutationActive: isMutating)
         if mutation {
-            guard scopedSessionControl || scopedRefreshAdmissionControl ||
+            guard scopedSessionControl || scopedAuthSessionControl || replacesAuthSession || scopedRefreshAdmissionControl ||
                     (!isMutating && RefreshHandler.shared.v3RefreshToken == nil) else {
                 if operation == "sourceRemoveConfirmed" {
                     throw CombinedFailure(operation: "source", stage: .source, code: .busy,
@@ -220,7 +226,7 @@ public final class V3ServiceBridge {
                 throw CombinedFailure(operation: operation, stage: .command, code: .busy,
                                       id: id, retryable: true)
             }
-            if !scopedSessionControl { activeMutation = id }
+            if !scopedSessionControl && !scopedAuthSessionControl { activeMutation = id }
         }
         defer { if activeMutation == id { activeMutation = nil } }
         let isBoundedSessionCreation = ["authBegin", "authRetryProvisioning",
@@ -264,6 +270,11 @@ public final class V3ServiceBridge {
                     activeOperationSessions.insert(session)
                     knownOperationSessions[session] = Date()
                     pruneKnownOperationSessions()
+                }
+                if ["authBegin", "authRetryProvisioning"].contains(operation),
+                   let session = operationSessionID,
+                   let sessionDeadline = requestPayload["sessionDeadline"] as? Date {
+                    authSessionOwnership.register(sessionID: session, deadline: sessionDeadline)
                 }
                 client.v3Execute(data) { response in
                     Task { @MainActor in
@@ -361,6 +372,7 @@ public final class V3ServiceBridge {
         }
         updateOperationSessionOwnership(operation: operation, target: target,
                                         payload: payload, result: result)
+        updateAuthSessionOwnership(operation: operation, sessionID: operationSessionID, result: result)
         return result
     }
 
@@ -387,9 +399,8 @@ public final class V3ServiceBridge {
         if let data = try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0) {
             RefreshHandler.shared.client?.v3Execute(data) { response in
                 Task { @MainActor in
-                    guard let reply = try? PropertyListSerialization.propertyList(from: response, format: nil) as? [String: Any],
-                          reply["id"] as? String == cancellationID,
-                          V3WireContract.strictBool(reply["refreshAdmissionReleased"]) == true else { return }
+                    guard V3RefreshAdmissionCancellationAckPolicy.accepts(response,
+                        cancellationID: cancellationID) else { return }
                     self.cancellationRecovery.removeValue(forKey: requestID)?.cancel()
                 }
             }
@@ -435,6 +446,15 @@ public final class V3ServiceBridge {
             uncertainOperationSessions.insert(sessionID)
             monitorOperationSessionUntilSettled(sessionID)
         }
+    }
+
+    private func updateAuthSessionOwnership(operation: String, sessionID: String?,
+                                            result: [String: Any]) {
+        guard ["authBegin", "authRetryProvisioning", "authPoll", "authRespond", "authCancel"].contains(operation),
+              let sessionID else { return }
+        authSessionOwnership.observe(operation: operation, sessionID: sessionID,
+                                     replySessionID: result["session"] as? String,
+                                     state: result["state"] as? String)
     }
 
     private func monitorOperationSessionIfNeeded(operation: String, sessionID: String?) {

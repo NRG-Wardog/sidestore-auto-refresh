@@ -98,6 +98,11 @@ struct OperationRetryFailureHarness {
         precondition(startContext.whatHappened.contains("retry could not start"))
         precondition(startContext.whatHappened.contains("sign"))
         precondition(startContext.technicalDetails.contains("retry_start_failure:"))
+
+        var deterministicRetryStart = V3OperationRetryContext()
+        deterministicRetryStart.recordStartFailure(encodingFailure)
+        precondition(deterministicRetryStart.whatToDo.contains("same request will not help"),
+                     "retry-start copy must preserve deterministic response-encoding guidance")
         precondition(startContext.technicalDetails.contains("previous_attempt_failure:"))
         print("V3_RETRY_SIGNING_STAGE_AND_START_FAILURE_PASS")
     }

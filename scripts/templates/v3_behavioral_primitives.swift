@@ -847,6 +847,20 @@ enum V3AuthPromptSubmissionPolicy {
     }
 }
 
+enum V3AuthPromptResponsePolicy {
+    static func shouldClearSubmissionFailure(oldPromptID: String?, newPromptID: String?,
+                                             state: String) -> Bool {
+        state == "awaitingPrompt" && oldPromptID != newPromptID
+    }
+
+    static func failureMessage(_ error: Error) -> String {
+        if let failure = error as? CombinedFailure {
+            return "\(failure.safeMessage) \(failure.recovery)"
+        }
+        return "The verification response could not be confirmed. The exact underlying cause could not be safely identified. Check the sign-in status before trying again."
+    }
+}
+
 struct V3AuthStartCancellationRegistry {
     private var cancelled: [String: Date] = [:]
 
@@ -2119,7 +2133,7 @@ struct V3OperationRetryContext {
     var whatToDo: String {
         guard let currentFailure else { return "Review the operation and try again only when it is safe." }
         guard retryCouldNotStart else { return currentFailure.recommendedAction }
-        return "The retry could not start. Reconnect to SideStore and check the technical details before trying again."
+        return "The retry could not start. \(currentFailure.recommendedAction)"
     }
 
     var technicalDetails: String {
@@ -2199,6 +2213,72 @@ enum V3IdleReadRetirementPolicy {
     }
 }
 
+struct V3AuthSessionOwnership {
+    private(set) var deadlines: [String: Date] = [:]
+    private static let terminalStates: Set<String> = [
+        "completed", "authenticatedProvisioningIncomplete", "cancelled", "timedOut", "failed"
+    ]
+
+    mutating func register(sessionID: String, deadline: Date, now: Date = Date()) {
+        prune(now: now)
+        guard let parsed = UUID(uuidString: sessionID), parsed.uuidString == sessionID,
+              deadline > now else { return }
+        deadlines[sessionID] = deadline
+        if deadlines.count > 256 {
+            let oldest = deadlines.sorted { $0.value < $1.value }
+            for (id, _) in oldest.prefix(deadlines.count - 256) { deadlines.removeValue(forKey: id) }
+        }
+    }
+
+    mutating func observe(operation: String, sessionID: String, replySessionID: String?,
+                          state: String?, now: Date = Date()) {
+        prune(now: now)
+        guard replySessionID == sessionID, let state, deadlines[sessionID] != nil else { return }
+        if Self.terminalStates.contains(state) {
+            deadlines.removeValue(forKey: sessionID)
+        } else if ["authBegin", "authRetryProvisioning"].contains(operation),
+                  ["working", "awaitingPrompt"].contains(state) {
+            // A successful new begin returns only after the previous auth task
+            // has unwound, so that response supersedes older host ownership.
+            deadlines = deadlines.filter { $0.key == sessionID }
+        }
+    }
+
+    mutating func prune(now: Date = Date()) {
+        deadlines = deadlines.filter { $0.value > now }
+    }
+
+    mutating func hasActiveSession(now: Date = Date()) -> Bool {
+        prune(now: now)
+        return !deadlines.isEmpty
+    }
+
+    func owns(_ sessionID: String, now: Date = Date()) -> Bool {
+        deadlines[sessionID].map { $0 > now } == true
+    }
+}
+
+enum V3ProvisioningResumeAvailabilityPolicy {
+    static func canResume(authenticated: Bool, currentAppleID: String?, resumableAppleID: String?) -> Bool {
+        guard authenticated, let currentAppleID, let resumableAppleID else { return false }
+        let current = currentAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let resumable = resumableAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !current.isEmpty && current == resumable
+    }
+}
+
+enum V3AuthTimeoutReconciliationPolicy {
+    static func shouldReconcileAfterTerminal(_ state: String) -> Bool { state == "timedOut" }
+
+    static func reconciledState(reportedState: String, authenticated: Bool,
+                                provisioningIncomplete: Bool) -> String? {
+        guard reportedState == "timedOut", authenticated else {
+            return reportedState == "timedOut" ? "timedOut" : nil
+        }
+        return provisioningIncomplete ? "authenticatedProvisioningIncomplete" : "completed"
+    }
+}
+
 enum V3AuthSessionExpiryPolicy {
     static func response(authenticated: Bool, resumable: Bool = false) -> [String: Any] {
         if authenticated {
@@ -2212,6 +2292,13 @@ enum V3AuthSessionExpiryPolicy {
 }
 
 enum V3ServiceMutationAdmissionPolicy {
+    static func hasConflictingOperationMutation(operation: String, target: String,
+                                                activeOperationID: String?) -> Bool {
+        guard let activeOperationID else { return false }
+        return !(target == activeOperationID &&
+            ["opPoll", "opAnswer", "opCancel"].contains(operation))
+    }
+
     static func admits(isMutation: Bool, anotherMutationActive: Bool,
                        authenticationActive: Bool, isAuthContinuation: Bool,
                        responseCapacityAvailable: Bool,

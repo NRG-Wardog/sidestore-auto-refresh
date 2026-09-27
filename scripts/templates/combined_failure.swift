@@ -525,14 +525,12 @@ public struct CombinedFailure: Error, LocalizedError {
     }
     public static func decode(_ value: [String: Any], expectedID: String) -> CombinedFailure? {
         guard Set(value.keys).isSubset(of: ["version", "operation", "stage", "code", "correlationID", "underlyingDomain", "underlyingCode", "retryable", "safeCause", "sourceStep"]),
-              let version = value["version"] as? NSNumber, CFGetTypeID(version) != CFBooleanGetTypeID(),
-              value["version"] as? Int == 1, value["correlationID"] as? String == expectedID,
+              Self.strictInteger(value["version"]) == 1, value["correlationID"] as? String == expectedID,
               let operation = value["operation"] as? String, operations.contains(operation),
               let stageName = value["stage"] as? String, let stage = Stage(rawValue: stageName),
               let codeName = value["code"] as? String, let code = Code(rawValue: codeName),
               let domain = value["underlyingDomain"] as? String, domains.contains(domain) || domain == "redacted",
-              let numberValue = value["underlyingCode"] as? NSNumber, CFGetTypeID(numberValue) != CFBooleanGetTypeID(),
-              let number = value["underlyingCode"] as? Int else { return nil }
+              let number = Self.strictInteger(value["underlyingCode"]) else { return nil }
         let safeCause: SafeCause?
         if let rawCause = value["safeCause"] {
             guard let causeName = rawCause as? String, let cause = SafeCause(rawValue: causeName) else { return nil }
@@ -550,6 +548,15 @@ public struct CombinedFailure: Error, LocalizedError {
             underlying: NSError(domain: domain, code: number), retryable: value["retryable"] as? Bool,
             safeCause: safeCause, sourceStep: sourceStep)
     }
+
+    private static func strictInteger(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(String(cString: number.objCType)) else {
+            return nil
+        }
+        return number.intValue
+    }
+
     public static func preserving(_ error: Error?, operation: String, stage: Stage, code: Code = .failed, id: String, retryable: Bool? = nil) -> CombinedFailure {
         if let known = error as? CombinedFailure {
             return known

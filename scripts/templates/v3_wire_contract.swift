@@ -137,3 +137,35 @@ enum V3WireContract {
         }
     }
 }
+
+enum V3RefreshAdmissionCancellationAckPolicy {
+    static func accepts(_ data: Data, cancellationID: String) -> Bool {
+        guard !data.isEmpty, data.count <= V3WireContract.responseLimit,
+              let reply = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              V3WireContract.strictInt(reply["version"]) == 1,
+              reply["id"] as? String == cancellationID,
+              V3WireContract.strictBool(reply["ok"]) == true,
+              V3WireContract.strictBool(reply["refreshAdmissionReleased"]) == true else { return false }
+        return true
+    }
+}
+
+struct V3MutationReplyCacheBudget {
+    static let maximumStoredBytes = 64 * 1024 * 1024
+    private(set) var storedBytes = 0
+
+    func canReserve(maximumResponseBytes: Int = V3WireContract.responseLimit) -> Bool {
+        maximumResponseBytes >= 0 && maximumResponseBytes <= Self.maximumStoredBytes &&
+            storedBytes <= Self.maximumStoredBytes - maximumResponseBytes
+    }
+
+    mutating func record(_ byteCount: Int) -> Bool {
+        guard byteCount >= 0, canReserve(maximumResponseBytes: byteCount) else { return false }
+        storedBytes += byteCount
+        return true
+    }
+
+    mutating func remove(_ byteCount: Int) {
+        storedBytes = max(0, storedBytes - max(0, byteCount))
+    }
+}

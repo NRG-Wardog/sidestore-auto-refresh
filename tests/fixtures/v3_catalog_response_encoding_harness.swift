@@ -159,6 +159,30 @@ struct CatalogResponseEncodingHarness {
                      "the classification must survive inside the structured envelope")
         precondition(decodedFailure.correlationID == fallbackID)
         precondition(decodedFailure.retryable == false)
+        var fractionalFailureVersion = envelope
+        fractionalFailureVersion["version"] = 1.0
+        precondition(CombinedFailure.decode(fractionalFailureVersion, expectedID: fallbackID) == nil,
+                     "an integral-looking plist real is not a protocol version")
+        var fractionalUnderlyingCode = envelope
+        fractionalUnderlyingCode["underlyingCode"] = 7.0
+        precondition(CombinedFailure.decode(fractionalUnderlyingCode, expectedID: fallbackID) == nil,
+                     "an integral-looking plist real is not an underlying integer code")
+        var boolUnderlyingCode = envelope
+        boolUnderlyingCode["underlyingCode"] = true
+        precondition(CombinedFailure.decode(boolUnderlyingCode, expectedID: fallbackID) == nil,
+                     "a Boolean cannot be decoded as a native error code")
+
+        let sourceFailure = CombinedFailure(operation: "source", stage: .source, code: .invalidResponse,
+            id: UUID().uuidString, safeCause: .sourceInvalidManifest, sourceStep: .manifestParsing)
+        let sourceRoundTripData = try! PropertyListSerialization.data(
+            fromPropertyList: sourceFailure.wire, format: .binary, options: 0)
+        let sourceRoundTrip = try! PropertyListSerialization.propertyList(
+            from: sourceRoundTripData, format: nil) as! [String: Any]
+        let decodedSourceFailure = CombinedFailure.decode(sourceRoundTrip,
+            expectedID: sourceFailure.correlationID)
+        precondition(decodedSourceFailure?.safeCause == .sourceInvalidManifest &&
+                     decodedSourceFailure?.sourceStep == .manifestParsing,
+                     "safe cause and source step must survive a plist round trip")
 
         // V3_CATALOG_ROW_POLICY_V1: duplicates are removed within a page and
         // across pages, first-seen order preserved.
@@ -173,6 +197,36 @@ struct CatalogResponseEncodingHarness {
         // A row with no usable identifier cannot be deduplicated, so it is
         // rejected rather than silently displayed.
         precondition(V3CatalogRowPolicy.dedupe([["name": "no id"]]).isEmpty)
+
+        let cancellationID = UUID().uuidString
+        func cancellationAck(_ reply: [String: Any]) -> Data {
+            try! PropertyListSerialization.data(fromPropertyList: reply, format: .binary, options: 0)
+        }
+        precondition(V3RefreshAdmissionCancellationAckPolicy.accepts(cancellationAck([
+            "version": 1, "id": cancellationID, "ok": true, "refreshAdmissionReleased": true
+        ]), cancellationID: cancellationID))
+        precondition(!V3RefreshAdmissionCancellationAckPolicy.accepts(cancellationAck([
+            "version": 1, "id": cancellationID, "ok": false, "refreshAdmissionReleased": true
+        ]), cancellationID: cancellationID))
+        precondition(!V3RefreshAdmissionCancellationAckPolicy.accepts(cancellationAck([
+            "version": 1.0, "id": cancellationID, "ok": true, "refreshAdmissionReleased": true
+        ]), cancellationID: cancellationID))
+        precondition(!V3RefreshAdmissionCancellationAckPolicy.accepts(cancellationAck([
+            "version": 1, "id": UUID().uuidString, "ok": true, "refreshAdmissionReleased": true
+        ]), cancellationID: cancellationID))
+        precondition(!V3RefreshAdmissionCancellationAckPolicy.accepts(
+            Data(repeating: 0, count: V3WireContract.responseLimit + 1), cancellationID: cancellationID))
+
+        var replyBudget = V3MutationReplyCacheBudget()
+        precondition(replyBudget.canReserve())
+        let nearBudget = V3MutationReplyCacheBudget.maximumStoredBytes - V3WireContract.responseLimit
+        precondition(replyBudget.record(nearBudget))
+        precondition(!replyBudget.canReserve(),
+                     "the cache must reserve room for one maximum-size mutation reply")
+        replyBudget.remove(V3WireContract.responseLimit)
+        precondition(replyBudget.canReserve())
+        precondition(replyBudget.record(V3WireContract.responseLimit))
+        precondition(!replyBudget.record(1), "reply-cache accounting must never exceed its byte ceiling")
 
         // V3_REFRESH_ADMISSION_WIRE_V1: reservation/release must cross the
         // actual plist contract as mutations with a run-scoped UUID.
