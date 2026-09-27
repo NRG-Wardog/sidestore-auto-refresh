@@ -153,7 +153,7 @@ struct V3UnifiedTabs: View {
         } message: { Text(status.notice ?? "") }
         .alert("Stay Informed About Refreshes", isPresented: $showNotificationsPrompt) {
             Button("Allow Notifications") {
-                Task { await LiveContainerAutoRefreshScheduler.requestNotificationPermission() }
+                Task { await LiveContainerAutoRefreshScheduler.requestNotificationPermissionFromUserAction() }
             }
             Button("Later", role: .cancel) {}
         } message: {
@@ -524,7 +524,7 @@ struct V3RefreshAllButton: View {
                             }
                             if [.allowed, .unknown].contains(terminalFailure.retryDisposition) {
                                 Button(terminalFailure.retryDisposition == .unknown
-                                    ? "Retry (outcome unknown)" : "Retry") {
+                                    ? "Retry (retryability unknown)" : "Retry") {
                                         retryFailedAttempt()
                                     }
                                     .disabled(!activeRun.isEmpty || status.presentation != nil || status.loading)
@@ -2532,7 +2532,7 @@ struct V3OperationSheet: View {
         return [.allowed, .unknown].contains(failureContext.retryDisposition)
     }
     private var retryButtonTitle: String {
-        failureContext.retryDisposition == .unknown ? "Retry (outcome unknown)" : "Retry"
+        failureContext.retryDisposition == .unknown ? "Retry (retryability unknown)" : "Retry"
     }
     private func recoveryActionTitle(for destination: String) -> String? {
         switch destination {
@@ -2687,17 +2687,22 @@ struct V3OperationSheet: View {
                 oldTask?.cancel()
                 Task { @MainActor in
                     var cancellationConfirmed = !mustConfirmCancel
+                    var confirmedOutcome = "cancelled"
                     if let oldSession {
                         do {
                             let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: oldSession)
-                            cancellationConfirmed = V3WireContract.strictBool(reply["backendSettled"])
-                                ?? reply["stopConfirmed"] as? Bool ?? true
+                            let terminalState = reply["state"] as? String
+                            cancellationConfirmed = V3OperationTerminalAcceptancePolicy.isSettledTerminal(
+                                state: terminalState,
+                                backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
+                                stopConfirmed: V3ServiceBridge.strictBool(reply["stopConfirmed"]))
+                            if cancellationConfirmed { confirmedOutcome = terminalState ?? "cancelled" }
                         } catch { cancellationConfirmed = false }
                     }
                     await oldTask?.value
                     if request.operation == "installSharedIPA", cancellationConfirmed {
                         status.installTerminal(attemptID: request.installAttemptID,
-                            operationID: request.id, outcome: "cancelled")
+                            operationID: request.id, outcome: confirmedOutcome)
                         let token = request.installAttemptID.flatMap {
                             status.resetInstallUI(attemptID: $0, outcome: "unexpected_cover_dismissal")
                         }
@@ -2916,8 +2921,8 @@ struct V3OperationSheet: View {
                 code: CombinedFailure.Code(rawValue: reply["code"] as? String ?? "") ?? .failed,
                 id: sessionID, retryable: reply["retryable"] as? Bool)
             failureContext.recordPipelineFailure(failure)
-            let backendSettled = V3WireContract.strictBool(reply["backendSettled"])
-            let outcomeUnknown = V3WireContract.strictBool(reply["outcomeUnknown"]) == true ||
+            let backendSettled = V3ServiceBridge.strictBool(reply["backendSettled"])
+            let outcomeUnknown = V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true ||
                 backendSettled != true
             needsDeviceConfirmation = outcomeUnknown
             if outcomeUnknown { uncertainSessionID = sessionID }
@@ -2988,9 +2993,9 @@ struct V3OperationSheet: View {
                     let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: oldSession)
                     let disposition = V3OperationRetrySafetyPolicy.disposition(
                         state: reply["state"] as? String,
-                        backendSettled: V3WireContract.strictBool(reply["backendSettled"])
-                            ?? V3WireContract.strictBool(reply["stopConfirmed"]),
-                        outcomeUnknown: V3WireContract.strictBool(reply["outcomeUnknown"]) == true)
+                        backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"])
+                            ?? V3ServiceBridge.strictBool(reply["stopConfirmed"]),
+                        outcomeUnknown: V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true)
                     if disposition == .alreadyCompleted {
                         await oldTask?.value
                         guard attempt.transitionInFlight, attempt.generation == transitionGeneration else { return }
@@ -3113,8 +3118,10 @@ struct V3OperationSheet: View {
             if let cancellationTarget {
                 do {
                     let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: cancellationTarget)
-                    let backendSettled = V3WireContract.strictBool(reply["backendSettled"])
-                        ?? V3WireContract.strictBool(reply["stopConfirmed"]) ?? false
+                    let backendSettled = V3OperationTerminalAcceptancePolicy.isSettledTerminal(
+                        state: reply["state"] as? String,
+                        backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
+                        stopConfirmed: V3ServiceBridge.strictBool(reply["stopConfirmed"]))
                     guard backendSettled else {
                         isDismissing = false
                         attempt.endTransition()
@@ -3412,6 +3419,7 @@ final class V3AuthStore: ObservableObject {
     @Published var prompt: [String: Any]?
     @Published var previousFailure: [String: Any]?
     @Published var attempts = 0
+    @Published private(set) var revision = 0
     @Published var message = ""
     @Published var deliveryProgressMessage = ""
     @Published var twoFactorTransientStep: V3TwoFactorStep?
@@ -3442,6 +3450,10 @@ final class V3AuthStore: ObservableObject {
     // whenever the service reports an authenticated terminal, regardless of
     // whether provisioning then failed.
     var isSignedIn: Bool { signedIn }
+    var signInButtonTitle: String {
+        if previousFailure?["kind"] as? String == "rateLimited" { return "Try Again After Waiting" }
+        return state == "idle" ? "Begin Sign In" : "Try Again"
+    }
     // The provisioning problem is only present when a classified failure arrived.
     var hasProvisioningProblem: Bool {
         state == "authenticatedProvisioningIncomplete" && !provisioningMessage.isEmpty
@@ -3453,6 +3465,8 @@ final class V3AuthStore: ObservableObject {
         task?.cancel()
         let requestedSession = UUID().uuidString
         session = requestedSession
+        attempts = 0
+        revision = 0
         state = "working"
         message = ""
         deliveryProgressMessage = ""
@@ -3487,6 +3501,8 @@ final class V3AuthStore: ObservableObject {
         guard !isCancelling, !["working", "awaitingPrompt"].contains(state) else { return }
         task?.cancel()
         session = UUID().uuidString
+        attempts = 0
+        revision = 0
         state = "working"
         message = ""
         prompt = nil
@@ -3513,10 +3529,18 @@ final class V3AuthStore: ObservableObject {
                   reply["state"] as? String != "failed" else {
                 // The saved session is gone. Fall back to a full, honest sign-in
                 // instead of silently claiming provisioning was retried.
-                state = "failed"
-                message = reply["message"] as? String
-                    ?? "The saved Apple session is no longer valid. Sign in again with this Apple ID."
-                provisioningMessage = ""
+                await reconcile(force: true)
+                if signedIn {
+                    state = "authenticatedProvisioningIncomplete"
+                    message = "Apple ID signed in successfully."
+                    provisioningMessage = "The saved provisioning session is no longer available. Open Account & Signing to reauthenticate before retrying setup."
+                    provisioningRetryAvailable = false
+                } else {
+                    state = "failed"
+                    message = reply["message"] as? String
+                        ?? "The saved Apple session is no longer valid. Sign in again with this Apple ID."
+                    provisioningMessage = ""
+                }
                 return
             }
             session = id
@@ -3621,11 +3645,13 @@ final class V3AuthStore: ObservableObject {
             guard V3AuthPollResponsePolicy.mayApply(
                 currentSessionID: session, replySessionID: reply["session"] as? String ?? "",
                 cancellationInProgress: isCancelling,
-                currentAttempt: attempts,
-                replyAttempt: reply["attempts"] as? Int ?? attempts,
+                currentRevision: revision,
+                replyRevision: reply["revision"] as? Int,
                 currentPromptID: prompt?["id"] as? String,
-                replyPromptID: (reply["prompt"] as? [String: Any])?["id"] as? String),
-                !Task.isCancelled else { throw CancellationError() }
+                replyPromptID: (reply["prompt"] as? [String: Any])?["id"] as? String) else {
+                continue
+            }
+            guard !Task.isCancelled, !isCancelling, session == id else { throw CancellationError() }
             apply(reply)
             guard let current = reply["state"] as? String, current == "working" || current == "awaitingPrompt" else { return }
         }
@@ -3635,6 +3661,7 @@ final class V3AuthStore: ObservableObject {
         let oldPromptID = prompt?["id"] as? String
         state = reply["state"] as? String ?? state
         attempts = reply["attempts"] as? Int ?? attempts
+        revision = reply["revision"] as? Int ?? revision
         prompt = reply["prompt"] as? [String: Any]
         previousFailure = V3AuthPromptFailurePolicy.applying(reply: reply, current: previousFailure)
         if reply["authenticated"] as? Bool == true { signedIn = true }
@@ -3771,7 +3798,9 @@ final class V3AuthStore: ObservableObject {
                     replySessionID: reply["session"] as? String ?? "",
                     cancellationInProgress: self.isCancelling,
                     submittedPromptID: promptID,
-                    currentPromptID: self.prompt?["id"] as? String) else { return }
+                    currentPromptID: self.prompt?["id"] as? String,
+                    currentRevision: self.revision,
+                    replyRevision: reply["revision"] as? Int) else { return }
                 apply(reply)
             } catch {
                 guard self.session == session, !self.isCancelling else { return }
@@ -3913,7 +3942,7 @@ struct V3SignInView: View {
                     Button {
                         auth.begin()
                     } label: {
-                        Label(auth.state == "idle" ? "Begin Sign In" : "Try Again", systemImage: "person.badge.key.fill")
+                        Label(auth.signInButtonTitle, systemImage: "person.badge.key.fill")
                     }
                     .disabled(!auth.canBegin)
                 }
@@ -5942,7 +5971,7 @@ struct V3SetupAssistantView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Button {
-                    Task { await LiveContainerAutoRefreshScheduler.requestNotificationPermission() }
+                    Task { await LiveContainerAutoRefreshScheduler.requestNotificationPermissionFromUserAction() }
                 } label: {
                     Label("Allow Refresh Notifications", systemImage: "bell.fill")
                 }

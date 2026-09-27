@@ -14,6 +14,16 @@ enum V3WireContract {
               CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
         return number.boolValue
     }
+
+    static func strictInt(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        let type = String(cString: number.objCType)
+        guard ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(type) else {
+            return nil
+        }
+        return number.intValue
+    }
     static let operations: Set<String> = ["snapshot", "catalog", "appIcon", "cancel", "refreshSources",
         "signOut", "syncAppIDs", "clearCache", "jit", "backupResult",
         "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning",
@@ -35,8 +45,7 @@ enum V3WireContract {
         guard data.count <= requestLimit,
               let request = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               Set(request.keys).isSubset(of: ["version", "id", "operation", "target", "deadline", "cursor", "payload"]),
-              let version = request["version"] as? NSNumber, CFGetTypeID(version) != CFBooleanGetTypeID(),
-              request["version"] as? Int == 1,
+              strictInt(request["version"]) == 1,
               let id = request["id"] as? String, UUID(uuidString: id) != nil,
               let operation = request["operation"] as? String, operations.contains(operation),
               let target = request["target"] as? String, target.utf8.count <= 4096,
@@ -44,9 +53,8 @@ enum V3WireContract {
               deadline > now, deadline.timeIntervalSince(now) <= 610 else { return nil }
         if request["value"] != nil { return nil }
         if let cursor = request["cursor"] {
-            guard operation == "catalog", let number = cursor as? NSNumber,
-                  CFGetTypeID(number) != CFBooleanGetTypeID(),
-                  let value = cursor as? Int, value >= 0, value <= 1_000_000 else { return nil }
+            guard operation == "catalog", let value = strictInt(cursor),
+                  value >= 0, value <= 1_000_000 else { return nil }
         }
         if let payload = request["payload"] {
             guard payload as? [String: Any] != nil else { return nil }

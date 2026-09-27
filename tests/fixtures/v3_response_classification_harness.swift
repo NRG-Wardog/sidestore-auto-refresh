@@ -65,6 +65,10 @@ struct ResponseClassificationHarness {
         precondition(V3WireContract.strictBool(NSNumber(value: 1)) == nil,
                      "numeric one must not impersonate a property-list Boolean")
         precondition(V3WireContract.strictBool("true") == nil)
+        precondition(V3WireContract.strictInt(1) == 1)
+        precondition(V3WireContract.strictInt(true as Any) == nil)
+        precondition(V3WireContract.strictInt(1.0 as Any) == nil,
+                     "a plist real equal to one must not impersonate an integer version")
         precondition(!V3WireContract.V3PropertyListValue.isEncodable(
                         Optional<String>.none as Any),
                      "an absent Optional must never be reported as encodable")

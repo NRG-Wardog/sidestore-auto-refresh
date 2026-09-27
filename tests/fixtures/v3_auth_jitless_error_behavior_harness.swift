@@ -48,17 +48,22 @@ struct V3AuthJITLessErrorBehaviorHarness {
             currentSessionID: sessionID, replySessionID: sessionID, cancellationInProgress: false,
             submittedPromptID: "prompt-A", currentPromptID: "prompt-B"),
             "a late answer for prompt A must not replace a newer prompt B in the same session")
-        precondition(!V3AuthPollResponsePolicy.mayApply(currentSessionID: sessionID,
-            replySessionID: sessionID, cancellationInProgress: false, currentAttempt: 1,
-            replyAttempt: 0, currentPromptID: "prompt-B", replyPromptID: "prompt-A"),
-            "an in-flight earlier poll must not roll the same auth session back to its prior prompt")
-        precondition(!V3AuthPollResponsePolicy.mayApply(currentSessionID: sessionID,
-            replySessionID: sessionID, cancellationInProgress: false, currentAttempt: 1,
-            replyAttempt: 1, currentPromptID: "prompt-B", replyPromptID: "prompt-A"))
         precondition(V3AuthPollResponsePolicy.mayApply(currentSessionID: sessionID,
-            replySessionID: sessionID, cancellationInProgress: false, currentAttempt: 1,
-            replyAttempt: 2, currentPromptID: "prompt-B", replyPromptID: nil),
-            "a newer verification result may advance the same session to terminal state")
+            replySessionID: sessionID, cancellationInProgress: false, currentRevision: 1,
+            replyRevision: 2, currentPromptID: "prompt-A", replyPromptID: "prompt-A"),
+            "the immediate reply to answering prompt A may still show A at a newer revision")
+        precondition(V3AuthPollResponsePolicy.mayApply(currentSessionID: sessionID,
+            replySessionID: sessionID, cancellationInProgress: false, currentRevision: 2,
+            replyRevision: 3, currentPromptID: "prompt-A", replyPromptID: "prompt-B"),
+            "a new prompt B may appear without another user-answer count change")
+        precondition(!V3AuthPollResponsePolicy.mayApply(currentSessionID: sessionID,
+            replySessionID: sessionID, cancellationInProgress: false, currentRevision: 3,
+            replyRevision: 1, currentPromptID: "prompt-B", replyPromptID: "prompt-A"),
+            "an in-flight earlier poll must not roll the same auth session back to prompt A")
+        precondition(V3AuthPollResponsePolicy.mayApply(currentSessionID: sessionID,
+            replySessionID: sessionID, cancellationInProgress: false, currentRevision: 3,
+            replyRevision: 4, currentPromptID: "prompt-B", replyPromptID: nil),
+            "a newer terminal verification result may clear the prompt")
         let beginRaceID = UUID().uuidString
         var beginCancellation = V3AuthStartCancellationRegistry()
         precondition(beginCancellation.cancelBeforeStart(beginRaceID),

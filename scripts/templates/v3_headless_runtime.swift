@@ -409,6 +409,7 @@ final class V3AuthCenter {
         var watchdog: Task<Void, Never>?
         var prompt: [String: Any]?
         var attempts = 0
+        var revision = 0
         var terminal = V3TerminalResponse()
         var deadline = Date.distantFuture
         var previousFailure: [String: Any]?
@@ -488,7 +489,7 @@ final class V3AuthCenter {
             V3HeadlessRuntime.shared.auth.expire(id: id)
         }
         debugLog("[V3_AUTH] BEGIN session=\(id) mode=\(mode.rawValue)")
-        return ["session": id, "state": "working"]
+        return ["session": id, "state": "working", "revision": sessions[id]?.revision ?? 0]
     }
 
     func run(id: String) async {
@@ -570,19 +571,25 @@ final class V3AuthCenter {
         cleanupSessions()
         guard let session = sessions[id] else {
             if cancelledBeforeBegin.contains(id) {
-                return ["session": id, "state": "cancelled", "authenticated": false]
+                return ["session": id, "state": "cancelled", "authenticated": false, "revision": 0]
             }
             return nil
         }
-        if let terminal = session.terminal.value { return terminal.merging(["session": id]) { current, _ in current } }
+        if let terminal = session.terminal.value {
+            var reply = terminal.merging(["session": id]) { current, _ in current }
+            reply["revision"] = session.revision
+            return reply
+        }
         if let prompt = session.prompt, !session.cancellationRequested {
-            var reply: [String: Any] = ["session": id, "state": "awaitingPrompt", "attempts": session.attempts, "prompt": prompt]
+            var reply: [String: Any] = ["session": id, "state": "awaitingPrompt", "attempts": session.attempts,
+                                        "revision": session.revision, "prompt": prompt]
             if let previousFailure = session.previousFailure {
                 reply["previousFailure"] = previousFailure
             }
             return reply
         }
         return ["session": id, "state": "working", "attempts": session.attempts,
+                "revision": session.revision,
                 "cancellationRequested": session.cancellationRequested]
     }
 
@@ -596,6 +603,7 @@ final class V3AuthCenter {
             return ["session": id, "state": "promptExpired"]
         }
         sessions[id]?.attempts += 1
+        sessions[id]?.revision += 1
         // Clear previous failure on successful response to credentials prompt
         if let prompt = sessions[id]?.prompt,
            prompt["kind"] as? String == "credentials" {
@@ -645,6 +653,7 @@ final class V3AuthCenter {
     @discardableResult
     private func finish(id: String, response: [String: Any]) -> Bool {
         guard var session = sessions[id], session.terminal.setIfEmpty(response) else { return false }
+        session.revision += 1
         session.terminalAt = Date()
         sessions[id] = session
         cleanupSessions()
@@ -708,6 +717,9 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
         }
         return try await center.promptsParked(promptID: promptID) {
             guard center.sessions[self.sessionID]?.terminal.isEmpty == true else { return }
+            if center.sessions[self.sessionID]?.prompt?["id"] as? String != promptID {
+                center.sessions[self.sessionID]?.revision += 1
+            }
             center.sessions[self.sessionID]?.prompt = prompt
             debugLog("[V3_AUTH] PROMPT session=\(self.sessionID) kind=\(kind) attempts=\(center.sessions[self.sessionID]?.attempts ?? 0)")
         }
@@ -1265,10 +1277,16 @@ final class V3OperationCenter {
         guard let parsedID = UUID(uuidString: id), parsedID.uuidString == id else { return nil }
         guard let session = sessions[id] else {
             if let unknown = V3OperationMissingSessionPolicy.unknownTerminal(
-                sessionID: id, knownStarted: knownStarted) { return unknown }
+                sessionID: id, knownStarted: knownStarted) {
+                // The start may have crossed XPC but not yet reached this
+                // actor. Record cancellation so a delayed start cannot launch.
+                _ = mutationRegistry.cancel(id)
+                return unknown
+            }
             _ = mutationRegistry.cancel(id)
             cleanupSessions()
-            return ["session": id, "state": "cancelled", "stopConfirmed": true]
+            return ["session": id, "state": "cancelled", "stopConfirmed": true,
+                    "backendSettled": true]
         }
         if session.terminal.value != nil, session.preparation.isFinished { return terminalReply(id: id) }
         if !session.preparation.isFinished {

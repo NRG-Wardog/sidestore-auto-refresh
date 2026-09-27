@@ -42,6 +42,10 @@ struct OperationTerminalHarness {
         precondition(V3OperationMissingSessionPolicy.unknownTerminal(
             sessionID: forgottenSessionID, knownStarted: false) == nil,
             "a known pre-start cancellation must use the before-start cancellation registry")
+        var delayedStartRegistry = V3OperationMutationRegistry()
+        precondition(delayedStartRegistry.cancel(forgottenSessionID) == .recordedBeforeStart)
+        precondition(delayedStartRegistry.begin(forgottenSessionID) == .cancelledBeforeStart,
+            "opCancel before the delayed start must prevent the mutation from launching")
         precondition(V3OperationStartDispatchPolicy.provesNotDispatched(resultWasReturned: false))
         precondition(!V3OperationStartDispatchPolicy.provesNotDispatched(resultWasReturned: true),
             "cancellation after opStart produced a session must not erase operation ownership")
@@ -52,6 +56,14 @@ struct OperationTerminalHarness {
             target: forgottenSessionID, requestedStartSession: nil,
             resultSession: UUID().uuidString),
             "a terminal reply for another operation session must not release this session's gate")
+        precondition(V3OperationTerminalAcceptancePolicy.isSettledTerminal(
+            state: "completed", backendSettled: true, stopConfirmed: nil))
+        precondition(!V3OperationTerminalAcceptancePolicy.isSettledTerminal(
+            state: "working", backendSettled: true, stopConfirmed: true),
+            "a working result cannot authorize staged-file cleanup")
+        precondition(!V3OperationTerminalAcceptancePolicy.isSettledTerminal(
+            state: "completed", backendSettled: nil, stopConfirmed: nil),
+            "missing settlement evidence must preserve the staged IPA and mutation owner")
 
         let preparation = V3OperationPreparationGate()
         var cancellations = 0

@@ -142,6 +142,9 @@ print("POLICY_TESTS_PASSED")
 
     def test_notification_and_completion_contract(self):
         self.assertIn("await requestNotificationPermission()", patch.HOST_SCHEDULER)
+        self.assertIn("requestNotificationPermissionFromUserAction", patch.HOST_SCHEDULER)
+        self.assertIn("authorizationStatus == .denied", patch.HOST_SCHEDULER)
+        self.assertIn("UIApplication.openSettingsURLString", patch.HOST_SCHEDULER)
         self.assertIn("gate.claim()", patch.HOST_SCHEDULER)
         self.assertIn("try Task.checkCancellation()", patch.HOST_SCHEDULER)
         self.assertIn("UNTimeIntervalNotificationTrigger", patch.HOST_SCHEDULER)

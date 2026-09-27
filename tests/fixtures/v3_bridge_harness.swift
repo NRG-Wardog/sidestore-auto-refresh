@@ -8,6 +8,7 @@ final class FakeClient {
     var backendSettled = true
     var operationState = "working"
     var rejectOperationStart = false
+    var badVersionOperationStart = false
     var omitOutcomeUnknown = false
     var replies: [() -> Void] = []
     var cancellations = 0
@@ -25,7 +26,7 @@ final class FakeClient {
             if rejectOperationStart {
                 let failure = CombinedFailure(operation: "install", stage: .command,
                     code: .busy, id: request["id"] as! String, retryable: true)
-                let rejected: [String: Any] = ["version": 1, "id": request["id"]!,
+                let rejected: [String: Any] = ["version": badVersionOperationStart ? 2 : 1, "id": request["id"]!,
                     "error": "busy", "failure": failure.wire,
                     "operationNotDispatched": true]
                 let encoded = try! PropertyListSerialization.data(fromPropertyList: rejected,
@@ -245,6 +246,22 @@ struct BridgeTests {
         precondition(!bridge.isMutating && !bridge.hasUncertainOperationSession(rejectedSession),
             "a structured pre-dispatch rejection must release session ownership")
         client.rejectOperationStart = false
+
+        // A malformed root version cannot use the rejection marker to release
+        // ownership; only a validated correlated envelope proves no dispatch.
+        client.rejectOperationStart = true
+        client.badVersionOperationStart = true
+        let malformedRejectedSession = UUID().uuidString
+        do {
+            _ = try await bridge.request(operation: "opStart",
+                payload: ["kind": "install", "session": malformedRejectedSession])
+            preconditionFailure("an invalid-version start rejection was accepted")
+        } catch {}
+        precondition(bridge.isMutating && bridge.hasUncertainOperationSession(malformedRejectedSession),
+            "a malformed rejection must preserve unknown operation ownership")
+        precondition(bridge.confirmUncertainOperationAfterDeviceCheck(sessionID: malformedRejectedSession))
+        client.rejectOperationStart = false
+        client.badVersionOperationStart = false
 
         // Lose the first terminal poll response, then let the owner monitor find
         // the backend completion. The UI retry policy must preserve completion.

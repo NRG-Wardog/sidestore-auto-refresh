@@ -791,8 +791,13 @@ enum V3AuthSessionResponsePolicy {
     static func mayApplyReply(currentSessionID: String?, replySessionID: String,
                               cancellationInProgress: Bool,
                               submittedPromptID: String? = nil,
-                              currentPromptID: String? = nil) -> Bool {
+                              currentPromptID: String? = nil,
+                              currentRevision: Int? = nil,
+                              replyRevision: Int? = nil) -> Bool {
         guard !cancellationInProgress, currentSessionID == replySessionID else { return false }
+        if let currentRevision {
+            guard let replyRevision, replyRevision >= currentRevision else { return false }
+        }
         guard let submittedPromptID else { return true }
         return currentPromptID == submittedPromptID
     }
@@ -811,12 +816,12 @@ enum V3AuthSessionResponsePolicy {
 
 enum V3AuthPollResponsePolicy {
     static func mayApply(currentSessionID: String?, replySessionID: String,
-                         cancellationInProgress: Bool, currentAttempt: Int,
-                         replyAttempt: Int, currentPromptID: String?,
+                         cancellationInProgress: Bool, currentRevision: Int,
+                         replyRevision: Int?, currentPromptID: String?,
                          replyPromptID: String?) -> Bool {
         guard !cancellationInProgress, currentSessionID == replySessionID,
-              replyAttempt >= currentAttempt else { return false }
-        if replyAttempt == currentAttempt, let currentPromptID,
+              let replyRevision, replyRevision >= currentRevision else { return false }
+        if replyRevision == currentRevision, let currentPromptID,
            replyPromptID != currentPromptID { return false }
         return true
     }
@@ -1409,6 +1414,9 @@ struct V3UserFacingIssue: Equatable {
                 || safeCause == CombinedFailure.SafeCause.provisioningProfileUnavailable.rawValue
                 || stage == CombinedFailure.Stage.signing.rawValue {
                 return "certificates"
+            }
+            if operation == "source" && stage == CombinedFailure.Stage.xpcConnection.rawValue {
+                return "connection"
             }
             if operation == "source" || sourceStep == CombinedFailure.SourceStep.manifestParsing.rawValue
                 || sourceStep == CombinedFailure.SourceStep.sourceDownload.rawValue {
@@ -2022,7 +2030,7 @@ struct V3OperationFailureDetails {
                 return "This operation is not marked safe to retry. Check the app and signing status before running it again."
             }
             if retryable == nil {
-                return "The service could not determine whether retry is safe. Check the app and signing status, then use Retry (outcome unknown) only if appropriate."
+                return "The service could not determine whether retry is safe. Check the app and signing status before deciding to retry."
             }
             return whatToDo
         }
@@ -2125,6 +2133,14 @@ enum V3OperationMissingSessionPolicy {
     }
 }
 
+enum V3OperationTerminalAcceptancePolicy {
+    static func isSettledTerminal(state: String?, backendSettled: Bool?, stopConfirmed: Bool?) -> Bool {
+        guard ["completed", "failed", "cancelled", "requiresSource", "waitingForAuthentication"]
+                .contains(state ?? "") else { return false }
+        return backendSettled == true || stopConfirmed == true
+    }
+}
+
 enum V3OperationStartDispatchPolicy {
     static func provesNotDispatched(resultWasReturned: Bool) -> Bool {
         !resultWasReturned
@@ -2136,6 +2152,19 @@ enum V3OperationSessionCorrelationPolicy {
                         resultSession: String?) -> Bool {
         guard ["opStart", "opPoll", "opAnswer", "opCancel"].contains(operation) else { return true }
         let expected = operation == "opStart" ? requestedStartSession : target
+        guard let expected, !expected.isEmpty else { return false }
+        return resultSession == expected
+    }
+}
+
+enum V3AuthSessionCorrelationPolicy {
+    static func matches(operation: String, target: String, requestedStartSession: String?,
+                        resultSession: String?) -> Bool {
+        guard ["authBegin", "authRetryProvisioning", "authPoll", "authRespond", "authCancel"].contains(operation) else {
+            return true
+        }
+        let expected = ["authBegin", "authRetryProvisioning"].contains(operation)
+            ? requestedStartSession : target
         guard let expected, !expected.isEmpty else { return false }
         return resultSession == expected
     }

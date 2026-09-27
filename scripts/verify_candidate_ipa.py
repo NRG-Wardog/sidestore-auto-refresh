@@ -281,7 +281,7 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         "liveprocess_extension": live_process_path,
         "required_frameworks": sorted(REQUIRED_FRAMEWORKS),
         "sidestore_storyboard_root": "absent",
-        "sidestore_excluded_ui_and_audio_resources": "absent",
+        "sidestore_legacy_storyboard_nib_audio": "absent",
         "sidestore_legacy_background_modes": "absent",
         "app_group": REQUIRED_GROUP,
         "url_schemes": sorted(REQUIRED_SCHEMES),

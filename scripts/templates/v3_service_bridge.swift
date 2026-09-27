@@ -78,8 +78,7 @@ enum V3CatalogRequestContext {
             throw CombinedFailure(operation: operation, stage: hostStage(for: operation),
                                   code: .invalidResponse, id: id)
         }
-        guard V3WireContract.strictBool(decoded["version"]) == nil,
-              decoded["version"] as? Int == 1 else {
+        guard V3WireContract.strictInt(decoded["version"]) == 1 else {
             throw CombinedFailure(operation: operation, stage: hostStage(for: operation),
                                   code: .invalidResponse, id: id)
         }
@@ -121,11 +120,15 @@ enum V3CatalogRequestContext {
 @MainActor
 public final class V3ServiceBridge {
     public static let shared = V3ServiceBridge()
+    public static func strictBool(_ value: Any?) -> Bool? {
+        V3WireContract.strictBool(value)
+    }
     private var pending: [String: CheckedContinuation<Data, Error>] = [:]
     private var pendingOperations: [String: String] = [:]
     private var timeouts: [String: Task<Void, Never>] = [:]
     private var cancellationRecovery: [String: Task<Void, Never>] = [:]
     private var activeOperationSessions: Set<String> = []
+    private var activeAuthenticationSessions: Set<String> = []
     private var uncertainOperationSessions: Set<String> = []
     private var knownOperationSessions: [String: Date] = [:]
     private var operationMonitors: [String: Task<Void, Never>] = [:]
@@ -134,7 +137,8 @@ public final class V3ServiceBridge {
     private let cancellationGrace: TimeInterval
     private var activeMutation: String?
     public var isMutating: Bool {
-        activeMutation != nil || !activeOperationSessions.isEmpty || !cancellationRecovery.isEmpty
+        activeMutation != nil || !activeOperationSessions.isEmpty ||
+            !activeAuthenticationSessions.isEmpty || !cancellationRecovery.isEmpty
     }
     public func hasUncertainOperationSession(_ sessionID: String) -> Bool {
         uncertainOperationSessions.contains(sessionID)
@@ -185,13 +189,15 @@ public final class V3ServiceBridge {
             if ["authBegin", "authRetryProvisioning"].contains(operation) {
                 return payload?["session"] as? String ?? (target.isEmpty ? nil : target)
             }
-            if operation == "authCancel" { return target }
+            if ["authPoll", "authRespond", "authCancel"].contains(operation) { return target }
             return nil
         }()
-        let scopedSessionControl = ["opAnswer", "opCancel"].contains(operation) &&
-            activeOperationSessions.contains(target)
+        let scopedSessionControl = (["opAnswer", "opCancel"].contains(operation) &&
+            activeOperationSessions.contains(target)) ||
+            (["authRespond", "authCancel"].contains(operation) &&
+             activeAuthenticationSessions.contains(target))
         let mutation = !V3WireContract.readOperations.contains(operation) ||
-            ["opAnswer", "opCancel"].contains(operation)
+            ["opAnswer", "opCancel", "authRespond", "authCancel"].contains(operation)
         do {
             try await connect()
         } catch {
@@ -247,6 +253,10 @@ public final class V3ServiceBridge {
                     activeOperationSessions.insert(session)
                     knownOperationSessions[session] = Date()
                     pruneKnownOperationSessions()
+                }
+                if ["authBegin", "authRetryProvisioning"].contains(operation),
+                   let session = operationSessionID {
+                    activeAuthenticationSessions.insert(session)
                 }
                 client.v3Execute(data) { response in
                     Task { @MainActor in
@@ -425,7 +435,11 @@ public final class V3ServiceBridge {
 
     private func serviceRejectedOperationStart(_ data: Data, requestID: String) -> Bool {
         guard let reply = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              V3WireContract.strictInt(reply["version"]) == 1,
               reply["id"] as? String == requestID else { return false }
+        guard reply["error"] as? String != nil,
+              let envelope = reply["failure"] as? [String: Any],
+              CombinedFailure.decode(envelope, expectedID: requestID) != nil else { return false }
         return V3WireContract.strictBool(reply["operationNotDispatched"]) == true
     }
 

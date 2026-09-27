@@ -84,6 +84,17 @@ enum LiveContainerAutoRefreshScheduler {
         }
     }
 
+    static func requestNotificationPermissionFromUserAction() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        if settings.authorizationStatus == .denied {
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+            return
+        }
+        await requestNotificationPermission()
+    }
+
     private static func notify(title: String, body: String, kind: String,
                                runID: String? = nil, requestID: String? = nil, origin: String? = nil) {
         let center = UNUserNotificationCenter.current()
