@@ -128,6 +128,18 @@ struct SetupAndSemanticUXHarness {
         precondition(sourceNotReadyIssue.primaryAction == .openSources &&
             sourceNotReadyIssue.primaryAction.title == "Open Sources",
             "source service-readiness failures must not claim Retry Source re-fetches the source")
+        precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+            anotherMutationActive: false, authenticationActive: true,
+            isAuthContinuation: false, responseCapacityAvailable: true),
+            "mutations must wait until the live authentication/provisioning session terminates")
+        precondition(V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+            anotherMutationActive: false, authenticationActive: true,
+            isAuthContinuation: true, responseCapacityAvailable: true),
+            "the active auth session must still accept its own prompt continuation")
+        precondition(V3ServiceMutationAdmissionPolicy.admits(isMutation: false,
+            anotherMutationActive: true, authenticationActive: true,
+            isAuthContinuation: false, responseCapacityAvailable: true),
+            "read-only status remains available while mutation admission is gated")
         let ipaFailure = issue("install", "filePreparation")
         precondition(ipaFailure.primaryAction == .chooseIPA)
         // A failure with no specific evidence must not assume networking.

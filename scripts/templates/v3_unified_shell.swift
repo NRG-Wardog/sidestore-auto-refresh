@@ -2695,7 +2695,9 @@ struct V3OperationSheet: View {
                             cancellationConfirmed = V3OperationTerminalAcceptancePolicy.isSettledTerminal(
                                 state: terminalState,
                                 backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
-                                stopConfirmed: V3ServiceBridge.strictBool(reply["stopConfirmed"]))
+                                stopConfirmed: V3ServiceBridge.strictBool(reply["stopConfirmed"]),
+                                outcomeUnknown: reply["outcomeUnknown"] == nil
+                                    ? false : V3ServiceBridge.strictBool(reply["outcomeUnknown"]) != false)
                             if cancellationConfirmed { confirmedOutcome = terminalState ?? "cancelled" }
                         } catch { cancellationConfirmed = false }
                     }
@@ -3121,7 +3123,9 @@ struct V3OperationSheet: View {
                     let backendSettled = V3OperationTerminalAcceptancePolicy.isSettledTerminal(
                         state: reply["state"] as? String,
                         backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
-                        stopConfirmed: V3ServiceBridge.strictBool(reply["stopConfirmed"]))
+                        stopConfirmed: V3ServiceBridge.strictBool(reply["stopConfirmed"]),
+                        outcomeUnknown: reply["outcomeUnknown"] == nil
+                            ? false : V3ServiceBridge.strictBool(reply["outcomeUnknown"]) != false)
                     guard backendSettled else {
                         isDismissing = false
                         attempt.endTransition()
@@ -3793,6 +3797,14 @@ final class V3AuthStore: ObservableObject {
             do {
                 let reply = try await V3ServiceBridge.shared.request(operation: "authRespond", target: session,
                     payload: ["prompt": promptID, "answer": answer])
+                if V3ServiceBridge.strictBool(reply["promptExpired"]) == true ||
+                    reply["state"] as? String == "promptExpired" {
+                    guard self.session == session, !self.isCancelling,
+                          self.prompt?["id"] as? String == promptID else { return }
+                    promptSubmitting = false
+                    message = "That verification prompt expired. Choose a verification method again."
+                    return
+                }
                 guard V3AuthSessionResponsePolicy.mayApplyReply(
                     currentSessionID: self.session,
                     replySessionID: reply["session"] as? String ?? "",

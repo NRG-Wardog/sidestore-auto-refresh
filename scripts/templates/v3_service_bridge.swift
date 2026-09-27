@@ -128,7 +128,6 @@ public final class V3ServiceBridge {
     private var timeouts: [String: Task<Void, Never>] = [:]
     private var cancellationRecovery: [String: Task<Void, Never>] = [:]
     private var activeOperationSessions: Set<String> = []
-    private var activeAuthenticationSessions: Set<String> = []
     private var uncertainOperationSessions: Set<String> = []
     private var knownOperationSessions: [String: Date] = [:]
     private var operationMonitors: [String: Task<Void, Never>] = [:]
@@ -137,8 +136,7 @@ public final class V3ServiceBridge {
     private let cancellationGrace: TimeInterval
     private var activeMutation: String?
     public var isMutating: Bool {
-        activeMutation != nil || !activeOperationSessions.isEmpty ||
-            !activeAuthenticationSessions.isEmpty || !cancellationRecovery.isEmpty
+        activeMutation != nil || !activeOperationSessions.isEmpty || !cancellationRecovery.isEmpty
     }
     public func hasUncertainOperationSession(_ sessionID: String) -> Bool {
         uncertainOperationSessions.contains(sessionID)
@@ -192,12 +190,10 @@ public final class V3ServiceBridge {
             if ["authPoll", "authRespond", "authCancel"].contains(operation) { return target }
             return nil
         }()
-        let scopedSessionControl = (["opAnswer", "opCancel"].contains(operation) &&
-            activeOperationSessions.contains(target)) ||
-            (["authRespond", "authCancel"].contains(operation) &&
-             activeAuthenticationSessions.contains(target))
+        let scopedSessionControl = ["opAnswer", "opCancel"].contains(operation) &&
+            activeOperationSessions.contains(target)
         let mutation = !V3WireContract.readOperations.contains(operation) ||
-            ["opAnswer", "opCancel", "authRespond", "authCancel"].contains(operation)
+            ["opAnswer", "opCancel"].contains(operation)
         do {
             try await connect()
         } catch {
@@ -253,10 +249,6 @@ public final class V3ServiceBridge {
                     activeOperationSessions.insert(session)
                     knownOperationSessions[session] = Date()
                     pruneKnownOperationSessions()
-                }
-                if ["authBegin", "authRetryProvisioning"].contains(operation),
-                   let session = operationSessionID {
-                    activeAuthenticationSessions.insert(session)
                 }
                 client.v3Execute(data) { response in
                     Task { @MainActor in

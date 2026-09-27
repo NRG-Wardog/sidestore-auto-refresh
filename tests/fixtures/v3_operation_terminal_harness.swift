@@ -59,6 +59,9 @@ struct OperationTerminalHarness {
         precondition(V3OperationTerminalAcceptancePolicy.isSettledTerminal(
             state: "completed", backendSettled: true, stopConfirmed: nil))
         precondition(!V3OperationTerminalAcceptancePolicy.isSettledTerminal(
+            state: "failed", backendSettled: true, stopConfirmed: nil, outcomeUnknown: true),
+            "a settled callback must not erase an explicitly unknown device outcome")
+        precondition(!V3OperationTerminalAcceptancePolicy.isSettledTerminal(
             state: "working", backendSettled: true, stopConfirmed: true),
             "a working result cannot authorize staged-file cleanup")
         precondition(!V3OperationTerminalAcceptancePolicy.isSettledTerminal(

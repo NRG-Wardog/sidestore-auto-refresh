@@ -428,6 +428,15 @@ final class V3AuthCenter {
     private var activeID: String?
     private var cancelledBeforeBegin = V3AuthStartCancellationRegistry()
 
+    var hasActiveSession: Bool {
+        guard let activeID, let session = sessions[activeID] else { return false }
+        return session.terminal.isEmpty
+    }
+
+    func ownsActiveSession(_ id: String) -> Bool {
+        activeID == id && sessions[id]?.terminal.isEmpty == true
+    }
+
     func begin(deadline: Date, mode: BeginMode = .interactive,
                sessionID requestedID: String? = nil) async -> [String: Any] {
         cleanupSessions()
@@ -600,7 +609,8 @@ final class V3AuthCenter {
                 cancellationRequested: session.cancellationRequested,
                 promptMatches: session.prompt?["id"] as? String == promptID) else { return nil }
         guard V3HeadlessRuntime.shared.prompts.answer(promptID: promptID, answer: answer) else {
-            return ["session": id, "state": "promptExpired"]
+            return ["session": id, "state": "promptExpired",
+                    "revision": sessions[id]?.revision ?? session.revision]
         }
         sessions[id]?.attempts += 1
         sessions[id]?.revision += 1
@@ -713,6 +723,7 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
         defer {
             if center.sessions[sessionID]?.prompt?["id"] as? String == promptID {
                 center.sessions[sessionID]?.prompt = nil
+                center.sessions[sessionID]?.revision += 1
             }
         }
         return try await center.promptsParked(promptID: promptID) {
@@ -969,6 +980,7 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
         defer {
             if center.sessions[sessionID]?.prompt?["id"] as? String == promptID {
                 center.sessions[sessionID]?.prompt = nil
+                center.sessions[sessionID]?.revision += 1
             }
         }
         return try await V3HeadlessRuntime.shared.prompts.park(promptID: promptID) {
@@ -2040,7 +2052,9 @@ enum V3BackendCommands {
             if value.isEmpty { UserDefaults.standard.removeObject(forKey: key) }
             else { UserDefaults.standard.set(value, forKey: key) }
         } else if intSettings.contains(key) {
-            guard let value = payload["int"] as? Int else { throw V3SideStoreServiceError.invalidRequest }
+            guard let value = V3WireContract.strictInt(payload["int"]) else {
+                throw V3SideStoreServiceError.invalidRequest
+            }
             UserDefaults.standard.set(value, forKey: key)
         } else {
             throw V3SideStoreServiceError.invalidRequest

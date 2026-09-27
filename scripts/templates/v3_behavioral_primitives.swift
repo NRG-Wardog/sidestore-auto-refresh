@@ -2134,7 +2134,9 @@ enum V3OperationMissingSessionPolicy {
 }
 
 enum V3OperationTerminalAcceptancePolicy {
-    static func isSettledTerminal(state: String?, backendSettled: Bool?, stopConfirmed: Bool?) -> Bool {
+    static func isSettledTerminal(state: String?, backendSettled: Bool?, stopConfirmed: Bool?,
+                                  outcomeUnknown: Bool = false) -> Bool {
+        guard !outcomeUnknown else { return false }
         guard ["completed", "failed", "cancelled", "requiresSource", "waitingForAuthentication"]
                 .contains(state ?? "") else { return false }
         return backendSettled == true || stopConfirmed == true
@@ -2147,24 +2149,21 @@ enum V3OperationStartDispatchPolicy {
     }
 }
 
+enum V3ServiceMutationAdmissionPolicy {
+    static func admits(isMutation: Bool, anotherMutationActive: Bool,
+                       authenticationActive: Bool, isAuthContinuation: Bool,
+                       responseCapacityAvailable: Bool) -> Bool {
+        guard isMutation else { return true }
+        guard !anotherMutationActive, responseCapacityAvailable else { return false }
+        return !authenticationActive || isAuthContinuation
+    }
+}
+
 enum V3OperationSessionCorrelationPolicy {
     static func matches(operation: String, target: String, requestedStartSession: String?,
                         resultSession: String?) -> Bool {
         guard ["opStart", "opPoll", "opAnswer", "opCancel"].contains(operation) else { return true }
         let expected = operation == "opStart" ? requestedStartSession : target
-        guard let expected, !expected.isEmpty else { return false }
-        return resultSession == expected
-    }
-}
-
-enum V3AuthSessionCorrelationPolicy {
-    static func matches(operation: String, target: String, requestedStartSession: String?,
-                        resultSession: String?) -> Bool {
-        guard ["authBegin", "authRetryProvisioning", "authPoll", "authRespond", "authCancel"].contains(operation) else {
-            return true
-        }
-        let expected = ["authBegin", "authRetryProvisioning"].contains(operation)
-            ? requestedStartSession : target
         guard let expected, !expected.isEmpty else { return false }
         return resultSession == expected
     }

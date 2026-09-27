@@ -31,6 +31,12 @@ class BGTaskScheduler {
     }
     func cancel(taskRequestWithIdentifier identifier: String) {}
 }
+@MainActor class UIApplication {
+    static let shared = UIApplication()
+    static let openSettingsURLString = "app-settings:"
+    var openedURLs: [URL] = []
+    func open(_ url: URL) { openedURLs.append(url) }
+}
 enum UNAuthorizationStatus { case notDetermined, denied, authorized, provisional }
 struct UNAuthorizationOptions: OptionSet {
     let rawValue: Int
@@ -48,8 +54,9 @@ class UNNotificationRequest {
     static let shared = UNUserNotificationCenter()
     static func current() -> UNUserNotificationCenter { shared }
     var requests: [UNNotificationRequest] = []
+    var settings = UNNotificationSettings()
     var onAdd: (@MainActor (UNNotificationRequest) -> Void)?
-    func notificationSettings() async -> UNNotificationSettings { UNNotificationSettings() }
+    func notificationSettings() async -> UNNotificationSettings { settings }
     func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool { true }
     func getNotificationSettings(_ completion: (UNNotificationSettings) -> Void) { completion(UNNotificationSettings()) }
     func add(_ request: UNNotificationRequest, withCompletionHandler completion: ((Error?) -> Void)? = nil) {

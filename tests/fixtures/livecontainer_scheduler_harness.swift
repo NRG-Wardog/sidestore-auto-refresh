@@ -15,8 +15,14 @@ extension LiveContainerAutoRefreshScheduler {
         BGTaskScheduler.shared.requests = []
         UNUserNotificationCenter.shared.requests = []
         UNUserNotificationCenter.shared.onAdd = nil
+        UNUserNotificationCenter.shared.settings = UNNotificationSettings()
+        UIApplication.shared.openedURLs = []
     }
     static func exercise() async {
+        clearTestState()
+        UNUserNotificationCenter.shared.settings = UNNotificationSettings(authorizationStatus: .denied)
+        await LiveContainerAutoRefreshScheduler.requestNotificationPermissionFromUserAction()
+        precondition(UIApplication.shared.openedURLs.contains(URL(string: UIApplication.openSettingsURLString)!))
         clearTestState()
         let noOp = BGTask()
         defaults.set(true, forKey: enabledKey)

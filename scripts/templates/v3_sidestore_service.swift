@@ -81,7 +81,13 @@ final class V3SideStoreService: NSObject {
             return
         }
         let mutation = !V3WireContract.readOperations.contains(operation)
-        guard !mutation || (mutationID == nil && completed.count < 512) else {
+        let authContinuation = operation == "authRespond" &&
+            V3HeadlessRuntime.shared.auth.ownsActiveSession(request["target"] as? String ?? "")
+        guard V3ServiceMutationAdmissionPolicy.admits(isMutation: mutation,
+            anotherMutationActive: mutationID != nil,
+            authenticationActive: V3HeadlessRuntime.shared.auth.hasActiveSession,
+            isAuthContinuation: authContinuation,
+            responseCapacityAvailable: completed.count < 512) else {
             let failure = operation == "sourceRemoveConfirmed"
                 ? CombinedFailure(operation: "source", stage: .source, code: .busy, id: id,
                                   retryable: true, safeCause: .sourceRemoveBusy)
