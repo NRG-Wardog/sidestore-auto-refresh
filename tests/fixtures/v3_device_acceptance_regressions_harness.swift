@@ -407,8 +407,8 @@ struct V3DeviceAcceptanceRegressionsHarness {
         var listOnly = V3DeleteCompletionContract()
         precondition(listOnly.resolve(backend: .pending, nativeUninstallSucceeded: false,
                                       appStillInAuthoritativeLibrary: false,
-                                      deadlineExpired: true, progress: lowProgress) == .failed,
-                     "a UI/library list change alone must not report deletion success")
+                                      deadlineExpired: true, progress: lowProgress) == .outcomeUnknown,
+                     "a UI/library list change alone remains unconfirmed and cannot report deletion success")
 
         var callbackSuccess = V3DeleteCompletionContract()
         precondition(callbackSuccess.resolve(backend: .succeeded, nativeUninstallSucceeded: false,

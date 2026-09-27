@@ -88,6 +88,7 @@ class V3BehavioralHarnessTests(unittest.TestCase):
 
     def test_delete_completion_pending_callback_remains_reconcilable(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_operation_terminal_harness.swift").read_text(encoding="utf-8")
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
@@ -109,7 +110,7 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         self.assertIn("V3OperationSessionRetentionPolicy.shouldRefreshTerminalAt", runtime)
         self.assertIn("V3OperationSessionRetentionPolicy.isExpired", runtime)
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
-        self.compile_and_run(failure + "\n" + helper + "\n" + harness,
+        self.compile_and_run(failure + "\n" + wire + "\n" + helper + "\n" + harness,
                              "V3_OPERATION_CANCELLATION_TERMINAL_PASS")
 
     def test_source_add_persistence_and_duplicate_semantics_execute(self):
