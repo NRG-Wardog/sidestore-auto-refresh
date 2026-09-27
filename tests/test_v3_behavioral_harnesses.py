@@ -73,10 +73,11 @@ class V3BehavioralHarnessTests(unittest.TestCase):
                              "V3_SERVICE_OPERATION_ADMISSION_PASS")
 
     def test_auth_session_ownership_reconciliation_and_prompt_recovery_execute(self):
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_auth_ownership_reconciliation_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run(failure + "\n" + helper + "\n" + harness,
+        self.compile_and_run(wire + "\n" + failure + "\n" + helper + "\n" + harness,
                              "V3_AUTH_OWNERSHIP_RECONCILIATION_PASS")
 
     def test_operation_pipeline_phase_and_progress_invariants_execute(self):
