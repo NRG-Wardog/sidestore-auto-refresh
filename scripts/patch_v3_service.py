@@ -3,12 +3,107 @@
 from pathlib import Path
 import hashlib
 import json
+import plistlib
+import re
 import subprocess
 import sys
 
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
+PATCH_VERSION = 2
+
+
+def remove_pbx_object(text, object_marker):
+    if text.count(object_marker) != 1:
+        raise SystemExit(f"v3 service: expected exactly one project object {object_marker!r}")
+    marker_at = text.index(object_marker)
+    line_start = text.rfind("\n", 0, marker_at) + 1
+    brace_at = text.index("{", marker_at)
+    depth = 0
+    end = None
+    for index in range(brace_at, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                end = index + 1
+                if end < len(text) and text[end] == ";":
+                    end += 1
+                if end < len(text) and text[end] == "\r":
+                    end += 1
+                if end < len(text) and text[end] == "\n":
+                    end += 1
+                break
+    if end is None:
+        raise SystemExit(f"v3 service: unbalanced project object {object_marker!r}")
+    return text[:line_start] + text[end:]
+
+
+def headless_project(text):
+    side_exception = '''A8EEC8CB2F4B146B00F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				Resources/ReleaseEntitlements.plist,
+			);
+			platformFiltersByRelativePath = {'''
+    headless_exception = '''A8EEC8CB2F4B146B00F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				Resources/ReleaseEntitlements.plist,
+				"iOS/LaunchScreen.storyboard",
+				"iOS/Main.storyboard",
+			);
+			platformFiltersByRelativePath = {'''
+    if text.count(side_exception) != 1:
+        raise SystemExit("v3 service: SideStore resource-exclusion anchor changed")
+    text = text.replace(side_exception, headless_exception, 1)
+    # Starscream is linked by the pinned project but has no source references
+    # in that checkout. Remove its product and package lock so it is not fetched
+    # or linked into the backend build.
+    for marker in (
+        'A8C37035302DA84D0010213A /* Starscream in Frameworks */ = {',
+        'A8C37033302DA84D0010213A /* XCRemoteSwiftPackageReference "Starscream" */ = {',
+        'A8C37034302DA84D0010213A /* Starscream */ = {',
+    ):
+        text = remove_pbx_object(text, marker)
+    references = (
+        r"(?m)^\s*A8C37035302DA84D0010213A /\* Starscream in Frameworks \*/,\r?\n",
+        r"(?m)^\s*A8C37034302DA84D0010213A /\* Starscream \*/,\r?\n",
+        r"(?m)^\s*A8C37033302DA84D0010213A /\* XCRemoteSwiftPackageReference \"Starscream\" \*/,\r?\n",
+    )
+    for pattern in references:
+        text, count = re.subn(pattern, "", text)
+        if count != 1:
+            raise SystemExit(f"v3 service: expected one Starscream project reference, found {count}")
+    return text
+
+
+def headless_info(text):
+    info = plistlib.loads(text.encode("utf-8"))
+    info.pop("UIMainStoryboardFile", None)
+    info.pop("UILaunchStoryboardName", None)
+    scene_manifest = info.get("UIApplicationSceneManifest")
+    if not isinstance(scene_manifest, dict):
+        raise SystemExit("v3 service: SideStore scene manifest anchor is missing")
+    configurations = scene_manifest.get("UISceneConfigurations")
+    if not isinstance(configurations, dict):
+        raise SystemExit("v3 service: SideStore scene configurations are missing")
+    removed = 0
+    for scenes in configurations.values():
+        if not isinstance(scenes, list):
+            continue
+        for scene in scenes:
+            if isinstance(scene, dict):
+                scene.pop("UILaunchStoryboardName", None)
+            if isinstance(scene, dict) and scene.pop("UISceneStoryboardFile", None) is not None:
+                removed += 1
+    if removed != 1:
+        raise SystemExit(f"v3 service: expected one configured scene storyboard, found {removed}")
+    return plistlib.dumps(info, fmt=plistlib.FMT_XML, sort_keys=False).decode("utf-8")
 
 
 def replace(text, old, new):
@@ -27,7 +122,7 @@ def patch(live, side):
     template_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in TEMPLATES.glob("v3_*.swift")}
     if manifest.exists():
         previous = json.loads(manifest.read_text())
-        if previous["templates"] != template_hashes:
+        if previous.get("patchVersion") != PATCH_VERSION or previous["templates"] != template_hashes:
             raise SystemExit("v3 service: template changed; apply to fresh pinned sources")
         for index, relative, digest in previous["files"]:
             if hashlib.sha256((roots[index] / relative).read_bytes()).hexdigest() != digest:
@@ -78,6 +173,20 @@ def patch(live, side):
          (TEMPLATES / "v3_ipa_staging.swift").read_text(encoding="utf-8") +
          (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8") +
          (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8"))
+    edit(side, "AltStore/Info.plist", headless_info)
+    edit(side, "AltStore.xcodeproj/project.pbxproj", headless_project)
+    def remove_starscream_pin(text):
+        resolved = json.loads(text)
+        pins = resolved.get("pins")
+        if not isinstance(pins, list):
+            raise SystemExit("v3 service: SideStore package lock has no pin list")
+        filtered = [pin for pin in pins if pin.get("identity") != "starscream"]
+        if len(pins) - len(filtered) != 1:
+            raise SystemExit("v3 service: expected exactly one pinned Starscream package")
+        resolved["pins"] = filtered
+        return json.dumps(resolved, indent=2) + "\n"
+    edit(side, "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+         remove_starscream_pin)
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
         "        NavigationView {\n            ScrollView {", "        NavigationView {\n            ScrollView {\n                V3InstalledAppsSection(query: searchContext.debouncedQuery)"))
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
@@ -235,7 +344,8 @@ static void V3InitializeUIKitFixes(void) {
     # Validate all anchors before writing anything.
     for path, content in changes.items():
         path.write_bytes(content.encode("utf-8"))
-    manifest.write_text(json.dumps({"pins": PINS, "templates": template_hashes, "files": records}, indent=2) + "\n")
+    manifest.write_text(json.dumps({"patchVersion": PATCH_VERSION, "pins": PINS,
+                                    "templates": template_hashes, "files": records}, indent=2) + "\n")
 
 
 if __name__ == "__main__":

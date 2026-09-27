@@ -50,6 +50,48 @@ def architectures(data: bytes) -> set[str]:
     return {"arm64" if cpu == 0x0100000C else f"cpu:{cpu}"}
 
 
+def archive_size_report(infos, executable_paths: set[str]) -> dict:
+    files = [info for info in infos if not info.is_dir()]
+    executable_paths = set(executable_paths)
+    categories = {
+        "executables": 0,
+        "framework_payload_excluding_executables": 0,
+        "extension_payload_excluding_executables": 0,
+        "Assets.car": 0,
+        "localizations": 0,
+        "storyboards_and_nibs": 0,
+        "other_files": 0,
+    }
+    for info in files:
+        name = info.filename
+        if name in executable_paths:
+            category = "executables"
+        elif name.endswith("/Assets.car") or name == "Assets.car":
+            category = "Assets.car"
+        elif ".storyboardc/" in name or ".nib/" in name or name.endswith(".nib"):
+            category = "storyboards_and_nibs"
+        elif any(component.endswith(".lproj") for component in name.split("/")):
+            category = "localizations"
+        elif "/Frameworks/" in name:
+            category = "framework_payload_excluding_executables"
+        elif "/PlugIns/" in name:
+            category = "extension_payload_excluding_executables"
+        else:
+            category = "other_files"
+        categories[category] += info.file_size
+    largest = sorted(files, key=lambda info: (-info.file_size, info.filename))[:20]
+    return {
+        "uncompressed_bytes": sum(info.file_size for info in files),
+        "zip_member_bytes": sum(info.compress_size for info in files),
+        "payload_breakdown_bytes": categories,
+        "largest_files": [
+            {"path": info.filename, "uncompressed_bytes": info.file_size,
+             "zip_member_bytes": info.compress_size}
+            for info in largest
+        ],
+    }
+
+
 def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
     raw = ipa.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
@@ -59,6 +101,7 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         if bad_member:
             raise ValueError(f"corrupt IPA member: {bad_member}")
         names = archive.namelist()
+        archive_infos = archive.infolist()
         lower_names = [name.lower() for name in names]
         if any(".audit" in name.split("/") or ".git" in name.split("/") for name in lower_names):
             raise ValueError("audit or repository implementation data is packaged")
@@ -131,6 +174,7 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
             if "arm64" not in archs:
                 raise ValueError(f"arm64 architecture is missing: {path}")
             arch_report[path] = sorted(archs)
+        size_report = archive_size_report(archive_infos, set(executable_paths))
 
         for name in names:
             suffix = Path(name).suffix.lower()
@@ -166,6 +210,7 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         "ipa_filename": ipa.name,
         "ipa_size_bytes": size,
         "raw_ipa_sha256": digest,
+        **size_report,
         "builder_commit": info["LCBuilderCommit"],
         "architectures": arch_report,
         "liveprocess_extension": live_process_path,

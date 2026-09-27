@@ -1,6 +1,8 @@
 """Exercise pinned patch transactions and the actual shipped wire decoder."""
 import importlib.util
+import json
 import os
+import plistlib
 import re
 from pathlib import Path
 import shutil
@@ -41,7 +43,9 @@ class ServicePatchTests(unittest.TestCase):
             ["LiveContainer/LCBootstrap.m", "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
             ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift",
              "SideStore/Core/Operations/PipelineRunner.swift",
-             "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift"])
+             "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift",
+             "AltStore/Info.plist", "AltStore.xcodeproj/project.pbxproj",
+             "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"])
         for source, root, pin, names in zip((live_source, side_source), roots, service.PINS, files):
             for name in names:
                 path = root / name
@@ -78,6 +82,27 @@ class ServicePatchTests(unittest.TestCase):
             self.assertNotIn("LCUtils.openSideStore", (roots[0] / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift").read_text())
             self.assertIn(".downloadAlert", (roots[0] / "LiveContainerSwiftUI/Views/LCTabView.swift").read_text())
             self.assertNotIn("LCUtils.openSideStore", (roots[0] / "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift").read_text(encoding="utf-8"))
+
+    def test_prepared_sidestore_has_no_automatic_storyboard_root_or_unused_starscream(self):
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            roots = self.fixture(directory)
+            self.apply(roots)
+            side = roots[1]
+            info = plistlib.loads((side / "AltStore/Info.plist").read_bytes())
+            self.assertNotIn("UIMainStoryboardFile", info)
+            scene_configs = info["UIApplicationSceneManifest"]["UISceneConfigurations"]
+            for configurations in scene_configs.values():
+                for configuration in configurations:
+                    self.assertNotIn("UISceneStoryboardFile", configuration)
+                    self.assertNotIn("UILaunchStoryboardName", configuration)
+            self.assertNotIn("UILaunchStoryboardName", info)
+            project = (side / "AltStore.xcodeproj/project.pbxproj").read_text()
+            self.assertNotIn("Starscream", project)
+            self.assertIn('"iOS/LaunchScreen.storyboard"', project)
+            self.assertIn('"iOS/Main.storyboard"', project)
+            resolved = json.loads((side / "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved").read_text())
+            self.assertNotIn("starscream", [pin["identity"] for pin in resolved["pins"]])
             jit = (roots[0] / "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift").read_text(encoding="utf-8")
             self.assertNotIn('sidestore://enable-jit', jit)
             self.assertIn('V3ServiceBridge.shared.request(operation: "jit"', jit)
