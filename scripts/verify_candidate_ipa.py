@@ -24,6 +24,10 @@ REQUIRED_FRAMEWORKS = (
     "SideStoreSupport.framework", "SideStoreApp.framework", "OpenSSL.framework",
 )
 REQUIRED_GROUP = "group.com.SideStore.SideStore"
+REQUIRED_LIVECONTAINER_GROUPS = {
+    REQUIRED_GROUP,
+    "group.com.rileytestut.AltStore",
+}
 REQUIRED_SCHEMES = {"livecontainer", "sidestore", "sidestore-com.kdt.livecontainer"}
 REQUIRED_BACKGROUND_IDS = {
     "com.kdt.livecontainer.sidestore.automatic-refresh",
@@ -55,6 +59,10 @@ def architectures(data: bytes) -> set[str]:
     else:
         return set()
     return {"arm64" if cpu == 0x0100000C else f"cpu:{cpu}"}
+
+
+def has_required_livecontainer_groups(groups) -> bool:
+    return REQUIRED_LIVECONTAINER_GROUPS.issubset(set(groups or []))
 
 
 def archive_size_report(infos, executable_paths: set[str]) -> dict:
@@ -266,13 +274,18 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
             if product_info.get("LCBuildRunURL") != info.get("LCBuildRunURL"):
                 raise ValueError("host and embedded SideStore build run URLs differ")
         host_groups = (host.get("signing") or {}).get("xml_entitlements") or {}
-        if REQUIRED_GROUP not in host_groups.get("com.apple.security.application-groups", []):
-            raise ValueError("host App Group entitlement is missing")
+        if not has_required_livecontainer_groups(
+                host_groups.get("com.apple.security.application-groups", [])):
+            raise ValueError("host SideStore/AltStore App Group entitlements are incomplete")
 
         live_process_path = BASE + "/PlugIns/LiveProcess.appex"
         live_process = package_bundles.get(live_process_path)
         if not live_process or not live_process.get("executable_present"):
             raise ValueError("LiveProcess extension or executable is missing")
+        live_process_groups = (live_process.get("signing") or {}).get("xml_entitlements") or {}
+        if not has_required_livecontainer_groups(
+                live_process_groups.get("com.apple.security.application-groups", [])):
+            raise ValueError("LiveProcess SideStore/AltStore App Group entitlements are incomplete")
         for path, bundle in package_bundles.items():
             if path.startswith(BASE + "/PlugIns/") and path.endswith(".appex"):
                 extension_groups = (bundle.get("signing") or {}).get("xml_entitlements") or {}
@@ -348,6 +361,7 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         "sidestore_primary_icon": side_store_primary_icon_report(side_store_asset_report),
         "sidestore_legacy_background_modes": "absent",
         "app_group": REQUIRED_GROUP,
+        "livecontainer_app_groups": sorted(REQUIRED_LIVECONTAINER_GROUPS),
         "url_schemes": sorted(REQUIRED_SCHEMES),
         "background_identifiers": sorted(REQUIRED_BACKGROUND_IDS),
         "audit_source_or_private_material": "absent",

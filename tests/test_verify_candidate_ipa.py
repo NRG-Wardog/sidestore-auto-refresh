@@ -14,6 +14,13 @@ spec.loader.exec_module(verify_module)
 
 
 class CandidateArchiveSizeReportTests(unittest.TestCase):
+    def test_host_and_liveprocess_require_both_shared_app_groups(self):
+        required = verify_module.REQUIRED_LIVECONTAINER_GROUPS
+        self.assertTrue(verify_module.has_required_livecontainer_groups(required))
+        self.assertFalse(verify_module.has_required_livecontainer_groups(
+            {verify_module.REQUIRED_GROUP}),
+            "a SideStore-only entitlement cannot preserve an AltStore-origin LC container selection")
+
     def test_asset_catalog_rejects_removed_alternate_icons_and_keeps_primary_icon(self):
         good = [{"Name": "AppIcon"}, {"Name": "Classic"}, {"Name": "Modern"}, {"Name": "SettingsGear"}]
         report = verify_module.verify_side_store_assetutil_records(good)
