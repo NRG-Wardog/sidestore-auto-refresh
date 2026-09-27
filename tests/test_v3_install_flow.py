@@ -90,7 +90,7 @@ class InstallFirstAttemptTests(unittest.TestCase):
         apply = sheet[sheet.index("private func apply"):]
         cancelled = apply[apply.index('case "cancelled"'):]
         cancelled = cancelled[:cancelled.index("case ", 10)]
-        self.assertIn("cancelled before it finished", cancelled)
+        self.assertIn("V3OperationCancellationPresentationPolicy.resolve", cancelled)
         self.assertIn("message =", cancelled)
         self.assertNotIn("dismiss()", cancelled)
 

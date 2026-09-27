@@ -138,9 +138,25 @@ struct CatalogResponseEncodingHarness {
         }
         precondition(classify(["version": 1, "id": "u", "ok": true]) == "ok")
         precondition(classify(["version": 1, "id": "u", "bad": Opaque()]) == "responseEncodingFailed")
+        let detailedSuccess = V3ResponseEncoder.encodeDetailed(
+            ["version": 1, "id": "u", "ok": true], operation: "catalog",
+            limit: V3WireContract.responseLimit)
+        precondition(detailedSuccess.fallbackToken == nil && detailedSuccess.data.count > 0,
+            "successful service encoding reports no fallback classification without decoding its bytes")
+        let detailedFailure = V3ResponseEncoder.encodeDetailed(
+            ["version": 1, "id": "u", "bad": Opaque()], operation: "catalog",
+            limit: V3WireContract.responseLimit)
+        precondition(detailedFailure.fallbackToken == V3ResponseClassifier.Token.encodingFailed &&
+                     classify(["version": 1, "id": "u", "bad": Opaque()]) == "responseEncodingFailed",
+            "the encoder exposes its fallback token directly while preserving the wire fallback")
         // A genuinely oversized but valid payload is a different defect.
         let oversized = "x".padding(toLength: V3WireContract.responseLimit + 16, withPad: "x", startingAt: 0)
         precondition(classify(["version": 1, "id": "u", "blob": oversized]) == "responseTooLarge")
+        let detailedOversize = V3ResponseEncoder.encodeDetailed(
+            ["version": 1, "id": "u", "blob": oversized], operation: "catalog",
+            limit: V3WireContract.responseLimit)
+        precondition(detailedOversize.fallbackToken == V3ResponseClassifier.Token.tooLarge,
+            "oversized replies carry their fallback classification without a second plist parse")
         // The real fallback must itself always serialize, and must carry the
         // correlation, the operation, and the classification inside the
         // structured envelope the host actually reads.
@@ -332,34 +348,41 @@ struct CatalogResponseEncodingHarness {
             responseCapacityAvailable: authControlCapacity, refreshActive: true, isRefreshRelease: true),
             "refreshAdmissionEnd can use reserved control capacity and release its active lease")
         precondition(replyBudget.record(V3WireContract.responseLimit, controlResponse: true))
+        precondition(replyBudget.canReserve(maximumResponseBytes: V3WireContract.responseLimit,
+            preservingControlCapacity: false),
+            "the auth begin reply must retain room for one later provisioning-retry reply")
+        precondition(replyBudget.record(V3WireContract.responseLimit, controlResponse: true))
         precondition(!replyBudget.canReserve(maximumResponseBytes: 1, preservingControlCapacity: false),
                      "reply-cache accounting must never exceed its byte ceiling")
         let ordinaryReplyLimit = V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: false)
         let allReplyLimit = V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: true)
-        precondition(ordinaryReplyLimit == 382 && allReplyLimit == 512,
-                     "ordinary replies preserve one maximum authentication lifecycle")
+        precondition(ordinaryReplyLimit == 504 && allReplyLimit == 512,
+                     "ordinary replies preserve a bounded reserve for cached start/release results")
         precondition(allReplyLimit - ordinaryReplyLimit == V3MutationReplyCacheBudget.reservedControlReplies,
                      "the configured reply reserve remains executable and symmetric")
-        for operation in ["refreshAdmissionEnd", "authBegin", "authRetryProvisioning", "authRespond",
-                          "opStart", "opAnswer"] {
+        for operation in ["refreshAdmissionEnd", "authBegin", "authRetryProvisioning", "opStart"] {
             precondition(V3MutationReplyCacheBudget.isControlReply(operation: operation),
-                         "session continuation \(operation) must use the reserved reply capacity")
+                         "state-changing start/release \(operation) must use reserved reply capacity")
         }
+        precondition(V3MutationReplyCacheBudget.shouldCacheResponse(operation: "authBegin") &&
+                     !V3MutationReplyCacheBudget.shouldCacheResponse(operation: "authRespond") &&
+                     !V3MutationReplyCacheBudget.shouldCacheResponse(operation: "opAnswer"),
+            "prompt acknowledgements use the session replay ledger instead of consuming the global reply cache")
         precondition(V3MutationReplyCacheBudget.canAdmit(operation: "authBegin",
-            completedReplyCount: 382) &&
+            completedReplyCount: 510) &&
                      !V3MutationReplyCacheBudget.canAdmit(operation: "authBegin",
-                        completedReplyCount: 383),
-            "authBegin is not dispatched unless its begin, prompt, and provisioning-retry replies fit")
+                        completedReplyCount: 511),
+            "authBegin is not dispatched unless its cached start and retry replies fit")
         precondition(V3MutationReplyCacheBudget.canAdmit(operation: "authRetryProvisioning",
-            completedReplyCount: 447) &&
+            completedReplyCount: 511) &&
                      !V3MutationReplyCacheBudget.canAdmit(operation: "authRetryProvisioning",
-                        completedReplyCount: 448),
-            "a provisioning retry is not dispatched unless its prompt replies fit")
+                        completedReplyCount: 512),
+            "a provisioning retry is not dispatched unless its cached start reply fits")
         precondition(V3MutationReplyCacheBudget.canAdmit(operation: "opStart",
-            completedReplyCount: 447) &&
+            completedReplyCount: 511) &&
                      !V3MutationReplyCacheBudget.canAdmit(operation: "opStart",
-                        completedReplyCount: 448),
-            "an operation that may ask prompts retains enough replies for its bounded prompt sequence")
+                        completedReplyCount: 512),
+            "an operation start is not dispatched without room for its cached start reply")
         precondition(!V3MutationReplyCacheBudget.isControlReply(operation: "sourceAddConfirmed"),
                      "ordinary source mutations cannot consume all continuation capacity")
         replyBudget.remove(V3WireContract.responseLimit)

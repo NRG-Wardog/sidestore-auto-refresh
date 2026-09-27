@@ -132,9 +132,13 @@ final class V3SideStoreService: NSObject {
             activeOperationID: V3HeadlessRuntime.shared.operations.activeMutationID)
         let refreshRelease = operation == "refreshAdmissionEnd" && refreshAdmission.owns(target)
         let controlReply = V3MutationReplyCacheBudget.isControlReply(operation: operation)
+        let cacheResponse = V3MutationReplyCacheBudget.shouldCacheResponse(operation: operation)
         let responseCapacityAvailable = !mutation ||
+            !cacheResponse ||
             (completed.count < V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: controlReply) &&
-             completedCacheBudget.canReserve(preservingControlCapacity: !controlReply) &&
+             completedCacheBudget.canReserve(
+                maximumResponseBytes: V3MutationReplyCacheBudget.minimumReplyBytesToAdmit(operation: operation),
+                preservingControlCapacity: !controlReply) &&
              V3MutationReplyCacheBudget.canAdmit(operation: operation,
                 completedReplyCount: completed.count))
         guard V3ServiceMutationAdmissionPolicy.admits(isMutation: mutation,
@@ -319,7 +323,7 @@ final class V3SideStoreService: NSObject {
                 }
             }
             let encoded = encode(response, operation: operation)
-            if mutation {
+            if mutation && cacheResponse {
                 if completedCacheBudget.record(encoded.count, controlResponse: controlReply) {
                     completed[id] = (encoded, deadline)
                 } else {
@@ -375,19 +379,18 @@ final class V3SideStoreService: NSObject {
     // every encoding failure reached the user as a generic invalidResponse.
     private func encode(_ value: [String: Any], operation: String = "command") -> Data {
         let correlationID = value["id"] as? String ?? ""
-        let data = V3ResponseEncoder.encode(value, operation: operation,
-                                            limit: V3WireContract.responseLimit)
+        let encoded = V3ResponseEncoder.encodeDetailed(value, operation: operation,
+            limit: V3WireContract.responseLimit)
         // A fallback reply is a defect and it must be visible. A serialization or
         // oversize regression is otherwise indistinguishable in the field from
         // the failure it causes, because the host reports a generic
         // invalidResponse either way. Only the classification and the
         // correlation are recorded; the value that could not be encoded, and
         // the raw error text, never are.
-        if let decoded = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-           let token = decoded["error"] as? String {
+        if let token = encoded.fallbackToken {
             debugLog("[V3_ENCODE] FAIL operation=\(operation) request_id=\(correlationID) classification=\(token) correlated=\(correlationID.isEmpty ? "no" : "yes")")
         }
-        return data
+        return encoded.data
     }
 
     private func run(_ operation: String, request: [String: Any], id: String) async throws -> [String: Any] {

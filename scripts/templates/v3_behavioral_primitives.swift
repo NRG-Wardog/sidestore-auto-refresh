@@ -1046,8 +1046,8 @@ enum V3DeleteReconciliationPolicy {
                                       nativeUninstallSucceeded: Bool,
                                       appStillInLibrary: Bool,
                                       cancellationRequested: Bool = false) -> TimeInterval {
-        guard backendPending,
-              cancellationRequested || (nativeUninstallSucceeded && !appStillInLibrary) else { return 0.25 }
+        guard backendPending else { return 0.25 }
+        guard cancellationRequested || (nativeUninstallSucceeded && !appStillInLibrary) else { return 1.0 }
         let base = current.isFinite && current > 0 ? current : 0.25
         return min(base * 2, maximumCallbackPollInterval)
     }
@@ -2112,6 +2112,11 @@ enum V3ResponseClassifier {
 // The service side of the classification pair. It is a separate enum rather than
 // a private method so the harness can execute the real encoder, and it reads the
 // shared responseLimit instead of repeating the literal.
+struct V3EncodedServiceResponse {
+    let data: Data
+    let fallbackToken: String?
+}
+
 enum V3ResponseEncoder {
     /// Encodes a reply, or returns a correlated, typed fallback that says which
     /// of the two failure modes occurred.
@@ -2122,21 +2127,30 @@ enum V3ResponseEncoder {
     /// the limit still has a single definition in production.
     static func encode(_ value: [String: Any], operation: String = "command",
                        limit: Int) -> Data {
+        encodeDetailed(value, operation: operation, limit: limit).data
+    }
+
+    /// Returns a safe fallback marker with the data so the service can log
+    /// classification without parsing every successful serialized reply.
+    static func encodeDetailed(_ value: [String: Any], operation: String = "command",
+                               limit: Int) -> V3EncodedServiceResponse {
         let correlationID = value["id"] as? String ?? ""
         do {
             let data = try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
             guard data.count <= limit else {
-                return fallback(id: correlationID, operation: operation,
+                return V3EncodedServiceResponse(data: fallback(id: correlationID, operation: operation,
                                 token: V3ResponseClassifier.Token.tooLarge,
                                 code: .invalidResponse,
-                                safeCause: V3ResponseClassifier.safeCause(for: V3ResponseClassifier.Token.tooLarge))
+                                safeCause: V3ResponseClassifier.safeCause(for: V3ResponseClassifier.Token.tooLarge)),
+                    fallbackToken: V3ResponseClassifier.Token.tooLarge)
             }
-            return data
+            return V3EncodedServiceResponse(data: data, fallbackToken: nil)
         } catch {
-            return fallback(id: correlationID, operation: operation,
+            return V3EncodedServiceResponse(data: fallback(id: correlationID, operation: operation,
                             token: V3ResponseClassifier.Token.encodingFailed,
                             code: .invalidResponse,
-                            safeCause: V3ResponseClassifier.safeCause(for: V3ResponseClassifier.Token.encodingFailed))
+                            safeCause: V3ResponseClassifier.safeCause(for: V3ResponseClassifier.Token.encodingFailed)),
+                fallbackToken: V3ResponseClassifier.Token.encodingFailed)
         }
     }
 
@@ -2190,11 +2204,16 @@ enum V3RetryDisposition: Equatable {
 enum V3CatalogRetryPresentation: Equatable {
     case retry
     case retryWithUnknownDisposition
+    case reloadCatalog
     case noRetry
 }
 
 enum V3CatalogRetryPresentationPolicy {
-    static func action(for disposition: V3RetryDisposition) -> V3CatalogRetryPresentation {
+    static func action(for disposition: V3RetryDisposition,
+                       safeCause: String? = nil) -> V3CatalogRetryPresentation {
+        if safeCause == CombinedFailure.SafeCause.catalogUnavailable.rawValue {
+            return .reloadCatalog
+        }
         switch disposition {
         case .allowed: return .retry
         case .unknown: return .retryWithUnknownDisposition
@@ -2375,6 +2394,13 @@ struct V3OperationFailureDetails {
     }
 
     var recommendedAction: String {
+        if safeCause == CombinedFailure.SafeCause.responseEncodingFailed.rawValue ||
+           safeCause == CombinedFailure.SafeCause.responseTooLarge.rawValue {
+            return whatToDo
+        }
+        if safeCause == CombinedFailure.SafeCause.catalogUnavailable.rawValue {
+            return "Reload this source's catalog. If it still cannot be read, copy Diagnostics and report the local catalog failure."
+        }
         if safeCause == CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue ||
            safeCause == CombinedFailure.SafeCause.authResponseCapacityUnavailable.rawValue {
             return "Wait for SideStore to release earlier request results, reload status, then try again."
@@ -2547,6 +2573,28 @@ enum V3OperationRetrySafetyPolicy {
             return .outcomeUnknown
         }
         return .retry
+    }
+}
+
+enum V3OperationRetryButtonPolicy {
+    static func title(state: String, retryDisposition: V3RetryDisposition) -> String {
+        if state == "cancelled" { return "Retry" }
+        return retryDisposition == .unknown ? "Retry (retryability unknown)" : "Retry"
+    }
+}
+
+struct V3OperationCancellationPresentation: Equatable {
+    let message: String
+    let whatToDo: String
+}
+
+enum V3OperationCancellationPresentationPolicy {
+    static func resolve(userRequested: Bool) -> V3OperationCancellationPresentation {
+        V3OperationCancellationPresentation(
+            message: userRequested ? "The operation was cancelled." : "The operation was cancelled before it finished.",
+            whatToDo: userRequested
+                ? "The backend confirmed it stopped. Retry when you are ready to run this action again."
+                : "The backend confirmed it stopped. Retry if you still need to complete this action.")
     }
 }
 

@@ -31,6 +31,16 @@ class JITLessOwnershipTests(unittest.TestCase):
                           "writeJITLessCertificate", "syncJITLessCertificate"):
             self.assertNotIn(forbidden, view)
 
+    def test_health_reuses_parsed_jitless_certificate_facts(self):
+        shell = SHELL.read_text(encoding="utf-8")
+        reader = shell[shell.index("private enum V3JITLessStatusReader"):shell.index("struct V3HealthView")]
+        health = shell[shell.index("struct V3HealthView"):shell.index("struct V3BackupsView")]
+        comparison = health[health.index("private func certComparison("):]
+        self.assertEqual(reader.count("parse(bytes, password:"), 1)
+        self.assertIn("certificateFacts: facts", reader)
+        self.assertIn("localFacts: readiness.certificateFacts", health)
+        self.assertNotIn("V3JITLessStatusReader.parse", comparison)
+
     def test_custom_certificate_sync_engine_is_removed(self):
         shell = SHELL.read_text(encoding="utf-8")
         primitives = PRIMITIVES.read_text(encoding="utf-8")

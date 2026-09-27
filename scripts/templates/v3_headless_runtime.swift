@@ -1850,7 +1850,12 @@ final class V3OperationCenter {
                 break
             }
             if reconciliationExpired { continue }
-            try await Task.sleep(nanoseconds: 250_000_000)
+            callbackPollDelay = V3DeleteReconciliationPolicy.nextCallbackPollDelay(
+                current: callbackPollDelay, backendPending: backendState == .pending,
+                nativeUninstallSucceeded: nativeUninstallSucceeded,
+                appStillInLibrary: appIsPresent,
+                cancellationRequested: cancellationRequestedAt != nil)
+            try await Task.sleep(nanoseconds: UInt64(callbackPollDelay * 1_000_000_000))
         }
         throw CancellationError()
     }

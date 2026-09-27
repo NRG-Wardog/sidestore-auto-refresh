@@ -203,6 +203,15 @@ struct SetupAndSemanticUXHarness {
                      V3CatalogRetryPresentationPolicy.action(for: .prerequisite) == .noRetry &&
                      V3CatalogRetryPresentationPolicy.action(for: .blocked) == .noRetry,
                      "catalog retry copy is explicit about uncertainty and never encourages retry before prerequisites")
+        let catalogUnavailable = CombinedFailure(operation: "catalog", stage: .catalog,
+            code: .failed, id: UUID().uuidString, retryable: false,
+            safeCause: .catalogUnavailable)
+        let catalogUnavailableDetails = V3OperationFailureDetails(catalogUnavailable)
+        precondition(V3CatalogRetryPresentationPolicy.action(for: catalogUnavailableDetails.retryDisposition,
+            safeCause: catalogUnavailableDetails.safeCause) == .reloadCatalog &&
+                     catalogUnavailableDetails.recommendedAction.contains("Reload this source's catalog") &&
+                     !catalogUnavailableDetails.recommendedAction.contains("signing status"),
+            "local catalog read failure offers a catalog reload and retains its specific recovery guidance")
         precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
             anotherMutationActive: false, authenticationActive: true,
             isAuthContinuation: false, responseCapacityAvailable: true),

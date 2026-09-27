@@ -370,7 +370,7 @@ class SharedSetupCompletionTests(unittest.TestCase):
         self.assertIn("observeSetupFactsIfNeeded()", text[text.index("private func performSnapshot()"):])
         self.assertIn("V3ServiceBridge.shared.request(operation: \"healthSnapshot\")", text)
         self.assertIn("recordWifiAvailability(wifi)", text)
-        self.assertIn("recordJITLessReadiness(readiness.0)", text)
+        self.assertIn("recordJITLessReadiness(readiness.readiness)", text)
         # A failure is published as unknown, never as an assumed-good fact.
         observation = text[text.index("private func observeSetupFacts() async"):]
         observation = observation[:observation.index("\n    @Published private(set) var updatedAt")]
@@ -615,7 +615,7 @@ class SemanticStatusTests(unittest.TestCase):
     def test_setup_rows_use_the_shared_severity_mapping(self):
         text = shell()
         # The JIT-Less step state is derived from the shared presentation.
-        self.assertIn("let presentation = V3JITLessPresentation.present(readiness.0)", text)
+        self.assertIn("let presentation = V3JITLessPresentation.present(readiness.readiness)", text)
         self.assertIn("switch presentation.severity {", text)
         # The sources view renders failures with the failure icon and success
         # with the success icon.

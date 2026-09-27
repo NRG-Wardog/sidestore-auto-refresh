@@ -212,7 +212,7 @@ class ServiceSidePropagationTests(unittest.TestCase):
         # The service delegates rather than keeping a second encoder.
         service_text = service()
         delegate = normalized(service_text[service_text.index("private func encode("):])
-        self.assertIn("V3ResponseEncoder.encode(value, operation: operation,", delegate)
+        self.assertIn("V3ResponseEncoder.encodeDetailed(value, operation: operation,", delegate)
         self.assertIn("limit: V3WireContract.responseLimit", delegate)
         self.assertNotIn("PropertyListSerialization.data(fromPropertyList: value", delegate)
         # A fallback is a defect and must be diagnosable in the field.

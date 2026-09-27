@@ -179,20 +179,23 @@ enum V3RefreshAdmissionCancellationAckPolicy {
 struct V3MutationReplyCacheBudget {
     static let maximumStoredBytes = 64 * 1024 * 1024
     static let maximumStoredReplies = 512
-    static let reservedControlBytes = V3WireContract.responseLimit
-    // Reserve the maximum supported interactive flow: authBegin + 64 answers,
-    // authRetryProvisioning + 64 answers. Operation start + 64 prompt answers
-    // fits inside the same reservation.
-    static let authenticationLifecycleReplyBudget = 130
-    static let provisioningRetryReplyBudget = 65
-    static let operationPromptReplyBudget = 65
-    static let reservedControlReplies = authenticationLifecycleReplyBudget
+    static let reservedControlBytes = V3WireContract.responseLimit * 2
+    // Prompt acknowledgements are not stored in the completed-request cache;
+    // the session's accepted-prompt ledger makes them idempotent. Keep a small
+    // reserve for starts and refresh admission release replies.
+    static let authenticationLifecycleReplyBudget = 2
+    static let provisioningRetryReplyBudget = 1
+    static let operationPromptReplyBudget = 1
+    static let reservedControlReplies = 8
     private(set) var storedBytes = 0
 
     static func isControlReply(operation: String) -> Bool {
-        ["refreshAdmissionEnd", "authBegin", "authRetryProvisioning", "authRespond",
-         "opStart", "opAnswer"]
+        ["refreshAdmissionEnd", "authBegin", "authRetryProvisioning", "opStart"]
             .contains(operation)
+    }
+
+    static func shouldCacheResponse(operation: String) -> Bool {
+        !["authRespond", "opAnswer"].contains(operation)
     }
 
     static func minimumAvailableRepliesToAdmit(operation: String) -> Int {
@@ -202,6 +205,12 @@ struct V3MutationReplyCacheBudget {
         case "opStart": return operationPromptReplyBudget
         default: return 1
         }
+    }
+
+    static func minimumReplyBytesToAdmit(operation: String) -> Int {
+        operation == "authBegin"
+            ? V3WireContract.responseLimit * 2
+            : V3WireContract.responseLimit
     }
 
     static func canAdmit(operation: String, completedReplyCount: Int) -> Bool {

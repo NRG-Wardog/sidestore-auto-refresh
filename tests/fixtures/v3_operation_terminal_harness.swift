@@ -129,6 +129,10 @@ struct OperationTerminalHarness {
             "a verified delete backs off callback checks, then resets when the callback settles")
         precondition(V3DeleteReconciliationPolicy.nextCallbackPollDelay(
             current: 0.25, backendPending: true, nativeUninstallSucceeded: false,
+            appStillInLibrary: true) == 1.0,
+            "an unresolved delete polls the callback and library at one second instead of four times per second")
+        precondition(V3DeleteReconciliationPolicy.nextCallbackPollDelay(
+            current: 0.25, backendPending: true, nativeUninstallSucceeded: false,
             appStillInLibrary: true, cancellationRequested: true) == 0.5,
             "an unresolved cancelled delete also backs off instead of polling four times per second")
 

@@ -3,6 +3,17 @@ import Foundation
 @main
 struct OperationRetryFailureHarness {
     static func main() {
+        precondition(V3OperationRetryButtonPolicy.title(state: "cancelled", retryDisposition: .unknown) == "Retry" &&
+                     V3OperationRetryButtonPolicy.title(state: "failed", retryDisposition: .unknown) ==
+                        "Retry (retryability unknown)",
+            "a confirmed cancellation has a safe Retry label while an unknown failure stays explicit")
+        let userCancelled = V3OperationCancellationPresentationPolicy.resolve(userRequested: true)
+        precondition(userCancelled.message == "The operation was cancelled." &&
+                     userCancelled.whatToDo.contains("Retry when you are ready"),
+            "the user's Cancel action must not be described as an accidental backend cancellation")
+        let backendCancelled = V3OperationCancellationPresentationPolicy.resolve(userRequested: false)
+        precondition(backendCancelled.whatToDo.contains("Retry if you still need to complete"),
+            "an independent backend cancellation offers a truthful recovery")
         let firstSession = UUID().uuidString
         let secondSession = UUID().uuidString
         var registry = V3OperationMutationRegistry()
@@ -74,6 +85,20 @@ struct OperationRetryFailureHarness {
         precondition(encodingDetails.recommendedAction.contains("Copy Diagnostics"))
         precondition(!encodingDetails.recommendedAction.contains("signing"))
         precondition(!encodingFailure.recovery.contains("Reload the request"))
+        let sourceEncodingFailure = CombinedFailure(operation: "source", stage: .source,
+            code: .invalidResponse, id: UUID().uuidString, retryable: false,
+            safeCause: .responseEncodingFailed)
+        let sourceEncodingDetails = V3OperationFailureDetails(sourceEncodingFailure)
+        precondition(sourceEncodingDetails.retryDisposition == .blocked &&
+                     sourceEncodingDetails.recommendedAction.contains("Repeating the same request will not help") &&
+                     !sourceEncodingDetails.recommendedAction.contains("review the source request"),
+            "source response encoding failure keeps deterministic service-defect recovery copy")
+        let sourceTooLargeFailure = CombinedFailure(operation: "source", stage: .source,
+            code: .invalidResponse, id: UUID().uuidString, retryable: false,
+            safeCause: .responseTooLarge)
+        precondition(V3OperationFailureDetails(sourceTooLargeFailure).recommendedAction
+            .contains("Repeating the same request will fail again"),
+            "source response-size failure does not fall through to generic URL guidance")
         let encodingPromptFailure = V3OperationPromptFailureDetails(encodingFailure)
         precondition(encodingPromptFailure.blocksResubmission &&
                      encodingPromptFailure.failure.whatHappened == encodingFailure.safeMessage &&

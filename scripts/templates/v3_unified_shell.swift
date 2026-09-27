@@ -851,7 +851,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             let health = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
             let certificate = health["certificateState"] as? [String: Any] ?? [:]
             let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificate)
-            recordJITLessReadiness(readiness.0)
+            recordJITLessReadiness(readiness.readiness)
             setupFactObservation = .observed
         } catch {
             // Unobserved is published as unknown, so the item stays outstanding
@@ -2128,12 +2128,15 @@ struct V3CatalogView: View {
                         Button("Return to Sources") { dismiss() }
                     }
                     switch V3CatalogRetryPresentationPolicy.action(
-                        for: failure?.retryDisposition ?? .unknown) {
+                        for: failure?.retryDisposition ?? .unknown,
+                        safeCause: failure?.safeCause) {
                     case .retry:
                         Button("Retry Catalog") { Task { await load() } }.disabled(loadInFlight)
                     case .retryWithUnknownDisposition:
                         Button("Try Catalog Again (retryability unknown)") { Task { await load() } }
                             .disabled(loadInFlight)
+                    case .reloadCatalog:
+                        Button("Reload Catalog") { Task { await load() } }.disabled(loadInFlight)
                     case .noRetry:
                         EmptyView()
                     }
@@ -2625,6 +2628,7 @@ struct V3OperationSheet: View {
     @State private var startedGeneration: UUID?
     @State private var isDismissing = false
     @State private var promptSubmitting = false
+    @State private var userRequestedCancellation = false
     @State private var failureContext = V3OperationRetryContext()
     @State private var whatToDo = ""
     @State private var technicalDetails = ""
@@ -2642,7 +2646,8 @@ struct V3OperationSheet: View {
         return [.allowed, .unknown].contains(failureContext.retryDisposition)
     }
     private var retryButtonTitle: String {
-        failureContext.retryDisposition == .unknown ? "Retry (retryability unknown)" : "Retry"
+        V3OperationRetryButtonPolicy.title(state: state,
+            retryDisposition: failureContext.retryDisposition)
     }
     private var sourceAddButtonTitle: String {
         guard let sourceAddFailure else { return "Add Source and Retry" }
@@ -2876,6 +2881,7 @@ struct V3OperationSheet: View {
     private func startAttempt(generation: UUID) {
         guard attempt.generation == generation, startedGeneration != generation else { return }
         startedGeneration = generation
+        userRequestedCancellation = false
         progress = 0
         hasProgress = false
         operationPhase = .working
@@ -3065,12 +3071,12 @@ struct V3OperationSheet: View {
             recordRefresh("completed", "The operation completed. Reload the app list to confirm the result.")
             status.reload()
         case "cancelled":
-            // A backend cancellation the user did not request (the Done
-            // button already dismisses locally) stays visible as a terminal
-            // result with an explicit message instead of silently returning
-            // to the app list.
-            message = "The operation was cancelled before it finished. Run it again if the cancellation was not intended."
-            whatToDo = "Retry is safe because the backend confirmed that this attempt stopped."
+            // Keep cancellation visible and distinguish the user's Cancel
+            // action from a backend cancellation that arrived independently.
+            let cancellation = V3OperationCancellationPresentationPolicy.resolve(
+                userRequested: userRequestedCancellation)
+            message = cancellation.message
+            whatToDo = cancellation.whatToDo
             technicalDetails = ""
             recoveryDestination = nil
             retryBlocked = false
@@ -3290,6 +3296,7 @@ struct V3OperationSheet: View {
     }
     private func cancelAttempt() {
         guard isRunning, attempt.beginTransition() else { return }
+        userRequestedCancellation = true
         state = "cancelling"
         message = ""
         let oldTask = task
@@ -4329,9 +4336,9 @@ final class V3AuthStore: ObservableObject {
             failedPromptRevision: failedPromptRevision, currentPromptRevision: revision,
             failedPromptResponseGeneration: failedPromptResponseGeneration,
             currentPromptResponseGeneration: promptResponseGeneration, state: state,
+            pollFailureIsTransient: pollFailureIsTransient,
             promptSubmissionInProgress: promptSubmitting, cancellationInProgress: isCancelling,
             taskCancelled: Task.isCancelled,
-            pollFailureIsTransient: pollFailureIsTransient,
             reconciliationWasSuperseded: reconciliationWasSuperseded,
             sessionDeadline: sessionDeadline) else { return false }
         task = Task { @MainActor [weak self] in
@@ -4357,10 +4364,10 @@ final class V3AuthStore: ObservableObject {
                     failedPromptRevision: failure.promptRevision, currentPromptRevision: revision,
                     failedPromptResponseGeneration: failure.promptResponseGeneration,
                     currentPromptResponseGeneration: promptResponseGeneration, state: state,
-                    promptSubmissionInProgress: promptSubmitting, cancellationInProgress: isCancelling,
-                    taskCancelled: Task.isCancelled,
                     pollFailureIsTransient: (failure.underlying as? CombinedFailure)
                         .map(V3AuthPollRecoveryPolicy.isTransientTransportFailure) ?? false,
+                    promptSubmissionInProgress: promptSubmitting, cancellationInProgress: isCancelling,
+                    taskCancelled: Task.isCancelled,
                     reconciliationWasSuperseded: reconciliationGate.generation !=
                         (reconciliationGenerationBefore &+ 1),
                     sessionDeadline: sessionDeadline) {
@@ -5815,8 +5822,15 @@ private struct V3PKCS12CertificateFacts {
     let identitySHA256: String
 }
 
+private struct V3JITLessStatusResult {
+    let readiness: V3JITLessReadiness
+    let detail: String
+    let hasImportedCopy: Bool
+    let certificateFacts: V3PKCS12CertificateFacts?
+}
+
 private enum V3JITLessStatusReader {
-    static func read(serviceCertificate: [String: Any]) async -> (V3JITLessReadiness, String) {
+    static func read(serviceCertificate: [String: Any]) async -> V3JITLessStatusResult {
         let osMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
         let active = serviceCertificate["active"] as? Bool ?? false
         let activeStatus = serviceCertificate["validation"] as? String ?? "unknown"
@@ -5844,9 +5858,12 @@ private enum V3JITLessStatusReader {
             validationStatus: validationStatus,
             validationFailed: validationFailed)
         if osMajor >= 26 && !active {
-            return (state, V3JITLessPresentation.present(.activeCertificateMissing).detail)
+            return V3JITLessStatusResult(readiness: state,
+                detail: V3JITLessPresentation.present(.activeCertificateMissing).detail,
+                hasImportedCopy: data != nil, certificateFacts: facts)
         }
-        return (state, detail(for: state))
+        return V3JITLessStatusResult(readiness: state, detail: detail(for: state),
+            hasImportedCopy: data != nil, certificateFacts: facts)
     }
 
     static func parse(_ data: Data, password: String) -> V3PKCS12CertificateFacts? {
@@ -6003,13 +6020,14 @@ struct V3HealthView: View {
             rows = result
             let certificateState = reply["certificateState"] as? [String: Any] ?? [:]
             activeCertificateAvailable = certificateState["active"] as? Bool == true
-            certRows = certComparison(service: certificateState)
             let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificateState)
-            jitlessReadiness = readiness.0
-            jitlessDetail = readiness.1
+            certRows = certComparison(service: certificateState,
+                hasImportedCopy: readiness.hasImportedCopy, localFacts: readiness.certificateFacts)
+            jitlessReadiness = readiness.readiness
+            jitlessDetail = readiness.detail
             // V3_SHARED_JITLESS_FACT_V1: Health is an observer of the same fact,
             // so visiting Health can also complete Home's outstanding item.
-            status.recordJITLessReadiness(readiness.0)
+            status.recordJITLessReadiness(readiness.readiness)
             message = ""
         } catch {
             message = V3FailureGuidance.message(error)
@@ -6030,7 +6048,8 @@ struct V3HealthView: View {
         sharedModel.deepLink = URL(string: "livecontainer://jitless-diagnose")
     }
 
-    private func certComparison(service: [String: Any]) -> [(String, String)] {
+    private func certComparison(service: [String: Any], hasImportedCopy: Bool,
+                                localFacts: V3PKCS12CertificateFacts?) -> [(String, String)] {
         let active = service["active"] as? Bool ?? false
         let serialSuffix = service["serialSuffix"] as? String ?? ""
         let team = service["team"] as? String ?? ""
@@ -6041,14 +6060,10 @@ struct V3HealthView: View {
             if !team.isEmpty { result.append(("Active Team", "?\(String(team.suffix(4)))")) }
             if let expiry { result.append(("Active Expiry", expiry.formatted(date: .abbreviated, time: .omitted))) }
         }
-        let data = LCUtils.certificateData() as Data?
-        result.append(("JIT-Less Copy", data == nil ? "Not imported" : "Imported"))
-        var localTeam = ""
-        var localFingerprint = ""
-        if let data, let password = LCSharedUtils.certificatePassword(),
-           let facts = V3JITLessStatusReader.parse(data, password: password) {
-            localTeam = facts.teamIdentifier
-            localFingerprint = facts.identitySHA256
+        result.append(("JIT-Less Copy", hasImportedCopy ? "Imported" : "Not imported"))
+        let localTeam = localFacts?.teamIdentifier ?? ""
+        let localFingerprint = localFacts?.identitySHA256 ?? ""
+        if !localTeam.isEmpty {
             result.append(("Copy Team", "?\(String(localTeam.suffix(4)))"))
         }
         if let date = LCUtils.appGroupUserDefault.object(forKey: "LCCertificateUpdateDate") as? Date {
@@ -6507,11 +6522,11 @@ final class V3SetupStore: ObservableObject {
                 // V3_SHARED_JITLESS_FACT_V1: the published fact is the only
                 // authority. Nothing keeps a local copy, so no surface can hold
                 // a second answer to the same question.
-                status.recordJITLessReadiness(readiness.0)
+                status.recordJITLessReadiness(readiness.readiness)
                 // V3_JITLESS_PRESENTATION_V1: the step state is derived from the
                 // shared presentation, so a ready state is stored as complete
                 // rather than as a permanent "action required" row.
-                let presentation = V3JITLessPresentation.present(readiness.0)
+                let presentation = V3JITLessPresentation.present(readiness.readiness)
                 switch presentation.severity {
                 case .completed:
                     jitless = V3SetupStepState(state: "complete", detail: presentation.title)

@@ -55,6 +55,17 @@ class ServicePatchTests(unittest.TestCase):
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         self.assertIn("case CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue:", primitives)
 
+    def test_successful_service_replies_are_not_reparsed_for_fallback_logs(self):
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        encode = service[service.index("private func encode(_ value:"):]
+        encode = encode[:encode.index("private func run(")]
+        self.assertIn("V3ResponseEncoder.encodeDetailed", encode)
+        self.assertIn("encoded.fallbackToken", encode)
+        self.assertNotIn("PropertyListSerialization.propertyList(from: data", encode)
+        harness = (ROOT / "tests/fixtures/v3_catalog_response_encoding_harness.swift").read_text(encoding="utf-8")
+        self.assertIn("detailedSuccess.fallbackToken == nil", harness)
+        self.assertIn("detailedFailure.fallbackToken", harness)
+
     def test_inflight_request_id_replay_never_claims_operation_was_not_dispatched(self):
         service_source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         replay = service_source[service_source.index("guard tasks[id] == nil else {"):]
@@ -452,7 +463,8 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertIn("hasConflictingOperationMutation", service)
         self.assertIn("operations.activeMutationID != nil || refreshAdmission.isActive", service)
         self.assertIn("V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: controlReply)", service)
-        self.assertIn("completedCacheBudget.canReserve(preservingControlCapacity: !controlReply)", service)
+        self.assertIn("V3MutationReplyCacheBudget.minimumReplyBytesToAdmit(operation: operation)", service)
+        self.assertIn("!cacheResponse ||", service)
         self.assertIn("completedCacheBudget.remove(byteCount)", service)
         self.assertIn('["opStart", "authBegin", "authRetryProvisioning"].contains(operation)', service)
         begin = runtime[runtime.index("func begin(deadline: Date, mode: BeginMode = .interactive,"):]
@@ -464,10 +476,13 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         budget = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         self.assertIn("V3MutationReplyCacheBudget.isControlReply(operation: operation)", service)
-        self.assertIn("completedCacheBudget.canReserve(preservingControlCapacity: !controlReply)", service)
+        self.assertIn("V3MutationReplyCacheBudget.shouldCacheResponse(operation: operation)", service)
+        self.assertIn("if mutation && cacheResponse", service)
+        self.assertIn("completedCacheBudget.canReserve(", service)
         self.assertIn("completedCacheBudget.record(encoded.count, controlResponse: controlReply)", service)
-        for control in ("refreshAdmissionEnd", "authRespond", "opAnswer"):
+        for control in ("refreshAdmissionEnd", "authBegin", "authRetryProvisioning", "opStart"):
             self.assertIn(f'"{control}"', budget)
+        self.assertIn('!["authRespond", "opAnswer"].contains(operation)', budget)
 
     def test_request_deadline_task_is_cancelled_when_operation_settles(self):
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
