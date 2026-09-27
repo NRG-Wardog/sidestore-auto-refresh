@@ -26,6 +26,10 @@ struct V3AuthJITLessErrorBehaviorHarness {
             authoritativeAccountMatches: true, provisioningFailed: false, cancelled: true)
             == "authenticatedProvisioningIncomplete")
         precondition(V3AuthTerminalPolicy.resolve(authenticationSucceeded: false,
+            authoritativeAccountMatches: true, accountExistedBeforeAttempt: true,
+            provisioningFailed: false, cancelled: true) == "cancelled",
+            "a pre-existing active account does not prove re-authentication succeeded")
+        precondition(V3AuthTerminalPolicy.resolve(authenticationSucceeded: false,
             authoritativeAccountMatches: false, provisioningFailed: false, cancelled: true) == "cancelled")
 
         let sessionID = UUID().uuidString

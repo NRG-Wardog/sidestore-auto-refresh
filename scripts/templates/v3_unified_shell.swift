@@ -3637,6 +3637,7 @@ final class V3AuthStore: ObservableObject {
     @discardableResult
     func reconcile(force: Bool = false) async -> Bool {
         guard force || !["working", "awaitingPrompt"].contains(state) else { return false }
+        let reportedTerminalState = state
         do {
             let snapshot = try await V3ServiceBridge.shared.request(operation: "snapshot")
             let account = snapshot["account"] as? String ?? "Not signed in"
@@ -3675,7 +3676,11 @@ final class V3AuthStore: ObservableObject {
                 } else {
                     state = "completed"
                     team = snapshot["team"] as? String ?? ""
-                    message = ""
+                    message = reportedTerminalState == "cancelled"
+                        ? "The sign-in attempt was cancelled. Your existing account remains signed in."
+                        : (reportedTerminalState == "failed"
+                            ? "The sign-in attempt did not complete. Your existing account remains signed in."
+                            : "")
                     clearProvisioningOutcome()
                 }
             } else {
@@ -3728,10 +3733,26 @@ final class V3AuthStore: ObservableObject {
     }
 
     private func pollLoop(id: String) async throws {
+        let sessionDeadline = Date().addingTimeInterval(V3WireContract.authSessionLifetime)
+        var pollFailureCount = 0
         while !Task.isCancelled {
             try await Task.sleep(nanoseconds: 1_000_000_000)
             try Task.checkCancellation()
-            let reply = try await V3ServiceBridge.shared.request(operation: "authPoll", target: id)
+            let reply: [String: Any]
+            do {
+                reply = try await V3ServiceBridge.shared.request(operation: "authPoll", target: id)
+                if message == "Connection to SideStore was interrupted. Waiting for the current sign-in result..." {
+                    message = ""
+                }
+                pollFailureCount = 0
+            } catch let failure as CombinedFailure
+                where V3AuthPollRecoveryPolicy.shouldRetry(failure, sessionDeadline: sessionDeadline) {
+                pollFailureCount += 1
+                message = "Connection to SideStore was interrupted. Waiting for the current sign-in result..."
+                let delay = V3AuthPollRecoveryPolicy.retryDelay(attempt: pollFailureCount - 1)
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                continue
+            }
             guard V3AuthPollResponsePolicy.mayApply(
                 currentSessionID: session, replySessionID: reply["session"] as? String ?? "",
                 cancellationInProgress: isCancelling,

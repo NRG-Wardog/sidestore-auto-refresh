@@ -26,23 +26,24 @@ HOST_SCHEDULER = template("livecontainer_refresh_policy.swift") + "\n" + templat
 ALARM_PROVIDER = template("livecontainer_refresh_alarm.swift")
 SETTINGS_VIEW = template("livecontainer_refresh_settings.swift")
 BRIDGE = r'''
-// LC_REFRESH_BRIDGE_V2_BEGIN
+// LC_REFRESH_BRIDGE_V3_BEGIN
 /// Use the action identity present in the combined package's intent metadata.
 public enum LiveContainerRefreshBridge {
-    public static func refreshAllApps() async throws {
+    public static func refreshAllApps(runID: UUID) async throws {
         guard #available(iOS 17.0, *) else {
             throw NSError(domain: "LiveContainerRefresh.UnsupportedOS", code: 17,
                 userInfo: [NSLocalizedDescriptionKey: "The embedded automatic refresh bridge requires iOS 17 or later."])
         }
         try Task.checkCancellation()
-        try await RefreshHandler.shared.startRefresh(
+        try await RefreshHandler.shared.startScheduledRefresh(
             identifier: "RefreshAllIntent",
-            mangledName: "16SideStoreSupport20RefreshAllAppsIntentV"
+            mangledName: "16SideStoreSupport20RefreshAllAppsIntentV",
+            runID: runID.uuidString
         )
         try Task.checkCancellation()
     }
 }
-// LC_REFRESH_BRIDGE_V2_END
+// LC_REFRESH_BRIDGE_V3_END
 '''
 
 
@@ -60,11 +61,11 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 def patch_support(root: Path) -> None:
     path = root / "SideStoreSupport/SideStore.swift"
     text = path.read_text(encoding="utf-8")
-    if "LC_REFRESH_BRIDGE_V2_BEGIN" in text:
+    if "LC_REFRESH_BRIDGE_V3_BEGIN" in text:
         if BRIDGE.strip() not in text:
             die("outdated bridge template: reapply to the pinned clean source")
         return
-    if "public enum LiveContainerRefreshBridge" in text:
+    if "LC_REFRESH_BRIDGE_V2_BEGIN" in text or "public enum LiveContainerRefreshBridge" in text:
         die("legacy bridge already patched: reapply to the pinned clean source")
     text = replace_once(text, "\nclass RefreshHandler: NSObject, RefreshServer {",
                         BRIDGE + "\nclass RefreshHandler: NSObject, RefreshServer {", "refresh bridge insertion")

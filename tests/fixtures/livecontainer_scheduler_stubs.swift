@@ -81,7 +81,7 @@ enum LiveContainerRefreshBridge {
     static var resultRetryable: Bool?
     static var staleFailure = false
     static var malformedFailure = false
-    static func refreshAllApps() async throws {
+    static func refreshAllApps(runID: UUID) async throws {
         calls += 1
         if uncertain {
             LiveContainerAutoRefreshScheduler.defaults.set(UUID().uuidString, forKey: "liveContainerAutoRefreshUncertainMutationRunID")

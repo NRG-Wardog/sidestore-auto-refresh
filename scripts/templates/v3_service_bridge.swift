@@ -279,7 +279,7 @@ public final class V3ServiceBridge {
                 client.v3Execute(data) { response in
                     Task { @MainActor in
                         if V3CancellationRecoveryReplyPolicy.mayCancelRetirement(
-                            requestStillPending: self.pending[id] != nil) {
+                            operation: operation, requestStillPending: self.pending[id] != nil) {
                             self.cancellationRecovery.removeValue(forKey: id)?.cancel()
                         }
                         guard response.count <= V3WireContract.responseLimit else {

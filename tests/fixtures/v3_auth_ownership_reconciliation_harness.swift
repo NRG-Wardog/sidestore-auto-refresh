@@ -43,9 +43,17 @@ struct AuthOwnershipReconciliationHarness {
         precondition(!ownership.hasActiveSession(now: now),
                      "confirmed service retirement clears host-only auth ownership")
 
-        precondition(!V3CancellationRecoveryReplyPolicy.mayCancelRetirement(requestStillPending: false),
+        precondition(!V3CancellationRecoveryReplyPolicy.mayCancelRetirement(
+            operation: "authCancel", requestStillPending: false),
                      "a late authCancel reply after request timeout cannot cancel service retirement")
-        precondition(V3CancellationRecoveryReplyPolicy.mayCancelRetirement(requestStillPending: true),
+        precondition(!V3CancellationRecoveryReplyPolicy.mayCancelRetirement(
+            operation: "authBegin", requestStillPending: false),
+                     "a late authBegin session creation cannot cancel service retirement")
+        precondition(V3CancellationRecoveryReplyPolicy.mayCancelRetirement(
+            operation: "install", requestStillPending: false),
+                     "a late terminal non-session mutation preserves the existing recovery behavior")
+        precondition(V3CancellationRecoveryReplyPolicy.mayCancelRetirement(
+            operation: "authCancel", requestStillPending: true),
                      "a reply for a live request may resolve its pending recovery entry")
 
         ownership.register(sessionID: prior, deadline: deadline, now: now)
@@ -59,7 +67,8 @@ struct AuthOwnershipReconciliationHarness {
                      "the correlated service-retirement path releases both stale auth owners")
 
         precondition(V3AuthTimeoutReconciliationPolicy.shouldReconcileAfterTerminal("timedOut"))
-        precondition(!V3AuthTimeoutReconciliationPolicy.shouldReconcileAfterTerminal("failed"))
+        precondition(V3AuthTimeoutReconciliationPolicy.shouldReconcileAfterTerminal("cancelled"))
+        precondition(V3AuthTimeoutReconciliationPolicy.shouldReconcileAfterTerminal("failed"))
         precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
             reportedState: "timedOut", authenticated: true, provisioningIncomplete: false) == "completed",
             "a late authenticated account snapshot wins over a stale timeout screen")
@@ -68,6 +77,12 @@ struct AuthOwnershipReconciliationHarness {
                 "authenticatedProvisioningIncomplete")
         precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
             reportedState: "timedOut", authenticated: false, provisioningIncomplete: false) == "timedOut")
+        precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
+            reportedState: "cancelled", authenticated: true, provisioningIncomplete: false) == "completed",
+            "an existing active account remains visible after cancelling re-authentication")
+        precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
+            reportedState: "cancelled", authenticated: true, provisioningIncomplete: true) ==
+                "authenticatedProvisioningIncomplete")
 
         precondition(V3ProvisioningResumeAvailabilityPolicy.canResume(
             authenticated: true, currentAppleID: "Dev@Example.com", resumableAppleID: "dev@example.com"))
@@ -82,6 +97,20 @@ struct AuthOwnershipReconciliationHarness {
         precondition(V3ProvisioningResumeExecutionPolicy.mayPromptForCredentials(forceProvisioningRetry: false))
         precondition(!V3ProvisioningResumeExecutionPolicy.mayPromptForCredentials(forceProvisioningRetry: true),
                      "Retry Provisioning never silently falls back to a credential prompt")
+        let pollDeadline = now.addingTimeInterval(60)
+        let pollTimeout = CombinedFailure(operation: "authPoll", stage: .xpcConnection,
+            code: .timedOut, id: current, retryable: true)
+        precondition(V3AuthPollRecoveryPolicy.shouldRetry(pollTimeout, now: now,
+            sessionDeadline: pollDeadline),
+            "one lost auth poll keeps monitoring the same session")
+        precondition(!V3AuthPollRecoveryPolicy.shouldRetry(pollTimeout, now: pollDeadline,
+            sessionDeadline: pollDeadline),
+            "auth poll recovery stops at the bounded session deadline")
+        let authFailure = CombinedFailure(operation: "authPoll", stage: .authentication,
+            code: .invalidResponse, id: current, retryable: false)
+        precondition(!V3AuthPollRecoveryPolicy.shouldRetry(authFailure, now: now,
+            sessionDeadline: pollDeadline),
+            "typed terminal auth errors are not treated as transport interruptions")
         precondition(!V3ProvisioningRetryRecoveryPolicy.availabilityAfterFailure(
             snapshotConfirmed: true, snapshotAllowsRetry: false, previouslyConfirmedAvailable: true),
             "a confirmed unavailable session cannot be overwritten by a retry catch")

@@ -175,6 +175,8 @@ class ServicePatchTests(unittest.TestCase):
             self.assertIn("let account = team.account else", sign_in)
             retry = sign_in[sign_in.index("if self.v3ForceProvisioningRetry {"):sign_in.index("} else if V3ProvisioningResumeExecutionPolicy")]
             self.assertIn("self.provisioningLoop(account: account, session: session", retry)
+            self.assertIn("session.anisetteData = try await self.getAnisetteData()", retry)
+            self.assertIn("AuthManager.shared.session = session", retry)
             self.assertNotIn("silentSignIn()", retry,
                              "provisioning retry must reuse the authenticated session without reauthentication")
             self.assertIn("retryCredentials: (String, String)?", sign_in)
@@ -197,9 +199,15 @@ class ServicePatchTests(unittest.TestCase):
     def test_standalone_refresh_run_does_not_reuse_stale_scheduler_identity(self):
         refresh = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
         self.assertIn("V3RefreshRunIdentitySelection.select(", refresh)
+        self.assertIn("schedulerRunID: schedulerRunID", refresh)
         self.assertIn('forKey: "liveContainerAutoRefreshActiveRunID"', refresh)
         self.assertIn("if !selectedRun.schedulerOwned", refresh)
         self.assertIn('removeObject(forKey: "liveContainerAutoRefreshExpectedRunID")', refresh)
+        bridge = (ROOT / "scripts/patch_livecontainer_autorefresh.py").read_text(encoding="utf-8")
+        self.assertIn("startScheduledRefresh(", bridge)
+        self.assertIn("runID: runID.uuidString", bridge)
+        scheduler = (ROOT / "scripts/templates/livecontainer_refresh_scheduler.swift").read_text(encoding="utf-8")
+        self.assertIn("LiveContainerRefreshBridge.refreshAllApps(runID: runID)", scheduler)
 
     def test_service_and_startup_adapters_compose_on_pinned_sources(self):
         startup = module("patch_combined_service_startup")

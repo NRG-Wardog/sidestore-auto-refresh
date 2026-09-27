@@ -102,6 +102,26 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn('case "authenticatedProvisioningIncomplete"', host)
         self.assertNotIn('message = "Sign-in failed."', host)
 
+    def test_reauthentication_cancellation_reconciles_preexisting_account_state(self):
+        runtime_text = runtime()
+        shell_text = shell()
+        self.assertIn("accountAppleIDAtStart", runtime_text)
+        self.assertIn("accountExistedBeforeAttempt", runtime_text)
+        self.assertIn("accountExistedBeforeAttempt: accountExistedBeforeAttempt", runtime_text)
+        self.assertIn('["timedOut", "failed", "cancelled"].contains(state)',
+                      (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+        self.assertIn("The sign-in attempt was cancelled. Your existing account remains signed in.", shell_text)
+        self.assertIn("await reconcile(force: true)", shell_text[shell_text.index("func cancel() {", shell_text.index("final class V3AuthStore")):])
+
+    def test_auth_poll_transport_timeout_keeps_bounded_session_monitoring(self):
+        host = shell()
+        poll = host[host.index("private func pollLoop(id: String)"):host.index("private func apply(", host.index("private func pollLoop(id: String)"))]
+        self.assertIn("V3AuthPollRecoveryPolicy.shouldRetry", poll)
+        self.assertIn("sessionDeadline", poll)
+        self.assertIn("continue", poll)
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        self.assertIn("enum V3AuthPollRecoveryPolicy", primitives)
+
     def test_sign_in_reopening_reconciles_authoritative_side_store_snapshot(self):
         host = shell()
         sign_in = host[host.index("final class V3AuthStore"):host.index("struct V3SignInLink")]

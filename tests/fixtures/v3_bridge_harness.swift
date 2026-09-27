@@ -22,6 +22,10 @@ final class FakeClient {
         let target = request["target"] as? String ?? ""
         let operationResult: [String: Any]
         switch operation {
+        case "authBegin":
+            operationResult = ["session": payload["session"] as? String ?? "", "state": "working"]
+        case "authCancel":
+            operationResult = ["session": target, "state": "cancelled", "authenticated": false]
         case "opStart":
             if rejectOperationStart {
                 let failure = CombinedFailure(operation: "install", stage: .command,
@@ -234,6 +238,34 @@ struct BridgeTests {
                      "user-confirmed device reconciliation must retire the uncertain backend process")
         precondition(handler.stops == stopsBeforeConfirmation + 1 && !bridge.isMutating,
                      "the explicit confirmed-reconciliation path must release the host mutation gate")
+
+        // A terminal authCancel reply arriving after its request times out is
+        // late and bypasses ownership classification. It must not suppress the
+        // bounded service-retirement path that clears the host auth owner.
+        let lateAuthBridge = V3ServiceBridge(readTimeout: 0.05, commandTimeout: 0.05,
+                                             cancellationGrace: 0.05)
+        let authSession = UUID().uuidString
+        _ = try await lateAuthBridge.request(operation: "authBegin", target: authSession,
+            payload: ["session": authSession, "sessionDeadline": Date().addingTimeInterval(60)])
+        precondition(lateAuthBridge.isMutating, "a live auth session owns host mutation admission")
+        client.hold = true
+        let stopsBeforeLateAuthCancel = handler.stops
+        let lateAuthCancel = Task {
+            try await lateAuthBridge.request(operation: "authCancel", target: authSession)
+        }
+        await waitForRequest(client)
+        do { _ = try await lateAuthCancel.value; preconditionFailure("authCancel timeout was lost") }
+        catch let failure as CombinedFailure { precondition(failure.code == .timedOut) }
+        client.flush()
+        let authRetirementDeadline = Date().addingTimeInterval(2)
+        while handler.stops == stopsBeforeLateAuthCancel {
+            precondition(Date() < authRetirementDeadline,
+                         "late authCancel reply incorrectly cancelled service-retirement recovery")
+            await Task.yield()
+        }
+        precondition(!lateAuthBridge.isMutating,
+                     "confirmed service retirement clears ownership after a late authCancel reply")
+        client.hold = false
 
         // A service-level rejection before the operation center creates a session
         // is authoritative proof that the mutation was never dispatched.

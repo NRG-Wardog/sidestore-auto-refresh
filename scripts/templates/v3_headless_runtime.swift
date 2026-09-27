@@ -420,6 +420,7 @@ final class V3AuthCenter {
         var cancellationRequested = false
         var submittedAppleID: String?
         var authenticatedAppleID: String?
+        var accountAppleIDAtStart: String?
     }
 
     // Privacy-safe record of a finished-but-incomplete provisioning attempt, so
@@ -491,6 +492,10 @@ final class V3AuthCenter {
         let previousID = activeID
         var newSession = Session(deadline: deadline)
         newSession.mode = mode
+        if let activeAppleID = DatabaseManager.shared.activeAccount()?.appleID {
+            newSession.accountAppleIDAtStart = activeAppleID
+                .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
         if mode == .resumeProvisioning {
             newSession.authenticatedAppleID = AuthManager.shared.currentAppleID?.lowercased()
         }
@@ -552,11 +557,13 @@ final class V3AuthCenter {
             let activeAppleID = DatabaseManager.shared.activeAccount()?.appleID
             let submitted = session?.submittedAppleID?.lowercased()
             let accountMatches = submitted != nil && submitted == activeAppleID?.lowercased()
+            let accountExistedBeforeAttempt = submitted != nil && session?.accountAppleIDAtStart == submitted
             let authenticationSucceeded = session?.authenticatedAppleID != nil
             let cancelled = error is CancellationError || session?.cancellationRequested == true
             let authenticatedOutcome = V3AuthTerminalPolicy.resolve(
                 authenticationSucceeded: authenticationSucceeded,
                 authoritativeAccountMatches: accountMatches,
+                accountExistedBeforeAttempt: accountExistedBeforeAttempt,
                 provisioningFailed: !cancelled,
                 cancelled: cancelled)
 

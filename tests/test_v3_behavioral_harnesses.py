@@ -100,8 +100,9 @@ class V3BehavioralHarnessTests(unittest.TestCase):
 
     def test_scheduler_and_direct_refresh_runs_have_distinct_identity(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_refresh_run_identity_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run("import Foundation\n" + helper + "\n" + harness,
+        self.compile_and_run("import Foundation\n" + failure + "\n" + helper + "\n" + harness,
                              "V3_REFRESH_RUN_IDENTITY_PASS")
 
     def test_refresh_all_current_run_failure_and_target_policy_execute(self):

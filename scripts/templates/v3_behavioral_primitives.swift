@@ -300,8 +300,9 @@ enum V3TwoFactorStep: String, Equatable {
 
 enum V3AuthTerminalPolicy {
     static func resolve(authenticationSucceeded: Bool, authoritativeAccountMatches: Bool,
+                        accountExistedBeforeAttempt: Bool = false,
                         provisioningFailed: Bool, cancelled: Bool) -> String {
-        if authenticationSucceeded || authoritativeAccountMatches {
+        if authenticationSucceeded || (authoritativeAccountMatches && !accountExistedBeforeAttempt) {
             return provisioningFailed || cancelled ? "authenticatedProvisioningIncomplete" : "completed"
         }
         return cancelled ? "cancelled" : "failed"
@@ -2216,11 +2217,15 @@ struct V3RefreshRunIdentitySelection: Equatable {
     let runID: String
     let schedulerOwned: Bool
 
-    static func select(expectedRunID: String?, activeRunID: String?, newRunID: String) -> Self? {
-        if let expectedRunID, expectedRunID == activeRunID,
-           let parsed = UUID(uuidString: expectedRunID), parsed.uuidString == expectedRunID {
-            return Self(runID: expectedRunID, schedulerOwned: true)
+    static func select(schedulerRunID: String?, expectedRunID: String?,
+                       activeRunID: String?, newRunID: String) -> Self? {
+        if let schedulerRunID {
+            guard let parsed = UUID(uuidString: schedulerRunID), parsed.uuidString == schedulerRunID,
+                  expectedRunID == schedulerRunID, activeRunID == schedulerRunID else { return nil }
+            return Self(runID: schedulerRunID, schedulerOwned: true)
         }
+        // A direct AppIntent cannot borrow an active scheduler's run identity.
+        guard activeRunID == nil else { return nil }
         guard let generated = UUID(uuidString: newRunID), generated.uuidString == newRunID else { return nil }
         return Self(runID: newRunID, schedulerOwned: false)
     }
@@ -2238,11 +2243,17 @@ enum V3RequestRetirementPolicy {
 }
 
 enum V3CancellationRecoveryReplyPolicy {
-    // A response arriving after the host settled/cancelled its request is only
-    // a late callback. It cannot cancel bounded service-retirement recovery,
-    // because the normal result-classification path will not consume it.
-    static func mayCancelRetirement(requestStillPending: Bool) -> Bool {
-        requestStillPending
+    // Late auth/session-creation replies are not passed through the original
+    // result classifier after settlement. Keep their service-retirement timer;
+    // ordinary one-shot mutation callbacks retain their terminal recovery path.
+    static func mayCancelRetirement(operation: String, requestStillPending: Bool) -> Bool {
+        if requestStillPending { return true }
+        // A late auth reply has not passed the request's result classifier, so
+        // retain recovery until bounded service retirement clears host owners.
+        if ["authBegin", "authRetryProvisioning", "authCancel", "refreshAdmissionBegin"].contains(operation) {
+            return false
+        }
+        return true
     }
 }
 
@@ -2337,14 +2348,30 @@ enum V3ProvisioningRetryRecoveryPolicy {
 }
 
 enum V3AuthTimeoutReconciliationPolicy {
-    static func shouldReconcileAfterTerminal(_ state: String) -> Bool { state == "timedOut" }
+    static func shouldReconcileAfterTerminal(_ state: String) -> Bool {
+        ["timedOut", "failed", "cancelled"].contains(state)
+    }
 
     static func reconciledState(reportedState: String, authenticated: Bool,
                                 provisioningIncomplete: Bool) -> String? {
-        guard reportedState == "timedOut", authenticated else {
+        guard shouldReconcileAfterTerminal(reportedState), authenticated else {
             return reportedState == "timedOut" ? "timedOut" : nil
         }
         return provisioningIncomplete ? "authenticatedProvisioningIncomplete" : "completed"
+    }
+}
+
+enum V3AuthPollRecoveryPolicy {
+    static func shouldRetry(_ failure: CombinedFailure, now: Date = Date(),
+                            sessionDeadline: Date) -> Bool {
+        guard now < sessionDeadline else { return false }
+        if failure.code == .timedOut { return true }
+        return failure.code == .interrupted && failure.stage == .xpcConnection
+    }
+
+    static func retryDelay(attempt: Int) -> TimeInterval {
+        let backoff: [TimeInterval] = [1, 2, 5, 10]
+        return backoff[min(max(0, attempt), backoff.count - 1)]
     }
 }
 

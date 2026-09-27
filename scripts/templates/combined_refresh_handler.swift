@@ -191,9 +191,16 @@ class RefreshHandler: NSObject {
 
     // Compatibility adapter for existing AppIntents and scheduler ABI. This always means refresh.
     func startRefresh(identifier: String, mangledName: String) async throws {
-        try await performRefresh(identifier: identifier, mangledName: mangledName)
+        try await performRefresh(identifier: identifier, mangledName: mangledName, schedulerRunID: nil)
+    }
+    func startScheduledRefresh(identifier: String, mangledName: String, runID: String) async throws {
+        try await performRefresh(identifier: identifier, mangledName: mangledName, schedulerRunID: runID)
     }
     func performRefresh(identifier: String, mangledName: String) async throws {
+        try await performRefresh(identifier: identifier, mangledName: mangledName, schedulerRunID: nil)
+    }
+    private func performRefresh(identifier: String, mangledName: String,
+                                schedulerRunID: String?) async throws {
         guard !identifier.isEmpty, !mangledName.isEmpty else {
             throw CombinedFailure(operation: "refresh", stage: .command, code: .invalidConfiguration, id: UUID().uuidString)
         }
@@ -208,11 +215,17 @@ class RefreshHandler: NSObject {
         try Task.checkCancellation()
         let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
         let selectedRun = V3RefreshRunIdentitySelection.select(
+            schedulerRunID: schedulerRunID,
             expectedRunID: defaults?.string(forKey: "liveContainerAutoRefreshExpectedRunID"),
             activeRunID: defaults?.string(forKey: "liveContainerAutoRefreshActiveRunID"),
             newRunID: UUID().uuidString)
-        guard let selectedRun, let client else {
+        guard let client else {
             throw CombinedFailure(operation: "refresh", stage: .xpcConnection, code: .invalidConfiguration, id: token.uuidString)
+        }
+        guard let selectedRun else {
+            throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
+                code: .busy, id: schedulerRunID ?? token.uuidString, retryable: true,
+                safeCause: .operationInProgress)
         }
         let run = selectedRun.runID
         guard v3RefreshAdmissionRunID == nil else {

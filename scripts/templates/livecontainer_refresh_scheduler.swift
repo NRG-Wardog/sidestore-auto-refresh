@@ -279,7 +279,7 @@ enum LiveContainerAutoRefreshScheduler {
         }
         try Task.checkCancellation()
         print("[LIVE_CONTAINER_REFRESH] REFRESH_ATTEMPT_STARTED run_id=\(runID.uuidString)")
-        try await LiveContainerRefreshBridge.refreshAllApps()
+        try await LiveContainerRefreshBridge.refreshAllApps(runID: runID)
         try Task.checkCancellation()
         print("[LIVE_CONTAINER_REFRESH] REFRESH_PIPELINE_RETURNED run_id=\(runID.uuidString)")
     }
