@@ -1611,6 +1611,10 @@ enum V3CatalogRowPolicy {
         return value
     }
 
+    static func isDisplayable(_ row: [String: Any]) -> Bool {
+        identifier(of: row) != nil && row["name"] as? String != nil
+    }
+
     /// Removes duplicates by identifier, preserving first-seen order, across
     /// every page seen so far. Rows without a usable identifier are rejected
     /// rather than silently kept, because they cannot be deduplicated or
@@ -1634,7 +1638,8 @@ struct V3CatalogRowsAccumulator {
 
     mutating func append(_ page: [[String: Any]]) {
         for row in page {
-            guard let identifier = V3CatalogRowPolicy.identifier(of: row),
+            guard V3CatalogRowPolicy.isDisplayable(row),
+                  let identifier = V3CatalogRowPolicy.identifier(of: row),
                   identifiers.insert(identifier).inserted else { continue }
             rows.append(row)
         }

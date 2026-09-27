@@ -2033,7 +2033,9 @@ struct V3CatalogApp: Identifiable {
     let downloadURL: String
     let installedVersion: String?
     init?(_ row: [String: Any]) {
-        guard let id = row["identifier"] as? String, let name = row["name"] as? String else { return nil }
+        guard V3CatalogRowPolicy.isDisplayable(row),
+              let id = row["identifier"] as? String,
+              let name = row["name"] as? String else { return nil }
         self.id = id; self.name = name; version = row["version"] as? String ?? ""
         developer = row["developer"] as? String ?? ""; description = row["description"] as? String ?? ""
         installedID = row["installedID"] as? String ?? ""; canInstall = row["canInstall"] as? Bool ?? false
@@ -2200,8 +2202,9 @@ struct V3CatalogView: View {
                 guard let rawApps = result["apps"] as? [[String: Any]] else {
                     throw catalogResponseFailure(cursor: cursor)
                 }
-                let page = rawApps.compactMap(V3CatalogApp.init)
-                guard page.count == rawApps.count else { throw catalogResponseFailure(cursor: cursor) }
+                guard rawApps.allSatisfy(V3CatalogRowPolicy.isDisplayable) else {
+                    throw catalogResponseFailure(cursor: cursor)
+                }
                 guard let number = result["nextCursor"] as? NSNumber,
                       CFGetTypeID(number) != CFBooleanGetTypeID(),
                       let next = number as? Int else {
@@ -2213,7 +2216,9 @@ struct V3CatalogView: View {
                 guard next == -1 || next > cursor else { throw catalogResponseFailure(cursor: cursor) }
                 cursor = next
             } while cursor >= 0
-            apps = accumulated.rows.compactMap(V3CatalogApp.init)
+            let mappedApps = accumulated.rows.compactMap(V3CatalogApp.init)
+            guard mappedApps.count == accumulated.rows.count else { throw catalogResponseFailure(cursor: cursor) }
+            apps = mappedApps
         } catch is CancellationError {
             // A cancelled load is lifecycle, not a catalog failure. Presenting it
             // as an error would blame the source for a navigation change.

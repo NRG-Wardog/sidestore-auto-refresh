@@ -188,6 +188,10 @@ struct CatalogResponseEncodingHarness {
         // across pages, first-seen order preserved.
         func row(_ id: String) -> [String: Any] { ["identifier": id, "name": "n\(id)"] }
         let samePage = [[String: Any]]([row("a"), row("b"), row("a"), row("c"), row("b")])
+        precondition(V3CatalogRowPolicy.isDisplayable(row("valid")) &&
+                     !V3CatalogRowPolicy.isDisplayable(["identifier": "missing-name"]) &&
+                     !V3CatalogRowPolicy.isDisplayable(["name": "missing-id"]),
+                     "catalog row validation must match the display model without allocating a model per page")
         let dedupedSamePage = V3CatalogRowPolicy.dedupe(samePage)
         precondition(dedupedSamePage.count == 3, "a same-page duplicate survived")
         precondition(dedupedSamePage.compactMap { $0["identifier"] as? String } == ["a", "b", "c"],
@@ -309,6 +313,24 @@ struct CatalogResponseEncodingHarness {
         precondition(replyBudget.canReserve(maximumResponseBytes: V3WireContract.responseLimit,
             preservingControlCapacity: false),
             "refresh release can use the capacity reserved for terminal control replies")
+        let authControlCapacity = replyBudget.canReserve(
+            maximumResponseBytes: V3WireContract.responseLimit, preservingControlCapacity: false)
+        precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+            anotherMutationActive: false, authenticationActive: true, isAuthContinuation: true,
+            responseCapacityAvailable: replyBudget.canReserve()),
+            "the exhausted ordinary reserve blocks another normal mutation")
+        precondition(V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+            anotherMutationActive: false, authenticationActive: true, isAuthContinuation: true,
+            responseCapacityAvailable: authControlCapacity),
+            "an authRespond continuation can use reserved control capacity")
+        precondition(V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+            anotherMutationActive: false, authenticationActive: false, isAuthContinuation: false,
+            responseCapacityAvailable: authControlCapacity),
+            "an opAnswer continuation can use reserved control capacity")
+        precondition(V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+            anotherMutationActive: false, authenticationActive: false, isAuthContinuation: false,
+            responseCapacityAvailable: authControlCapacity, refreshActive: true, isRefreshRelease: true),
+            "refreshAdmissionEnd can use reserved control capacity and release its active lease")
         precondition(replyBudget.record(V3WireContract.responseLimit, controlResponse: true))
         precondition(!replyBudget.canReserve(maximumResponseBytes: 1, preservingControlCapacity: false),
                      "reply-cache accounting must never exceed its byte ceiling")

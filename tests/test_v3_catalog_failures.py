@@ -447,7 +447,8 @@ class CatalogViewValidationTests(unittest.TestCase):
         self.assertNotIn('result["nextCursor"] as? Int ?? -1', view)
         self.assertIn('guard let rawApps = result["apps"] as? [[String: Any]] else', view)
         self.assertIn("CFGetTypeID(number) != CFBooleanGetTypeID()", view)
-        self.assertIn("guard page.count == rawApps.count else", view)
+        self.assertIn("rawApps.allSatisfy(V3CatalogRowPolicy.isDisplayable)", view)
+        self.assertIn("mappedApps.count == accumulated.rows.count", view)
         self.assertIn("guard next == -1 || next > cursor else", view)
 
     def test_dedupe_uses_the_shared_row_policy(self):
@@ -455,7 +456,7 @@ class CatalogViewValidationTests(unittest.TestCase):
         # by the harness; the view must use it instead of rescanning prior pages.
         view = catalog_view()
         self.assertIn("accumulated.append(rawApps)", view)
-        self.assertIn("apps = accumulated.rows.compactMap(V3CatalogApp.init)", view)
+        self.assertIn("let mappedApps = accumulated.rows.compactMap(V3CatalogApp.init)", view)
         self.assertIn("var identifiers = Set<String>()", (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
         # The weaker snapshot-then-filter shape is gone.
         self.assertNotIn("var existing = Set(apps.map(\\.id))", view)
