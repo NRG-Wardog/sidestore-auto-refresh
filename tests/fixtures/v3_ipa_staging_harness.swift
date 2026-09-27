@@ -77,19 +77,34 @@ struct IPAStagingHarness {
         let staging = V3IPAStaging.stagingDirectory(containerRoot: root)
         let cleanupNow = Date()
         let stale = staging.appendingPathComponent(UUID().uuidString.lowercased() + ".ipa")
+        let activeToken = UUID().uuidString.lowercased()
+        let active = staging.appendingPathComponent(activeToken + ".ipa")
         let recent = staging.appendingPathComponent(UUID().uuidString.lowercased() + ".ipa")
         let unrelated = staging.appendingPathComponent("notes.ipa")
         try bytes.write(to: stale)
+        try bytes.write(to: active)
         try bytes.write(to: recent)
         try bytes.write(to: unrelated)
-        try fm.setAttributes([.modificationDate: cleanupNow.addingTimeInterval(-V3IPAStaging.orphanRetention - 1)],
+        let oldDate = cleanupNow.addingTimeInterval(-V3IPAStaging.orphanRetention - 1)
+        try fm.setAttributes([.modificationDate: oldDate], ofItemAtPath: active.path)
+        try fm.setAttributes([.modificationDate: oldDate],
                              ofItemAtPath: stale.path)
-        let removedOrphans = try V3IPAStaging.cleanupOrphans(containerRoot: root, now: cleanupNow)
+        let removedOrphans = try V3IPAStaging.cleanupOrphans(containerRoot: root,
+            preservingTokens: [activeToken], now: cleanupNow)
         precondition(removedOrphans == 1,
-                     "startup cleanup removes only canonical IPA files older than the bounded operation lifetime")
-        precondition(!fm.fileExists(atPath: stale.path) && fm.fileExists(atPath: recent.path) &&
-                     fm.fileExists(atPath: unrelated.path),
-                     "recent staged files and unrelated directory entries remain untouched")
+                     "startup cleanup removes only stale canonical IPA files without active service leases")
+        precondition(!fm.fileExists(atPath: stale.path) && fm.fileExists(atPath: active.path) &&
+                     fm.fileExists(atPath: recent.path) && fm.fileExists(atPath: unrelated.path),
+                     "active leases, recent staged files, and unrelated entries remain untouched")
+
+        let oldSource = pickedDirectory.appendingPathComponent("old-source-mtime.ipa")
+        try bytes.write(to: oldSource)
+        try fm.setAttributes([.modificationDate: oldDate], ofItemAtPath: oldSource.path)
+        let freshlyStaged = try V3IPAStaging.stage(sourceURL: oldSource, containerRoot: root)
+        let stagedModificationDate = try V3IPAStaging.resolve(token: freshlyStaged,
+            containerRoot: root).resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate!
+        precondition(cleanupNow.timeIntervalSince(stagedModificationDate) < V3IPAStaging.orphanRetention,
+                     "staging resets the file age so an old source IPA is not pruned immediately")
         print("V3_IPA_STAGING_PASS")
     }
 }

@@ -163,7 +163,7 @@ enum LiveContainerAutoRefreshScheduler {
     private static func terminalManifestSummary(_ manifest: [String: Any]?, runID: String,
                                                verified: Bool) -> [String: Any] {
         guard let manifest, manifest["run_id"] as? String == runID else {
-            return ["version": 1, "schema": "LiveContainerRefreshManifestSummaryV1",
+            return ["version": 2, "schema": "LiveContainerRefreshManifestSummaryV2",
                     "run_id": runID, "verified": verified,
                     "expected_count": 0, "result_count": 0,
                     "failed_count": 0, "skipped_count": 0, "requested_count": 0]
@@ -172,8 +172,8 @@ enum LiveContainerAutoRefreshScheduler {
         let results = manifest["results"] as? [[String: Any]] ?? []
         let failed = results.filter { ($0["success"] as? Bool) == false }.count
         let skipped = manifest["skipped_ids"] as? [String] ?? []
-        var summary: [String: Any] = ["version": 1,
-            "schema": "LiveContainerRefreshManifestSummaryV1", "run_id": runID,
+        var summary: [String: Any] = ["version": 2,
+            "schema": "LiveContainerRefreshManifestSummaryV2", "run_id": runID,
             "verified": verified, "expected_count": expected.count,
             "result_count": results.count, "failed_count": failed,
             "skipped_count": skipped.count,

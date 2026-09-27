@@ -37,6 +37,24 @@ class ServicePatchTests(unittest.TestCase):
         self.assertNotIn("didChangeAppIconNotification", patched)
         self.assertIn("class HiddenMyAppsViewController", patched)
 
+    def test_inflight_request_id_replay_never_claims_operation_was_not_dispatched(self):
+        service_source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        replay = service_source[service_source.index("guard tasks[id] == nil else {"):]
+        replay = replay[:replay.index("let mutation =")]
+        self.assertNotIn('"operationNotDispatched"', replay)
+        admission = service_source[service_source.index("guard V3ServiceMutationAdmissionPolicy.admits"):]
+        admission = admission[:admission.index("if mutation { mutationID = id }")]
+        self.assertIn('response["operationNotDispatched"] = true', admission)
+
+    def test_inflight_request_id_replay_never_claims_operation_was_not_dispatched(self):
+        service_source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        replay = service_source[service_source.index("guard tasks[id] == nil else {"):]
+        replay = replay[:replay.index("let mutation =")]
+        self.assertNotIn('"operationNotDispatched"', replay)
+        admission = service_source[service_source.index("guard V3ServiceMutationAdmissionPolicy.admits"):]
+        admission = admission[:admission.index("if mutation { mutationID = id }")]
+        self.assertIn('response["operationNotDispatched"] = true', admission)
+
     def fixture(self, directory):
         live_source = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
         side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")

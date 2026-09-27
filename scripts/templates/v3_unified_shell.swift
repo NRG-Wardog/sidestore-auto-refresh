@@ -38,7 +38,7 @@ struct V3UnifiedTabs: View {
         .environment(\.v3StatusStore, status)
         .accessibilityIdentifier("V3_UNIFIED_SHELL_V1")
         .task {
-            status.cleanupOrphanedStagedIPAs()
+            await status.cleanupOrphanedStagedIPAs()
             status.reload(manual: false)
             routePendingSetup()
             if !UserDefaults.standard.bool(forKey: "V3NotificationsPromptShown") {
@@ -1345,13 +1345,29 @@ final class V3SideStoreStatusStore: ObservableObject {
                         waitsForPickerDismissal: false)
     }
 
-    func cleanupOrphanedStagedIPAs() {
+    func cleanupOrphanedStagedIPAs() async {
         guard let container = LCSharedUtils.appGroupPath() else { return }
+        var protectedTokens = Set<String>()
+        if let hostToken = installAttempt.token,
+           let canonical = try? V3IPAStaging.canonicalToken(hostToken) {
+            protectedTokens.insert(canonical)
+        }
         do {
-            _ = try V3IPAStaging.cleanupOrphans(containerRoot: container)
+            // Age alone cannot prove a staged file is unused: native callbacks
+            // may leave a backend mutation alive past its request deadline.
+            // Ask the service for active token ownership and fail closed if the
+            // service cannot give an authoritative answer.
+            let reply = try await V3ServiceBridge.shared.request(operation: "ipaActiveTokens")
+            guard let tokens = reply["tokens"] as? [String], tokens.count <= 512 else { return }
+            for token in tokens {
+                guard let canonical = try? V3IPAStaging.canonicalToken(token) else { return }
+                protectedTokens.insert(canonical)
+            }
+            _ = try V3IPAStaging.cleanupOrphans(containerRoot: container,
+                preservingTokens: protectedTokens)
         } catch {
-            // Do not expose paths or filenames in user-copyable logs.
-            debugLog("[V3_INSTALL_UI] orphan_cleanup_failed")
+            // Unavailable ownership means skip pruning. Do not expose paths or
+            // filenames in user-copyable logs.
         }
     }
 
@@ -3701,7 +3717,10 @@ final class V3AuthStore: ObservableObject {
             try await pollLoop(id: id, sessionDeadline: sessionDeadline)
         } catch {
             if isCancelling || Task.isCancelled { return }
-            let failureResponseGeneration = promptResponseGeneration
+            let pollFailure = (error as? V3AuthPollFailure).flatMap {
+                $0.sessionID == requestedSession ? $0 : nil
+            }
+            let failureResponseGeneration = pollFailure?.promptResponseGeneration ?? promptResponseGeneration
             if let notDispatched = error as? CombinedFailure,
                notDispatched.safeCause == .authProvisioningRetryNotDispatched {
                 let reconciliationGenerationBefore = reconciliationGate.generation
@@ -3883,7 +3902,10 @@ final class V3AuthStore: ObservableObject {
             try await pollLoop(id: id, sessionDeadline: sessionDeadline)
         } catch {
             if isCancelling || Task.isCancelled { return }
-            let failureResponseGeneration = promptResponseGeneration
+            let pollFailure = (error as? V3AuthPollFailure).flatMap {
+                $0.sessionID == requestedSession ? $0 : nil
+            }
+            let failureResponseGeneration = pollFailure?.promptResponseGeneration ?? promptResponseGeneration
             if let notDispatched = error as? CombinedFailure,
                V3AuthAttemptStartFailurePolicy.isConfirmedNotDispatched(notDispatched) {
                 let reconciliationGenerationBefore = reconciliationGate.generation
@@ -3902,8 +3924,9 @@ final class V3AuthStore: ObservableObject {
                 currentAttemptFailure.clear()
                 return
             }
-            let failureMessage = V3FailureGuidance.message(error)
-            let failureTechnical = (error as? CombinedFailure)?.technicalDetails ?? ""
+            let underlyingError = pollFailure?.underlying ?? error
+            let failureMessage = V3FailureGuidance.message(underlyingError)
+            let failureTechnical = (underlyingError as? CombinedFailure)?.technicalDetails ?? ""
             // A thrown start/poll request does not prove the authentication
             // attempt reached a terminal result. Reconcile account state for
             // display, but keep the attempt outcome unknown until its session
@@ -4006,7 +4029,10 @@ final class V3AuthStore: ObservableObject {
                     promptSubmissionInProgress: promptSubmitting) {
                     continue
                 }
-                throw error
+                if error is CancellationError { throw error }
+                throw V3AuthPollFailure(underlying: error, sessionID: id,
+                    promptResponseGeneration: pollPromptResponseGeneration,
+                    promptRevision: pollRevision)
             }
             guard V3AuthPollResponsePolicy.mayApply(
                 currentSessionID: session, replySessionID: reply["session"] as? String ?? "",

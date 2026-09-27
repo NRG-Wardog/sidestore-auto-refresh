@@ -122,7 +122,8 @@ enum V3IPAStaging {
                 catch { copyStatus.markFailed() }
             }
             guard coordinationError == nil, !copyStatus.didFail else { throw CombinedIPAFileError(.stagingFailed) }
-            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
+            try fileManager.setAttributes([.posixPermissions: 0o600, .modificationDate: Date()],
+                                          ofItemAtPath: destination.path)
             try requireRegularNonEmptyFile(destination, fileManager: fileManager)
             partialDestination = nil
             return token
@@ -165,11 +166,11 @@ enum V3IPAStaging {
         }
     }
 
-    /// Recover only unleased-by-age canonical IPA files after a process restart.
-    /// Live operation sessions are bounded to ten minutes, so a 24-hour age
-    /// cannot match an operation that still owns its staged file.
+    /// Recover only canonical IPA files older than the retention window and
+    /// absent from the host/service ownership snapshot. Age is only a cleanup
+    /// filter; it does not establish that a token is unowned.
     @discardableResult
-    static func cleanupOrphans(containerRoot: URL, now: Date = Date(),
+    static func cleanupOrphans(containerRoot: URL, preservingTokens: Set<String>, now: Date = Date(),
                                fileManager: FileManager = .default) throws -> Int {
         let directory = try ensureDirectory(containerRoot: containerRoot, fileManager: fileManager)
         let files: [URL]
@@ -186,6 +187,7 @@ enum V3IPAStaging {
                   file.pathExtension == "ipa" else { continue }
             let token = file.deletingPathExtension().lastPathComponent
             guard (try? canonicalToken(token)) == token,
+                  !preservingTokens.contains(token),
                   let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]),
                   values.isRegularFile == true, values.isSymbolicLink != true,
                   let modified = values.contentModificationDate,

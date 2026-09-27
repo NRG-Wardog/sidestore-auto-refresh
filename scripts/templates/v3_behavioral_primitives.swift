@@ -1170,8 +1170,8 @@ enum V3RefreshAllTerminalEvidencePolicy {
     static func verifiedSummary(_ summary: [String: Any]?, record: [String: Any],
                                 runID: String) -> Bool {
         guard let summary,
-              integer(summary["version"]) == 1,
-              summary["schema"] as? String == "LiveContainerRefreshManifestSummaryV1",
+              integer(summary["version"]) == 2,
+              summary["schema"] as? String == "LiveContainerRefreshManifestSummaryV2",
               summary["run_id"] as? String == runID,
               let verified = summary["verified"] as? NSNumber,
               CFGetTypeID(verified) == CFBooleanGetTypeID(), verified.boolValue,
@@ -2184,16 +2184,27 @@ struct V3OperationFailureDetails {
     }
 
     var recommendedAction: String {
-        if operation == "source" ||
-           [CombinedFailure.SafeCause.sourceNetworkFailure.rawValue,
-            CombinedFailure.SafeCause.sourceInvalidManifest.rawValue,
-            CombinedFailure.SafeCause.sourcePersistenceUnverified.rawValue,
-            CombinedFailure.SafeCause.sourceInvalidURL.rawValue,
-            CombinedFailure.SafeCause.sourceAddBusy.rawValue,
-            CombinedFailure.SafeCause.catalogSourceUnavailable.rawValue].contains(safeCause ?? "") {
-            return whatToDo
+        switch safeCause ?? "" {
+        case CombinedFailure.SafeCause.sourceNetworkFailure.rawValue:
+            return "Open Sources. Check the network, then retry adding the source."
+        case CombinedFailure.SafeCause.sourceInvalidManifest.rawValue,
+             CombinedFailure.SafeCause.sourceInvalidURL.rawValue:
+            return "Open Sources and correct the source URL or manifest before retrying."
+        case CombinedFailure.SafeCause.sourcePersistenceUnverified.rawValue:
+            return "Open Sources and reload the list to see whether the source was saved before retrying."
+        case CombinedFailure.SafeCause.sourceAddBusy.rawValue,
+             CombinedFailure.SafeCause.sourceRemoveBusy.rawValue:
+            return "Wait for SideStore's active request to finish, then open Sources and check the result."
+        case CombinedFailure.SafeCause.catalogSourceUnavailable.rawValue:
+            return "Open Sources to confirm the source is still added, then reopen its catalog."
+        default: break
         }
-        switch safeCause {
+        if operation == "source" ||
+           sourceStep == CombinedFailure.SourceStep.sourceDownload.rawValue ||
+           sourceStep == CombinedFailure.SourceStep.manifestParsing.rawValue {
+            return "Open Sources and review the source request. Copy Diagnostics if the result remains unclear."
+        }
+        switch safeCause ?? "" {
         case CombinedFailure.SafeCause.responseEncodingFailed.rawValue:
             return "Copy Diagnostics and report that the service could not encode its response. Repeating the same request will not help."
         case CombinedFailure.SafeCause.responseTooLarge.rawValue:
@@ -2518,8 +2529,10 @@ struct V3AuthSessionOwnership {
 }
 
 enum V3ProvisioningResumeAvailabilityPolicy {
-    static func canResume(authenticated: Bool, currentAppleID: String?, resumableAppleID: String?) -> Bool {
-        guard authenticated, let currentAppleID, let resumableAppleID else { return false }
+    static func canResume(authenticated: Bool, currentAppleID: String?, resumableAppleID: String?,
+                          hasSession: Bool = true, hasTeamAccount: Bool = true) -> Bool {
+        guard authenticated, hasSession, hasTeamAccount,
+              let currentAppleID, let resumableAppleID else { return false }
         let current = currentAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let resumable = resumableAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return !current.isEmpty && current == resumable
@@ -2695,6 +2708,13 @@ enum V3AuthPollFailureRacePolicy {
              requestedPromptResponseGeneration != currentPromptResponseGeneration ||
              promptSubmissionInProgress)
     }
+}
+
+struct V3AuthPollFailure: Error {
+    let underlying: Error
+    let sessionID: String
+    let promptResponseGeneration: UInt64
+    let promptRevision: Int
 }
 
 enum V3AuthAttemptFailureCommitPolicy {

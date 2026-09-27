@@ -113,8 +113,11 @@ final class V3PromptCenter: @unchecked Sendable {
 enum V3PromptResponseStatePolicy {
     static func shouldReturnCurrentStateAfterAcceptedDuplicate(acceptedPromptID: String?,
                                                                currentPromptID: String?,
-                                                               submittedPromptID: String) -> Bool {
-        acceptedPromptID == submittedPromptID && currentPromptID != submittedPromptID
+                                                               submittedPromptID: String,
+                                                               sessionTerminal: Bool = false,
+                                                               cancellationRequested: Bool = false) -> Bool {
+        acceptedPromptID == submittedPromptID &&
+            (sessionTerminal || cancellationRequested || currentPromptID != submittedPromptID)
     }
 
     static func responsePending(_ disposition: V3PromptAnswerDisposition,
@@ -480,7 +483,9 @@ final class V3AuthCenter {
         return V3ProvisioningResumeAvailabilityPolicy.canResume(
             authenticated: AuthManager.shared.isAuthenticated,
             currentAppleID: currentAppleID,
-            resumableAppleID: resumableProvisioning?.appleID)
+            resumableAppleID: resumableProvisioning?.appleID,
+            hasSession: AuthManager.shared.session != nil,
+            hasTeamAccount: AuthManager.shared.team?.account != nil)
     }
 
     var sessions: [String: Session] = [:]
@@ -711,14 +716,15 @@ final class V3AuthCenter {
     }
 
     func respond(id: String, promptID: String, answer: [String: String]) -> [String: Any]? {
-        guard let session = sessions[id], session.terminal.isEmpty,
-              !session.cancellationRequested else { return nil }
+        guard let session = sessions[id] else { return nil }
         if V3PromptResponseStatePolicy.shouldReturnCurrentStateAfterAcceptedDuplicate(
             acceptedPromptID: session.acceptedPromptID,
             currentPromptID: session.prompt?["id"] as? String,
-            submittedPromptID: promptID) {
+            submittedPromptID: promptID, sessionTerminal: !session.terminal.isEmpty,
+            cancellationRequested: session.cancellationRequested) {
             return poll(id: id)
         }
+        guard session.terminal.isEmpty, !session.cancellationRequested else { return nil }
         if let pending = V3PromptResponseStatePolicy.responsePending(.unavailable,
             acceptedPromptID: session.acceptedPromptID, promptID: promptID,
             sessionID: id, revision: session.revision, state: "awaitingPrompt", prompt: session.prompt) {
@@ -1388,14 +1394,16 @@ final class V3OperationCenter {
     }
 
     func answer(id: String, promptID: String, answer: [String: String]) -> [String: Any]? {
-        guard let session = sessions[id], case nil = session.terminal.value,
-              !session.terminal.isCancellationRequested else { return nil }
+        guard let session = sessions[id] else { return nil }
         if V3PromptResponseStatePolicy.shouldReturnCurrentStateAfterAcceptedDuplicate(
             acceptedPromptID: session.acceptedPromptID,
             currentPromptID: session.prompt?["id"] as? String,
-            submittedPromptID: promptID) {
+            submittedPromptID: promptID, sessionTerminal: session.terminal.value != nil,
+            cancellationRequested: session.terminal.isCancellationRequested) {
             return poll(id: id)
         }
+        guard case nil = session.terminal.value,
+              !session.terminal.isCancellationRequested else { return nil }
         if let pending = V3PromptResponseStatePolicy.responsePending(.unavailable,
             acceptedPromptID: session.acceptedPromptID, promptID: promptID,
             sessionID: id, revision: 0, state: "working", prompt: session.prompt) {
@@ -1492,6 +1500,19 @@ final class V3OperationCenter {
             throw CombinedIPAFileError(.fileAccess)
         }
         try V3IPAStaging.cleanup(token: canonical, containerRoot: root)
+    }
+
+    func activeStagedIPATokens() -> [String] {
+        let activeMutation = mutationRegistry.activeID
+        let tokens = sessions.compactMap { id, session -> String? in
+            guard let token = session.ipaToken,
+                  V3StagedIPALeasePolicy.isLeased(hasOperationTask: session.task != nil,
+                    preparationFinished: session.preparation.isFinished,
+                    ownsMutationRegistry: activeMutation == id),
+                  let canonical = try? V3IPAStaging.canonicalToken(token) else { return nil }
+            return canonical
+        }
+        return Array(Set(tokens)).sorted().prefix(512).map { $0 }
     }
 
     private func finish(id: String, response: [String: Any]) {

@@ -53,7 +53,7 @@ enum V3WireContract {
         "refreshAdmissionBegin", "refreshAdmissionEnd",
         "signOut", "syncAppIDs", "clearCache", "jit", "backupResult",
         "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning",
-        "opStart", "opPoll", "opAnswer", "opCancel", "ipaCleanup",
+        "opStart", "opPoll", "opAnswer", "opCancel", "ipaCleanup", "ipaActiveTokens",
         "certList", "certSetActive", "certDelete", "certPortalList", "certRevoke", "certCreate",
         "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles",
         "sourcePreview", "sourceAddConfirmed", "sourceRemoveConfirmed",
@@ -62,7 +62,7 @@ enum V3WireContract {
         "sidesignGet", "sidesignSet", "sidesignReset", "sidesignImport", "sidesignExport",
         "logTail", "healthSnapshot", "accountExport", "accountImport"]
     static let readOperations: Set<String> = ["snapshot", "catalog", "appIcon",
-        "authPoll", "opPoll", "opCancel", "ipaCleanup", "authCancel", "certList", "certPortalList",
+        "authPoll", "opPoll", "opCancel", "ipaCleanup", "ipaActiveTokens", "authCancel", "certList", "certPortalList",
         "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles",
         "sourcePreview", "settingsGet",
         "anisetteList", "sidesignGet", "sidesignExport", "logTail", "healthSnapshot"]

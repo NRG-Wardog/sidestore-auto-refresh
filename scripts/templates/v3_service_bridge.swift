@@ -240,6 +240,10 @@ public final class V3ServiceBridge {
                     throw CombinedFailure(operation: "source", stage: .source, code: .busy,
                         id: id, retryable: true, safeCause: .sourceRemoveBusy)
                 }
+                if operation == "opStart" {
+                    throw CombinedFailure(operation: operation, stage: .command, code: .busy,
+                        id: id, retryable: true, safeCause: .operationInProgress)
+                }
                 if ["refreshAdmissionBegin", "refreshAdmissionEnd"].contains(operation) {
                     throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
                         id: id, retryable: true, safeCause: .operationInProgress)

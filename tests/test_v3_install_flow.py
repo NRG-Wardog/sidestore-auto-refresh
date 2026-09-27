@@ -51,6 +51,23 @@ def operation_sheet():
 
 
 class InstallFirstAttemptTests(unittest.TestCase):
+    def test_startup_staging_cleanup_requires_service_ownership_snapshot(self):
+        host = shell()
+        status = host[host.index("func cleanupOrphanedStagedIPAs() async"):]
+        status = status[:status.index("private func stageIPA(")]
+        self.assertIn('request(operation: "ipaActiveTokens")', status)
+        self.assertIn("protectedTokens.insert(canonical)", status)
+        self.assertIn("preservingTokens: protectedTokens", status)
+        self.assertIn("catch {", status)
+        self.assertIn("await status.cleanupOrphanedStagedIPAs()", host)
+        service_source = service()
+        runtime_source = runtime()
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        self.assertIn('case "ipaActiveTokens"', service_source)
+        self.assertIn("activeStagedIPATokens()", runtime_source)
+        self.assertIn("V3StagedIPALeasePolicy.isLeased", runtime_source)
+        self.assertIn('"ipaActiveTokens"', wire)
+
     def test_backend_cancelled_is_visible_not_silent(self):
         # A backend "cancelled" (watchdog/remote cancel the user did not tap)
         # renders an explicit terminal message; the old bare dismiss() sent

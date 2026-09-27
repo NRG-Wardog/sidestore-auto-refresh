@@ -118,7 +118,9 @@ struct OperationRetryFailureHarness {
             operation: "source", stage: .source, code: .invalidResponse,
             id: UUID().uuidString, retryable: false, safeCause: .sourceInvalidManifest))
         precondition(sourceAddFailure.whatHappened.contains("valid source") &&
-                     sourceAddFailure.recommendedAction.contains("Sources") &&
+                     sourceAddFailure.recoveryDestination == "sources" &&
+                     sourceAddFailure.recoveryActionTitle == "Open Sources" &&
+                     sourceAddFailure.recommendedAction.contains("manifest") &&
                      !sourceAddFailure.recommendedAction.contains("signing"),
                      "a failed source add must retain source-specific recovery instead of generic signing advice")
 

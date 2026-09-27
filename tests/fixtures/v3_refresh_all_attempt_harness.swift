@@ -64,7 +64,7 @@ struct RefreshAllAttemptHarness {
         compactTerminal["health"] = "REFRESH_SUCCEEDED"
         compactTerminal["manifest_run_id"] = compactRun
         compactTerminal["manifest_summary"] = [
-            "version": 1, "schema": "LiveContainerRefreshManifestSummaryV1",
+            "version": 2, "schema": "LiveContainerRefreshManifestSummaryV2",
             "run_id": compactRun, "verified": true,
             "expected_count": 3, "result_count": 3, "failed_count": 0, "skipped_count": 1,
             "requested_count": 4,
@@ -78,7 +78,7 @@ struct RefreshAllAttemptHarness {
                      "Home must resolve a completed terminal record from its compact summary")
         var unverifiedSummary = compactTerminal
         unverifiedSummary["manifest_summary"] = [
-            "version": 1, "schema": "LiveContainerRefreshManifestSummaryV1",
+            "version": 2, "schema": "LiveContainerRefreshManifestSummaryV2",
             "run_id": compactRun, "verified": 1,
             "expected_count": 3, "result_count": 3, "failed_count": 0, "skipped_count": 0,
             "requested_count": 3

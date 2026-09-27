@@ -118,9 +118,6 @@ final class V3SideStoreService: NSObject {
                                   retryable: true, safeCause: .operationInProgress)
                 : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
             var response: [String: Any] = ["version": 1, "id": id, "error": "busy", "failure": failure.wire]
-            if ["opStart", "authBegin", "authRetryProvisioning"].contains(operation) {
-                response["operationNotDispatched"] = true
-            }
             reply(encode(response, operation: operation))
             return
         }
@@ -578,6 +575,8 @@ final class V3SideStoreService: NSObject {
         case "ipaCleanup":
             try V3HeadlessRuntime.shared.operations.cleanupIPA(token: target)
             return [:]
+        case "ipaActiveTokens":
+            return ["tokens": V3HeadlessRuntime.shared.operations.activeStagedIPATokens()]
         case "certList":
             return ["certificates": V3BackendCommands.certificates()]
         case "certSetActive":

@@ -225,7 +225,8 @@ class V3AuthErrorTests(unittest.TestCase):
         run = run[:run.index("    private func pollLoop(")]
         self.assertLess(run.index("let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)"),
                         run.index('state = "resultUnknown"'))
-        unknownOutcome = run[run.index("let failureMessage = V3FailureGuidance.message(error)"):]
+        unknownOutcome = run[run.index("let underlyingError = pollFailure?.underlying ?? error"):]
+        self.assertIn("V3FailureGuidance.message(underlyingError)", unknownOutcome)
         self.assertNotIn('state = "failed"', unknownOutcome)
         self.assertIn("currentAttemptFailure.record(snapshotConfirmed:", run)
 
@@ -261,6 +262,8 @@ class V3AuthErrorTests(unittest.TestCase):
         runtime_text = runtime()
         self.assertIn("V3ProvisioningResumeIdentityPolicy.select", runtime_text)
         self.assertIn("authenticatedSessionAppleID: session?.authenticatedAppleID", runtime_text)
+        self.assertIn("hasSession: AuthManager.shared.session != nil", runtime_text)
+        self.assertIn("hasTeamAccount: AuthManager.shared.team?.account != nil", runtime_text)
 
     def test_prompt_expiry_and_session_timeout_have_distinct_recovery_states(self):
         host = shell()
