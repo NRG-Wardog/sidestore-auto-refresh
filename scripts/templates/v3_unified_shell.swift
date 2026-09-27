@@ -6163,6 +6163,28 @@ final class V3SetupStore: ObservableObject {
     private var groupDefaults: UserDefaults? {
         UserDefaults(suiteName: "group.com.SideStore.SideStore")
     }
+    private static let pendingTestRequestIDKey = "V3SetupPendingRefreshRequestID"
+    private static let pendingTestRequestDateKey = "V3SetupPendingRefreshRequestDate"
+    private var testRequestStartedAt: Date?
+
+    private func testRequestDisposition() -> V3SetupTestRequestDisposition {
+        let defaults = groupDefaults
+        let ledger = defaults?.dictionary(forKey: "liveContainerAutoRefreshRunLedger") ?? [:]
+        let pendingID = defaults?.string(forKey: Self.pendingTestRequestIDKey) ?? testRequestID
+        let pendingRecord = pendingID.flatMap {
+            V3RefreshAllAttemptState.record(in: ledger, requestID: $0)
+        }
+        let activeRunID = defaults?.string(forKey: "liveContainerAutoRefreshActiveRunID")
+        let activeRecord = activeRunID.flatMap { ledger[$0] as? [String: Any] }
+        let storedDate = defaults?.object(forKey: Self.pendingTestRequestDateKey) as? Date
+        let startedAt = storedDate ?? testRequestStartedAt
+        let age = startedAt.map { max(0, Date().timeIntervalSince($0)) } ?? .infinity
+        return V3SetupTestRequestPolicy.select(
+            pendingRequestID: pendingID, pendingAge: age,
+            pendingState: pendingRecord?["state"] as? String,
+            activeRunID: activeRunID,
+            activeRunRequestID: activeRecord?["request_id"] as? String)
+    }
 
     // Setup Complete requires every required item: pairing, signed-in account
     // with team, acceptable network and tunnel, available Background App
@@ -6391,68 +6413,144 @@ final class V3SetupStore: ObservableObject {
     // refresh failure.
     func runTestRefresh(status: V3SideStoreStatusStore) {
         guard !testRunning else { return }
-        let requestID = UUID().uuidString
-        if let failure = V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing)
-            .failure(correlationID: requestID) {
-            testRunning = false
+        let disposition = testRequestDisposition()
+        let requestID: String
+        let shouldPostRequest: Bool
+        switch disposition {
+        case .waitForActiveRun:
+            let defaults = groupDefaults
+            // We cannot safely attach an uncorrelated pending request to this
+            // different active run. It did not create a second scheduler run.
+            defaults?.removeObject(forKey: Self.pendingTestRequestIDKey)
+            defaults?.removeObject(forKey: Self.pendingTestRequestDateKey)
+            testRequestStartedAt = nil
             testRequestID = nil
             testRunID = nil
             testAttemptID = nil
-            testTask = nil
-            recordFailure(operation: failure.operation, stage: failure.stage.rawValue,
-                          code: failure.code.rawValue, correlation: failure.correlationID,
-                          retryable: "false")
-            verification = V3SetupStepState(state: "actionRequired", detail: failure.safeMessage)
-            verificationGuidance = "Place or import a valid pairing file, then try again."
-            NSLog("[V3_SETUP] TEST_REFRESH_BLOCKED reason=pairing request_id=%@", requestID)
+            testRunning = false
+            failureOperation = ""
+            failureStage = ""
+            failureCode = ""
+            failureCorrelation = ""
+            failureRetryable = ""
+            verification = V3SetupStepState(state: "warning",
+                detail: "Another refresh is already running. Test Refresh did not start.")
+            verificationGuidance = "Wait for the current refresh to finish, then start Test Refresh again."
+            NSLog("[V3_SETUP] TEST_REFRESH_BLOCKED reason=activeRun")
             return
+        case .resumeExisting(let existingRequestID):
+            requestID = existingRequestID
+            shouldPostRequest = false
+            testRequestID = existingRequestID
+            testRequestStartedAt = groupDefaults?.object(
+                forKey: Self.pendingTestRequestDateKey) as? Date ?? Date()
+            let ledger = groupDefaults?.dictionary(forKey: "liveContainerAutoRefreshRunLedger") ?? [:]
+            testRunID = V3RefreshAllAttemptState.record(in: ledger,
+                requestID: existingRequestID)?["run_id"] as? String
+        case .startNew:
+            requestID = UUID().uuidString
+            shouldPostRequest = true
+            if let failure = V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing)
+                .failure(correlationID: requestID) {
+                testRunning = false
+                testRequestID = nil
+                testRunID = nil
+                testAttemptID = nil
+                testTask = nil
+                testRequestStartedAt = nil
+                recordFailure(operation: failure.operation, stage: failure.stage.rawValue,
+                              code: failure.code.rawValue, correlation: failure.correlationID,
+                              retryable: "false")
+                verification = V3SetupStepState(state: "actionRequired", detail: failure.safeMessage)
+                verificationGuidance = "Place or import a valid pairing file, then try again."
+                NSLog("[V3_SETUP] TEST_REFRESH_BLOCKED reason=pairing request_id=%@", requestID)
+                return
+            }
+            let startedAt = Date()
+            testRequestStartedAt = startedAt
+            groupDefaults?.set(requestID, forKey: Self.pendingTestRequestIDKey)
+            groupDefaults?.set(startedAt, forKey: Self.pendingTestRequestDateKey)
+            testRequestID = requestID
+            testRunID = nil
         }
         testRunning = true
-        testRequestID = requestID
-        testRunID = nil
-        testAttemptID = requestID
+        let attemptID = UUID().uuidString
+        testAttemptID = attemptID
         testLedgerState = ""
         testSummarySchema = ""
-        verification = V3SetupStepState(state: "running", detail: "Test refresh running…")
+        failureOperation = ""
+        failureStage = ""
+        failureCode = ""
+        failureCorrelation = ""
+        failureRetryable = ""
+        verification = V3SetupStepState(state: "running",
+            detail: shouldPostRequest ? "Test refresh running…" : "Resuming the current Test Refresh…")
         verificationGuidance = ""
-        NSLog("[V3_SETUP] TEST_REFRESH_START request_id=%@ origin=setupAssistant", requestID)
-        NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil,
-                                        userInfo: ["requestID": requestID, "origin": "setupAssistant"])
+        NSLog("[V3_SETUP] TEST_REFRESH_START request_id=%@ origin=setupAssistant resumed=%@",
+              requestID, shouldPostRequest ? "false" : "true")
+        if shouldPostRequest {
+            NotificationCenter.default.post(name: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil,
+                                            userInfo: ["requestID": requestID, "origin": "setupAssistant"])
+        }
+        startTestMonitor(requestID: requestID, attemptID: attemptID)
+    }
+
+    private func startTestMonitor(requestID: String, attemptID: String) {
         testTask = Task {
             do {
                 let deadline = Date().addingTimeInterval(600)
                 while !Task.isCancelled && Date() < deadline {
                     try await Task.sleep(nanoseconds: 2_000_000_000)
                     try Task.checkCancellation()
-                    if await checkTestResult(attemptID: requestID) { return }
+                    if await checkTestResult(attemptID: attemptID) { return }
                 }
-                if V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: requestID,
+                if V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: attemptID,
                     currentAttemptID: testAttemptID, taskCancelled: Task.isCancelled) {
                     verification = V3SetupStepState(state: "warning", detail: "No verified result yet. Check Refresh Manager for progress.")
                     NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=timeout")
+                    testRunning = false
+                    testAttemptID = nil
+                    testTask = nil
                 }
             } catch is CancellationError {
                 return
             } catch {
-                guard V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: requestID,
+                guard V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: attemptID,
                     currentAttemptID: testAttemptID, taskCancelled: Task.isCancelled) else { return }
                 recordError(error, operation: "refresh")
                 NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=error")
+                testRunning = false
+                testAttemptID = nil
+                testTask = nil
             }
-            guard V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: requestID,
-                currentAttemptID: testAttemptID, taskCancelled: Task.isCancelled) else { return }
-            testRunning = false
         }
     }
 
     private func checkTestResult(attemptID: String) async -> Bool {
         guard V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: attemptID,
             currentAttemptID: testAttemptID, taskCancelled: Task.isCancelled) else { return false }
-        guard let requestID = testRequestID,
-              requestID == attemptID,
-              let ledger = groupDefaults?.dictionary(forKey: "liveContainerAutoRefreshRunLedger"),
-              let runRecord = V3RefreshAllAttemptState.record(in: ledger, requestID: requestID),
-              let runID = runRecord["run_id"] as? String else { return false }
+        guard let requestID = testRequestID else { return false }
+        let ledger = groupDefaults?.dictionary(forKey: "liveContainerAutoRefreshRunLedger") ?? [:]
+        guard let runRecord = V3RefreshAllAttemptState.record(in: ledger, requestID: requestID),
+              let runID = runRecord["run_id"] as? String else {
+            let age = testRequestStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+            let activeRunID = groupDefaults?.string(forKey: "liveContainerAutoRefreshActiveRunID") ?? ""
+            let activeRecord = ledger[activeRunID] as? [String: Any]
+            let activeRequestID = activeRecord?["request_id"] as? String
+            if age >= V3SetupTestRequestPolicy.startGracePeriod,
+               activeRunID.isEmpty || activeRequestID != requestID {
+                recordFailure(operation: "refresh", stage: CombinedFailure.Stage.command.rawValue,
+                    code: CombinedFailure.Code.busy.rawValue, correlation: requestID, retryable: "false")
+                verification = V3SetupStepState(state: "failed", detail: "Refresh did not start.")
+                verificationGuidance = activeRunID.isEmpty
+                    ? "Check Refresh Manager, then try Test Refresh again."
+                    : "Another refresh took the scheduler first. Wait for it to finish, then start Test Refresh again."
+                finishTestAttempt(requestID: requestID, attemptID: attemptID)
+                NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=not_started request_id=%@", requestID)
+                return true
+            }
+            return false
+        }
         if let testRunID, testRunID != runID { return false }
         testRunID = runID
         let runState = runRecord["state"] as? String ?? ""
@@ -6488,7 +6586,7 @@ final class V3SetupStore: ObservableObject {
                     detail: runRecord["message"] as? String ?? "Refresh failed, but no safe underlying cause was available.")
                 verificationGuidance = "Open Refresh Manager to inspect this run, then try Test Refresh again. Copy Diagnostics if the result remains unclear."
             }
-            testRunning = false
+            finishTestAttempt(requestID: requestID, attemptID: attemptID)
             NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=failed run_id=%@", runID)
             return true
         case .completedUnverified:
@@ -6497,7 +6595,7 @@ final class V3SetupStore: ObservableObject {
             verification = V3SetupStepState(state: "failed",
                 detail: "SideStore reported that refresh completed, but this run's result could not be verified.")
             verificationGuidance = "Open Refresh Manager to reconcile the run, then run Test Refresh again. Copy Diagnostics if the result remains missing."
-            testRunning = false
+            finishTestAttempt(requestID: requestID, attemptID: attemptID)
             NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=unverified_completion run_id=%@", runID)
             return true
         case .verified:
@@ -6543,7 +6641,7 @@ final class V3SetupStore: ObservableObject {
             }
             verification = V3SetupStepState(state: "failed", detail: detail)
         }
-        testRunning = false
+        finishTestAttempt(requestID: requestID, attemptID: attemptID)
         if verification.state == "complete" {
             NSLog("[V3_SETUP] TEST_REFRESH_TERMINAL result=verified")
         } else {
@@ -6552,13 +6650,33 @@ final class V3SetupStore: ObservableObject {
         return true
     }
 
+    private func finishTestAttempt(requestID: String, attemptID: String) {
+        guard V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: attemptID,
+            currentAttemptID: testAttemptID, taskCancelled: Task.isCancelled) else { return }
+        testRunning = false
+        testAttemptID = nil
+        testTask = nil
+        testRequestID = nil
+        testRunID = nil
+        testRequestStartedAt = nil
+        if groupDefaults?.string(forKey: Self.pendingTestRequestIDKey) == requestID {
+            groupDefaults?.removeObject(forKey: Self.pendingTestRequestIDKey)
+            groupDefaults?.removeObject(forKey: Self.pendingTestRequestDateKey)
+        }
+    }
+
     func cancelTest() {
+        guard testRunning else { return }
+        let requestID = testRequestID
         testAttemptID = nil
         testTask?.cancel()
         testTask = nil
         testRunning = false
-        testRequestID = nil
-        testRunID = nil
+        verification = V3SetupStepState(state: "warning",
+            detail: "Stopped waiting. The current refresh continues in the background.")
+        verificationGuidance = requestID == nil
+            ? "Check Refresh Manager before starting another Test Refresh."
+            : "Tap Test Refresh again to resume this same request; it will not start a duplicate refresh."
     }
 
     // A human-copyable pairing word for the diagnostics block. The internal
@@ -6785,7 +6903,7 @@ struct V3SetupAssistantView: View {
                     }
                 }
                 if setup.testRunning {
-                    Button("Cancel Test", role: .cancel) { setup.cancelTest() }
+                    Button("Stop Waiting", role: .cancel) { setup.cancelTest() }
                 } else if setup.verification.state != "complete" && setup.pairing.state == "actionRequired" {
                     Text("Complete Pairing Setup before testing refresh.")
                         .font(.footnote)

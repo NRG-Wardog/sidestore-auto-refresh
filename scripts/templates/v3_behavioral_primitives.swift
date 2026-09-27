@@ -2775,6 +2775,40 @@ enum V3SetupTestAttemptPolicy {
     }
 }
 
+enum V3SetupTestRequestDisposition: Equatable {
+    case startNew
+    case resumeExisting(String)
+    case waitForActiveRun
+}
+
+enum V3SetupTestRequestPolicy {
+    static let startGracePeriod: TimeInterval = 30
+
+    static func select(pendingRequestID: String?, pendingAge: TimeInterval,
+                       pendingState: String?, activeRunID: String?,
+                       activeRunRequestID: String?) -> V3SetupTestRequestDisposition {
+        if let pendingRequestID, let activeRunID, !activeRunID.isEmpty,
+           activeRunRequestID != pendingRequestID {
+            return .waitForActiveRun
+        }
+        if let pendingRequestID, ["completed", "failed"].contains(pendingState ?? "") {
+            return (activeRunID?.isEmpty == false) ? .waitForActiveRun : .startNew
+        }
+        if let pendingRequestID {
+            if pendingState != nil {
+                return .resumeExisting(pendingRequestID)
+            }
+            if let activeRunID, !activeRunID.isEmpty {
+                return activeRunRequestID == pendingRequestID
+                    ? .resumeExisting(pendingRequestID) : .waitForActiveRun
+            }
+            return pendingAge < startGracePeriod
+                ? .resumeExisting(pendingRequestID) : .startNew
+        }
+        return (activeRunID?.isEmpty == false) ? .waitForActiveRun : .startNew
+    }
+}
+
 struct V3AuthPollFailure: Error {
     let underlying: Error
     let sessionID: String

@@ -478,9 +478,21 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         setup = source[source.index("final class V3SetupStore"):source.index("struct V3SetupAssistantView")]
         self.assertIn("private var testAttemptID: String?", setup)
         self.assertIn("testAttemptID = nil", setup[setup.index("func cancelTest() {"):])
-        self.assertIn("checkTestResult(attemptID: requestID)", setup)
+        self.assertIn("checkTestResult(attemptID: attemptID)", setup)
         self.assertIn("V3SetupTestAttemptPolicy.mayApply", setup)
         self.assertIn("catch is CancellationError", setup)
+
+    def test_cancelled_setup_watcher_resumes_same_scheduler_request(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        setup = source[source.index("final class V3SetupStore"):source.index("struct V3SetupAssistantView")]
+        start = setup[setup.index("func runTestRefresh(status: V3SideStoreStatusStore) {"):
+                      setup.index("private func startTestMonitor")]
+        cancel = setup[setup.index("func cancelTest() {"):]
+        self.assertIn("case .resumeExisting(let existingRequestID)", start)
+        self.assertIn("shouldPostRequest = false", start)
+        self.assertIn("if shouldPostRequest", start)
+        self.assertIn("The current refresh continues in the background", cancel)
+        self.assertNotIn("removeObject(forKey: Self.pendingTestRequestIDKey)", cancel)
 
     def test_partial_manifest_does_not_verify(self):
         compiler = shutil.which("swiftc")

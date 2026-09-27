@@ -157,6 +157,30 @@ struct RefreshAllAttemptHarness {
                      V3SetupTestAttemptPolicy.mayApply(capturedAttemptID: secondTestAttempt,
                         currentAttemptID: activeTestAttempt, taskCancelled: false),
             "a cancelled Test Refresh R1 cannot overwrite the new R2 UI or diagnostics")
+        precondition(V3SetupTestRequestPolicy.select(pendingRequestID: "request-r1",
+            pendingAge: 3, pendingState: "running", activeRunID: "run-r1",
+            activeRunRequestID: "request-r1") == .resumeExisting("request-r1"),
+            "Cancel Test stops only its watcher; an immediate retry resumes the exact R1 scheduler request")
+        precondition(V3SetupTestRequestPolicy.select(pendingRequestID: "request-r1",
+            pendingAge: 3, pendingState: nil, activeRunID: nil,
+            activeRunRequestID: nil) == .resumeExisting("request-r1"),
+            "a request posted but not yet admitted is resumed during its bounded start window")
+        precondition(V3SetupTestRequestPolicy.select(pendingRequestID: "request-r1",
+            pendingAge: 31, pendingState: nil, activeRunID: nil,
+            activeRunRequestID: nil) == .startNew,
+            "a request never admitted by the scheduler can be replaced after the start window")
+        precondition(V3SetupTestRequestPolicy.select(pendingRequestID: nil,
+            pendingAge: 0, pendingState: nil, activeRunID: "manager-run",
+            activeRunRequestID: "manager-request") == .waitForActiveRun,
+            "Setup Test does not post a request that the scheduler will coalesce behind a manager run")
+        precondition(V3SetupTestRequestPolicy.select(pendingRequestID: "request-old",
+            pendingAge: 0, pendingState: "completed", activeRunID: "manager-run",
+            activeRunRequestID: "manager-request") == .waitForActiveRun,
+            "a terminal prior Test does not overlap a different active manager refresh")
+        precondition(V3SetupTestRequestPolicy.select(pendingRequestID: "request-old",
+            pendingAge: 1, pendingState: "running", activeRunID: "manager-run",
+            activeRunRequestID: "manager-request") == .waitForActiveRun,
+            "a stale ledger entry does not attach Setup Test to a different active run")
 
         precondition(V3RefreshTerminalRecoveryPolicy.action(state: "verifying",
             terminalIntent: "verified", manifestIsComplete: true,

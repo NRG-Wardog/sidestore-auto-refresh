@@ -17,6 +17,7 @@ class SettingsPersistenceTests(unittest.TestCase):
         source = (ROOT / "scripts/patch_multitask_dock.py").read_text(encoding="utf-8")
         self.assertIn("LCUtils.appGroupUserDefault", source)
         self.assertIn("LCMultitaskDockStartsCollapsed", source)
+        self.assertIn("LCMultitaskDockStartsTuckedToEdge", source)
         # The persisted default is applied with a readback, not assumed.
         self.assertIn('bool(forKey:', source)
 
@@ -51,7 +52,8 @@ class SettingsPersistenceTests(unittest.TestCase):
     def test_settings_roundtrip_contract(self):
         # Documents the device acceptance contract: write -> relaunch -> read.
         # LC settings keys covered by this line:
-        for key in ("LCMultitaskDockStartsCollapsed", "LCHideCollapsedDock",
+        for key in ("LCMultitaskDockStartsCollapsed", "LCMultitaskDockStartsTuckedToEdge",
+                    "LCHideCollapsedDock",
                     "LCGridSize.storageKey", '"LCShowAppLabels"'):
             found = key in (ROOT / "scripts/patch_multitask_dock.py").read_text(encoding="utf-8") \
                 or key in (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
