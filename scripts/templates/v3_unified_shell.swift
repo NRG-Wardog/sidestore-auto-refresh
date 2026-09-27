@@ -1307,7 +1307,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         NSLog("[V3_INSTALL_UI] picker_present_failed attempt=%@ reason=%@",
               attemptID.uuidString, reason)
         let token = resetInstallUI(attemptID: attemptID, outcome: "picker_presentation_failed")
-        if let token { Task { _ = await cleanupStagedIPA(token) } }
+        if let token { Task { _ = await cleanupStagedIPA(token, allowLocalFallback: true) } }
         error = "The IPA picker could not be opened. Tap Install / Sideload App to try again."
     }
 
@@ -1320,7 +1320,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         }
         guard installAttempt.attemptID == attemptID else { return }
         let token = resetInstallUI(attemptID: attemptID, outcome: "picker_cancelled")
-        if let token { Task { _ = await cleanupStagedIPA(token) } }
+        if let token { Task { _ = await cleanupStagedIPA(token, allowLocalFallback: true) } }
     }
 
     @discardableResult
@@ -1383,7 +1383,7 @@ final class V3SideStoreStatusStore: ObservableObject {
                                         waitsForPickerDismissal: waitsForPickerDismissal,
                                         isLoading: loading) else {
                 _ = resetInstallUI(attemptID: attemptID, outcome: "stage_handoff_failed")
-                Task { _ = await cleanupStagedIPA(token) }
+                Task { _ = await cleanupStagedIPA(token, allowLocalFallback: true) }
                 let message = "The selected IPA could not be queued for presentation. Choose it again."
                 if waitsForPickerDismissal { pendingPickerError = (attemptID, message) }
                 else { error = message }
@@ -1499,7 +1499,7 @@ final class V3SideStoreStatusStore: ObservableObject {
               installAttempt.backendSessionID == nil else { return }
         let token = resetInstallUI(attemptID: attemptID, outcome: "operation_presentation_failed")
         error = "The install screen could not be opened. The attempt was cleared; tap Install / Sideload App again."
-        if let token { Task { _ = await cleanupStagedIPA(token) } }
+        if let token { Task { _ = await cleanupStagedIPA(token, allowLocalFallback: true) } }
     }
 
     func retryInstallCancellation() {
@@ -1529,7 +1529,7 @@ final class V3SideStoreStatusStore: ObservableObject {
                         ? "The install completed before cancellation was confirmed."
                         : "The install ended with a failure before cancellation was confirmed.")
                 let token = resetInstallUI(attemptID: attemptID, outcome: terminalState)
-                if let token { _ = await cleanupStagedIPA(token) }
+                if let token { _ = await cleanupStagedIPA(token, allowLocalFallback: true) }
                 reload()
             } catch {
                 NSLog("[V3_INSTALL_UI] cancellation_unconfirmed attempt=%@ session=%@",
@@ -1539,13 +1539,25 @@ final class V3SideStoreStatusStore: ObservableObject {
         }
     }
 
-    func cleanupStagedIPA(_ token: String) async -> Bool {
+    func cleanupStagedIPA(_ token: String, allowLocalFallback: Bool = false) async -> Bool {
         do {
             _ = try await V3ServiceBridge.shared.request(operation: "ipaCleanup", target: token)
             return true
         } catch {
+            let serviceReportsBusy = (error as? CombinedFailure).map {
+                $0.code == .busy ||
+                    $0.safeCause == CombinedFailure.SafeCause.operationInProgress.rawValue
+            } ?? false
+            guard V3StagedIPACleanupFallbackPolicy.mayDeleteLocally(
+                serviceReportsBusy: serviceReportsBusy,
+                callerConfirmsNeverStartedOrSettled: allowLocalFallback) else {
+                NSLog("[V3_INSTALL_UI] staged_cleanup_deferred reason=%@",
+                      serviceReportsBusy ? "service_busy" : "backend_state_unconfirmed")
+                return false
+            }
             // The host uses the same canonical UUID-only staging helper for a
-            // local fallback. It never accepts or constructs a caller path.
+            // local fallback only when no backend can still use the token. It
+            // never accepts or constructs a caller path.
             do {
                 guard let container = LCSharedUtils.appGroupPath() else {
                     throw CombinedIPAFileError(.fileAccess)
@@ -2805,7 +2817,8 @@ struct V3OperationSheet: View {
                         let token = request.installAttemptID.flatMap {
                             status.resetInstallUI(attemptID: $0, outcome: "unexpected_cover_dismissal")
                         }
-                        if let token { stagedIPACleaned = await status.cleanupStagedIPA(token) }
+                        if let token { stagedIPACleaned = await status.cleanupStagedIPA(token,
+                            allowLocalFallback: true) }
                     } else if request.operation == "installSharedIPA", mustConfirmCancel, !cancellationConfirmed {
                         status.error = "The operation was not confirmed as stopped, so its staged IPA was kept safely. Reconnect before cleanup."
                     }
@@ -3301,7 +3314,7 @@ struct V3OperationSheet: View {
                         preserveRecoveryDestination: status.operationRecoveryDestination != nil)
                 }
                 if let token, !stagedIPACleaned {
-                    stagedIPACleaned = await status.cleanupStagedIPA(token)
+                    stagedIPACleaned = await status.cleanupStagedIPA(token, allowLocalFallback: true)
                 }
             }
             status.reload()

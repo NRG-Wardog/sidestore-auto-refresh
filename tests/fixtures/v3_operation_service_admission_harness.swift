@@ -43,6 +43,14 @@ struct OperationServiceAdmissionHarness {
         precondition(!V3StagedIPALeasePolicy.isLeased(hasOperationTask: false,
             preparationFinished: true, ownsMutationRegistry: false),
             "a fully settled session no longer leases its staged IPA")
+        precondition(V3StagedIPACleanupFallbackPolicy.mayDeleteLocally(
+            serviceReportsBusy: false, callerConfirmsNeverStartedOrSettled: true),
+            "local cleanup fallback is allowed after a proven never-started or terminal attempt")
+        precondition(!V3StagedIPACleanupFallbackPolicy.mayDeleteLocally(
+            serviceReportsBusy: true, callerConfirmsNeverStartedOrSettled: true) &&
+                     !V3StagedIPACleanupFallbackPolicy.mayDeleteLocally(
+                        serviceReportsBusy: false, callerConfirmsNeverStartedOrSettled: false),
+            "busy or outcome-unknown backend ownership always prevents local IPA deletion")
         print("V3_SERVICE_OPERATION_ADMISSION_PASS")
     }
 }

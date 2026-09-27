@@ -816,6 +816,13 @@ enum V3StagedIPALeasePolicy {
     }
 }
 
+enum V3StagedIPACleanupFallbackPolicy {
+    static func mayDeleteLocally(serviceReportsBusy: Bool,
+                                 callerConfirmsNeverStartedOrSettled: Bool) -> Bool {
+        callerConfirmsNeverStartedOrSettled && !serviceReportsBusy
+    }
+}
+
 // Terminal responses are write-once. Callback and cancellation paths may race,
 // so the first terminal result is authoritative and later results are ignored.
 final class V3TerminalResponse: @unchecked Sendable {

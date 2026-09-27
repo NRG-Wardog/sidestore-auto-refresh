@@ -225,7 +225,8 @@ class StoreFeedbackTests(unittest.TestCase):
         self.assertIn("V3InstallCancellationOutcomePolicy.terminalState", retry)
         self.assertIn("backendSettled: V3ServiceBridge.strictBool(reply[\"backendSettled\"])", retry)
         self.assertLess(retry.index("guard let terminalState"), retry.index("installAttempt.recordTerminal"))
-        self.assertLess(retry.index("guard let terminalState"), retry.index("cleanupStagedIPA(token)"))
+        self.assertLess(retry.index("guard let terminalState"),
+                        retry.index("cleanupStagedIPA(token, allowLocalFallback: true)"))
         self.assertIn("The IPA and operation session were kept", retry)
 
 
