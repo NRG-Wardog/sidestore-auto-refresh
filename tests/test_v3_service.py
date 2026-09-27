@@ -316,6 +316,7 @@ enum Failure: Error { case native }
             program = directory / "main.swift"
             program.write_text((ROOT / "tests/fixtures/v3_bridge_harness.swift").read_text() +
                                (ROOT / "scripts/templates/combined_failure.swift").read_text() +
+                               (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text() +
                                (ROOT / "scripts/templates/combined_service_connection.swift").read_text() +
                                (ROOT / "scripts/templates/v3_wire_contract.swift").read_text() +
                                (ROOT / "scripts/templates/v3_service_bridge.swift").read_text())

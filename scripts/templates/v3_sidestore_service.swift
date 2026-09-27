@@ -395,9 +395,18 @@ final class V3SideStoreService: NSObject {
             guard let kind = payload["kind"] as? String,
                   let session = payload["session"] as? String,
                   let deadline = request["deadline"] as? Date else { throw ServiceError.invalidRequest }
+            let value: Bool?
+            if let rawValue = payload["value"] {
+                guard let parsedValue = V3WireContract.strictBool(rawValue) else {
+                    throw ServiceError.invalidRequest
+                }
+                value = parsedValue
+            } else {
+                value = nil
+            }
             let opTarget = payload["target"] as? String ?? target
             return await V3HeadlessRuntime.shared.operations.start(kind: kind, target: opTarget,
-                value: payload["value"] as? Bool, sessionID: session, deadline: deadline)
+                value: value, sessionID: session, deadline: deadline)
         case "opPoll":
             guard let reply = V3HeadlessRuntime.shared.operations.poll(id: target) else { throw ServiceError.invalidRequest }
             return reply
@@ -514,7 +523,15 @@ final class V3SideStoreService: NSObject {
             guard let password = payload["password"] as? String, !password.isEmpty else {
                 throw ServiceError.invalidRequest
             }
-            let includeApple = payload["includeApple"] as? Bool ?? false
+            let includeApple: Bool
+            if let rawIncludeApple = payload["includeApple"] {
+                guard let parsedIncludeApple = V3WireContract.strictBool(rawIncludeApple) else {
+                    throw ServiceError.invalidRequest
+                }
+                includeApple = parsedIncludeApple
+            } else {
+                includeApple = false
+            }
             return ["backup": try V3BackendCommands.accountExport(password: password, includeApplePassword: includeApple)]
         case "accountImport":
             guard let password = payload["password"] as? String else { throw ServiceError.invalidRequest }

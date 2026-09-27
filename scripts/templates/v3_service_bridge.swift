@@ -78,6 +78,11 @@ enum V3CatalogRequestContext {
             throw CombinedFailure(operation: operation, stage: hostStage(for: operation),
                                   code: .invalidResponse, id: id)
         }
+        guard V3WireContract.strictBool(decoded["version"]) == nil,
+              decoded["version"] as? Int == 1 else {
+            throw CombinedFailure(operation: operation, stage: hostStage(for: operation),
+                                  code: .invalidResponse, id: id)
+        }
         guard decoded["id"] as? String == id else {
             // Genuine cross-request protocol evidence. It is never resolved to
             // the waiting caller, and it is never reported as a serialization
@@ -89,7 +94,7 @@ enum V3CatalogRequestContext {
         if let code = decoded["error"] as? String {
             throw hostFailure(errorToken: code, operation: operation, id: id)
         }
-        guard decoded["version"] as? Int == 1, decoded["ok"] as? Bool == true,
+        guard V3WireContract.strictBool(decoded["ok"]) == true,
               let result = decoded["result"] as? [String: Any] else {
             throw CombinedFailure(operation: operation, stage: hostStage(for: operation),
                                   code: .invalidResponse, id: id)
@@ -180,6 +185,7 @@ public final class V3ServiceBridge {
             if ["authBegin", "authRetryProvisioning"].contains(operation) {
                 return payload?["session"] as? String ?? (target.isEmpty ? nil : target)
             }
+            if operation == "authCancel" { return target }
             return nil
         }()
         let scopedSessionControl = ["opAnswer", "opCancel"].contains(operation) &&
@@ -383,7 +389,9 @@ public final class V3ServiceBridge {
               ["opStart", "opPoll", "opAnswer", "opCancel"].contains(operation) else { return }
         guard let state = result["state"] as? String,
               ["completed", "failed", "cancelled", "requiresSource", "waitingForAuthentication"].contains(state) else { return }
-        let outcomeUnknown = V3WireContract.strictBool(result["outcomeUnknown"]) ?? true
+        let rawOutcomeUnknown = result["outcomeUnknown"]
+        let parsedOutcomeUnknown = V3WireContract.strictBool(rawOutcomeUnknown)
+        let outcomeUnknown = parsedOutcomeUnknown ?? (rawOutcomeUnknown != nil)
         let backendSettled = !outcomeUnknown &&
             V3WireContract.strictBool(result["backendSettled"]) == true
         if backendSettled {
@@ -406,10 +414,12 @@ public final class V3ServiceBridge {
     private func remoteCancellation(operation: String, operationSessionID: String?,
                                     requestID: String) -> (String, String) {
         if operation == "opStart", let operationSessionID { return (operationSessionID, "operation") }
+        if operation == "opCancel", let operationSessionID { return (operationSessionID, "operation") }
         if ["authBegin", "authRetryProvisioning"].contains(operation), let operationSessionID,
            !operationSessionID.isEmpty {
             return (operationSessionID, "auth")
         }
+        if operation == "authCancel", let operationSessionID { return (operationSessionID, "auth") }
         return (requestID, "request")
     }
 

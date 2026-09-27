@@ -119,11 +119,11 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertNotIn('state = "cancelled"\n                message = "Sign-in was cancelled."', cancel)
         self.assertIn("V3AuthSessionResponsePolicy.mayApplyReply", store)
         self.assertIn("V3AuthSessionResponsePolicy.mayRespond", runtime())
-        run = store[store.index("private func run() async {"):]
+        run = store[store.index("private func run(sessionID requestedSession: String) async {"):]
         run = run[:run.index("private func pollLoop", 1)]
         self.assertIn("if isCancelling || Task.isCancelled { return }", run)
-        self.assertIn("let requestedSession = UUID().uuidString", run)
         self.assertIn('target: requestedSession, payload: ["session": requestedSession]', run)
+        self.assertIn("session = requestedSession", store[store.index("func begin() {"):])
         self.assertNotIn(".task { auth.begin() }", host)
 
     def test_password_guidance_only_for_proven_credentials(self):

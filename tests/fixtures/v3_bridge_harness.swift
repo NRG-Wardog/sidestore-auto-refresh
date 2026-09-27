@@ -8,6 +8,7 @@ final class FakeClient {
     var backendSettled = true
     var operationState = "working"
     var rejectOperationStart = false
+    var omitOutcomeUnknown = false
     var replies: [() -> Void] = []
     var cancellations = 0
     var operations: [String] = []
@@ -34,13 +35,15 @@ final class FakeClient {
             }
             operationResult = ["session": payload["session"] as? String ?? "", "state": "working"]
         case "opPoll":
-            operationResult = ["session": target, "state": operationState,
-                               "backendSettled": backendSettled,
-                               "outcomeUnknown": !backendSettled]
+            var result: [String: Any] = ["session": target, "state": operationState,
+                                         "backendSettled": backendSettled]
+            if !omitOutcomeUnknown { result["outcomeUnknown"] = !backendSettled }
+            operationResult = result
         case "opCancel":
-            operationResult = ["session": target, "state": operationState,
-                               "backendSettled": backendSettled,
-                               "outcomeUnknown": !backendSettled]
+            var result: [String: Any] = ["session": target, "state": operationState,
+                                         "backendSettled": backendSettled]
+            if !omitOutcomeUnknown { result["outcomeUnknown"] = !backendSettled }
+            operationResult = result
         default:
             operationResult = ["account": "fixture"]
         }
@@ -273,6 +276,22 @@ struct BridgeTests {
         precondition(client.operations.filter { $0 == "opStart" }.count == startCountBeforeLostPoll,
             "a recovered completion must not start a duplicate operation")
         bridge.forgetSettledOperationSession(lostPollSession)
+
+        // Production terminal replies include backendSettled and omit the
+        // optional outcomeUnknown field; this normal shape must release ownership.
+        let standardTerminalSession = UUID().uuidString
+        client.operationState = "working"
+        client.backendSettled = false
+        _ = try await bridge.request(operation: "opStart",
+            payload: ["kind": "install", "session": standardTerminalSession])
+        client.omitOutcomeUnknown = true
+        client.operationState = "completed"
+        client.backendSettled = true
+        let standardTerminal = try await bridge.request(operation: "opPoll", target: standardTerminalSession)
+        precondition(standardTerminal["outcomeUnknown"] == nil && !bridge.isMutating,
+            "a settled terminal reply without outcomeUnknown must release ownership")
+        bridge.forgetSettledOperationSession(standardTerminalSession)
+        client.omitOutcomeUnknown = false
 
         // Disconnect while a native operation is unresolved cannot clear its gate.
         let disconnectedSession = UUID().uuidString

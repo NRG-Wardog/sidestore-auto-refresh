@@ -40,6 +40,8 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
                 for name, data in files.items():
                     archive.writestr(name, data)
             with zipfile.ZipFile(ipa) as archive:
+                expected_compressed_bytes = sum(
+                    info.compress_size for info in archive.infolist() if not info.is_dir())
                 report = verify_module.archive_size_report(
                     archive.infolist(),
                     {
@@ -51,8 +53,7 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
         self.assertEqual(report["uncompressed_bytes"], sum(map(len, files.values())))
         self.assertEqual(report["file_count"], len(files))
         self.assertEqual(sum(breakdown.values()), report["uncompressed_bytes"])
-        self.assertGreater(report["zip_member_bytes"], 0)
-        self.assertLessEqual(report["zip_member_bytes"], report["uncompressed_bytes"])
+        self.assertEqual(report["zip_member_bytes"], expected_compressed_bytes)
         self.assertEqual(breakdown["executables"], 160)
         self.assertEqual(breakdown["nested_archives"], 25)
         self.assertEqual(breakdown["swift_runtime_dylibs"], 15)
@@ -65,11 +66,26 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
         self.assertEqual(breakdown["metadata_and_signing"], 5)
         self.assertEqual(breakdown["framework_payload_excluding_executables"], 50)
         self.assertEqual(breakdown["other_files"], 0)
-        self.assertEqual(report["largest_files"][0]["uncompressed_bytes"], 100)
+        expected_largest = sorted(files, key=lambda path: (-len(files[path]), path))[:20]
+        self.assertEqual([item["path"] for item in report["largest_files"]], expected_largest)
         self.assertEqual(len(report["largest_files"]), 20)
+        self.assertIn("inclusive_parent_bundles", report["bundle_totals_semantics"])
         self.assertEqual(report["bundle_totals_bytes"]["Payload/LiveContainer.app/Frameworks/SideStoreApp.framework"],
                          sum(len(value) for path, value in files.items()
                              if "/Frameworks/SideStoreApp.framework/" in path))
+
+    def test_side_store_package_rejects_legacy_ui_and_audio_members(self):
+        prefix = "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework"
+        forbidden = [
+            prefix + "/Main.storyboardc/Info.plist",
+            prefix + "/Legacy.nib/keyedobjects.nib",
+            prefix + "/Views/OldView.xib",
+            prefix + "/Resources/Silence.m4a",
+        ]
+        self.assertEqual(verify_module.find_legacy_side_store_resources(prefix, forbidden),
+                         sorted(forbidden))
+        self.assertEqual(verify_module.find_legacy_side_store_resources(
+            prefix, [prefix + "/SideStore", prefix + "/Assets.car"]), [])
 
 
 if __name__ == "__main__":

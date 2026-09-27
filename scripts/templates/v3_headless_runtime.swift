@@ -1085,7 +1085,8 @@ final class V3OperationCenter {
         _ = value
         cleanupSessions()
         guard let parsedID = UUID(uuidString: requestedID), parsedID.uuidString == requestedID else {
-            return ["state": "failed", "failedToStart": true, "code": "invalidConfiguration",
+            return ["session": requestedID, "state": "failed", "failedToStart": true,
+                    "backendSettled": true, "stopConfirmed": true, "code": "invalidConfiguration",
                     "message": "The operation attempt identifier is invalid."]
         }
         let id = requestedID
@@ -2011,10 +2012,10 @@ enum V3BackendCommands {
     static func settingsSet(payload: [String: Any]) throws {
         guard let key = payload["key"] as? String else { throw V3SideStoreServiceError.invalidRequest }
         if boolSettings.contains(key) {
-            guard let value = payload["bool"] as? Bool else { throw V3SideStoreServiceError.invalidRequest }
+            guard let value = V3WireContract.strictBool(payload["bool"]) else { throw V3SideStoreServiceError.invalidRequest }
             UserDefaults.standard.set(value, forKey: key)
         } else if key == "widgetVerboseLogging" {
-            guard let value = payload["bool"] as? Bool else { throw V3SideStoreServiceError.invalidRequest }
+            guard let value = V3WireContract.strictBool(payload["bool"]) else { throw V3SideStoreServiceError.invalidRequest }
             WidgetDataManager.shared.isVerboseLoggingEnabled = value
         } else if stringSettings.contains(key) {
             guard let value = payload["string"] as? String else { throw V3SideStoreServiceError.invalidRequest }

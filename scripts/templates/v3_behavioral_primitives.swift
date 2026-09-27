@@ -809,6 +809,19 @@ enum V3AuthSessionResponsePolicy {
     }
 }
 
+enum V3AuthPollResponsePolicy {
+    static func mayApply(currentSessionID: String?, replySessionID: String,
+                         cancellationInProgress: Bool, currentAttempt: Int,
+                         replyAttempt: Int, currentPromptID: String?,
+                         replyPromptID: String?) -> Bool {
+        guard !cancellationInProgress, currentSessionID == replySessionID,
+              replyAttempt >= currentAttempt else { return false }
+        if replyAttempt == currentAttempt, let currentPromptID,
+           replyPromptID != currentPromptID { return false }
+        return true
+    }
+}
+
 struct V3AuthStartCancellationRegistry {
     private var cancelled: [String: Date] = [:]
 

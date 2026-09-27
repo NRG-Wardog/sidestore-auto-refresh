@@ -116,6 +116,7 @@ def archive_size_report(infos, executable_paths: set[str]) -> dict:
         "zip_member_bytes": sum(info.compress_size for info in files),
         "payload_breakdown_bytes": categories,
         "bundle_totals_bytes": dict(sorted(bundle_totals.items())),
+        "bundle_totals_semantics": "inclusive_parent_bundles; nested files count in each ancestor",
         "bundle_file_counts": dict(sorted(bundle_file_counts.items())),
         "largest_files": [
             {"path": info.filename, "uncompressed_bytes": info.file_size,
@@ -123,6 +124,23 @@ def archive_size_report(infos, executable_paths: set[str]) -> dict:
             for info in largest
         ],
     }
+
+
+def find_legacy_side_store_resources(side_store_path: str, names: list[str]) -> list[str]:
+    prefix = side_store_path.rstrip("/") + "/"
+    excluded = []
+    for name in names:
+        if not name.startswith(prefix):
+            continue
+        components = name[len(prefix):].split("/")
+        lower_components = [component.lower() for component in components]
+        suffix = Path(name).suffix.lower()
+        basename = name.rsplit("/", 1)[-1].lower()
+        if (any(component.endswith((".storyboardc", ".nib")) for component in lower_components)
+                or suffix in {".storyboard", ".xib", ".nib"}
+                or basename == "silence.m4a"):
+            excluded.append(name)
+    return sorted(excluded)
 
 
 def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
@@ -164,6 +182,12 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         host = package_bundles[BASE]
         side_store_path = BASE + "/Frameworks/SideStoreApp.framework"
         side_store_info = package_bundles[side_store_path]["info"]
+        legacy_resources = find_legacy_side_store_resources(side_store_path, names)
+        if legacy_resources:
+            raise ValueError("embedded SideStore contains excluded UI/audio resources: "
+                             + ", ".join(legacy_resources[:8]))
+        if "UIBackgroundModes" in side_store_info:
+            raise ValueError("embedded SideStore still declares app background modes")
         if any(key in side_store_info for key in ("UIMainStoryboardFile", "UILaunchStoryboardName")):
             raise ValueError("embedded SideStore still declares a legacy UI storyboard")
         scene_configurations = side_store_info.get("UIApplicationSceneManifest", {}).get(
@@ -257,6 +281,8 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         "liveprocess_extension": live_process_path,
         "required_frameworks": sorted(REQUIRED_FRAMEWORKS),
         "sidestore_storyboard_root": "absent",
+        "sidestore_excluded_ui_and_audio_resources": "absent",
+        "sidestore_legacy_background_modes": "absent",
         "app_group": REQUIRED_GROUP,
         "url_schemes": sorted(REQUIRED_SCHEMES),
         "background_identifiers": sorted(REQUIRED_BACKGROUND_IDS),

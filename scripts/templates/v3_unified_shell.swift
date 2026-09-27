@@ -3451,6 +3451,8 @@ final class V3AuthStore: ObservableObject {
     func begin() {
         guard canBegin else { return }
         task?.cancel()
+        let requestedSession = UUID().uuidString
+        session = requestedSession
         state = "working"
         message = ""
         deliveryProgressMessage = ""
@@ -3461,7 +3463,7 @@ final class V3AuthStore: ObservableObject {
         cancellationConfirmed = true
         signedIn = false
         clearProvisioningOutcome()
-        task = Task { await run() }
+        task = Task { await run(sessionID: requestedSession) }
     }
     var canBegin: Bool {
         !isCancelling && cancellationConfirmed && !["working", "awaitingPrompt"].contains(state)
@@ -3584,9 +3586,7 @@ final class V3AuthStore: ObservableObject {
         }
     }
 
-    private func run() async {
-        let requestedSession = UUID().uuidString
-        session = requestedSession
+    private func run(sessionID requestedSession: String) async {
         do {
             state = "working"
             message = ""
@@ -3618,7 +3618,14 @@ final class V3AuthStore: ObservableObject {
             try await Task.sleep(nanoseconds: 1_000_000_000)
             try Task.checkCancellation()
             let reply = try await V3ServiceBridge.shared.request(operation: "authPoll", target: id)
-            guard !isCancelling, session == id else { throw CancellationError() }
+            guard V3AuthPollResponsePolicy.mayApply(
+                currentSessionID: session, replySessionID: reply["session"] as? String ?? "",
+                cancellationInProgress: isCancelling,
+                currentAttempt: attempts,
+                replyAttempt: reply["attempts"] as? Int ?? attempts,
+                currentPromptID: prompt?["id"] as? String,
+                replyPromptID: (reply["prompt"] as? [String: Any])?["id"] as? String),
+                !Task.isCancelled else { throw CancellationError() }
             apply(reply)
             guard let current = reply["state"] as? String, current == "working" || current == "awaitingPrompt" else { return }
         }

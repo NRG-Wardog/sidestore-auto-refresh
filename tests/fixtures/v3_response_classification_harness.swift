@@ -172,6 +172,25 @@ struct ResponseClassificationHarness {
         precondition(hostFailure(unknownToken, operation: "snapshot", id: unknownID).safeCause == nil,
                      "an unknown token must not invent a safe cause")
 
+        let invalidRootID = UUID().uuidString
+        let invalidRootFailure = CombinedFailure(operation: "refresh", stage: .pairing,
+            code: .notReady, id: invalidRootID, safeCause: .pairingRequired)
+        let booleanVersion = try! PropertyListSerialization.data(fromPropertyList: [
+            "version": true, "id": invalidRootID, "error": "busy",
+            "failure": invalidRootFailure.wire
+        ], format: .binary, options: 0)
+        precondition(hostFailure(booleanVersion, operation: "refresh", id: invalidRootID).code == .invalidResponse,
+            "root schema validation must precede both structured failures and legacy error tokens")
+        let missingVersion = try! PropertyListSerialization.data(fromPropertyList: [
+            "id": invalidRootID, "error": "busy"
+        ], format: .binary, options: 0)
+        precondition(hostFailure(missingVersion, operation: "refresh", id: invalidRootID).code == .invalidResponse)
+        let numericOK = try! PropertyListSerialization.data(fromPropertyList: [
+            "version": 1, "id": invalidRootID, "ok": NSNumber(value: 1), "result": [:]
+        ], format: .binary, options: 0)
+        precondition(hostFailure(numericOK, operation: "snapshot", id: invalidRootID).code == .invalidResponse,
+            "numeric one must not impersonate the root Boolean ok field")
+
         // A reply for a different request is protocol evidence, never a
         // serialization defect, and never resolved to this caller.
         precondition(hostFailure(encodingReply, operation: "catalog",
