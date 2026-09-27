@@ -7,6 +7,7 @@ import CoreFoundation
 enum V3WireContract {
     static let requestLimit = 16_384
     static let responseLimit = 4_194_304
+    static let authSessionLifetime: TimeInterval = 600
     static let cancellationScopes: Set<String> = ["auth", "operation", "request"]
 
     static func strictBool(_ value: Any?) -> Bool? {
@@ -59,6 +60,15 @@ enum V3WireContract {
         }
         if let payload = request["payload"] {
             guard payload as? [String: Any] != nil else { return nil }
+        }
+        if ["authBegin", "authRetryProvisioning"].contains(operation) {
+            guard let payload = request["payload"] as? [String: Any],
+                  let session = payload["session"] as? String,
+                  let parsedSession = UUID(uuidString: session), parsedSession.uuidString == session,
+                  session == target,
+                  let sessionDeadline = payload["sessionDeadline"] as? Date,
+                  sessionDeadline > now,
+                  sessionDeadline.timeIntervalSince(now) <= authSessionLifetime + 10 else { return nil }
         }
         if operation == "cancel" {
             guard let payload = request["payload"] as? [String: Any],

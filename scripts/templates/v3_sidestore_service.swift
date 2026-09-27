@@ -307,15 +307,13 @@ final class V3SideStoreService: NSObject {
         switch operation {
         case "snapshot": return try snapshot()
         case "refreshAdmissionBegin":
-            guard let deadline = request["deadline"] as? Date,
-                  refreshAdmission.acquire(runID: target,
+            guard refreshAdmission.acquire(runID: target,
                     requestID: id,
                     authenticationActive: V3HeadlessRuntime.shared.auth.hasActiveSession,
                     anotherMutationActive: mutationID != nil && mutationID != id,
-                    // Keep admission closed beyond the host's matching 600s
-                    // timeout so service teardown can retire a still-running
-                    // native refresh before a later mutation is admitted.
-                    deadline: deadline.addingTimeInterval(60)) else {
+                    // This ownership lifetime follows the native refresh timeout,
+                    // not the short XPC begin-request deadline.
+                    ) else {
                 throw ServiceError.busy
             }
             return ["runID": target, "admitted": true]
@@ -427,7 +425,8 @@ final class V3SideStoreService: NSObject {
             try await callback { done in AppManager.shared.enableJIT(for: app, completionHandler: done) }
             return try snapshot()
         case "authBegin":
-            guard let deadline = request["deadline"] as? Date,
+            guard let deadline = payload["sessionDeadline"] as? Date,
+                  deadline > Date(), deadline.timeIntervalSinceNow <= V3WireContract.authSessionLifetime + 10,
                   let session = payload["session"] as? String, session == target else {
                 throw ServiceError.invalidRequest
             }
@@ -436,7 +435,8 @@ final class V3SideStoreService: NSObject {
             // V3_PROVISIONING_RESUME_V1: Apple authentication already succeeded.
             // This re-enters provisioning with the saved session so credentials
             // and 2FA are never requested a second time.
-            guard let deadline = request["deadline"] as? Date,
+            guard let deadline = payload["sessionDeadline"] as? Date,
+                  deadline > Date(), deadline.timeIntervalSinceNow <= V3WireContract.authSessionLifetime + 10,
                   let session = payload["session"] as? String, session == target else {
                 throw ServiceError.invalidRequest
             }
@@ -667,6 +667,7 @@ final class V3SideStoreService: NSObject {
 
         if let knownSourcesUpdateTask {
             try await knownSourcesUpdateTask.value
+            guard defaults.blockedSources != nil else { throw ServiceError.notReady }
             return
         }
         let task = Task<Void, Error> { @MainActor in
@@ -678,13 +679,15 @@ final class V3SideStoreService: NSObject {
                     try await Task.sleep(nanoseconds: 15_000_000_000)
                     throw URLError(.timedOut)
                 }
-                _ = try await group.next()
+                let completedUpdate = try await group.next()
+                guard completedUpdate != nil else { throw CancellationError() }
                 group.cancelAll()
             }
         }
         knownSourcesUpdateTask = task
         defer { knownSourcesUpdateTask = nil }
         try await task.value
+        guard defaults.blockedSources != nil else { throw ServiceError.notReady }
         defaults.set(Date(), forKey: "v3KnownSourcesUpdatedAt")
     }
 

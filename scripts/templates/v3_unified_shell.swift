@@ -2723,6 +2723,8 @@ struct V3OperationSheet: View {
         case "working" where isTransitioning: return "Waiting for previous attempt..."
         case "completed": return "Completed"
         case "awaitingPrompt": return "Needs your input"
+        case "promptExpired": return "Verification expired"
+        case "timedOut": return "Sign-in timed out"
         case "failed": return "Failed"
         case "cancelled": return "Cancelled"
         case "requiresSource": return "Source required"
@@ -3442,6 +3444,7 @@ final class V3AuthStore: ObservableObject {
     @Published private(set) var provisioningStage = ""
     @Published private(set) var provisioningCorrelation = ""
     @Published private(set) var provisioningRetryAvailable = false
+    @Published private(set) var provisioningSessionUnavailable = false
     @Published private(set) var provisioningFinishedLater = false
     // Sticky once the service reports an authenticated terminal. It survives a
     // provisioning retry so the screen keeps saying the sign-in succeeded while
@@ -3455,7 +3458,9 @@ final class V3AuthStore: ObservableObject {
     // whether provisioning then failed.
     var isSignedIn: Bool { signedIn }
     var signInButtonTitle: String {
-        if previousFailure?["kind"] as? String == "rateLimited" { return "Try Again After Waiting" }
+        if previousFailure?["kind"] as? String == "rateLimited" { return "I Waited — Try Again" }
+        if state == "promptExpired" { return "Start New Sign In" }
+        if state == "timedOut" { return "Try Sign In Again" }
         return state == "idle" ? "Begin Sign In" : "Try Again"
     }
     // The provisioning problem is only present when a classified failure arrived.
@@ -3494,6 +3499,7 @@ final class V3AuthStore: ObservableObject {
         provisioningStage = ""
         provisioningCorrelation = ""
         provisioningRetryAvailable = false
+        provisioningSessionUnavailable = false
         provisioningFinishedLater = false
     }
 
@@ -3535,15 +3541,18 @@ final class V3AuthStore: ObservableObject {
                 // instead of silently claiming provisioning was retried.
                 await reconcile(force: true)
                 if signedIn {
+                    if state == "completed" { return }
                     state = "authenticatedProvisioningIncomplete"
                     message = "Apple ID signed in successfully."
                     provisioningMessage = "The saved provisioning session is no longer available. Open Account & Signing to reauthenticate before retrying setup."
                     provisioningRetryAvailable = false
+                    provisioningSessionUnavailable = true
                 } else {
                     state = "failed"
                     message = reply["message"] as? String
                         ?? "The saved Apple session is no longer valid. Sign in again with this Apple ID."
                     provisioningMessage = ""
+                    provisioningSessionUnavailable = true
                 }
                 return
             }
@@ -3551,9 +3560,20 @@ final class V3AuthStore: ObservableObject {
             try await pollLoop(id: id)
         } catch {
             if isCancelling || Task.isCancelled { return }
-            state = "authenticatedProvisioningIncomplete"
-            provisioningMessage = "Retry Provisioning could not be started."
+            await reconcile(force: true)
             provisioningTechnical = (error as? CombinedFailure)?.technicalDetails ?? ""
+            if signedIn {
+                if state == "completed" { return }
+                state = "authenticatedProvisioningIncomplete"
+                provisioningMessage = "Retry Provisioning could not be confirmed. Your last confirmed state is still signed in. Reload status, then try again."
+                provisioningRetryAvailable = true
+                provisioningSessionUnavailable = false
+            } else {
+                state = "failed"
+                message = "The provisioning retry could not be started, and SideStore could not confirm the account state. Check Account & Signing, then reload status."
+                provisioningMessage = ""
+                provisioningRetryAvailable = false
+            }
         }
     }
 
@@ -3636,8 +3656,14 @@ final class V3AuthStore: ObservableObject {
             try await pollLoop(id: id)
         } catch {
             if isCancelling || Task.isCancelled { return }
+            let failureMessage = V3FailureGuidance.message(error)
+            // A lost start/poll reply does not prove Apple authentication
+            // failed. Reconcile SideStore's account before publishing a
+            // terminal sign-in error.
+            await reconcile(force: true)
+            if signedIn { return }
             state = "failed"
-            message = V3FailureGuidance.message(error)
+            message = failureMessage
         }
     }
 
@@ -3703,6 +3729,19 @@ final class V3AuthStore: ObservableObject {
             prompt = nil
             deliveryProgressMessage = ""
             clearProvisioningOutcome()
+        } else if state == "timedOut" {
+            message = reply["message"] as? String ?? "Sign-in timed out. Start a new sign-in when you are ready."
+            prompt = nil
+            deliveryProgressMessage = ""
+            twoFactorTransientStep = nil
+        } else if state == "promptExpired" {
+            message = reply["message"] as? String
+                ?? "That verification session expired. Start a new sign-in to request another verification code."
+            task?.cancel()
+            prompt = nil
+            promptSubmitting = false
+            deliveryProgressMessage = ""
+            twoFactorTransientStep = nil
         } else if state == "cancelled" {
             message = "Sign-in was cancelled."
             prompt = nil
@@ -3801,8 +3840,16 @@ final class V3AuthStore: ObservableObject {
                     reply["state"] as? String == "promptExpired" {
                     guard self.session == session, !self.isCancelling,
                           self.prompt?["id"] as? String == promptID else { return }
+                    if let replyRevision = reply["revision"] as? Int, replyRevision >= revision {
+                        revision = replyRevision
+                    }
+                    state = "promptExpired"
+                    task?.cancel()
                     promptSubmitting = false
-                    message = "That verification prompt expired. Choose a verification method again."
+                    prompt = nil
+                    deliveryProgressMessage = ""
+                    twoFactorTransientStep = nil
+                    message = "That verification session expired. Start a new sign-in to request another verification code."
                     return
                 }
                 guard V3AuthSessionResponsePolicy.mayApplyReply(
@@ -3827,7 +3874,7 @@ final class V3AuthStore: ObservableObject {
     }
 
     func cancel() {
-        guard !isCancelling, ["working", "awaitingPrompt"].contains(state) else { return }
+        guard !isCancelling, ["working", "awaitingPrompt", "promptExpired"].contains(state) else { return }
         isCancelling = true
         cancellationConfirmed = false
         let oldTask = task
@@ -3950,7 +3997,8 @@ struct V3SignInView: View {
                         .font(.footnote.weight(.medium))
                         .foregroundColor(.orange)
                 }
-                if auth.state == "idle" || auth.state == "failed" || auth.state == "cancelled" {
+                if auth.state == "idle" || auth.state == "failed" || auth.state == "cancelled" ||
+                    auth.state == "timedOut" || auth.state == "promptExpired" {
                     Button {
                         auth.begin()
                     } label: {
@@ -3958,7 +4006,7 @@ struct V3SignInView: View {
                     }
                     .disabled(!auth.canBegin)
                 }
-                if auth.state == "working" || auth.state == "awaitingPrompt" {
+                if auth.state == "working" || auth.state == "awaitingPrompt" || auth.state == "promptExpired" {
                     Button(auth.isCancelling ? "Cancelling..." : "Cancel Sign In", role: .cancel) { auth.cancel() }
                         .disabled(auth.isCancelling)
                 }
@@ -3973,7 +4021,7 @@ struct V3SignInView: View {
                         Label("Retry Provisioning", systemImage: "arrow.clockwise")
                     }
                     .disabled(!auth.canRetryProvisioning)
-                    if !auth.canRetryProvisioning {
+                    if auth.provisioningSessionUnavailable {
                         Text("The saved Apple session is no longer available. Sign in again to retry provisioning.")
                             .font(.caption).foregroundColor(.secondary)
                     }

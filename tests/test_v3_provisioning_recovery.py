@@ -311,7 +311,7 @@ class ResumableProvisioningOperationTests(unittest.TestCase):
         wire = WIRE.read_text(encoding="utf-8")
         self.assertIn('"authRetryProvisioning"', wire)
         start = wire.index("static let operations")
-        read = wire[wire.index("static let readOperations"):]
+        read = wire[wire.index("static let readOperations"):wire.index("static func decodeRequest(")]
         self.assertNotIn('"authRetryProvisioning"', read,
                          "a provisioning retry mutates backend state and must hold the gate")
 

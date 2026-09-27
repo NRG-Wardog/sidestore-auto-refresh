@@ -227,6 +227,9 @@ public final class V3ServiceBridge {
                                       "target": target, "deadline": Date().addingTimeInterval(timeout)]
         if let cursor { message["cursor"] = cursor }
         var requestPayload = payload ?? [:]
+        if ["authBegin", "authRetryProvisioning"].contains(operation) {
+            requestPayload["sessionDeadline"] = Date().addingTimeInterval(V3WireContract.authSessionLifetime)
+        }
         if operation == "opCancel" {
             requestPayload["knownStarted"] = knownOperationSessions[target] != nil
         }

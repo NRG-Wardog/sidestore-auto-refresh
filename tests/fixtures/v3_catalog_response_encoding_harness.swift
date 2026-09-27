@@ -191,6 +191,25 @@ struct CatalogResponseEncodingHarness {
             precondition(!V3WireContract.readOperations.contains(operation),
                          "refresh admission must acquire the mutation gate")
         }
+        // Auth request deadlines bound only the XPC start RPC. The separate
+        // sessionDeadline keeps a real credentials/2FA session alive after the
+        // start reply returns.
+        let authSessionID = UUID().uuidString
+        let authRequest: [String: Any] = ["version": 1, "id": UUID().uuidString,
+            "operation": "authBegin", "target": authSessionID,
+            "deadline": Date().addingTimeInterval(30),
+            "payload": ["session": authSessionID,
+                        "sessionDeadline": Date().addingTimeInterval(V3WireContract.authSessionLifetime)]]
+        let authRequestData = try! PropertyListSerialization.data(
+            fromPropertyList: authRequest, format: .binary, options: 0)
+        precondition(V3WireContract.decodeRequest(authRequestData) != nil,
+                     "an auth session may outlive its bounded start request")
+        var missingAuthSessionDeadline = authRequest
+        missingAuthSessionDeadline["payload"] = ["session": authSessionID]
+        let missingAuthDeadlineData = try! PropertyListSerialization.data(
+            fromPropertyList: missingAuthSessionDeadline, format: .binary, options: 0)
+        precondition(V3WireContract.decodeRequest(missingAuthDeadlineData) == nil,
+                     "auth start must carry its separate authoritative session deadline")
 
         print("V3_CATALOG_RESPONSE_ENCODING_PASS")
     }

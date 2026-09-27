@@ -166,6 +166,14 @@ struct SetupAndSemanticUXHarness {
         precondition(V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("refreshAdmissionBegin"))
         precondition(!V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("authPoll"))
         precondition(!V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("opPoll"))
+        let unauthenticatedExpiry = V3AuthSessionExpiryPolicy.response(authenticated: false)
+        precondition(unauthenticatedExpiry["state"] as? String == "timedOut" &&
+                     unauthenticatedExpiry["authenticated"] as? Bool == false,
+                     "expired authentication must be distinct from user cancellation")
+        let postAuthExpiry = V3AuthSessionExpiryPolicy.response(authenticated: true)
+        precondition(postAuthExpiry["state"] as? String == "authenticatedProvisioningIncomplete" &&
+                     postAuthExpiry["authenticated"] as? Bool == true,
+                     "a provisioning timeout after Apple authentication must preserve signed-in state")
 
         // V3_REFRESH_ADMISSION_LEASE_V1: the scheduler's direct XPC refresh
         // path acquires this same service-owned lease before dispatch. Its
@@ -175,7 +183,6 @@ struct SetupAndSemanticUXHarness {
         let runB = UUID().uuidString
         let refreshRequestA = UUID().uuidString
         let refreshRequestB = UUID().uuidString
-        let leaseDeadline = Date().addingTimeInterval(60)
         precondition(V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
             operation: "refreshAdmissionBegin", target: runA, activeRunID: runA,
             refreshAttemptActive: true),
@@ -202,13 +209,13 @@ struct SetupAndSemanticUXHarness {
             "the refresh exception must not authorize unrelated host mutations")
         var refreshLease = V3RefreshAdmissionLease()
         precondition(!refreshLease.acquire(runID: runA, requestID: refreshRequestA, authenticationActive: true,
-            anotherMutationActive: false, deadline: leaseDeadline),
+            anotherMutationActive: false),
             "refresh cannot acquire ownership while authentication is active")
         precondition(refreshLease.acquire(runID: runA, requestID: refreshRequestA, authenticationActive: false,
-            anotherMutationActive: false, deadline: leaseDeadline),
+            anotherMutationActive: false),
             "a ready scheduler run acquires refresh ownership")
         precondition(!refreshLease.acquire(runID: runB, requestID: refreshRequestB, authenticationActive: false,
-            anotherMutationActive: false, deadline: leaseDeadline),
+            anotherMutationActive: false),
             "a second scheduler run cannot overlap the current refresh")
         precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
             anotherMutationActive: false, authenticationActive: false,
@@ -238,14 +245,17 @@ struct SetupAndSemanticUXHarness {
             refreshActive: refreshLease.isActive),
             "the next mutation is admitted after the run-scoped lease is released")
         var expiringLease = V3RefreshAdmissionLease()
-        let expiry = Date(timeIntervalSince1970: 1_000)
+        let leaseStart = Date(timeIntervalSince1970: 900)
+        let expiry = leaseStart.addingTimeInterval(V3RefreshAdmissionLease.lifetime)
         precondition(expiringLease.acquire(runID: runB, requestID: refreshRequestB, authenticationActive: false,
-            anotherMutationActive: false, deadline: expiry, now: Date(timeIntervalSince1970: 900)))
+            anotherMutationActive: false, now: leaseStart))
+        precondition(!expiringLease.expire(now: leaseStart.addingTimeInterval(90)) && expiringLease.isActive,
+            "the short begin-request deadline cannot expire the 600-second native refresh lease")
         precondition(expiringLease.expire(now: expiry) && !expiringLease.isActive,
             "a lost host terminal reply cannot leave refresh admission held forever")
         var cancelledLease = V3RefreshAdmissionLease()
         precondition(cancelledLease.acquire(runID: runA, requestID: refreshRequestA,
-            authenticationActive: false, anotherMutationActive: false, deadline: leaseDeadline))
+            authenticationActive: false, anotherMutationActive: false))
         precondition(cancelledLease.release(requestID: refreshRequestA) && !cancelledLease.isActive,
             "a request-scoped cancel releases only its own pre-dispatch refresh lease")
 

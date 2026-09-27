@@ -430,7 +430,9 @@ final class V3AuthCenter {
 
     var hasActiveSession: Bool {
         guard let activeID, let session = sessions[activeID] else { return false }
-        return session.terminal.isEmpty
+        // A timed-out terminal cannot reopen mutation admission while its
+        // cancelled SignInOperation is still unwinding.
+        return session.terminal.isEmpty || session.task != nil
     }
 
     func ownsActiveSession(_ id: String) -> Bool {
@@ -623,8 +625,22 @@ final class V3AuthCenter {
     }
 
     func expire(id: String) {
-        guard let session = sessions[id], case nil = session.terminal.value else { return }
-        cancel(id: id)
+        guard var session = sessions[id], session.terminal.isEmpty else { return }
+        let authenticated = session.authenticatedAppleID != nil || AuthManager.shared.isAuthenticated
+        session.cancellationRequested = true
+        session.task?.cancel()
+        session.watchdog?.cancel()
+        session.prompt = nil
+        sessions[id] = session
+        var response = V3AuthSessionExpiryPolicy.response(authenticated: authenticated)
+        if authenticated {
+            response["resumable"] = resumableProvisioning.map {
+                $0.appleID == AuthManager.shared.currentAppleID?.lowercased()
+            } ?? false
+        }
+        _ = finish(id: id, response: response)
+        if session.task == nil, activeID == id { activeID = nil }
+        debugLog("[V3_AUTH] TERMINAL session=\(id) state=\(authenticated ? "authenticatedProvisioningIncomplete" : "timedOut")")
     }
 
     @discardableResult

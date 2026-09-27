@@ -9,6 +9,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
 SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
+WIRE = ROOT / "scripts/templates/v3_wire_contract.swift"
+BRIDGE = ROOT / "scripts/templates/v3_service_bridge.swift"
+SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
 
 
 def runtime():
@@ -107,6 +110,41 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn('snapshot["account"] as? String', sign_in)
         self.assertIn("signedIn = false", sign_in)
         self.assertIn(".task { await auth.reconcile() }", host)
+
+    def test_auth_session_deadline_is_separate_from_xpc_start_deadline(self):
+        wire = WIRE.read_text(encoding="utf-8")
+        bridge = BRIDGE.read_text(encoding="utf-8")
+        service = SERVICE.read_text(encoding="utf-8")
+        auth_cases = service[service.index('case "authBegin":'):service.index('case "authPoll":')]
+        self.assertIn("authSessionLifetime", wire)
+        self.assertIn('requestPayload["sessionDeadline"]', bridge)
+        self.assertIn('payload["sessionDeadline"] as? Date', auth_cases)
+        self.assertNotIn('request["deadline"] as? Date', auth_cases)
+        self.assertIn("V3AuthSessionExpiryPolicy.response(authenticated: authenticated)", runtime())
+
+    def test_auth_transport_failure_reconciles_before_showing_failed(self):
+        host = shell()
+        run = host[host.index("private func run(sessionID requestedSession: String)"):]
+        run = run[:run.index("    private func pollLoop(")]
+        self.assertLess(run.index("await reconcile(force: true)"), run.index('state = "failed"'))
+
+    def test_provisioning_retry_transport_failure_does_not_claim_saved_session_is_gone(self):
+        host = shell()
+        retry = host[host.index("private func runProvisioningRetry()"):]
+        retry = retry[:retry.index("    // V3_FINISH_LATER_PRESERVES_ACCOUNT_V1")]
+        self.assertIn("await reconcile(force: true)", retry)
+        self.assertIn("provisioningSessionUnavailable = true", retry)
+        self.assertIn("provisioningSessionUnavailable = false", retry)
+        self.assertNotIn('The saved Apple session is no longer available. Sign in again', retry)
+
+    def test_prompt_expiry_and_session_timeout_have_distinct_recovery_states(self):
+        host = shell()
+        self.assertIn('state = "promptExpired"', host)
+        self.assertIn('state == "promptExpired"', host)
+        self.assertIn('state == "timedOut"', host)
+        self.assertIn('case "promptExpired": return "Verification expired"', host)
+        self.assertIn('case "timedOut": return "Sign-in timed out"', host)
+        self.assertNotIn("Choose a verification method again.", host)
 
     def test_auth_cancel_consumes_terminal_reply_and_reconciles_account(self):
         host = shell()

@@ -232,7 +232,9 @@ class RefreshHandler: NSObject {
         defaults?.set(run, forKey: "liveContainerAutoRefreshExpectedRunID")
         refreshRunID = run
         let timeout = Task { @MainActor in
-            do { try await Task.sleep(nanoseconds: 600_000_000_000) } catch { return }
+            do {
+                try await Task.sleep(nanoseconds: V3RefreshAdmissionLease.nativeRefreshTimeoutNanoseconds)
+            } catch { return }
             guard self.v3RefreshToken == token else { return }
             self.finishRefreshContinuation(.failure(CombinedFailure(operation: "refresh", stage: .refreshVerification, code: .timedOut, id: run)))
             self.service.stop()

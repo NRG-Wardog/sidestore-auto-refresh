@@ -2160,6 +2160,17 @@ enum V3RequestRetirementPolicy {
     }
 }
 
+enum V3AuthSessionExpiryPolicy {
+    static func response(authenticated: Bool) -> [String: Any] {
+        if authenticated {
+            return ["state": "authenticatedProvisioningIncomplete", "authenticated": true,
+                    "message": "Apple ID sign-in succeeded, but provisioning did not finish before the session timed out."]
+        }
+        return ["state": "timedOut", "authenticated": false,
+                "message": "Sign-in timed out. Start a new sign-in when you are ready."]
+    }
+}
+
 enum V3ServiceMutationAdmissionPolicy {
     static func admits(isMutation: Bool, anotherMutationActive: Bool,
                        authenticationActive: Bool, isAuthContinuation: Bool,
@@ -2192,6 +2203,11 @@ enum V3ServiceMutationAdmissionPolicy {
 }
 
 struct V3RefreshAdmissionLease {
+    static let nativeRefreshTimeout: TimeInterval = 600
+    static let retirementGrace: TimeInterval = 60
+    static let lifetime: TimeInterval = nativeRefreshTimeout + retirementGrace
+    static let nativeRefreshTimeoutNanoseconds: UInt64 = 600_000_000_000
+
     private(set) var runID: String?
     private(set) var requestID: String?
     private(set) var expiresAt: Date?
@@ -2208,16 +2224,16 @@ struct V3RefreshAdmissionLease {
 
     mutating func acquire(runID: String, requestID: String,
                           authenticationActive: Bool,
-                          anotherMutationActive: Bool, deadline: Date,
+                          anotherMutationActive: Bool,
                           now: Date = Date()) -> Bool {
         _ = expire(now: now)
         guard let parsed = UUID(uuidString: runID), parsed.uuidString == runID,
               let parsedRequest = UUID(uuidString: requestID), parsedRequest.uuidString == requestID,
               self.runID == nil, !authenticationActive, !anotherMutationActive,
-              deadline > now else { return false }
+              Self.lifetime > 0 else { return false }
         self.runID = runID
         self.requestID = requestID
-        expiresAt = deadline
+        expiresAt = now.addingTimeInterval(Self.lifetime)
         return true
     }
 
