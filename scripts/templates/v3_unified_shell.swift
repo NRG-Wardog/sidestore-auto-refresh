@@ -1994,8 +1994,8 @@ struct V3SourcesView: View {
                   let identifier = result["identifier"] as? String,
                   let sources = result["sources"] as? [[String: Any]],
                   sources.contains(where: { $0["identifier"] as? String == identifier }) else {
-                throw CombinedFailure(operation: "sourceAddConfirmed", stage: .command,
-                    code: .invalidResponse, id: UUID().uuidString, retryable: false)
+                throw V3SourceAddPersistencePolicy.unverifiedPersistenceFailure(
+                    correlationID: UUID().uuidString)
             }
             status.accept(result)
             preview = nil
@@ -2186,11 +2186,10 @@ struct V3CatalogView: View {
         defer { loading = false }
         do {
             var cursor = 0
-            // V3_CATALOG_ROW_POLICY_V1: raw rows are accumulated so the shared
-            // deduplication rule can be applied, then mapped to the display model
-            // once. Accumulating display models instead would require a second,
-            // weaker dedupe path.
-            var accumulated: [[String: Any]] = []
+            // V3_CATALOG_ROW_POLICY_V1: retain the raw rows and a persistent
+            // identifier set across pages, then map once. Re-deduplicating the
+            // full accumulated array for every page made large catalogs quadratic.
+            var accumulated = V3CatalogRowsAccumulator()
             repeat {
                 try Task.checkCancellation()
                 // V3_CATALOG_PAGE_VALIDATION_V1: a page is validated instead of
@@ -2210,11 +2209,11 @@ struct V3CatalogView: View {
                 }
                 // The real deduplication rule: duplicates are removed within a
                 // page and across pages, first-seen order preserved.
-                accumulated = V3CatalogRowPolicy.appending(rawApps, to: accumulated)
+                accumulated.append(rawApps)
                 guard next == -1 || next > cursor else { throw catalogResponseFailure(cursor: cursor) }
                 cursor = next
             } while cursor >= 0
-            apps = accumulated.compactMap(V3CatalogApp.init)
+            apps = accumulated.rows.compactMap(V3CatalogApp.init)
         } catch is CancellationError {
             // A cancelled load is lifecycle, not a catalog failure. Presenting it
             // as an error would blame the source for a navigation change.
@@ -2478,8 +2477,13 @@ private struct V3SourceAddFailure {
     let safeCause: String?
 
     init(_ error: Error) {
-        let failure = (error as? CombinedFailure) ?? CombinedFailure.capture(error,
-            operation: "sourceAddConfirmed", stage: .command, id: UUID().uuidString)
+        let failure: CombinedFailure
+        if let combined = error as? CombinedFailure {
+            failure = V3SourceAddFailurePolicy.normalized(combined)
+        } else {
+            failure = CombinedFailure.capture(error,
+                operation: "source", stage: .source, id: UUID().uuidString)
+        }
         whatHappened = failure.safeMessage
         whatToDo = failure.recovery
         technicalDetails = failure.technicalDetails
@@ -3472,8 +3476,7 @@ final class V3AuthStore: ObservableObject {
     @Published var attempts = 0
     @Published private(set) var revision = 0
     @Published var message = ""
-    @Published private(set) var currentAttemptFailureMessage = ""
-    @Published private(set) var currentAttemptFailureTechnical = ""
+    @Published private(set) var currentAttemptFailure = V3AuthAttemptFailureNotice()
     @Published private(set) var promptResponseDiagnostics = ""
     @Published private(set) var promptResponseBlocked = false
     @Published var deliveryProgressMessage = ""
@@ -3506,6 +3509,7 @@ final class V3AuthStore: ObservableObject {
     // whenever the service reports an authenticated terminal, regardless of
     // whether provisioning then failed.
     var isSignedIn: Bool { signedIn }
+    var hasSession: Bool { session != nil }
     var signInButtonTitle: String {
         if previousFailure?["kind"] as? String == "rateLimited" { return "I Waited — Try Again" }
         if state == "promptExpired" { return "Start New Sign In" }
@@ -3527,8 +3531,7 @@ final class V3AuthStore: ObservableObject {
         revision = 0
         state = "working"
         message = ""
-        currentAttemptFailureMessage = ""
-        currentAttemptFailureTechnical = ""
+        currentAttemptFailure.clear()
         promptResponseDiagnostics = ""
         promptResponseBlocked = false
         deliveryProgressMessage = ""
@@ -3542,7 +3545,7 @@ final class V3AuthStore: ObservableObject {
         task = Task { await run(sessionID: requestedSession) }
     }
     var canBegin: Bool {
-        !isCancelling && cancellationConfirmed && !["working", "awaitingPrompt"].contains(state)
+        !isCancelling && cancellationConfirmed && !["working", "awaitingPrompt", "resultUnknown"].contains(state)
     }
 
     private func clearProvisioningOutcome() {
@@ -3569,6 +3572,7 @@ final class V3AuthStore: ObservableObject {
         revision = 0
         state = "working"
         message = ""
+        currentAttemptFailure.clear()
         prompt = nil
         previousFailure = nil
         promptSubmitting = false
@@ -3663,10 +3667,10 @@ final class V3AuthStore: ObservableObject {
                 return false
             }
             let account = snapshot["account"] as? String ?? "Not signed in"
-            let authoritative = authSnapshot["authenticated"] ||
+            let authoritative = (authSnapshot["authenticated"] ?? false) ||
                 !account.isEmpty && account != "Not signed in"
-            let incomplete = authSnapshot["provisioningIncomplete"]
-            let canRetryProvisioning = authSnapshot["provisioningRetryAvailable"]
+            let incomplete = authSnapshot["provisioningIncomplete"] ?? false
+            let canRetryProvisioning = authSnapshot["provisioningRetryAvailable"] ?? false
             if let reconciled = V3AuthTimeoutReconciliationPolicy.reconciledState(
                 reportedState: state, authenticated: authoritative, provisioningIncomplete: incomplete) {
                 state = reconciled
@@ -3676,7 +3680,14 @@ final class V3AuthStore: ObservableObject {
                 // wins. A finished-later provisioning attempt still reconciles as
                 // signed in, never back to "sign in again".
                 signedIn = true
-                if incomplete {
+                if reportedTerminalState == "failed" {
+                    state = "failed"
+                    team = snapshot["team"] as? String ?? ""
+                    let previousFailureMessage = previousFailure.map { Self.failureMessage(from: $0) }
+                    message = "The sign-in attempt did not complete. SideStore currently reports an account as signed in."
+                    if let previousFailureMessage { message += " " + previousFailureMessage }
+                    clearProvisioningOutcome()
+                } else if incomplete {
                     // The service still reports an authenticated session whose
                     // provisioning never activated an account. Stay signed in and
                     // keep the provisioning recovery actions available. The
@@ -3697,17 +3708,20 @@ final class V3AuthStore: ObservableObject {
                         provisioningMessage = "Apple ID is signed in, but the saved provisioning session is unavailable. Open Account & Signing to sign in again before retrying setup."
                     }
                 } else {
-                    state = "completed"
-                    team = snapshot["team"] as? String ?? ""
-                    if reportedTerminalState == "cancelled" {
-                        message = "The sign-in attempt was cancelled. Your existing account remains signed in."
-                    } else if reportedTerminalState == "failed" {
-                        let previousFailureMessage = previousFailure.map { Self.failureMessage(from: $0) }
-                        message = "The sign-in attempt did not complete. Your existing account remains signed in."
-                        if let previousFailureMessage { message += " " + previousFailureMessage }
+                    if reportedTerminalState == "timedOut" {
+                        state = "timedOut"
+                        message = "The sign-in attempt timed out. SideStore currently reports an account as signed in."
+                    } else if reportedTerminalState == "cancelled" {
+                        state = "cancelled"
+                        message = "The sign-in attempt was cancelled. SideStore currently reports an account as signed in."
+                    } else if reportedTerminalState == "resultUnknown" {
+                        state = "resultUnknown"
+                        message = "The sign-in result remains unconfirmed. SideStore currently reports an account as signed in."
                     } else {
+                        state = "completed"
                         message = ""
                     }
+                    team = snapshot["team"] as? String ?? ""
                     clearProvisioningOutcome()
                 }
             } else {
@@ -3752,18 +3766,19 @@ final class V3AuthStore: ObservableObject {
             if isCancelling || Task.isCancelled { return }
             let failureMessage = V3FailureGuidance.message(error)
             let failureTechnical = (error as? CombinedFailure)?.technicalDetails ?? ""
-            // A lost start/poll reply does not prove Apple authentication
-            // failed. Reconcile SideStore's account before publishing a
-            // terminal sign-in error.
-            await reconcile(force: true)
-            if let reconciledFailure = V3AuthAttemptFailurePresentationPolicy.messageAfterReconciliation(
-                authenticated: signedIn, failureMessage: failureMessage) {
-                currentAttemptFailureMessage = reconciledFailure
-                currentAttemptFailureTechnical = failureTechnical
-                return
-            }
-            state = "failed"
-            message = failureMessage
+            // A thrown start/poll request does not prove the authentication
+            // attempt reached a terminal result. Reconcile account state for
+            // display, but keep the attempt outcome unknown until its session
+            // is cancelled or a correlated terminal reply arrives.
+            let snapshotConfirmed = await reconcile(force: true)
+            state = "resultUnknown"
+            cancellationConfirmed = false
+            message = snapshotConfirmed
+                ? "SideStore confirmed account status but could not confirm whether this sign-in attempt finished. Cancel the unconfirmed session before starting another attempt."
+                : "SideStore could not confirm the sign-in result. Cancel the unconfirmed session before starting another attempt."
+            currentAttemptFailure.record(snapshotConfirmed: snapshotConfirmed,
+                authenticated: signedIn, failureMessage: failureMessage,
+                technicalDetails: failureTechnical)
         }
     }
 
@@ -3841,6 +3856,9 @@ final class V3AuthStore: ObservableObject {
     private func apply(_ reply: [String: Any]) {
         let oldPromptID = prompt?["id"] as? String
         state = reply["state"] as? String ?? state
+        if ["completed", "authenticatedProvisioningIncomplete", "failed", "timedOut", "promptExpired", "cancelled"].contains(state) {
+            currentAttemptFailure.clear()
+        }
         attempts = V3ServiceBridge.strictInt(reply["attempts"]) ?? attempts
         revision = V3ServiceBridge.strictInt(reply["revision"]) ?? revision
         prompt = reply["prompt"] as? [String: Any]
@@ -4041,7 +4059,7 @@ final class V3AuthStore: ObservableObject {
     }
 
     func cancel() {
-        let hasActiveAttempt = ["working", "awaitingPrompt", "promptExpired"].contains(state)
+        let hasActiveAttempt = ["working", "awaitingPrompt", "promptExpired", "resultUnknown"].contains(state)
         let canRetryCancellation = V3AuthCancellationRetryPolicy.canRetry(
             isCancelling: isCancelling, cancellationConfirmed: cancellationConfirmed,
             hasSession: session != nil)
@@ -4068,10 +4086,10 @@ final class V3AuthStore: ObservableObject {
             } catch {
                 await oldTask?.value
                 await reconcile(force: true)
-                if !signedIn {
-                    state = "failed"
-                    message = "The service could not confirm the sign-in result. Reconnect and check Account & Signing before trying again."
-                }
+                state = "resultUnknown"
+                message = signedIn
+                    ? "SideStore currently reports an account as signed in, but could not confirm that the sign-in request stopped. Retry Cancellation before starting another attempt."
+                    : "SideStore could not confirm that the sign-in request stopped. Retry Cancellation before starting another attempt."
             }
             session = cancellationConfirmed ? nil : oldSession
             prompt = nil
@@ -4108,7 +4126,8 @@ struct V3SignInView: View {
                 }
                 if auth.isSignedIn {
                     HStack {
-                        Label("Signed in successfully", systemImage: "checkmark.circle.fill")
+                        Label(V3AuthStatusTextPolicy.accountLabel(state: auth.state, isSignedIn: auth.isSignedIn),
+                              systemImage: "checkmark.circle.fill")
                             .foregroundColor(.green)
                         Spacer()
                         if !auth.team.isEmpty { Text(auth.team).foregroundColor(.secondary) }
@@ -4128,26 +4147,27 @@ struct V3SignInView: View {
                 if !auth.message.isEmpty {
                     Text(auth.message)
                         .font(.footnote)
-                        .foregroundColor(auth.isSignedIn ? .green : .red)
+                        .foregroundColor(auth.state == "resultUnknown" || auth.state == "timedOut" ||
+                            auth.state == "cancelled" ? .orange : (auth.isSignedIn ? .green : .red))
                         .textSelection(.enabled)
                 }
-                if !auth.currentAttemptFailureMessage.isEmpty {
+                if !auth.currentAttemptFailure.message.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Sign-in attempt could not be confirmed")
                             .font(.subheadline.weight(.semibold))
                             .foregroundColor(.orange)
-                        Text(auth.currentAttemptFailureMessage)
+                        Text(auth.currentAttemptFailure.message)
                             .font(.footnote)
                             .foregroundColor(.orange)
                             .textSelection(.enabled)
-                        if !auth.currentAttemptFailureTechnical.isEmpty {
+                        if !auth.currentAttemptFailure.technicalDetails.isEmpty {
                             DisclosureGroup("Technical details") {
-                                Text(auth.currentAttemptFailureTechnical)
+                                Text(auth.currentAttemptFailure.technicalDetails)
                                     .font(.caption2)
                                     .textSelection(.enabled)
                             }
                             Button("Copy Diagnostics") {
-                                UIPasteboard.general.string = auth.currentAttemptFailureTechnical
+                                UIPasteboard.general.string = auth.currentAttemptFailure.technicalDetails
                             }
                             .font(.caption)
                         }
@@ -4201,11 +4221,13 @@ struct V3SignInView: View {
                 }
                 if V3AuthCancellationRetryPolicy.canRetry(isCancelling: auth.isCancelling,
                     cancellationConfirmed: auth.cancellationConfirmed,
-                    hasSession: auth.session != nil) {
+                    hasSession: auth.hasSession) {
                     Button("Retry Cancellation", role: .cancel) { auth.cancel() }
                 }
-                if auth.state == "working" || auth.state == "awaitingPrompt" || auth.state == "promptExpired" {
-                    Button(auth.isCancelling ? "Cancelling..." : "Cancel Sign In", role: .cancel) { auth.cancel() }
+                if auth.state == "working" || auth.state == "awaitingPrompt" || auth.state == "promptExpired" || auth.state == "resultUnknown" {
+                    Button(auth.isCancelling ? "Cancelling..." :
+                        (auth.state == "resultUnknown" ? "Cancel Unconfirmed Sign-In" : "Cancel Sign In"),
+                        role: .cancel) { auth.cancel() }
                         .disabled(auth.isCancelling)
                 }
                 // V3_PROVISIONING_RECOVERY_ACTIONS_V1: the actions describe the

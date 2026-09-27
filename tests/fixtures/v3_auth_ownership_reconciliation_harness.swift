@@ -70,19 +70,24 @@ struct AuthOwnershipReconciliationHarness {
         precondition(V3AuthTimeoutReconciliationPolicy.shouldReconcileAfterTerminal("cancelled"))
         precondition(V3AuthTimeoutReconciliationPolicy.shouldReconcileAfterTerminal("failed"))
         precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
-            reportedState: "timedOut", authenticated: true, provisioningIncomplete: false) == "completed",
-            "a late authenticated account snapshot wins over a stale timeout screen")
+            reportedState: "timedOut", authenticated: true, provisioningIncomplete: false) == "timedOut",
+            "an authenticated snapshot cannot rewrite a timed-out attempt as success")
         precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
             reportedState: "timedOut", authenticated: true, provisioningIncomplete: true) ==
-                "authenticatedProvisioningIncomplete")
+                "timedOut")
         precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
             reportedState: "timedOut", authenticated: false, provisioningIncomplete: false) == "timedOut")
         precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
-            reportedState: "cancelled", authenticated: true, provisioningIncomplete: false) == "completed",
-            "an existing active account remains visible after cancelling re-authentication")
+            reportedState: "cancelled", authenticated: true, provisioningIncomplete: false) == "cancelled",
+            "an authenticated snapshot cannot rewrite a cancelled attempt as success")
         precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
             reportedState: "cancelled", authenticated: true, provisioningIncomplete: true) ==
-                "authenticatedProvisioningIncomplete")
+                "cancelled")
+        precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
+            reportedState: "failed", authenticated: true, provisioningIncomplete: false) == "failed",
+            "a previously active account cannot turn an explicit failed attempt into success")
+        precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
+            reportedState: "resultUnknown", authenticated: true, provisioningIncomplete: false) == "resultUnknown")
 
         precondition(V3ProvisioningResumeAvailabilityPolicy.canResume(
             authenticated: true, currentAppleID: "Dev@Example.com", resumableAppleID: "dev@example.com"))
@@ -166,13 +171,26 @@ struct AuthOwnershipReconciliationHarness {
         precondition(V3AuthStatusTextPolicy.label(state: "promptExpired", isSignedIn: false,
             provisioningFinishedLater: false) == "Verification expired",
             "the visible status agrees with the expired verification prompt")
-        precondition(V3AuthAttemptFailurePresentationPolicy.messageAfterReconciliation(
-            authenticated: true, failureMessage: "Connection to SideStore was interrupted.") ==
-                "The sign-in attempt could not be confirmed. Your existing account remains signed in. Connection to SideStore was interrupted.",
-            "a transport failure remains visible after reconciliation finds the previous account")
-        precondition(V3AuthAttemptFailurePresentationPolicy.messageAfterReconciliation(
-            authenticated: false, failureMessage: "A failure") == nil,
-            "an unauthenticated snapshot follows the ordinary sign-in failure path")
+        precondition(V3AuthStatusTextPolicy.label(state: "resultUnknown", isSignedIn: false,
+            provisioningFinishedLater: false) == "Result not confirmed")
+        precondition(V3AuthStatusTextPolicy.accountLabel(state: "resultUnknown", isSignedIn: true) ==
+            "Account currently signed in")
+        precondition(V3AuthStatusTextPolicy.accountLabel(state: "completed", isSignedIn: true) ==
+            "Signed in successfully")
+        var attemptNotice = V3AuthAttemptFailureNotice()
+        attemptNotice.record(snapshotConfirmed: true, authenticated: true,
+            failureMessage: "Connection to SideStore was interrupted.", technicalDetails: "stage=xpcConnection")
+        precondition(attemptNotice.message.contains("currently reports an account as signed in") &&
+                     !attemptNotice.message.contains("existing account") &&
+                     attemptNotice.technicalDetails == "stage=xpcConnection",
+            "a reconciled account does not prove whether it predated the attempt")
+        attemptNotice.record(snapshotConfirmed: false, authenticated: false,
+            failureMessage: "Connection to SideStore was interrupted.", technicalDetails: "")
+        precondition(attemptNotice.message.contains("could not confirm whether sign-in completed"),
+            "a failed snapshot leaves the auth attempt outcome explicitly unknown")
+        attemptNotice.clear()
+        precondition(attemptNotice.message.isEmpty && attemptNotice.technicalDetails.isEmpty,
+            "a new provisioning retry clears the old auth-attempt notice")
 
         let malformedFailure: [String: Any] = [
             "kind": "networkFailure", "stage": "network", "code": "interrupted",

@@ -79,7 +79,10 @@ extension LiveContainerAutoRefreshScheduler {
         let managerRecord = runLedger().values.first { $0["request_id"] as? String == managerRequest }!
         let managerRun = managerRecord["run_id"] as! String
         let homeRequest = UUID().uuidString
-        let oldManifest = managerRecord["manifest"] as! [String: Any]
+        let oldManifest = defaults.dictionary(forKey: verificationKey)!
+        precondition(managerRecord["manifest"] == nil &&
+                     (managerRecord["manifest_summary"] as? [String: Any])?["run_id"] as? String == managerRun,
+                     "completed ledger history should retain a compact proof summary, not a full manifest")
         defaults.set(oldManifest, forKey: verificationKey)
         await execute(source: "manual", manualRequestID: homeRequest, manualOrigin: "home")
         let homeRecord = runLedger().values.first { $0["request_id"] as? String == homeRequest }!
@@ -88,7 +91,8 @@ extension LiveContainerAutoRefreshScheduler {
         precondition(homeRecord["origin"] as? String == "home")
         precondition(homeRun != managerRun, "new manual request reused an earlier run ID")
         precondition(homeRecord["state"] as? String == "completed")
-        precondition((homeRecord["manifest"] as? [String: Any])?["run_id"] as? String == homeRun,
+        precondition((homeRecord["manifest_summary"] as? [String: Any])?["run_id"] as? String == homeRun &&
+                     defaults.dictionary(forKey: verificationKey)?["run_id"] as? String == homeRun,
                      "old manifest satisfied the new request")
         precondition(runLedger()[managerRun]?["state"] as? String == "completed")
 
@@ -107,6 +111,11 @@ extension LiveContainerAutoRefreshScheduler {
         precondition(currentFailure["safe_message"] as? String ==
                      "Refresh failed during command, but no safe underlying cause was available.")
         precondition(currentFailure["retryable"] as? String == "unknown")
+        let failedRunID = currentFailure["run_id"] as! String
+        let failedLedgerRecord = runLedger()[failedRunID]!
+        precondition(failedLedgerRecord["manifest"] == nil &&
+                     (failedLedgerRecord["manifest_summary"] as? [String: Any])?["run_id"] as? String == failedRunID,
+                     "failed history should be bounded to the structured failure and manifest summary")
         precondition(UNUserNotificationCenter.shared.requests.contains { $0.content.title == "Refresh failed" })
 
         clearTestState()
@@ -292,6 +301,63 @@ extension LiveContainerAutoRefreshScheduler {
         precondition(defaults.dictionary(forKey: currentRunFailureKey)?["run_id"] as? String == incompleteBatchRun)
         precondition(!defaults.bool(forKey: hostHandoffKey) &&
                      defaults.string(forKey: hostHandoffRunKey) == nil)
+
+        // The 180-second non-advanced-profile timeout is also exercised
+        // against the actual profile reader and terminal failure writer.
+        clearTestState()
+        let timedOutHandoffRun = UUID().uuidString
+        saveRunRecord(["run_id": timedOutHandoffRun, "request_id": "", "origin": "home",
+                       "source": "manual", "state": "verifying",
+                       "started_at": Date().timeIntervalSince1970], runID: timedOutHandoffRun)
+        defaults.set(true, forKey: hostHandoffKey)
+        defaults.set(timedOutHandoffRun, forKey: hostHandoffRunKey)
+        defaults.set(Date().addingTimeInterval(-181), forKey: hostHandoffStartedKey)
+        defaults.set(["run_id": timedOutHandoffRun, "expiration": renewedExpiration,
+                      "identifier": "ABCDE12345." + fixtureBundleID,
+                      "uuid": "FIXTURE-PROFILE-UUID"], forKey: hostBaselineKey)
+        verifyPendingHostHandoff()
+        let timedOutTerminal = runLedger()[timedOutHandoffRun]!
+        precondition(timedOutTerminal["state"] as? String == "failed" &&
+                     timedOutTerminal["result"] as? String == "host_refresh_failed" &&
+                     timedOutTerminal["health"] as? String == "HOST_REFRESH_FAILED",
+                     "the expired handoff timeout must write one terminal failure for its run")
+        precondition(defaults.dictionary(forKey: currentRunFailureKey)?["run_id"] as? String == timedOutHandoffRun)
+        precondition(!defaults.bool(forKey: hostHandoffKey) &&
+                     defaults.string(forKey: hostHandoffRunKey) == nil)
+
+        // Execute the actual launch-time ledger recovery writer with the two
+        // durable terminal-intent states that can be left by process death.
+        clearTestState()
+        let interruptedFailureRun = UUID().uuidString
+        let interruptedFailure = CombinedFailure(operation: "refresh", stage: .signing,
+            id: interruptedFailureRun, safeCause: .developerPortalRejectedRequest)
+        saveRunRecord(["run_id": interruptedFailureRun, "request_id": "", "origin": "home",
+                       "source": "manual", "state": "failing", "terminal_intent": "failed",
+                       "health": "REFRESH_FAILED", "message": interruptedFailure.safeMessage,
+                       "failure": interruptedFailure.wire, "result": "failure",
+                       "started_at": Date().timeIntervalSince1970], runID: interruptedFailureRun)
+        recoverOrphanedRunLedger()
+        let recoveredFailure = runLedger()[interruptedFailureRun]!
+        precondition(recoveredFailure["state"] as? String == "failed" &&
+                     recoveredFailure["health"] as? String == "REFRESH_FAILED" &&
+                     (recoveredFailure["failure"] as? [String: Any])?["stage"] as? String == "signing",
+                     "a failed terminal intent must preserve the current run's typed failure on recovery")
+        precondition(defaults.dictionary(forKey: currentRunFailureKey)?["run_id"] as? String == interruptedFailureRun)
+
+        clearTestState()
+        let interruptedSuccessRun = UUID().uuidString
+        let recoveredManifest: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2",
+            "run_id": interruptedSuccessRun, "expected_ids": ["fixture.app"],
+            "results": [["bundle_id": "fixture.app", "success": true]]]
+        saveRunRecord(["run_id": interruptedSuccessRun, "request_id": "", "origin": "home",
+                       "source": "manual", "state": "verifying", "terminal_intent": "verified",
+                       "manifest": recoveredManifest,
+                       "started_at": Date().timeIntervalSince1970], runID: interruptedSuccessRun)
+        recoverOrphanedRunLedger()
+        precondition(runLedger()[interruptedSuccessRun]?["state"] as? String == "completed" &&
+                     defaults.string(forKey: healthStateKey) == "REFRESH_SUCCEEDED" &&
+                     defaults.string(forKey: activeRunKey) == nil,
+                     "a verified terminal intent must recover from its exact committed manifest")
 
         clearTestState()
         activeRun = UUID()

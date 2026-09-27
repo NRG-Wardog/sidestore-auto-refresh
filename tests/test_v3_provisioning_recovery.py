@@ -248,7 +248,7 @@ class AuthSuccessIsNotProvisioningSuccessTests(unittest.TestCase):
 
     def test_visible_state_shows_both_facts(self):
         view = sign_in_view()
-        self.assertIn('Label("Signed in successfully"', view)
+        self.assertIn("V3AuthStatusTextPolicy.accountLabel", view)
         self.assertIn('Text("Provisioning needs attention")', view)
         self.assertIn('Text("Provisioning could not be completed.")', view)
         self.assertIn("auth.hasProvisioningProblem", view)

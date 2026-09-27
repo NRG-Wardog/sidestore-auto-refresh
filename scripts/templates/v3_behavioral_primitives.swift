@@ -127,6 +127,26 @@ enum V3SourceAddPersistencePolicy {
               url.host != nil, url.user == nil, url.password == nil else { return nil }
         return url
     }
+
+    static func unverifiedPersistenceFailure(correlationID: String) -> CombinedFailure {
+        CombinedFailure(operation: "source", stage: .source, code: .invalidResponse,
+            id: correlationID, retryable: false,
+            safeCause: .sourcePersistenceUnverified, sourceStep: .catalogRead)
+    }
+}
+
+enum V3SourceAddFailurePolicy {
+    static func normalized(_ failure: CombinedFailure) -> CombinedFailure {
+        guard failure.operation == "sourceAddConfirmed", failure.safeCause == nil else { return failure }
+        let stage: CombinedFailure.Stage = [.notReady, .unavailable].contains(failure.code)
+            ? .serviceReadiness : .source
+        let cause: CombinedFailure.SafeCause? = failure.code == .busy ? .sourceAddBusy : nil
+        let underlying: NSError? = failure.underlyingDomain == "none" && failure.underlyingCode == 0
+            ? nil : NSError(domain: failure.underlyingDomain, code: failure.underlyingCode)
+        return CombinedFailure(operation: "source", stage: stage, code: failure.code,
+            id: failure.correlationID, underlying: underlying,
+            retryable: failure.retryable, safeCause: cause)
+    }
 }
 
 enum V3SourceSubmissionPolicy {
@@ -1606,9 +1626,18 @@ enum V3CatalogRowPolicy {
         return result
     }
 
-    /// Folds one page into the rows already displayed.
-    static func appending(_ page: [[String: Any]], to rows: [[String: Any]]) -> [[String: Any]] {
-        dedupe(rows + page)
+}
+
+struct V3CatalogRowsAccumulator {
+    private(set) var rows: [[String: Any]] = []
+    private var identifiers = Set<String>()
+
+    mutating func append(_ page: [[String: Any]]) {
+        for row in page {
+            guard let identifier = V3CatalogRowPolicy.identifier(of: row),
+                  identifiers.insert(identifier).inserted else { continue }
+            rows.append(row)
+        }
     }
 }
 
@@ -2405,14 +2434,16 @@ enum V3ProvisioningRetryRecoveryPolicy {
 
 enum V3AuthTimeoutReconciliationPolicy {
     static func shouldReconcileAfterTerminal(_ state: String) -> Bool {
-        ["timedOut", "failed", "cancelled"].contains(state)
+        ["timedOut", "failed", "cancelled", "resultUnknown"].contains(state)
     }
 
     static func reconciledState(reportedState: String, authenticated: Bool,
                                 provisioningIncomplete: Bool) -> String? {
-        guard shouldReconcileAfterTerminal(reportedState), authenticated else {
-            return reportedState == "timedOut" ? "timedOut" : nil
+        guard shouldReconcileAfterTerminal(reportedState) else { return nil }
+        if ["resultUnknown", "timedOut", "cancelled", "failed"].contains(reportedState) {
+            return reportedState
         }
+        guard authenticated else { return nil }
         return provisioningIncomplete ? "authenticatedProvisioningIncomplete" : "completed"
     }
 }
@@ -2463,9 +2494,18 @@ enum V3AuthStatusTextPolicy {
         case "cancelled": return "Cancelled"
         case "timedOut": return "Timed out"
         case "promptExpired": return "Verification expired"
+        case "resultUnknown": return "Result not confirmed"
         case "working": return isSignedIn ? "Finishing provisioning..." : "Working..."
         default: return "Not started"
         }
+    }
+
+    static func accountLabel(state: String, isSignedIn: Bool) -> String {
+        guard isSignedIn else { return "" }
+        if state == "completed" || state == "authenticatedProvisioningIncomplete" {
+            return "Signed in successfully"
+        }
+        return "Account currently signed in"
     }
 }
 
@@ -2483,11 +2523,26 @@ enum V3AuthFailureDiagnosticsPolicy {
     }
 }
 
-enum V3AuthAttemptFailurePresentationPolicy {
-    static func messageAfterReconciliation(authenticated: Bool,
-                                           failureMessage: String) -> String? {
-        guard authenticated, !failureMessage.isEmpty else { return nil }
-        return "The sign-in attempt could not be confirmed. Your existing account remains signed in. \(failureMessage)"
+struct V3AuthAttemptFailureNotice: Equatable {
+    private(set) var message = ""
+    private(set) var technicalDetails = ""
+
+    mutating func record(snapshotConfirmed: Bool, authenticated: Bool,
+                         failureMessage: String, technicalDetails: String) {
+        guard !failureMessage.isEmpty else { return }
+        if authenticated {
+            message = "The sign-in attempt could not be confirmed. SideStore currently reports an account as signed in. \(failureMessage)"
+        } else if snapshotConfirmed {
+            message = "The sign-in attempt could not be confirmed. SideStore confirms no account is currently signed in. \(failureMessage)"
+        } else {
+            message = "The sign-in attempt could not be confirmed. SideStore could not confirm whether sign-in completed. \(failureMessage)"
+        }
+        self.technicalDetails = technicalDetails
+    }
+
+    mutating func clear() {
+        message = ""
+        technicalDetails = ""
     }
 }
 

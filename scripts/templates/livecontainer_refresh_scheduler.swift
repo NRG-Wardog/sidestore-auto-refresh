@@ -160,6 +160,20 @@ enum LiveContainerAutoRefreshScheduler {
         (defaults.dictionary(forKey: runLedgerKey) ?? [:]).compactMapValues { $0 as? [String: Any] }
     }
 
+    private static func terminalManifestSummary(_ manifest: [String: Any]?, runID: String) -> [String: Any] {
+        guard let manifest, manifest["run_id"] as? String == runID else {
+            return ["run_id": runID, "expected_count": 0, "result_count": 0,
+                    "failed_count": 0, "skipped_count": 0]
+        }
+        let expected = manifest["expected_ids"] as? [String] ?? []
+        let results = manifest["results"] as? [[String: Any]] ?? []
+        let failed = results.filter { ($0["success"] as? Bool) == false }.count
+        let skipped = manifest["skipped_ids"] as? [String] ?? []
+        return ["run_id": runID, "expected_count": expected.count,
+                "result_count": results.count, "failed_count": failed,
+                "skipped_count": skipped.count]
+    }
+
     private static func saveRunRecord(_ record: [String: Any], runID: String) {
         var ledger = runLedger()
         ledger[runID] = record
@@ -426,6 +440,8 @@ enum LiveContainerAutoRefreshScheduler {
         runRecord["state"] = "completed"
         runRecord["message"] = terminalDetail
         runRecord["health"] = "REFRESH_SUCCEEDED"
+        runRecord["manifest_summary"] = terminalManifestSummary(manifest, runID: runID)
+        runRecord.removeValue(forKey: "manifest")
         runRecord["terminal_at"] = Date().timeIntervalSince1970
         runRecord["updated_at"] = Date().timeIntervalSince1970
         saveRunRecord(runRecord, runID: runID)
@@ -505,6 +521,9 @@ enum LiveContainerAutoRefreshScheduler {
         defaults.set(health, forKey: healthStateKey)
         defaults.set(safeMessage, forKey: lastErrorKey)
         runRecord["state"] = "failed"
+        runRecord["manifest_summary"] = terminalManifestSummary(
+            runRecord["manifest"] as? [String: Any], runID: runID)
+        runRecord.removeValue(forKey: "manifest")
         runRecord["terminal_at"] = Date().timeIntervalSince1970
         runRecord["updated_at"] = Date().timeIntervalSince1970
         saveRunRecord(runRecord, runID: runID)
@@ -797,6 +816,8 @@ enum LiveContainerAutoRefreshScheduler {
     private static func recoverOrphanedRunLedger() {
         let ledger = runLedger()
         for (runID, record) in ledger {
+            let currentState = record["state"] as? String ?? "unknown"
+            if ["completed", "failed"].contains(currentState) { continue }
             let storedManifest = record["manifest"] as? [String: Any]
             let sharedManifest = defaults.dictionary(forKey: verificationKey)
             let manifest = storedManifest ?? (sharedManifest?["run_id"] as? String == runID ? sharedManifest : nil)

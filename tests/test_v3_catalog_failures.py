@@ -360,6 +360,9 @@ class ServiceSidePropagationTests(unittest.TestCase):
         # The verified-result response for an added source is preserved.
         self.assertIn("sourcePersistenceUnverified", text)
         self.assertNotIn("V3AuthSessionSnapshot", text.replace("V3_AUTH_SESSION_SNAPSHOT_V1", ""))
+        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertIn("V3SourceAddFailurePolicy.normalized(combined)", host)
+        self.assertIn("unverifiedPersistenceFailure(", host)
 
 
 class CatalogFailureMessageTests(unittest.TestCase):
@@ -448,11 +451,12 @@ class CatalogViewValidationTests(unittest.TestCase):
         self.assertIn("guard next == -1 || next > cursor else", view)
 
     def test_dedupe_uses_the_shared_row_policy(self):
-        # V3_CATALOG_ROW_POLICY_V1: the real rule is executed by the harness; the
-        # view must use it rather than re-implementing a weaker version.
+        # V3_CATALOG_ROW_POLICY_V1: the incremental identifier set is executed
+        # by the harness; the view must use it instead of rescanning prior pages.
         view = catalog_view()
-        self.assertIn("V3CatalogRowPolicy.appending(rawApps, to: accumulated)", view)
-        self.assertIn("apps = accumulated.compactMap(V3CatalogApp.init)", view)
+        self.assertIn("accumulated.append(rawApps)", view)
+        self.assertIn("apps = accumulated.rows.compactMap(V3CatalogApp.init)", view)
+        self.assertIn("var identifiers = Set<String>()", (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
         # The weaker snapshot-then-filter shape is gone.
         self.assertNotIn("var existing = Set(apps.map(\\.id))", view)
         self.assertNotIn("seen.insert($0.id).inserted", view)

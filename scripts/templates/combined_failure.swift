@@ -121,6 +121,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case sourceInvalidURL
         case sourceRemoveFailed
         case sourceRemoveBusy
+        case sourceAddBusy
         case operationInProgress
         case staleRefreshAttempt
         case knownSourcePolicyNetworkFailure
@@ -154,7 +155,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceInvalidManifest, .sourcePersistenceUnverified, .sourceInvalidURL,
                  .sourceRemoveFailed, .catalogUnavailable:
                 return false
-            case .sourceRemoveBusy:
+            case .sourceRemoveBusy, .sourceAddBusy:
                 return true
             case .operationInProgress, .knownSourcePolicyNetworkFailure:
                 return true
@@ -272,6 +273,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceInvalidURL: return "The source URL is invalid."
             case .sourceRemoveFailed: return "SideStore could not confirm that the source was removed from its saved list."
             case .sourceRemoveBusy: return "SideStore was busy with another request, so it did not start removing this source."
+            case .sourceAddBusy: return "SideStore was busy with another request, so it did not confirm adding this source."
             case .operationInProgress: return "Another SideStore operation is still active."
             case .staleRefreshAttempt: return "This refresh request belonged to an expired scheduler run and was not started."
             case .knownSourcePolicyNetworkFailure: return "SideStore could not update its own known-source safety list."
@@ -304,6 +306,7 @@ public struct CombinedFailure: Error, LocalizedError {
             switch sourceStep {
             case .sourceDownload: return "The source could not be downloaded."
             case .manifestParsing: return "The source returned data SideStore could not read as a valid source."
+            case .catalogRead: return "SideStore could not confirm that the source was saved or read from its catalog."
             default: return "SideStore could not complete the source request."
             }
         case .catalog:
@@ -419,13 +422,15 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceInvalidManifest:
                 return "Check the source provider's manifest format, then preview it again."
             case .sourcePersistenceUnverified:
-                return "Reload Sources and check whether the source appears before trying again."
+                return "Return to Sources and reload the list. Confirm whether the source is present before submitting another add; copy Diagnostics if its status remains unclear."
             case .sourceInvalidURL:
                 return "Enter a valid HTTP or HTTPS source URL, then preview it again."
             case .sourceRemoveFailed:
                 return "Reload Sources and confirm whether the source is gone. If it remains, remove it again."
             case .sourceRemoveBusy:
                 return "Wait for the current SideStore request to finish, reload Sources, then confirm removal again."
+            case .sourceAddBusy:
+                return "Wait for the current SideStore request to finish, reload Sources, then preview and confirm the add again."
             case .operationInProgress:
                 return "Wait for the active SideStore operation to finish, then start Refresh again."
             case .staleRefreshAttempt:
@@ -456,7 +461,11 @@ public struct CombinedFailure: Error, LocalizedError {
         case .serviceReadiness:
             return "Wait for SideStore to finish starting, then retry the request."
         case .authentication, .provisioning, .signing: return "Review Account and Signing, then explicitly retry. Never share credentials or private keys."
-        case .source: return "Retry the source request. If it repeats, copy the safe diagnostics."
+        case .source:
+            if operation == "sourceAddConfirmed" {
+                return "Return to Sources and reload the source list. Check whether it was added before retrying; copy Diagnostics if its status is still unclear."
+            }
+            return "Return to Sources and review the source result. Copy Diagnostics before retrying if its status is unclear."
         case .catalog:
             // The wording is supplied by catalogFailureRecovery, which keys on
             // the operation rather than on this stage.

@@ -108,6 +108,27 @@ struct SourceAddPersistenceHarness {
                                          "alreadyAdded": true, "persistenceVerified": true]
         require(V3SourceAddPersistencePolicy.confirmationMessage(ambiguous) == nil,
                 "ambiguous add outcome was accepted as success")
+        let unverifiedFailure = V3OperationFailureDetails(
+            V3SourceAddPersistencePolicy.unverifiedPersistenceFailure(correlationID: UUID().uuidString))
+        require(unverifiedFailure.whatHappened == "SideStore could not confirm that the source was saved.",
+                "an unverified source add must be reported as a source persistence failure")
+        require(!unverifiedFailure.whatHappened.contains("sourceAddConfirmed") &&
+                unverifiedFailure.whatToDo.contains("reload the list") &&
+                unverifiedFailure.retryDisposition == .blocked,
+                "unverified persistence guidance must avoid an internal operation token and blind retry")
+        let internalFallback = V3SourceAddFailurePolicy.normalized(CombinedFailure(
+            operation: "sourceAddConfirmed", stage: .command, code: .invalidResponse,
+            id: UUID().uuidString, retryable: false))
+        require(internalFallback.operation == "source" && internalFallback.stage == .source &&
+                !internalFallback.safeMessage.contains("sourceAddConfirmed") &&
+                internalFallback.recovery.contains("Return to Sources"),
+                "generic add-result failures must not expose internal command names or connection guidance")
+        let busyFallback = V3SourceAddFailurePolicy.normalized(CombinedFailure(
+            operation: "sourceAddConfirmed", stage: .command, code: .busy,
+            id: UUID().uuidString, retryable: true))
+        require(busyFallback.safeCause == .sourceAddBusy &&
+                busyFallback.recovery.contains("preview and confirm the add again"),
+                "a busy source add gets source-specific recovery guidance")
         print("V3_SOURCE_ADD_PERSISTENCE_PASS")
     }
 }

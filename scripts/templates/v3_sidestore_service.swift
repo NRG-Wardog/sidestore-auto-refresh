@@ -44,6 +44,7 @@ private struct V3KnownSourcePolicyFailure: Error {
 final class V3SideStoreService: NSObject {
     static let shared = V3SideStoreService()
     var tasks: [String: Task<Void, Never>] = [:]
+    private var deadlineTasks: [String: Task<Void, Never>] = [:]
     var cancellations: [String: () -> Void] = [:]
     var completed: [String: (data: Data, deadline: Date)] = [:]
     private var completedCacheBudget = V3MutationReplyCacheBudget()
@@ -129,7 +130,7 @@ final class V3SideStoreService: NSObject {
             operation, target: target,
             activeOperationID: V3HeadlessRuntime.shared.operations.activeMutationID)
         let refreshRelease = operation == "refreshAdmissionEnd" && refreshAdmission.owns(target)
-        let controlReply = operation == "refreshAdmissionEnd"
+        let controlReply = V3MutationReplyCacheBudget.isControlReply(operation: operation)
         let responseCapacityAvailable = !mutation ||
             (completed.count < V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: controlReply) &&
              completedCacheBudget.canReserve(preservingControlCapacity: !controlReply))
@@ -163,6 +164,7 @@ final class V3SideStoreService: NSObject {
         tasks[id] = Task { @MainActor in
             defer {
                 tasks[id] = nil
+                deadlineTasks.removeValue(forKey: id)?.cancel()
                 cancellations[id] = nil
                 pendingRefreshAdmissionRequests.remove(id)
                 pendingAuthStartSessions[id] = nil
@@ -316,15 +318,20 @@ final class V3SideStoreService: NSObject {
             }
             reply(encoded)
         }
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(max(0, deadline.timeIntervalSinceNow) * 1_000_000_000))
-            if tasks[id] != nil {
-                if let session = pendingAuthStartSessions[id] {
-                    _ = V3HeadlessRuntime.shared.auth.cancelBeforeBegin(id: session)
-                }
-                tasks[id]?.cancel()
-                cancellations[id]?()
+        deadlineTasks[id] = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(max(0, deadline.timeIntervalSinceNow) * 1_000_000_000))
+            } catch { return }
+            guard self.tasks[id] != nil else {
+                self.deadlineTasks[id] = nil
+                return
             }
+            self.deadlineTasks[id] = nil
+            if let session = self.pendingAuthStartSessions[id] {
+                _ = V3HeadlessRuntime.shared.auth.cancelBeforeBegin(id: session)
+            }
+            self.tasks[id]?.cancel()
+            self.cancellations[id]?()
         }
     }
 

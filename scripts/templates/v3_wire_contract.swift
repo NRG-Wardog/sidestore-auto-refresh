@@ -181,6 +181,10 @@ struct V3MutationReplyCacheBudget {
     static let reservedControlReplies = 8
     private(set) var storedBytes = 0
 
+    static func isControlReply(operation: String) -> Bool {
+        ["refreshAdmissionEnd", "authRespond", "opAnswer"].contains(operation)
+    }
+
     func canReserve(maximumResponseBytes: Int = V3WireContract.responseLimit,
                     preservingControlCapacity: Bool = true) -> Bool {
         let limit = Self.maximumStoredBytes - (preservingControlCapacity ? Self.reservedControlBytes : 0)

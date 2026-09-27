@@ -231,6 +231,9 @@ class ServicePatchTests(unittest.TestCase):
         self.assertLess(failed.index("endRun("), failed.index('runRecord["state"] = "failed"'))
         self.assertIn("recoverOrphanedRunLedger()", scheduler)
         self.assertIn("V3RefreshTerminalRecoveryPolicy.action", scheduler)
+        self.assertIn("private static func terminalManifestSummary", scheduler)
+        self.assertIn('runRecord.removeValue(forKey: "manifest")', scheduler)
+        self.assertIn('["completed", "failed"].contains(currentState)', scheduler)
         host_handoff = scheduler[scheduler.index("private static func verifyPendingHostHandoff"):
                                  scheduler.index("private static func recoverOrphanedRunLedger")]
         self.assertIn('health: "HOST_REFRESH_FAILED"', host_handoff)
@@ -399,6 +402,21 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         begin = begin[:begin.index("    func run(id: String)")]
         self.assertIn("let requestExpired = Task.isCancelled", begin)
         self.assertIn("requestCancelled: requestExpired", begin)
+
+    def test_terminal_reply_cache_reserves_capacity_for_user_continuations(self):
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        budget = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        self.assertIn("V3MutationReplyCacheBudget.isControlReply(operation: operation)", service)
+        self.assertIn("completedCacheBudget.canReserve(preservingControlCapacity: !controlReply)", service)
+        self.assertIn("completedCacheBudget.record(encoded.count, controlResponse: controlReply)", service)
+        for control in ("refreshAdmissionEnd", "authRespond", "opAnswer"):
+            self.assertIn(f'"{control}"', budget)
+
+    def test_request_deadline_task_is_cancelled_when_operation_settles(self):
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        self.assertIn("private var deadlineTasks: [String: Task<Void, Never>]", service)
+        self.assertIn("deadlineTasks.removeValue(forKey: id)?.cancel()", service)
+        self.assertIn("deadlineTasks[id] = Task { @MainActor in", service)
 
 
 class WireExecutionTests(unittest.TestCase):

@@ -772,7 +772,7 @@ class SourceSemanticStateTests(unittest.TestCase):
         failure = FAILURE.read_text(encoding="utf-8")
         self.assertIn("case .sourceInvalidManifest:", failure)
         self.assertIn("Check the source provider's manifest format", failure)
-        self.assertIn("Reload Sources and check whether the source appears", failure)
+        self.assertIn("Return to Sources and reload the list", failure)
 
 
 class HiddenNavigationRowTests(unittest.TestCase):

@@ -192,7 +192,10 @@ struct CatalogResponseEncodingHarness {
         precondition(dedupedSamePage.count == 3, "a same-page duplicate survived")
         precondition(dedupedSamePage.compactMap { $0["identifier"] as? String } == ["a", "b", "c"],
                      "first-seen ordering was not preserved")
-        let acrossPages = V3CatalogRowPolicy.appending([row("b"), row("d")], to: dedupedSamePage)
+        var acrossPageAccumulator = V3CatalogRowsAccumulator()
+        acrossPageAccumulator.append(samePage)
+        acrossPageAccumulator.append([row("b"), row("d")])
+        let acrossPages = acrossPageAccumulator.rows
         precondition(acrossPages.compactMap { $0["identifier"] as? String } == ["a", "b", "c", "d"])
         // A row with no usable identifier cannot be deduplicated, so it is
         // rejected rather than silently displayed.
@@ -312,6 +315,12 @@ struct CatalogResponseEncodingHarness {
         precondition(V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: false) == 504 &&
                      V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: true) == 512,
                      "ordinary replies preserve bounded slots for terminal controls")
+        for operation in ["refreshAdmissionEnd", "authRespond", "opAnswer"] {
+            precondition(V3MutationReplyCacheBudget.isControlReply(operation: operation),
+                         "session continuation \(operation) must use the reserved reply capacity")
+        }
+        precondition(!V3MutationReplyCacheBudget.isControlReply(operation: "sourceAddConfirmed"),
+                     "ordinary source mutations cannot consume all continuation capacity")
         replyBudget.remove(V3WireContract.responseLimit)
         precondition(!replyBudget.canReserve(),
                      "ordinary requests still preserve reserved control capacity after release")
