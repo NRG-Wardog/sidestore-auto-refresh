@@ -28,6 +28,11 @@ results = module("patch_refresh_result_bridge")
 
 
 class ServicePatchTests(unittest.TestCase):
+    def test_prompt_session_history_has_no_removed_single_identifier_reference(self):
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"\bsession\.acceptedPromptID\b", runtime))
+        self.assertGreaterEqual(runtime.count("session.acceptedPromptIDs"), 4)
+
     def test_headless_patch_removes_only_hidden_app_icon_ui_observer(self):
         observer = ("        NotificationCenter.default.addObserver(self, selector: "
                     "#selector(MyAppsViewController.didChangeAppIcon(_:)), name: "

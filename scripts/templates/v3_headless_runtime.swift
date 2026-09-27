@@ -735,14 +735,14 @@ final class V3AuthCenter {
         }
         guard session.terminal.isEmpty, !session.cancellationRequested else { return nil }
         if let pending = V3PromptResponseStatePolicy.responsePending(.unavailable,
-            acceptedPromptID: session.acceptedPromptID, promptID: promptID,
+            acceptedPromptID: session.acceptedPromptIDs.last, promptID: promptID,
             sessionID: id, revision: session.revision, state: "awaitingPrompt", prompt: session.prompt) {
             return pending
         }
         guard session.prompt?["id"] as? String == promptID else { return nil }
         let disposition = V3HeadlessRuntime.shared.prompts.answer(promptID: promptID, answer: answer)
         if let pending = V3PromptResponseStatePolicy.responsePending(disposition,
-            acceptedPromptID: session.acceptedPromptID, promptID: promptID,
+            acceptedPromptID: session.acceptedPromptIDs.last, promptID: promptID,
             sessionID: id, revision: session.revision, state: "awaitingPrompt", prompt: session.prompt) {
             return pending
         }
@@ -1417,14 +1417,14 @@ final class V3OperationCenter {
         guard case nil = session.terminal.value,
               !session.terminal.isCancellationRequested else { return nil }
         if let pending = V3PromptResponseStatePolicy.responsePending(.unavailable,
-            acceptedPromptID: session.acceptedPromptID, promptID: promptID,
+            acceptedPromptID: session.acceptedPromptIDs.last, promptID: promptID,
             sessionID: id, revision: 0, state: "working", prompt: session.prompt) {
             return pending
         }
         guard session.prompt?["id"] as? String == promptID else { return nil }
         let disposition = V3HeadlessRuntime.shared.prompts.answer(promptID: promptID, answer: answer)
         if let pending = V3PromptResponseStatePolicy.responsePending(disposition,
-            acceptedPromptID: session.acceptedPromptID, promptID: promptID,
+            acceptedPromptID: session.acceptedPromptIDs.last, promptID: promptID,
             sessionID: id, revision: 0, state: "working", prompt: session.prompt) {
             return pending
         }
