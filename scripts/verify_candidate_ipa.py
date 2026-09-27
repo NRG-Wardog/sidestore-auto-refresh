@@ -55,23 +55,53 @@ def archive_size_report(infos, executable_paths: set[str]) -> dict:
     executable_paths = set(executable_paths)
     categories = {
         "executables": 0,
+        "swift_runtime_dylibs": 0,
+        "nested_archives": 0,
         "framework_payload_excluding_executables": 0,
         "extension_payload_excluding_executables": 0,
         "Assets.car": 0,
         "localizations": 0,
         "storyboards_and_nibs": 0,
+        "fonts": 0,
+        "images": 0,
+        "audio_and_video": 0,
+        "metadata_and_signing": 0,
         "other_files": 0,
     }
+    bundle_totals: dict[str, int] = {}
+    bundle_file_counts: dict[str, int] = {}
     for info in files:
         name = info.filename
+        components = name.split("/")
+        bundle_paths = []
+        for index, component in enumerate(components):
+            if component.endswith((".app", ".appex", ".framework")):
+                bundle_paths.append("/".join(components[:index + 1]))
+        for bundle_path in bundle_paths:
+            bundle_totals[bundle_path] = bundle_totals.get(bundle_path, 0) + info.file_size
+            bundle_file_counts[bundle_path] = bundle_file_counts.get(bundle_path, 0) + 1
+        suffix = Path(name).suffix.lower()
+        basename = name.rsplit("/", 1)[-1]
         if name in executable_paths:
             category = "executables"
+        elif suffix in {".ipa", ".zip"}:
+            category = "nested_archives"
+        elif "/usr/lib/swift/" in name or (basename.startswith("libswift") and suffix == ".dylib"):
+            category = "swift_runtime_dylibs"
         elif name.endswith("/Assets.car") or name == "Assets.car":
             category = "Assets.car"
         elif ".storyboardc/" in name or ".nib/" in name or name.endswith(".nib"):
             category = "storyboards_and_nibs"
         elif any(component.endswith(".lproj") for component in name.split("/")):
             category = "localizations"
+        elif suffix in {".ttf", ".otf", ".woff", ".woff2"}:
+            category = "fonts"
+        elif suffix in {".png", ".jpg", ".jpeg", ".heic", ".gif", ".pdf"}:
+            category = "images"
+        elif suffix in {".m4a", ".mp3", ".aac", ".wav", ".mov", ".mp4"}:
+            category = "audio_and_video"
+        elif suffix in {".plist", ".json", ".xml", ".strings", ".stringsdict", ".mobileprovision"} or "/_CodeSignature/" in name:
+            category = "metadata_and_signing"
         elif "/Frameworks/" in name:
             category = "framework_payload_excluding_executables"
         elif "/PlugIns/" in name:
@@ -81,9 +111,12 @@ def archive_size_report(infos, executable_paths: set[str]) -> dict:
         categories[category] += info.file_size
     largest = sorted(files, key=lambda info: (-info.file_size, info.filename))[:20]
     return {
+        "file_count": len(files),
         "uncompressed_bytes": sum(info.file_size for info in files),
         "zip_member_bytes": sum(info.compress_size for info in files),
         "payload_breakdown_bytes": categories,
+        "bundle_totals_bytes": dict(sorted(bundle_totals.items())),
+        "bundle_file_counts": dict(sorted(bundle_file_counts.items())),
         "largest_files": [
             {"path": info.filename, "uncompressed_bytes": info.file_size,
              "zip_member_bytes": info.compress_size}
@@ -131,6 +164,14 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         host = package_bundles[BASE]
         side_store_path = BASE + "/Frameworks/SideStoreApp.framework"
         side_store_info = package_bundles[side_store_path]["info"]
+        if any(key in side_store_info for key in ("UIMainStoryboardFile", "UILaunchStoryboardName")):
+            raise ValueError("embedded SideStore still declares a legacy UI storyboard")
+        scene_configurations = side_store_info.get("UIApplicationSceneManifest", {}).get(
+            "UISceneConfigurations", {})
+        for configurations in scene_configurations.values():
+            for configuration in configurations:
+                if any(key in configuration for key in ("UISceneStoryboardFile", "UILaunchStoryboardName")):
+                    raise ValueError("embedded SideStore scene still declares a storyboard root")
         for product_info in (info, side_store_info):
             if product_info.get("LCProductLine") != "Combined LC+SS " + product:
                 raise ValueError("host and embedded SideStore product identities differ")
@@ -215,6 +256,7 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         "architectures": arch_report,
         "liveprocess_extension": live_process_path,
         "required_frameworks": sorted(REQUIRED_FRAMEWORKS),
+        "sidestore_storyboard_root": "absent",
         "app_group": REQUIRED_GROUP,
         "url_schemes": sorted(REQUIRED_SCHEMES),
         "background_identifiers": sorted(REQUIRED_BACKGROUND_IDS),

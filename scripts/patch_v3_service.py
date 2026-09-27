@@ -11,7 +11,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 2
+PATCH_VERSION = 3
 
 
 def remove_pbx_object(text, object_marker):
@@ -54,6 +54,18 @@ def headless_project(text):
 			membershipExceptions = (
 				Info.plist,
 				Resources/ReleaseEntitlements.plist,
+				"Components/BackgroundTaskManager.swift",
+				"Resources/Silence.m4a",
+				"Authentication/Authentication.storyboard",
+				"Components/AppBannerView.xib",
+				"My Apps/InstalledAppsCollectionHeaderView.xib",
+				"My Apps/UpdateCollectionViewCell.xib",
+				"News/NewsCollectionViewCell.xib",
+				"Settings/AboutPatreonHeaderView.xib",
+				"Settings/Settings.storyboard",
+				"Settings/SettingsHeaderFooterView.xib",
+				"Sources/Components/SourceHeaderView.xib",
+				"Sources/Sources.storyboard",
 				"iOS/LaunchScreen.storyboard",
 				"iOS/Main.storyboard",
 			);
@@ -79,6 +91,10 @@ def headless_project(text):
         text, count = re.subn(pattern, "", text)
         if count != 1:
             raise SystemExit(f"v3 service: expected one Starscream project reference, found {count}")
+    icon_setting = "ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;"
+    if text.count(icon_setting) != 2:
+        raise SystemExit("v3 service: expected Debug and Release alternate-icon settings")
+    text = text.replace(icon_setting, "ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;")
     return text
 
 
@@ -86,6 +102,7 @@ def headless_info(text):
     info = plistlib.loads(text.encode("utf-8"))
     info.pop("UIMainStoryboardFile", None)
     info.pop("UILaunchStoryboardName", None)
+    info.pop("UIBackgroundModes", None)
     scene_manifest = info.get("UIApplicationSceneManifest")
     if not isinstance(scene_manifest, dict):
         raise SystemExit("v3 service: SideStore scene manifest anchor is missing")
@@ -104,6 +121,30 @@ def headless_info(text):
     if removed != 1:
         raise SystemExit(f"v3 service: expected one configured scene storyboard, found {removed}")
     return plistlib.dumps(info, fmt=plistlib.FMT_XML, sort_keys=False).decode("utf-8")
+
+
+def headless_background_fetch(text):
+    text = replace(text, "import AVFoundation\n", "")
+    start = text.index("    func application(_ application: UIApplication, didReceiveRemoteNotification")
+    end = text.index("\nprivate extension AppDelegate\n{\n    func fetchSources(", start)
+    replacement = '''    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void)
+    {
+        // V3_HEADLESS_SERVICE_V1: refresh scheduling belongs to LiveContainer.
+        completionHandler(.noData)
+    }
+
+    func application(_ application: UIApplication, performFetchWithCompletionHandler backgroundFetchCompletionHandler: @escaping (UIBackgroundFetchResult) -> Void)
+    {
+        // The embedded backend is invoked by the host scheduler, not by a
+        // second SideStore background-refresh engine.
+        backgroundFetchCompletionHandler(.noData)
+    }
+}
+'''
+    text = text[:start] + replacement + text[end:]
+    extension_start = text.index("\nprivate extension AppDelegate\n{\n    func fetchSources(")
+    extension_end = text.index("\nprivate extension AppDelegate {\n    func setupCrashHandler()", extension_start)
+    return text[:extension_start] + text[extension_end:]
 
 
 def replace(text, old, new):
@@ -167,12 +208,14 @@ def patch(live, side):
             (TEMPLATES / "v3_service_bridge.swift").read_text(encoding="utf-8")
     edit(live, "SideStoreSupport/SideStore.swift", host)
     # The shared combined-startup adapter owns structured refresh error/result encoding.
-    edit(side, "AltStore/AppDelegate.swift", lambda s: s +
-         (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") +
-         (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8") +
-         (TEMPLATES / "v3_ipa_staging.swift").read_text(encoding="utf-8") +
-         (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8") +
-         (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8"))
+    def sidestore_app_delegate(s):
+        s = headless_background_fetch(s)
+        return s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + \
+            (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8") + \
+            (TEMPLATES / "v3_ipa_staging.swift").read_text(encoding="utf-8") + \
+            (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8") + \
+            (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8")
+    edit(side, "AltStore/AppDelegate.swift", sidestore_app_delegate)
     edit(side, "AltStore/Info.plist", headless_info)
     edit(side, "AltStore.xcodeproj/project.pbxproj", headless_project)
     def remove_starscream_pin(text):

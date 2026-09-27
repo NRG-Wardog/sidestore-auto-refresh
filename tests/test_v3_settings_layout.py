@@ -16,6 +16,7 @@ Checks:
 - No Section renders an empty body.
 - The check has teeth: a synthetic empty-label row is detected.
 """
+import os
 import re
 import shutil
 import subprocess
@@ -28,8 +29,11 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 TEMPLATE = SCRIPTS / "templates" / "v3_unified_shell.swift"
-PINNED = ROOT / ".audit/upstream/LiveContainer"
-PINNED_SIDESTORE = ROOT / ".audit/v103-sources/SideStore"
+PINNED = Path(os.environ.get(
+    "LIVE_CONTAINER_TEST_SOURCE", str(ROOT / ".audit/upstream/LiveContainer")))
+PINNED_SIDESTORE = Path(os.environ.get(
+    "SIDESTORE_TEST_SOURCE",
+    os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE", str(ROOT / ".audit/v103-sources/SideStore"))))
 SETTINGS_RELATIVE = "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"
 SHELL_RELATIVE = "LiveContainerSwiftUI/Views/V3UnifiedShell.swift"
 

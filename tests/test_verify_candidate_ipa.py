@@ -20,9 +20,20 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
             "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore": b"s" * 50,
             "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Assets.car": b"a" * 30,
             "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Base.lproj/Main.storyboardc/Info.plist": b"b" * 20,
+            "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideBackup.ipa": b"z" * 25,
+            "Payload/LiveContainer.app/Frameworks/libswiftCore.dylib": b"w" * 15,
+            "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Images/icon.png": b"p" * 12,
+            "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Fonts/regular.ttf": b"f" * 9,
+            "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Sounds/silence.m4a": b"m" * 8,
+            "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/en.lproj/Localizable.strings": b"l" * 7,
             "Payload/LiveContainer.app/PlugIns/LiveProcess.appex/LiveProcess": b"p" * 10,
             "Payload/LiveContainer.app/Info.plist": b"i" * 5,
         }
+        files.update({
+            f"Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Other/file-{index}.dat":
+                bytes([index]) * (index % 4 + 1)
+            for index in range(20)
+        })
         with tempfile.TemporaryDirectory() as directory:
             ipa = Path(directory) / "candidate.ipa"
             with zipfile.ZipFile(ipa, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -38,12 +49,27 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
                     })
         breakdown = report["payload_breakdown_bytes"]
         self.assertEqual(report["uncompressed_bytes"], sum(map(len, files.values())))
+        self.assertEqual(report["file_count"], len(files))
+        self.assertEqual(sum(breakdown.values()), report["uncompressed_bytes"])
+        self.assertGreater(report["zip_member_bytes"], 0)
+        self.assertLessEqual(report["zip_member_bytes"], report["uncompressed_bytes"])
         self.assertEqual(breakdown["executables"], 160)
+        self.assertEqual(breakdown["nested_archives"], 25)
+        self.assertEqual(breakdown["swift_runtime_dylibs"], 15)
         self.assertEqual(breakdown["Assets.car"], 30)
         self.assertEqual(breakdown["storyboards_and_nibs"], 20)
-        self.assertEqual(breakdown["other_files"], 5)
+        self.assertEqual(breakdown["images"], 12)
+        self.assertEqual(breakdown["fonts"], 9)
+        self.assertEqual(breakdown["audio_and_video"], 8)
+        self.assertEqual(breakdown["localizations"], 7)
+        self.assertEqual(breakdown["metadata_and_signing"], 5)
+        self.assertEqual(breakdown["framework_payload_excluding_executables"], 50)
+        self.assertEqual(breakdown["other_files"], 0)
         self.assertEqual(report["largest_files"][0]["uncompressed_bytes"], 100)
-        self.assertEqual(len(report["largest_files"]), len(files))
+        self.assertEqual(len(report["largest_files"]), 20)
+        self.assertEqual(report["bundle_totals_bytes"]["Payload/LiveContainer.app/Frameworks/SideStoreApp.framework"],
+                         sum(len(value) for path, value in files.items()
+                             if "/Frameworks/SideStoreApp.framework/" in path))
 
 
 if __name__ == "__main__":
