@@ -470,6 +470,8 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         self.assertIn("V3RefreshAllAttemptState.record(in: ledger, requestID: requestID)", check)
         self.assertIn('runState == "completed" || runState == "failed"', check)
         self.assertIn("hasCompleteTerminalResults", check)
+        self.assertIn("V3RefreshAllTerminalEvidencePolicy.verifiedSummary", check)
+        self.assertIn('runRecord["terminal_at"] as? TimeInterval', check)
 
     def test_partial_manifest_does_not_verify(self):
         compiler = shutil.which("swiftc")

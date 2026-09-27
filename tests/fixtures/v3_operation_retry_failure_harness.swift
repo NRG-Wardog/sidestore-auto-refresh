@@ -95,6 +95,14 @@ struct OperationRetryFailureHarness {
                      "a stale pre-dispatch request must not suggest device reconciliation or blind retry")
         precondition(staleRefreshDetails.recommendedAction.contains("was not started"))
 
+        let removedCatalogSource = V3OperationFailureDetails(CombinedFailure(
+            operation: "catalog", stage: .catalog, code: .unavailable,
+            id: UUID().uuidString, retryable: false, safeCause: .catalogSourceUnavailable))
+        precondition(removedCatalogSource.whatHappened.contains("no longer in the SideStore source list"))
+        precondition(removedCatalogSource.whatToDo.contains("Return to Sources") &&
+                     !removedCatalogSource.whatHappened.contains("service is not ready"),
+                     "a removed source must not be mislabeled as a starting service")
+
         // Separately model opStart returning busy before the second pipeline begins.
         let blockedSession = UUID().uuidString
         let startFailureSession = UUID().uuidString

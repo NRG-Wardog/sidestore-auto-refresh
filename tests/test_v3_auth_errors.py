@@ -113,6 +113,8 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("auth.currentAttemptFailure.message", host)
         self.assertIn("struct V3AuthAttemptFailureNotice", primitives)
         self.assertIn("currently reports an account as signed in", primitives)
+        self.assertIn("V3AuthReconciliationPresentationPolicy.resolve", host)
+        self.assertIn("provisioningIncomplete = true", host)
         run = host[host.index("private func run(sessionID requestedSession: String)"):]
         run = run[:run.index("    private func pollLoop(")]
         self.assertIn('state = "resultUnknown"', run)
@@ -136,12 +138,14 @@ class V3AuthErrorTests(unittest.TestCase):
         shell_text = shell()
         self.assertIn("accountAppleIDAtStart", runtime_text)
         self.assertIn("V3AuthAttemptAuthenticationPolicy.confirms", runtime_text)
-        self.assertIn('["timedOut", "failed", "cancelled", "resultUnknown"].contains(state)',
+        self.assertIn('["timedOut", "failed", "cancelled", "resultUnknown", "promptExpired"].contains(state)',
                       (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
         self.assertIn("V3ServiceBridge.authSnapshot(snapshot)", shell_text)
         self.assertIn('V3ServiceBridge.strictBool(reply["resumable"])', shell_text)
         self.assertIn('authSnapshot["authenticated"] ?? false', shell_text)
-        self.assertIn("The sign-in attempt was cancelled. SideStore currently reports an account as signed in.", shell_text)
+        self.assertIn("V3AuthReconciliationPresentationPolicy.resolve", shell_text)
+        self.assertIn("The sign-in attempt was cancelled. SideStore currently reports an account as signed in.",
+                      (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
         self.assertIn("previousFailure.map { Self.failureMessage(from: $0) }", shell_text)
         self.assertIn("await reconcile(force: true)", shell_text[shell_text.index("func cancel() {", shell_text.index("final class V3AuthStore")):])
 

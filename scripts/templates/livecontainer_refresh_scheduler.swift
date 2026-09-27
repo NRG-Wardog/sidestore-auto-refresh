@@ -160,18 +160,33 @@ enum LiveContainerAutoRefreshScheduler {
         (defaults.dictionary(forKey: runLedgerKey) ?? [:]).compactMapValues { $0 as? [String: Any] }
     }
 
-    private static func terminalManifestSummary(_ manifest: [String: Any]?, runID: String) -> [String: Any] {
+    private static func terminalManifestSummary(_ manifest: [String: Any]?, runID: String,
+                                               verified: Bool) -> [String: Any] {
         guard let manifest, manifest["run_id"] as? String == runID else {
-            return ["run_id": runID, "expected_count": 0, "result_count": 0,
+            return ["version": 1, "schema": "LiveContainerRefreshManifestSummaryV1",
+                    "run_id": runID, "verified": verified,
+                    "expected_count": 0, "result_count": 0,
                     "failed_count": 0, "skipped_count": 0]
         }
         let expected = manifest["expected_ids"] as? [String] ?? []
         let results = manifest["results"] as? [[String: Any]] ?? []
         let failed = results.filter { ($0["success"] as? Bool) == false }.count
         let skipped = manifest["skipped_ids"] as? [String] ?? []
-        return ["run_id": runID, "expected_count": expected.count,
-                "result_count": results.count, "failed_count": failed,
-                "skipped_count": skipped.count]
+        var summary: [String: Any] = ["version": 1,
+            "schema": "LiveContainerRefreshManifestSummaryV1", "run_id": runID,
+            "verified": verified, "expected_count": expected.count,
+            "result_count": results.count, "failed_count": failed,
+            "skipped_count": skipped.count]
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        for key in ["requested_ids", "expected_ids", "skipped_ids"] {
+            guard let values = manifest[key] as? [String] else { continue }
+            summary[key] = values.prefix(64).map { value in
+                String(value.filter { character in
+                    character.unicodeScalars.allSatisfy { allowed.contains($0) }
+                }.prefix(160))
+            }
+        }
+        return summary
     }
 
     private static func saveRunRecord(_ record: [String: Any], runID: String) {
@@ -440,7 +455,8 @@ enum LiveContainerAutoRefreshScheduler {
         runRecord["state"] = "completed"
         runRecord["message"] = terminalDetail
         runRecord["health"] = "REFRESH_SUCCEEDED"
-        runRecord["manifest_summary"] = terminalManifestSummary(manifest, runID: runID)
+        runRecord["manifest_run_id"] = runID
+        runRecord["manifest_summary"] = terminalManifestSummary(manifest, runID: runID, verified: true)
         runRecord.removeValue(forKey: "manifest")
         runRecord["terminal_at"] = Date().timeIntervalSince1970
         runRecord["updated_at"] = Date().timeIntervalSince1970
@@ -522,7 +538,7 @@ enum LiveContainerAutoRefreshScheduler {
         defaults.set(safeMessage, forKey: lastErrorKey)
         runRecord["state"] = "failed"
         runRecord["manifest_summary"] = terminalManifestSummary(
-            runRecord["manifest"] as? [String: Any], runID: runID)
+            runRecord["manifest"] as? [String: Any], runID: runID, verified: false)
         runRecord.removeValue(forKey: "manifest")
         runRecord["terminal_at"] = Date().timeIntervalSince1970
         runRecord["updated_at"] = Date().timeIntervalSince1970

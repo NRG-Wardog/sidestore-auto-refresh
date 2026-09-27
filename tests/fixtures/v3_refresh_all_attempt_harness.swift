@@ -55,6 +55,37 @@ struct RefreshAllAttemptHarness {
         precondition(!attempt.observe(laterFailure) && !attempt.observe(laterVerifying))
         precondition(attempt.phase == .completed, "success was not absorbing")
 
+        // Terminal ledger entries compact the full per-app manifest. Home must
+        // accept the verified, run-correlated summary that replaces it.
+        let compactRequest = UUID().uuidString
+        let compactRun = UUID().uuidString
+        var compactTerminal = record(compactRequest, compactRun, "completed")
+        compactTerminal["terminal_intent"] = "verified"
+        compactTerminal["health"] = "REFRESH_SUCCEEDED"
+        compactTerminal["manifest_run_id"] = compactRun
+        compactTerminal["manifest_summary"] = [
+            "version": 1, "schema": "LiveContainerRefreshManifestSummaryV1",
+            "run_id": compactRun, "verified": true,
+            "expected_count": 3, "result_count": 3, "failed_count": 0, "skipped_count": 1,
+            "requested_ids": ["a.app", "b.app", "c.app"],
+            "expected_ids": ["a.app", "b.app", "c.app"], "skipped_ids": ["d.app"]
+        ] as [String: Any]
+        var compactAttempt = V3RefreshAllAttemptState()
+        compactAttempt.begin(requestID: compactRequest)
+        precondition(compactAttempt.observe(compactTerminal) && compactAttempt.phase == .completed &&
+                     compactAttempt.terminalMessage.contains("1 running app(s) were skipped"),
+                     "Home must resolve a completed terminal record from its compact summary")
+        var unverifiedSummary = compactTerminal
+        unverifiedSummary["manifest_summary"] = [
+            "version": 1, "schema": "LiveContainerRefreshManifestSummaryV1",
+            "run_id": compactRun, "verified": 1,
+            "expected_count": 3, "result_count": 3, "failed_count": 0, "skipped_count": 0
+        ] as [String: Any]
+        var unverifiedAttempt = V3RefreshAllAttemptState()
+        unverifiedAttempt.begin(requestID: compactRequest)
+        precondition(unverifiedAttempt.observe(unverifiedSummary) && unverifiedAttempt.phase == .failed,
+                     "a numeric truthy value cannot impersonate a verified terminal summary")
+
         // An old global manifest cannot verify a new run. The per-run terminal
         // record must contain a complete manifest carrying the same run_id.
         var missingManifest = V3RefreshAllAttemptState()

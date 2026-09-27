@@ -365,6 +365,9 @@ public struct CombinedFailure: Error, LocalizedError {
     // by a generic fallback. The source manifest is never blamed here, because
     // nothing on this path proves the manifest failed to parse.
     private var catalogFailureMessage: String? {
+        if safeCause == .catalogSourceUnavailable {
+            return "This source is no longer in the SideStore source list."
+        }
         if code == .unavailable || code == .notReady || stage == .serviceReadiness {
             return "The SideStore service is not ready to load this source yet."
         }
@@ -385,6 +388,9 @@ public struct CombinedFailure: Error, LocalizedError {
     }
 
     private var catalogFailureRecovery: String? {
+        if safeCause == .catalogSourceUnavailable {
+            return "Return to Sources and reload the source list, then open the source again if it is still present."
+        }
         if code == .unavailable || code == .notReady || stage == .serviceReadiness {
             return "Wait for SideStore to finish starting, then reload the source."
         }

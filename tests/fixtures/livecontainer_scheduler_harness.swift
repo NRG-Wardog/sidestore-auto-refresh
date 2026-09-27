@@ -55,13 +55,19 @@ extension LiveContainerAutoRefreshScheduler {
                   let runID = notification.content.userInfo["run_id"] as? String,
                   let requestID = notification.content.userInfo["request_id"] as? String,
                   let terminal = runLedger()[runID] else { return }
+            var attempt = V3RefreshAllAttemptState()
+            attempt.begin(requestID: requestID)
+            let homeObservedCompletion = attempt.observe(terminal)
+            let verifiedSummary = V3RefreshAllTerminalEvidencePolicy.verifiedSummary(
+                terminal["manifest_summary"] as? [String: Any], record: terminal, runID: runID)
             completionNotificationObservedAfterCommit =
                 defaults.string(forKey: activeRunKey) == nil &&
                 defaults.string(forKey: activeManualRequestKey) == nil &&
                 terminal["run_id"] as? String == runID &&
                 terminal["request_id"] as? String == requestID &&
                 terminal["state"] as? String == "completed" &&
-                (terminal["manifest"] as? [String: Any])?["run_id"] as? String == runID
+                verifiedSummary && homeObservedCompletion && attempt.phase == .completed &&
+                defaults.dictionary(forKey: verificationKey)?["run_id"] as? String == runID
         }
         await execute(source: "manual", task: successful)
         precondition(LiveContainerRefreshBridge.calls == 1 && successful.completions == [true])

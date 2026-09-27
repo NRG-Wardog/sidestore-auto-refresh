@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 // Operation phases are fed by PipelineExecutor's actual PipelineStep callback.
 // Unknown steps intentionally collapse to Working... rather than inferring a
@@ -1150,6 +1151,42 @@ enum V3RefreshAllPhase: String {
     case idle, starting, refreshing, verifying, completed, failed
 }
 
+enum V3RefreshAllTerminalEvidencePolicy {
+    private static func integer(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(),
+              ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(String(cString: number.objCType)) else {
+            return nil
+        }
+        return number.intValue
+    }
+
+    static func verifiedSummary(_ summary: [String: Any]?, record: [String: Any],
+                                runID: String) -> Bool {
+        guard let summary,
+              integer(summary["version"]) == 1,
+              summary["schema"] as? String == "LiveContainerRefreshManifestSummaryV1",
+              summary["run_id"] as? String == runID,
+              let verified = summary["verified"] as? NSNumber,
+              CFGetTypeID(verified) == CFBooleanGetTypeID(), verified.boolValue,
+              integer(summary["expected_count"]).map({ $0 > 0 }) == true,
+              integer(summary["result_count"]) == integer(summary["expected_count"]),
+              integer(summary["failed_count"]) == 0,
+              integer(summary["skipped_count"]).map({ $0 >= 0 }) == true,
+              record["run_id"] as? String == runID,
+              record["state"] as? String == "completed",
+              record["terminal_intent"] as? String == "verified",
+              record["health"] as? String == "REFRESH_SUCCEEDED",
+              record["manifest_run_id"] as? String == runID else { return false }
+        return true
+    }
+
+    static func count(_ key: String, in summary: [String: Any]?) -> Int? {
+        guard let summary else { return nil }
+        return integer(summary[key])
+    }
+}
+
 // Request identity, rather than process-local notifications or global health,
 // owns the Home refresh UI. A terminal record is absorbing for this attempt.
 struct V3RefreshAllAttemptState {
@@ -1188,13 +1225,19 @@ struct V3RefreshAllAttemptState {
             // Health and activeRun defaults may be observed out of order. The
             // correlated terminal record is authoritative, including when a
             // stale activeRun value is still visible to this view.
-            guard Self.manifestIsVerified(record["manifest"] as? [String: Any], runID: runID) else {
+            let manifest = record["manifest"] as? [String: Any]
+            let hasVerifiedManifest = Self.manifestIsVerified(manifest, runID: runID)
+            let hasVerifiedSummary = V3RefreshAllTerminalEvidencePolicy.verifiedSummary(
+                record["manifest_summary"] as? [String: Any], record: record, runID: runID)
+            guard hasVerifiedManifest || hasVerifiedSummary else {
                 phase = .failed
                 terminalMessage = "Refresh reported completion without a matching verified manifest."
                 return true
             }
             phase = .completed
-            let skippedCount = ((record["manifest"] as? [String: Any])?["skipped_ids"] as? [String])?.count ?? 0
+            let skippedCount = (manifest?["skipped_ids"] as? [String])?.count ??
+                V3RefreshAllTerminalEvidencePolicy.count("skipped_count",
+                    in: record["manifest_summary"] as? [String: Any]) ?? 0
             terminalMessage = skippedCount == 0
                 ? "Refresh completed. All requested app results were verified."
                 : "Refresh completed. Results for this run were verified; \(skippedCount) running app(s) were skipped."
@@ -1267,7 +1310,8 @@ enum V3RefreshAllFailureDiagnostics {
         let failure = record["failure"] as? [String: Any]
         let failureMatchesRun = failure?["operation"] as? String == "refresh" &&
             failure?["correlationID"] as? String == runID
-        let manifest = record["manifest"] as? [String: Any] ?? [:]
+        let manifest = record["manifest"] as? [String: Any]
+            ?? record["manifest_summary"] as? [String: Any] ?? [:]
         func safeIDs(_ key: String) -> String {
             guard let values = manifest[key] as? [String] else { return "unknown" }
             let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
@@ -2440,17 +2484,48 @@ enum V3ProvisioningRetryRecoveryPolicy {
 
 enum V3AuthTimeoutReconciliationPolicy {
     static func shouldReconcileAfterTerminal(_ state: String) -> Bool {
-        ["timedOut", "failed", "cancelled", "resultUnknown"].contains(state)
+        ["timedOut", "failed", "cancelled", "resultUnknown", "promptExpired"].contains(state)
     }
+}
 
-    static func reconciledState(reportedState: String, authenticated: Bool,
-                                provisioningIncomplete: Bool) -> String? {
-        guard shouldReconcileAfterTerminal(reportedState) else { return nil }
-        if ["resultUnknown", "timedOut", "cancelled", "failed"].contains(reportedState) {
-            return reportedState
+struct V3AuthReconciliationPresentation: Equatable {
+    let state: String
+    let message: String
+}
+
+enum V3AuthReconciliationPresentationPolicy {
+    static func resolve(reportedState: String, authenticated: Bool,
+                        provisioningIncomplete: Bool,
+                        previousFailureMessage: String? = nil) -> V3AuthReconciliationPresentation {
+        guard authenticated else { return .init(state: reportedState, message: "") }
+        switch reportedState {
+        case "failed":
+            var message = provisioningIncomplete
+                ? "The sign-in attempt did not complete. SideStore reports authentication, but device provisioning is incomplete."
+                : "The sign-in attempt did not complete. SideStore currently reports an account as signed in."
+            if let previousFailureMessage { message += " " + previousFailureMessage }
+            return .init(state: "failed", message: message)
+        case "timedOut":
+            return .init(state: "timedOut", message: provisioningIncomplete
+                ? "The sign-in attempt timed out. SideStore reports authentication, but device provisioning is incomplete."
+                : "The sign-in attempt timed out. SideStore currently reports an account as signed in.")
+        case "cancelled":
+            return .init(state: "cancelled", message: provisioningIncomplete
+                ? "The sign-in attempt was cancelled. SideStore reports authentication, but device provisioning is incomplete."
+                : "The sign-in attempt was cancelled. SideStore currently reports an account as signed in.")
+        case "resultUnknown":
+            return .init(state: "resultUnknown", message: provisioningIncomplete
+                ? "The sign-in result remains unconfirmed. SideStore reports authentication, but device provisioning is incomplete."
+                : "The sign-in result remains unconfirmed. SideStore currently reports an account as signed in.")
+        case "promptExpired":
+            return .init(state: "promptExpired", message: provisioningIncomplete
+                ? "The verification session expired. SideStore reports authentication, but device provisioning is incomplete."
+                : "The verification session expired. SideStore currently reports an account as signed in.")
+        default:
+            return provisioningIncomplete
+                ? .init(state: "authenticatedProvisioningIncomplete", message: "Apple ID signed in successfully.")
+                : .init(state: "completed", message: "")
         }
-        guard authenticated else { return nil }
-        return provisioningIncomplete ? "authenticatedProvisioningIncomplete" : "completed"
     }
 }
 

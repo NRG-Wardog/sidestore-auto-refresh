@@ -69,25 +69,24 @@ struct AuthOwnershipReconciliationHarness {
         precondition(V3AuthTimeoutReconciliationPolicy.shouldReconcileAfterTerminal("timedOut"))
         precondition(V3AuthTimeoutReconciliationPolicy.shouldReconcileAfterTerminal("cancelled"))
         precondition(V3AuthTimeoutReconciliationPolicy.shouldReconcileAfterTerminal("failed"))
-        precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
-            reportedState: "timedOut", authenticated: true, provisioningIncomplete: false) == "timedOut",
-            "an authenticated snapshot cannot rewrite a timed-out attempt as success")
-        precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
-            reportedState: "timedOut", authenticated: true, provisioningIncomplete: true) ==
-                "timedOut")
-        precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
-            reportedState: "timedOut", authenticated: false, provisioningIncomplete: false) == "timedOut")
-        precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
-            reportedState: "cancelled", authenticated: true, provisioningIncomplete: false) == "cancelled",
-            "an authenticated snapshot cannot rewrite a cancelled attempt as success")
-        precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
-            reportedState: "cancelled", authenticated: true, provisioningIncomplete: true) ==
-                "cancelled")
-        precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
-            reportedState: "failed", authenticated: true, provisioningIncomplete: false) == "failed",
-            "a previously active account cannot turn an explicit failed attempt into success")
-        precondition(V3AuthTimeoutReconciliationPolicy.reconciledState(
-            reportedState: "resultUnknown", authenticated: true, provisioningIncomplete: false) == "resultUnknown")
+        for terminal in ["timedOut", "cancelled", "resultUnknown", "failed", "promptExpired"] {
+            let incompleteAccount = V3AuthReconciliationPresentationPolicy.resolve(
+                reportedState: terminal, authenticated: true, provisioningIncomplete: true,
+                previousFailureMessage: terminal == "failed" ? "Apple rejected credentials." : nil)
+            precondition(incompleteAccount.state == terminal &&
+                         incompleteAccount.message.contains("provisioning is incomplete") &&
+                         !incompleteAccount.message.contains("signed in successfully"),
+                "an incomplete account snapshot cannot replace the terminal \(terminal) attempt result")
+        }
+        let successfulIncompleteAccount = V3AuthReconciliationPresentationPolicy.resolve(
+            reportedState: "working", authenticated: true, provisioningIncomplete: true)
+        precondition(successfulIncompleteAccount.state == "authenticatedProvisioningIncomplete" &&
+                     successfulIncompleteAccount.message == "Apple ID signed in successfully.",
+                     "only a nonterminal attempt can reconcile to the authenticated provisioning state")
+        let signedOutTimeout = V3AuthReconciliationPresentationPolicy.resolve(
+            reportedState: "timedOut", authenticated: false, provisioningIncomplete: false)
+        precondition(signedOutTimeout.state == "timedOut",
+                     "a signed-out snapshot does not turn an unconfirmed timeout into a different result")
 
         precondition(V3ProvisioningResumeAvailabilityPolicy.canResume(
             authenticated: true, currentAppleID: "Dev@Example.com", resumableAppleID: "dev@example.com"))

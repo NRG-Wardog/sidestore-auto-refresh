@@ -646,12 +646,15 @@ struct V3RefreshAllButton: View {
         case .verifying:
             message = "Verifying..."
         case .completed:
-            let manifest = record["manifest"] as? [String: Any] ?? [:]
-            let results = manifest["results"] as? [[String: Any]] ?? []
-            let skipped = manifest["skipped_ids"] as? [String] ?? []
+            let manifest = record["manifest"] as? [String: Any]
+                ?? record["manifest_summary"] as? [String: Any] ?? [:]
+            let verifiedCount = (manifest["results"] as? [[String: Any]])?.count ??
+                V3RefreshAllTerminalEvidencePolicy.count("result_count", in: manifest) ?? 0
+            let skippedCount = (manifest["skipped_ids"] as? [String])?.count ??
+                V3RefreshAllTerminalEvidencePolicy.count("skipped_count", in: manifest) ?? 0
             message = attempt.terminalMessage
             terminalFailure = nil
-            diagnostics = "manual_refresh_request=\(requestID)\nrun_id=\(runID)\nstate=completed\nverified_app_count=\(results.count)\nskipped_app_count=\(skipped.count)"
+            diagnostics = "manual_refresh_request=\(requestID)\nrun_id=\(runID)\nstate=completed\nverified_app_count=\(verifiedCount)\nskipped_app_count=\(skippedCount)"
         case .failed:
             renderFailure(health: record["health"] as? String ?? health, record: record)
         case .idle:
@@ -3503,6 +3506,7 @@ final class V3AuthStore: ObservableObject {
     @Published private(set) var provisioningRetryAvailable = false
     @Published private(set) var provisioningSessionUnavailable = false
     @Published private(set) var provisioningFinishedLater = false
+    @Published private(set) var provisioningIncomplete = false
     // Sticky once the service reports an authenticated terminal. It survives a
     // provisioning retry so the screen keeps saying the sign-in succeeded while
     // provisioning is running again.
@@ -3523,7 +3527,7 @@ final class V3AuthStore: ObservableObject {
     }
     // The provisioning problem is only present when a classified failure arrived.
     var hasProvisioningProblem: Bool {
-        state == "authenticatedProvisioningIncomplete" && !provisioningMessage.isEmpty
+        provisioningIncomplete && !provisioningMessage.isEmpty
             && !provisioningFinishedLater
     }
 
@@ -3562,6 +3566,7 @@ final class V3AuthStore: ObservableObject {
         provisioningRetryAvailable = false
         provisioningSessionUnavailable = false
         provisioningFinishedLater = false
+        provisioningIncomplete = false
     }
 
     // V3_RETRY_PROVISIONING_REUSES_SESSION_V1: the Apple session is already
@@ -3569,7 +3574,7 @@ final class V3AuthStore: ObservableObject {
     // not reuse the interactive begin operation, which would ask for credentials
     // and 2FA again.
     func retryProvisioning() {
-        guard !isCancelling, !["working", "awaitingPrompt"].contains(state) else { return }
+        guard !isCancelling, !["working", "awaitingPrompt", "resultUnknown"].contains(state) else { return }
         let previouslyAvailable = provisioningRetryAvailable
         task?.cancel()
         session = UUID().uuidString
@@ -3586,7 +3591,9 @@ final class V3AuthStore: ObservableObject {
         clearProvisioningOutcome()
         task = Task { await runProvisioningRetry(previouslyAvailable: previouslyAvailable) }
     }
-    var canRetryProvisioning: Bool { provisioningRetryAvailable }
+    var canRetryProvisioning: Bool {
+        provisioningRetryAvailable && !isCancelling && cancellationConfirmed && state != "resultUnknown"
+    }
 
     private func runProvisioningRetry(previouslyAvailable: Bool) async {
         guard let requestedSession = session else { return }
@@ -3676,32 +3683,26 @@ final class V3AuthStore: ObservableObject {
                 !account.isEmpty && account != "Not signed in"
             let incomplete = authSnapshot["provisioningIncomplete"] ?? false
             let canRetryProvisioning = authSnapshot["provisioningRetryAvailable"] ?? false
-            if let reconciled = V3AuthTimeoutReconciliationPolicy.reconciledState(
-                reportedState: state, authenticated: authoritative, provisioningIncomplete: incomplete) {
-                state = reconciled
-            }
             if authoritative {
                 // V3_FINISH_LATER_RECONCILES_AS_SIGNED_IN_V1: authoritative state
                 // wins. A finished-later provisioning attempt still reconciles as
                 // signed in, never back to "sign in again".
                 signedIn = true
-                if reportedTerminalState == "failed" {
-                    state = "failed"
-                    team = snapshot["team"] as? String ?? ""
-                    let previousFailureMessage = previousFailure.map { Self.failureMessage(from: $0) }
-                    message = "The sign-in attempt did not complete. SideStore currently reports an account as signed in."
-                    if let previousFailureMessage { message += " " + previousFailureMessage }
-                    clearProvisioningOutcome()
-                } else if incomplete {
+                let previousFailureMessage = reportedTerminalState == "failed"
+                    ? previousFailure.map { Self.failureMessage(from: $0) } : nil
+                let presentation = V3AuthReconciliationPresentationPolicy.resolve(
+                    reportedState: reportedTerminalState, authenticated: true,
+                    provisioningIncomplete: incomplete,
+                    previousFailureMessage: previousFailureMessage)
+                state = presentation.state
+                message = presentation.message
+                team = snapshot["team"] as? String ?? ""
+                if incomplete {
+                    provisioningIncomplete = true
                     // The service still reports an authenticated session whose
-                    // provisioning never activated an account. Stay signed in and
-                    // keep the provisioning recovery actions available. The
-                    // classified reason from the original attempt is not
-                    // reconstructed here, because nothing persisted it.
-                    if state != "authenticatedProvisioningIncomplete" {
-                        state = "authenticatedProvisioningIncomplete"
-                        message = "Apple ID signed in successfully."
-                    }
+                    // provisioning never activated an account. Preserve any
+                    // terminal attempt state while showing provisioning recovery
+                    // as a separate account-state fact.
                     if provisioningMessage.isEmpty {
                         provisioningMessage = "Device provisioning did not complete. Retry provisioning, or finish later and come back."
                     }
@@ -3713,20 +3714,6 @@ final class V3AuthStore: ObservableObject {
                         provisioningMessage = "Apple ID is signed in, but the saved provisioning session is unavailable. Open Account & Signing to sign in again before retrying setup."
                     }
                 } else {
-                    if reportedTerminalState == "timedOut" {
-                        state = "timedOut"
-                        message = "The sign-in attempt timed out. SideStore currently reports an account as signed in."
-                    } else if reportedTerminalState == "cancelled" {
-                        state = "cancelled"
-                        message = "The sign-in attempt was cancelled. SideStore currently reports an account as signed in."
-                    } else if reportedTerminalState == "resultUnknown" {
-                        state = "resultUnknown"
-                        message = "The sign-in result remains unconfirmed. SideStore currently reports an account as signed in."
-                    } else {
-                        state = "completed"
-                        message = ""
-                    }
-                    team = snapshot["team"] as? String ?? ""
                     clearProvisioningOutcome()
                 }
             } else {
@@ -3891,6 +3878,7 @@ final class V3AuthStore: ObservableObject {
             // V3_PROVISIONING_TERMINAL_NOT_A_SIGNIN_FAILURE_V1: the terminal
             // payload carries the classified provisioning problem, which is
             // retained verbatim. This state is never collapsed into "failed".
+            provisioningIncomplete = true
             team = reply["team"] as? String ?? team
             message = "Apple ID signed in successfully."
             prompt = nil
@@ -4229,7 +4217,11 @@ struct V3SignInView: View {
                     hasSession: auth.hasSession) {
                     Button("Retry Cancellation", role: .cancel) { auth.cancel() }
                 }
-                if auth.state == "working" || auth.state == "awaitingPrompt" || auth.state == "promptExpired" || auth.state == "resultUnknown" {
+                if !V3AuthCancellationRetryPolicy.canRetry(isCancelling: auth.isCancelling,
+                    cancellationConfirmed: auth.cancellationConfirmed,
+                    hasSession: auth.hasSession) &&
+                    (auth.state == "working" || auth.state == "awaitingPrompt" ||
+                     auth.state == "promptExpired" || auth.state == "resultUnknown") {
                     Button(auth.isCancelling ? "Cancelling..." :
                         (auth.state == "resultUnknown" ? "Cancel Unconfirmed Sign-In" : "Cancel Sign In"),
                         role: .cancel) { auth.cancel() }
@@ -4239,7 +4231,11 @@ struct V3SignInView: View {
                 // provisioning state, not a failed sign-in. "Retry" re-enters
                 // provisioning with the saved session; "Finish Later" keeps the
                 // authenticated account and closes this flow.
-                if auth.state == "authenticatedProvisioningIncomplete" && !auth.provisioningFinishedLater {
+                if auth.hasProvisioningProblem {
+                    if auth.state == "resultUnknown" {
+                        Text("Cancel the unconfirmed sign-in before retrying provisioning.")
+                            .font(.caption).foregroundColor(.secondary)
+                    } else {
                     Button {
                         auth.retryProvisioning()
                     } label: {
@@ -4251,6 +4247,7 @@ struct V3SignInView: View {
                             .font(.caption).foregroundColor(.secondary)
                     }
                     Button("Finish Later") { finishProvisioningLater() }
+                    }
                 }
             }
             if let prompt = auth.prompt {
@@ -6030,9 +6027,14 @@ final class V3SetupStore: ObservableObject {
         testRunID = runID
         let runState = runRecord["state"] as? String ?? ""
         guard runState == "completed" || runState == "failed" else { return false }
-        let manifest = runRecord["manifest"] as? [String: Any] ?? [:]
-        guard manifest["run_id"] as? String == runID,
-              CombinedVerification.hasCompleteTerminalResults(manifest, runID: runID) else {
+        let manifest = runRecord["manifest"] as? [String: Any]
+        let verifiedManifest = manifest.map {
+            $0["run_id"] as? String == runID &&
+                CombinedVerification.hasCompleteTerminalResults($0, runID: runID)
+        } ?? false
+        let verifiedSummary = V3RefreshAllTerminalEvidencePolicy.verifiedSummary(
+            runRecord["manifest_summary"] as? [String: Any], record: runRecord, runID: runID)
+        guard verifiedManifest || verifiedSummary else {
             if runState == "failed" {
                 verification = V3SetupStepState(state: "failed", detail: runRecord["message"] as? String ?? "Refresh failed")
                 testRunning = false
@@ -6040,11 +6042,13 @@ final class V3SetupStore: ObservableObject {
             }
             return false
         }
-        let results = manifest["results"] as? [[String: Any]] ?? []
-        if runState == "completed" && results.allSatisfy({ $0["success"] as? Bool == true }) {
+        let results = manifest?["results"] as? [[String: Any]] ?? []
+        if runState == "completed" && (verifiedSummary || results.allSatisfy({ $0["success"] as? Bool == true })) {
             verification = V3SetupStepState(state: "complete", detail: "Refresh verified")
-            if let date = manifest["date"] as? Date {
+            if let date = manifest?["date"] as? Date {
                 lastVerified = date
+            } else if let terminalAt = runRecord["terminal_at"] as? TimeInterval {
+                lastVerified = Date(timeIntervalSince1970: terminalAt)
             }
         } else {
             var detail = "Refresh reported failures"
