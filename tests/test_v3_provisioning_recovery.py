@@ -318,7 +318,8 @@ class ResumableProvisioningOperationTests(unittest.TestCase):
     def test_service_routes_the_operation_to_the_resume_mode(self):
         service = SERVICE.read_text(encoding="utf-8")
         self.assertIn('case "authRetryProvisioning":', service)
-        self.assertIn("mode: .resumeProvisioning, sessionID: session)", service)
+        self.assertIn("mode: .resumeProvisioning, requestDeadline: request[\"deadline\"] as? Date,", service)
+        self.assertIn("sessionID: session)", service)
         self.assertIn('"authRetryProvisioning", "accountExport"', service)
 
     def test_operation_normalizes_to_the_sign_in_failure_vocabulary(self):

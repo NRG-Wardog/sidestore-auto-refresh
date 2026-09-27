@@ -1727,6 +1727,7 @@ struct V3SourcesView: View {
     @State private var removeBusy = false
     @State private var notice = ""
     @State private var sourceFailure: V3SourceAddFailure?
+    @State private var failedSourceInput: String?
     // V3_SOURCE_SEMANTIC_STATE_V1: a successful add is a success, and is never
     // rendered with the same neutral grey as an informational note.
     @State private var addSucceeded = false
@@ -1803,9 +1804,18 @@ struct V3SourcesView: View {
                             // already on screen. Only the rising edge captures,
                             // because Cancel itself drops focus and must not
                             // overwrite the value it is about to restore.
-                            .onChange(of: sourceFieldFocused) { focused in
-                                if focused { sourceURLBeforeEditing = status.sourceURL }
-                            }
+                    .onChange(of: sourceFieldFocused) { focused in
+                        if focused { sourceURLBeforeEditing = status.sourceURL }
+                    }
+                    .onChange(of: status.sourceURL) { newURL in
+                        if failedSourceInput != newURL {
+                            sourceFailure = nil
+                            failedSourceInput = nil
+                        }
+                        if let previewURL = preview?["url"] as? String, previewURL != newURL {
+                            preview = nil
+                        }
+                    }
                     }
                     // Explicit keyboard dismissal, with an explicit Cancel that
                     // performs no preview, no network request and no persistence.
@@ -1821,7 +1831,7 @@ struct V3SourcesView: View {
                     } label: {
                         Label(previewBusy ? "Checking Source..." : "Preview and Add Source", systemImage: "plus.circle.fill")
                     }
-                    .disabled(status.sourceURL.isEmpty || previewBusy)
+                    .disabled(status.sourceURL.isEmpty || previewBusy || isSubmissionBlocked(for: status.sourceURL))
                     if let preview {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(preview["name"] as? String ?? "")
@@ -1838,7 +1848,8 @@ struct V3SourcesView: View {
                         } label: {
                             Label((preview["alreadyAdded"] as? Bool ?? false) ? "Already Added" : (addBusy ? "Adding Source..." : "Confirm Add Source"), systemImage: "checkmark.circle.fill")
                         }
-                        .disabled((preview["alreadyAdded"] as? Bool ?? false) || addBusy)
+                        .disabled((preview["alreadyAdded"] as? Bool ?? false) || addBusy ||
+                            isSubmissionBlocked(for: preview["url"] as? String ?? status.sourceURL))
                     }
                 }
                 Section("Sources (\(status.sources.count))") {
@@ -1943,6 +1954,7 @@ struct V3SourcesView: View {
         previewBusy = true
         defer { previewBusy = false }
         sourceFailure = nil
+        failedSourceInput = nil
         notice = ""
         addSucceeded = false
         do {
@@ -1952,12 +1964,16 @@ struct V3SourcesView: View {
             // Previewing is an explicit action, so the keyboard has served its
             // purpose once the preview is on screen.
             dismissKeyboard()
-        } catch { sourceFailure = V3SourceAddFailure(error) }
+        } catch {
+            sourceFailure = V3SourceAddFailure(error)
+            failedSourceInput = status.sourceURL
+        }
     }
     private func confirmAdd(url: String) async {
         addBusy = true
         notice = ""
         sourceFailure = nil
+        failedSourceInput = nil
         defer { addBusy = false }
         do {
             let result = try await V3ServiceBridge.shared.request(operation: "sourceAddConfirmed", target: url)
@@ -1971,9 +1987,19 @@ struct V3SourcesView: View {
             status.accept(result)
             preview = nil
             status.sourceURL = ""
+            failedSourceInput = nil
             notice = message
             addSucceeded = true
-        } catch { sourceFailure = V3SourceAddFailure(error) }
+        } catch {
+            sourceFailure = V3SourceAddFailure(error)
+            failedSourceInput = url
+        }
+    }
+    private func isSubmissionBlocked(for input: String) -> Bool {
+        guard let sourceFailure else { return false }
+        return !V3SourceSubmissionPolicy.mayResubmit(retryable: sourceFailure.retryable,
+            safeCause: sourceFailure.safeCause,
+            failedInput: failedSourceInput, currentInput: input)
     }
     private func confirmRemove(id: String) async {
         removeCandidate = nil
@@ -2436,6 +2462,8 @@ private struct V3SourceAddFailure {
     let whatHappened: String
     let whatToDo: String
     let technicalDetails: String
+    let retryable: Bool?
+    let safeCause: String?
 
     init(_ error: Error) {
         let failure = (error as? CombinedFailure) ?? CombinedFailure.capture(error,
@@ -2443,6 +2471,8 @@ private struct V3SourceAddFailure {
         whatHappened = failure.safeMessage
         whatToDo = failure.recovery
         technicalDetails = failure.technicalDetails
+        retryable = failure.retryable
+        safeCause = failure.safeCause?.rawValue
     }
 }
 
@@ -3722,6 +3752,10 @@ final class V3AuthStore: ObservableObject {
             provisioningTechnical = reply["technicalDetails"] as? String ?? ""
             provisioningCorrelation = (reply["failure"] as? [String: Any])?["correlationID"] as? String ?? ""
             provisioningRetryAvailable = reply["resumable"] as? Bool ?? false
+            provisioningSessionUnavailable = false
+            if !provisioningRetryAvailable {
+                provisioningMessage += " The saved provisioning session is not ready to retry yet. Finish Later, then reopen Account & Signing to reload status."
+            }
             provisioningFinishedLater = false
         } else if state == "failed" {
             message = reply["message"] as? String ?? "The sign-in request failed for an unknown reason."
@@ -3862,7 +3896,10 @@ final class V3AuthStore: ObservableObject {
                     replyRevision: reply["revision"] as? Int) else { return }
                 apply(reply)
             } catch {
-                guard self.session == session, !self.isCancelling else { return }
+                guard V3AuthPromptSubmissionPolicy.mayShowFailure(
+                    currentSessionID: self.session, submittedSessionID: session,
+                    currentPromptID: self.prompt?["id"] as? String,
+                    submittedPromptID: promptID, cancellationInProgress: self.isCancelling) else { return }
                 promptSubmitting = false
                 message = "The response could not be submitted. Check the connection, then try once more."
             }

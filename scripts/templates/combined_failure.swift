@@ -121,6 +121,9 @@ public struct CombinedFailure: Error, LocalizedError {
         case sourceInvalidURL
         case sourceRemoveFailed
         case sourceRemoveBusy
+        case operationInProgress
+        case knownSourcePolicyNetworkFailure
+        case knownSourcePolicyInvalidResponse
         case catalogUnavailable
         case catalogSourceUnavailable
         // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: the service built a reply it
@@ -152,6 +155,10 @@ public struct CombinedFailure: Error, LocalizedError {
                 return false
             case .sourceRemoveBusy:
                 return true
+            case .operationInProgress, .knownSourcePolicyNetworkFailure:
+                return true
+            case .knownSourcePolicyInvalidResponse:
+                return nil
             // The source is gone, so retrying the same request cannot succeed;
             // the recovery is to reload the source list, not to retry.
             case .catalogSourceUnavailable:
@@ -172,7 +179,7 @@ public struct CombinedFailure: Error, LocalizedError {
 
     public enum SourceStep: String, CaseIterable {
         case provisioningProfileFetch, certificateValidation, localCodeSigning
-        case sourceDownload, manifestParsing, catalogRead
+        case sourceDownload, manifestParsing, knownSourcePolicyFetch, knownSourcePolicyParsing, catalogRead
     }
 
     public enum Stage: String, CaseIterable {
@@ -262,6 +269,9 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceInvalidURL: return "The source URL is invalid."
             case .sourceRemoveFailed: return "SideStore could not confirm that the source was removed from its saved list."
             case .sourceRemoveBusy: return "SideStore was busy with another request, so it did not start removing this source."
+            case .operationInProgress: return "Another SideStore operation is still active."
+            case .knownSourcePolicyNetworkFailure: return "SideStore could not update its own known-source safety list."
+            case .knownSourcePolicyInvalidResponse: return "SideStore could not read its own known-source safety list."
             case .catalogUnavailable: return "SideStore could not read this source's saved catalog data."
             case .catalogSourceUnavailable: return "This source is no longer in the SideStore source list."
             case .responseEncodingFailed: return "SideStore could not encode the response for this request."
@@ -412,6 +422,12 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Reload Sources and confirm whether the source is gone. If it remains, remove it again."
             case .sourceRemoveBusy:
                 return "Wait for the current SideStore request to finish, reload Sources, then confirm removal again."
+            case .operationInProgress:
+                return "Wait for the active SideStore operation to finish, then start Refresh again."
+            case .knownSourcePolicyNetworkFailure:
+                return "Check the network, then retry from Sources. This error came from SideStore's known-source safety list, not the URL you entered."
+            case .knownSourcePolicyInvalidResponse:
+                return "Try again later. If SideStore keeps receiving unreadable safety-list data, copy Diagnostics and report it."
             case .catalogUnavailable:
                 return "Reload the catalog. If it continues, copy the safe diagnostics."
             case .catalogSourceUnavailable:

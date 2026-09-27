@@ -23,6 +23,22 @@ final class V3ServiceCallbackGate: @unchecked Sendable {
 }
 // V3_NATIVE_CALLBACK_GATE_END
 
+private struct V3KnownSourcePolicyFailure: Error {
+    enum Kind: Equatable { case network, invalidResponse }
+    let kind: Kind
+    let underlyingDomain: String
+    let underlyingCode: Int
+
+    init(_ error: Error) {
+        let cause = error as NSError
+        kind = [NSURLErrorDomain, NSPOSIXErrorDomain, "CFNetwork"].contains(cause.domain)
+            ? .network : .invalidResponse
+        underlyingDomain = [NSURLErrorDomain, NSPOSIXErrorDomain, "CFNetwork", "NSCocoaErrorDomain"]
+            .contains(cause.domain) ? cause.domain : "redacted"
+        underlyingCode = cause.code
+    }
+}
+
 @MainActor
 @objc(V3SideStoreService)
 final class V3SideStoreService: NSObject {
@@ -33,6 +49,7 @@ final class V3SideStoreService: NSObject {
     var mutationID: String?
     private var refreshAdmission = V3RefreshAdmissionLease()
     private var pendingRefreshAdmissionRequests: Set<String> = []
+    private var pendingAuthStartSessions: [String: String] = [:]
     private var knownSourcesUpdateTask: Task<Void, Error>?
 
     @objc(execute:reply:)
@@ -69,6 +86,9 @@ final class V3SideStoreService: NSObject {
             }
             let isPendingRefreshAdmission = cancelScope == "request" &&
                 (pendingRefreshAdmissionRequests.contains(target) || refreshAdmission.requestID == target)
+            if cancelScope == "request", let session = pendingAuthStartSessions[target] {
+                _ = V3HeadlessRuntime.shared.auth.cancelBeforeBegin(id: session)
+            }
             if !V3HeadlessRuntime.shared.cancelSession(target, scope: cancelScope) {
                 tasks[target]?.cancel()
                 cancellations[target]?()
@@ -108,8 +128,8 @@ final class V3SideStoreService: NSObject {
                 ? CombinedFailure(operation: "source", stage: .source, code: .busy, id: id,
                                   retryable: true, safeCause: .sourceRemoveBusy)
                 : operation.hasPrefix("refreshAdmission")
-                ? CombinedFailure(operation: "refresh", stage: .serviceReadiness, code: .busy, id: id,
-                                  retryable: true)
+                ? CombinedFailure(operation: "refresh", stage: .command, code: .busy, id: id,
+                                  retryable: true, safeCause: .operationInProgress)
                 : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
             var response: [String: Any] = ["version": 1, "id": id, "error": "busy", "failure": failure.wire]
             if operation == "opStart" { response["operationNotDispatched"] = true }
@@ -118,11 +138,16 @@ final class V3SideStoreService: NSObject {
         }
         if mutation { mutationID = id }
         if operation == "refreshAdmissionBegin" { pendingRefreshAdmissionRequests.insert(id) }
+        if ["authBegin", "authRetryProvisioning"].contains(operation),
+           let session = (request["payload"] as? [String: Any])?["session"] as? String {
+            pendingAuthStartSessions[id] = session
+        }
         tasks[id] = Task { @MainActor in
             defer {
                 tasks[id] = nil
                 cancellations[id] = nil
                 pendingRefreshAdmissionRequests.remove(id)
+                pendingAuthStartSessions[id] = nil
                 if mutationID == id { mutationID = nil }
             }
             var response: [String: Any] = ["version": 1, "id": id]
@@ -157,7 +182,7 @@ final class V3SideStoreService: NSObject {
                 case "opStart", "opPoll", "opAnswer", "opCancel": stage = .command
                 case "certList", "certSetActive", "certDelete", "certPortalList", "certRevoke", "certCreate": stage = .signing
                 case "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles", "syncAppIDs": stage = .authentication
-                case "sourcePreview", "sourceAddConfirmed", "sourceRemoveConfirmed": stage = .source
+                case "sourcePreview", "sourceAddConfirmed", "sourceRemoveConfirmed", "refreshSources": stage = .source
                 default: stage = .command
                 }
                 if let serviceError = error as? ServiceError, case .notReady = serviceError {
@@ -197,8 +222,9 @@ final class V3SideStoreService: NSObject {
                     }
                     if operation.hasPrefix("refreshAdmission") {
                         response["failure"] = CombinedFailure(operation: "refresh",
-                            stage: .serviceReadiness, code: code, id: id,
-                            retryable: code == .busy).wire
+                            stage: .command, code: code, id: id,
+                            retryable: code == .busy,
+                            safeCause: code == .busy ? .operationInProgress : nil).wire
                     } else {
                         response["failure"] = CombinedFailure(operation: operation, stage: stage,
                             code: code, id: id).wire
@@ -230,6 +256,14 @@ final class V3SideStoreService: NSObject {
                     } else {
                         response["failure"] = CombinedFailure(operation: operation, stage: stage, code: code, id: id).wire
                     }
+                } else if let policyError = error as? V3KnownSourcePolicyFailure {
+                    let network = policyError.kind == .network
+                    response["failure"] = CombinedFailure(operation: "source", stage: .source,
+                        code: network ? .failed : .invalidResponse, id: id,
+                        underlying: NSError(domain: policyError.underlyingDomain, code: policyError.underlyingCode),
+                        retryable: network ? true : nil,
+                        safeCause: network ? .knownSourcePolicyNetworkFailure : .knownSourcePolicyInvalidResponse,
+                        sourceStep: network ? .knownSourcePolicyFetch : .knownSourcePolicyParsing).wire
                 } else if let sourceError = error as? V3SourceCommandError {
                     switch sourceError.kind {
                     case .network:
@@ -253,7 +287,13 @@ final class V3SideStoreService: NSObject {
         }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(max(0, deadline.timeIntervalSinceNow) * 1_000_000_000))
-            if tasks[id] != nil { tasks[id]?.cancel(); cancellations[id]?() }
+            if tasks[id] != nil {
+                if let session = pendingAuthStartSessions[id] {
+                    _ = V3HeadlessRuntime.shared.auth.cancelBeforeBegin(id: session)
+                }
+                tasks[id]?.cancel()
+                cancellations[id]?()
+            }
         }
     }
 
@@ -310,7 +350,7 @@ final class V3SideStoreService: NSObject {
             guard refreshAdmission.acquire(runID: target,
                     requestID: id,
                     authenticationActive: V3HeadlessRuntime.shared.auth.hasActiveSession,
-                    anotherMutationActive: mutationID != nil && mutationID != id,
+                    anotherMutationActive: mutationID != nil && mutationID != id
                     // This ownership lifetime follows the native refresh timeout,
                     // not the short XPC begin-request deadline.
                     ) else {
@@ -430,7 +470,8 @@ final class V3SideStoreService: NSObject {
                   let session = payload["session"] as? String, session == target else {
                 throw ServiceError.invalidRequest
             }
-            return await V3HeadlessRuntime.shared.auth.begin(deadline: deadline, sessionID: session)
+            return await V3HeadlessRuntime.shared.auth.begin(deadline: deadline,
+                requestDeadline: request["deadline"] as? Date, sessionID: session)
         case "authRetryProvisioning":
             // V3_PROVISIONING_RESUME_V1: Apple authentication already succeeded.
             // This re-enters provisioning with the saved session so credentials
@@ -441,7 +482,8 @@ final class V3SideStoreService: NSObject {
                 throw ServiceError.invalidRequest
             }
             return await V3HeadlessRuntime.shared.auth.begin(deadline: deadline,
-                mode: .resumeProvisioning, sessionID: session)
+                mode: .resumeProvisioning, requestDeadline: request["deadline"] as? Date,
+                sessionID: session)
         case "authPoll":
             guard let reply = V3HeadlessRuntime.shared.auth.poll(id: target) else { throw ServiceError.invalidRequest }
             return reply
@@ -666,7 +708,8 @@ final class V3SideStoreService: NSObject {
             lastSuccessfulUpdate: lastUpdated) else { return }
 
         if let knownSourcesUpdateTask {
-            try await knownSourcesUpdateTask.value
+            do { try await knownSourcesUpdateTask.value }
+            catch { throw V3KnownSourcePolicyFailure(error) }
             guard defaults.blockedSources != nil else { throw ServiceError.notReady }
             return
         }
@@ -680,13 +723,14 @@ final class V3SideStoreService: NSObject {
                     throw URLError(.timedOut)
                 }
                 let completedUpdate = try await group.next()
-                guard completedUpdate != nil else { throw CancellationError() }
+                guard case .some = completedUpdate else { throw CancellationError() }
                 group.cancelAll()
             }
         }
         knownSourcesUpdateTask = task
         defer { knownSourcesUpdateTask = nil }
-        try await task.value
+        do { try await task.value }
+        catch { throw V3KnownSourcePolicyFailure(error) }
         guard defaults.blockedSources != nil else { throw ServiceError.notReady }
         defaults.set(Date(), forKey: "v3KnownSourcesUpdatedAt")
     }

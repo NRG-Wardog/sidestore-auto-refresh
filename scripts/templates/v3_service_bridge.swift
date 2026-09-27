@@ -213,6 +213,10 @@ public final class V3ServiceBridge {
                     throw CombinedFailure(operation: "source", stage: .source, code: .busy,
                         id: id, retryable: true, safeCause: .sourceRemoveBusy)
                 }
+                if ["refreshAdmissionBegin", "refreshAdmissionEnd"].contains(operation) {
+                    throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
+                        id: id, retryable: true, safeCause: .operationInProgress)
+                }
                 throw CombinedFailure(operation: operation, stage: .command, code: .busy,
                                       id: id, retryable: true)
             }
@@ -300,7 +304,9 @@ public final class V3ServiceBridge {
                         self.settle(id, .failure(CombinedFailure(operation: operation,
                             stage: V3CatalogRequestContext.hostStage(for: operation), code: .timedOut, id: id,
                             retryable: mutation ? nil : true)))
-                        if !mutation, !self.isMutating, RefreshHandler.shared.v3RefreshToken == nil {
+                        if !mutation && V3IdleReadRetirementPolicy.shouldRetireService(
+                            operation: operation, hostMutationActive: self.isMutating,
+                            refreshAttemptActive: RefreshHandler.shared.v3RefreshToken != nil) {
                             // An idle service that cannot answer a read needs a fresh process.
                             // Never retire it for a read while signing/install/refresh is active.
                             RefreshHandler.shared.v3_stopService()

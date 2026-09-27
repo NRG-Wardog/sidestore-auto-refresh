@@ -119,8 +119,9 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("authSessionLifetime", wire)
         self.assertIn('requestPayload["sessionDeadline"]', bridge)
         self.assertIn('payload["sessionDeadline"] as? Date', auth_cases)
-        self.assertNotIn('request["deadline"] as? Date', auth_cases)
-        self.assertIn("V3AuthSessionExpiryPolicy.response(authenticated: authenticated)", runtime())
+        self.assertIn('requestDeadline: request["deadline"] as? Date', auth_cases)
+        self.assertNotIn('let deadline = request["deadline"] as? Date', auth_cases)
+        self.assertIn("V3AuthSessionExpiryPolicy.response(authenticated: authenticated,", runtime())
 
     def test_auth_transport_failure_reconciles_before_showing_failed(self):
         host = shell()

@@ -268,6 +268,17 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertIn("cancelledSessionCreation", bridge)
         self.assertIn("V3RequestRetirementPolicy", bridge)
 
+    def test_auth_begin_request_expiry_cancels_its_reserved_session(self):
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        self.assertIn("pendingAuthStartSessions[id] = session", service)
+        self.assertIn("pendingAuthStartSessions[id] = nil", service)
+        self.assertIn("auth.cancelBeforeBegin(id: session)", service)
+        begin = runtime[runtime.index("func begin(deadline: Date, mode: BeginMode = .interactive,"):]
+        begin = begin[:begin.index("    func run(id: String)")]
+        self.assertIn("let requestExpired = Task.isCancelled", begin)
+        self.assertIn("requestCancelled: requestExpired", begin)
+
 
 class WireExecutionTests(unittest.TestCase):
     def test_shipped_native_callback_settles_once(self):
@@ -427,12 +438,18 @@ func base(_ operation: String) -> [String: Any] {
     ["version": 1, "id": UUID().uuidString, "operation": operation,
      "target": UUID().uuidString, "deadline": now.addingTimeInterval(30)]
 }
-for operation in ["authBegin", "authPoll", "authRespond", "opStart", "opPoll", "opAnswer",
+for operation in ["authBegin", "authRetryProvisioning", "authPoll", "authRespond", "opStart", "opPoll", "opAnswer",
                   "certList", "certRevoke", "devTeams", "sourcePreview", "sourceAddConfirmed",
                   "pairingImportData", "settingsGet", "settingsSet", "anisetteList",
                   "sidesignGet", "logTail", "healthSnapshot", "accountExport", "accountImport"] {
     var request = base(operation)
-    request["payload"] = ["kind": "install", "answer": ["choice": "proceed"]]
+    if operation == "authBegin" || operation == "authRetryProvisioning" {
+        let session = UUID().uuidString
+        request["target"] = session
+        request["payload"] = ["session": session, "sessionDeadline": now.addingTimeInterval(600)]
+    } else {
+        request["payload"] = ["kind": "install", "answer": ["choice": "proceed"]]
+    }
     precondition(V3WireContract.decodeRequest(encode(request), now: now) != nil, operation)
     precondition(V3WireContract.readOperations.contains(operation) == ["authPoll", "opPoll", "certList", "devTeams", "sourcePreview", "settingsGet", "anisetteList", "sidesignGet", "logTail", "healthSnapshot"].contains(operation), operation)
 }

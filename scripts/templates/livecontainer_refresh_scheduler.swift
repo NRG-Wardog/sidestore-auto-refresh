@@ -88,7 +88,7 @@ enum LiveContainerAutoRefreshScheduler {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         if settings.authorizationStatus == .denied {
             if let url = URL(string: UIApplication.openSettingsURLString) {
-                UIApplication.shared.open(url)
+                _ = await UIApplication.shared.open(url)
             }
             return
         }

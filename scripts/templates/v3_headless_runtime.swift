@@ -440,6 +440,7 @@ final class V3AuthCenter {
     }
 
     func begin(deadline: Date, mode: BeginMode = .interactive,
+               requestDeadline: Date? = nil,
                sessionID requestedID: String? = nil) async -> [String: Any] {
         cleanupSessions()
         let id = requestedID ?? UUID().uuidString
@@ -487,10 +488,13 @@ final class V3AuthCenter {
             _ = cancel(id: previousID)
             if let oldTask { await oldTask.value }
         }
+        let requestExpired = Task.isCancelled || (requestDeadline.map { $0 <= Date() } ?? false)
+        if requestExpired { _ = cancel(id: id) }
         guard let current = sessions[id],
               V3AuthSessionResponsePolicy.mayLaunchCreatedSession(sessionID: id,
                 activeSessionID: activeID, cancellationRequested: current.cancellationRequested,
-                terminalIsEmpty: current.terminal.isEmpty) else {
+                terminalIsEmpty: current.terminal.isEmpty,
+                requestCancelled: requestExpired) else {
             return poll(id: id) ?? ["session": id, "state": "cancelled", "authenticated": false]
         }
         sessions[id]?.task = Task { @MainActor in await V3HeadlessRuntime.shared.auth.run(id: id) }
@@ -627,17 +631,21 @@ final class V3AuthCenter {
     func expire(id: String) {
         guard var session = sessions[id], session.terminal.isEmpty else { return }
         let authenticated = session.authenticatedAppleID != nil || AuthManager.shared.isAuthenticated
+        let authenticatedAppleID = (session.authenticatedAppleID ?? AuthManager.shared.currentAppleID)?.lowercased()
+        if authenticated, AuthManager.shared.isAuthenticated,
+           let authenticatedAppleID, !authenticatedAppleID.isEmpty,
+           resumableProvisioning?.appleID != authenticatedAppleID {
+            resumableProvisioning = (authenticatedAppleID, "sessionTimeout")
+        }
+        let resumable = AuthManager.shared.isAuthenticated &&
+            authenticatedAppleID.map { resumableProvisioning?.appleID == $0 } == true
         session.cancellationRequested = true
         session.task?.cancel()
         session.watchdog?.cancel()
         session.prompt = nil
         sessions[id] = session
-        var response = V3AuthSessionExpiryPolicy.response(authenticated: authenticated)
-        if authenticated {
-            response["resumable"] = resumableProvisioning.map {
-                $0.appleID == AuthManager.shared.currentAppleID?.lowercased()
-            } ?? false
-        }
+        let response = V3AuthSessionExpiryPolicy.response(authenticated: authenticated,
+                                                          resumable: resumable)
         _ = finish(id: id, response: response)
         if session.task == nil, activeID == id { activeID = nil }
         debugLog("[V3_AUTH] TERMINAL session=\(id) state=\(authenticated ? "authenticatedProvisioningIncomplete" : "timedOut")")

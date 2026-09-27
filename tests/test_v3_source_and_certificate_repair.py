@@ -40,6 +40,9 @@ class SourceAddPersistenceContractTests(unittest.TestCase):
                       "UpdateKnownSourcesOperation().execute()", "withThrowingTaskGroup",
                       "15_000_000_000", "v3KnownSourcesUpdatedAt"):
             self.assertIn(token, preflight)
+        self.assertIn("V3KnownSourcePolicyFailure", service)
+        self.assertIn("knownSourcePolicyNetworkFailure", service)
+        self.assertIn("knownSourcePolicyInvalidResponse", service)
 
     def test_headless_add_uses_persisted_check_save_and_fresh_context_verification(self):
         runtime = text(RUNTIME)
@@ -73,6 +76,15 @@ class SourceAddPersistenceContractTests(unittest.TestCase):
             self.assertTrue(token in method or token in text(PRIMITIVES))
         self.assertNotIn('notice = "Source added."', method)
         self.assertIn("sourceFailure.technicalDetails", shell)
+
+    def test_same_deterministic_source_request_is_not_replayed_from_the_form(self):
+        shell = text(SHELL)
+        view = region(shell, "struct V3SourcesView", "private struct V3SourceAddFailure")
+        self.assertIn("failedSourceInput", view)
+        self.assertIn("V3SourceSubmissionPolicy.mayResubmit", view)
+        self.assertIn("isSubmissionBlocked(for: status.sourceURL)", view)
+        self.assertIn("isSubmissionBlocked(for: preview[\"url\"]", view)
+        self.assertIn("failedSourceInput != newURL", view)
 
     def test_pinned_sidestore_uses_fresh_context_source_is_added_semantics(self):
         side = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")

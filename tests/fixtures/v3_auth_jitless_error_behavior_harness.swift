@@ -48,6 +48,21 @@ struct V3AuthJITLessErrorBehaviorHarness {
             currentSessionID: sessionID, replySessionID: sessionID, cancellationInProgress: false,
             submittedPromptID: "prompt-A", currentPromptID: "prompt-B"),
             "a late answer for prompt A must not replace a newer prompt B in the same session")
+        precondition(!V3AuthPromptSubmissionPolicy.mayShowFailure(
+            currentSessionID: sessionID, submittedSessionID: sessionID,
+            currentPromptID: "prompt-B", submittedPromptID: "prompt-A",
+            cancellationInProgress: false),
+            "a delayed error for prompt A must not overwrite prompt B")
+        precondition(!V3AuthPromptSubmissionPolicy.mayShowFailure(
+            currentSessionID: sessionID, submittedSessionID: sessionID,
+            currentPromptID: nil, submittedPromptID: "prompt-A",
+            cancellationInProgress: false),
+            "a delayed prompt error must not overwrite a terminal timeout")
+        precondition(V3AuthPromptSubmissionPolicy.mayShowFailure(
+            currentSessionID: sessionID, submittedSessionID: sessionID,
+            currentPromptID: "prompt-A", submittedPromptID: "prompt-A",
+            cancellationInProgress: false),
+            "the current prompt may show its own submission error")
         precondition(V3AuthPollResponsePolicy.mayApply(currentSessionID: sessionID,
             replySessionID: sessionID, cancellationInProgress: false, currentRevision: 1,
             replyRevision: 2, currentPromptID: "prompt-A", replyPromptID: "prompt-A"),
@@ -87,6 +102,10 @@ struct V3AuthJITLessErrorBehaviorHarness {
         precondition(!V3AuthSessionResponsePolicy.mayLaunchCreatedSession(sessionID: beginRaceID,
             activeSessionID: UUID().uuidString, cancellationRequested: false, terminalIsEmpty: true),
             "a newer auth begin must supersede the older suspended begin")
+        precondition(!V3AuthSessionResponsePolicy.mayLaunchCreatedSession(sessionID: beginRaceID,
+            activeSessionID: beginRaceID, cancellationRequested: false,
+            terminalIsEmpty: true, requestCancelled: true),
+            "a superseding auth begin whose XPC request timed out must not launch after the old task unwinds")
 
         precondition(V3TwoFactorStep.afterDeliveryChoice("trustedDevice", phoneCount: 0) == .deliveryRequested)
         precondition(V3TwoFactorStep.afterDelivery("trustedDevice") == .enterVerificationCode)

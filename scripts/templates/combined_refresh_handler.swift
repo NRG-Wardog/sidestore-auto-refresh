@@ -226,8 +226,8 @@ class RefreshHandler: NSObject {
             operation: "refreshAdmissionBegin", target: run)
         guard admission["runID"] as? String == run,
               V3ServiceBridge.strictBool(admission["admitted"]) == true else {
-            throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
-                code: .busy, id: run, retryable: true)
+            throw CombinedFailure(operation: "refresh", stage: .command,
+                code: .busy, id: run, retryable: true, safeCause: .operationInProgress)
         }
         defaults?.set(run, forKey: "liveContainerAutoRefreshExpectedRunID")
         refreshRunID = run

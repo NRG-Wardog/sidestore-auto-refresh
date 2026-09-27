@@ -35,7 +35,7 @@ class BGTaskScheduler {
     static let shared = UIApplication()
     static let openSettingsURLString = "app-settings:"
     var openedURLs: [URL] = []
-    func open(_ url: URL) { openedURLs.append(url) }
+    func open(_ url: URL) async -> Bool { openedURLs.append(url); return true }
 }
 enum UNAuthorizationStatus { case notDetermined, denied, authorized, provisional }
 struct UNAuthorizationOptions: OptionSet {

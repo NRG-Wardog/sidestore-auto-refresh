@@ -129,6 +129,16 @@ enum V3SourceAddPersistencePolicy {
     }
 }
 
+enum V3SourceSubmissionPolicy {
+    static func mayResubmit(retryable: Bool?, safeCause: String?,
+                            failedInput: String?, currentInput: String) -> Bool {
+        guard failedInput == currentInput else { return true }
+        if retryable == false { return false }
+        return ![CombinedFailure.SafeCause.responseEncodingFailed.rawValue,
+                 CombinedFailure.SafeCause.responseTooLarge.rawValue].contains(safeCause ?? "")
+    }
+}
+
 enum V3JITLessReadiness: String, Equatable {
     case notRequired
     case setupRequired
@@ -809,8 +819,9 @@ enum V3AuthSessionResponsePolicy {
     }
 
     static func mayLaunchCreatedSession(sessionID: String, activeSessionID: String?,
-                                        cancellationRequested: Bool, terminalIsEmpty: Bool) -> Bool {
-        activeSessionID == sessionID && !cancellationRequested && terminalIsEmpty
+                                        cancellationRequested: Bool, terminalIsEmpty: Bool,
+                                        requestCancelled: Bool = false) -> Bool {
+        activeSessionID == sessionID && !cancellationRequested && !requestCancelled && terminalIsEmpty
     }
 }
 
@@ -824,6 +835,15 @@ enum V3AuthPollResponsePolicy {
         if replyRevision == currentRevision, let currentPromptID,
            replyPromptID != currentPromptID { return false }
         return true
+    }
+}
+
+enum V3AuthPromptSubmissionPolicy {
+    static func mayShowFailure(currentSessionID: String?, submittedSessionID: String,
+                               currentPromptID: String?, submittedPromptID: String,
+                               cancellationInProgress: Bool) -> Bool {
+        !cancellationInProgress && currentSessionID == submittedSessionID &&
+            currentPromptID == submittedPromptID
     }
 }
 
@@ -1458,6 +1478,15 @@ struct V3UserFacingIssue: Equatable {
             case "sources":
                 if safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue ||
                    safeCause == CombinedFailure.SafeCause.sourceRemoveBusy.rawValue { return .reloadSources }
+                if safeCause == CombinedFailure.SafeCause.knownSourcePolicyNetworkFailure.rawValue ||
+                   safeCause == CombinedFailure.SafeCause.knownSourcePolicyInvalidResponse.rawValue ||
+                   safeCause == CombinedFailure.SafeCause.sourceInvalidManifest.rawValue ||
+                   safeCause == CombinedFailure.SafeCause.sourceInvalidURL.rawValue { return .openSources }
+                if [CombinedFailure.SafeCause.responseEncodingFailed.rawValue,
+                    CombinedFailure.SafeCause.responseTooLarge.rawValue,
+                    CombinedFailure.SafeCause.operationInProgress.rawValue].contains(safeCause ?? "") {
+                    return .dismiss
+                }
                 if stage == CombinedFailure.Stage.serviceReadiness.rawValue { return .openSources }
                 return .retrySource
             case "setup": return .openSetup
@@ -2160,10 +2189,21 @@ enum V3RequestRetirementPolicy {
     }
 }
 
+enum V3IdleReadRetirementPolicy {
+    static func shouldRetireService(operation: String, hostMutationActive: Bool,
+                                    refreshAttemptActive: Bool) -> Bool {
+        guard !hostMutationActive, !refreshAttemptActive else { return false }
+        // A timed-out authPoll is one lost observation of a live session, not
+        // evidence that the in-memory SignInOperation should be discarded.
+        return operation != "authPoll"
+    }
+}
+
 enum V3AuthSessionExpiryPolicy {
-    static func response(authenticated: Bool) -> [String: Any] {
+    static func response(authenticated: Bool, resumable: Bool = false) -> [String: Any] {
         if authenticated {
             return ["state": "authenticatedProvisioningIncomplete", "authenticated": true,
+                    "resumable": resumable,
                     "message": "Apple ID sign-in succeeded, but provisioning did not finish before the session timed out."]
         }
         return ["state": "timedOut", "authenticated": false,

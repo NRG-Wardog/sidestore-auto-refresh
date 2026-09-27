@@ -128,6 +128,46 @@ struct SetupAndSemanticUXHarness {
         precondition(sourceNotReadyIssue.primaryAction == .openSources &&
             sourceNotReadyIssue.primaryAction.title == "Open Sources",
             "source service-readiness failures must not claim Retry Source re-fetches the source")
+        let knownSourceInvalid = issue("source", "source",
+            CombinedFailure.SafeCause.knownSourcePolicyInvalidResponse.rawValue, retryable: false)
+        precondition(knownSourceInvalid.primaryAction == .openSources &&
+                     knownSourceInvalid.recoveryDestination == "sources",
+                     "an unreadable SideStore safety list must point to Sources, not blame the entered URL")
+        let knownSourceNetworkFailure = CombinedFailure(operation: "source", stage: .source,
+            code: .failed, id: UUID().uuidString, retryable: true,
+            safeCause: .knownSourcePolicyNetworkFailure, sourceStep: .knownSourcePolicyFetch)
+        precondition(knownSourceNetworkFailure.message.contains("known-source safety list") &&
+                     knownSourceNetworkFailure.recovery.contains("not the URL you entered"),
+                     "a known-source endpoint failure must name SideStore's safety-list fetch")
+        let deterministicSourceReply = issue("source", "replyEncoding",
+            CombinedFailure.SafeCause.responseEncodingFailed.rawValue, retryable: false)
+        precondition(deterministicSourceReply.primaryAction == .dismiss &&
+                     deterministicSourceReply.retryDisposition == .blocked,
+                     "a deterministic source reply defect must not offer Retry Source")
+        precondition(!V3SourceSubmissionPolicy.mayResubmit(retryable: false,
+            safeCause: CombinedFailure.SafeCause.responseTooLarge.rawValue,
+            failedInput: "https://example.invalid/source.json",
+            currentInput: "https://example.invalid/source.json"),
+            "the source form must not repeat the same deterministic oversized response request")
+        precondition(V3SourceSubmissionPolicy.mayResubmit(retryable: false,
+            safeCause: CombinedFailure.SafeCause.responseTooLarge.rawValue,
+            failedInput: "https://example.invalid/source.json",
+            currentInput: "https://example.invalid/changed-source.json"),
+            "editing the request permits a new source submission after a deterministic failure")
+        precondition(V3SourceSubmissionPolicy.mayResubmit(retryable: true,
+            safeCause: CombinedFailure.SafeCause.sourceNetworkFailure.rawValue,
+            failedInput: "https://example.invalid/source.json",
+            currentInput: "https://example.invalid/source.json"),
+            "a network source failure may be retried explicitly")
+        let contention = issue("refresh", "command",
+            CombinedFailure.SafeCause.operationInProgress.rawValue, retryable: true)
+        precondition(contention.primaryAction == .dismiss && contention.recoveryDestination == nil,
+                     "mutation contention must not be routed as a connection failure")
+        let activeMutationFailure = CombinedFailure(operation: "refresh", stage: .command,
+            code: .busy, id: UUID().uuidString, retryable: true, safeCause: .operationInProgress)
+        precondition(activeMutationFailure.message.contains("Another SideStore operation") &&
+                     activeMutationFailure.recovery.contains("Wait for the active SideStore operation"),
+                     "refresh contention must tell the user to wait for mutation ownership")
         precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
             anotherMutationActive: false, authenticationActive: true,
             isAuthContinuation: false, responseCapacityAvailable: true),
@@ -166,6 +206,15 @@ struct SetupAndSemanticUXHarness {
         precondition(V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("refreshAdmissionBegin"))
         precondition(!V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("authPoll"))
         precondition(!V3RequestRetirementPolicy.shouldRetireServiceIfRequestStaysPending("opPoll"))
+        precondition(!V3IdleReadRetirementPolicy.shouldRetireService(
+            operation: "authPoll", hostMutationActive: false, refreshAttemptActive: false),
+            "one timed-out auth poll must not retire a still-running SignInOperation")
+        precondition(!V3IdleReadRetirementPolicy.shouldRetireService(
+            operation: "snapshot", hostMutationActive: true, refreshAttemptActive: false),
+            "an idle-read timeout must not retire a service while a host mutation is active")
+        precondition(V3IdleReadRetirementPolicy.shouldRetireService(
+            operation: "snapshot", hostMutationActive: false, refreshAttemptActive: false),
+            "an unresponsive idle service can still be retired")
         let unauthenticatedExpiry = V3AuthSessionExpiryPolicy.response(authenticated: false)
         precondition(unauthenticatedExpiry["state"] as? String == "timedOut" &&
                      unauthenticatedExpiry["authenticated"] as? Bool == false,
@@ -174,6 +223,9 @@ struct SetupAndSemanticUXHarness {
         precondition(postAuthExpiry["state"] as? String == "authenticatedProvisioningIncomplete" &&
                      postAuthExpiry["authenticated"] as? Bool == true,
                      "a provisioning timeout after Apple authentication must preserve signed-in state")
+        let resumableExpiry = V3AuthSessionExpiryPolicy.response(authenticated: true, resumable: true)
+        precondition(resumableExpiry["resumable"] as? Bool == true,
+                     "a provisioning timeout must retain an already-authenticated resumable session")
 
         // V3_REFRESH_ADMISSION_LEASE_V1: the scheduler's direct XPC refresh
         // path acquires this same service-owned lease before dispatch. Its
