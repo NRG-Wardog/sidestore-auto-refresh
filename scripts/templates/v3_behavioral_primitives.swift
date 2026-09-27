@@ -2753,6 +2753,7 @@ enum V3AuthPollMonitorRecoveryPolicy {
                              failedPromptResponseGeneration: UInt64,
                              currentPromptResponseGeneration: UInt64,
                              state: String, promptSubmissionInProgress: Bool,
+                             hasCurrentPrompt: Bool = false,
                              cancellationInProgress: Bool, taskCancelled: Bool,
                              reconciliationWasSuperseded: Bool = false,
                              now: Date = Date(), sessionDeadline: Date) -> Bool {
@@ -2763,7 +2764,7 @@ enum V3AuthPollMonitorRecoveryPolicy {
         _ = sessionDeadline // PollLoop owns deadline terminalization on resume.
         return failedPromptRevision != currentPromptRevision ||
             failedPromptResponseGeneration != currentPromptResponseGeneration ||
-            promptSubmissionInProgress || reconciliationWasSuperseded
+            promptSubmissionInProgress || hasCurrentPrompt || reconciliationWasSuperseded
     }
 }
 

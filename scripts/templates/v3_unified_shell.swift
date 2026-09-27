@@ -3764,6 +3764,16 @@ final class V3AuthStore: ObservableObject {
             }
             let reconciliationGenerationBefore = reconciliationGate.generation
             let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)
+            if let pollFailure,
+               restartPollMonitorAfterSupersededFailure(sessionID: requestedSession,
+                    sessionDeadline: sessionDeadline,
+                    failedPromptRevision: pollFailure.promptRevision,
+                    failedPromptResponseGeneration: pollFailure.promptResponseGeneration,
+                    provisioningRetry: true,
+                    reconciliationWasSuperseded: reconciliationGate.generation !=
+                        (reconciliationGenerationBefore &+ 1)) {
+                return
+            }
             guard V3AuthAttemptFailureCommitPolicy.mayCommit(
                 requestedSessionID: requestedSession, currentSessionID: session,
                 capturedPromptResponseGeneration: failureResponseGeneration,
@@ -3772,7 +3782,7 @@ final class V3AuthStore: ObservableObject {
                 currentReconciliationGeneration: reconciliationGate.generation,
                 cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled) else {
                 if let pollFailure {
-                    restartPollMonitorAfterSupersededFailure(sessionID: requestedSession,
+                    _ = restartPollMonitorAfterSupersededFailure(sessionID: requestedSession,
                         sessionDeadline: sessionDeadline,
                         failedPromptRevision: pollFailure.promptRevision,
                         failedPromptResponseGeneration: pollFailure.promptResponseGeneration,
@@ -3961,6 +3971,16 @@ final class V3AuthStore: ObservableObject {
             // is cancelled or a correlated terminal reply arrives.
             let reconciliationGenerationBefore = reconciliationGate.generation
             let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)
+            if let pollFailure,
+               restartPollMonitorAfterSupersededFailure(sessionID: requestedSession,
+                    sessionDeadline: sessionDeadline,
+                    failedPromptRevision: pollFailure.promptRevision,
+                    failedPromptResponseGeneration: pollFailure.promptResponseGeneration,
+                    provisioningRetry: false,
+                    reconciliationWasSuperseded: reconciliationGate.generation !=
+                        (reconciliationGenerationBefore &+ 1)) {
+                return
+            }
             guard V3AuthAttemptFailureCommitPolicy.mayCommit(
                 requestedSessionID: requestedSession, currentSessionID: session,
                 capturedPromptResponseGeneration: failureResponseGeneration,
@@ -3969,7 +3989,7 @@ final class V3AuthStore: ObservableObject {
                 currentReconciliationGeneration: reconciliationGate.generation,
                 cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled) else {
                 if let pollFailure {
-                    restartPollMonitorAfterSupersededFailure(sessionID: requestedSession,
+                    _ = restartPollMonitorAfterSupersededFailure(sessionID: requestedSession,
                         sessionDeadline: sessionDeadline,
                         failedPromptRevision: pollFailure.promptRevision,
                         failedPromptResponseGeneration: pollFailure.promptResponseGeneration,
@@ -4108,7 +4128,7 @@ final class V3AuthStore: ObservableObject {
         sessionDeadline: Date, failedPromptRevision: Int,
         failedPromptResponseGeneration: UInt64,
         provisioningRetry: Bool,
-        reconciliationWasSuperseded: Bool) {
+        reconciliationWasSuperseded: Bool) -> Bool {
         guard V3AuthPollMonitorRecoveryPolicy.shouldResume(
             requestedSessionID: sessionID, currentSessionID: session,
             failedPromptRevision: failedPromptRevision, currentPromptRevision: revision,
@@ -4116,17 +4136,20 @@ final class V3AuthStore: ObservableObject {
             currentPromptResponseGeneration: promptResponseGeneration, state: state,
             promptSubmissionInProgress: promptSubmitting, cancellationInProgress: isCancelling,
             taskCancelled: Task.isCancelled,
+            hasCurrentPrompt: prompt != nil,
             reconciliationWasSuperseded: reconciliationWasSuperseded,
-            sessionDeadline: sessionDeadline) else { return }
+            sessionDeadline: sessionDeadline) else { return false }
         task = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.continuePollingAfterSupersededFailure(sessionID: sessionID,
                 sessionDeadline: sessionDeadline, provisioningRetry: provisioningRetry)
         }
+        return true
     }
 
     private func continuePollingAfterSupersededFailure(sessionID: String,
         sessionDeadline: Date, provisioningRetry: Bool) async {
+        var monitorFailureCount = 0
         while !Task.isCancelled, !isCancelling, session == sessionID {
             do {
                 try await pollLoop(id: sessionID, sessionDeadline: sessionDeadline)
@@ -4141,9 +4164,22 @@ final class V3AuthStore: ObservableObject {
                     currentPromptResponseGeneration: promptResponseGeneration, state: state,
                     promptSubmissionInProgress: promptSubmitting, cancellationInProgress: isCancelling,
                     taskCancelled: Task.isCancelled,
+                    hasCurrentPrompt: prompt != nil,
                     reconciliationWasSuperseded: reconciliationGate.generation !=
                         (reconciliationGenerationBefore &+ 1),
                     sessionDeadline: sessionDeadline) {
+                    if prompt != nil &&
+                       failure.promptResponseGeneration == promptResponseGeneration &&
+                       failure.promptRevision == revision && !promptSubmitting {
+                        message = "Connection to SideStore was interrupted while checking this verification request. The current response is still available."
+                    }
+                    monitorFailureCount += 1
+                    let delay = V3AuthPollRecoveryPolicy.retryDelay(attempt: monitorFailureCount - 1,
+                        remaining: sessionDeadline.timeIntervalSinceNow)
+                    if delay > 0 {
+                        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    }
+                    if Task.isCancelled { return }
                     continue
                 }
                 guard V3AuthAttemptFailureCommitPolicy.mayCommit(

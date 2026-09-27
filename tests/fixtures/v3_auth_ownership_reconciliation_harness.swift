@@ -197,6 +197,14 @@ struct AuthOwnershipReconciliationHarness {
             cancellationInProgress: false, taskCancelled: false,
             now: now, sessionDeadline: deadline),
             "a current poll error with no newer user response follows its failure path")
+        precondition(V3AuthPollMonitorRecoveryPolicy.shouldResume(
+            requestedSessionID: current, currentSessionID: current,
+            failedPromptRevision: 8, currentPromptRevision: 8,
+            failedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,
+            state: "awaitingPrompt", promptSubmissionInProgress: false,
+            hasCurrentPrompt: true, cancellationInProgress: false,
+            taskCancelled: false, now: now, sessionDeadline: deadline),
+            "a still-current answerable prompt keeps its poll monitor after a poll error")
         precondition(!V3AuthPollMonitorRecoveryPolicy.shouldResume(
             requestedSessionID: current, currentSessionID: current,
             failedPromptRevision: 8, currentPromptRevision: 9,

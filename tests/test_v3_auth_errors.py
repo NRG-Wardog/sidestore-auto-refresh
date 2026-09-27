@@ -295,12 +295,15 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("V3AuthAttemptFailureCommitPolicy.mayCommit", sign_in)
         self.assertIn("V3AuthPollFailureRacePolicy.shouldIgnore", sign_in)
         self.assertIn("promptResponseGeneration &+= 1", sign_in)
+        self.assertLess(reconcile.index("shouldPreserveActivePrompt"),
+                        reconcile.index("if authoritative"))
 
     def test_superseded_poll_failure_restarts_monitor_for_sign_in_and_provisioning(self):
         sign_in = shell()[shell().index("final class V3AuthStore"):shell().index("struct V3SignInLink")]
-        self.assertEqual(sign_in.count("restartPollMonitorAfterSupersededFailure(sessionID: requestedSession"), 2)
+        self.assertGreaterEqual(sign_in.count("restartPollMonitorAfterSupersededFailure(sessionID: requestedSession"), 4)
         recovery = sign_in[sign_in.index("private func restartPollMonitorAfterSupersededFailure"):]
         self.assertIn("V3AuthPollMonitorRecoveryPolicy.shouldResume", recovery)
+        self.assertIn("hasCurrentPrompt: prompt != nil", recovery)
         self.assertIn("task = Task", recovery)
         self.assertIn("continuePollingAfterSupersededFailure", recovery)
         self.assertIn("sessionDeadline: sessionDeadline", recovery)
