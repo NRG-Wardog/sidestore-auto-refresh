@@ -27,8 +27,8 @@ struct AuthClassificationHarness {
         precondition(v3ClassifyAuthError(DeveloperPortalError.tooManyAttempts) == .rateLimited)
         precondition(v3ClassifyAuthError(DeveloperPortalError.invalidAnisetteData) == .anisette)
         precondition(v3ClassifyAuthError(DeveloperPortalError.accountRepairRequired) == .accountRepairRequired)
-        precondition(v3AuthFailureStage(.anisette) == .anisette,
-            "Anisette failures during provisioning retry retain the Anisette stage")
+        precondition(v3AuthFailureStage(.anisette) == .authentication,
+            "Anisette failures retain the broad wire authentication stage")
         precondition(v3AuthFailureStage(.network) == .network,
             "network failures during provisioning retry retain the network stage")
         precondition(v3ClassifyAuthError(NSError(domain: NSURLErrorDomain, code: -1009)) == .network)

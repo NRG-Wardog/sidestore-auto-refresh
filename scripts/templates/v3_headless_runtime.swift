@@ -144,7 +144,9 @@ enum V3AuthFailureKind: String, Equatable {
 
 func v3AuthFailureStage(_ kind: V3AuthFailureKind) -> CombinedFailure.Stage {
     switch kind {
-    case .anisette: return .anisette
+    // The wire stage enum intentionally keeps authentication failures under
+    // authentication; failureKind preserves the precise Anisette meaning.
+    case .anisette: return .authentication
     case .network: return .network
     case .unknown: return .provisioning
     case .invalidCredentials, .appSpecificPasswordRequired, .invalidCode,

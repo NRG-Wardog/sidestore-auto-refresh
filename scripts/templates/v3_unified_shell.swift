@@ -1477,11 +1477,24 @@ final class V3SideStoreStatusStore: ObservableObject {
         }
         Task { @MainActor in
             do {
-                _ = try await V3ServiceBridge.shared.request(operation: "opCancel", target: sessionID)
+                let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: sessionID)
+                guard let terminalState = V3InstallCancellationOutcomePolicy.terminalState(
+                    expectedSessionID: sessionID,
+                    replySessionID: reply["session"] as? String,
+                    state: reply["state"] as? String,
+                    backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
+                    stopConfirmed: V3ServiceBridge.strictBool(reply["stopConfirmed"]),
+                    outcomeUnknown: V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true) else {
+                    self.error = "SideStore has not confirmed that the device operation stopped. The IPA and operation session were kept; retry cancellation or check device state before another install."
+                    return
+                }
                 _ = installAttempt.recordTerminal(attemptID: attemptID,
-                    operationID: operationID, outcome: "cancelled")
-                self.error = nil
-                let token = resetInstallUI(attemptID: attemptID, outcome: "cancelled")
+                    operationID: operationID, outcome: terminalState)
+                self.error = terminalState == "cancelled" ? nil :
+                    (terminalState == "completed"
+                        ? "The install completed before cancellation was confirmed."
+                        : "The install ended with a failure before cancellation was confirmed.")
+                let token = resetInstallUI(attemptID: attemptID, outcome: terminalState)
                 if let token { _ = await cleanupStagedIPA(token) }
                 reload()
             } catch {
@@ -4026,7 +4039,7 @@ final class V3AuthStore: ObservableObject {
         let hasActiveAttempt = ["working", "awaitingPrompt", "promptExpired"].contains(state)
         let canRetryCancellation = V3AuthCancellationRetryPolicy.canRetry(
             isCancelling: isCancelling, cancellationConfirmed: cancellationConfirmed,
-            state: state, hasSession: session != nil)
+            hasSession: session != nil)
         guard !isCancelling, hasActiveAttempt || canRetryCancellation else { return }
         isCancelling = true
         cancellationConfirmed = false
@@ -4055,7 +4068,7 @@ final class V3AuthStore: ObservableObject {
                     message = "The service could not confirm the sign-in result. Reconnect and check Account & Signing before trying again."
                 }
             }
-            session = nil
+            session = cancellationConfirmed ? nil : oldSession
             prompt = nil
             promptSubmitting = false
             task = nil
@@ -4160,7 +4173,7 @@ struct V3SignInView: View {
                     .disabled(!auth.canBegin)
                 }
                 if V3AuthCancellationRetryPolicy.canRetry(isCancelling: auth.isCancelling,
-                    cancellationConfirmed: auth.cancellationConfirmed, state: auth.state,
+                    cancellationConfirmed: auth.cancellationConfirmed,
                     hasSession: auth.session != nil) {
                     Button("Retry Cancellation", role: .cancel) { auth.cancel() }
                 }

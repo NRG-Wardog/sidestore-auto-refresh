@@ -51,7 +51,9 @@ def patch_dead10cc(live_root: Path) -> None:
         "@interface Dead10ccFix : NSObject {\n"
         "@private\n"
         "    LCDead10ccTransitionGate _backgroundTransitionGate;\n"
-        "}\n", "background transition gate storage")
+        "}\n"
+        "- (void)handleAppWillEnterForeground:(NSNotification *)notification;\n",
+        "background transition gate storage")
 
     # Scope remains the original guest processes. Both notifications are
     # registered there because either one can report the same transition.
@@ -143,6 +145,7 @@ def verify(live_root: Path) -> None:
         "UIApplicationDidEnterBackgroundNotification",
         "UIApplicationWillEnterForegroundNotification",
         "NSExtensionHostDidBecomeActiveNotification",
+        "- (void)handleAppWillEnterForeground:(NSNotification *)notification;",
         "LC_GUEST_LIFECYCLE",
         "BACKGROUND source=",
         "BACKGROUND_DUPLICATE source=",

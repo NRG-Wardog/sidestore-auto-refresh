@@ -204,17 +204,29 @@ class RefreshHandler: NSObject {
         guard !identifier.isEmpty, !mangledName.isEmpty else {
             throw CombinedFailure(operation: "refresh", stage: .command, code: .invalidConfiguration, id: UUID().uuidString)
         }
+        let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
+        guard let sharedDefaults = defaults else {
+            throw CombinedFailure(operation: "refresh", stage: .xpcConnection,
+                code: .invalidConfiguration, id: UUID().uuidString)
+        }
+        // Readiness can await connection startup. Do not reserve the local
+        // handler token or publish a direct claim until after this preflight;
+        // if a scheduler run starts meanwhile, the direct entry exits without
+        // making the scheduler fail its own later handler call.
+        try await ensureServiceConnected()
+        /*REFRESH_READINESS*/
+        try Task.checkCancellation()
         guard v3RefreshToken == nil /*MUTATION_GUARD*/ else {
+            throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
+                id: UUID().uuidString, retryable: true, safeCause: .operationInProgress)
+        }
+        if schedulerRunID == nil,
+           sharedDefaults.string(forKey: "liveContainerAutoRefreshActiveRunID") != nil {
             throw CombinedFailure(operation: "refresh", stage: .command, code: .busy,
                 id: UUID().uuidString, retryable: true, safeCause: .operationInProgress)
         }
         let token = UUID(); v3RefreshToken = token
         defer { if v3RefreshToken == token { v3RefreshToken = nil } }
-        let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
-        guard let sharedDefaults = defaults else {
-            throw CombinedFailure(operation: "refresh", stage: .xpcConnection,
-                code: .invalidConfiguration, id: token.uuidString)
-        }
         let directClaimID = schedulerRunID == nil ? UUID().uuidString : nil
         if let directClaimID {
             let existingClaim = sharedDefaults.dictionary(forKey: V3DirectRefreshRunClaimPolicy.defaultsKey)
@@ -225,7 +237,9 @@ class RefreshHandler: NSObject {
                     id: directClaimID, retryable: true, safeCause: .operationInProgress)
             }
             sharedDefaults.set(["run_id": directClaimID,
-                "deadline": Date().addingTimeInterval(V3RefreshAdmissionLease.lifetime)],
+                // Cover the bounded XPC admission handshake; renew immediately
+                // once the backend lease is authoritative.
+                "deadline": Date().addingTimeInterval(V3RefreshAdmissionLease.lifetime + 60)],
                 forKey: V3DirectRefreshRunClaimPolicy.defaultsKey)
         }
         defer {
@@ -234,9 +248,6 @@ class RefreshHandler: NSObject {
                 sharedDefaults.removeObject(forKey: V3DirectRefreshRunClaimPolicy.defaultsKey)
             }
         }
-        try await ensureServiceConnected()
-        /*REFRESH_READINESS*/
-        try Task.checkCancellation()
         let selectedRun = V3RefreshRunIdentitySelection.select(
             schedulerRunID: schedulerRunID,
             expectedRunID: defaults?.string(forKey: "liveContainerAutoRefreshExpectedRunID"),
@@ -273,6 +284,11 @@ class RefreshHandler: NSObject {
               V3ServiceBridge.strictBool(admission["admitted"]) == true else {
             throw CombinedFailure(operation: "refresh", stage: .command,
                 code: .busy, id: run, retryable: true, safeCause: .operationInProgress)
+        }
+        if let directClaimID {
+            sharedDefaults.set(["run_id": directClaimID,
+                "deadline": Date().addingTimeInterval(V3RefreshAdmissionLease.lifetime)],
+                forKey: V3DirectRefreshRunClaimPolicy.defaultsKey)
         }
         defaults?.set(run, forKey: "liveContainerAutoRefreshExpectedRunID")
         defer {

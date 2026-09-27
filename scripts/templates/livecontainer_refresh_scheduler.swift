@@ -539,11 +539,16 @@ enum LiveContainerAutoRefreshScheduler {
                 print("[LIVE_CONTAINER_REFRESH] HOST_REFRESH_UNVERIFIED reason=installed_profile_expiration_not_advanced")
                 if let started = defaults.object(forKey: hostHandoffStartedKey) as? Date,
                    Date().timeIntervalSince(started) >= 180 {
-                    defaults.removeObject(forKey: hostHandoffKey)
                     defaults.set(true, forKey: retryExhaustedKey)
-                    defaults.set("HOST_REFRESH_FAILED", forKey: healthStateKey)
-                    record(source: "relaunch", result: "host_refresh_failed", detail: "The installed host profile did not advance after replacement. Retry manually; no success was recorded.")
-                    notify(title: "LiveContainer refresh not confirmed", body: "Its installed signing validity did not advance. Review app expiration and account status, then explicitly retry in Refresh.", kind: "host_failed")
+                    let message = "The installed host profile did not advance after replacement. Retry manually; no success was recorded."
+                    _ = markFailed(runID: runID, source: "relaunch", health: "HOST_REFRESH_FAILED",
+                        failure: CombinedFailure(operation: "refresh", stage: .refreshVerification,
+                            code: .timedOut, id: runID, retryable: true),
+                        message: message, result: "host_refresh_failed")
+                    defaults.removeObject(forKey: hostHandoffKey)
+                    defaults.removeObject(forKey: hostHandoffRunKey)
+                    defaults.removeObject(forKey: hostHandoffStartedKey)
+                    defaults.removeObject(forKey: hostBaselineKey)
                 }
                 return
             }
@@ -619,6 +624,7 @@ enum LiveContainerAutoRefreshScheduler {
                 notify(title: "Refresh already running", body: "A refresh is already running. Wait for it to finish before retrying.", kind: "coalesced")
             }
             finish(true)
+            if task != nil { schedule() }
             return
         }
         defer { schedule() }

@@ -31,6 +31,28 @@ struct OperationTerminalHarness {
         precondition(!failureWins.setIfEmpty(["state": "completed"]))
         precondition(failureWins.value?["stage"] as? String == "signing")
 
+        let cancellationSession = UUID().uuidString
+        precondition(V3InstallCancellationOutcomePolicy.terminalState(
+            expectedSessionID: cancellationSession, replySessionID: cancellationSession,
+            state: "failed", backendSettled: false, stopConfirmed: false,
+            outcomeUnknown: true) == nil,
+            "an unknown cancellation result must preserve the install attempt and staged IPA")
+        precondition(V3InstallCancellationOutcomePolicy.terminalState(
+            expectedSessionID: cancellationSession, replySessionID: cancellationSession,
+            state: "cancelled", backendSettled: true, stopConfirmed: true,
+            outcomeUnknown: false) == "cancelled",
+            "confirmed cancellation releases the install attempt")
+        precondition(V3InstallCancellationOutcomePolicy.terminalState(
+            expectedSessionID: cancellationSession, replySessionID: cancellationSession,
+            state: "completed", backendSettled: true, stopConfirmed: false,
+            outcomeUnknown: false) == "completed",
+            "completion that wins the cancel race is retained as completion")
+        precondition(V3InstallCancellationOutcomePolicy.terminalState(
+            expectedSessionID: cancellationSession, replySessionID: UUID().uuidString,
+            state: "cancelled", backendSettled: true, stopConfirmed: true,
+            outcomeUnknown: false) == nil,
+            "a terminal response for another session cannot reset this install attempt")
+
         let forgottenSessionID = UUID().uuidString
         let lostSession = V3OperationMissingSessionPolicy.unknownTerminal(
             sessionID: forgottenSessionID, knownStarted: true)

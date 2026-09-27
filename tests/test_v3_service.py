@@ -205,6 +205,14 @@ class ServicePatchTests(unittest.TestCase):
         self.assertIn('removeObject(forKey: "liveContainerAutoRefreshExpectedRunID")', refresh)
         self.assertIn("V3DirectRefreshRunClaimPolicy.defaultsKey", refresh)
         self.assertIn("V3DirectRefreshRunClaimPolicy.isActive", refresh)
+        perform = refresh[refresh.index("private func performRefresh(identifier:"):]
+        perform = perform[:perform.index("private func releaseRefreshAdmission")]
+        self.assertLess(perform.index("try await ensureServiceConnected()"), perform.index("v3RefreshToken = token"))
+        self.assertLess(perform.index("v3RefreshToken = token"), perform.index("sharedDefaults.set([\"run_id\": directClaimID"))
+        admission = perform.index('operation: "refreshAdmissionBegin"')
+        renewal = perform.index("sharedDefaults.set([\"run_id\": directClaimID", admission)
+        self.assertLess(admission, renewal)
+        self.assertIn("V3RefreshAdmissionLease.lifetime + 60", perform)
         bridge = (ROOT / "scripts/patch_livecontainer_autorefresh.py").read_text(encoding="utf-8")
         self.assertIn("startScheduledRefresh(", bridge)
         self.assertIn("runID: runID.uuidString", bridge)
@@ -222,6 +230,11 @@ class ServicePatchTests(unittest.TestCase):
         self.assertLess(failed.index("endRun("), failed.index('runRecord["state"] = "failed"'))
         self.assertIn("recoverOrphanedRunLedger()", scheduler)
         self.assertIn("V3RefreshTerminalRecoveryPolicy.action", scheduler)
+        host_handoff = scheduler[scheduler.index("private static func verifyPendingHostHandoff"):
+                                 scheduler.index("private static func recoverOrphanedRunLedger")]
+        self.assertIn('health: "HOST_REFRESH_FAILED"', host_handoff)
+        self.assertIn('result: "host_refresh_failed"', host_handoff)
+        self.assertIn("markFailed(runID: runID", host_handoff)
 
     def test_service_and_startup_adapters_compose_on_pinned_sources(self):
         startup = module("patch_combined_service_startup")

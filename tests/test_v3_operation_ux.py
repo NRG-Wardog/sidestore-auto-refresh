@@ -217,6 +217,17 @@ class StoreFeedbackTests(unittest.TestCase):
         status_link = view[view.index('"Sign-In Status"') - 700:view.index('"Sign-In Status"') + 100]
         self.assertIn("needsSignIn", status_link)
 
+    def test_install_cancel_keeps_unknown_backend_session_and_staged_file(self):
+        text = shell()
+        start = text.index("func retryInstallCancellation()")
+        end = text.index("func cleanupStagedIPA", start)
+        retry = text[start:end]
+        self.assertIn("V3InstallCancellationOutcomePolicy.terminalState", retry)
+        self.assertIn("backendSettled: V3ServiceBridge.strictBool(reply[\"backendSettled\"])", retry)
+        self.assertLess(retry.index("guard let terminalState"), retry.index("installAttempt.recordTerminal"))
+        self.assertLess(retry.index("guard let terminalState"), retry.index("cleanupStagedIPA(token)"))
+        self.assertIn("The IPA and operation session were kept", retry)
+
 
 class ProvisioningClassificationTests(unittest.TestCase):
     CASES = ("unknown", "invalidParameters", "incorrectCredentials", "noTeams",

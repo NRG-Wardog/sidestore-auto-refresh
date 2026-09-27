@@ -169,6 +169,15 @@ def verify_side_store_assetutil_records(records: list[dict]) -> dict:
     }
 
 
+def side_store_primary_icon_report(asset_report: dict) -> dict:
+    if not asset_report.get("primary_app_icon_present"):
+        raise ValueError("the primary SideStore AppIcon is missing from Assets.car")
+    return {
+        "assets_car_record_present": True,
+        "named_appicon_asset_count": asset_report["appicon_named_asset_name_count"],
+    }
+
+
 def inspect_side_store_asset_catalog(asset_data: bytes) -> dict:
     xcrun = shutil.which("xcrun")
     if not xcrun:
@@ -336,10 +345,7 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         "sidestore_storyboard_root": "absent",
         "sidestore_legacy_storyboard_nib_audio": "absent",
         "sidestore_alternate_icon_sets": side_store_asset_report,
-        "sidestore_primary_icon": {
-            "declared": primary_icon_files,
-            "png_renditions": len(primary_icon_members),
-        },
+        "sidestore_primary_icon": side_store_primary_icon_report(side_store_asset_report),
         "sidestore_legacy_background_modes": "absent",
         "app_group": REQUIRED_GROUP,
         "url_schemes": sorted(REQUIRED_SCHEMES),

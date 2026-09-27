@@ -20,6 +20,8 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
         self.assertEqual(report["alternate_icon_sets"], "11 alternate app icons absent; Classic/Modern previews retained")
         self.assertEqual(report["appicon_named_asset_name_count"], 1)
         self.assertTrue(report["primary_app_icon_present"])
+        self.assertEqual(verify_module.side_store_primary_icon_report(report), {
+            "assets_car_record_present": True, "named_appicon_asset_count": 1})
         with self.assertRaisesRegex(ValueError, "primary SideStore AppIcon is missing"):
             verify_module.verify_side_store_assetutil_records(
                 [{"Name": "Classic"}, {"Name": "Modern"}])

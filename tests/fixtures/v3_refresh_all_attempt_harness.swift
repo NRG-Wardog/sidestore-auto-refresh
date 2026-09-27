@@ -85,6 +85,10 @@ struct RefreshAllAttemptHarness {
             terminalIntent: "failed", manifestIsComplete: false,
             hostHandoffPending: false) == .finalizeFailed,
             "a crash after run release preserves its committed failure intent")
+        precondition(V3RefreshTerminalRecoveryPolicy.action(state: "verifying",
+            terminalIntent: "failed", manifestIsComplete: false,
+            hostHandoffPending: false) == .finalizeFailed,
+            "a host-handoff timeout terminalizes the exact verifying run")
         precondition(V3RefreshTerminalRecoveryPolicy.action(state: "running",
             terminalIntent: nil, manifestIsComplete: false,
             hostHandoffPending: false) == .markInterrupted,

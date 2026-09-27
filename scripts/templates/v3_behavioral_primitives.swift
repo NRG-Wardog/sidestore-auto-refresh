@@ -2222,6 +2222,18 @@ enum V3OperationTerminalAcceptancePolicy {
     }
 }
 
+enum V3InstallCancellationOutcomePolicy {
+    static func terminalState(expectedSessionID: String, replySessionID: String?,
+                              state: String?, backendSettled: Bool?, stopConfirmed: Bool?,
+                              outcomeUnknown: Bool) -> String? {
+        guard replySessionID == expectedSessionID,
+              V3OperationTerminalAcceptancePolicy.isSettledTerminal(state: state,
+                  backendSettled: backendSettled, stopConfirmed: stopConfirmed,
+                  outcomeUnknown: outcomeUnknown) else { return nil }
+        return state
+    }
+}
+
 enum V3OperationStartDispatchPolicy {
     static func provesNotDispatched(resultWasReturned: Bool) -> Bool {
         !resultWasReturned
@@ -2432,8 +2444,8 @@ enum V3AuthPollRecoveryPolicy {
 
 enum V3AuthCancellationRetryPolicy {
     static func canRetry(isCancelling: Bool, cancellationConfirmed: Bool,
-                         state: String, hasSession: Bool) -> Bool {
-        !isCancelling && !cancellationConfirmed && hasSession && state == "failed"
+                         hasSession: Bool) -> Bool {
+        !isCancelling && !cancellationConfirmed && hasSession
     }
 }
 

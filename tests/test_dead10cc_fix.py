@@ -94,6 +94,7 @@ class Dead10ccFixTests(unittest.TestCase):
         # Both notifications stay inside the same original guest-process scope.
         self.assertIn("if (!NSUserDefaults.isLiveProcess && !NSUserDefaults.isSharedApp) return;", text)
         self.assertIn("handleAppWillEnterForeground:", text)
+        self.assertIn("- (void)handleAppWillEnterForeground:(NSNotification *)notification;", text)
 
     def test_matches_upstream_fix_behavior(self):
         import tempfile
