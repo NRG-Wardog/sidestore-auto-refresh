@@ -399,6 +399,7 @@ final class V3SideStoreService: NSObject {
             try await callback { done in AppManager.shared.clearAppCache(completion: done) }
             return try snapshot()
         case "refreshSources":
+            try await ensureKnownSourcesUpdated()
             try await callback { done in AppManager.shared.updateAllSources(completion: done) }
             return try snapshot()
         case "jit":
@@ -515,9 +516,15 @@ final class V3SideStoreService: NSObject {
         case "devProfiles":
             return ["profiles": try await V3BackendCommands.developerProfiles()]
         case "sourcePreview":
+            guard V3SourceAddPersistencePolicy.validatedURL(target) != nil else {
+                throw V3SideStoreServiceError.invalidRequest
+            }
             try await ensureKnownSourcesUpdated()
             return try await V3BackendCommands.sourcePreview(urlString: target)
         case "sourceAddConfirmed":
+            guard V3SourceAddPersistencePolicy.validatedURL(target) != nil else {
+                throw V3SideStoreServiceError.invalidRequest
+            }
             try await ensureKnownSourcesUpdated()
             let addResult = try await V3BackendCommands.sourceAddConfirmed(urlString: target)
             var updated = try snapshot()

@@ -6,6 +6,7 @@ class RefreshHandler: NSObject {
     var sideStorePid: Int32 = 0
     var client: RefreshClient?
     var v3RefreshToken: UUID?
+    var v3RefreshAdmissionRunID: String?
     private var extensionProcess: NSExtension?
     private var listener: NSXPCListener?
     private var connection: NSXPCConnection?
@@ -208,6 +209,12 @@ class RefreshHandler: NSObject {
         guard UUID(uuidString: run) != nil, let client else {
             throw CombinedFailure(operation: "refresh", stage: .xpcConnection, code: .invalidConfiguration, id: token.uuidString)
         }
+        guard v3RefreshAdmissionRunID == nil else {
+            throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
+                code: .busy, id: run, retryable: true)
+        }
+        v3RefreshAdmissionRunID = run
+        defer { if v3RefreshAdmissionRunID == run { v3RefreshAdmissionRunID = nil } }
         // The readiness snapshot above is useful to explain current status,
         // but it is not an ownership claim: authentication could begin after
         // that snapshot and before this legacy XPC call. Reserve the mutation
@@ -256,8 +263,19 @@ class RefreshHandler: NSObject {
         // Run independently of a caller cancellation so a confirmed terminal
         // callback cannot strand the service's admission state.
         await Task { @MainActor in
-            _ = try? await V3ServiceBridge.shared.request(
-                operation: "refreshAdmissionEnd", target: runID)
+            do {
+                let reply = try await V3ServiceBridge.shared.request(
+                    operation: "refreshAdmissionEnd", target: runID)
+                guard reply["runID"] as? String == runID,
+                      V3ServiceBridge.strictBool(reply["released"]) == true else {
+                    NSLog("[V3_REFRESH_ADMISSION] RELEASE_UNCONFIRMED run_id=%@", runID)
+                    self.v3_stopService()
+                    return
+                }
+            } catch {
+                NSLog("[V3_REFRESH_ADMISSION] RELEASE_UNCONFIRMED run_id=%@", runID)
+                self.v3_stopService()
+            }
         }.value
     }
     private func finishRefreshContinuation(_ result: Result<Void, Error>) {

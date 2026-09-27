@@ -168,6 +168,30 @@ struct SetupAndSemanticUXHarness {
         let runA = UUID().uuidString
         let runB = UUID().uuidString
         let leaseDeadline = Date().addingTimeInterval(60)
+        precondition(V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
+            operation: "refreshAdmissionBegin", target: runA, activeRunID: runA,
+            refreshAttemptActive: true),
+            "the current refresh attempt can enter the service admission handshake")
+        precondition(V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
+            operation: "refreshAdmissionEnd", target: runA, activeRunID: runA,
+            refreshAttemptActive: true),
+            "the same refresh attempt can release while its operation token is still held")
+        precondition(!V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
+            operation: "refreshAdmissionBegin", target: runA, activeRunID: runA,
+            refreshAttemptActive: true, anotherHostMutationActive: true),
+            "refresh controls must not bypass another in-flight host mutation")
+        precondition(!V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
+            operation: "refreshAdmissionEnd", target: runB, activeRunID: runA,
+            refreshAttemptActive: true),
+            "a different run cannot use the host bridge's refresh-control exception")
+        precondition(!V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
+            operation: "refreshAdmissionBegin", target: runA, activeRunID: runA,
+            refreshAttemptActive: false),
+            "a stale owner identity without a live refresh token is not sufficient")
+        precondition(!V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
+            operation: "settingsSet", target: runA, activeRunID: runA,
+            refreshAttemptActive: true),
+            "the refresh exception must not authorize unrelated host mutations")
         var refreshLease = V3RefreshAdmissionLease()
         precondition(!refreshLease.acquire(runID: runA, authenticationActive: true,
             anotherMutationActive: false, deadline: leaseDeadline),
@@ -198,6 +222,11 @@ struct SetupAndSemanticUXHarness {
             "a stale run cannot release another run's refresh lease")
         precondition(refreshLease.release(runID: runA) && !refreshLease.isActive,
             "terminal refresh releases admission for the next request")
+        precondition(V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+            anotherMutationActive: false, authenticationActive: false,
+            isAuthContinuation: false, responseCapacityAvailable: true,
+            refreshActive: refreshLease.isActive),
+            "the next mutation is admitted after the run-scoped lease is released")
         var expiringLease = V3RefreshAdmissionLease()
         let expiry = Date(timeIntervalSince1970: 1_000)
         precondition(expiringLease.acquire(runID: runB, authenticationActive: false,

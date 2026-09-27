@@ -243,6 +243,23 @@ class ServicePatchTests(unittest.TestCase):
         self.assertIn("V3SignInView", host)
 
 
+class RefreshAdmissionTemplateTests(unittest.TestCase):
+    def test_refresh_owner_brackets_direct_refresh_and_confirms_release(self):
+        refresh = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        begin = refresh.index('operation: "refreshAdmissionBegin"')
+        dispatch = refresh.index("client.refreshAllApps(", begin)
+        release = refresh.index("await releaseRefreshAdmission(run)", dispatch)
+        self.assertLess(refresh.index("v3RefreshAdmissionRunID = run"), begin)
+        self.assertLess(begin, dispatch)
+        self.assertLess(dispatch, release)
+        self.assertIn("v3RefreshAdmissionRunID", bridge)
+        self.assertIn("ownsRefreshAdmissionControl", bridge)
+        self.assertIn('reply["runID"] as? String == runID', refresh)
+        self.assertIn('strictBool(reply["released"]) == true', refresh)
+        self.assertIn("self.v3_stopService()", refresh)
+
+
 class WireExecutionTests(unittest.TestCase):
     def test_shipped_native_callback_settles_once(self):
         compiler = shutil.which("swiftc")
@@ -251,8 +268,14 @@ class WireExecutionTests(unittest.TestCase):
         source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
         gate = source[source.index("final class V3ServiceCallbackGate:"):
                       source.index("// V3_NATIVE_CALLBACK_GATE_END")]
-        callback = source[source.index("    private func callback("):
-                          source.index("    private func snapshot()")]
+        callback_start = source.index("    private func callback(")
+        callback_open = source.index("{", callback_start)
+        depth = 1
+        callback_end = callback_open + 1
+        while depth:
+            depth += (source[callback_end] == "{") - (source[callback_end] == "}")
+            callback_end += 1
+        callback = source[callback_start:callback_end]
         callback = callback.replace("private func callback", "func callback")
         program = "import Foundation\n" + gate + "\nstruct Adapter {\n" + callback + "}\n" + r'''
 enum Failure: Error { case native }

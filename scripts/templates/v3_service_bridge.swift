@@ -201,8 +201,14 @@ public final class V3ServiceBridge {
             monitorOperationSessionIfNeeded(operation: operation, sessionID: operationSessionID)
             throw V3CatalogRequestContext.annotating(error, requestedOperation: operation, requestID: id)
         }
+        let scopedRefreshAdmissionControl = V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
+            operation: operation, target: target,
+            activeRunID: RefreshHandler.shared.v3RefreshAdmissionRunID,
+            refreshAttemptActive: RefreshHandler.shared.v3RefreshToken != nil,
+            anotherHostMutationActive: isMutating)
         if mutation {
-            guard scopedSessionControl || (!isMutating && RefreshHandler.shared.v3RefreshToken == nil) else {
+            guard scopedSessionControl || scopedRefreshAdmissionControl ||
+                    (!isMutating && RefreshHandler.shared.v3RefreshToken == nil) else {
                 if operation == "sourceRemoveConfirmed" {
                     throw CombinedFailure(operation: "source", stage: .source, code: .busy,
                         id: id, retryable: true, safeCause: .sourceRemoveBusy)

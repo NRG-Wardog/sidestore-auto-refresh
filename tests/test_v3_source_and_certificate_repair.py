@@ -26,10 +26,15 @@ class SourceAddPersistenceContractTests(unittest.TestCase):
         service = text(SERVICE)
         preview = region(service, 'case "sourcePreview":', 'case "sourceAddConfirmed":')
         add = region(service, 'case "sourceAddConfirmed":', 'case "sourceRemoveConfirmed":')
+        refresh_sources = region(service, 'case "refreshSources":', 'case "jit":')
+        self.assertLess(preview.index("validatedURL(target)"), preview.index("ensureKnownSourcesUpdated()"))
         self.assertLess(preview.index("ensureKnownSourcesUpdated()"),
                         preview.index("V3BackendCommands.sourcePreview"))
+        self.assertLess(add.index("validatedURL(target)"), add.index("ensureKnownSourcesUpdated()"))
         self.assertLess(add.index("ensureKnownSourcesUpdated()"),
                         add.index("V3BackendCommands.sourceAddConfirmed"))
+        self.assertLess(refresh_sources.index("ensureKnownSourcesUpdated()"),
+                        refresh_sources.index("AppManager.shared.updateAllSources"))
         preflight = region(service, "private func ensureKnownSourcesUpdated()", "private func snapshot()")
         for token in ("V3KnownSourcePreflightPolicy.shouldRefresh", "knownSourcesUpdateTask",
                       "AppManager.shared.updateKnownSources", "v3KnownSourcesUpdatedAt"):

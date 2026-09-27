@@ -2171,6 +2171,13 @@ enum V3ServiceMutationAdmissionPolicy {
         }
         return ownsActiveSession && ["authRespond", "authCancel"].contains(operation)
     }
+
+    static func ownsRefreshAdmissionControl(operation: String, target: String,
+                                             activeRunID: String?, refreshAttemptActive: Bool,
+                                             anotherHostMutationActive: Bool = false) -> Bool {
+        ["refreshAdmissionBegin", "refreshAdmissionEnd"].contains(operation) &&
+            refreshAttemptActive && !anotherHostMutationActive && !target.isEmpty && activeRunID == target
+    }
 }
 
 struct V3RefreshAdmissionLease {
