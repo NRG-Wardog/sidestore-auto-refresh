@@ -128,6 +128,7 @@ def verify(path, side_product=None):
         assert b'16SideStoreSupport20RefreshAllAppsIntentV' in metadata
         assert b'9SideStore20RefreshAllAppsIntentV' not in metadata
         assert b'16SideStoreSupport26RefreshAllAppsWidgetIntentV' in metadata
+        assert b'InstallIPAIntent' not in metadata, 'host metadata still exposes SideStore-owned IPA installation'
         if side_product:
             for source in side_product.rglob('*'):
                 if not source.is_file() or 'PlugIns' in source.relative_to(side_product).parts:

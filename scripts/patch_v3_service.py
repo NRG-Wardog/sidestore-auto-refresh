@@ -11,7 +11,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 14
+PATCH_VERSION = 15
 
 
 def remove_pbx_object(text, object_marker):
@@ -277,6 +277,37 @@ def headless_app_manager_ui(text):
     return replace(text, "import Intents\n", "")
 
 
+def headless_app_intents(text, relative):
+    marker = "V3_HEADLESS_INSTALL_IPA_INTENT_REMOVED_V1"
+    if marker in text:
+        if "InstallIPAIntent" in text:
+            raise SystemExit(f"v3 service: legacy IPA shortcut remains in {relative}")
+        return text
+    if relative.endswith("RefreshAllAppsIntent.swift"):
+        start_marker = "@available(iOS 17.0, tvOS 17.0, *)\nstruct InstallIPAIntent: AppIntent, ProgressReportingIntent"
+        end_marker = "@available(iOS 17.0, tvOS 17.0, *)\nextension RefreshAllAppsIntent"
+        if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+            raise SystemExit("v3 service: InstallIPAIntent adapter changed")
+        start = text.index(start_marker)
+        end = text.index(end_marker, start)
+        text = text[:start] + "// " + marker + ": IPA installation is host-owned.\n\n" + text[end:]
+        if "struct InstallIPAIntent" in text or "AppManager.shared.install(.url" in text:
+            raise SystemExit("v3 service: legacy IPA installation shortcut removal is partial")
+        return text
+    if relative.endswith("AppShortcuts.swift"):
+        start_marker = "        AppShortcut(intent: InstallIPAIntent(),"
+        end_marker = "                    systemImageName: \"square.and.arrow.down\")"
+        if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+            raise SystemExit("v3 service: InstallIPAIntent shortcut anchor changed")
+        start = text.index(start_marker)
+        end = text.index(end_marker, start) + len(end_marker)
+        text = text[:start] + "        // " + marker + ": the install flow is owned by LiveContainer.\n" + text[end:]
+        if "InstallIPAIntent" in text:
+            raise SystemExit("v3 service: legacy IPA shortcut reference remains")
+        return text
+    raise SystemExit(f"v3 service: unsupported App Intent adapter source {relative}")
+
+
 def headless_app_intent_routing(text):
     marker = "V3_HEADLESS_INTENT_ROUTING_REMOVED_V1"
     if marker in text:
@@ -504,6 +535,10 @@ def patch(live, side):
     edit(side, "AltStore/AppDelegate.swift", sidestore_app_delegate)
     edit(side, "SideStore/Core/Auth/AuthManager.swift", headless_auth_manager)
     edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui)
+    edit(side, "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+         lambda s: headless_app_intents(s, "RefreshAllAppsIntent.swift"))
+    edit(side, "AltStore/Intents/App Intents/AppShortcuts.swift",
+         lambda s: headless_app_intents(s, "AppShortcuts.swift"))
     edit(side, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
          patch_sign_in_operation)
     edit(side, "AltStore/Info.plist", headless_info)
