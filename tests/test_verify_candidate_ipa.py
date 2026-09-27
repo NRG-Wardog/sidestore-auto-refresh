@@ -120,9 +120,9 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
         ]
         self.assertEqual(verify_module.find_legacy_side_store_resources(prefix, forbidden),
                          sorted(forbidden))
-        executable = b"SideStore\x00RefreshAllAppsIntent\x00ShortcutsProvider\x00"
+        executable = b"SideStore\x00RefreshAllAppsIntent\x00ShortcutsProvider\x00IntentHandler\x00"
         self.assertEqual(verify_module.find_legacy_side_store_intent_symbols(executable),
-                         ["RefreshAllAppsIntent", "ShortcutsProvider"])
+                         ["IntentHandler"])
         self.assertEqual(verify_module.find_legacy_side_store_intent_info_keys({
             "INIntentsSupported": ["RefreshAllIntent"],
             "NSUserActivityTypes": ["com.example.legacy"],

@@ -207,15 +207,20 @@ class ServicePatchTests(unittest.TestCase):
                           "keep the upstream widget target available for standalone SideStore")
             self.assertIn("0ED4AEC92E6DDB2A0039E2C0 /* PBXTargetDependency */", project,
                           "the SideBackup backend dependency remains in the project")
-            self.assertIn("C0DE00000000000000000001", project)
-            self.assertIn('"Intents/ViewApp.intentdefinition"', project)
-            side_shared_exclusion = project[project.index("C0DE00000000000000000001"):]
-            side_shared_exclusion = side_shared_exclusion[:side_shared_exclusion.index("};")]
-            self.assertIn("target = BFD247692284B9A500981D42 /* SideStore */", side_shared_exclusion)
+            self.assertNotIn("C0DE00000000000000000001", project)
             exception_anchor = project.index("A8EEC8CB2F4B146B00F2436D")
             member_start = project.index("membershipExceptions = (", exception_anchor)
             member_end = project.index(");", member_start)
             membership = project[member_start:member_end]
+            for required_host_intent_adapter in (
+                '"Intents/App Intents/AppShortcuts.swift"',
+                '"Intents/App Intents/RefreshAllAppsIntent.swift"',
+                '"Intents/App Intents/RefreshAllAppsWidgetIntent.swift"',
+            ):
+                self.assertNotIn(required_host_intent_adapter, membership,
+                                 "host App Intents metadata requires these UI-free backend adapters")
+            self.assertNotIn('"Intents/Legacy/Intents.intentdefinition"', membership,
+                             "the intent schema is staged into the host package then removed from the backend")
             removed_ui_resources = (
                 '"iOS/LaunchScreen.storyboard"', '"iOS/Main.storyboard"',
                 '"tvOS/Main.storyboard"',
@@ -242,11 +247,7 @@ class ServicePatchTests(unittest.TestCase):
                 '"Authentication/tvOS/Authentication.storyboard"',
                 '"Authentication/ResignAltStoreViewController.swift"',
                 '"Core/Intents/ViewAppIntentHandler.swift"',
-                '"Intents/App Intents/AppShortcuts.swift"',
-                '"Intents/App Intents/RefreshAllAppsIntent.swift"',
-                '"Intents/App Intents/RefreshAllAppsWidgetIntent.swift"',
                 '"Intents/Legacy/IntentHandler.swift"',
-                '"Intents/Legacy/Intents.intentdefinition"',
                 '"My Apps/MyAppsViewController.swift"',
                 '"My Apps/tvOS/InstalledAppsCollectionHeaderView.xib"',
                 '"My Apps/tvOS/UpdateCollectionViewCell.xib"',

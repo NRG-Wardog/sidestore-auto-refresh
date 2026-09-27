@@ -14,12 +14,19 @@ wget https://github.com/LiveContainer/SideStore/releases/download/nightly/SideSt
 mv widget destination
 rm -r .zsign_cache
 find payloadlc/Payload -type d -name "_CodeSignature" -exec rm -r {} +
+# copy intents
+cp ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Intents.intentdefinition ./Payload/LiveContainer.app/
+cp ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/ViewApp.intentdefinition ./Payload/LiveContainer.app/
+cp -r ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Metadata.appintents ./Payload/LiveContainer.app/Metadata.appintents
+sed -i '' 's/9SideStore20RefreshAllAppsIntentV/16SideStoreSupport20RefreshAllAppsIntentV/g' ./Payload/LiveContainer.app/Metadata.appintents/extract.actionsdata
+sed -i '' 's/9SideStore26RefreshAllAppsWidgetIntentV/16SideStoreSupport26RefreshAllAppsWidgetIntentV/g' ./Payload/LiveContainer.app/Metadata.appintents/extract.actionsdata
 # package
 zip output Payload
 '''
         result = adapt(script)
         self.assertIn('cp "$PATCHED_SIDESTORE_IPA" SideStore.ipa', result)
         self.assertIn('./dylibify input output\nmv widget destination', result)
+        self.assertIn('rm -rf ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Metadata.appintents', result)
         self.assertLess(result.index('--prepare-entitlements'), result.index('zip output'))
         self.assertTrue(result.startswith('set -eu\n'))
         self.assertNotIn('find payloadlc/', result)
@@ -31,6 +38,26 @@ zip output Payload
     def test_adapter_rejects_duplicate_download_anchor(self):
         with self.assertRaises(ValueError):
             adapt('brew install ldid\nbrew install ldid\n')
+
+    def test_adapter_stages_host_intents_then_removes_backend_metadata_inputs(self):
+        script = '''brew install ldid
+wget https://github.com/LiveContainer/SideStore/releases/download/nightly/SideStore.ipa
+rm -r .zsign_cache
+find payloadlc/Payload -type d -name "_CodeSignature" -exec rm -r {} +
+# copy intents
+cp ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Intents.intentdefinition ./Payload/LiveContainer.app/
+cp ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/ViewApp.intentdefinition ./Payload/LiveContainer.app/
+cp -r ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Metadata.appintents ./Payload/LiveContainer.app/Metadata.appintents
+sed -i '' 's/9SideStore20RefreshAllAppsIntentV/16SideStoreSupport20RefreshAllAppsIntentV/g' ./Payload/LiveContainer.app/Metadata.appintents/extract.actionsdata
+sed -i '' 's/9SideStore26RefreshAllAppsWidgetIntentV/16SideStoreSupport26RefreshAllAppsWidgetIntentV/g' ./Payload/LiveContainer.app/Metadata.appintents/extract.actionsdata
+# package
+zip output Payload
+'''
+        result = adapt(script)
+        self.assertLess(result.index('cp ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Intents.intentdefinition'),
+                        result.index('rm -f ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Intents.intentdefinition'))
+        self.assertIn('rm -rf ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Metadata.appintents', result)
+        self.assertIn('cp -r ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Metadata.appintents ./Payload/LiveContainer.app/Metadata.appintents', result)
 
     def test_semantic_verifier_requires_embedded_startup_hook_contract(self):
         source = (Path(__file__).resolve().parents[1] / 'scripts' / 'package_livecontainer_combined.py').read_text(encoding='utf-8')

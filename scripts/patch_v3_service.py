@@ -11,7 +11,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 13
+PATCH_VERSION = 14
 
 
 def remove_pbx_object(text, object_marker):
@@ -98,11 +98,7 @@ def headless_project(text):
 				"News/NewsCollectionViewCell.xib",
 				"News/tvOS/NewsCollectionViewCell.xib",
 				"Core/Intents/ViewAppIntentHandler.swift",
-				"Intents/App Intents/AppShortcuts.swift",
-				"Intents/App Intents/RefreshAllAppsIntent.swift",
-				"Intents/App Intents/RefreshAllAppsWidgetIntent.swift",
 				"Intents/Legacy/IntentHandler.swift",
-				"Intents/Legacy/Intents.intentdefinition",
 				"Settings/AboutPatreonHeaderView.xib",
 				"Settings/tvOS/AboutPatreonHeaderView.xib",
 				"Settings/AltAppIconsViewController.swift",
@@ -149,12 +145,6 @@ def headless_project(text):
     if text.count(side_exception) != 1:
         raise SystemExit("v3 service: SideStore resource-exclusion anchor changed")
     text = text.replace(side_exception, headless_exception, 1)
-    shared_exception_id = "C0DE00000000000000000001"
-    if shared_exception_id in text:
-        raise SystemExit("v3 service: shared intent exclusion object ID is already present")
-    shared_group = '''A8EEC3482F4B0D8600F2436D /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (A8EEC36B2F4B0D8700F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */, A82BE360304AAF490055C3DE /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Shared; sourceTree = "<group>"; };'''
-    headless_shared_group = '''A8EEC3482F4B0D8600F2436D /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (A8EEC36B2F4B0D8700F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */, A82BE360304AAF490055C3DE /* PBXFileSystemSynchronizedBuildFileExceptionSet */, C0DE00000000000000000001 /* V3 SideStore intent definition exclusion */, ); explicitFileTypes = {}; explicitFolders = (); path = Shared; sourceTree = "<group>"; };'''
-    text = replace(text, shared_group, headless_shared_group)
     side_store_source_exception = '''A8EECF492F4B195000F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -181,16 +171,6 @@ def headless_project(text):
 			target = BFD247692284B9A500981D42 /* SideStore */;
 		};'''
     text = replace(text, side_store_source_exception, headless_side_store_source_exception)
-    shared_intent_exception = '''		C0DE00000000000000000001 /* V3 SideStore intent definition exclusion */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"Intents/ViewApp.intentdefinition",
-			);
-			target = BFD247692284B9A500981D42 /* SideStore */;
-		};
-'''
-    text = replace(text, "/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */",
-        shared_intent_exception + "/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */")
     # Starscream is linked by the pinned project but has no source references
     # in that checkout. Remove its product and package lock so it is not fetched
     # or linked into the backend build.

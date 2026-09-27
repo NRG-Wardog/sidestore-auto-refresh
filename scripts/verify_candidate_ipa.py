@@ -40,8 +40,7 @@ REMOVED_SIDESTORE_ICON_NAMES = {
 }
 PRIVATE_EXTENSIONS = {".p12", ".p8", ".pem", ".key", ".mobileprovision", ".log", ".crash", ".ips"}
 REMOVED_SIDESTORE_INTENT_SYMBOLS = (
-    "InstallIPAIntent", "RefreshAllAppsIntent", "RefreshAllAppsWidgetIntent",
-    "ShortcutsProvider", "IntentHandler", "ViewAppIntentHandler",
+    "InstallIPAIntent", "IntentHandler", "ViewAppIntentHandler",
 )
 REMOVED_SIDESTORE_INTENT_INFO_KEYS = ("INIntentsSupported", "NSUserActivityTypes")
 REMOVED_SIDESTORE_UI_SYMBOLS = (
