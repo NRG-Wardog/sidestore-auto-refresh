@@ -397,6 +397,15 @@ class V3SetupAssistantTests(unittest.TestCase):
 
 
 class V3SetupAcceptanceTests(unittest.TestCase):
+    def test_known_missing_pairing_does_not_offer_test_refresh(self):
+        source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        assistant = source.index("struct V3SetupAssistantView")
+        start = source.index('Section("Verification")', assistant)
+        verification = source[start:source.index("// V3_SETUP_COMPLETION_POLICY", start)]
+        self.assertIn("Complete Pairing Setup before testing refresh.", verification)
+        self.assertIn('setup.verification.state != "complete" && setup.pairing.state == "actionRequired"',
+                      verification)
+
     def test_setup_complete_requires_everything(self):
         # V3_SETUP_COMPLETION_POLICY_V1: the assistant no longer owns a private
         # rule. It supplies inputs to the one shared policy that Home also uses.

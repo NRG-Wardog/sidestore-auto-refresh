@@ -111,7 +111,11 @@ final class V3SideStoreService: NSObject {
                 if let serviceError = error as? V3SideStoreServiceError, case .notReady = serviceError {
                     stage = .serviceReadiness
                 }
-                if let serviceError = error as? ServiceError {
+                if operation == "sourceRemoveConfirmed" {
+                    response["failure"] = CombinedFailure(operation: "source", stage: .source, code: .failed,
+                        id: id, underlying: error, safeCause: .sourceRemoveFailed,
+                        sourceStep: .catalogRead).wire
+                } else if let serviceError = error as? ServiceError {
                     let code: CombinedFailure.Code
                     switch serviceError {
                     case .notReady: code = .notReady
@@ -358,8 +362,10 @@ final class V3SideStoreService: NSObject {
             }
             return reply
         case "opCancel":
-            guard await V3HeadlessRuntime.shared.operations.cancelAndWait(id: target) else { throw ServiceError.invalidRequest }
-            return [:]
+            guard let result = await V3HeadlessRuntime.shared.operations.cancelAndWait(id: target) else {
+                throw ServiceError.invalidRequest
+            }
+            return result
         case "ipaCleanup":
             try V3HeadlessRuntime.shared.operations.cleanupIPA(token: target)
             return [:]

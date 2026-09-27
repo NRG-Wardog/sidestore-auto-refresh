@@ -102,10 +102,23 @@ class V3AuthErrorTests(unittest.TestCase):
     def test_sign_in_reopening_reconciles_authoritative_side_store_snapshot(self):
         host = shell()
         sign_in = host[host.index("final class V3AuthStore"):host.index("struct V3SignInLink")]
-        self.assertIn("func reconcile() async", sign_in)
+        self.assertIn("func reconcile(force: Bool = false) async", sign_in)
         self.assertIn('request(operation: "snapshot")', sign_in)
         self.assertIn('snapshot["account"] as? String', sign_in)
         self.assertIn(".task { await auth.reconcile() }", host)
+
+    def test_auth_cancel_consumes_terminal_reply_and_reconciles_account(self):
+        host = shell()
+        store = host[host.index("final class V3AuthStore"):host.index("struct V3SignInLink")]
+        cancel = store[store.index("func cancel() {"):]
+        self.assertIn('terminalReply = try await V3ServiceBridge.shared.request(operation: "authCancel"', cancel)
+        self.assertIn("if let terminalReply { apply(terminalReply) }", cancel)
+        self.assertIn("await reconcile(force: true)", cancel)
+        self.assertIn("if !signedIn, terminalReply == nil", cancel)
+        self.assertNotIn('state = "cancelled"\n                message = "Sign-in was cancelled."', cancel)
+        run = store[store.index("private func run() async {"):]
+        run = run[:run.index("private func pollLoop", 1)]
+        self.assertIn("if isCancelling { return }", run)
         self.assertNotIn(".task { auth.begin() }", host)
 
     def test_password_guidance_only_for_proven_credentials(self):

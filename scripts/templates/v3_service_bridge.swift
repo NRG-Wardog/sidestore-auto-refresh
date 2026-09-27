@@ -15,6 +15,13 @@ enum V3CatalogRequestContext {
         operation == "catalog" ? .catalog : .command
     }
 
+    /// A successfully received reply that the service could not encode, or
+    /// that exceeded the shared byte limit, failed at the reply boundary.
+    static func replyEncodingStage(for operation: String) -> CombinedFailure.Stage {
+        _ = operation
+        return .replyEncoding
+    }
+
     /// Map a plain service error token to a typed host failure without inventing
     /// a cause. "notReady" is service startup, "busy" is service contention,
     /// and an oversized or unparseable reply is an invalid response.
@@ -30,13 +37,15 @@ enum V3CatalogRequestContext {
             // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: correctly serialized, but
             // too large to transfer. Distinct from both an encoding failure and a
             // reply that could not be parsed.
-            return CombinedFailure(operation: operation, stage: stage, code: .invalidResponse, id: id,
+            return CombinedFailure(operation: operation, stage: replyEncodingStage(for: operation),
+                                  code: .invalidResponse, id: id,
                                   safeCause: .responseTooLarge)
         case "responseEncodingFailed":
             // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: the service could not
             // serialize its reply at all. This is a distinct defect from an
             // oversized reply and is never reported as one.
-            return CombinedFailure(operation: operation, stage: stage, code: .invalidResponse, id: id,
+            return CombinedFailure(operation: operation, stage: replyEncodingStage(for: operation),
+                                  code: .invalidResponse, id: id,
                                   safeCause: .responseEncodingFailed)
         case "invalidRequest":
             return CombinedFailure(operation: operation, stage: .command, code: .invalidConfiguration, id: id)
@@ -111,11 +120,15 @@ public final class V3ServiceBridge {
     private var pendingOperations: [String: String] = [:]
     private var timeouts: [String: Task<Void, Never>] = [:]
     private var cancellationRecovery: [String: Task<Void, Never>] = [:]
+    private var activeOperationSessions: Set<String> = []
+    private var operationMonitors: [String: Task<Void, Never>] = [:]
     private let readTimeout: TimeInterval
     private let commandTimeout: TimeInterval
     private let cancellationGrace: TimeInterval
     private var activeMutation: String?
-    public var isMutating: Bool { activeMutation != nil || !cancellationRecovery.isEmpty }
+    public var isMutating: Bool {
+        activeMutation != nil || !activeOperationSessions.isEmpty || !cancellationRecovery.isEmpty
+    }
     public var processID: Int32 { RefreshHandler.shared.sideStorePid }
 
     init(readTimeout: TimeInterval = 30, commandTimeout: TimeInterval = 600, cancellationGrace: TimeInterval = 3) {
@@ -135,7 +148,10 @@ public final class V3ServiceBridge {
         // receives the request can still be attributed to the caller's actual
         // operation instead of only to the connection attempt.
         let id = UUID().uuidString
-        let mutation = !V3WireContract.readOperations.contains(operation)
+        let scopedSessionControl = ["opAnswer", "opCancel"].contains(operation) &&
+            activeOperationSessions.contains(target)
+        let mutation = !V3WireContract.readOperations.contains(operation) ||
+            ["opAnswer", "opCancel"].contains(operation)
         do {
             try await connect()
         } catch {
@@ -143,13 +159,17 @@ public final class V3ServiceBridge {
             throw V3CatalogRequestContext.annotating(error, requestedOperation: operation, requestID: id)
         }
         if mutation {
-            guard !isMutating, RefreshHandler.shared.v3RefreshToken == nil else {
+            guard scopedSessionControl || (!isMutating && RefreshHandler.shared.v3RefreshToken == nil) else {
                 throw CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
             }
-            activeMutation = id
+            if !scopedSessionControl { activeMutation = id }
         }
         defer { if activeMutation == id { activeMutation = nil } }
-        let timeout = V3WireContract.readOperations.contains(operation) ? readTimeout : commandTimeout
+        if operation == "opStart", let session = payload?["session"] as? String {
+            activeOperationSessions.insert(session)
+        }
+        let timeout = (V3WireContract.readOperations.contains(operation) || operation == "opCancel")
+            ? readTimeout : commandTimeout
         var message: [String: Any] = ["version": 1, "id": id, "operation": operation,
                                       "target": target, "deadline": Date().addingTimeInterval(timeout)]
         if let cursor { message["cursor"] = cursor }
@@ -183,7 +203,7 @@ public final class V3ServiceBridge {
                             // follows the request so a catalog read is not reported
                             // as a generic command failure.
                             self.settle(id, .failure(CombinedFailure(operation: operation,
-                                stage: V3CatalogRequestContext.hostStage(for: operation),
+                                stage: V3CatalogRequestContext.replyEncodingStage(for: operation),
                                 code: .invalidResponse, id: id, safeCause: .responseTooLarge))); return
                         }
                         self.settle(id, .success(response))
@@ -192,7 +212,8 @@ public final class V3ServiceBridge {
                 timeouts[id] = Task { @MainActor in
                     do { try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000)) } catch { return }
                     if self.pending[id] != nil {
-                        self.cancelRemote(id, mutation: mutation)
+                        let retireIfStuck = !["opStart", "opPoll", "opAnswer", "opCancel"].contains(operation)
+                        self.cancelRemote(id, mutation: mutation, retireIfStuck: retireIfStuck)
                         // V3_CATALOG_FAILURE_STAGE_V1: a read timeout is reported
                         // against the request's own operation and stage, so a
                         // catalog read never collapses into a generic command
@@ -212,7 +233,8 @@ public final class V3ServiceBridge {
         }, onCancel: {
             Task { @MainActor in
                 guard self.pending[id] != nil else { return }
-                self.cancelRemote(id, mutation: mutation)
+                let retireIfStuck = !["opStart", "opPoll", "opAnswer", "opCancel"].contains(operation)
+                self.cancelRemote(id, mutation: mutation, retireIfStuck: retireIfStuck)
                 self.settle(id, .failure(CancellationError()))
             }
         })
@@ -221,24 +243,36 @@ public final class V3ServiceBridge {
         // real service fallback envelope, rather than only asserted in source
         // text. Precedence is unchanged: the structured envelope is authoritative
         // and the legacy token is only consulted when there is no decodable one.
-        return try V3CatalogRequestContext.classifyReply(response, operation: operation, id: id)
+        let result: [String: Any]
+        do {
+            result = try V3CatalogRequestContext.classifyReply(response, operation: operation, id: id)
+        } catch {
+            monitorOperationSessionIfNeeded(operation: operation, target: target, payload: payload)
+            throw error
+        }
+        updateOperationSessionOwnership(operation: operation, target: target,
+                                        payload: payload, result: result)
+        return result
     }
 
     public func disconnected() {
         for task in cancellationRecovery.values { task.cancel() }
         cancellationRecovery.removeAll()
+        for task in operationMonitors.values { task.cancel() }
+        operationMonitors.removeAll()
+        activeOperationSessions.removeAll()
         for id in Array(pending.keys) {
             settle(id, .failure(CombinedFailure(operation: pendingOperations[id] ?? "command", stage: .xpcConnection, code: .interrupted, id: id)))
         }
     }
 
-    private func cancelRemote(_ target: String, mutation: Bool = false) {
+    private func cancelRemote(_ target: String, mutation: Bool = false, retireIfStuck: Bool = true) {
         let value: [String: Any] = ["version": 1, "id": UUID().uuidString, "operation": "cancel",
                                     "target": target, "deadline": Date().addingTimeInterval(30)]
         if let data = try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0) {
             RefreshHandler.shared.client?.v3Execute(data) { _ in }
         }
-        if mutation {
+        if mutation && retireIfStuck {
             // Keep the host mutation gate held until completion or process retirement.
             // A native callback that never returns cannot strand the product forever.
             cancellationRecovery[target] = Task { @MainActor in
@@ -254,5 +288,48 @@ public final class V3ServiceBridge {
         timeouts.removeValue(forKey: id)?.cancel()
         pendingOperations.removeValue(forKey: id)
         pending.removeValue(forKey: id)?.resume(with: result)
+    }
+
+    private func updateOperationSessionOwnership(operation: String, target: String,
+                                                 payload: [String: Any]?,
+                                                 result: [String: Any]) {
+        let sessionID = operation == "opStart" ? payload?["session"] as? String : target
+        guard let sessionID,
+              ["opStart", "opPoll", "opAnswer", "opCancel"].contains(operation) else { return }
+        guard let state = result["state"] as? String,
+              ["completed", "failed", "cancelled", "requiresSource", "waitingForAuthentication"].contains(state) else { return }
+        let backendSettled = result["backendSettled"] as? Bool
+            ?? !(result["outcomeUnknown"] as? Bool ?? false)
+        if backendSettled {
+            activeOperationSessions.remove(sessionID)
+            operationMonitors.removeValue(forKey: sessionID)?.cancel()
+        } else {
+            monitorOperationSessionUntilSettled(sessionID)
+        }
+    }
+
+    private func monitorOperationSessionIfNeeded(operation: String, target: String,
+                                                payload: [String: Any]?) {
+        let sessionID = operation == "opStart" ? payload?["session"] as? String : target
+        guard ["opStart", "opPoll", "opAnswer", "opCancel"].contains(operation),
+              let sessionID, activeOperationSessions.contains(sessionID) else { return }
+        monitorOperationSessionUntilSettled(sessionID)
+    }
+
+    private func monitorOperationSessionUntilSettled(_ sessionID: String) {
+        guard operationMonitors[sessionID] == nil else { return }
+        operationMonitors[sessionID] = Task { @MainActor in
+            let backoff: [UInt64] = [1, 2, 5, 10, 15]
+            var index = 0
+            while !Task.isCancelled && activeOperationSessions.contains(sessionID) {
+                let seconds = backoff[min(index, backoff.count - 1)]
+                index += 1
+                do { try await Task.sleep(nanoseconds: seconds * 1_000_000_000) }
+                catch { break }
+                guard activeOperationSessions.contains(sessionID) else { break }
+                _ = try? await request(operation: "opPoll", target: sessionID)
+            }
+            operationMonitors[sessionID] = nil
+        }
     }
 }

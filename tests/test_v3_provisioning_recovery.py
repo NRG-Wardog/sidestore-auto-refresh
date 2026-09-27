@@ -293,7 +293,7 @@ class AuthSuccessIsNotProvisioningSuccessTests(unittest.TestCase):
 
     def test_reconcile_resolves_finish_later_as_signed_in(self):
         store = auth_store()
-        start = store.index("func reconcile()")
+        start = store.index("func reconcile(force:")
         reconcile = store[start:store.index("private func run()", start)]
         self.assertIn("let authoritative =", reconcile)
         self.assertIn("signedIn = true", reconcile)

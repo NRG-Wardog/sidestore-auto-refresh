@@ -415,6 +415,36 @@ struct V3DeviceAcceptanceRegressionsHarness {
                                              appStillInAuthoritativeLibrary: false,
                                              deadlineExpired: false, progress: lowProgress) == .completed,
                      "a successful backend callback plus authoritative absence should complete promptly")
+
+        let timedOutAt = Date(timeIntervalSince1970: 10_000)
+        precondition(V3DeleteReconciliationPolicy.shouldRequestCancellation(
+            deadlineElapsed: true, backendPending: true, cancellationAlreadyRequested: false))
+        precondition(!V3DeleteReconciliationPolicy.shouldPublishOutcomeUnknown(
+            backendPending: true, requestedAt: timedOutAt,
+            now: timedOutAt.addingTimeInterval(4.9)))
+        precondition(V3DeleteReconciliationPolicy.shouldPublishOutcomeUnknown(
+            backendPending: true, requestedAt: timedOutAt,
+            now: timedOutAt.addingTimeInterval(5)))
+
+        let deleteSession = UUID().uuidString
+        var mutationOwnership = V3OperationMutationRegistry()
+        precondition(mutationOwnership.begin(deleteSession) == .started)
+        let outcomeUnknown = V3OperationTerminalResponse()
+        precondition(outcomeUnknown.setIfEmpty(["state": "failed", "outcomeUnknown": true]))
+        precondition(mutationOwnership.activeID == deleteSession,
+                     "bounded UI failure must not release ownership while the native callback is pending")
+        precondition(mutationOwnership.begin(UUID().uuidString) == .busy,
+                     "a second mutation must remain blocked until delete callback settlement")
+        precondition(!outcomeUnknown.setIfEmpty(["state": "completed"]),
+                     "a late delete callback cannot overwrite the outcome-unknown terminal result")
+        precondition(outcomeUnknown.reply(sessionID: deleteSession, backendSettled: false)?["backendSettled"] as? Bool == false)
+        precondition(outcomeUnknown.reply(sessionID: deleteSession, backendSettled: true)?["backendSettled"] as? Bool == true,
+                     "the terminal reply must report when the native callback has finally settled")
+        precondition(outcomeUnknown.value?["state"] as? String == "failed",
+                     "backend settlement must not rewrite the already visible unknown result")
+        precondition(mutationOwnership.finish(deleteSession))
+        precondition(mutationOwnership.begin(UUID().uuidString) == .started,
+                     "backend settlement must release delete ownership")
     }
 
     private static func refreshRunIsolationAndGuidance() {

@@ -296,6 +296,14 @@ struct SetupAndSemanticUXHarness {
         precondition(sourceIssue.primaryAction.title == "Retry Source")
         precondition(sourceIssue.retryDisposition == .allowed)
 
+        let sourceRemoval = CombinedFailure(operation: "source", stage: .source, code: .failed,
+            id: UUID().uuidString, safeCause: .sourceRemoveFailed, sourceStep: .catalogRead)
+        let sourceRemovalIssue = V3UserFacingIssue.make(sourceRemoval)
+        precondition(sourceRemovalIssue.primaryAction == .reloadSources,
+                     "a remove failure must reconcile Sources rather than repeat source downloading")
+        precondition(sourceRemovalIssue.primaryAction.title == "Reload Sources")
+        precondition(sourceRemovalIssue.whatToDo.contains("confirm whether the source is gone"))
+
         // A networking failure is the only case that may offer a connection retry,
         // and it must still be routed by the typed stage rather than by a guess.
         let networkIssue = V3UserFacingIssue.make(

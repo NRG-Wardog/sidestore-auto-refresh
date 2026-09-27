@@ -65,6 +65,15 @@ final class V3PromptCenter: @unchecked Sendable {
     }
 
     @discardableResult
+    func cancel(promptID: String) -> Bool {
+        lock.lock()
+        let pending = boxes[promptID]
+        lock.unlock()
+        guard let pending else { return false }
+        return settle(promptID: promptID, pending: pending, result: .failure(CancellationError()))
+    }
+
+    @discardableResult
     private func settle(promptID: String, pending: Pending, result: Result<[String: String], Error>) -> Bool {
         lock.lock()
         guard boxes[promptID] === pending, case nil = pending.result else {
@@ -1012,10 +1021,11 @@ final class V3OperationCenter {
         var prompt: [String: Any]?
         var group: RefreshGroup?
         var phase = V3OperationPhaseTracker()
-        var terminal = V3TerminalResponse()
+        var terminal = V3OperationTerminalResponse()
         var deadline = Date.distantFuture
         var terminalAt: Date?
         var ipaToken: String?
+        var temporaryIPADirectory: URL?
     }
 
     var sessions: [String: Session] = [:]
@@ -1054,6 +1064,7 @@ final class V3OperationCenter {
         do {
             let driver = try await makeDriver(id: id, kind: kind, target: target)
             guard sessions[id]?.terminal.isEmpty == true, mutationRegistry.activeID == id else {
+                cleanupTemporaryIPA(id: id)
                 return terminalReply(id: id)
             }
             sessions[id]?.task = Task { @MainActor in await self.drive(id: id, driver: driver) }
@@ -1063,6 +1074,7 @@ final class V3OperationCenter {
                 self.expire(id: id)
             }
         } catch {
+            cleanupTemporaryIPA(id: id)
             var failure = terminalFailure(id: id, kind: kind, error: error)
             failure["failedToStart"] = true
             finish(id: id, response: failure)
@@ -1075,37 +1087,38 @@ final class V3OperationCenter {
     }
 
     private func drive(id: String, driver: V3OpDriver) async {
-        defer {
-            sessions[id]?.task = nil
-            sessions[id]?.watchdog?.cancel()
-            sessions[id]?.watchdog = nil
-            mutationRegistry.finish(id)
-            cleanupSessions()
-        }
+        let terminal: [String: Any]
         do {
             try await driver.run()
-            sessions[id]?.prompt = nil
-            finish(id: id, response: ["state": "completed"])
-            debugLog("[V3_OP] TERMINAL session=\(id) kind=\(driver.kind) state=completed")
+            terminal = ["state": "completed"]
         } catch {
-            sessions[id]?.prompt = nil
             if error is CancellationError {
-                finish(id: id, response: ["state": "cancelled"])
-                debugLog("[V3_OP] TERMINAL session=\(id) kind=\(driver.kind) state=cancelled")
+                terminal = ["state": "cancelled", "stopConfirmed": true]
             } else {
-                let terminal = terminalFailure(id: id, kind: driver.kind, error: error)
-                finish(id: id, response: terminal)
-                debugLog("[V3_OP] TERMINAL session=\(id) kind=\(driver.kind) state=\(terminal["state"] as? String ?? "") stage=\(terminal["stage"] as? String ?? "") code=\(terminal["code"] as? String ?? "")")
+                terminal = terminalFailure(id: id, kind: driver.kind, error: error)
             }
         }
+        sessions[id]?.prompt = nil
+        sessions[id]?.task = nil
+        sessions[id]?.watchdog?.cancel()
+        sessions[id]?.watchdog = nil
+        V3SideStoreService.shared.cancellations.removeValue(forKey: id)
+        cleanupTemporaryIPA(id: id)
+        mutationRegistry.finish(id)
+        finish(id: id, response: terminal)
+        debugLog("[V3_OP] TERMINAL session=\(id) kind=\(driver.kind) state=\(terminal["state"] as? String ?? "") stage=\(terminal["stage"] as? String ?? "") code=\(terminal["code"] as? String ?? "")")
+        cleanupSessions()
     }
 
     func poll(id: String) -> [String: Any]? {
         cleanupSessions()
         guard let session = sessions[id] else { return nil }
-        if let terminal = session.terminal.value { return terminal.merging(["session": id]) { current, _ in current } }
+        if let reply = session.terminal.reply(sessionID: id, backendSettled: session.task == nil) {
+            return reply
+        }
         let phase = session.phase.phase
-        var reply: [String: Any] = ["session": id, "state": "working",
+        var reply: [String: Any] = ["session": id,
+                                    "state": session.terminal.isCancellationRequested ? "cancelling" : "working",
                                     "phase": phase.rawValue, "phaseLabel": phase.label]
         if let progress = session.group?.progress.fractionCompleted, progress.isFinite {
             let normalized = V3NormalizedProgress.clamp(progress)
@@ -1114,7 +1127,7 @@ final class V3OperationCenter {
             }
             reply["progress"] = normalized
         }
-        if let prompt = session.prompt {
+        if let prompt = session.prompt, !session.terminal.isCancellationRequested {
             reply["state"] = "awaitingPrompt"
             reply["prompt"] = prompt
         }
@@ -1135,6 +1148,7 @@ final class V3OperationCenter {
 
     func answer(id: String, promptID: String, answer: [String: String]) -> [String: Any]? {
         guard let session = sessions[id], case nil = session.terminal.value,
+              !session.terminal.isCancellationRequested,
               session.prompt?["id"] as? String == promptID else { return nil }
         guard V3HeadlessRuntime.shared.prompts.answer(promptID: promptID, answer: answer) else {
             return ["session": id, "state": "promptExpired"]
@@ -1151,30 +1165,37 @@ final class V3OperationCenter {
     func cancel(id: String) -> Bool {
         guard var session = sessions[id] else { return false }
         guard case nil = session.terminal.value else { return true }
-        session.task?.cancel()
+        guard session.terminal.requestCancellation() else { return true }
         session.watchdog?.cancel()
         session.group?.cancel()
-        session.terminal.setIfEmpty(["state": "cancelled"])
-        session.terminalAt = Date()
+        if let promptID = session.prompt?["id"] as? String {
+            _ = V3HeadlessRuntime.shared.prompts.cancel(promptID: promptID)
+        }
         session.prompt = nil
         sessions[id] = session
         V3SideStoreService.shared.cancellations[id]?()
-        if session.task == nil { mutationRegistry.finish(id) }
+        if session.task == nil {
+            finish(id: id, response: ["state": "cancelled", "stopConfirmed": true])
+            V3SideStoreService.shared.cancellations.removeValue(forKey: id)
+            cleanupTemporaryIPA(id: id)
+            mutationRegistry.finish(id)
+        }
         cleanupSessions()
         return true
     }
 
-    func cancelAndWait(id: String) async -> Bool {
-        guard let parsedID = UUID(uuidString: id), parsedID.uuidString == id else { return false }
+    func cancelAndWait(id: String) async -> [String: Any]? {
+        guard let parsedID = UUID(uuidString: id), parsedID.uuidString == id else { return nil }
         guard let session = sessions[id] else {
             _ = mutationRegistry.cancel(id)
             cleanupSessions()
-            return true
+            return ["session": id, "state": "cancelled", "stopConfirmed": true]
         }
+        if session.terminal.value != nil { return terminalReply(id: id) }
         let task = session.task
-        guard cancel(id: id) else { return false }
+        guard cancel(id: id) else { return nil }
         if let task { await task.value }
-        return true
+        return terminalReply(id: id)
     }
 
     func cleanupIPA(token: String) throws {
@@ -1198,6 +1219,14 @@ final class V3OperationCenter {
         }
     }
 
+    private func cleanupTemporaryIPA(id: String) {
+        guard var session = sessions[id], let directory = session.temporaryIPADirectory else { return }
+        session.temporaryIPADirectory = nil
+        sessions[id] = session
+        do { try FileManager.default.removeItem(at: directory) }
+        catch { debugLog("[V3_INSTALL_UI] temporary_ipa_cleanup_failed session=\(id)") }
+    }
+
     private func cleanupSessions(now: Date = Date()) {
         let expired = sessions.compactMap { id, session in
             id != mutationRegistry.activeID && session.task == nil && session.terminal.value != nil &&
@@ -1212,7 +1241,7 @@ final class V3OperationCenter {
     }
 
     private func terminalReply(id: String) -> [String: Any] {
-        poll(id: id) ?? ["session": id, "state": "failed"]
+        poll(id: id) ?? ["session": id, "state": "failed", "backendSettled": true]
     }
 
     private func terminalFailure(id: String, kind: String, error: Error) -> [String: Any] {
@@ -1296,7 +1325,6 @@ final class V3OperationCenter {
                 // race drive() into writing a second terminal result.
                 _ = try V3RefreshResultVerifier.verified(expectedBundleID: app.bundleIdentifier,
                     results: group.results, bundleIdentifier: { $0.bundleIdentifier })
-                try Task.checkCancellation()
             }
         case "delete":
             let app: InstalledApp = try v3Resolve(target)
@@ -1323,12 +1351,7 @@ final class V3OperationCenter {
             let app: InstalledApp = try v3Resolve(target)
             guard app.bundleIdentifier != StoreApp.altstoreAppID else { throw V3SideStoreServiceError.unsupported }
             return V3OpDriver(kind: kind) {
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                    let gate = V3ServiceCallbackGate(continuation)
-                    AppManager.shared.pipelineRunner.performVoidOperation(.removeApp(app), handler: handler, context: baseContext) { result in
-                        gate.settle(result)
-                    }
-                }
+                try await self.single(id: id, operation: .removeApp(app), handler: handler, context: baseContext)
             }
         default:
             throw V3SideStoreServiceError.invalidRequest
@@ -1344,8 +1367,12 @@ final class V3OperationCenter {
                     gate.settle(result.map { _ in () })
                 }
                 Task { @MainActor in
-                    self.sessions[id]?.group = group
+                    guard var session = self.sessions[id], session.terminal.isEmpty else { return }
+                    session.group = group
+                    let cancellationRequested = session.terminal.isCancellationRequested
+                    self.sessions[id] = session
                     V3SideStoreService.shared.cancellations[id] = { group.cancel(); group.progress.cancel() }
+                    if cancellationRequested { group.cancel(); group.progress.cancel() }
                 }
             }
         }, onCancel: {
@@ -1354,7 +1381,6 @@ final class V3OperationCenter {
                 if let cancel = V3SideStoreService.shared.cancellations[id] { cancel() }
             }
         })
-        try Task.checkCancellation()
     }
 
     private func deleteAndReconcile(id: String, app: InstalledApp,
@@ -1384,6 +1410,7 @@ final class V3OperationCenter {
         }
 
         let deadline = Date().addingTimeInterval(30)
+        var cancellationRequestedAt: Date?
         var missingCallbackReconcileDeadline: Date?
         var lastLibraryPresence: Bool?
         var contract = V3DeleteCompletionContract()
@@ -1409,8 +1436,27 @@ final class V3OperationCenter {
                missingCallbackReconcileDeadline == nil {
                 missingCallbackReconcileDeadline = now.addingTimeInterval(5)
             }
-            let reconciliationExpired = now >= deadline ||
+            let deadlineElapsed = now >= deadline ||
                 (missingCallbackReconcileDeadline.map { now >= $0 } ?? false)
+            if V3DeleteReconciliationPolicy.shouldRequestCancellation(
+                deadlineElapsed: deadlineElapsed,
+                backendPending: backendState == .pending,
+                cancellationAlreadyRequested: cancellationRequestedAt != nil) {
+                cancellationRequestedAt = now
+                group.cancel()
+                group.progress.cancel()
+                debugLog("[V3_OP] DELETE_RECONCILE_CANCEL session=\(id)")
+            }
+            let reconciliationExpired: Bool
+            if let cancellationRequestedAt, backendState == .pending {
+                // Give the native callback a bounded grace period after
+                // cancellation. A timed-out local observation does not release
+                // mutation ownership while InstallationProxy may still be active.
+                reconciliationExpired = V3DeleteReconciliationPolicy.callbackGraceElapsed(
+                    requestedAt: cancellationRequestedAt, now: now)
+            } else {
+                reconciliationExpired = deadlineElapsed
+            }
             let terminal = contract.resolve(
                 backend: backendState,
                 nativeUninstallSucceeded: nativeUninstallSucceeded,
@@ -1420,10 +1466,39 @@ final class V3OperationCenter {
             )
             switch terminal {
             case .completed?:
+                if backendState == .pending {
+                    if missingCallbackReconcileDeadline.map({ now >= $0 }) == true {
+                        finish(id: id, response: ["state": "completed", "backendSettled": false])
+                        debugLog("[V3_OP] DELETE_RECONCILE_COMPLETED session=\(id) evidence=native_success+library_absent callback=pending ownership=retained")
+                    }
+                    // Keep the mutation registry until PipelineRunner's callback
+                    // settles, even when native uninstall success plus library
+                    // absence already gives us a bounded user-visible result.
+                    try await Task.sleep(nanoseconds: 250_000_000)
+                    continue
+                }
                 let resolution = backendState == .succeeded ? "pipeline_callback" : "native_success_reconciled"
                 debugLog("[V3_OP] DELETE_RECONCILE_COMPLETED session=\(id) evidence=\(resolution)+library_absent")
                 return
             case .failed?:
+                if V3DeleteReconciliationPolicy.shouldPublishOutcomeUnknown(
+                    backendPending: backendState == .pending,
+                    requestedAt: cancellationRequestedAt, now: now) {
+                    let failure = CombinedFailure(operation: "delete", stage: .command,
+                                                  code: .timedOut, id: id)
+                    let response: [String: Any] = [
+                        "state": "failed", "outcomeUnknown": true, "backendSettled": false,
+                        "stage": failure.stage.rawValue, "code": failure.code.rawValue,
+                        "message": failure.safeMessage, "technical": failure.technicalDetails,
+                        "failure": failure.wire
+                    ]
+                    finish(id: id, response: response)
+                    debugLog("[V3_OP] DELETE_RECONCILE_OUTCOME_UNKNOWN session=\(id) ownership=retained")
+                    // Keep this driver and its mutation registry alive until the
+                    // native callback settles. No newer mutation can overlap it.
+                    try await Task.sleep(nanoseconds: 250_000_000)
+                    continue
+                }
                 debugLog("[V3_OP] DELETE_RECONCILE_FAILED session=\(id) backend=\(backendState) native_uninstall=\(nativeUninstallSucceeded) library_present=\(appIsPresent)")
                 throw CombinedFailure(operation: "delete", stage: .command, code: .timedOut,
                                       id: id, retryable: false)
@@ -1514,6 +1589,7 @@ final class V3OperationCenter {
             }
             let temporaryDirectory = FileManager.default.uniqueTemporaryURL()
             try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+            sessions[sessionID]?.temporaryIPADirectory = temporaryDirectory
             V3HeadlessRuntime.shared.operations.setPhase(sessionID: sessionID, phase: .downloadingIPA)
             localURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
                 let downloadTask = URLSession.shared.downloadTask(with: url) { (fileURL, response, error) in
@@ -1528,12 +1604,22 @@ final class V3OperationCenter {
                 }
                 downloadTask.resume()
             }
+            guard sessions[sessionID]?.terminal.isEmpty == true,
+                  sessions[sessionID]?.terminal.isCancellationRequested != true else {
+                cleanupTemporaryIPA(id: sessionID)
+                throw CancellationError()
+            }
         }
         if scoped, localURL.startAccessingSecurityScopedResource() { scopedURL = localURL }
         let packageType = PackageType(url: localURL) ?? .ipa
         let (bundleIdentifier, appName): (String, String)
         do { (bundleIdentifier, appName) = try Self.readAppMetadata(from: localURL, packageType: packageType) }
         catch { throw CombinedIPAFileError(.invalidPackage) }
+        guard sessions[sessionID]?.terminal.isEmpty == true,
+              sessions[sessionID]?.terminal.isCancellationRequested != true else {
+            cleanupTemporaryIPA(id: sessionID)
+            throw CancellationError()
+        }
         return .app(AnyApp(name: appName, bundleIdentifier: bundleIdentifier, url: localURL, storeApp: nil))
     }
 

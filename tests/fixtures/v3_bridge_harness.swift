@@ -5,6 +5,8 @@ final class FakeClient {
     var hold = false
     var stale = false
     var oversized = false
+    var backendSettled = true
+    var operationState = "working"
     var replies: [() -> Void] = []
     var cancellations = 0
     var operations: [String] = []
@@ -12,8 +14,26 @@ final class FakeClient {
         let request = try! PropertyListSerialization.propertyList(from: data, format: nil) as! [String: Any]
         operations.append(request["operation"] as! String)
         if request["operation"] as? String == "cancel" { cancellations += 1; reply(Data()); return }
+        let operation = request["operation"] as! String
+        let payload = request["payload"] as? [String: Any] ?? [:]
+        let target = request["target"] as? String ?? ""
+        let operationResult: [String: Any]
+        switch operation {
+        case "opStart":
+            operationResult = ["session": payload["session"] as? String ?? "", "state": "working"]
+        case "opPoll":
+            operationResult = ["session": target, "state": operationState,
+                               "backendSettled": backendSettled,
+                               "outcomeUnknown": !backendSettled]
+        case "opCancel":
+            operationResult = ["session": target, "state": operationState,
+                               "backendSettled": backendSettled,
+                               "outcomeUnknown": !backendSettled]
+        default:
+            operationResult = ["account": "fixture"]
+        }
         let result: [String: Any] = ["version": 1, "id": stale ? UUID().uuidString : request["id"]!,
-                                     "ok": true, "result": ["account": "fixture"]]
+                                     "ok": true, "result": operationResult]
         let encoded = oversized ? Data(repeating: 0, count: 4_194_305) :
             try! PropertyListSerialization.data(fromPropertyList: result, format: .binary, options: 0)
         if hold { replies.append { reply(encoded) } } else { reply(encoded) }
@@ -131,6 +151,42 @@ struct BridgeTests {
         }
         precondition(!recovery.isMutating)
         client.flush()
+        client.hold = false
+
+        let operationSession = UUID().uuidString
+        _ = try await bridge.request(operation: "opStart",
+            payload: ["kind": "install", "session": operationSession])
+        precondition(bridge.isMutating, "a returned opStart must retain service mutation ownership")
+        client.hold = true
+        let poll = Task { try await bridge.request(operation: "opPoll", target: operationSession) }
+        await waitForRequest(client)
+        do { _ = try await poll.value; preconditionFailure("stalled operation poll did not time out") }
+        catch let error as CombinedFailure {
+            precondition(error.operation == "command" && error.stage == .command)
+        }
+        precondition(handler.stops == stopsBeforeRecovery + 1,
+                     "an opPoll timeout must not retire SideStore during a live mutation")
+        precondition(bridge.isMutating, "poll timeout must preserve active operation ownership")
+        client.flush()
+        client.operationState = "failed"
+        client.backendSettled = false
+        client.hold = true
+        let cancelRequest = Task { try await bridge.request(operation: "opCancel", target: operationSession) }
+        await waitForRequest(client)
+        do { _ = try await cancelRequest.value; preconditionFailure("unsettled opCancel did not time out") }
+        catch let error as CombinedFailure { precondition(error.code == .timedOut) }
+        precondition(bridge.isMutating,
+                     "an opCancel timeout must keep mutation ownership until backend settlement")
+        precondition(handler.stops == stopsBeforeRecovery + 1,
+                     "an opCancel timeout must not retire the active SideStore mutation")
+        client.flush()
+        client.hold = false
+        client.backendSettled = true
+        let ownershipDeadline = Date().addingTimeInterval(3)
+        while bridge.isMutating {
+            precondition(Date() < ownershipDeadline, "the monitor did not observe backend settlement")
+            await Task.yield()
+        }
         print("V3 lifecycle PASS")
     }
 }

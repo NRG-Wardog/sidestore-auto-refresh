@@ -268,9 +268,9 @@ class PairingGuidanceTests(unittest.TestCase):
     def test_returning_to_a_live_quick_setup_detects_a_newly_placed_file(self):
         text = shell()
         start = text.index("struct V3SetupAssistantView")
-        quick = text[start:start + 14000]
+        quick = text[start:]
         change = quick[quick.index(".onChange(of: scenePhase)"):]
-        change = change[:change.index("\n    }")]
+        change = change[:change.index("\n        .onChange(of: showPairingSetup)")]
         # V3_AWAITABLE_RELOAD_V1: the reload is awaited, so recalculate can never
         # read the previous snapshot. A fire-and-forget reload followed by an
         # immediate recalculate was the race.

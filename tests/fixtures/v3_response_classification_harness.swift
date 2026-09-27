@@ -97,11 +97,10 @@ struct ResponseClassificationHarness {
                      + "invalidResponse; got \(String(describing: encodingFailure.safeCause))")
         precondition(encodingFailure.code == .invalidResponse,
                      "the code stays invalidResponse; the cause carries the distinction")
-        // The fallback reports the wire boundary, which is the truthful stage for
-        // a reply that could not be built. The host's own undecodable and
-        // oversize boundaries use the request's own stage instead.
-        precondition(encodingFailure.stage == .command,
-                     "a reply the service could not build failed at the wire boundary")
+        // Both reply-level defects use one canonical stage. Malformed or stale
+        // replies continue to use the request/command boundary.
+        precondition(encodingFailure.stage == .replyEncoding,
+                     "a reply that could not be encoded uses the reply boundary stage")
         precondition(encodingFailure.correlationID == encodingID,
                      "the correlation must survive the fallback")
         precondition(encodingFailure.retryable == false,
@@ -129,6 +128,8 @@ struct ResponseClassificationHarness {
                      + String(describing: oversizeFailure.safeCause))
         precondition(oversizeFailure.safeCause != encodingFailure.safeCause,
                      "the two encoder failure modes must never be confused")
+        precondition(oversizeFailure.stage == .replyEncoding,
+                     "a reply over the byte limit uses the same reply boundary stage")
 
         // ---------------------------------------------------------------
         // Structured precedence still wins for unrelated typed failures, and the

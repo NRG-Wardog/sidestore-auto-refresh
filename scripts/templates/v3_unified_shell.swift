@@ -919,6 +919,8 @@ final class V3SideStoreStatusStore: ObservableObject {
             reload()
         case .retrySource:
             refreshSources()
+        case .reloadSources:
+            reload()
         default:
             openIssueRecovery()
         }
@@ -2004,6 +2006,7 @@ struct V3CatalogApp: Identifiable {
 struct V3CatalogView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @EnvironmentObject private var sharedModel: SharedModel
+    @Environment(\.dismiss) private var dismiss
     let source: V3SideStoreSource
     @State private var apps: [V3CatalogApp] = []
     @State private var query = ""
@@ -2032,8 +2035,13 @@ struct V3CatalogView: View {
                         }
                         Button("Copy Diagnostics") { UIPasteboard.general.string = failure.technical }
                     }
-                    Button("Retry") { Task { await load() } }
-                        .disabled(loadInFlight)
+                    if failure?.safeCause == CombinedFailure.SafeCause.catalogSourceUnavailable.rawValue {
+                        Button("Return to Sources") { dismiss() }
+                    }
+                    if failure?.retryDisposition != .blocked {
+                        Button("Retry") { Task { await load() } }
+                            .disabled(loadInFlight)
+                    }
                 }
             }
             ForEach(apps.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { app in
@@ -2752,6 +2760,7 @@ struct V3OperationSheet: View {
             try await pollLoop(id: id, generation: generation)
         } catch {
             guard attempt.generation == generation, !attempt.isTerminal else { return }
+            if error is CancellationError, attempt.transitionInFlight { return }
             let failure = (error as? CombinedFailure) ?? CombinedFailure.capture(error,
                 operation: request.operation,
                 stage: backendSessionStarted ? .xpcConnection : .command,
@@ -2800,14 +2809,14 @@ struct V3OperationSheet: View {
             }
             guard reply["session"] as? String == id else { return }
             apply(reply, generation: generation, sessionID: id)
-            guard current == "working" || current == "awaitingPrompt" else { return }
+            guard current == "working" || current == "awaitingPrompt" || current == "cancelling" else { return }
         }
     }
     private func apply(_ reply: [String: Any], generation: UUID, sessionID: String) {
         guard let nextState = reply["state"] as? String,
               attempt.accept(state: nextState, generation: generation, sessionID: sessionID) else { return }
         state = nextState
-        if !["working", "awaitingPrompt"].contains(nextState) {
+        if !["working", "awaitingPrompt", "cancelling"].contains(nextState) {
             status.installTerminal(attemptID: request.installAttemptID,
                 operationID: request.id, outcome: nextState)
         }
@@ -2952,28 +2961,29 @@ struct V3OperationSheet: View {
         state = "cancelling"
         message = ""
         let oldTask = task
-        let oldSession = attempt.supersede()
         let transitionGeneration = attempt.generation
+        let oldSession = attempt.sessionID ?? transitionGeneration.uuidString
         uncertainSessionID = oldSession
         startedGeneration = nil
         prompt = nil
         Task { @MainActor in
             oldTask?.cancel()
             do {
-                if let oldSession {
-                    _ = try await V3ServiceBridge.shared.request(operation: "opCancel", target: oldSession)
-                }
+                let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: oldSession)
                 await oldTask?.value
                 guard attempt.generation == transitionGeneration else { return }
                 uncertainSessionID = nil
-                state = "cancelled"
-                status.installTerminal(attemptID: request.installAttemptID,
-                    operationID: request.id, outcome: "cancelled")
-                message = "The operation was cancelled and the backend confirmed that it stopped."
-                whatToDo = "You can safely start the operation again."
-                technicalDetails = ""
-                retryBlocked = false
-                status.reload()
+                if attempt.sessionID == nil {
+                    _ = attempt.bind(sessionID: oldSession, generation: transitionGeneration)
+                }
+                apply(reply, generation: transitionGeneration, sessionID: oldSession)
+                if ["working", "cancelling"].contains(state) {
+                    let failure = CombinedFailure(operation: request.operation, stage: .command,
+                        code: .invalidResponse, id: oldSession, retryable: false)
+                    failureContext.recordStartFailure(failure)
+                    retryBlocked = true
+                    presentCurrentFailure()
+                }
             } catch {
                 await oldTask?.value
                 guard attempt.generation == transitionGeneration else { return }
@@ -3387,8 +3397,8 @@ final class V3AuthStore: ObservableObject {
         provisioningFinishedLater = true
     }
 
-    func reconcile() async {
-        guard !["working", "awaitingPrompt"].contains(state) else { return }
+    func reconcile(force: Bool = false) async {
+        guard force || !["working", "awaitingPrompt"].contains(state) else { return }
         do {
             let snapshot = try await V3ServiceBridge.shared.request(operation: "snapshot")
             let account = snapshot["account"] as? String ?? "Not signed in"
@@ -3443,6 +3453,7 @@ final class V3AuthStore: ObservableObject {
             session = id
             try await pollLoop(id: id)
         } catch {
+            if isCancelling { return }
             state = "failed"
             message = V3FailureGuidance.message(error)
         }
@@ -3616,17 +3627,25 @@ final class V3AuthStore: ObservableObject {
         task?.cancel()
         Task { @MainActor in
             do {
+                var terminalReply: [String: Any]?
                 if let oldSession {
-                    _ = try await V3ServiceBridge.shared.request(operation: "authCancel", target: oldSession)
+                    terminalReply = try await V3ServiceBridge.shared.request(operation: "authCancel", target: oldSession)
                 }
                 await oldTask?.value
+                if let terminalReply { apply(terminalReply) }
+                await reconcile(force: true)
                 cancellationConfirmed = true
-                state = "cancelled"
-                message = "Sign-in was cancelled."
+                if !signedIn, terminalReply == nil {
+                    state = "cancelled"
+                    message = "Sign-in was cancelled before an authentication session was confirmed."
+                }
             } catch {
                 await oldTask?.value
-                state = "failed"
-                message = "The service could not confirm sign-in cancellation. Reconnect before starting another sign-in."
+                await reconcile(force: true)
+                if !signedIn {
+                    state = "failed"
+                    message = "The service could not confirm the sign-in result. Reconnect and check Account & Signing before trying again."
+                }
             }
             session = nil
             prompt = nil
@@ -5808,6 +5827,10 @@ struct V3SetupAssistantView: View {
                 }
                 if setup.testRunning {
                     Button("Cancel Test", role: .cancel) { setup.cancelTest() }
+                } else if setup.verification.state != "complete" && setup.pairing.state == "actionRequired" {
+                    Text("Complete Pairing Setup before testing refresh.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
                 } else if setup.verification.state != "complete" {
                     Button {
                         setup.runTestRefresh(status: status)

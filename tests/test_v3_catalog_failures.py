@@ -97,9 +97,9 @@ class HostBridgePropagationTests(unittest.TestCase):
         replies = normalized(uncommented(classify_function()))
         self.assertIn("stage: hostStage(for: operation), code: .invalidResponse", replies)
         self.assertEqual(replies.count("stage: hostStage(for: operation), code: .invalidResponse"), 2)
-        # The transport-size boundary is a third invalid-response site, and it is
-        # staged and classified like every other host boundary.
-        self.assertIn("stage: V3CatalogRequestContext.hostStage(for: operation), code: .invalidResponse, id: id, safeCause: .responseTooLarge", flat)
+        # The transport-size boundary is a reply-encoding defect rather than a
+        # catalog query failure or malformed request reply.
+        self.assertIn("stage: V3CatalogRequestContext.replyEncodingStage(for: operation), code: .invalidResponse, id: id, safeCause: .responseTooLarge", flat)
 
     def test_a_well_formed_reply_with_a_foreign_id_stays_stale_result(self):
         body = normalized(uncommented(classify_function()))
@@ -246,10 +246,12 @@ class ServiceSidePropagationTests(unittest.TestCase):
         # The host oversize boundary is a distinct cause, staged like every other
         # host boundary, instead of a bare invalidResponse.
         self.assertIn("safeCause: .responseTooLarge))); return", bridge)
-        self.assertIn("stage: V3CatalogRequestContext.hostStage(for: operation),\n                                code: .invalidResponse, id: id, safeCause: .responseTooLarge", bridge)
+        self.assertIn("stage: V3CatalogRequestContext.replyEncodingStage(for: operation),\n                                code: .invalidResponse, id: id, safeCause: .responseTooLarge", bridge)
         # The reply classifier is a pure function so it can be executed.
         self.assertIn("static func classifyReply(_ response: Data, operation: String, id: String) throws -> [String: Any]", bridge)
-        self.assertIn("return try V3CatalogRequestContext.classifyReply(response, operation: operation, id: id)", bridge)
+        self.assertIn("result = try V3CatalogRequestContext.classifyReply(response, operation: operation, id: id)", bridge)
+        self.assertIn("updateOperationSessionOwnership(operation: operation, target: target", bridge)
+        self.assertIn("return result", bridge)
 
     def test_catalog_source_missing_is_typed_and_not_a_manifest_problem(self):
         # V3_CATALOG_SOURCE_MISSING_V1: a deleted source must fail, not return

@@ -119,6 +119,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case sourceInvalidManifest
         case sourcePersistenceUnverified
         case sourceInvalidURL
+        case sourceRemoveFailed
         case catalogUnavailable
         case catalogSourceUnavailable
         // V3_RESPONSE_ENCODING_CLASSIFICATION_V1: the service built a reply it
@@ -145,7 +146,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return nil
             case .sourceNetworkFailure:
                 return true
-            case .sourceInvalidManifest, .sourcePersistenceUnverified, .sourceInvalidURL, .catalogUnavailable:
+            case .sourceInvalidManifest, .sourcePersistenceUnverified, .sourceInvalidURL,
+                 .sourceRemoveFailed, .catalogUnavailable:
                 return false
             // The source is gone, so retrying the same request cannot succeed;
             // the recovery is to reload the source list, not to retry.
@@ -173,6 +175,7 @@ public struct CombinedFailure: Error, LocalizedError {
     public enum Stage: String, CaseIterable {
         case hostContainer, storagePreparation, bookmarkCreation, extensionDiscovery, extensionLaunch
         case xpcConnection, serviceReadiness, command, authentication, provisioning, signing, filePreparation, installation, refreshVerification
+        case replyEncoding
         case endpointSelection, heartbeat, coreDevice, cdTunnel, rsdDiscovery, rsdService, lockdownConnection, uniqueDeviceID, pairing
         case network, source, catalog
     }
@@ -254,6 +257,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceInvalidManifest: return "The source returned data SideStore could not read as a valid source."
             case .sourcePersistenceUnverified: return "SideStore could not confirm that the source was saved."
             case .sourceInvalidURL: return "The source URL is invalid."
+            case .sourceRemoveFailed: return "SideStore could not confirm that the source was removed from its saved list."
             case .catalogUnavailable: return "SideStore could not read this source's saved catalog data."
             case .catalogSourceUnavailable: return "This source is no longer in the SideStore source list."
             case .responseEncodingFailed: return "SideStore could not encode the response for this request."
@@ -325,6 +329,7 @@ public struct CombinedFailure: Error, LocalizedError {
             return "SideStore could not complete the application installation."
         case .refreshVerification: return "Refresh completion could not be verified from the installation results."
         case .network: return "Network error during the \(operation) operation."
+        case .replyEncoding: return "SideStore could not encode its service response."
         case .command:
             if underlyingDomain == "redacted" && underlyingCode != 0 {
                 return "SideStore could not start or complete the requested \(operation) action. The exact underlying cause could not be safely identified."
@@ -399,14 +404,16 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Reload Sources and check whether the source appears before trying again."
             case .sourceInvalidURL:
                 return "Enter a valid HTTP or HTTPS source URL, then preview it again."
+            case .sourceRemoveFailed:
+                return "Reload Sources and confirm whether the source is gone. If it remains, remove it again."
             case .catalogUnavailable:
                 return "Reload the catalog. If it continues, copy the safe diagnostics."
             case .catalogSourceUnavailable:
                 return "Return to Sources and reload the source list, then open the source again."
             case .responseEncodingFailed:
-                return "Reload the request. If it keeps failing, copy the safe diagnostics; the service could not encode its reply."
+                return "The same request cannot fix this reply-encoding failure. Copy Diagnostics and report that the service could not encode its response."
             case .responseTooLarge:
-                return "Narrow the request, such as a smaller catalog page, then try again. Repeating it unchanged will fail the same way."
+                return "The service reply exceeded the transfer limit. Copy Diagnostics and report this response-size issue; repeating the same request will fail again."
             case .pairingRequired:
                 return "Add the pairing file, then retry the refresh."
             }
@@ -426,6 +433,8 @@ public struct CombinedFailure: Error, LocalizedError {
             // The wording is supplied by catalogFailureRecovery, which keys on
             // the operation rather than on this stage.
             return "Reload the source catalog. If it continues, copy the safe diagnostics."
+        case .replyEncoding:
+            return "Copy Diagnostics and report the service reply-encoding failure. Repeating the same request will not fix it."
         case .filePreparation: return "Choose the IPA again. SideStore will copy it into private shared staging before starting installation."
         case .installation, .refreshVerification: return "Reload authoritative app status and expiration before retrying. Completion may be uncertain."
         case .endpointSelection, .heartbeat, .coreDevice, .cdTunnel, .rsdDiscovery, .rsdService, .lockdownConnection, .uniqueDeviceID, .network:

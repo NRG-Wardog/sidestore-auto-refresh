@@ -696,7 +696,7 @@ struct V3OperationAttemptState {
     @discardableResult
     mutating func accept(state: String, generation: UUID, sessionID: String) -> Bool {
         guard matches(generation: generation, sessionID: sessionID) else { return false }
-        if !["working", "awaitingPrompt"].contains(state) { isTerminal = true }
+        if !["working", "awaitingPrompt", "cancelling"].contains(state) { isTerminal = true }
         return true
     }
 
@@ -780,6 +780,77 @@ final class V3TerminalResponse: @unchecked Sendable {
     }
 
     var isEmpty: Bool { if case nil = value { return true }; return false }
+}
+
+enum V3DeleteReconciliationPolicy {
+    static let callbackGrace: TimeInterval = 5
+
+    static func shouldRequestCancellation(deadlineElapsed: Bool, backendPending: Bool,
+                                         cancellationAlreadyRequested: Bool) -> Bool {
+        deadlineElapsed && backendPending && !cancellationAlreadyRequested
+    }
+
+    static func callbackGraceElapsed(requestedAt: Date?, now: Date) -> Bool {
+        guard let requestedAt else { return false }
+        return now.timeIntervalSince(requestedAt) >= callbackGrace
+    }
+
+    static func shouldPublishOutcomeUnknown(backendPending: Bool, requestedAt: Date?,
+                                           now: Date) -> Bool {
+        backendPending && callbackGraceElapsed(requestedAt: requestedAt, now: now)
+    }
+
+    static func shouldReleaseMutationOwnership(backendSettled: Bool) -> Bool {
+        backendSettled
+    }
+}
+
+// Cancellation is a request to stop. It is never itself a terminal result:
+// the backend driver commits completed/failed/cancelled only after its native
+// callback and required verification have settled.
+final class V3OperationTerminalResponse: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String: Any]?
+    private var cancellationRequested = false
+
+    @discardableResult
+    func requestCancellation() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard storage == nil else { return false }
+        cancellationRequested = true
+        return true
+    }
+
+    var isCancellationRequested: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancellationRequested
+    }
+
+    @discardableResult
+    func setIfEmpty(_ response: [String: Any]) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard storage == nil else { return false }
+        storage = response
+        return true
+    }
+
+    var value: [String: Any]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    var isEmpty: Bool { value == nil }
+
+    func reply(sessionID: String, backendSettled: Bool) -> [String: Any]? {
+        guard var response = value else { return nil }
+        response["session"] = sessionID
+        response["backendSettled"] = backendSettled
+        return response
+    }
 }
 
 struct V3SettingsWriteGeneration {
@@ -1113,6 +1184,7 @@ struct V3StatusPresentation: Equatable {
 enum V3IssueAction: String, Equatable, CaseIterable {
     case retryConnection
     case retrySource
+    case reloadSources
     case openCertificates
     case openAccount
     case showPairingSetup
@@ -1125,6 +1197,7 @@ enum V3IssueAction: String, Equatable, CaseIterable {
         switch self {
         case .retryConnection: return "Retry Connection"
         case .retrySource: return "Retry Source"
+        case .reloadSources: return "Reload Sources"
         case .openCertificates: return "Open Certificates"
         case .openAccount: return "Open Account & Signing"
         case .showPairingSetup: return "Show Pairing Setup"
@@ -1144,7 +1217,7 @@ enum V3IssueAction: String, Equatable, CaseIterable {
         case .openConnectionCheck, .retryConnection: return "connection"
         case .chooseIPA: return "ipa"
         case .openSetup: return "setup"
-        case .retrySource: return "sources"
+        case .retrySource, .reloadSources: return "sources"
         case .dismiss: return nil
         }
     }
@@ -1169,6 +1242,7 @@ struct V3UserFacingIssue: Equatable {
                      whatHappened: String, whatToDo: String, technicalDetails: String) -> V3UserFacingIssue {
         let destination: String? = {
             if safeCause == CombinedFailure.SafeCause.pairingRequired.rawValue { return "pairing" }
+            if safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue { return "sources" }
             if stage == CombinedFailure.Stage.authentication.rawValue { return "signIn" }
             if stage == CombinedFailure.Stage.filePreparation.rawValue { return "ipa" }
             if sourceStep == CombinedFailure.SourceStep.provisioningProfileFetch.rawValue
@@ -1215,7 +1289,9 @@ struct V3UserFacingIssue: Equatable {
             case "signIn": return .openAccount
             case "pairing": return .showPairingSetup
             case "ipa": return .chooseIPA
-            case "sources": return .retrySource
+            case "sources":
+                return safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue
+                    ? .reloadSources : .retrySource
             case "setup": return .openSetup
             // A connection destination is the only case that legitimately
             // offers a connection action.
@@ -1567,7 +1643,7 @@ enum V3ResponseEncoder {
             "version": 1,
             "id": id,
             "error": token,
-            "failure": CombinedFailure(operation: operation, stage: .command, code: code,
+            "failure": CombinedFailure(operation: operation, stage: .replyEncoding, code: code,
                                        id: id, safeCause: safeCause).wire
         ]
         return (try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)) ?? Data()
@@ -1700,6 +1776,11 @@ struct V3OperationFailureDetails {
     }
 
     var retryDisposition: V3RetryDisposition {
+        if safeCause == CombinedFailure.SafeCause.catalogSourceUnavailable.rawValue ||
+           safeCause == CombinedFailure.SafeCause.responseEncodingFailed.rawValue ||
+           safeCause == CombinedFailure.SafeCause.responseTooLarge.rawValue {
+            return .blocked
+        }
         if retryable == false { return .blocked }
         if stage == CombinedFailure.Stage.authentication.rawValue ||
            stage == CombinedFailure.Stage.filePreparation.rawValue ||
@@ -1757,6 +1838,10 @@ struct V3OperationFailureDetails {
 
     var recommendedAction: String {
         switch safeCause {
+        case CombinedFailure.SafeCause.responseEncodingFailed.rawValue:
+            return "Copy Diagnostics and report that the service could not encode its response. Repeating the same request will not help."
+        case CombinedFailure.SafeCause.responseTooLarge.rawValue:
+            return "Copy Diagnostics and report that the service reply exceeded the transfer limit. Repeating the same request will fail again."
         case CombinedFailure.SafeCause.pairingRequired.rawValue:
             return "Add the pairing file, then start the refresh again."
         case CombinedFailure.SafeCause.signingNetworkConnectionLost.rawValue:

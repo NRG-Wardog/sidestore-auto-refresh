@@ -57,6 +57,21 @@ struct OperationRetryFailureHarness {
         precondition(signingNetwork.recoveryDestination == "connection")
         precondition(signingNetwork.retryDisposition == .allowed)
 
+        let encodingFailure = CombinedFailure(operation: "catalog", stage: .catalog,
+            id: UUID().uuidString, retryable: false, safeCause: .responseEncodingFailed)
+        let encodingDetails = V3OperationFailureDetails(encodingFailure)
+        precondition(encodingDetails.retryDisposition == .blocked)
+        precondition(encodingDetails.recommendedAction.contains("Copy Diagnostics"))
+        precondition(!encodingDetails.recommendedAction.contains("signing"))
+        precondition(!encodingFailure.recovery.contains("Reload the request"))
+
+        let oversizedFailure = CombinedFailure(operation: "catalog", stage: .catalog,
+            id: UUID().uuidString, retryable: false, safeCause: .responseTooLarge)
+        let oversizedDetails = V3OperationFailureDetails(oversizedFailure)
+        precondition(oversizedDetails.retryDisposition == .blocked)
+        precondition(oversizedDetails.recommendedAction.contains("transfer limit"))
+        precondition(!oversizedDetails.recommendedAction.contains("signing"))
+
         // Separately model opStart returning busy before the second pipeline begins.
         let blockedSession = UUID().uuidString
         let startFailureSession = UUID().uuidString
