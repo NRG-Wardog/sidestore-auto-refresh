@@ -138,6 +138,14 @@ class ServicePatchTests(unittest.TestCase):
             member_start = project.index("membershipExceptions = (", exception_anchor)
             member_end = project.index(");", member_start)
             self.assertIn('"My Apps/MyAppsViewController.swift"', project[member_start:member_end])
+            self.assertIn('"Components/HeaderContentViewController.swift"', project[member_start:member_end])
+            self.assertIn('"Components/NavigationBar.swift"', project[member_start:member_end])
+            self.assertIn('"Extensions/INInteraction+AltStore.swift"', project[member_start:member_end])
+            manager = (roots[1] / "AltStore/Managing Apps/AppManager.swift").read_text(encoding="utf-8")
+            self.assertIn("isResignActive: false,", manager)
+            self.assertIn("presenterProvider:", manager)
+            self.assertNotIn("isResignActive: false //", manager,
+                             "the generated backend call must preserve the argument separator")
             self.apply(roots)
             self.assertEqual(first, self.snapshot(directory))
             path = roots[0] / "SideStoreSupport/XPCClient.m"
@@ -193,7 +201,8 @@ class ServicePatchTests(unittest.TestCase):
             self.assertNotIn("Starscream", project)
             for widget_edge in ("BF989175250AABF4002ACF50", "BF989176250AABF4002ACF50",
                                 "BF989177250AABF4002ACF50", "BF98917B250AABF4002ACF50"):
-                self.assertNotIn(widget_edge, project)
+                self.assertIn(widget_edge, project,
+                              "the SideStore widget must remain available for host widget repackaging")
             self.assertIn("BF989166250AABF3002ACF50 /* AltWidgetExtension */", project,
                           "keep the upstream widget target available for standalone SideStore")
             self.assertIn("0ED4AEC92E6DDB2A0039E2C0 /* PBXTargetDependency */", project,
@@ -217,6 +226,7 @@ class ServicePatchTests(unittest.TestCase):
                 '"News/NewsViewController.swift"',
                 '"TabBarController.swift"',
                 '"Components/ForwardingNavigationController.swift"',
+                '"Components/HeaderContentViewController.swift"',
                 '"Components/NavigationBar.swift"',
                 '"App Detail/AppContentViewController.swift"',
                 '"App Detail/AppContentViewControllerCells.swift"',
@@ -227,6 +237,8 @@ class ServicePatchTests(unittest.TestCase):
                 '"App Detail/Screenshots/PreviewAppScreenshotsViewController.swift"',
                 '"App Detail/Screenshots/AppScreenshotCollectionViewCell.swift"',
                 '"Components/AppCardCollectionViewCell.swift"',
+                '"App IDs/AppIDsViewController.swift"',
+                '"News/NewsCollectionViewCell.swift"',
                 '"Authentication/tvOS/Authentication.storyboard"',
                 '"Authentication/ResignAltStoreViewController.swift"',
                 '"Core/Intents/ViewAppIntentHandler.swift"',
@@ -256,6 +268,7 @@ class ServicePatchTests(unittest.TestCase):
                 '"Sources/SourcesViewController.swift"',
                 '"Sources/SourceDetailViewController.swift"',
                 '"Sources/SourceDetailContentViewController.swift"',
+                '"Extensions/INInteraction+AltStore.swift"',
                 '"My Apps/InstalledAppsCollectionHeaderView.xib"', '"My Apps/UpdateCollectionViewCell.xib"',
                 '"News/NewsCollectionViewCell.xib"', '"Settings/AboutPatreonHeaderView.xib"',
                 '"Settings/SettingsHeaderFooterView.xib"', '"Sources/Components/SourceHeaderView.xib"',

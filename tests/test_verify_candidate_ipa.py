@@ -129,8 +129,29 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
         }), ["INIntentsSupported", "NSUserActivityTypes"])
         self.assertEqual(verify_module.find_legacy_side_store_intent_info_keys({}), [])
         self.assertEqual(verify_module.find_legacy_side_store_ui_symbols(
-            b"SideStore\x00ResignAltStoreViewController\x00"), ["ResignAltStoreViewController"])
+            b"SideStore\x00ResignAltStoreViewController\x00NewsCollectionViewCell\x00AppIDsViewController\x00"),
+            ["ResignAltStoreViewController", "NewsCollectionViewCell", "AppIDsViewController"])
+        excluded_ui_symbols = (
+            "AuthenticationViewController", "InstructionsViewController",
+            "SelectTeamViewController", "MyAppsViewController", "SettingsViewController",
+            "LaunchViewController", "HeaderContentViewController", "NavigationBarAppearance",
+            "AddSourceViewController", "AltAppIconsViewController", "PatreonViewController",
+            "LicensesViewController", "RefreshAttemptsViewController", "ErrorDetailsViewController",
+            "ErrorLogTableViewCell", "ErrorLogViewController", "InstalledAppsCollectionHeaderView",
+            "UpdateCollectionViewCell",
+        )
+        encoded_symbols = b"\x00".join(symbol.encode("utf-8") for symbol in excluded_ui_symbols)
+        self.assertEqual(set(verify_module.find_legacy_side_store_ui_symbols(encoded_symbols)),
+                         set(excluded_ui_symbols))
         self.assertEqual(verify_module.find_legacy_side_store_ui_symbols(b"SideStore"), [])
+
+    def test_host_background_configuration_requires_processing_and_fetch(self):
+        self.assertEqual(verify_module.missing_required_background_modes({
+            "UIBackgroundModes": ["processing", "fetch"]}), [])
+        self.assertEqual(verify_module.missing_required_background_modes({
+            "UIBackgroundModes": ["processing"]}), ["fetch"])
+        self.assertEqual(verify_module.missing_required_background_modes({}),
+                         ["fetch", "processing"])
 
 
 if __name__ == "__main__":

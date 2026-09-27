@@ -11,7 +11,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 12
+PATCH_VERSION = 13
 
 
 def remove_pbx_object(text, object_marker):
@@ -41,24 +41,8 @@ def remove_pbx_object(text, object_marker):
     return text[:line_start] + text[end:]
 
 
-def remove_headless_widget_build_edge(text):
-    # The combined host already ships its own LiveContainer widget. The old
-    # SideStore widget target remains available to standalone SideStore builds,
-    # but the headless backend neither embeds nor builds that extension.
-    text = replace(text,
-        "\t\t\t\tBF98917B250AABF4002ACF50 /* Embed Foundation Extensions */,\n", "")
-    text = replace(text,
-        "\t\t\t\tBF989176250AABF4002ACF50 /* PBXTargetDependency */,\n", "")
-    for marker in (
-        "BF98917B250AABF4002ACF50 /* Embed Foundation Extensions */",
-        "BF989177250AABF4002ACF50 /* AltWidgetExtension.appex in Embed Foundation Extensions */",
-        "BF989176250AABF4002ACF50 /* PBXTargetDependency */",
-        "BF989175250AABF4002ACF50 /* PBXContainerItemProxy */",
-    ):
-        text = remove_pbx_object(text, marker)
-    return text
-
-
+# AltWidgetExtension remains a production dependency: the combined packager
+# moves that app product into LiveContainer as LiveWidgetExtension.
 def headless_project(text):
     side_exception = '''A8EEC8CB2F4B146B00F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -80,6 +64,7 @@ def headless_project(text):
 				"News/NewsViewController.swift",
 				"TabBarController.swift",
 				"Components/ForwardingNavigationController.swift",
+				"Components/HeaderContentViewController.swift",
 				"Components/NavigationBar.swift",
 				"App Detail/AppContentViewController.swift",
 				"App Detail/AppContentViewControllerCells.swift",
@@ -90,6 +75,8 @@ def headless_project(text):
 				"App Detail/Screenshots/PreviewAppScreenshotsViewController.swift",
 				"App Detail/Screenshots/AppScreenshotCollectionViewCell.swift",
 				"Components/AppCardCollectionViewCell.swift",
+				"App IDs/AppIDsViewController.swift",
+				"News/NewsCollectionViewCell.swift",
 				"LaunchViewController.swift",
 				"Resources/Silence.m4a",
 				"Authentication/Authentication.storyboard",
@@ -151,6 +138,7 @@ def headless_project(text):
 				"Sources/SourcesViewController.swift",
 				"Sources/SourceDetailViewController.swift",
 				"Sources/SourceDetailContentViewController.swift",
+				"Extensions/INInteraction+AltStore.swift",
 				"Sources/Sources.storyboard",
 				"Sources/tvOS/Sources.storyboard",
 				"iOS/LaunchScreen.storyboard",
@@ -225,7 +213,6 @@ def headless_project(text):
     if text.count(icon_setting) != 2:
         raise SystemExit("v3 service: expected Debug and Release alternate-icon settings")
     text = text.replace(icon_setting, "ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;")
-    text = remove_headless_widget_build_edge(text)
     return text
 
 
@@ -304,7 +291,7 @@ def headless_app_manager_ui(text):
     text = text[:start] + "    // " + marker + ": interactive sign-in is owned by the LiveContainer host.\n" + text[end:]
     text = replace(text,
         "isResignActive: presentingViewController is ResignAltStoreViewController",
-        "isResignActive: false // V3 headless backend has no embedded resign presenter")
+        "isResignActive: false")
     if "ResignAltStoreViewController" in text:
         raise SystemExit("v3 service: legacy resign presenter still reaches AppManager")
     return replace(text, "import Intents\n", "")

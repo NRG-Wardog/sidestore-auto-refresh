@@ -33,6 +33,7 @@ REQUIRED_BACKGROUND_IDS = {
     "com.kdt.livecontainer.sidestore.automatic-refresh",
     "com.kdt.livecontainer.sidestore.automatic-refresh.watchdog",
 }
+REQUIRED_BACKGROUND_MODES = {"processing", "fetch"}
 REMOVED_SIDESTORE_ICON_NAMES = {
     "blueicon", "darkicon", "honeydewicon", "prideicon",
     "sandyicon", "skyicon", "snowicon", "starbursticon", "stormicon", "vistaicon", "wintericon",
@@ -45,14 +46,21 @@ REMOVED_SIDESTORE_INTENT_SYMBOLS = (
 REMOVED_SIDESTORE_INTENT_INFO_KEYS = ("INIntentsSupported", "NSUserActivityTypes")
 REMOVED_SIDESTORE_UI_SYMBOLS = (
     "ResignAltStoreViewController", "FeaturedViewController", "BrowseViewController",
-    "NewsViewController", "TabBarController", "SourcesViewController",
+    "FeaturedComponents", "BackgroundTaskManager",
+    "NewsViewController", "NewsCollectionViewCell", "TabBarController", "SourcesViewController",
     "SourceDetailViewController", "SourceDetailContentViewController",
+    "HeaderContentViewController", "AppIDsViewController",
     "AppViewController", "AppContentViewController", "AppDetailCollectionViewController",
-    "AppScreenshotsViewController", "PreviewAppScreenshotsViewController",
+    "AppScreenshotsViewController", "AppPermissionsCard", "PreviewAppScreenshotsViewController",
     "AppScreenshotCollectionViewCell", "AppCardCollectionViewCell",
     "ScreenshotCollectionViewCell", "ForwardingNavigationController",
-    "LargeIconCollectionViewCell", "IconButtonCollectionReusableView",
-    "AddSourceTextFieldCell",
+    "NavigationBarAppearance", "LargeIconCollectionViewCell", "IconButtonCollectionReusableView",
+    "AddSourceTextFieldCell", "AddSourceViewController", "AuthenticationViewController",
+    "InstructionsViewController", "SelectTeamViewController", "MyAppsViewController",
+    "MyAppsComponents", "InstalledAppsCollectionHeaderView", "UpdateCollectionViewCell",
+    "SettingsViewController", "LaunchViewController", "AltAppIconsViewController",
+    "PatreonViewController", "LicensesViewController", "RefreshAttemptsViewController",
+    "ErrorDetailsViewController", "ErrorLogTableViewCell", "ErrorLogViewController",
 )
 
 
@@ -187,6 +195,11 @@ def find_legacy_side_store_ui_symbols(executable: bytes) -> list[str]:
     return [name for name in REMOVED_SIDESTORE_UI_SYMBOLS if name.encode("utf-8") in executable]
 
 
+def missing_required_background_modes(info: dict) -> list[str]:
+    configured = set(info.get("UIBackgroundModes", []))
+    return sorted(REQUIRED_BACKGROUND_MODES - configured)
+
+
 def verify_side_store_assetutil_records(records: list[dict]) -> dict:
     if not isinstance(records, list) or not records:
         raise ValueError("SideStore Assets.car has no readable asset records")
@@ -266,8 +279,10 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
             raise ValueError("required URL schemes are missing")
         if not REQUIRED_BACKGROUND_IDS.issubset(set(info.get("BGTaskSchedulerPermittedIdentifiers", []))):
             raise ValueError("required background task identifiers are missing")
-        if "processing" not in set(info.get("UIBackgroundModes", [])):
-            raise ValueError("background processing mode is missing")
+        missing_background_modes = missing_required_background_modes(info)
+        if missing_background_modes:
+            raise ValueError("required host background modes are missing: "
+                             + ", ".join(missing_background_modes))
 
         package_bundles = inventory(ipa)["bundles"]
         host = package_bundles[BASE]
@@ -409,6 +424,7 @@ def verify(ipa: Path, provenance_path: Path, product: str) -> dict:
         "livecontainer_app_groups": sorted(REQUIRED_LIVECONTAINER_GROUPS),
         "url_schemes": sorted(REQUIRED_SCHEMES),
         "background_identifiers": sorted(REQUIRED_BACKGROUND_IDS),
+        "host_background_modes": sorted(REQUIRED_BACKGROUND_MODES),
         "audit_source_or_private_material": "absent",
         "provenance": "verified",
     }
