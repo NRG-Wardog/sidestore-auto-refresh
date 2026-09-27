@@ -14,13 +14,29 @@ spec = importlib.util.spec_from_file_location("automation", ROOT / "scripts/patc
 automation = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(automation)
 SWIFTC = os.environ.get("SWIFTC") or shutil.which("swiftc")
-SOURCE = Path(os.environ.get("SIDESTORE_TEST_SOURCE", ROOT.parent / "SideStore-source-timepicker"))
+PINNED_SOURCE_ENV = os.environ.get("SIDESTORE_TEST_SOURCE") or os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
+SOURCE = Path(PINNED_SOURCE_ENV) if PINNED_SOURCE_ENV else ROOT / ".audit/upstream/SideStore"
+WORKFLOW = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
+PINNED_SIDESTORE_REF = re.search(r"(?m)^  EMBEDDED_SIDESTORE_REF: ([0-9a-f]{40})$", WORKFLOW)[1]
 FILES = ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",
          automation.DATABASE_SOURCE,
          "AltStore/Managing Apps/AppManager.swift",
          "AltStore/Info.plist", "AltStore/Settings/SettingsViewController.swift",
          "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
          "SideStore/Utils/iostreams/ConsoleLog.swift"]
+
+
+def has_pinned_side_store_source() -> bool:
+    if not (SOURCE / FILES[0]).is_file():
+        return False
+    if PINNED_SOURCE_ENV:
+        # The workflow verifies an explicit checkout's exact commit before the
+        # test suite starts. A developer-supplied path should run and fail on
+        # incompatible APIs rather than be silently skipped here.
+        return True
+    revision = subprocess.run(["git", "-C", str(SOURCE), "rev-parse", "HEAD"],
+                              capture_output=True, text=True)
+    return revision.returncode == 0 and revision.stdout.strip() == PINNED_SIDESTORE_REF
 
 
 class AutomationTests(unittest.TestCase):
@@ -36,11 +52,12 @@ class AutomationTests(unittest.TestCase):
                 automation.patch_app_delegate(root)
             self.assertEqual(delegate.read_text(encoding="utf-8"), "unchanged")
 
-    @unittest.skipUnless((SOURCE / FILES[0]).is_file(), "Pinned SideStore checkout required")
+    @unittest.skipUnless(has_pinned_side_store_source(), "exact pinned SideStore checkout required")
     def test_database_start_matches_pinned_apis(self):
         sources = [SOURCE]
-        if os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE"):
-            sources.append(Path(os.environ["EMBEDDED_SIDESTORE_TEST_SOURCE"]))
+        embedded_source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        if embedded_source and Path(embedded_source).resolve() != SOURCE.resolve():
+            sources.append(Path(embedded_source))
         for source in sources:
             with self.subTest(source=str(source)), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)

@@ -1,5 +1,7 @@
 """Regression coverage for v3.0.3 source-app Update support (issue #30)."""
 import os
+import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -7,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
 SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
 RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
+WORKFLOW = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
+PINNED_SIDESTORE_REF = re.search(r"(?m)^  EMBEDDED_SIDESTORE_REF: ([0-9a-f]{40})$", WORKFLOW)[1]
 
 
 def shell():
@@ -30,8 +34,14 @@ def upstream_installed_app():
     ]
     for candidate in candidates:
         path = candidate / "AltStore/Core/Model/InstalledApp.swift"
-        if path.is_file():
+        if not path.is_file():
+            continue
+        revision = subprocess.run(["git", "-C", str(candidate), "rev-parse", "HEAD"],
+                                  capture_output=True, text=True)
+        if revision.returncode == 0 and revision.stdout.strip() == PINNED_SIDESTORE_REF:
             return path.read_text(encoding="utf-8")
+        if override:
+            raise AssertionError(f"Embedded SideStore source must be pinned to {PINNED_SIDESTORE_REF}")
     raise unittest.SkipTest("Pinned SideStore source unavailable; "
                             "set EMBEDDED_SIDESTORE_TEST_SOURCE")
 

@@ -7,20 +7,43 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import re
+from typing import Optional
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from patch_embedded_sidestore_startup import MARKER, patch
+WORKFLOW = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
+LIVE_CONTAINER_REF = re.search(r"(?m)^  LIVE_CONTAINER_REF: ([0-9a-f]{40})$", WORKFLOW)[1]
+EMBEDDED_SIDESTORE_REF = re.search(r"(?m)^  EMBEDDED_SIDESTORE_REF: ([0-9a-f]{40})$", WORKFLOW)[1]
+
+
+def checkout_revision(root: Path) -> Optional[str]:
+    result = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                            capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else None
 
 
 def upstream_roots():
-    live = Path(os.getenv("LIVE_CONTAINER_TEST_SOURCE", ROOT / ".audit/upstream/LiveContainer"))
-    side = Path(os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE", ROOT / ".audit/upstream/SideStore"))
+    explicit_live = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
+    explicit_side = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
+    live = Path(explicit_live or ROOT / ".audit/upstream/LiveContainer")
+    side = Path(explicit_side or ROOT / ".audit/upstream/SideStore")
     if not (live / "LiveContainer" / "LCBootstrap.m").is_file():
         raise unittest.SkipTest("Pinned LiveContainer source unavailable")
     if not (side / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift").is_file():
         raise unittest.SkipTest("Pinned embedded SideStore source unavailable")
+    for root, expected, explicit, name in (
+        (live, LIVE_CONTAINER_REF, explicit_live, "LiveContainer"),
+        (side, EMBEDDED_SIDESTORE_REF, explicit_side, "embedded SideStore"),
+    ):
+        actual = checkout_revision(root)
+        if actual != expected:
+            message = f"{name} test source is {actual or 'not a Git checkout'}, expected pinned {expected}"
+            if explicit:
+                raise AssertionError(message)
+            raise unittest.SkipTest(message)
     return live, side
 
 
