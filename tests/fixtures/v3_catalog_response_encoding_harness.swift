@@ -174,6 +174,24 @@ struct CatalogResponseEncodingHarness {
         // rejected rather than silently displayed.
         precondition(V3CatalogRowPolicy.dedupe([["name": "no id"]]).isEmpty)
 
+        // V3_REFRESH_ADMISSION_WIRE_V1: reservation/release must cross the
+        // actual plist contract as mutations with a run-scoped UUID.
+        let refreshRunID = UUID().uuidString
+        for operation in ["refreshAdmissionBegin", "refreshAdmissionEnd"] {
+            let request: [String: Any] = ["version": 1, "id": UUID().uuidString,
+                "operation": operation, "target": refreshRunID,
+                "deadline": Date().addingTimeInterval(30)]
+            let requestData = try! PropertyListSerialization.data(
+                fromPropertyList: request, format: .binary, options: 0)
+            guard let decodedRequest = V3WireContract.decodeRequest(requestData) else {
+                preconditionFailure("refresh admission operation must be accepted by the wire contract")
+            }
+            precondition(decodedRequest["operation"] as? String == operation)
+            precondition(decodedRequest["target"] as? String == refreshRunID)
+            precondition(!V3WireContract.readOperations.contains(operation),
+                         "refresh admission must acquire the mutation gate")
+        }
+
         print("V3_CATALOG_RESPONSE_ENCODING_PASS")
     }
 }

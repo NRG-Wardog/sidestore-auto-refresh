@@ -132,6 +132,26 @@ struct SetupAndSemanticUXHarness {
             anotherMutationActive: false, authenticationActive: true,
             isAuthContinuation: false, responseCapacityAvailable: true),
             "mutations must wait until the live authentication/provisioning session terminates")
+        precondition(V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
+            "authBegin", ownsActiveSession: false),
+            "a new authentication attempt must reach the backend supersession/cancel path")
+        precondition(V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+            anotherMutationActive: false, authenticationActive: true,
+            isAuthContinuation: V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
+                "authBegin", ownsActiveSession: false), responseCapacityAvailable: true),
+            "a new sign-in must be able to supersede a stranded backend auth session")
+        precondition(V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
+            "authRespond", ownsActiveSession: true),
+            "the active session must accept its own prompt response")
+        precondition(!V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
+            "authRespond", ownsActiveSession: false),
+            "another session must not answer a prompt it does not own")
+        precondition(V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
+            "authCancel", ownsActiveSession: true),
+            "the active session must have a scoped cancellation path")
+        precondition(!V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
+            "authCancel", ownsActiveSession: false),
+            "cancellation must not target another live auth session")
         precondition(V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
             anotherMutationActive: false, authenticationActive: true,
             isAuthContinuation: true, responseCapacityAvailable: true),
@@ -140,6 +160,71 @@ struct SetupAndSemanticUXHarness {
             anotherMutationActive: true, authenticationActive: true,
             isAuthContinuation: false, responseCapacityAvailable: true),
             "read-only status remains available while mutation admission is gated")
+
+        // V3_REFRESH_ADMISSION_LEASE_V1: the scheduler's direct XPC refresh
+        // path acquires this same service-owned lease before dispatch. Its
+        // MainActor serialization closes the gap between a readiness snapshot
+        // and the native refresh call.
+        let runA = UUID().uuidString
+        let runB = UUID().uuidString
+        let leaseDeadline = Date().addingTimeInterval(60)
+        var refreshLease = V3RefreshAdmissionLease()
+        precondition(!refreshLease.acquire(runID: runA, authenticationActive: true,
+            anotherMutationActive: false, deadline: leaseDeadline),
+            "refresh cannot acquire ownership while authentication is active")
+        precondition(refreshLease.acquire(runID: runA, authenticationActive: false,
+            anotherMutationActive: false, deadline: leaseDeadline),
+            "a ready scheduler run acquires refresh ownership")
+        precondition(!refreshLease.acquire(runID: runB, authenticationActive: false,
+            anotherMutationActive: false, deadline: leaseDeadline),
+            "a second scheduler run cannot overlap the current refresh")
+        precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+            anotherMutationActive: false, authenticationActive: false,
+            isAuthContinuation: V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
+                "authBegin", ownsActiveSession: false), responseCapacityAvailable: true,
+            refreshActive: refreshLease.isActive),
+            "authentication cannot begin after refresh has atomically acquired ownership")
+        precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+            anotherMutationActive: false, authenticationActive: false,
+            isAuthContinuation: false, responseCapacityAvailable: true,
+            refreshActive: refreshLease.isActive),
+            "other mutations cannot overlap the scheduler refresh")
+        precondition(V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+            anotherMutationActive: false, authenticationActive: false,
+            isAuthContinuation: false, responseCapacityAvailable: true,
+            refreshActive: refreshLease.isActive, isRefreshRelease: refreshLease.owns(runA)),
+            "only the owner can release the refresh gate")
+        precondition(!refreshLease.release(runID: runB),
+            "a stale run cannot release another run's refresh lease")
+        precondition(refreshLease.release(runID: runA) && !refreshLease.isActive,
+            "terminal refresh releases admission for the next request")
+        var expiringLease = V3RefreshAdmissionLease()
+        let expiry = Date(timeIntervalSince1970: 1_000)
+        precondition(expiringLease.acquire(runID: runB, authenticationActive: false,
+            anotherMutationActive: false, deadline: expiry, now: Date(timeIntervalSince1970: 900)))
+        precondition(expiringLease.expire(now: expiry) && !expiringLease.isActive,
+            "a lost host terminal reply cannot leave refresh admission held forever")
+
+        // V3_KNOWN_SOURCE_PREFLIGHT_V1: the headless source path refreshes the
+        // canonical source blocklist on first use and then reuses it for six
+        // hours, avoiding both an empty-cache safety bypass and a network fetch
+        // for every Preview/Confirm interaction.
+        let knownNow = Date(timeIntervalSince1970: 100_000)
+        precondition(V3KnownSourcePreflightPolicy.shouldRefresh(
+            hasCachedBlocklist: false, lastSuccessfulUpdate: nil, now: knownNow),
+            "a fresh headless service must load SideStore's blocklist before source fetch")
+        precondition(V3KnownSourcePreflightPolicy.shouldRefresh(
+            hasCachedBlocklist: true,
+            lastSuccessfulUpdate: knownNow.addingTimeInterval(-7 * 60 * 60), now: knownNow),
+            "an expired blocklist must be refreshed before a new source is fetched")
+        precondition(!V3KnownSourcePreflightPolicy.shouldRefresh(
+            hasCachedBlocklist: true,
+            lastSuccessfulUpdate: knownNow.addingTimeInterval(-5 * 60 * 60), now: knownNow),
+            "a fresh SideStore blocklist is reused across preview and confirmation")
+        precondition(V3KnownSourcePreflightPolicy.shouldRefresh(
+            hasCachedBlocklist: true,
+            lastSuccessfulUpdate: knownNow.addingTimeInterval(60), now: knownNow),
+            "a future cache timestamp is treated as invalid and refreshed")
         let ipaFailure = issue("install", "filePreparation")
         precondition(ipaFailure.primaryAction == .chooseIPA)
         // A failure with no specific evidence must not assume networking.

@@ -25,6 +25,7 @@ enum V3WireContract {
         return number.intValue
     }
     static let operations: Set<String> = ["snapshot", "catalog", "appIcon", "cancel", "refreshSources",
+        "refreshAdmissionBegin", "refreshAdmissionEnd",
         "signOut", "syncAppIDs", "clearCache", "jit", "backupResult",
         "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning",
         "opStart", "opPoll", "opAnswer", "opCancel", "ipaCleanup",

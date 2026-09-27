@@ -22,6 +22,19 @@ def region(source, start, end):
 
 
 class SourceAddPersistenceContractTests(unittest.TestCase):
+    def test_headless_source_preview_and_add_refresh_known_source_policy_first(self):
+        service = text(SERVICE)
+        preview = region(service, 'case "sourcePreview":', 'case "sourceAddConfirmed":')
+        add = region(service, 'case "sourceAddConfirmed":', 'case "sourceRemoveConfirmed":')
+        self.assertLess(preview.index("ensureKnownSourcesUpdated()"),
+                        preview.index("V3BackendCommands.sourcePreview"))
+        self.assertLess(add.index("ensureKnownSourcesUpdated()"),
+                        add.index("V3BackendCommands.sourceAddConfirmed"))
+        preflight = region(service, "private func ensureKnownSourcesUpdated()", "private func snapshot()")
+        for token in ("V3KnownSourcePreflightPolicy.shouldRefresh", "knownSourcesUpdateTask",
+                      "AppManager.shared.updateKnownSources", "v3KnownSourcesUpdatedAt"):
+            self.assertIn(token, preflight)
+
     def test_headless_add_uses_persisted_check_save_and_fresh_context_verification(self):
         runtime = text(RUNTIME)
         method = region(runtime, "static func sourceAddConfirmed(urlString:",
@@ -70,6 +83,18 @@ class SourceAddPersistenceContractTests(unittest.TestCase):
             "git", "-C", side, "show",
             patch_v3_service.PINS[1] + ":AltStore/Core/Model/Source.swift"],
             text=True, encoding="utf-8")
+        launch = subprocess.check_output([
+            "git", "-C", side, "show",
+            patch_v3_service.PINS[1] + ":AltStore/LaunchViewController.swift"],
+            text=True, encoding="utf-8")
+        known_sources = subprocess.check_output([
+            "git", "-C", side, "show",
+            patch_v3_service.PINS[1] + ":SideStore/Core/Operations/StandaloneOperations/UpdateKnownSourcesOperation.swift"],
+            text=True, encoding="utf-8")
+        fetch_source = subprocess.check_output([
+            "git", "-C", side, "show",
+            patch_v3_service.PINS[1] + ":SideStore/Core/Operations/StandaloneOperations/FetchSourceOperation.swift"],
+            text=True, encoding="utf-8")
         add = region(app_manager, "func add(@AsyncManaged _ source: Source,", "func remove(")
         is_added = region(source_model, "nonisolated func isAdded() async throws -> Bool", "var isPersisted:")
         self.assertIn("fetchSource(sourceURL: sourceURL, managedObjectContext: context)", add)
@@ -78,6 +103,10 @@ class SourceAddPersistenceContractTests(unittest.TestCase):
         self.assertIn("didAddSourceNotification", add)
         self.assertIn("newBackgroundContext()", is_added)
         self.assertIn("backgroundContext.count(for: fetchRequest)", is_added)
+        self.assertIn("updateKnownSources()", launch)
+        self.assertIn("UserDefaults.standard.blockedSources = sources.blocked", known_sources)
+        self.assertIn("guard let blockedSources = UserDefaults.standard.blockedSources else { return }",
+                      fetch_source)
 
 
 class CanonicalJITLessRouteTests(unittest.TestCase):

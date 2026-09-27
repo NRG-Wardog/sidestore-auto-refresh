@@ -208,6 +208,18 @@ class RefreshHandler: NSObject {
         guard UUID(uuidString: run) != nil, let client else {
             throw CombinedFailure(operation: "refresh", stage: .xpcConnection, code: .invalidConfiguration, id: token.uuidString)
         }
+        // The readiness snapshot above is useful to explain current status,
+        // but it is not an ownership claim: authentication could begin after
+        // that snapshot and before this legacy XPC call. Reserve the mutation
+        // through the SideStore command gate before starting the direct refresh
+        // path. Authentication and refresh admission are serialized there.
+        let admission = try await V3ServiceBridge.shared.request(
+            operation: "refreshAdmissionBegin", target: run)
+        guard admission["runID"] as? String == run,
+              V3ServiceBridge.strictBool(admission["admitted"]) == true else {
+            throw CombinedFailure(operation: "refresh", stage: .serviceReadiness,
+                code: .busy, id: run, retryable: true)
+        }
         defaults?.set(run, forKey: "liveContainerAutoRefreshExpectedRunID")
         refreshRunID = run
         let timeout = Task { @MainActor in
@@ -217,14 +229,36 @@ class RefreshHandler: NSObject {
             self.service.stop()
         }
         defer { timeout.cancel() }
-        try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
-                refreshContinuation = continuation
-                defaults?.set(run, forKey: "liveContainerAutoRefreshUncertainMutationRunID")
-                client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName, refreshRunID: run)
+        do {
+            try await withTaskCancellationHandler(operation: {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
+                    refreshContinuation = continuation
+                    defaults?.set(run, forKey: "liveContainerAutoRefreshUncertainMutationRunID")
+                    client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName, refreshRunID: run)
+                }
+            }, onCancel: { Task { @MainActor in if self.v3RefreshToken == token { self.v3_stopService() } } })
+        } catch {
+            timeout.cancel()
+            // A timed-out/cancelled refresh retires the SideStore service. Its
+            // in-memory lease then disappears with that process; avoid
+            // reconnecting solely to release a lease in a retired service.
+            if !Task.isCancelled, !(error is CancellationError),
+               (error as? CombinedFailure)?.code != .timedOut {
+                await releaseRefreshAdmission(run)
             }
-        }, onCancel: { Task { @MainActor in if self.v3RefreshToken == token { self.v3_stopService() } } })
+            throw error
+        }
+        timeout.cancel()
+        await releaseRefreshAdmission(run)
+    }
+    private func releaseRefreshAdmission(_ runID: String) async {
+        // Run independently of a caller cancellation so a confirmed terminal
+        // callback cannot strand the service's admission state.
+        await Task { @MainActor in
+            _ = try? await V3ServiceBridge.shared.request(
+                operation: "refreshAdmissionEnd", target: runID)
+        }.value
     }
     private func finishRefreshContinuation(_ result: Result<Void, Error>) {
         let pending = refreshContinuation; refreshContinuation = nil; refreshRunID = nil

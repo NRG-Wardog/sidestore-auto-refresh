@@ -31,6 +31,8 @@ final class V3SideStoreService: NSObject {
     var cancellations: [String: () -> Void] = [:]
     var completed: [String: (data: Data, deadline: Date)] = [:]
     var mutationID: String?
+    private var refreshAdmission = V3RefreshAdmissionLease()
+    private var knownSourcesUpdateTask: Task<Void, Error>?
 
     @objc(execute:reply:)
     nonisolated static func execute(_ data: Data, reply: @escaping (Data) -> Void) {
@@ -55,6 +57,7 @@ final class V3SideStoreService: NSObject {
             return
         }
         completed = completed.filter { $0.value.deadline > Date() }
+        _ = refreshAdmission.expire()
         if let previous = completed[id] { reply(previous.data); return }
         if operation == "cancel" {
             let target = request["target"] as? String ?? ""
@@ -81,16 +84,24 @@ final class V3SideStoreService: NSObject {
             return
         }
         let mutation = !V3WireContract.readOperations.contains(operation)
-        let authContinuation = operation == "authRespond" &&
-            V3HeadlessRuntime.shared.auth.ownsActiveSession(request["target"] as? String ?? "")
+        let target = request["target"] as? String ?? ""
+        let authContinuation = V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
+            operation,
+            ownsActiveSession: V3HeadlessRuntime.shared.auth.ownsActiveSession(target))
+        let refreshRelease = operation == "refreshAdmissionEnd" && refreshAdmission.owns(target)
         guard V3ServiceMutationAdmissionPolicy.admits(isMutation: mutation,
             anotherMutationActive: mutationID != nil,
             authenticationActive: V3HeadlessRuntime.shared.auth.hasActiveSession,
             isAuthContinuation: authContinuation,
-            responseCapacityAvailable: completed.count < 512) else {
+            responseCapacityAvailable: completed.count < 512,
+            refreshActive: refreshAdmission.isActive,
+            isRefreshRelease: refreshRelease) else {
             let failure = operation == "sourceRemoveConfirmed"
                 ? CombinedFailure(operation: "source", stage: .source, code: .busy, id: id,
                                   retryable: true, safeCause: .sourceRemoveBusy)
+                : operation.hasPrefix("refreshAdmission")
+                ? CombinedFailure(operation: "refresh", stage: .serviceReadiness, code: .busy, id: id,
+                                  retryable: true)
                 : CombinedFailure(operation: operation, stage: .command, code: .busy, id: id, retryable: true)
             var response: [String: Any] = ["version": 1, "id": id, "error": "busy", "failure": failure.wire]
             if operation == "opStart" { response["operationNotDispatched"] = true }
@@ -112,6 +123,11 @@ final class V3SideStoreService: NSObject {
                 try Task.checkCancellation()
                 response["ok"] = true
             } catch {
+                if operation == "refreshAdmissionBegin", error is CancellationError,
+                   let refreshRunID = request["target"] as? String,
+                   refreshAdmission.owns(refreshRunID) {
+                    _ = refreshAdmission.release(runID: refreshRunID)
+                }
                 // Raw framework errors can contain URLs, authentication data or server responses.
                 // Detailed errors remain inside the SideStore process.
                 if let serviceError = error as? ServiceError { response["error"] = serviceError.rawValue }
@@ -140,6 +156,7 @@ final class V3SideStoreService: NSObject {
                 if let serviceError = error as? V3SideStoreServiceError, case .notReady = serviceError {
                     stage = .serviceReadiness
                 }
+                if operation.hasPrefix("refreshAdmission") { stage = .serviceReadiness }
                 if operation == "sourceRemoveConfirmed" {
                     if let serviceError = error as? ServiceError, case .notReady = serviceError {
                         response["failure"] = CombinedFailure(operation: "source", stage: .serviceReadiness,
@@ -168,7 +185,14 @@ final class V3SideStoreService: NSObject {
                     case .notFound: code = .unavailable
                     case .invalidRequest: code = .invalidConfiguration
                     }
-                    response["failure"] = CombinedFailure(operation: operation, stage: stage, code: code, id: id).wire
+                    if operation.hasPrefix("refreshAdmission") {
+                        response["failure"] = CombinedFailure(operation: "refresh",
+                            stage: .serviceReadiness, code: code, id: id,
+                            retryable: code == .busy).wire
+                    } else {
+                        response["failure"] = CombinedFailure(operation: operation, stage: stage,
+                            code: code, id: id).wire
+                    }
                 } else if let headlessError = error as? V3SideStoreServiceError {
                     let code: CombinedFailure.Code
                     switch headlessError {
@@ -272,6 +296,20 @@ final class V3SideStoreService: NSObject {
         let payload = request["payload"] as? [String: Any] ?? [:]
         switch operation {
         case "snapshot": return try snapshot()
+        case "refreshAdmissionBegin":
+            guard let deadline = request["deadline"] as? Date,
+                  refreshAdmission.acquire(runID: target,
+                    authenticationActive: V3HeadlessRuntime.shared.auth.hasActiveSession,
+                    anotherMutationActive: mutationID != nil && mutationID != id,
+                    deadline: deadline) else {
+                throw ServiceError.busy
+            }
+            return ["runID": target, "admitted": true]
+        case "refreshAdmissionEnd":
+            guard refreshAdmission.release(runID: target) else {
+                throw ServiceError.notFound
+            }
+            return ["runID": target, "released": true]
         case "appIcon":
             let app: InstalledApp = try object(target)
             guard let image = try await app.loadIcon() else { return [:] }
@@ -477,8 +515,10 @@ final class V3SideStoreService: NSObject {
         case "devProfiles":
             return ["profiles": try await V3BackendCommands.developerProfiles()]
         case "sourcePreview":
+            try await ensureKnownSourcesUpdated()
             return try await V3BackendCommands.sourcePreview(urlString: target)
         case "sourceAddConfirmed":
+            try await ensureKnownSourcesUpdated()
             let addResult = try await V3BackendCommands.sourceAddConfirmed(urlString: target)
             var updated = try snapshot()
             let persistedSources = try await V3BackendCommands.authoritativeSourceRows()
@@ -585,6 +625,35 @@ final class V3SideStoreService: NSObject {
         }
     }
 
+    // Upstream SideStore refreshes its server-owned allow/block source lists at
+    // launch. The headless backend has no launch screen, so source preview and
+    // add run a bounded cached preflight before AppManager.fetchSource relies on
+    // UserDefaults.blockedSources. Concurrent source requests join one update.
+    private func ensureKnownSourcesUpdated() async throws {
+        let defaults = UserDefaults.standard
+        let hasCachedBlocklist = defaults.blockedSources != nil
+        let lastUpdated = defaults.object(forKey: "v3KnownSourcesUpdatedAt") as? Date
+        guard V3KnownSourcePreflightPolicy.shouldRefresh(
+            hasCachedBlocklist: hasCachedBlocklist,
+            lastSuccessfulUpdate: lastUpdated) else { return }
+
+        if let knownSourcesUpdateTask {
+            try await knownSourcesUpdateTask.value
+            return
+        }
+        let task = Task<Void, Error> { @MainActor in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                AppManager.shared.updateKnownSources { result in
+                    continuation.resume(with: result.map { _ in () })
+                }
+            }
+        }
+        knownSourcesUpdateTask = task
+        defer { knownSourcesUpdateTask = nil }
+        try await task.value
+        defaults.set(Date(), forKey: "v3KnownSourcesUpdatedAt")
+    }
+
     private func snapshot() throws -> [String: Any] {
         let context = DatabaseManager.shared.viewContext
         let apps = InstalledApp.all(in: context)
@@ -603,7 +672,9 @@ final class V3SideStoreService: NSObject {
         let account = activeAccount?.appleID
             ?? (authenticated ? AuthManager.shared.currentAppleID : nil)
             ?? "Not signed in"
-        return ["updatedAt": Date(), "busy": mutationID != nil,
+        _ = refreshAdmission.expire()
+        return ["updatedAt": Date(), "busy": mutationID != nil ||
+                    V3HeadlessRuntime.shared.auth.hasActiveSession || refreshAdmission.isActive,
                 "account": account,
                 "authenticated": authenticated,
                 "provisioningIncomplete": authenticated && activeAccount == nil,

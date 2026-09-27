@@ -205,7 +205,7 @@ public struct CombinedFailure: Error, LocalizedError {
     public init(operation: String, stage: Stage, code: Code = .failed, id: String,
                 underlying: Error? = nil, retryable: Bool? = nil, safeCause: SafeCause? = nil,
                 sourceStep: SourceStep? = nil) {
-        let normalized = ["snapshot": "status", "refreshApp": "refresh", "installURL": "install", "installSharedIPA": "install",
+        let normalized = ["snapshot": "status", "refreshApp": "refresh", "refreshAdmissionBegin": "refresh", "refreshAdmissionEnd": "refresh", "installURL": "install", "installSharedIPA": "install",
                           "addSource": "source", "removeSource": "source", "refreshSources": "source", "syncAppIDs": "signIn",
                           "authBegin": "signIn", "authPoll": "signIn", "authRespond": "signIn", "authCancel": "signIn",
                           "authRetryProvisioning": "signIn",

@@ -2152,10 +2152,73 @@ enum V3OperationStartDispatchPolicy {
 enum V3ServiceMutationAdmissionPolicy {
     static func admits(isMutation: Bool, anotherMutationActive: Bool,
                        authenticationActive: Bool, isAuthContinuation: Bool,
-                       responseCapacityAvailable: Bool) -> Bool {
+                       responseCapacityAvailable: Bool,
+                       refreshActive: Bool = false,
+                       isRefreshRelease: Bool = false) -> Bool {
         guard isMutation else { return true }
         guard !anotherMutationActive, responseCapacityAvailable else { return false }
+        guard !refreshActive || isRefreshRelease else { return false }
         return !authenticationActive || isAuthContinuation
+    }
+
+    static func permitsAuthenticationControl(_ operation: String,
+                                              ownsActiveSession: Bool) -> Bool {
+        if ["authBegin", "authRetryProvisioning"].contains(operation) {
+            // V3AuthCenter.begin() explicitly cancels and awaits its previous
+            // session before launching this new request. This admission keeps
+            // that recovery path reachable after a host-side transport failure.
+            return true
+        }
+        return ownsActiveSession && ["authRespond", "authCancel"].contains(operation)
+    }
+}
+
+struct V3RefreshAdmissionLease {
+    private(set) var runID: String?
+    private(set) var expiresAt: Date?
+
+    var isActive: Bool { runID != nil }
+
+    mutating func expire(now: Date = Date()) -> Bool {
+        guard let expiresAt, expiresAt <= now else { return false }
+        runID = nil
+        self.expiresAt = nil
+        return true
+    }
+
+    mutating func acquire(runID: String, authenticationActive: Bool,
+                          anotherMutationActive: Bool, deadline: Date,
+                          now: Date = Date()) -> Bool {
+        _ = expire(now: now)
+        guard let parsed = UUID(uuidString: runID), parsed.uuidString == runID,
+              self.runID == nil, !authenticationActive, !anotherMutationActive,
+              deadline > now else { return false }
+        self.runID = runID
+        expiresAt = deadline
+        return true
+    }
+
+    func owns(_ candidate: String) -> Bool { runID == candidate }
+
+    @discardableResult
+    mutating func release(runID: String) -> Bool {
+        guard self.runID == runID else { return false }
+        self.runID = nil
+        expiresAt = nil
+        return true
+    }
+}
+
+enum V3KnownSourcePreflightPolicy {
+    static let maximumAge: TimeInterval = 6 * 60 * 60
+
+    static func shouldRefresh(hasCachedBlocklist: Bool, lastSuccessfulUpdate: Date?,
+                              now: Date = Date(),
+                              maximumAge: TimeInterval = V3KnownSourcePreflightPolicy.maximumAge) -> Bool {
+        guard hasCachedBlocklist, let lastSuccessfulUpdate,
+              lastSuccessfulUpdate <= now,
+              maximumAge > 0 else { return true }
+        return now.timeIntervalSince(lastSuccessfulUpdate) >= maximumAge
     }
 }
 
