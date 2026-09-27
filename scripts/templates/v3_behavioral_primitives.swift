@@ -2627,6 +2627,20 @@ struct V3AuthAttemptFailureNotice: Equatable {
     }
 }
 
+enum V3AuthAttemptStartFailurePolicy {
+    static func confirmedNotDispatched(_ failure: CombinedFailure) -> CombinedFailure {
+        let underlying: NSError? = failure.underlyingDomain == "none" && failure.underlyingCode == 0
+            ? nil : NSError(domain: failure.underlyingDomain, code: failure.underlyingCode)
+        return CombinedFailure(operation: "signIn", stage: failure.stage, code: failure.code,
+            id: failure.correlationID, underlying: underlying,
+            retryable: true, safeCause: .authAttemptNotDispatched)
+    }
+
+    static func isConfirmedNotDispatched(_ failure: CombinedFailure) -> Bool {
+        failure.safeCause == .authAttemptNotDispatched
+    }
+}
+
 enum V3AuthSessionExpiryPolicy {
     static func response(authenticated: Bool, resumable: Bool = false) -> [String: Any] {
         if authenticated {

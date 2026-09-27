@@ -215,7 +215,13 @@ public final class V3ServiceBridge {
         } catch {
             if error is CancellationError { throw CancellationError() }
             monitorOperationSessionIfNeeded(operation: operation, sessionID: operationSessionID)
-            throw V3CatalogRequestContext.annotating(error, requestedOperation: operation, requestID: id)
+            let annotated = V3CatalogRequestContext.annotating(error, requestedOperation: operation, requestID: id)
+            if operation == "authBegin" {
+                let failure = (annotated as? CombinedFailure) ?? CombinedFailure.capture(
+                    annotated, operation: "signIn", stage: .xpcConnection, id: id)
+                throw V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(failure)
+            }
+            throw annotated
         }
         let scopedRefreshAdmissionControl = V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
             operation: operation, target: target,
@@ -225,6 +231,10 @@ public final class V3ServiceBridge {
         if mutation {
             guard scopedSessionControl || scopedAuthSessionControl || replacesAuthSession || scopedRefreshAdmissionControl ||
                     (!isMutating && RefreshHandler.shared.v3RefreshToken == nil) else {
+                if operation == "authBegin" {
+                    throw CombinedFailure(operation: "signIn", stage: .command, code: .busy,
+                        id: id, retryable: true, safeCause: .authAttemptNotDispatched)
+                }
                 if operation == "sourceRemoveConfirmed" {
                     throw CombinedFailure(operation: "source", stage: .source, code: .busy,
                         id: id, retryable: true, safeCause: .sourceRemoveBusy)
@@ -369,6 +379,9 @@ public final class V3ServiceBridge {
         do {
             result = try V3CatalogRequestContext.classifyReply(response, operation: operation, id: id)
         } catch {
+            let authBeginNotDispatched = operation == "authBegin" &&
+                V3NotDispatchedReplyPolicy.confirms(response, requestID: id,
+                    maximumBytes: V3WireContract.responseLimit)
             if operation == "opStart", serviceRejectedOperationStart(response, requestID: id),
                let sessionID = operationSessionID {
                 activeOperationSessions.remove(sessionID)
@@ -382,6 +395,11 @@ public final class V3ServiceBridge {
                 authSessionOwnership.clear(sessionID: sessionID)
             } else {
                 monitorOperationSessionIfNeeded(operation: operation, sessionID: operationSessionID)
+            }
+            if authBeginNotDispatched {
+                let failure = (error as? CombinedFailure) ?? CombinedFailure.capture(
+                    error, operation: "signIn", stage: .authentication, id: id)
+                throw V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(failure)
             }
             throw error
         }

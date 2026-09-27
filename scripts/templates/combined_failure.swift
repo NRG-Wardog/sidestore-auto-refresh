@@ -137,6 +137,7 @@ public struct CombinedFailure: Error, LocalizedError {
         // and it must not be reported as any of them.
         case responseTooLarge
         case pairingRequired
+        case authAttemptNotDispatched
 
         fileprivate var inferredRetryable: Bool? {
             switch self {
@@ -177,6 +178,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return false
             case .pairingRequired:
                 return false
+            case .authAttemptNotDispatched:
+                return true
             }
         }
     }
@@ -285,6 +288,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .responseEncodingFailed: return "SideStore could not encode the response for this request."
             case .responseTooLarge: return "SideStore produced a response that is too large to transfer."
             case .pairingRequired: return "A pairing file is required before this device can be refreshed."
+            case .authAttemptNotDispatched: return "SideStore did not start this sign-in attempt, so Apple authentication was not submitted."
             }
         }
         switch stage {
@@ -457,6 +461,14 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "The service reply exceeded the transfer limit. Copy Diagnostics and report this response-size issue; repeating the same request will fail again."
             case .pairingRequired:
                 return "Add the pairing file, then retry the refresh."
+            case .authAttemptNotDispatched:
+                if code == .busy {
+                    return "Wait for the active SideStore operation to finish, then start sign-in again."
+                }
+                if stage == .serviceReadiness {
+                    return "Wait for SideStore to finish starting, then start sign-in again."
+                }
+                return "Resolve the displayed prerequisite, then start sign-in again."
             }
         }
         switch stage {

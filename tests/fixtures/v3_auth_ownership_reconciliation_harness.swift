@@ -128,6 +128,13 @@ struct AuthOwnershipReconciliationHarness {
         precondition(!V3AuthPollRecoveryPolicy.shouldRetry(authFailure, now: now,
             sessionDeadline: pollDeadline),
             "typed terminal auth errors are not treated as transport interruptions")
+        let authStartNotDispatched = V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(
+            CombinedFailure(operation: "authBegin", stage: .command, code: .busy,
+                id: UUID().uuidString, retryable: true))
+        precondition(V3AuthAttemptStartFailurePolicy.isConfirmedNotDispatched(authStartNotDispatched) &&
+                     authStartNotDispatched.safeCause == .authAttemptNotDispatched &&
+                     authStartNotDispatched.safeMessage.contains("was not submitted"),
+                     "a correlated not-dispatched auth start must not be treated as an unknown active session")
         precondition(!V3ProvisioningRetryRecoveryPolicy.availabilityAfterFailure(
             snapshotConfirmed: true, snapshotAllowsRetry: false, previouslyConfirmedAvailable: true),
             "a confirmed unavailable session cannot be overwritten by a retry catch")

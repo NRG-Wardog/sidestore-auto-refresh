@@ -3756,6 +3756,16 @@ final class V3AuthStore: ObservableObject {
             try await pollLoop(id: id, sessionDeadline: sessionDeadline)
         } catch {
             if isCancelling || Task.isCancelled { return }
+            if let notDispatched = error as? CombinedFailure,
+               V3AuthAttemptStartFailurePolicy.isConfirmedNotDispatched(notDispatched) {
+                await reconcile(force: true)
+                state = "failed"
+                cancellationConfirmed = true
+                session = nil
+                message = notDispatched.safeMessage + " " + notDispatched.recovery
+                currentAttemptFailure.clear()
+                return
+            }
             let failureMessage = V3FailureGuidance.message(error)
             let failureTechnical = (error as? CombinedFailure)?.technicalDetails ?? ""
             // A thrown start/poll request does not prove the authentication

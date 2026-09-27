@@ -224,8 +224,21 @@ class V3AuthErrorTests(unittest.TestCase):
         run = run[:run.index("    private func pollLoop(")]
         self.assertLess(run.index("let snapshotConfirmed = await reconcile(force: true)"),
                         run.index('state = "resultUnknown"'))
-        self.assertNotIn('state = "failed"', run)
+        unknownOutcome = run[run.index("let failureMessage = V3FailureGuidance.message(error)"):]
+        self.assertNotIn('state = "failed"', unknownOutcome)
         self.assertIn("currentAttemptFailure.record(snapshotConfirmed:", run)
+
+    def test_correlated_not_dispatched_auth_start_does_not_require_cancellation(self):
+        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        host = shell()
+        self.assertIn("authBeginNotDispatched", bridge)
+        self.assertIn("V3AuthAttemptStartFailurePolicy.confirmedNotDispatched", bridge)
+        run = host[host.index("private func run(sessionID requestedSession: String)"):]
+        run = run[:run.index("    private func pollLoop(")]
+        self.assertLess(run.index("isConfirmedNotDispatched"), run.index('state = "resultUnknown"'))
+        self.assertIn('state = "failed"', run)
+        self.assertIn("cancellationConfirmed = true", run)
+        self.assertIn("session = nil", run)
 
     def test_provisioning_retry_transport_failure_does_not_claim_saved_session_is_gone(self):
         host = shell()
