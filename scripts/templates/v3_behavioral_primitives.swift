@@ -1030,10 +1030,19 @@ struct V3AuthStartCancellationRegistry {
 enum V3DeleteReconciliationPolicy {
     static let callbackGrace: TimeInterval = 5
     static let libraryRecheckInterval: TimeInterval = 15
+    static let maximumCallbackPollInterval: TimeInterval = 15
 
     static func shouldCheckLibrary(lastCheck: Date?, now: Date) -> Bool {
         guard let lastCheck else { return true }
         return now.timeIntervalSince(lastCheck) >= libraryRecheckInterval
+    }
+
+    static func nextCallbackPollDelay(current: TimeInterval, backendPending: Bool,
+                                      nativeUninstallSucceeded: Bool,
+                                      appStillInLibrary: Bool) -> TimeInterval {
+        guard backendPending, nativeUninstallSucceeded, !appStillInLibrary else { return 0.25 }
+        let base = current.isFinite && current > 0 ? current : 0.25
+        return min(base * 2, maximumCallbackPollInterval)
     }
 
     static func shouldRequestCancellation(deadlineElapsed: Bool, backendPending: Bool,
@@ -1053,6 +1062,19 @@ enum V3DeleteReconciliationPolicy {
 
     static func shouldReleaseMutationOwnership(backendSettled: Bool) -> Bool {
         backendSettled
+    }
+}
+
+enum V3OperationSessionRetentionPolicy {
+    static let terminalRetention: TimeInterval = 600
+
+    static func shouldRefreshTerminalAt(terminalAccepted: Bool, backendSettled: Bool) -> Bool {
+        terminalAccepted || backendSettled
+    }
+
+    static func isExpired(backendSettled: Bool, terminalAt: Date?, now: Date) -> Bool {
+        guard backendSettled, let terminalAt else { return false }
+        return now.timeIntervalSince(terminalAt) > terminalRetention
     }
 }
 
@@ -2874,6 +2896,13 @@ enum V3AuthSessionUnavailablePolicy {
     static func resolve(authenticated: Bool, provisioningIncomplete: Bool,
                         snapshotConfirmed: Bool, safeMessage: String,
                         recovery: String) -> V3AuthSessionUnavailablePresentation {
+        guard snapshotConfirmed else {
+            return V3AuthSessionUnavailablePresentation(
+                state: "resultUnknown",
+                message: "SideStore no longer has the active sign-in session. The current account and provisioning state could not be confirmed. Reload status before continuing.",
+                provisioningMessage: nil,
+                cancellationConfirmed: true)
+        }
         if authenticated && provisioningIncomplete {
             return V3AuthSessionUnavailablePresentation(
                 state: "authenticatedProvisioningIncomplete",
@@ -2985,13 +3014,14 @@ enum V3SetupTestRequestPolicy {
     static func select(pendingRequestID: String?, pendingAge: TimeInterval,
                        pendingState: String?, activeRunID: String?,
                        activeRunRequestID: String?) -> V3SetupTestRequestDisposition {
+        // A terminal correlated request is read-only to consume. Resolve it
+        // before considering a different run that began after it completed.
+        if let pendingRequestID, ["completed", "failed"].contains(pendingState ?? "") {
+            return .resumeExisting(pendingRequestID)
+        }
         if let pendingRequestID, let activeRunID, !activeRunID.isEmpty,
            activeRunRequestID != pendingRequestID {
             return .waitForActiveRun
-        }
-        if let pendingRequestID, ["completed", "failed"].contains(pendingState ?? "") {
-            return (activeRunID?.isEmpty == false)
-                ? .waitForActiveRun : .resumeExisting(pendingRequestID)
         }
         if let pendingRequestID {
             if pendingState != nil {
@@ -3055,6 +3085,11 @@ enum V3AuthStatusTextPolicy {
     }
 
     static func accountLabel(state: String, isSignedIn: Bool) -> String {
+        if state == "resultUnknown" {
+            return isSignedIn
+                ? "Last confirmed account status: signed in"
+                : "Current account status is unconfirmed"
+        }
         guard isSignedIn else { return "" }
         if state == "completed" || state == "authenticatedProvisioningIncomplete" {
             return "Signed in successfully"

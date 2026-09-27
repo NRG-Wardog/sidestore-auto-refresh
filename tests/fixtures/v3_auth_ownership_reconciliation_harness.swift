@@ -201,7 +201,7 @@ struct AuthOwnershipReconciliationHarness {
             cancellationInProgress: false, taskCancelled: false,
             now: now, sessionDeadline: deadline),
             "a current poll error with no newer user response follows its failure path")
-        precondition(V3AuthPollMonitorRecoveryPolicy.shouldResume(
+        precondition(!V3AuthPollMonitorRecoveryPolicy.shouldResume(
             requestedSessionID: current, currentSessionID: current,
             failedPromptRevision: 8, currentPromptRevision: 8,
             failedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,
@@ -256,6 +256,22 @@ struct AuthOwnershipReconciliationHarness {
                      decodedUnavailable?.retryable == false &&
                      CombinedFailure.decode(missingSession.wire, expectedID: authRequestID) == nil,
             "the failure uses request correlation while retaining the separate session failure semantics")
+        let sourceFailureForCorrelation = CombinedFailure(operation: "source", stage: .source,
+            code: .failed, id: current,
+            underlying: NSError(domain: "NSURLErrorDomain", code: -1005), retryable: true,
+            safeCause: .sourceNetworkFailure, sourceStep: .sourceDownload)
+        let reboundSourceFailure = sourceFailureForCorrelation.correlating(to: authRequestID)
+        let reboundBytes = try PropertyListSerialization.data(
+            fromPropertyList: reboundSourceFailure.wire, format: .binary, options: 0)
+        let reboundPropertyList = try PropertyListSerialization.propertyList(
+            from: reboundBytes, format: nil) as! [String: Any]
+        let decodedReboundSource = CombinedFailure.decode(reboundPropertyList,
+            expectedID: authRequestID)
+        precondition(decodedReboundSource?.underlyingDomain == "NSURLErrorDomain" &&
+                     decodedReboundSource?.underlyingCode == -1005 &&
+                     decodedReboundSource?.sourceStep == .sourceDownload &&
+                     decodedReboundSource?.safeCause == .sourceNetworkFailure,
+            "rebinding to request correlation preserves the safe underlying transport evidence")
         var unavailableOwnership = V3AuthSessionOwnership()
         unavailableOwnership.register(sessionID: current, deadline: deadline, now: now)
         precondition(V3AuthSessionUnavailablePolicy.shouldRetireOwnership(
@@ -281,6 +297,22 @@ struct AuthOwnershipReconciliationHarness {
         precondition(authenticatedButIncomplete.state == "authenticatedProvisioningIncomplete" &&
                      authenticatedButIncomplete.provisioningMessage?.contains("saved provisioning session") == true,
                      "session loss after Apple authentication is shown as provisioning recovery")
+        let unconfirmedSignedIn = V3AuthSessionUnavailablePolicy.resolve(
+            authenticated: true, provisioningIncomplete: false, snapshotConfirmed: false,
+            safeMessage: missingSession.safeMessage, recovery: missingSession.recovery)
+        precondition(unconfirmedSignedIn.state == "resultUnknown" &&
+                     unconfirmedSignedIn.message.contains("current account and provisioning state could not be confirmed") &&
+                     !unconfirmedSignedIn.message.contains("confirmed that the account is signed in"),
+            "a stale signed-in flag cannot claim success when the confirming snapshot failed")
+        let unconfirmedIncomplete = V3AuthSessionUnavailablePolicy.resolve(
+            authenticated: true, provisioningIncomplete: true, snapshotConfirmed: false,
+            safeMessage: missingSession.safeMessage, recovery: missingSession.recovery)
+        precondition(unconfirmedIncomplete.state == "resultUnknown" &&
+                     unconfirmedIncomplete.provisioningMessage == nil,
+            "a stale provisioning-incomplete flag cannot be rendered as confirmed sign-in")
+        precondition(V3AuthStatusTextPolicy.accountLabel(state: "resultUnknown", isSignedIn: true) ==
+                     "Last confirmed account status: signed in",
+            "unknown current status identifies an older signed-in fact as last confirmed")
         precondition(!V3AuthAttemptFailureCommitPolicy.mayCommit(
             requestedSessionID: prior, currentSessionID: current,
             capturedPromptResponseGeneration: 4, currentPromptResponseGeneration: 4,

@@ -514,7 +514,7 @@ struct V3RefreshAllButton: View {
             .accessibilityValue(health.replacingOccurrences(of: "_", with: " ").lowercased())
             if V3RefreshAllButtonPresentationPolicy.explainsConcurrentRun(
                 phase: attempt.phase, activeRunID: activeRun) {
-                Text("A scheduled or manager refresh is already running. Refresh All will be available when it finishes.")
+                Text("Another refresh is already running. Refresh All will be available when it finishes.")
                     .font(.footnote)
                     .foregroundColor(.secondary)
             }
@@ -4082,7 +4082,11 @@ final class V3AuthStore: ObservableObject {
             provisioningFinishedLater = false
         } else {
             clearProvisioningOutcome()
-            if signedIn {
+            if presentation.state == "resultUnknown" {
+                currentAttemptFailure.record(snapshotConfirmed: false,
+                    authenticated: false, failureMessage: failure.safeMessage,
+                    technicalDetails: failure.technicalDetails)
+            } else if signedIn {
                 currentAttemptFailure.clear()
             } else {
                 currentAttemptFailure.record(snapshotConfirmed: snapshotConfirmed,

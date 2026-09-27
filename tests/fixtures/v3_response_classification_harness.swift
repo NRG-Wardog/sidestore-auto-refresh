@@ -149,6 +149,20 @@ struct ResponseClassificationHarness {
         precondition(hostFailure(busy, operation: "snapshot", id: busyID).code == .busy,
                      "structured precedence must still deliver a typed unrelated failure")
 
+        let conflictID = UUID().uuidString
+        let conflictingStructuredFailure = CombinedFailure(operation: "status", stage: .network,
+            code: .failed, id: conflictID, retryable: true,
+            safeCause: .networkConnectionLost)
+        let conflictingReply = V3ResponseEncoder.encode([
+            "version": 1, "id": conflictID, "error": "notReady",
+            "failure": conflictingStructuredFailure.wire
+        ], operation: "snapshot", limit: V3WireContract.responseLimit)
+        let conflictingResult = hostFailure(conflictingReply, operation: "snapshot", id: conflictID)
+        precondition(conflictingResult.code == .failed &&
+                     conflictingResult.stage == .network &&
+                     conflictingResult.safeCause == .networkConnectionLost,
+            "the current structured failure outranks a contradictory legacy error token")
+
         let foreignID = UUID().uuidString
         let foreignOnlyToken = try! PropertyListSerialization.data(
             fromPropertyList: ["version": 1, "id": foreignID, "error": "notReady"],

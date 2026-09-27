@@ -1519,11 +1519,14 @@ final class V3OperationCenter {
 
     private func finish(id: String, response: [String: Any]) {
         guard var session = sessions[id] else { return }
-        if session.terminal.setIfEmpty(response) {
+        let terminalAccepted = session.terminal.setIfEmpty(response)
+        let backendSettled = session.task == nil
+        if V3OperationSessionRetentionPolicy.shouldRefreshTerminalAt(
+            terminalAccepted: terminalAccepted, backendSettled: backendSettled) {
             session.terminalAt = Date()
-            sessions[id] = session
-            cleanupSessions()
         }
+        sessions[id] = session
+        if terminalAccepted || backendSettled { cleanupSessions() }
     }
 
     private func cleanupTemporaryIPA(id: String) {
@@ -1536,8 +1539,9 @@ final class V3OperationCenter {
 
     private func cleanupSessions(now: Date = Date()) {
         let expired = sessions.compactMap { id, session in
-            id != mutationRegistry.activeID && session.task == nil && session.terminal.value != nil &&
-                session.terminalAt.map { now.timeIntervalSince($0) > 600 } == true ? id : nil
+            id != mutationRegistry.activeID && session.terminal.value != nil &&
+                V3OperationSessionRetentionPolicy.isExpired(backendSettled: session.task == nil,
+                    terminalAt: session.terminalAt, now: now) ? id : nil
         }
         for id in expired { sessions.removeValue(forKey: id) }
         let completed = sessions.filter { $0.key != mutationRegistry.activeID && $0.value.task == nil && $0.value.terminal.value != nil }
@@ -1722,6 +1726,7 @@ final class V3OperationCenter {
         var lastLibraryPresence: Bool?
         var lastLibraryCheckAt: Date?
         var authoritativeAbsenceConfirmed = false
+        var callbackPollDelay: TimeInterval = 0.25
         var contract = V3DeleteCompletionContract()
         debugLog("[V3_OP] DELETE_RECONCILE_START session=\(id)")
         while !Task.isCancelled {
@@ -1800,7 +1805,11 @@ final class V3OperationCenter {
                     // Keep the mutation registry until PipelineRunner's callback
                     // settles, even when native uninstall success plus library
                     // absence already gives us a bounded user-visible result.
-                    try await Task.sleep(nanoseconds: 250_000_000)
+                    callbackPollDelay = V3DeleteReconciliationPolicy.nextCallbackPollDelay(
+                        current: callbackPollDelay, backendPending: true,
+                        nativeUninstallSucceeded: nativeUninstallSucceeded,
+                        appStillInLibrary: appIsPresent)
+                    try await Task.sleep(nanoseconds: UInt64(callbackPollDelay * 1_000_000_000))
                     continue
                 }
                 let resolution = backendState == .succeeded ? "pipeline_callback" : "native_success_reconciled"
@@ -1822,7 +1831,11 @@ final class V3OperationCenter {
                     debugLog("[V3_OP] DELETE_RECONCILE_OUTCOME_UNKNOWN session=\(id) ownership=retained")
                     // Keep this driver and its mutation registry alive until the
                     // native callback settles. No newer mutation can overlap it.
-                    try await Task.sleep(nanoseconds: 250_000_000)
+                    callbackPollDelay = V3DeleteReconciliationPolicy.nextCallbackPollDelay(
+                        current: callbackPollDelay, backendPending: true,
+                        nativeUninstallSucceeded: nativeUninstallSucceeded,
+                        appStillInLibrary: appIsPresent)
+                    try await Task.sleep(nanoseconds: UInt64(callbackPollDelay * 1_000_000_000))
                     continue
                 }
                 debugLog("[V3_OP] DELETE_RECONCILE_FAILED session=\(id) backend=\(backendState) native_uninstall=\(nativeUninstallSucceeded) library_present=\(appIsPresent)")

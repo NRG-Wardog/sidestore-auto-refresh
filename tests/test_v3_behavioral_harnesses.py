@@ -104,6 +104,9 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         self.assertIn("if completionAwaitingSettlement", shell)
         self.assertIn("lastCheck: lastLibraryCheckAt", runtime)
         self.assertIn("V3DeleteReconciliationPolicy.shouldCheckLibrary", runtime)
+        self.assertIn("V3DeleteReconciliationPolicy.nextCallbackPollDelay", runtime)
+        self.assertIn("V3OperationSessionRetentionPolicy.shouldRefreshTerminalAt", runtime)
+        self.assertIn("V3OperationSessionRetentionPolicy.isExpired", runtime)
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         self.compile_and_run(failure + "\n" + helper + "\n" + harness,
                              "V3_OPERATION_CANCELLATION_TERMINAL_PASS")

@@ -186,8 +186,8 @@ struct RefreshAllAttemptHarness {
             "Setup Test does not post a request that the scheduler will coalesce behind a manager run")
         precondition(V3SetupTestRequestPolicy.select(pendingRequestID: "request-old",
             pendingAge: 0, pendingState: "completed", activeRunID: "manager-run",
-            activeRunRequestID: "manager-request") == .waitForActiveRun,
-            "a terminal prior Test does not overlap a different active manager refresh")
+            activeRunRequestID: "manager-request") == .resumeExisting("request-old"),
+            "a terminal prior Test is consumed even if another run started afterwards")
         precondition(V3SetupTestRequestPolicy.select(pendingRequestID: "request-r1",
             pendingAge: 40, pendingState: "completed", activeRunID: nil,
             activeRunRequestID: nil) == .resumeExisting("request-r1"),

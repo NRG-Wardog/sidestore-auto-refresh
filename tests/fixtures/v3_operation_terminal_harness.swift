@@ -111,6 +111,40 @@ struct OperationTerminalHarness {
             lastCheck: deletePollNow,
             now: deletePollNow.addingTimeInterval(V3DeleteReconciliationPolicy.libraryRecheckInterval)),
             "an unsettled delete periodically rechecks authoritative library state")
+        let callbackDelay1 = V3DeleteReconciliationPolicy.nextCallbackPollDelay(
+            current: 0.25, backendPending: true, nativeUninstallSucceeded: true,
+            appStillInLibrary: false)
+        let callbackDelay2 = V3DeleteReconciliationPolicy.nextCallbackPollDelay(
+            current: callbackDelay1, backendPending: true, nativeUninstallSucceeded: true,
+            appStillInLibrary: false)
+        precondition(callbackDelay1 == 0.5 && callbackDelay2 == 1.0 &&
+                     V3DeleteReconciliationPolicy.nextCallbackPollDelay(
+                        current: callbackDelay2, backendPending: false,
+                        nativeUninstallSucceeded: true, appStillInLibrary: false) == 0.25,
+            "a verified delete backs off callback checks, then resets when the callback settles")
+
+        let earlyTerminalAt = Date(timeIntervalSince1970: 100)
+        let lateCallbackAt = earlyTerminalAt.addingTimeInterval(700)
+        precondition(V3OperationSessionRetentionPolicy.shouldRefreshTerminalAt(
+            terminalAccepted: true, backendSettled: false))
+        precondition(!V3OperationSessionRetentionPolicy.isExpired(backendSettled: false,
+            terminalAt: earlyTerminalAt, now: lateCallbackAt),
+            "an unsettled backend task cannot be pruned regardless of its visible terminal age")
+        precondition(V3OperationSessionRetentionPolicy.shouldRefreshTerminalAt(
+            terminalAccepted: false, backendSettled: true))
+        precondition(!V3OperationSessionRetentionPolicy.isExpired(backendSettled: true,
+            terminalAt: lateCallbackAt, now: lateCallbackAt),
+            "late callback settlement restarts terminal retention from the settlement time")
+        precondition(V3OperationSessionRetentionPolicy.isExpired(backendSettled: true,
+            terminalAt: lateCallbackAt,
+            now: lateCallbackAt.addingTimeInterval(V3OperationSessionRetentionPolicy.terminalRetention + 1)),
+            "a settled operation session remains bounded after its final settlement timestamp")
+
+        let lateDeleteTerminal = V3OperationTerminalResponse()
+        precondition(lateDeleteTerminal.setIfEmpty(["state": "completed"]))
+        precondition(lateDeleteTerminal.reply(sessionID: deleteSession, backendSettled: false)?["state"] as? String == "completed")
+        precondition(lateDeleteTerminal.reply(sessionID: deleteSession, backendSettled: true)?["backendSettled"] as? Bool == true,
+            "the write-once completion state can report dynamic backend settlement after a late callback")
 
         var deleteAttempt = V3OperationAttemptState()
         let deleteGeneration = deleteAttempt.begin()

@@ -180,14 +180,15 @@ struct V3MutationReplyCacheBudget {
     static let maximumStoredBytes = 64 * 1024 * 1024
     static let maximumStoredReplies = 512
     static let reservedControlBytes = V3WireContract.responseLimit
-    // A single authentication/session may require multiple user responses.
-    // Keep enough reply identities reserved so ordinary mutations cannot make
-    // a later 2FA/prompt answer impossible to acknowledge.
-    static let reservedControlReplies = 32
+    // An auth session retains up to 64 accepted prompt IDs. Reserve capacity
+    // for its begin reply, all prompt acknowledgements, and one provisioning
+    // retry so ordinary mutations cannot strand a live authentication flow.
+    static let reservedControlReplies = 66
     private(set) var storedBytes = 0
 
     static func isControlReply(operation: String) -> Bool {
-        ["refreshAdmissionEnd", "authRespond", "opAnswer"].contains(operation)
+        ["refreshAdmissionEnd", "authBegin", "authRetryProvisioning", "authRespond", "opAnswer"]
+            .contains(operation)
     }
 
     func canReserve(maximumResponseBytes: Int = V3WireContract.responseLimit,

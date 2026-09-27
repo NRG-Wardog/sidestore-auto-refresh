@@ -23,6 +23,15 @@ def shell():
 
 
 class V3AuthErrorTests(unittest.TestCase):
+    def test_missing_auth_session_with_failed_snapshot_stays_unconfirmed(self):
+        host_text = shell()
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        self.assertIn('state: "resultUnknown"', primitives)
+        self.assertIn("snapshotConfirmed else", primitives)
+        self.assertIn("currentAttemptFailure.record(snapshotConfirmed: false", host_text)
+        self.assertIn("Last confirmed account status: signed in", primitives)
+        self.assertIn("V3AuthSessionUnavailablePolicy.resolve", host_text)
+
     def test_handle_sign_in_result_is_implemented(self):
         text = runtime()
         self.assertIn("func handleSignInResult", text)
