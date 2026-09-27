@@ -241,6 +241,27 @@ class StoreFeedbackTests(unittest.TestCase):
                         retry.index("cleanupStagedIPA(token, allowLocalFallback: true)"))
         self.assertIn("The IPA and operation session were kept", retry)
 
+    def test_malformed_outcome_unknown_wire_field_fails_closed_everywhere(self):
+        text = shell()
+        self.assertNotIn('V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true', text)
+        self.assertIn('V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"])', text)
+
+    def test_delete_missing_callback_completion_is_bounded_and_evidence_based(self):
+        text = runtime()
+        start = text.index("private func deleteAndReconcile(")
+        end = text.index("private func authoritativeLibraryContains(", start)
+        delete = text[start:end]
+        self.assertIn("authoritativeLibraryContains(bundleIdentifier: bundleIdentifier)", delete)
+        self.assertIn("V3DeleteReconciliationPolicy.mayPublishVerifiedDeleteCompletion", delete)
+        self.assertIn('"verifiedDeleteCompletion": true', delete)
+        self.assertIn('"sourceStep": "native_uninstall+authoritative_library_absence"', delete)
+        completed_start = delete.index("case .completed?:")
+        completed_end = delete.index("case .outcomeUnknown?:", completed_start)
+        completed = delete[completed_start:completed_end]
+        self.assertIn("callback=pending backend_ownership=retained", completed)
+        self.assertIn("try await Task.sleep", completed)
+        self.assertNotIn("group.cancel()", completed)
+
     def test_delete_cancel_ignores_stale_working_poll_and_retains_uncertain_session(self):
         text = shell()
         apply_start = text.index("private func apply(_ reply: [String: Any], generation: UUID, sessionID: String)")

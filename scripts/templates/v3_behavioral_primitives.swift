@@ -764,6 +764,17 @@ enum V3OperationCancellationResolutionPolicy {
     }
 }
 
+enum V3OperationReplyFieldPolicy {
+    // Missing is accepted for older service replies. A present malformed value
+    // must fail closed because it cannot prove a terminal result is settled.
+    static func outcomeUnknown(_ rawValue: Any?) -> Bool {
+        guard let rawValue else { return false }
+        guard let value = rawValue as? NSNumber,
+              CFGetTypeID(value) == CFBooleanGetTypeID() else { return true }
+        return value.boolValue
+    }
+}
+
 final class V3DeleteNativeSuccessRegistry: @unchecked Sendable {
     static let shared = V3DeleteNativeSuccessRegistry()
     static let retentionInterval: TimeInterval = 10 * 60
@@ -851,12 +862,15 @@ struct V3OperationAttemptState {
     func ownsProvisionalResolution(generation: UUID, sessionID: String,
                                    currentState: String?, currentBackendSettled: Bool?,
                                    currentOutcomeUnknown: Bool, nextState: String?,
-                                   nextBackendSettled: Bool?, nextOutcomeUnknown: Bool) -> Bool {
+                                   nextBackendSettled: Bool?, nextOutcomeUnknown: Bool,
+                                   nextOperation: String? = nil,
+                                   verifiedDeleteCompletion: Bool = false) -> Bool {
         owns(generation: generation, sessionID: sessionID) && isTerminal &&
             V3OperationProvisionalOutcomePolicy.canResolve(
                 currentState: currentState, currentBackendSettled: currentBackendSettled,
                 currentOutcomeUnknown: currentOutcomeUnknown, nextState: nextState,
-                nextBackendSettled: nextBackendSettled, nextOutcomeUnknown: nextOutcomeUnknown)
+                nextBackendSettled: nextBackendSettled, nextOutcomeUnknown: nextOutcomeUnknown,
+                nextOperation: nextOperation, verifiedDeleteCompletion: verifiedDeleteCompletion)
     }
 
     mutating func supersede() -> String? {
@@ -1136,6 +1150,14 @@ enum V3DeleteReconciliationPolicy {
         backendPending && callbackGraceElapsed(requestedAt: requestedAt, now: now)
     }
 
+    static func mayPublishVerifiedDeleteCompletion(backendPending: Bool,
+                                                    nativeUninstallSucceeded: Bool,
+                                                    appStillInLibrary: Bool,
+                                                    reconciliationDeadlineElapsed: Bool) -> Bool {
+        backendPending && nativeUninstallSucceeded && !appStillInLibrary &&
+            reconciliationDeadlineElapsed
+    }
+
     static func shouldReleaseMutationOwnership(backendSettled: Bool) -> Bool {
         backendSettled
     }
@@ -1164,7 +1186,7 @@ enum V3OperationCompletionDisposition: Equatable {
 enum V3OperationCompletionPolicy {
     static func disposition(state: String, backendSettled: Bool?,
                             outcomeUnknown: Bool = false) -> V3OperationCompletionDisposition {
-        if outcomeUnknown && backendSettled != true {
+        if outcomeUnknown {
             return .outcomeUnknownAwaitingBackendSettlement
         }
         guard state == "completed" else { return .notCompleted }
@@ -1219,11 +1241,18 @@ enum V3OperationCompletionPolicy {
 enum V3OperationProvisionalOutcomePolicy {
     static func canResolve(currentState: String?, currentBackendSettled: Bool?,
                            currentOutcomeUnknown: Bool, nextState: String?,
-                           nextBackendSettled: Bool?, nextOutcomeUnknown: Bool) -> Bool {
-        ["reconciling", "failed", "cancelled"].contains(currentState ?? "") &&
-            currentOutcomeUnknown && currentBackendSettled == false &&
-            nextBackendSettled == true && !nextOutcomeUnknown &&
+                           nextBackendSettled: Bool?, nextOutcomeUnknown: Bool,
+                           nextOperation: String? = nil,
+                           verifiedDeleteCompletion: Bool = false) -> Bool {
+        let priorResultIsProvisional =
+            ["reconciling", "failed", "cancelled"].contains(currentState ?? "") &&
+            currentOutcomeUnknown && currentBackendSettled == false
+        guard priorResultIsProvisional, !nextOutcomeUnknown else { return false }
+        let settledTerminal = nextBackendSettled == true &&
             ["completed", "failed", "cancelled"].contains(nextState ?? "")
+        let verifiedDeleteWhileCallbackPending = nextOperation == "delete" &&
+            verifiedDeleteCompletion && nextState == "completed" && nextBackendSettled == false
+        return settledTerminal || verifiedDeleteWhileCallbackPending
     }
 }
 
@@ -1273,7 +1302,9 @@ final class V3OperationTerminalResponse: @unchecked Sendable {
                 currentOutcomeUnknown: current["outcomeUnknown"] as? Bool == true,
                 nextState: response["state"] as? String,
                 nextBackendSettled: response["backendSettled"] as? Bool,
-                nextOutcomeUnknown: response["outcomeUnknown"] as? Bool == true) else { return false }
+                nextOutcomeUnknown: response["outcomeUnknown"] as? Bool == true,
+                nextOperation: response["operation"] as? String,
+                verifiedDeleteCompletion: response["verifiedDeleteCompletion"] as? Bool == true) else { return false }
         storage = response
         return true
     }
@@ -3270,6 +3301,13 @@ enum V3AuthAttemptFailureCommitPolicy {
             currentSessionID == requestedSessionID &&
             currentPromptResponseGeneration == capturedPromptResponseGeneration &&
             currentReconciliationGeneration == (reconciliationGenerationBefore &+ 1)
+    }
+
+    static func shouldPreserveAuthoritativeAccountState(snapshotConfirmed: Bool,
+                                                        authenticated: Bool,
+                                                        state: String) -> Bool {
+        snapshotConfirmed && authenticated &&
+            ["completed", "authenticatedProvisioningIncomplete"].contains(state)
     }
 }
 

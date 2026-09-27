@@ -1521,7 +1521,7 @@ final class V3SideStoreStatusStore: ObservableObject {
                     state: reply["state"] as? String,
                     backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
                     stopConfirmed: V3ServiceBridge.strictBool(reply["stopConfirmed"]),
-                    outcomeUnknown: V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true) else {
+                    outcomeUnknown: V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"])) else {
                     self.error = "SideStore has not confirmed that the device operation stopped. The IPA and operation session were kept; retry cancellation or check device state before another install."
                     return
                 }
@@ -2842,8 +2842,7 @@ struct V3OperationSheet: View {
                                 state: terminalState,
                                 backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
                                 stopConfirmed: V3ServiceBridge.strictBool(reply["stopConfirmed"]),
-                                outcomeUnknown: reply["outcomeUnknown"] == nil
-                                    ? false : V3ServiceBridge.strictBool(reply["outcomeUnknown"]) != false)
+                                outcomeUnknown: V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"]))
                             if cancellationConfirmed { confirmedOutcome = terminalState ?? "cancelled" }
                         } catch { cancellationConfirmed = false }
                     }
@@ -3062,7 +3061,7 @@ struct V3OperationSheet: View {
             apply(reply, generation: generation, sessionID: id)
             if V3OperationCompletionPolicy.shouldContinuePolling(state: current,
                 backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
-                outcomeUnknown: V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true) {
+                outcomeUnknown: V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"])) {
                 continue
             }
             guard current == "working" || current == "awaitingPrompt" || current == "cancelling" ||
@@ -3081,12 +3080,14 @@ struct V3OperationSheet: View {
             return
         }
         let replyBackendSettled = V3ServiceBridge.strictBool(reply["backendSettled"])
-        let replyOutcomeUnknown = V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true
+        let replyOutcomeUnknown = V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"])
         let resolvesProvisionalUnknown = attempt.ownsProvisionalResolution(
             generation: generation, sessionID: sessionID, currentState: state,
             currentBackendSettled: terminalBackendSettled,
             currentOutcomeUnknown: needsDeviceConfirmation, nextState: nextState,
-            nextBackendSettled: replyBackendSettled, nextOutcomeUnknown: replyOutcomeUnknown)
+            nextBackendSettled: replyBackendSettled, nextOutcomeUnknown: replyOutcomeUnknown,
+            nextOperation: reply["operation"] as? String,
+            verifiedDeleteCompletion: reply["verifiedDeleteCompletion"] as? Bool == true)
         guard resolvesProvisionalUnknown ||
               attempt.accept(state: nextState, generation: generation, sessionID: sessionID) else { return }
         state = nextState
@@ -3122,7 +3123,7 @@ struct V3OperationSheet: View {
             terminalBackendSettled = V3ServiceBridge.strictBool(reply["backendSettled"])
             let outcomeUnknown = V3OperationCancellationResolutionPolicy.requiresReconciliation(
                 backendSettled: terminalBackendSettled,
-                outcomeUnknown: V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true)
+                outcomeUnknown: V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"]))
             needsDeviceConfirmation = outcomeUnknown
             uncertainSessionID = outcomeUnknown ? sessionID : nil
             retryBlocked = outcomeUnknown
@@ -3177,7 +3178,7 @@ struct V3OperationSheet: View {
             failureContext.recordPipelineFailure(failure)
             let backendSettled = V3ServiceBridge.strictBool(reply["backendSettled"])
             terminalBackendSettled = backendSettled
-            let outcomeUnknown = V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true ||
+            let outcomeUnknown = V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"]) ||
                 backendSettled != true
             needsDeviceConfirmation = outcomeUnknown
             uncertainSessionID = outcomeUnknown ? sessionID : nil
@@ -3197,8 +3198,9 @@ struct V3OperationSheet: View {
     }
     private func applyCompletionSettlement(_ reply: [String: Any], sessionID: String) {
         terminalBackendSettled = V3ServiceBridge.strictBool(reply["backendSettled"])
+        let outcomeUnknown = V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"])
         switch V3OperationCompletionPolicy.disposition(state: "completed",
-            backendSettled: terminalBackendSettled) {
+            backendSettled: terminalBackendSettled, outcomeUnknown: outcomeUnknown) {
         case .completedAwaitingBackendSettlement, .outcomeUnknownAwaitingBackendSettlement:
             needsDeviceConfirmation = true
             uncertainSessionID = sessionID
@@ -3308,7 +3310,7 @@ struct V3OperationSheet: View {
                         state: reply["state"] as? String,
                         backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"])
                             ?? V3ServiceBridge.strictBool(reply["stopConfirmed"]),
-                        outcomeUnknown: V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true)
+                        outcomeUnknown: V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"]))
                     if disposition == .alreadyCompleted {
                         await oldTask?.value
                         guard attempt.transitionInFlight, attempt.generation == transitionGeneration else { return }
@@ -3400,7 +3402,7 @@ struct V3OperationSheet: View {
                     state: reply["state"] as? String,
                     backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
                     stopConfirmed: V3ServiceBridge.strictBool(reply["stopConfirmed"]),
-                    outcomeUnknown: V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true)
+                    outcomeUnknown: V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"]))
                 let cancellationReplyIsCorrelated = V3OperationCancellationOutcomePolicy.isCorrelated(
                     expectedSessionID: oldSession, replySessionID: reply["session"] as? String)
                 if (keepDeletePoller && settledCancellationAcknowledgement != nil) ||
@@ -3413,7 +3415,7 @@ struct V3OperationSheet: View {
                             state: reply["state"] as? String,
                             backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
                             stopConfirmed: V3ServiceBridge.strictBool(reply["stopConfirmed"]),
-                            outcomeUnknown: V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true) {
+                            outcomeUnknown: V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"])) {
                             // A delayed unsettled acknowledgment cannot discard
                             // the handle established by a newer delete poll.
                             state = settledCancellationAcknowledgement
@@ -3486,8 +3488,7 @@ struct V3OperationSheet: View {
                         state: reply["state"] as? String,
                         backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
                         stopConfirmed: V3ServiceBridge.strictBool(reply["stopConfirmed"]),
-                        outcomeUnknown: reply["outcomeUnknown"] == nil
-                            ? false : V3ServiceBridge.strictBool(reply["outcomeUnknown"]) != false)
+                        outcomeUnknown: V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"]))
                     guard backendSettled else {
                         isDismissing = false
                         attempt.endTransition()
@@ -4305,7 +4306,15 @@ final class V3AuthStore: ObservableObject {
             if let notDispatched = error as? CombinedFailure,
                V3AuthAttemptStartFailurePolicy.isConfirmedNotDispatched(notDispatched) {
                 let reconciliationGenerationBefore = reconciliationGate.generation
-                await reconcile(force: true, expectedSession: requestedSession)
+                let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)
+                if V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState(
+                    snapshotConfirmed: snapshotConfirmed, authenticated: signedIn, state: state) {
+                    session = nil
+                    cancellationConfirmed = true
+                    cancellationWasAttempted = false
+                    currentAttemptFailure.clear()
+                    return
+                }
                 guard V3AuthAttemptFailureCommitPolicy.mayCommit(
                     requestedSessionID: requestedSession, currentSessionID: session,
                     capturedPromptResponseGeneration: failureResponseGeneration,
@@ -4329,6 +4338,10 @@ final class V3AuthStore: ObservableObject {
             // is cancelled or a correlated terminal reply arrives.
             let reconciliationGenerationBefore = reconciliationGate.generation
             let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)
+            if V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState(
+                snapshotConfirmed: snapshotConfirmed, authenticated: signedIn, state: state) {
+                return
+            }
             if let pollFailure,
                restartPollMonitorAfterSupersededFailure(sessionID: requestedSession,
                     sessionDeadline: sessionDeadline,
@@ -4537,6 +4550,10 @@ final class V3AuthStore: ObservableObject {
             } catch let failure as V3AuthPollFailure where failure.sessionID == sessionID {
                 let reconciliationGenerationBefore = reconciliationGate.generation
                 let snapshotConfirmed = await reconcile(force: true, expectedSession: sessionID)
+                if V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState(
+                    snapshotConfirmed: snapshotConfirmed, authenticated: signedIn, state: state) {
+                    return
+                }
                 if V3AuthPollMonitorRecoveryPolicy.shouldResume(
                     requestedSessionID: sessionID, currentSessionID: session,
                     failedPromptRevision: failure.promptRevision, currentPromptRevision: revision,

@@ -1745,6 +1745,7 @@ final class V3OperationCenter {
         var lastLibraryCheckAt: Date?
         var authoritativeAbsenceConfirmed = false
         var callbackPollDelay: TimeInterval = 0.25
+        var verifiedDeleteCompletionPublished = false
         var contract = V3DeleteCompletionContract()
         debugLog("[V3_OP] DELETE_RECONCILE_START session=\(id)")
         while !Task.isCancelled {
@@ -1771,7 +1772,7 @@ final class V3OperationCenter {
                 cancellationRequested: cancellationRequestedAt != nil)
             let shouldCheckLibrary = !shouldThrottleLibrary ||
                 V3DeleteReconciliationPolicy.shouldCheckLibrary(lastCheck: lastLibraryCheckAt, now: now)
-            let appIsPresent: Bool
+            var appIsPresent: Bool
             if shouldCheckLibrary {
                 appIsPresent = try await authoritativeLibraryContains(bundleIdentifier: bundleIdentifier)
                 lastLibraryCheckAt = now
@@ -1785,6 +1786,9 @@ final class V3OperationCenter {
             let nativeUninstallSucceeded = V3DeleteNativeSuccessRegistry.shared.contains(sessionID: id)
             if appIsPresent || !nativeUninstallSucceeded {
                 authoritativeAbsenceConfirmed = false
+                if appIsPresent || !nativeUninstallSucceeded {
+                    missingCallbackReconcileDeadline = nil
+                }
             } else {
                 authoritativeAbsenceConfirmed = true
             }
@@ -1797,6 +1801,19 @@ final class V3OperationCenter {
             case .success?: backendState = .succeeded
             case .failure?: backendState = callbackCancellationIsPending ? .pending : .failed
             case nil: backendState = .pending
+            }
+            let missingCallbackDeadlineElapsed =
+                missingCallbackReconcileDeadline.map { now >= $0 } ?? false
+            if backendState == .pending && nativeUninstallSucceeded &&
+               missingCallbackDeadlineElapsed && !verifiedDeleteCompletionPublished {
+                // The earlier absence observation starts the bounded callback
+                // window. Recheck the library at its end before treating the
+                // verified native result as complete.
+                appIsPresent = try await authoritativeLibraryContains(bundleIdentifier: bundleIdentifier)
+                lastLibraryCheckAt = Date()
+                lastLibraryPresence = appIsPresent
+                authoritativeAbsenceConfirmed = !appIsPresent && nativeUninstallSucceeded
+                if appIsPresent { missingCallbackReconcileDeadline = nil }
             }
             if !appIsPresent, backendState == .pending, nativeUninstallSucceeded,
                missingCallbackReconcileDeadline == nil {
@@ -1833,13 +1850,24 @@ final class V3OperationCenter {
             switch terminal {
             case .completed?:
                 if backendState == .pending {
-                    if missingCallbackReconcileDeadline.map({ now >= $0 }) == true {
-                        finish(id: id, response: ["state": "completed", "backendSettled": false])
-                        debugLog("[V3_OP] DELETE_RECONCILE_COMPLETED session=\(id) evidence=native_success+library_absent callback=pending ownership=retained")
+                    if !verifiedDeleteCompletionPublished &&
+                       V3DeleteReconciliationPolicy.mayPublishVerifiedDeleteCompletion(
+                        backendPending: true, nativeUninstallSucceeded: nativeUninstallSucceeded,
+                        appStillInLibrary: appIsPresent,
+                        reconciliationDeadlineElapsed: missingCallbackReconcileDeadline.map({ now >= $0 }) == true) {
+                        finish(id: id, response: [
+                            "operation": "delete", "state": "completed",
+                            "outcomeUnknown": false, "backendSettled": false,
+                            "verifiedDeleteCompletion": true,
+                            "sourceStep": "native_uninstall+authoritative_library_absence"
+                        ])
+                        verifiedDeleteCompletionPublished = true
+                        // The native delete is verified for the UI, but SideStore
+                        // still has backup/Core Data/widget/cellular cleanup after
+                        // InstallationProxy. Keep the mutation owner until the
+                        // high-level pipeline callback settles.
+                        debugLog("[V3_OP] DELETE_RECONCILE_COMPLETED session=\(id) evidence=native_success+library_absent callback=pending backend_ownership=retained")
                     }
-                    // Keep the mutation registry until PipelineRunner's callback
-                    // settles, even when native uninstall success plus library
-                    // absence already gives us a bounded user-visible result.
                     callbackPollDelay = V3DeleteReconciliationPolicy.nextCallbackPollDelay(
                         current: callbackPollDelay, backendPending: true,
                         nativeUninstallSucceeded: nativeUninstallSucceeded,

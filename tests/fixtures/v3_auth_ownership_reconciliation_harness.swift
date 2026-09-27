@@ -333,6 +333,23 @@ struct AuthOwnershipReconciliationHarness {
             reconciliationGenerationBefore: 12, currentReconciliationGeneration: 13,
             cancellationInProgress: false, taskCancelled: false),
             "the current attempt may commit its own failure when no newer response exists")
+        let reconciledAuthSuccess = V3AuthReconciliationPresentationPolicy.resolve(
+            reportedState: "working", authenticated: true, provisioningIncomplete: false,
+            previousFailureMessage: nil)
+        let reconciledProvisioningIncomplete = V3AuthReconciliationPresentationPolicy.resolve(
+            reportedState: "working", authenticated: true, provisioningIncomplete: true,
+            previousFailureMessage: nil)
+        precondition(reconciledAuthSuccess.state == "completed" &&
+            reconciledProvisioningIncomplete.state == "authenticatedProvisioningIncomplete" &&
+            V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState(
+                snapshotConfirmed: true, authenticated: true, state: reconciledAuthSuccess.state) &&
+            V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState(
+                snapshotConfirmed: true, authenticated: true, state: reconciledProvisioningIncomplete.state) &&
+            !V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState(
+                snapshotConfirmed: false, authenticated: true, state: "completed") &&
+            !V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState(
+                snapshotConfirmed: true, authenticated: false, state: "resultUnknown"),
+            "a later poll failure cannot downgrade an account state confirmed by reconciliation")
 
         precondition(V3ProvisioningResumeAvailabilityPolicy.canResume(
             authenticated: true, currentAppleID: "Dev@Example.com", resumableAppleID: "dev@example.com"))

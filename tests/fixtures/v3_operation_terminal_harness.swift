@@ -132,6 +132,82 @@ struct OperationTerminalHarness {
             nativeUninstallSucceeded: true, appStillInAuthoritativeLibrary: false,
             deadlineExpired: true, progress: 0.01) == .completed,
             "native uninstall success plus authoritative absence is verified completion while callback settlement remains pending")
+        precondition(V3DeleteReconciliationPolicy.mayPublishVerifiedDeleteCompletion(
+            backendPending: true, nativeUninstallSucceeded: true,
+            appStillInLibrary: false, reconciliationDeadlineElapsed: true) &&
+            !V3DeleteReconciliationPolicy.mayPublishVerifiedDeleteCompletion(
+                backendPending: true, nativeUninstallSucceeded: true,
+                appStillInLibrary: true, reconciliationDeadlineElapsed: true) &&
+            !V3DeleteReconciliationPolicy.mayPublishVerifiedDeleteCompletion(
+                backendPending: true, nativeUninstallSucceeded: false,
+                appStillInLibrary: false, reconciliationDeadlineElapsed: true) &&
+            !V3DeleteReconciliationPolicy.mayPublishVerifiedDeleteCompletion(
+                backendPending: true, nativeUninstallSucceeded: true,
+                appStillInLibrary: false, reconciliationDeadlineElapsed: false),
+            "user-visible completion is bounded and requires native success plus authoritative absence")
+
+        let pendingCallbackTerminal = V3OperationTerminalResponse()
+        precondition(pendingCallbackTerminal.finishOrResolve(["state": "reconciling",
+            "outcomeUnknown": true], backendSettled: false))
+        let verifiedDeleteReply: [String: Any] = [
+            "operation": "delete", "state": "completed", "outcomeUnknown": false,
+            "verifiedDeleteCompletion": true,
+            "sourceStep": "native_uninstall+authoritative_library_absence"
+        ]
+        precondition(pendingCallbackTerminal.finishOrResolve(verifiedDeleteReply, backendSettled: false),
+            "native success plus fresh library absence resolves the visible result without claiming the runner callback settled")
+        let pendingCallbackSession = UUID().uuidString
+        let pendingCallbackFields = pendingCallbackTerminal.reply(
+            sessionID: pendingCallbackSession, backendSettled: false)!
+        precondition(pendingCallbackFields["state"] as? String == "completed" &&
+            pendingCallbackFields["backendSettled"] as? Bool == false &&
+            pendingCallbackFields["verifiedDeleteCompletion"] as? Bool == true &&
+            V3OperationCompletionPolicy.disposition(state: "completed", backendSettled: false,
+                outcomeUnknown: false) == .completedAwaitingBackendSettlement,
+            "verified removal reaches Completed while mutation ownership remains until callback settlement")
+        var pendingDeleteOwner = V3OperationMutationRegistry()
+        let pendingDeleteOwnerID = UUID().uuidString
+        let nextDeleteMutationID = UUID().uuidString
+        precondition(pendingDeleteOwner.begin(pendingDeleteOwnerID) == .started &&
+            pendingDeleteOwner.begin(nextDeleteMutationID) == .busy &&
+            pendingDeleteOwner.finish(pendingDeleteOwnerID) &&
+            pendingDeleteOwner.begin(nextDeleteMutationID) == .started,
+            "the visible verified completion does not release mutation ownership before the pipeline settles")
+        var hostDeleteAttempt = V3OperationAttemptState()
+        let hostDeleteGeneration = hostDeleteAttempt.begin()
+        let hostDeleteSession = hostDeleteAttempt.sessionID!
+        precondition(hostDeleteAttempt.accept(state: "reconciling", generation: hostDeleteGeneration,
+            sessionID: hostDeleteSession) && !hostDeleteAttempt.isTerminal)
+        precondition(hostDeleteAttempt.accept(state: "completed", generation: hostDeleteGeneration,
+            sessionID: hostDeleteSession) && hostDeleteAttempt.isTerminal,
+            "the host can present the bounded verified completion response while retaining service ownership")
+        precondition(!V3OperationProvisionalOutcomePolicy.canResolve(
+            currentState: "reconciling", currentBackendSettled: false,
+            currentOutcomeUnknown: true, nextState: "completed", nextBackendSettled: false,
+            nextOutcomeUnknown: false, nextOperation: "install", verifiedDeleteCompletion: true) &&
+            !V3OperationProvisionalOutcomePolicy.canResolve(
+                currentState: "reconciling", currentBackendSettled: false,
+                currentOutcomeUnknown: true, nextState: "completed", nextBackendSettled: false,
+                nextOutcomeUnknown: false, nextOperation: "delete", verifiedDeleteCompletion: false),
+            "only a delete response with explicit backend and library evidence can resolve this provisional result")
+
+        let malformedOutcomeUnknown = try PropertyListSerialization.data(
+            fromPropertyList: ["outcomeUnknown": NSNumber(value: 1)], format: .binary, options: 0)
+        let malformedOutcomeUnknownReply = try PropertyListSerialization.propertyList(
+            from: malformedOutcomeUnknown, options: [], format: nil) as! [String: Any]
+        let malformedOutcomeIsUnknown = V3OperationReplyFieldPolicy.outcomeUnknown(
+            malformedOutcomeUnknownReply["outcomeUnknown"])
+        precondition(malformedOutcomeIsUnknown &&
+            !V3OperationTerminalAcceptancePolicy.isSettledTerminal(state: "cancelled",
+                backendSettled: true, stopConfirmed: true, outcomeUnknown: malformedOutcomeIsUnknown),
+            "a numeric plist value cannot masquerade as the Boolean false needed to accept a terminal")
+        let validFalseOutcomeUnknown = try PropertyListSerialization.data(
+            fromPropertyList: ["outcomeUnknown": false], format: .binary, options: 0)
+        let validFalseReply = try PropertyListSerialization.propertyList(
+            from: validFalseOutcomeUnknown, options: [], format: nil) as! [String: Any]
+        precondition(!V3OperationReplyFieldPolicy.outcomeUnknown(validFalseReply["outcomeUnknown"]) &&
+            !V3OperationReplyFieldPolicy.outcomeUnknown(nil),
+            "valid Boolean false and a legacy absent field remain compatible")
 
         let provisionalTerminal = V3OperationTerminalResponse()
         precondition(provisionalTerminal.finishOrResolve(["state": "reconciling",

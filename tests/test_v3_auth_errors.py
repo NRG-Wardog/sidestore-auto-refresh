@@ -182,6 +182,17 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("currentAttemptFailure.clear()", retry)
         self.assertIn("V3AuthFailureDiagnosticsPolicy.render", host)
 
+    def test_poll_failure_cannot_overwrite_authoritative_reconciled_account_state(self):
+        host = shell()
+        run = host[host.index("private func run(sessionID requestedSession: String)"):]
+        run = run[:run.index("    private func pollLoop(")]
+        preserve = "V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState"
+        self.assertIn(preserve, run)
+        self.assertLess(run.index(preserve), run.index('state = "resultUnknown"'))
+        monitor = host[host.index("private func continuePollingAfterSupersededFailure"):]
+        self.assertIn(preserve, monitor)
+        self.assertLess(monitor.index(preserve), monitor.index('state = "resultUnknown"'))
+
     def test_provisioning_retry_keeps_typed_anisette_and_network_guidance(self):
         runtime_text = runtime()
         host = shell()
