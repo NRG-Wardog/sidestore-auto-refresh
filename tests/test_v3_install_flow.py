@@ -51,6 +51,21 @@ def operation_sheet():
 
 
 class InstallFirstAttemptTests(unittest.TestCase):
+    def test_host_and_service_stage_local_ipas_in_the_same_sidestore_group(self):
+        host = shell()
+        runtime_source = runtime()
+        staging = (ROOT / "scripts/templates/v3_ipa_staging.swift").read_text(encoding="utf-8")
+        self.assertIn("static func sideStoreContainerRoot", staging)
+        self.assertIn('bundleInfo["ALTAppGroups"]', staging)
+        self.assertIn('"group.com.SideStore.SideStore"', staging)
+        self.assertIn("V3IPAStaging.sideStoreContainerRoot()", host)
+        self.assertIn("V3IPAStaging.sideStoreContainerRoot()", runtime_source)
+        self.assertNotIn("LCSharedUtils.appGroupPath()", host[host.index("func cleanupOrphanedStagedIPAs"):host.index("private func drainInstallPresentation")])
+        harness = (ROOT / "tests/fixtures/v3_ipa_staging_harness.swift").read_text(encoding="utf-8")
+        self.assertIn("cachedLiveContainerGroup", harness)
+        self.assertIn("hostStagingRoot", harness)
+        self.assertIn("serviceStagingRoot", harness)
+
     def test_cleanup_fallback_requires_confirmed_backend_settlement_and_rejects_busy(self):
         host = shell()
         method = host[host.index("func cleanupStagedIPA(_ token: String"): ]

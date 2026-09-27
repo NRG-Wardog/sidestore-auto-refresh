@@ -307,6 +307,17 @@ enum V3JITLessSetupActionPolicy {
     }
 }
 
+enum V3JITLessHealthRecoveryPolicy {
+    static func shouldOfferCanonicalSetup(for readiness: V3JITLessReadiness,
+                                          activeCertificateAvailable: Bool) -> Bool {
+        switch readiness {
+        case .unknown: return true
+        case .certificateImported: return activeCertificateAvailable
+        default: return false
+        }
+    }
+}
+
 enum V3TwoFactorStep: String, Equatable {
     case chooseDeliveryMethod
     case choosePhoneNumber
@@ -705,7 +716,7 @@ struct V3InstallAttemptState {
 // not establish success on their own.
 struct V3DeleteCompletionContract {
     enum BackendResult: Equatable { case pending, succeeded, failed }
-    enum Terminal: Equatable { case completed, failed }
+    enum Terminal: Equatable { case completed, failed, outcomeUnknown }
 
     private(set) var terminal: Terminal?
 
@@ -716,9 +727,12 @@ struct V3DeleteCompletionContract {
         guard terminal == nil else { return terminal }
         if backend == .failed {
             terminal = .failed
-        } else if !appStillInAuthoritativeLibrary &&
-                    (backend == .succeeded || (backend == .pending && nativeUninstallSucceeded && deadlineExpired)) {
+        } else if !appStillInAuthoritativeLibrary && backend == .succeeded {
             terminal = .completed
+        } else if backend == .pending && deadlineExpired {
+            // This is provisional. Keep the contract open so the late callback
+            // can still establish the authoritative result.
+            return .outcomeUnknown
         } else if deadlineExpired {
             terminal = .failed
         }
@@ -790,8 +804,19 @@ struct V3OperationAttemptState {
     @discardableResult
     mutating func accept(state: String, generation: UUID, sessionID: String) -> Bool {
         guard matches(generation: generation, sessionID: sessionID) else { return false }
-        if !["working", "awaitingPrompt", "cancelling"].contains(state) { isTerminal = true }
+        if !["working", "awaitingPrompt", "cancelling", "reconciling"].contains(state) { isTerminal = true }
         return true
+    }
+
+    func ownsProvisionalResolution(generation: UUID, sessionID: String,
+                                   currentState: String?, currentBackendSettled: Bool?,
+                                   currentOutcomeUnknown: Bool, nextState: String?,
+                                   nextBackendSettled: Bool?, nextOutcomeUnknown: Bool) -> Bool {
+        owns(generation: generation, sessionID: sessionID) && isTerminal &&
+            V3OperationProvisionalOutcomePolicy.canResolve(
+                currentState: currentState, currentBackendSettled: currentBackendSettled,
+                currentOutcomeUnknown: currentOutcomeUnknown, nextState: nextState,
+                nextBackendSettled: nextBackendSettled, nextOutcomeUnknown: nextOutcomeUnknown)
     }
 
     mutating func supersede() -> String? {
@@ -1046,7 +1071,11 @@ enum V3DeleteReconciliationPolicy {
                                       nativeUninstallSucceeded: Bool,
                                       appStillInLibrary: Bool,
                                       cancellationRequested: Bool = false) -> TimeInterval {
-        guard backendPending else { return 0.25 }
+        if !backendPending {
+            guard appStillInLibrary else { return 1.0 }
+            let settledBase = current.isFinite && current > 0 ? current : 0.5
+            return min(max(settledBase * 2, 1.0), maximumCallbackPollInterval)
+        }
         guard cancellationRequested || (nativeUninstallSucceeded && !appStillInLibrary) else { return 1.0 }
         let base = current.isFinite && current > 0 ? current : 0.25
         return min(base * 2, maximumCallbackPollInterval)
@@ -1089,31 +1118,70 @@ enum V3OperationCompletionDisposition: Equatable {
     case notCompleted
     case completed
     case completedAwaitingBackendSettlement
+    case outcomeUnknownAwaitingBackendSettlement
 }
 
 enum V3OperationCompletionPolicy {
-    static func disposition(state: String, backendSettled: Bool?) -> V3OperationCompletionDisposition {
+    static func disposition(state: String, backendSettled: Bool?,
+                            outcomeUnknown: Bool = false) -> V3OperationCompletionDisposition {
+        if outcomeUnknown && backendSettled != true {
+            return .outcomeUnknownAwaitingBackendSettlement
+        }
         guard state == "completed" else { return .notCompleted }
         return backendSettled == true ? .completed : .completedAwaitingBackendSettlement
     }
 
-    static func shouldContinuePolling(state: String, backendSettled: Bool?) -> Bool {
-        disposition(state: state, backendSettled: backendSettled) == .completedAwaitingBackendSettlement
+    static func shouldContinuePolling(state: String, backendSettled: Bool?,
+                                      outcomeUnknown: Bool = false) -> Bool {
+        switch disposition(state: state, backendSettled: backendSettled,
+                           outcomeUnknown: outcomeUnknown) {
+        case .completedAwaitingBackendSettlement, .outcomeUnknownAwaitingBackendSettlement: return true
+        case .notCompleted, .completed: return false
+        }
+    }
+
+    static func shouldRetrySettlementPollFailure(state: String, backendSettled: Bool?,
+                                                  outcomeUnknown: Bool) -> Bool {
+        shouldContinuePolling(state: state, backendSettled: backendSettled,
+                              outcomeUnknown: outcomeUnknown)
     }
 
     static func requiresDeviceCheck(state: String, backendSettled: Bool?,
-                                    deviceCheckConfirmed: Bool) -> Bool {
-        shouldContinuePolling(state: state, backendSettled: backendSettled) && !deviceCheckConfirmed
+                                    deviceCheckConfirmed: Bool,
+                                    outcomeUnknown: Bool = false) -> Bool {
+        shouldContinuePolling(state: state, backendSettled: backendSettled,
+                              outcomeUnknown: outcomeUnknown) && !deviceCheckConfirmed
     }
 
     static func mayDismiss(state: String, backendSettled: Bool?,
-                           deviceCheckConfirmed: Bool = false) -> Bool {
+                           deviceCheckConfirmed: Bool = false,
+                           outcomeUnknown: Bool = false) -> Bool {
         !requiresDeviceCheck(state: state, backendSettled: backendSettled,
-                             deviceCheckConfirmed: deviceCheckConfirmed)
+                             deviceCheckConfirmed: deviceCheckConfirmed,
+                             outcomeUnknown: outcomeUnknown)
     }
 
-    static func pollInterval(state: String, backendSettled: Bool?) -> TimeInterval {
-        shouldContinuePolling(state: state, backendSettled: backendSettled) ? 5 : 1
+    static func pollInterval(state: String, backendSettled: Bool?,
+                             outcomeUnknown: Bool = false) -> TimeInterval {
+        shouldContinuePolling(state: state, backendSettled: backendSettled,
+                              outcomeUnknown: outcomeUnknown) ? 5 : 1
+    }
+
+    static func nextSettlementPollRetryDelay(current: TimeInterval) -> TimeInterval {
+        let base = current.isFinite && current > 0 ? current : 5
+        if base < 5 { return 5 }
+        return min(base * 2, 30)
+    }
+}
+
+enum V3OperationProvisionalOutcomePolicy {
+    static func canResolve(currentState: String?, currentBackendSettled: Bool?,
+                           currentOutcomeUnknown: Bool, nextState: String?,
+                           nextBackendSettled: Bool?, nextOutcomeUnknown: Bool) -> Bool {
+        ["reconciling", "failed"].contains(currentState ?? "") &&
+            currentOutcomeUnknown && currentBackendSettled == false &&
+            nextBackendSettled == true && !nextOutcomeUnknown &&
+            ["completed", "failed", "cancelled"].contains(nextState ?? "")
     }
 }
 
@@ -1147,6 +1215,32 @@ final class V3OperationTerminalResponse: @unchecked Sendable {
         guard storage == nil else { return false }
         storage = response
         return true
+    }
+
+    // A reconciling record is provisional, not a terminal result. It can be
+    // replaced once the backend callback settles, but ordinary terminal
+    // responses remain write-once.
+    @discardableResult
+    func resolveProvisionalOutcome(_ response: [String: Any]) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let current = storage,
+              V3OperationProvisionalOutcomePolicy.canResolve(
+                currentState: current["state"] as? String,
+                currentBackendSettled: current["backendSettled"] as? Bool,
+                currentOutcomeUnknown: current["outcomeUnknown"] as? Bool == true,
+                nextState: response["state"] as? String,
+                nextBackendSettled: response["backendSettled"] as? Bool,
+                nextOutcomeUnknown: response["outcomeUnknown"] as? Bool == true) else { return false }
+        storage = response
+        return true
+    }
+
+    @discardableResult
+    func finishOrResolve(_ response: [String: Any], backendSettled: Bool) -> Bool {
+        var resolved = response
+        resolved["backendSettled"] = backendSettled
+        return setIfEmpty(resolved) || resolveProvisionalOutcome(resolved)
     }
 
     var value: [String: Any]? {
@@ -2957,7 +3051,7 @@ enum V3AuthSessionUnavailablePolicy {
                 state: "resultUnknown",
                 message: "SideStore no longer has the active sign-in session. The current account and provisioning state could not be confirmed. Reload status before continuing.",
                 provisioningMessage: nil,
-                cancellationConfirmed: true)
+                cancellationConfirmed: false)
         }
         if authenticated && provisioningIncomplete {
             return V3AuthSessionUnavailablePresentation(
@@ -3122,6 +3216,26 @@ enum V3AuthCancellationRetryPolicy {
     }
 }
 
+enum V3AuthUnknownResultRecoveryAction: Equatable {
+    case cancelSession
+    case reloadStatus
+    case none
+}
+
+enum V3AuthUnknownResultRecoveryPolicy {
+    static func action(isCancelling: Bool, cancellationConfirmed: Bool,
+                       hasSession: Bool) -> V3AuthUnknownResultRecoveryAction {
+        guard !isCancelling, !cancellationConfirmed else { return .none }
+        return hasSession ? .cancelSession : .reloadStatus
+    }
+}
+
+enum V3AuthUnknownResultReconciliationPolicy {
+    static func reportedState(originalState: String, hasSession: Bool) -> String {
+        originalState == "resultUnknown" && !hasSession ? "working" : originalState
+    }
+}
+
 enum V3AuthStatusTextPolicy {
     static func label(state: String, isSignedIn: Bool,
                       provisioningFinishedLater: Bool) -> String {
@@ -3211,6 +3325,13 @@ enum V3AuthAttemptStartFailurePolicy {
     static func isConfirmedNotDispatched(_ failure: CombinedFailure) -> Bool {
         failure.safeCause == .authAttemptNotDispatched ||
             failure.safeCause == .authProvisioningRetryNotDispatched ||
+            failure.safeCause == .authResponseCapacityUnavailable
+    }
+}
+
+enum V3AuthProvisioningRetryDispatchPolicy {
+    static func isConfirmedNotDispatched(_ failure: CombinedFailure) -> Bool {
+        failure.safeCause == .authProvisioningRetryNotDispatched ||
             failure.safeCause == .authResponseCapacityUnavailable
     }
 }

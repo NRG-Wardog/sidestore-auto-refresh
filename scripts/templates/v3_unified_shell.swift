@@ -1350,7 +1350,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
 
     func cleanupOrphanedStagedIPAs() async {
-        guard let container = LCSharedUtils.appGroupPath() else { return }
+        guard let container = V3IPAStaging.sideStoreContainerRoot() else { return }
         var protectedTokens = Set<String>()
         if let hostToken = installAttempt.token,
            let canonical = try? V3IPAStaging.canonicalToken(hostToken) {
@@ -1378,7 +1378,9 @@ final class V3SideStoreStatusStore: ObservableObject {
     private func stageIPA(_ url: URL, attemptID: UUID, bookmark: Data?, title: String,
                           waitsForPickerDismissal: Bool) -> String? {
         do {
-            guard let container = LCSharedUtils.appGroupPath() else { throw CombinedIPAFileError(.fileAccess) }
+            guard let container = V3IPAStaging.sideStoreContainerRoot() else {
+                throw CombinedIPAFileError(.fileAccess)
+            }
             let token = try V3IPAStaging.stage(sourceURL: url, bookmark: bookmark, containerRoot: container)
             guard installAttempt.staged(attemptID: attemptID, token: token, title: title,
                                         waitsForPickerDismissal: waitsForPickerDismissal,
@@ -1560,7 +1562,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             // local fallback only when no backend can still use the token. It
             // never accepts or constructs a caller path.
             do {
-                guard let container = LCSharedUtils.appGroupPath() else {
+                guard let container = V3IPAStaging.sideStoreContainerRoot() else {
                     throw CombinedIPAFileError(.fileAccess)
                 }
                 try V3IPAStaging.cleanup(token: token, containerRoot: container)
@@ -2677,7 +2679,8 @@ struct V3OperationSheet: View {
     private var completionAwaitingSettlement: Bool {
         V3OperationCompletionPolicy.requiresDeviceCheck(state: state,
             backendSettled: terminalBackendSettled,
-            deviceCheckConfirmed: deviceCheckConfirmedForCompletion)
+            deviceCheckConfirmed: deviceCheckConfirmedForCompletion,
+            outcomeUnknown: needsDeviceConfirmation)
     }
     var body: some View {
         NavigationView {
@@ -2863,6 +2866,7 @@ struct V3OperationSheet: View {
     private var statusText: String {
         switch state {
         case "cancelling": return "Cancelling..."
+        case "reconciling": return "Checking result..."
         case "working" where isTransitioning: return "Waiting for previous attempt..."
         case "completed": return "Completed"
         case "awaitingPrompt": return "Needs your input"
@@ -2980,6 +2984,7 @@ struct V3OperationSheet: View {
         guard V3ServiceBridge.shared.confirmUncertainOperationAfterDeviceCheck(sessionID: sessionID) else {
             uncertainSessionID = nil
             needsDeviceConfirmation = false
+            terminalBackendSettled = true
             retryBlocked = true
             if state == "completed" {
                 terminalBackendSettled = true
@@ -2992,13 +2997,16 @@ struct V3OperationSheet: View {
                 message = "The operation has settled. Reload app status before starting another mutation."
                 whatToDo = "Check the installed app list and verify the result."
             }
+            finishReconciliationAfterRetirement()
             status.reload()
             return
         }
         uncertainSessionID = nil
         needsDeviceConfirmation = false
+        terminalBackendSettled = true
         retryBlocked = true
         deviceCheckConfirmedForCompletion = state == "completed"
+        finishReconciliationAfterRetirement()
         status.reload()
         if state == "completed" {
             message = "The app removal was verified. SideStore was restarted to clear a delete callback that did not settle."
@@ -3010,15 +3018,40 @@ struct V3OperationSheet: View {
             technicalDetails += " service_retired_after_user_confirmation=yes outcome=unknown"
         }
     }
+    private func finishReconciliationAfterRetirement() {
+        guard state == "reconciling", let sessionID = attempt.sessionID else { return }
+        _ = attempt.accept(state: "failed", generation: attempt.generation, sessionID: sessionID)
+        state = "failed"
+        status.installTerminal(attemptID: request.installAttemptID,
+            operationID: request.id, outcome: "unknown")
+    }
     private func pollLoop(id: String, generation: UUID) async throws {
+        var settlementRetryDelay: TimeInterval?
         while !Task.isCancelled {
-            let interval = V3OperationCompletionPolicy.pollInterval(
-                state: state, backendSettled: terminalBackendSettled)
+            let interval = settlementRetryDelay ?? V3OperationCompletionPolicy.pollInterval(
+                state: state, backendSettled: terminalBackendSettled,
+                outcomeUnknown: needsDeviceConfirmation)
+            settlementRetryDelay = nil
             try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             try Task.checkCancellation()
             guard attempt.owns(generation: generation, sessionID: id),
                   !attempt.isTerminal || completionAwaitingSettlement else { return }
-            let reply = try await V3ServiceBridge.shared.request(operation: "opPoll", target: id)
+            let reply: [String: Any]
+            do {
+                reply = try await V3ServiceBridge.shared.request(operation: "opPoll", target: id)
+            } catch {
+                guard attempt.owns(generation: generation, sessionID: id),
+                      V3OperationCompletionPolicy.shouldRetrySettlementPollFailure(
+                        state: state, backendSettled: terminalBackendSettled,
+                        outcomeUnknown: needsDeviceConfirmation),
+                      !Task.isCancelled else { throw error }
+                settlementRetryDelay = V3OperationCompletionPolicy.nextSettlementPollRetryDelay(
+                    current: interval)
+                NSLog("[V3_OPERATION_UI] settlement_poll_retry session=%@ delay=%.0f",
+                      id, settlementRetryDelay ?? 0)
+                continue
+            }
+            settlementRetryDelay = nil
             guard let current = reply["state"] as? String else {
                 throw NSError(domain: "V3Operation", code: 2,
                               userInfo: [NSLocalizedDescriptionKey: "The service returned an unreadable operation state."])
@@ -3026,10 +3059,12 @@ struct V3OperationSheet: View {
             guard reply["session"] as? String == id else { return }
             apply(reply, generation: generation, sessionID: id)
             if V3OperationCompletionPolicy.shouldContinuePolling(state: current,
-                backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"])) {
+                backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
+                outcomeUnknown: V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true) {
                 continue
             }
-            guard current == "working" || current == "awaitingPrompt" || current == "cancelling" else { return }
+            guard current == "working" || current == "awaitingPrompt" || current == "cancelling" ||
+                    current == "reconciling" else { return }
         }
     }
     private func apply(_ reply: [String: Any], generation: UUID, sessionID: String) {
@@ -3041,10 +3076,17 @@ struct V3OperationSheet: View {
             if wasAwaitingSettlement && !completionAwaitingSettlement { status.reload() }
             return
         }
-        guard
+        let replyBackendSettled = V3ServiceBridge.strictBool(reply["backendSettled"])
+        let replyOutcomeUnknown = V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true
+        let resolvesProvisionalUnknown = attempt.ownsProvisionalResolution(
+            generation: generation, sessionID: sessionID, currentState: state,
+            currentBackendSettled: terminalBackendSettled,
+            currentOutcomeUnknown: needsDeviceConfirmation, nextState: nextState,
+            nextBackendSettled: replyBackendSettled, nextOutcomeUnknown: replyOutcomeUnknown)
+        guard resolvesProvisionalUnknown ||
               attempt.accept(state: nextState, generation: generation, sessionID: sessionID) else { return }
         state = nextState
-        if !["working", "awaitingPrompt", "cancelling"].contains(nextState) {
+        if !["working", "awaitingPrompt", "cancelling", "reconciling"].contains(nextState) {
             status.installTerminal(attemptID: request.installAttemptID,
                 operationID: request.id, outcome: nextState)
         }
@@ -3090,6 +3132,21 @@ struct V3OperationSheet: View {
             sourceOffer = ["id": reply["sourceID"] as? String ?? "",
                            "name": reply["sourceName"] as? String ?? "Unknown source"]
             prompt = nil
+        case "reconciling":
+            let failure = (reply["failure"] as? [String: Any]).flatMap {
+                CombinedFailure.decode($0, expectedID: sessionID)
+            }
+            if let failure { failureContext.recordPipelineFailure(failure) }
+            terminalBackendSettled = V3ServiceBridge.strictBool(reply["backendSettled"])
+            needsDeviceConfirmation = true
+            uncertainSessionID = sessionID
+            retryBlocked = true
+            message = "SideStore is still checking whether the app was removed."
+            whatToDo = "Keep this screen open while SideStore waits for the delete callback. Do not retry until the result is confirmed."
+            technicalDetails = (failure?.technicalDetails ??
+                "schema=1 operation=delete stage=command code=timedOut correlation=\(sessionID) underlying_domain=redacted underlying_code=redacted retryable=unknown") +
+                " backend_settled=no outcome=unknown"
+            recoveryDestination = nil
         case "failed":
             let failure = (reply["failure"] as? [String: Any]).flatMap {
                 CombinedFailure.decode($0, expectedID: sessionID)
@@ -3099,10 +3156,11 @@ struct V3OperationSheet: View {
                 id: sessionID, retryable: reply["retryable"] as? Bool)
             failureContext.recordPipelineFailure(failure)
             let backendSettled = V3ServiceBridge.strictBool(reply["backendSettled"])
+            terminalBackendSettled = backendSettled
             let outcomeUnknown = V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true ||
                 backendSettled != true
             needsDeviceConfirmation = outcomeUnknown
-            if outcomeUnknown { uncertainSessionID = sessionID }
+            uncertainSessionID = outcomeUnknown ? sessionID : nil
             retryBlocked = !V3OperationRetrySafetyPolicy.canRetry(
                 backendSettled: backendSettled,
                 outcomeUnknown: outcomeUnknown)
@@ -3113,7 +3171,7 @@ struct V3OperationSheet: View {
             technicalDetails = failureContext.technicalDetails +
                 (outcomeUnknown ? " backend_settled=no outcome=unknown" : "")
             recoveryDestination = failureContext.currentFailure?.recoveryDestination
-            recordRefresh("failed", message)
+            if !outcomeUnknown { recordRefresh("failed", message) }
         default: break
         }
     }
@@ -3121,7 +3179,7 @@ struct V3OperationSheet: View {
         terminalBackendSettled = V3ServiceBridge.strictBool(reply["backendSettled"])
         switch V3OperationCompletionPolicy.disposition(state: "completed",
             backendSettled: terminalBackendSettled) {
-        case .completedAwaitingBackendSettlement:
+        case .completedAwaitingBackendSettlement, .outcomeUnknownAwaitingBackendSettlement:
             needsDeviceConfirmation = true
             uncertainSessionID = sessionID
             retryBlocked = true
@@ -3835,7 +3893,7 @@ final class V3AuthStore: ObservableObject {
             }
             let failureResponseGeneration = pollFailure?.promptResponseGeneration ?? promptResponseGeneration
             if let notDispatched = error as? CombinedFailure,
-               notDispatched.safeCause == .authProvisioningRetryNotDispatched {
+               V3AuthProvisioningRetryDispatchPolicy.isConfirmedNotDispatched(notDispatched) {
                 let reconciliationGenerationBefore = reconciliationGate.generation
                 let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)
                 guard V3AuthAttemptFailureCommitPolicy.mayCommit(
@@ -3974,6 +4032,9 @@ final class V3AuthStore: ObservableObject {
             expectedSessionID: expectedSession, currentSessionID: session) else { return false }
         let ticket = reconciliationGate.begin(sessionID: session, state: state, revision: revision)
         let reportedTerminalState = state
+        let reconciliationState = V3AuthUnknownResultReconciliationPolicy.reportedState(
+            originalState: reportedTerminalState, hasSession: session != nil)
+        let resolvesUnknownAttempt = reportedTerminalState == "resultUnknown" && session == nil
         do {
             let snapshot = try await V3ServiceBridge.shared.request(operation: "snapshot")
             guard reconciliationGate.mayApply(ticket, sessionID: session,
@@ -4011,11 +4072,16 @@ final class V3AuthStore: ObservableObject {
                 let previousFailureMessage = reportedTerminalState == "failed"
                     ? previousFailure.map { Self.failureMessage(from: $0) } : nil
                 let presentation = V3AuthReconciliationPresentationPolicy.resolve(
-                    reportedState: reportedTerminalState, authenticated: true,
+                    reportedState: reconciliationState, authenticated: true,
                     provisioningIncomplete: incomplete,
                     previousFailureMessage: previousFailureMessage)
                 state = presentation.state
                 message = presentation.message
+                if resolvesUnknownAttempt {
+                    cancellationConfirmed = true
+                    cancellationWasAttempted = false
+                    currentAttemptFailure.clear()
+                }
                 team = snapshot["team"] as? String ?? ""
                 if incomplete {
                     provisioningIncomplete = true
@@ -4040,14 +4106,22 @@ final class V3AuthStore: ObservableObject {
                 signedIn = false
                 team = ""
                 let signedOutPresentation = V3AuthReconciliationPresentationPolicy.resolve(
-                    reportedState: reportedTerminalState, authenticated: false,
+                    reportedState: reconciliationState, authenticated: false,
                     provisioningIncomplete: false)
-                if state == "idle" || state == "completed" || state == "authenticatedProvisioningIncomplete" {
+                if resolvesUnknownAttempt {
+                    state = "failed"
+                    cancellationConfirmed = true
+                    cancellationWasAttempted = false
+                    currentAttemptFailure.clear()
+                    message = "SideStore confirmed that no account is signed in. You can start a new sign-in."
+                } else if state == "idle" || state == "completed" || state == "authenticatedProvisioningIncomplete" {
                     state = "idle"
                     prompt = nil
                     clearProvisioningOutcome()
                 }
-                if !signedOutPresentation.message.isEmpty { message = signedOutPresentation.message }
+                if !resolvesUnknownAttempt && !signedOutPresentation.message.isEmpty {
+                    message = signedOutPresentation.message
+                }
             }
             return true
         } catch {
@@ -4318,6 +4392,17 @@ final class V3AuthStore: ObservableObject {
                 return
             }
             guard current == "working" || current == "awaitingPrompt" else { return }
+        }
+    }
+
+    func reloadAuthoritativeAccountStatus() {
+        guard !isCancelling else { return }
+        Task { @MainActor in
+            let confirmed = await reconcile(force: true)
+            if !confirmed && state == "resultUnknown" {
+                cancellationConfirmed = false
+                message = "SideStore could not confirm the account state. Reload status again before starting a new sign-in."
+            }
         }
     }
 
@@ -4690,6 +4775,10 @@ final class V3AuthStore: ObservableObject {
     }
 
     func cancel() {
+        guard !(state == "resultUnknown" && session == nil && !cancellationConfirmed) else {
+            reloadAuthoritativeAccountStatus()
+            return
+        }
         let hasActiveAttempt = ["working", "awaitingPrompt", "promptExpired", "resultUnknown"].contains(state)
         let canRetryCancellation = V3AuthCancellationRetryPolicy.canRetry(
             isCancelling: isCancelling, cancellationConfirmed: cancellationConfirmed,
@@ -4853,19 +4942,36 @@ struct V3SignInView: View {
                     }
                     .disabled(!auth.canBegin)
                 }
-                if V3AuthCancellationRetryPolicy.canRetry(isCancelling: auth.isCancelling,
+                if auth.state != "resultUnknown" && V3AuthCancellationRetryPolicy.canRetry(isCancelling: auth.isCancelling,
                     cancellationConfirmed: auth.cancellationConfirmed,
                     hasSession: auth.hasSession) {
                     Button(auth.cancellationWasAttempted ? "Retry Cancellation" : "Cancel Unconfirmed Sign-In",
                            role: .cancel) { auth.cancel() }
                 }
+                if auth.state == "resultUnknown" {
+                    switch V3AuthUnknownResultRecoveryPolicy.action(
+                        isCancelling: auth.isCancelling,
+                        cancellationConfirmed: auth.cancellationConfirmed,
+                        hasSession: auth.hasSession) {
+                    case .cancelSession:
+                        Button(auth.cancellationWasAttempted ? "Retry Cancellation" : "Cancel Unconfirmed Sign-In",
+                               role: .cancel) { auth.cancel() }
+                            .disabled(auth.isCancelling)
+                    case .reloadStatus:
+                        Button(auth.isCancelling ? "Checking..." : "Reload Status") {
+                            auth.reloadAuthoritativeAccountStatus()
+                        }
+                        .disabled(auth.isCancelling)
+                    case .none:
+                        EmptyView()
+                    }
+                }
                 if !V3AuthCancellationRetryPolicy.canRetry(isCancelling: auth.isCancelling,
                     cancellationConfirmed: auth.cancellationConfirmed,
                     hasSession: auth.hasSession) &&
                     (auth.state == "working" || auth.state == "awaitingPrompt" ||
-                     auth.state == "promptExpired" || auth.state == "resultUnknown") {
-                    Button(auth.isCancelling ? "Cancelling..." :
-                        (auth.state == "resultUnknown" ? "Cancel Unconfirmed Sign-In" : "Cancel Sign In"),
+                     auth.state == "promptExpired") {
+                    Button(auth.isCancelling ? "Cancelling..." : "Cancel Sign In",
                         role: .cancel) { auth.cancel() }
                         .disabled(auth.isCancelling)
                 }
@@ -5970,13 +6076,20 @@ struct V3HealthView: View {
                                    ? "Set Up JIT-Less" : "Refresh JIT-Less Certificate") {
                                 openJITLessSetup()
                             }
-                        case .certificateImported, .unknown:
+                        case .certificateImported:
                             // The copy exists but validation is not conclusive, so
                             // the canonical setup flow is still the useful action.
                             if activeCertificateAvailable {
                                 Button("Open JIT-Less Setup") { openJITLessSetup() }
                             }
                             Button("Open Certificates") { status.certificatesPresented = true }
+                        case .unknown:
+                            if V3JITLessHealthRecoveryPolicy.shouldOfferCanonicalSetup(
+                                for: .unknown, activeCertificateAvailable: activeCertificateAvailable) {
+                                Button("Open JIT-Less Setup") { openJITLessSetup() }
+                            }
+                            Button(checking ? "Checking..." : "Re-check") { Task { await reload() } }
+                                .disabled(checking)
                         case .activeCertificateMissing, .activeCertificateRevoked,
                              .activeCertificateExpired:
                             // Refreshing the copy cannot repair SideStore's own

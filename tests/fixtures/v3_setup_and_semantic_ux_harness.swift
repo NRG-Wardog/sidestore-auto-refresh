@@ -481,6 +481,11 @@ struct SetupAndSemanticUXHarness {
         precondition(V3JITLessSetupActionPolicy.action(for: .setupRequired) == .setUp &&
                      V3JITLessSetupActionPolicy.action(for: .certificateMismatch) == .refreshCertificate,
                      "a valid active certificate routes setup and stale-copy repair to the canonical import flow")
+        precondition(V3JITLessHealthRecoveryPolicy.shouldOfferCanonicalSetup(
+            for: .unknown, activeCertificateAvailable: false) &&
+            !V3JITLessHealthRecoveryPolicy.shouldOfferCanonicalSetup(
+                for: .certificateImported, activeCertificateAvailable: false),
+            "a failed Health status read preserves the canonical setup route without claiming an active certificate")
 
         // V3_SNAPSHOT_GATE_V1: the activity, not a shared busy flag, decides
         // what a snapshot request does. The previous gate took a single `loading`

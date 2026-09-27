@@ -83,6 +83,14 @@ class JITLessOwnershipTests(unittest.TestCase):
         self.assertIn("case .openCertificates:", setup)
         self.assertNotIn("case .setupRequired, .activeCertificateMissing:", setup)
 
+    def test_health_unknown_status_keeps_canonical_jitless_setup_action(self):
+        shell = SHELL.read_text(encoding="utf-8")
+        health_start = shell.index('struct V3HealthView')
+        health = shell[health_start:shell.index('.navigationTitle("Health Check")', health_start)]
+        self.assertIn("V3JITLessHealthRecoveryPolicy.shouldOfferCanonicalSetup", health)
+        self.assertIn('case .unknown:', health)
+        self.assertIn('Button(checking ? "Checking..." : "Re-check")', health)
+
 
 if __name__ == "__main__":
     unittest.main()

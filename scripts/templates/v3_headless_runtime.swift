@@ -1497,8 +1497,7 @@ final class V3OperationCenter {
         guard !sessions.values.contains(where: {
             $0.ipaToken == canonical && $0.terminal.isEmpty
         }) else { throw V3SideStoreServiceError.busy }
-        guard let group = Bundle.main.altstoreAppGroup,
-              let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else {
+        guard let root = V3IPAStaging.sideStoreContainerRoot() else {
             throw CombinedIPAFileError(.fileAccess)
         }
         try V3IPAStaging.cleanup(token: canonical, containerRoot: root)
@@ -1519,8 +1518,9 @@ final class V3OperationCenter {
 
     private func finish(id: String, response: [String: Any]) {
         guard var session = sessions[id] else { return }
-        let terminalAccepted = session.terminal.setIfEmpty(response)
         let backendSettled = session.task == nil
+        let terminalAccepted = session.terminal.finishOrResolve(
+            response, backendSettled: backendSettled)
         if V3OperationSessionRetentionPolicy.shouldRefreshTerminalAt(
             terminalAccepted: terminalAccepted, backendSettled: backendSettled) {
             session.terminalAt = Date()
@@ -1819,22 +1819,23 @@ final class V3OperationCenter {
                 let resolution = backendState == .succeeded ? "pipeline_callback" : "native_success_reconciled"
                 debugLog("[V3_OP] DELETE_RECONCILE_COMPLETED session=\(id) evidence=\(resolution)+library_absent")
                 return
-            case .failed?:
+            case .outcomeUnknown?:
                 if V3DeleteReconciliationPolicy.shouldPublishOutcomeUnknown(
                     backendPending: backendState == .pending,
                     requestedAt: cancellationRequestedAt, now: now) {
                     let failure = CombinedFailure(operation: "delete", stage: .command,
                                                   code: .timedOut, id: id)
                     let response: [String: Any] = [
-                        "state": "failed", "outcomeUnknown": true, "backendSettled": false,
+                        "state": "reconciling", "outcomeUnknown": true, "backendSettled": false,
                         "stage": failure.stage.rawValue, "code": failure.code.rawValue,
                         "message": failure.safeMessage, "technical": failure.technicalDetails,
                         "failure": failure.wire
                     ]
                     finish(id: id, response: response)
                     debugLog("[V3_OP] DELETE_RECONCILE_OUTCOME_UNKNOWN session=\(id) ownership=retained")
-                    // Keep this driver and its mutation registry alive until the
-                    // native callback settles. No newer mutation can overlap it.
+                    // The timeout is a provisional observation, not the
+                    // operation's terminal result. Keep this driver and its
+                    // mutation registry alive until the native callback settles.
                     callbackPollDelay = V3DeleteReconciliationPolicy.nextCallbackPollDelay(
                         current: callbackPollDelay, backendPending: true,
                         nativeUninstallSucceeded: nativeUninstallSucceeded,
@@ -1843,6 +1844,8 @@ final class V3OperationCenter {
                     try await Task.sleep(nanoseconds: UInt64(callbackPollDelay * 1_000_000_000))
                     continue
                 }
+                break
+            case .failed?:
                 debugLog("[V3_OP] DELETE_RECONCILE_FAILED session=\(id) backend=\(backendState) native_uninstall=\(nativeUninstallSucceeded) library_present=\(appIsPresent)")
                 throw CombinedFailure(operation: "delete", stage: .command, code: .timedOut,
                                       id: id, retryable: false)
@@ -1910,8 +1913,7 @@ final class V3OperationCenter {
         }
         if kind == "installSharedIPA" {
             let token = try V3IPAStaging.canonicalToken(target)
-            guard let group = Bundle.main.altstoreAppGroup,
-                  let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else {
+            guard let root = V3IPAStaging.sideStoreContainerRoot() else {
                 throw CombinedIPAFileError(.fileAccess)
             }
             let metadata = try V3IPAStaging.inspect(token: token, containerRoot: root) { url in

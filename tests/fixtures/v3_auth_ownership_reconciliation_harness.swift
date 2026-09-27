@@ -460,6 +460,38 @@ struct AuthOwnershipReconciliationHarness {
         precondition(attemptNotice.message.isEmpty && attemptNotice.technicalDetails.isEmpty,
             "a new provisioning retry clears the old auth-attempt notice")
 
+        let missingSessionFailure = CombinedFailure(operation: "signIn", stage: .authentication,
+            code: .notReady, id: current, safeCause: .authSessionUnavailable)
+        let unconfirmedSession = V3AuthSessionUnavailablePolicy.resolve(
+            authenticated: false, provisioningIncomplete: false, snapshotConfirmed: false,
+            safeMessage: missingSessionFailure.safeMessage, recovery: missingSessionFailure.recovery)
+        precondition(unconfirmedSession.state == "resultUnknown" &&
+            !unconfirmedSession.cancellationConfirmed,
+            "a failed account snapshot cannot be treated as confirmed sign-in cancellation")
+        precondition(V3AuthUnknownResultRecoveryPolicy.action(isCancelling: false,
+            cancellationConfirmed: false, hasSession: false) == .reloadStatus &&
+            V3AuthUnknownResultRecoveryPolicy.action(isCancelling: false,
+                cancellationConfirmed: false, hasSession: true) == .cancelSession,
+            "an unknown result without a live session offers status reload, not a fake local cancellation")
+        precondition(V3AuthUnknownResultReconciliationPolicy.reportedState(
+            originalState: "resultUnknown", hasSession: false) == "working" &&
+            V3AuthUnknownResultReconciliationPolicy.reportedState(
+                originalState: "resultUnknown", hasSession: true) == "resultUnknown",
+            "only a fresh authoritative snapshot can resolve an unknown attempt after its session is gone")
+
+        let capacityRejection = CombinedFailure(operation: "authRetryProvisioning",
+            stage: .serviceReadiness, code: .busy, id: UUID().uuidString,
+            retryable: true, safeCause: .responseCapacityUnavailable)
+        let capacityNotDispatched = V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(
+            capacityRejection, operation: "authRetryProvisioning")
+        precondition(capacityNotDispatched.safeCause == .authResponseCapacityUnavailable &&
+            V3AuthProvisioningRetryDispatchPolicy.isConfirmedNotDispatched(capacityNotDispatched),
+            "provisioning response-capacity rejection keeps its known pre-dispatch cause")
+        precondition(!V3AuthProvisioningRetryDispatchPolicy.isConfirmedNotDispatched(
+            CombinedFailure(operation: "signIn", stage: .network, id: UUID().uuidString,
+                retryable: true, safeCause: .networkConnectionLost)),
+            "an unrelated network failure does not enter confirmed-not-dispatched recovery")
+
         let malformedFailure: [String: Any] = [
             "kind": "networkFailure", "stage": "network", "code": "interrupted",
             "correlationID": current, "underlyingDomain": "redacted",

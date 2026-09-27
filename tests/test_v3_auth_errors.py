@@ -32,6 +32,20 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("Last confirmed account status: signed in", primitives)
         self.assertIn("V3AuthSessionUnavailablePolicy.resolve", host_text)
 
+    def test_unknown_auth_without_session_reloads_status_instead_of_faking_cancel(self):
+        host_text = shell()
+        self.assertIn("V3AuthUnknownResultRecoveryPolicy.action", host_text)
+        self.assertIn("case .reloadStatus:", host_text)
+        self.assertIn("reloadAuthoritativeAccountStatus()", host_text)
+        self.assertIn("V3AuthUnknownResultReconciliationPolicy.reportedState", host_text)
+        self.assertNotIn('"promptExpired" || auth.state == "resultUnknown") {', host_text)
+
+    def test_provisioning_capacity_rejection_keeps_confirmed_pre_dispatch_guidance(self):
+        host_text = shell()
+        self.assertIn("V3AuthProvisioningRetryDispatchPolicy.isConfirmedNotDispatched", host_text)
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        self.assertIn("failure.safeCause == .authResponseCapacityUnavailable", primitives)
+
     def test_handle_sign_in_result_is_implemented(self):
         text = runtime()
         self.assertIn("func handleSignInResult", text)
@@ -134,7 +148,7 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn('state = "resultUnknown"', run)
         self.assertIn("snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)", run)
         self.assertIn('"resultUnknown"].contains(state)', host)
-        self.assertIn('"resultUnknown" ? "Cancel Unconfirmed Sign-In"', host)
+        self.assertIn("V3AuthUnknownResultRecoveryPolicy.action", host)
         self.assertIn("could not confirm that the sign-in request stopped", host)
         retry = host[host.index("func retryProvisioning()"):host.index("var canRetryProvisioning")]
         self.assertIn("currentAttemptFailure.clear()", retry)
@@ -274,7 +288,7 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("previouslyConfirmedAvailable: previouslyAvailable", retry)
         self.assertNotIn("provisioningRetryAvailable = true", retry)
         self.assertNotIn('The saved Apple session is no longer available. Sign in again', retry)
-        self.assertIn("authProvisioningRetryNotDispatched", retry)
+        self.assertIn("V3AuthProvisioningRetryDispatchPolicy.isConfirmedNotDispatched", retry)
         self.assertIn("if snapshotConfirmed {", retry)
         self.assertIn("provisioningSessionUnavailable = !provisioningRetryAvailable", retry)
         self.assertNotIn("provisioningRetryAvailable || previouslyAvailable", retry)

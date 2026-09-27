@@ -4,7 +4,30 @@ import Foundation
 // XPC carries a canonical UUID token; the service derives every path itself.
 enum V3IPAStaging {
     private static let directoryComponents = ["Library", "Application Support", "LiveContainer", "V3IPAStaging"]
+    static let sideStoreAppGroupIdentifier = "group.com.SideStore.SideStore"
     static let orphanRetention: TimeInterval = 24 * 60 * 60
+
+    static func sideStoreContainerRoot(bundleInfo: [String: Any],
+                                       resolveContainer: (String) -> URL?) -> URL? {
+        let group: String
+        if let groups = bundleInfo["ALTAppGroups"] as? [String],
+           groups.contains(sideStoreAppGroupIdentifier) {
+            group = sideStoreAppGroupIdentifier
+        } else if let singleGroup = bundleInfo["ALTAppGroups"] as? String {
+            group = singleGroup
+        } else {
+            return nil
+        }
+        guard group == sideStoreAppGroupIdentifier else { return nil }
+        return resolveContainer(group)
+    }
+
+    static func sideStoreContainerRoot(bundle: Bundle = .main,
+                                       fileManager: FileManager = .default) -> URL? {
+        sideStoreContainerRoot(bundleInfo: bundle.infoDictionary ?? [:]) { group in
+            fileManager.containerURL(forSecurityApplicationGroupIdentifier: group)
+        }
+    }
 
     private final class CopyStatus: @unchecked Sendable {
         private let lock = NSLock()

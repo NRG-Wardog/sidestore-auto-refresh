@@ -13,13 +13,43 @@ struct IPAStagingHarness {
             try? fm.removeItem(at: pickedDirectory)
         }
 
+        // The host's cached LiveContainer data group can remain AltStore-owned
+        // during migration. IPA staging must still select the packaged
+        // SideStore group that the embedded service opens from its own bundle.
+        let cachedLiveContainerGroup = "group.com.rileytestut.AltStore"
+        var resolvedGroup: String?
+        let hostInfo: [String: Any] = ["ALTAppGroups": [V3IPAStaging.sideStoreAppGroupIdentifier]]
+        let hostStagingRoot = V3IPAStaging.sideStoreContainerRoot(bundleInfo: hostInfo) { group in
+            resolvedGroup = group
+            return root
+        }
+        let serviceInfo: [String: Any] = ["ALTAppGroups": V3IPAStaging.sideStoreAppGroupIdentifier]
+        let serviceStagingRoot = V3IPAStaging.sideStoreContainerRoot(bundleInfo: serviceInfo) { group in
+            precondition(group == resolvedGroup,
+                "host and service must resolve the same canonical IPA staging group")
+            return root
+        }
+        let multiGroupServiceRoot = V3IPAStaging.sideStoreContainerRoot(bundleInfo: [
+            "ALTAppGroups": [cachedLiveContainerGroup, V3IPAStaging.sideStoreAppGroupIdentifier]
+        ]) { group in
+            precondition(group == resolvedGroup,
+                "the resolver selects SideStore from a multi-group service entitlement list")
+            return root
+        }
+        precondition(cachedLiveContainerGroup != resolvedGroup && hostStagingRoot == serviceStagingRoot &&
+                     serviceStagingRoot == multiGroupServiceRoot,
+            "an AltStore-origin user-data cache must not split host staging from SideStore's service container")
+        precondition(V3IPAStaging.sideStoreContainerRoot(bundleInfo: ["ALTAppGroups": [cachedLiveContainerGroup]],
+            resolveContainer: { _ in root }) == nil,
+            "the IPA staging resolver must reject a non-SideStore group")
+
         // The asCopy picker URL disappears after the immediate staging copy.
         let picked = pickedDirectory.appendingPathComponent("known-valid.ipa")
         let bytes = Data([0x50, 0x4b, 0x03, 0x04, 0x01, 0x02, 0x03])
         try bytes.write(to: picked)
-        let durableToken = try V3IPAStaging.stage(sourceURL: picked, containerRoot: root)
+        let durableToken = try V3IPAStaging.stage(sourceURL: picked, containerRoot: hostStagingRoot!)
         try fm.removeItem(at: picked)
-        let durable = try V3IPAStaging.resolve(token: durableToken, containerRoot: root)
+        let durable = try V3IPAStaging.resolve(token: durableToken, containerRoot: serviceStagingRoot!)
         let stagedBytes = try Data(contentsOf: durable)
         precondition(stagedBytes == bytes)
 

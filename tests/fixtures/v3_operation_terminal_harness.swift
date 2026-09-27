@@ -31,6 +31,58 @@ struct OperationTerminalHarness {
         precondition(!failureWins.setIfEmpty(["state": "completed"]))
         precondition(failureWins.value?["stage"] as? String == "signing")
 
+        var lateDeleteSuccessContract = V3DeleteCompletionContract()
+        precondition(lateDeleteSuccessContract.resolve(backend: .pending,
+            nativeUninstallSucceeded: false, appStillInAuthoritativeLibrary: true,
+            deadlineExpired: true, progress: 0.01) == .outcomeUnknown &&
+            lateDeleteSuccessContract.terminal == nil,
+            "a delete timeout remains provisional while its backend callback is pending")
+        precondition(lateDeleteSuccessContract.resolve(backend: .succeeded,
+            nativeUninstallSucceeded: true, appStillInAuthoritativeLibrary: false,
+            deadlineExpired: false, progress: 0.01) == .completed,
+            "late callback success plus authoritative absence resolves the provisional result to completed")
+
+        var lateDeleteFailureContract = V3DeleteCompletionContract()
+        precondition(lateDeleteFailureContract.resolve(backend: .pending,
+            nativeUninstallSucceeded: false, appStillInAuthoritativeLibrary: true,
+            deadlineExpired: true, progress: 0.01) == .outcomeUnknown)
+        precondition(lateDeleteFailureContract.resolve(backend: .failed,
+            nativeUninstallSucceeded: false, appStillInAuthoritativeLibrary: true,
+            deadlineExpired: false, progress: 0.01) == .failed,
+            "a late typed backend failure resolves the provisional timeout as failure")
+
+        let provisionalTerminal = V3OperationTerminalResponse()
+        precondition(provisionalTerminal.finishOrResolve(["state": "reconciling",
+            "outcomeUnknown": true], backendSettled: false))
+        precondition(!provisionalTerminal.finishOrResolve(["state": "completed"], backendSettled: false),
+            "a provisional unknown result cannot resolve before backend settlement")
+        precondition(provisionalTerminal.finishOrResolve(["state": "completed"], backendSettled: true),
+            "settled callback success atomically resolves only the provisional result")
+        precondition(provisionalTerminal.value?["state"] as? String == "completed" &&
+            provisionalTerminal.value?["backendSettled"] as? Bool == true)
+
+        let provisionalFailure = V3OperationTerminalResponse()
+        precondition(provisionalFailure.finishOrResolve(["state": "reconciling",
+            "outcomeUnknown": true], backendSettled: false))
+        let typedLateFailure: [String: Any] = ["state": "failed",
+            "failure": ["stage": "installation", "safeCause": "installFailed"]]
+        precondition(provisionalFailure.finishOrResolve(typedLateFailure, backendSettled: true) &&
+            (provisionalFailure.value?["failure"] as? [String: String])?["stage"] == "installation",
+            "late failure keeps the callback's typed failure envelope")
+        precondition(!provisionalFailure.finishOrResolve(["state": "completed"], backendSettled: true),
+            "a resolved terminal result remains write-once")
+
+        var lateDeleteAttempt = V3OperationAttemptState()
+        let lateDeleteGeneration = lateDeleteAttempt.begin()
+        let lateDeleteID = lateDeleteGeneration.uuidString
+        precondition(lateDeleteAttempt.bind(sessionID: lateDeleteID, generation: lateDeleteGeneration))
+        precondition(lateDeleteAttempt.accept(state: "reconciling", generation: lateDeleteGeneration,
+            sessionID: lateDeleteID) && !lateDeleteAttempt.isTerminal,
+            "the host keeps polling a provisional result without marking the attempt terminal")
+        precondition(lateDeleteAttempt.accept(state: "completed", generation: lateDeleteGeneration,
+            sessionID: lateDeleteID) && lateDeleteAttempt.isTerminal,
+            "the same session may commit its authoritative late completion")
+
         let cancellationSession = UUID().uuidString
         precondition(V3InstallCancellationOutcomePolicy.terminalState(
             expectedSessionID: cancellationSession, replySessionID: cancellationSession,
@@ -125,8 +177,19 @@ struct OperationTerminalHarness {
         precondition(callbackDelay1 == 0.5 && callbackDelay2 == 1.0 &&
                      V3DeleteReconciliationPolicy.nextCallbackPollDelay(
                         current: callbackDelay2, backendPending: false,
-                        nativeUninstallSucceeded: true, appStillInLibrary: false) == 0.25,
-            "a verified delete backs off callback checks, then resets when the callback settles")
+                        nativeUninstallSucceeded: true, appStillInLibrary: true) == 2.0,
+            "a settled callback with an app still present keeps bounded reconciliation backoff")
+        let settledPresentDelay1 = V3DeleteReconciliationPolicy.nextCallbackPollDelay(
+            current: 0.25, backendPending: false, nativeUninstallSucceeded: true,
+            appStillInLibrary: true)
+        let settledPresentDelay2 = V3DeleteReconciliationPolicy.nextCallbackPollDelay(
+            current: settledPresentDelay1, backendPending: false,
+            nativeUninstallSucceeded: true, appStillInLibrary: true)
+        precondition(settledPresentDelay1 == 1.0 && settledPresentDelay2 == 2.0 &&
+            V3DeleteReconciliationPolicy.nextCallbackPollDelay(current: 20,
+                backendPending: false, nativeUninstallSucceeded: false,
+                appStillInLibrary: true) == 15,
+            "a settled callback with a still-present app backs off authoritative reads instead of checking every 250 ms")
         precondition(V3DeleteReconciliationPolicy.nextCallbackPollDelay(
             current: 0.25, backendPending: true, nativeUninstallSucceeded: false,
             appStillInLibrary: true) == 1.0,
@@ -178,6 +241,25 @@ struct OperationTerminalHarness {
         precondition(V3OperationCompletionPolicy.mayDismiss(state: "completed",
             backendSettled: false, deviceCheckConfirmed: true),
             "dismissal becomes available only after explicit device-check reconciliation or backend settlement")
+        precondition(V3OperationCompletionPolicy.disposition(state: "reconciling",
+            backendSettled: false, outcomeUnknown: true) == .outcomeUnknownAwaitingBackendSettlement &&
+            V3OperationCompletionPolicy.shouldContinuePolling(state: "reconciling",
+                backendSettled: false, outcomeUnknown: true) &&
+            V3OperationCompletionPolicy.shouldRetrySettlementPollFailure(state: "reconciling",
+                backendSettled: false, outcomeUnknown: true) &&
+            V3OperationCompletionPolicy.requiresDeviceCheck(state: "reconciling",
+                backendSettled: false, deviceCheckConfirmed: false, outcomeUnknown: true),
+            "an unknown delete result remains visible and monitored until settlement or explicit reconciliation")
+        precondition(V3OperationCompletionPolicy.shouldRetrySettlementPollFailure(
+            state: "completed", backendSettled: false, outcomeUnknown: false) &&
+            !V3OperationCompletionPolicy.shouldRetrySettlementPollFailure(
+                state: "completed", backendSettled: true, outcomeUnknown: false),
+            "a transient poll timeout does not end completed-but-unsettled monitoring, while settlement is absorbing")
+        precondition(V3OperationCompletionPolicy.nextSettlementPollRetryDelay(current: 1) == 5 &&
+            V3OperationCompletionPolicy.nextSettlementPollRetryDelay(current: 5) == 10 &&
+            V3OperationCompletionPolicy.nextSettlementPollRetryDelay(current: 20) == 30 &&
+            V3OperationCompletionPolicy.nextSettlementPollRetryDelay(current: 30) == 30,
+            "transient settlement poll failures use a bounded capped backoff")
         precondition(V3OperationCompletionPolicy.disposition(
             state: "completed", backendSettled: true) == .completed &&
                      !V3OperationCompletionPolicy.shouldContinuePolling(state: "completed", backendSettled: true) &&
