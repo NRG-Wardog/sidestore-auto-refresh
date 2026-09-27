@@ -1515,7 +1515,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         Task { @MainActor in
             do {
                 let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: sessionID)
-                guard let terminalState = V3InstallCancellationOutcomePolicy.terminalState(
+                guard let terminalState = V3OperationCancellationOutcomePolicy.terminalState(
                     expectedSessionID: sessionID,
                     replySessionID: reply["session"] as? String,
                     state: reply["state"] as? String,
@@ -3071,6 +3071,8 @@ struct V3OperationSheet: View {
     }
     private func apply(_ reply: [String: Any], generation: UUID, sessionID: String) {
         guard let nextState = reply["state"] as? String else { return }
+        guard V3OperationCancellationReplyPolicy.shouldApplyPollState(
+            userRequestedCancellation: userRequestedCancellation, nextState: nextState) else { return }
         if nextState == "completed", state == "completed",
            attempt.owns(generation: generation, sessionID: sessionID) {
             let wasAwaitingSettlement = completionAwaitingSettlement
@@ -3389,21 +3391,59 @@ struct V3OperationSheet: View {
                 let reply = try await V3ServiceBridge.shared.request(operation: "opCancel", target: oldSession)
                 if !keepDeletePoller { await oldTask?.value }
                 guard attempt.generation == transitionGeneration else { return }
-                uncertainSessionID = nil
                 if attempt.sessionID == nil {
                     _ = attempt.bind(sessionID: oldSession, generation: transitionGeneration)
                 }
-                apply(reply, generation: transitionGeneration, sessionID: oldSession)
+                let settledCancellationAcknowledgement = V3OperationCancellationOutcomePolicy.terminalState(
+                    expectedSessionID: oldSession,
+                    replySessionID: reply["session"] as? String,
+                    state: reply["state"] as? String,
+                    backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
+                    stopConfirmed: V3ServiceBridge.strictBool(reply["stopConfirmed"]),
+                    outcomeUnknown: V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true)
+                let cancellationReplyIsCorrelated = V3OperationCancellationOutcomePolicy.isCorrelated(
+                    expectedSessionID: oldSession, replySessionID: reply["session"] as? String)
+                if (keepDeletePoller && settledCancellationAcknowledgement != nil) ||
+                   (!keepDeletePoller && cancellationReplyIsCorrelated) {
+                    apply(reply, generation: transitionGeneration, sessionID: oldSession)
+                    if let settledCancellationAcknowledgement {
+                        if V3OperationCancellationOutcomePolicy.shouldClearSessionHandle(
+                            currentSessionID: uncertainSessionID, expectedSessionID: oldSession,
+                            replySessionID: reply["session"] as? String,
+                            state: reply["state"] as? String,
+                            backendSettled: V3ServiceBridge.strictBool(reply["backendSettled"]),
+                            stopConfirmed: V3ServiceBridge.strictBool(reply["stopConfirmed"]),
+                            outcomeUnknown: V3ServiceBridge.strictBool(reply["outcomeUnknown"]) == true) {
+                            // A delayed unsettled acknowledgment cannot discard
+                            // the handle established by a newer delete poll.
+                            state = settledCancellationAcknowledgement
+                            terminalBackendSettled = true
+                            needsDeviceConfirmation = false
+                            uncertainSessionID = nil
+                        }
+                    }
+                } else if !keepDeletePoller {
+                    state = "failed"
+                    needsDeviceConfirmation = true
+                    uncertainSessionID = oldSession
+                    retryBlocked = true
+                    message = "SideStore could not confirm that this operation stopped."
+                    whatToDo = "Reload operation status before starting another mutation."
+                    technicalDetails = "operation_session_response_mismatch=yes backend_settled=no"
+                }
                 if keepDeletePoller && state == "cancelling" {
                     message = "Cancellation was requested. SideStore is waiting for the delete result."
                     whatToDo = "Keep this screen open. Do not start another operation until the delete result is confirmed."
                     retryBlocked = true
                 } else if ["working", "cancelling"].contains(state) {
-                    let failure = CombinedFailure(operation: request.operation, stage: .command,
-                        code: .invalidResponse, id: oldSession, retryable: false)
-                    failureContext.recordStartFailure(failure)
+                    state = "reconciling"
+                    terminalBackendSettled = false
+                    needsDeviceConfirmation = true
+                    uncertainSessionID = oldSession
                     retryBlocked = true
-                    presentCurrentFailure()
+                    message = "SideStore has not confirmed that the operation stopped."
+                    whatToDo = "Reload operation status before starting another mutation."
+                    technicalDetails = "backend_settled=no outcome=unknown"
                 }
             } catch {
                 if !keepDeletePoller { await oldTask?.value }
@@ -3848,7 +3888,7 @@ final class V3AuthStore: ObservableObject {
     // not reuse the interactive begin operation, which would ask for credentials
     // and 2FA again.
     func retryProvisioning() {
-        guard !isCancelling, !["working", "awaitingPrompt", "resultUnknown"].contains(state) else { return }
+        guard canRetryProvisioning else { return }
         let previouslyAvailable = provisioningRetryAvailable
         task?.cancel()
         let requestedSession = UUID().uuidString
@@ -3868,7 +3908,10 @@ final class V3AuthStore: ObservableObject {
         task = Task { await runProvisioningRetry(previouslyAvailable: previouslyAvailable) }
     }
     var canRetryProvisioning: Bool {
-        provisioningRetryAvailable && !isCancelling && cancellationConfirmed && state != "resultUnknown"
+        V3AuthProvisioningRecoveryPolicy.resolve(state: state, hasSession: session != nil,
+            signedIn: signedIn, provisioningRetryAvailable: provisioningRetryAvailable,
+            isCancelling: isCancelling, cancellationConfirmed: cancellationConfirmed)
+            .showRetryProvisioning
     }
 
     private func runProvisioningRetry(previouslyAvailable: Bool) async {
@@ -4098,6 +4141,13 @@ final class V3AuthStore: ObservableObject {
                 // wins. A finished-later provisioning attempt still reconciles as
                 // signed in, never back to "sign in again".
                 signedIn = true
+                if reportedTerminalState == "resultUnknown", session == nil {
+                    // The original attempt remains unconfirmed, but no host-owned
+                    // SideSign session remains. A separately admitted provisioning
+                    // retry is safe when the authoritative snapshot permits it.
+                    cancellationConfirmed = true
+                    cancellationWasAttempted = false
+                }
                 let previousFailureMessage = reportedTerminalState == "failed"
                     ? previousFailure.map { Self.failureMessage(from: $0) } : nil
                 let presentation = V3AuthReconciliationPresentationPolicy.resolve(
@@ -4120,7 +4170,9 @@ final class V3AuthStore: ObservableObject {
                     // authenticated session needed to resume provisioning survived.
                     provisioningRetryAvailable = canRetryProvisioning
                     provisioningSessionUnavailable = !canRetryProvisioning
-                    if !canRetryProvisioning {
+                    if canRetryProvisioning && reportedTerminalState == "resultUnknown" {
+                        provisioningMessage = "Apple ID is signed in, but provisioning is incomplete. The previous sign-in attempt remains unconfirmed; you can retry provisioning in a new session."
+                    } else if !canRetryProvisioning {
                         provisioningMessage = "Apple ID is signed in, but the saved provisioning session is unavailable. Open Account & Signing to sign in again before retrying setup."
                     }
                 } else {
@@ -5008,21 +5060,29 @@ struct V3SignInView: View {
                 // provisioning with the saved session; "Finish Later" keeps the
                 // authenticated account and closes this flow.
                 if auth.hasProvisioningProblem {
-                    if auth.state == "resultUnknown" {
+                    let recovery = V3AuthProvisioningRecoveryPolicy.resolve(
+                        state: auth.state, hasSession: auth.hasSession, signedIn: auth.isSignedIn,
+                        provisioningRetryAvailable: auth.provisioningRetryAvailable,
+                        isCancelling: auth.isCancelling,
+                        cancellationConfirmed: auth.cancellationConfirmed)
+                    if recovery.showCancellationInstruction {
                         Text("Cancel the unconfirmed sign-in before retrying provisioning.")
                             .font(.caption).foregroundColor(.secondary)
-                    } else {
-                    Button {
-                        auth.retryProvisioning()
-                    } label: {
-                        Label("Retry Provisioning", systemImage: "arrow.clockwise")
                     }
-                    .disabled(!auth.canRetryProvisioning)
+                    if recovery.showRetryProvisioning || auth.state != "resultUnknown" {
+                        Button {
+                            auth.retryProvisioning()
+                        } label: {
+                            Label("Retry Provisioning", systemImage: "arrow.clockwise")
+                        }
+                        .disabled(!auth.canRetryProvisioning)
+                    }
                     if auth.provisioningSessionUnavailable {
                         Text("The saved Apple session is no longer available. Sign in again to retry provisioning.")
                             .font(.caption).foregroundColor(.secondary)
                     }
-                    Button("Finish Later") { finishProvisioningLater() }
+                    if recovery.showFinishLater {
+                        Button("Finish Later") { finishProvisioningLater() }
                     }
                 }
             }

@@ -2751,15 +2751,35 @@ enum V3OperationTerminalAcceptancePolicy {
     }
 }
 
-enum V3InstallCancellationOutcomePolicy {
+enum V3OperationCancellationOutcomePolicy {
+    static func isCorrelated(expectedSessionID: String, replySessionID: String?) -> Bool {
+        replySessionID == expectedSessionID
+    }
+
     static func terminalState(expectedSessionID: String, replySessionID: String?,
                               state: String?, backendSettled: Bool?, stopConfirmed: Bool?,
                               outcomeUnknown: Bool) -> String? {
-        guard replySessionID == expectedSessionID,
+        guard isCorrelated(expectedSessionID: expectedSessionID, replySessionID: replySessionID),
               V3OperationTerminalAcceptancePolicy.isSettledTerminal(state: state,
                   backendSettled: backendSettled, stopConfirmed: stopConfirmed,
                   outcomeUnknown: outcomeUnknown) else { return nil }
         return state
+    }
+
+    static func shouldClearSessionHandle(currentSessionID: String?, expectedSessionID: String,
+                                         replySessionID: String?, state: String?,
+                                         backendSettled: Bool?, stopConfirmed: Bool?,
+                                         outcomeUnknown: Bool) -> Bool {
+        currentSessionID == expectedSessionID &&
+            terminalState(expectedSessionID: expectedSessionID, replySessionID: replySessionID,
+                state: state, backendSettled: backendSettled, stopConfirmed: stopConfirmed,
+                outcomeUnknown: outcomeUnknown) != nil
+    }
+}
+
+enum V3OperationCancellationReplyPolicy {
+    static func shouldApplyPollState(userRequestedCancellation: Bool, nextState: String) -> Bool {
+        !(userRequestedCancellation && ["working", "awaitingPrompt"].contains(nextState))
     }
 }
 
@@ -3278,6 +3298,27 @@ enum V3AuthUnknownResultReconciliationPolicy {
                               authenticated: Bool) -> String {
         originalState == "resultUnknown" && !hasSession && !authenticated
             ? "working" : originalState
+    }
+}
+
+struct V3AuthProvisioningRecoveryPresentation: Equatable {
+    let showCancellationInstruction: Bool
+    let showRetryProvisioning: Bool
+    let showFinishLater: Bool
+}
+
+enum V3AuthProvisioningRecoveryPolicy {
+    static func resolve(state: String, hasSession: Bool, signedIn: Bool,
+                        provisioningRetryAvailable: Bool, isCancelling: Bool,
+                        cancellationConfirmed: Bool) -> V3AuthProvisioningRecoveryPresentation {
+        let noSessionResumeIsSafe = state == "resultUnknown" && !hasSession && signedIn &&
+            provisioningRetryAvailable
+        let retryAllowed = !isCancelling && cancellationConfirmed && provisioningRetryAvailable &&
+            (state != "resultUnknown" || noSessionResumeIsSafe)
+        return V3AuthProvisioningRecoveryPresentation(
+            showCancellationInstruction: state == "resultUnknown" && hasSession,
+            showRetryProvisioning: retryAllowed,
+            showFinishLater: signedIn && (!hasSession || state != "resultUnknown"))
     }
 }
 

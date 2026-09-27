@@ -87,7 +87,8 @@ class ServicePatchTests(unittest.TestCase):
              "Views/Settings/LCSettingsView.swift", "Views/Settings/LCMultiLCManagementView.swift",
              "Utilities/Shared.swift", "Utilities/LCUtilsExtensions.swift", "App/LiveContainerSwiftUIApp.swift", "App/AppDelegate.swift")] +
             ["MultitaskSupport/AppSceneViewController." + suffix for suffix in ("h", "m")] +
-            ["LiveContainer/LCBootstrap.m", "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
+            ["LiveContainer/LCBootstrap.m", "LiveContainer/LCSharedUtils.m", "LiveProcess/main.m",
+             "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
             ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift",
              "SideStore/Core/Operations/PipelineRunner.swift",
              "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
@@ -216,6 +217,13 @@ class ServicePatchTests(unittest.TestCase):
             self.assertEqual(scene.count("UIKitFixesInit();"), 1)
             self.assertEqual(scene.count("V3InitializeUIKitFixes();"), 2)
             self.assertIn("dispatch_once(&onceToken, ^{ UIKitFixesInit(); });", scene)
+            self.assertIn('forKey:@"lcAppGroupID"', scene)
+            live_process = (roots[0] / "LiveProcess/main.m").read_text(encoding="utf-8")
+            self.assertIn('forKey:@"LCInheritedAppGroupID"', live_process)
+            shared_utils = (roots[0] / "LiveContainer/LCSharedUtils.m").read_text(encoding="utf-8")
+            self.assertLess(shared_utils.index('objectForKey:@"LCInheritedAppGroupID"'),
+                            shared_utils.index("NSArray* possibleAppGroups"))
+            self.assertTrue((roots[0] / "LiveContainer/LCAppGroupSelectionPolicy.h").exists())
             self.assertIn("!isLiveProcess && sideStoreExist", (roots[0] / "LiveContainer/LCBootstrap.m").read_text(encoding="utf-8"))
             for name in ("ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"):
                 self.assertNotIn('set("builtinSideStore", forKey: "LCLaunchExtensionBundleID")', (roots[0] / name).read_text(encoding="utf-8"))

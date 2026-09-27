@@ -279,6 +279,9 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)", retry)
         self.assertIn("snapshotConfirmed && provisioningSessionUnavailable", retry)
         self.assertIn("V3ProvisioningRetryRecoveryPolicy.availabilityAfterFailure", retry)
+        self.assertIn("V3AuthProvisioningRecoveryPolicy.resolve", host)
+        self.assertIn("recovery.showRetryProvisioning", host)
+        self.assertIn("recovery.showFinishLater", host)
 
     def test_auth_transport_failure_keeps_attempt_outcome_unknown(self):
         host = shell()

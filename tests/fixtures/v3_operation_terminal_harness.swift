@@ -52,6 +52,55 @@ struct OperationTerminalHarness {
                 backendSettled: false, outcomeUnknown: false),
             "settled cancellation clears the temporary Reconcile UI state")
 
+        let delayedCancelSession = UUID().uuidString
+        precondition(V3OperationCancellationOutcomePolicy.isCorrelated(
+            expectedSessionID: delayedCancelSession, replySessionID: delayedCancelSession) &&
+            !V3OperationCancellationOutcomePolicy.isCorrelated(
+                expectedSessionID: delayedCancelSession, replySessionID: UUID().uuidString),
+            "cancel replies are bound to the operation session they were requested for")
+        var uncertainDeleteSession: String? = delayedCancelSession
+        var visibleDeleteState = "completed"
+        let delayedCancelAckClearsHandle = V3OperationCancellationOutcomePolicy.shouldClearSessionHandle(
+            currentSessionID: uncertainDeleteSession, expectedSessionID: delayedCancelSession,
+            replySessionID: delayedCancelSession, state: "cancelling", backendSettled: false,
+            stopConfirmed: false, outcomeUnknown: false)
+        if delayedCancelAckClearsHandle {
+            visibleDeleteState = "cancelling"
+            uncertainDeleteSession = nil
+        }
+        precondition(!delayedCancelAckClearsHandle && visibleDeleteState == "completed" &&
+            uncertainDeleteSession == delayedCancelSession &&
+            V3OperationCoverDismissalPolicy.mustConfirmBackendStop(isRunning: false,
+                hasSession: false, sessionIsTerminal: true,
+                hasUncertainSession: uncertainDeleteSession != nil, transitionInFlight: false),
+            "a delayed unsettled cancel acknowledgment cannot regress the newer delete result or erase its reconciliation handle")
+        let settledDeleteAck = V3OperationCancellationOutcomePolicy.terminalState(
+            expectedSessionID: delayedCancelSession, replySessionID: delayedCancelSession,
+            state: "completed", backendSettled: true, stopConfirmed: false,
+            outcomeUnknown: false)
+        precondition(settledDeleteAck == "completed",
+            "a correlated settled cancel reply may resolve and release the session handle")
+        let settledAckClearsHandle = V3OperationCancellationOutcomePolicy.shouldClearSessionHandle(
+            currentSessionID: uncertainDeleteSession, expectedSessionID: delayedCancelSession,
+            replySessionID: delayedCancelSession, state: "completed", backendSettled: true,
+            stopConfirmed: false, outcomeUnknown: false)
+        if settledAckClearsHandle { uncertainDeleteSession = nil }
+        precondition(settledAckClearsHandle && uncertainDeleteSession == nil &&
+            !V3OperationCancellationOutcomePolicy.shouldClearSessionHandle(
+                currentSessionID: UUID().uuidString, expectedSessionID: delayedCancelSession,
+                replySessionID: delayedCancelSession, state: "completed", backendSettled: true,
+                stopConfirmed: false, outcomeUnknown: false),
+            "only settlement for the currently retained session may release its reconciliation handle")
+        precondition(!V3OperationCancellationReplyPolicy.shouldApplyPollState(
+            userRequestedCancellation: true, nextState: "working") &&
+            !V3OperationCancellationReplyPolicy.shouldApplyPollState(
+                userRequestedCancellation: true, nextState: "awaitingPrompt") &&
+            V3OperationCancellationReplyPolicy.shouldApplyPollState(
+                userRequestedCancellation: true, nextState: "reconciling") &&
+            V3OperationCancellationReplyPolicy.shouldApplyPollState(
+                userRequestedCancellation: true, nextState: "completed"),
+            "a pre-cancel working poll is ignored while authoritative reconciliation and terminal results remain visible")
+
         let failureWins = V3OperationTerminalResponse()
         precondition(failureWins.setIfEmpty(["state": "failed", "stage": "signing"]))
         precondition(!failureWins.requestCancellation())
@@ -169,22 +218,22 @@ struct OperationTerminalHarness {
             "the same session may commit its authoritative late completion")
 
         let cancellationSession = UUID().uuidString
-        precondition(V3InstallCancellationOutcomePolicy.terminalState(
+        precondition(V3OperationCancellationOutcomePolicy.terminalState(
             expectedSessionID: cancellationSession, replySessionID: cancellationSession,
             state: "failed", backendSettled: false, stopConfirmed: false,
             outcomeUnknown: true) == nil,
             "an unknown cancellation result must preserve the install attempt and staged IPA")
-        precondition(V3InstallCancellationOutcomePolicy.terminalState(
+        precondition(V3OperationCancellationOutcomePolicy.terminalState(
             expectedSessionID: cancellationSession, replySessionID: cancellationSession,
             state: "cancelled", backendSettled: true, stopConfirmed: true,
             outcomeUnknown: false) == "cancelled",
             "confirmed cancellation releases the install attempt")
-        precondition(V3InstallCancellationOutcomePolicy.terminalState(
+        precondition(V3OperationCancellationOutcomePolicy.terminalState(
             expectedSessionID: cancellationSession, replySessionID: cancellationSession,
             state: "completed", backendSettled: true, stopConfirmed: false,
             outcomeUnknown: false) == "completed",
             "completion that wins the cancel race is retained as completion")
-        precondition(V3InstallCancellationOutcomePolicy.terminalState(
+        precondition(V3OperationCancellationOutcomePolicy.terminalState(
             expectedSessionID: cancellationSession, replySessionID: UUID().uuidString,
             state: "cancelled", backendSettled: true, stopConfirmed: true,
             outcomeUnknown: false) == nil,

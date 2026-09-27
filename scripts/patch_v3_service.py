@@ -11,7 +11,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 9
+PATCH_VERSION = 10
 
 
 def remove_pbx_object(text, object_marker):
@@ -296,6 +296,8 @@ def patch(live, side):
             raise SystemExit(f"v3 service: unpinned input {actual}; expected {pin}")
     manifest = live / ".v3-command-patch.json"
     template_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in TEMPLATES.glob("v3_*.swift")}
+    group_policy_template = TEMPLATES / "LCAppGroupSelectionPolicy.h"
+    template_hashes[group_policy_template.name] = hashlib.sha256(group_policy_template.read_bytes()).hexdigest()
     if manifest.exists():
         previous = json.loads(manifest.read_text())
         if previous.get("patchVersion") != PATCH_VERSION or previous["templates"] != template_hashes:
@@ -309,6 +311,8 @@ def patch(live, side):
     def edit(root, relative, transform):
         path = root / relative
         changes[path] = transform(changes.get(path, path.read_text(encoding="utf-8")))
+
+    changes[live / "LiveContainer/LCAppGroupSelectionPolicy.h"] = group_policy_template.read_text(encoding="utf-8")
 
     def lifecycle(s):
         s = replace(s, "struct LCTabView: View {", "struct V3ApplicationRoot<Content: View>: View {\n    let content: Content")
@@ -516,6 +520,46 @@ static void V3InitializeUIKitFixes(void) {
 
 @implementation AppSceneViewController''')
     edit(live, "MultitaskSupport/AppSceneViewController.m", scene_hooks)
+    def forward_selected_app_group(s):
+        s = replace(s, '#import "LCSharedUtils.h"',
+            '#import "LCSharedUtils.h"\n#import "../LiveContainer/LCAppGroupSelectionPolicy.h"')
+        return replace(s,
+            '        @"lcHomePath": NSHomeDirectory(),\n    }.mutableCopy;\n',
+            '        @"lcHomePath": NSHomeDirectory(),\n    }.mutableCopy;\n'
+            '    NSString *hostGroupID = LCValidatedAppGroupID([LCSharedUtils appGroupID], ^BOOL(NSString *groupID) {\n'
+            '        return [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:groupID] != nil;\n'
+            '    });\n'
+            '    if (hostGroupID) [userInfo setObject:hostGroupID forKey:@"lcAppGroupID"];\n')
+    edit(live, "MultitaskSupport/AppSceneViewController.m", forward_selected_app_group)
+    def apply_inherited_app_group(s):
+        s = replace(s, '#import "../SideStoreSupport/XPCServer.h"',
+            '#import "../SideStoreSupport/XPCServer.h"\n#import "../LiveContainer/LCAppGroupSelectionPolicy.h"')
+        return replace(s,
+            '    NSUserDefaults *lcUserDefaults = NSUserDefaults.standardUserDefaults;\n',
+            '    NSUserDefaults *lcUserDefaults = NSUserDefaults.standardUserDefaults;\n'
+            '    NSString *inheritedGroupID = LCValidatedAppGroupID(appInfo[@"lcAppGroupID"], ^BOOL(NSString *groupID) {\n'
+            '        return [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:groupID] != nil;\n'
+            '    });\n'
+            '    if (inheritedGroupID) {\n'
+            '        [lcUserDefaults setObject:inheritedGroupID forKey:@"LCInheritedAppGroupID"];\n'
+            '    } else {\n'
+            '        [lcUserDefaults removeObjectForKey:@"LCInheritedAppGroupID"];\n'
+            '    }\n')
+    edit(live, "LiveProcess/main.m", apply_inherited_app_group)
+    def honor_inherited_app_group(s):
+        s = replace(s, '#import "LCSharedUtils.h"',
+            '#import "LCSharedUtils.h"\n#import "LCAppGroupSelectionPolicy.h"')
+        return replace(s,
+            '    dispatch_once(&once, ^{\n        NSArray* possibleAppGroups = @[',
+            '    dispatch_once(&once, ^{\n'
+            '        NSString *inherited = LCValidatedAppGroupID(\n'
+            '            [NSUserDefaults.standardUserDefaults objectForKey:@"LCInheritedAppGroupID"],\n'
+            '            ^BOOL(NSString *groupID) {\n'
+            '                return [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:groupID] != nil;\n'
+            '            });\n'
+            '        if (inherited) { appGroupID = inherited; return; }\n'
+            '        NSArray* possibleAppGroups = @[')
+    edit(live, "LiveContainer/LCSharedUtils.m", honor_inherited_app_group)
     records = []
     for path, content in changes.items():
         encoded = content.encode("utf-8")

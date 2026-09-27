@@ -234,12 +234,25 @@ class StoreFeedbackTests(unittest.TestCase):
         start = text.index("func retryInstallCancellation()")
         end = text.index("func cleanupStagedIPA", start)
         retry = text[start:end]
-        self.assertIn("V3InstallCancellationOutcomePolicy.terminalState", retry)
+        self.assertIn("V3OperationCancellationOutcomePolicy.terminalState", retry)
         self.assertIn("backendSettled: V3ServiceBridge.strictBool(reply[\"backendSettled\"])", retry)
         self.assertLess(retry.index("guard let terminalState"), retry.index("installAttempt.recordTerminal"))
         self.assertLess(retry.index("guard let terminalState"),
                         retry.index("cleanupStagedIPA(token, allowLocalFallback: true)"))
         self.assertIn("The IPA and operation session were kept", retry)
+
+    def test_delete_cancel_ignores_stale_working_poll_and_retains_uncertain_session(self):
+        text = shell()
+        apply_start = text.index("private func apply(_ reply: [String: Any], generation: UUID, sessionID: String)")
+        apply_end = text.index("private func applyCompletionSettlement(", apply_start)
+        apply = text[apply_start:apply_end]
+        cancel_start = text.index("private func cancelAttempt()")
+        cancel_end = text.index("private func acknowledgeAndDismiss()", cancel_start)
+        cancel = text[cancel_start:cancel_end]
+        self.assertIn("V3OperationCancellationReplyPolicy.shouldApplyPollState", apply)
+        self.assertIn("V3OperationCancellationOutcomePolicy.shouldClearSessionHandle", cancel)
+        self.assertIn("uncertainSessionID = oldSession", cancel)
+        self.assertIn("if let settledCancellationAcknowledgement", cancel)
 
 
 class ProvisioningClassificationTests(unittest.TestCase):

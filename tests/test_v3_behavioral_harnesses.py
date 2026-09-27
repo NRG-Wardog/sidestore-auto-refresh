@@ -3,11 +3,13 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SWIFTC = shutil.which("swiftc")
+CLANG = shutil.which("clang")
 
 
 class V3BehavioralHarnessTests(unittest.TestCase):
@@ -25,6 +27,21 @@ class V3BehavioralHarnessTests(unittest.TestCase):
                                     text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(marker, result.stdout)
+
+    def test_host_selected_app_group_is_validated_by_production_policy(self):
+        if sys.platform != "darwin" or not CLANG:
+            self.skipTest("Objective-C Foundation behavioral harness runs in macOS CI")
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "app-group-selection"
+            harness = ROOT / "tests/fixtures/v3_app_group_selection_harness.m"
+            compiled = subprocess.run([CLANG, "-fobjc-arc", "-framework", "Foundation",
+                                       str(harness), "-o", str(executable)],
+                                      capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True,
+                                    text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_APP_GROUP_SELECTION_PASS", result.stdout)
 
     def test_snapshot_and_mutation_load_ownership_executes(self):
         # V3_LOAD_ACTIVITY_OWNERSHIP_V1: one `loading` flag used to mean both

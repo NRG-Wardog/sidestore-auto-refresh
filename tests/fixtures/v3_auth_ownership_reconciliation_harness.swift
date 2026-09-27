@@ -489,6 +489,28 @@ struct AuthOwnershipReconciliationHarness {
         precondition(signedInButUnknownAttempt.state == "resultUnknown" &&
             !signedInButUnknownAttempt.message.contains("signed in successfully"),
             "current account state and the latest sign-in attempt remain separate facts")
+        let unknownProvisioningRecovery = V3AuthProvisioningRecoveryPolicy.resolve(
+            state: "resultUnknown", hasSession: false, signedIn: true,
+            provisioningRetryAvailable: true, isCancelling: false,
+            cancellationConfirmed: true)
+        precondition(unknownProvisioningRecovery.showRetryProvisioning &&
+            unknownProvisioningRecovery.showFinishLater &&
+            !unknownProvisioningRecovery.showCancellationInstruction,
+            "an authenticated account with incomplete provisioning and no active auth session gets usable recovery without claiming the old attempt succeeded")
+        let unconfirmedProvisioningRecovery = V3AuthProvisioningRecoveryPolicy.resolve(
+            state: "resultUnknown", hasSession: false, signedIn: true,
+            provisioningRetryAvailable: true, isCancelling: false,
+            cancellationConfirmed: false)
+        precondition(!unconfirmedProvisioningRecovery.showRetryProvisioning,
+            "a provisioning retry is hidden until an authoritative account snapshot confirms the previous session is absent")
+        let activeUnknownProvisioningRecovery = V3AuthProvisioningRecoveryPolicy.resolve(
+            state: "resultUnknown", hasSession: true, signedIn: true,
+            provisioningRetryAvailable: true, isCancelling: false,
+            cancellationConfirmed: false)
+        precondition(!activeUnknownProvisioningRecovery.showRetryProvisioning &&
+            !activeUnknownProvisioningRecovery.showFinishLater &&
+            activeUnknownProvisioningRecovery.showCancellationInstruction,
+            "an unconfirmed live auth session must be cancelled before provisioning can be retried")
         precondition(V3AuthCancellationFeedbackPolicy.statusLabel(isCancelling: true,
             normalLabel: "Result not confirmed") == "Cancelling..." &&
             V3AuthCancellationFeedbackPolicy.message(isCancelling: true) != nil,
