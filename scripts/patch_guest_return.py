@@ -21,7 +21,7 @@ static int LCReturnShouldHide(int running, int decorated, int maximized) {
 CONTROL = GEOMETRY + r'''
 // LC_GUEST_RETURN_V3: the control owns no guest process or scene.
 static UIColor *LCGuestReturnColor(NSString *key, NSUInteger fallbackRGB) {
-    id saved = [NSUserDefaults.lcUserDefaults objectForKey:key];
+    id saved = [NSUserDefaults.lcSharedDefaults objectForKey:key];
     double value = [saved isKindOfClass:NSNumber.class] ? [saved doubleValue] : fallbackRGB;
     if (!isfinite(value) || value < 0 || value > 0xFFFFFF || floor(value) != value) value = fallbackRGB;
     NSUInteger rgb = (NSUInteger)value;
@@ -44,13 +44,13 @@ static UIColor *LCGuestReturnColor(NSString *key, NSUInteger fallbackRGB) {
     if (!(self = [super initWithFrame:frame])) return nil;
     self.backgroundColor = UIColor.clearColor;
     self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    NSArray *saved = [NSUserDefaults.lcUserDefaults arrayForKey:@"LCReturnControlPosition"];
+    NSArray *saved = [NSUserDefaults.lcSharedDefaults arrayForKey:@"LCReturnControlPosition"];
     self.position = CGPointMake(0.95, 0.25);
     if (saved.count == 2 && [saved[0] isKindOfClass:NSNumber.class] && [saved[1] isKindOfClass:NSNumber.class]) {
         double x = [saved[0] doubleValue], y = [saved[1] doubleValue];
         if (isfinite(x) && isfinite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 1) self.position = CGPointMake(x, y);
     }
-    if ([NSUserDefaults.lcUserDefaults boolForKey:@"LCGuestReturnStartsCollapsed"]) [self collapse];
+    if ([NSUserDefaults.lcSharedDefaults boolForKey:@"LCGuestReturnStartsCollapsed"]) [self collapse];
     self.button = [UIButton buttonWithType:UIButtonTypeSystem];
     self.button.backgroundColor = UIColor.secondarySystemBackgroundColor;
     self.button.layer.cornerRadius = 22;
@@ -69,7 +69,7 @@ static UIColor *LCGuestReturnColor(NSString *key, NSUInteger fallbackRGB) {
     [self addSubview:self.button];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboard:) name:UIKeyboardWillChangeFrameNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboard:) name:UIKeyboardWillHideNotification object:nil];
-    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesChanged:) name:NSUserDefaultsDidChangeNotification object:NSUserDefaults.lcUserDefaults];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesChanged:) name:NSUserDefaultsDidChangeNotification object:NSUserDefaults.lcSharedDefaults];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(preferencesChanged:) name:UIApplicationDidBecomeActiveNotification object:nil];
     NSLog(@"[LC_RETURN] CONTROL_SHOWN");
     return self;
@@ -113,11 +113,11 @@ static UIColor *LCGuestReturnColor(NSString *key, NSUInteger fallbackRGB) {
     [super layoutSubviews];
     CGRect rect = [self availableRect];
     // A 44-point target must not be placed outside a tiny resized window.
-    self.button.hidden = [NSUserDefaults.lcUserDefaults boolForKey:@"LCHideReturnControl"] || CGRectIsNull(rect) || rect.size.width < 44 || rect.size.height < 44;
+    self.button.hidden = [NSUserDefaults.lcSharedDefaults boolForKey:@"LCHideReturnControl"] || CGRectIsNull(rect) || rect.size.width < 44 || rect.size.height < 44;
     if (self.button.hidden) return;
     self.button.accessibilityLabel = self.collapsed ? @"Show Return to LiveContainer" : @"Return to LiveContainer";
     self.button.accessibilityHint = self.collapsed ? @"Restores the Return button" : self.expandedHint;
-    BOOL customColors = [NSUserDefaults.lcUserDefaults boolForKey:@"LCGuestReturnCustomColors"];
+    BOOL customColors = [NSUserDefaults.lcSharedDefaults boolForKey:@"LCGuestReturnCustomColors"];
     // nil restores the inherited system tint when custom colors are disabled.
     self.button.tintColor = customColors ? LCGuestReturnColor(@"LCGuestReturnTintRGB", 0x007AFF) : nil;
     UIColor *background = customColors ? LCGuestReturnColor(@"LCGuestReturnBackgroundRGB", 0xF2F2F7) : UIColor.secondarySystemBackgroundColor;
@@ -146,7 +146,7 @@ static UIColor *LCGuestReturnColor(NSString *key, NSUInteger fallbackRGB) {
     [self setNeedsLayout];
     [self layoutIfNeeded];
     if (gesture.state == UIGestureRecognizerStateEnded || gesture.state == UIGestureRecognizerStateCancelled) {
-        [NSUserDefaults.lcUserDefaults setObject:@[@(self.position.x), @(self.position.y)] forKey:@"LCReturnControlPosition"];
+        [NSUserDefaults.lcSharedDefaults setObject:@[@(self.position.x), @(self.position.y)] forKey:@"LCReturnControlPosition"];
         NSLog(@"[LC_RETURN] CONTROL_MOVED");
     }
 }
@@ -159,18 +159,18 @@ static UIColor *LCGuestReturnColor(NSString *key, NSUInteger fallbackRGB) {
     }
     if (self.action) {
         // A retained guest should reopen as a tab when Start Collapsed is on.
-        if ([NSUserDefaults.lcUserDefaults boolForKey:@"LCGuestReturnStartsCollapsed"]) [self collapse];
+        if ([NSUserDefaults.lcSharedDefaults boolForKey:@"LCGuestReturnStartsCollapsed"]) [self collapse];
         self.action();
     }
 }
 @end
 '''
 
-SETTINGS_PROPERTIES = '''    @AppStorage("LCHideReturnControl", store: UserDefaults.lc()) private var hideReturnControl = false
-    @AppStorage("LCGuestReturnStartsCollapsed", store: UserDefaults.lc()) private var returnStartsCollapsed = false
-    @AppStorage("LCGuestReturnCustomColors", store: UserDefaults.lc()) private var returnCustomColors = false
-    @AppStorage("LCGuestReturnTintRGB", store: UserDefaults.lc()) private var returnTintRGB = 0x007AFF
-    @AppStorage("LCGuestReturnBackgroundRGB", store: UserDefaults.lc()) private var returnBackgroundRGB = 0xF2F2F7
+SETTINGS_PROPERTIES = '''    @AppStorage("LCHideReturnControl", store: UserDefaults.lcShared()) private var hideReturnControl = false
+    @AppStorage("LCGuestReturnStartsCollapsed", store: UserDefaults.lcShared()) private var returnStartsCollapsed = false
+    @AppStorage("LCGuestReturnCustomColors", store: UserDefaults.lcShared()) private var returnCustomColors = false
+    @AppStorage("LCGuestReturnTintRGB", store: UserDefaults.lcShared()) private var returnTintRGB = 0x007AFF
+    @AppStorage("LCGuestReturnBackgroundRGB", store: UserDefaults.lcShared()) private var returnBackgroundRGB = 0xF2F2F7
 '''
 
 SETTINGS_SECTION = '''                Section {

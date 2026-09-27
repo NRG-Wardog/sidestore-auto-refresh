@@ -77,10 +77,12 @@ class SettingsPersistenceTests(unittest.TestCase):
         self.assertIn('"LCShowAppLabels"', shell)
         self.assertIn('store: LCUtils.appGroupUserDefault', shell)
 
-    def test_guest_return_uses_lc_user_defaults(self):
+    def test_guest_return_uses_shared_app_group_defaults(self):
         guest = (ROOT / "scripts/patch_guest_return.py").read_text(encoding="utf-8")
-        # Guest return settings use UserDefaults.lc() which is the app-group store
-        self.assertIn("UserDefaults.lc()", guest)
+        # Host SwiftUI and LiveProcess Objective-C must use the same suite.
+        self.assertIn("UserDefaults.lcShared()", guest)
+        self.assertIn("NSUserDefaults.lcSharedDefaults", guest)
+        self.assertNotIn("NSUserDefaults.lcUserDefaults", guest)
         self.assertIn("LCGuestReturnStartsCollapsed", guest)
 
     def test_hide_collapsed_dock_uses_app_group(self):
