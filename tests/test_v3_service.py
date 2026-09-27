@@ -116,6 +116,7 @@ class ServicePatchTests(unittest.TestCase):
                 '"News/NewsCollectionViewCell.xib"', '"Settings/AboutPatreonHeaderView.xib"',
                 '"Settings/SettingsHeaderFooterView.xib"', '"Sources/Components/SourceHeaderView.xib"',
                 '"Settings/PatreonViewController.swift"', '"Settings/LicensesViewController.swift"',
+                '"Settings/SettingsViewController.swift"',
                 '"Settings/RefreshAttemptsViewController.swift"',
                 '"Settings/Error Log/ErrorDetailsViewController.swift"',
                 '"Settings/Error Log/ErrorLogTableViewCell.swift"',
@@ -390,7 +391,8 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertIn("operations.activeMutationID", service)
         self.assertIn("hasConflictingOperationMutation", service)
         self.assertIn("operations.activeMutationID != nil || refreshAdmission.isActive", service)
-        self.assertIn("completedCacheBudget.canReserve()", service)
+        self.assertIn("V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: controlReply)", service)
+        self.assertIn("completedCacheBudget.canReserve(preservingControlCapacity: !controlReply)", service)
         self.assertIn("completedCacheBudget.remove(byteCount)", service)
         self.assertIn('["opStart", "authBegin", "authRetryProvisioning"].contains(operation)', service)
         begin = runtime[runtime.index("func begin(deadline: Date, mode: BeginMode = .interactive,"):]

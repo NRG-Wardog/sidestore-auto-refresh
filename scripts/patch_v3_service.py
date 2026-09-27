@@ -63,6 +63,7 @@ def headless_project(text):
 				"News/NewsCollectionViewCell.xib",
 				"Settings/AboutPatreonHeaderView.xib",
 				"Settings/AltAppIconsViewController.swift",
+				"Settings/SettingsViewController.swift",
 				"Settings/PatreonViewController.swift",
 				"Settings/LicensesViewController.swift",
 				"Settings/RefreshAttemptsViewController.swift",

@@ -129,12 +129,15 @@ final class V3SideStoreService: NSObject {
             operation, target: target,
             activeOperationID: V3HeadlessRuntime.shared.operations.activeMutationID)
         let refreshRelease = operation == "refreshAdmissionEnd" && refreshAdmission.owns(target)
+        let controlReply = operation == "refreshAdmissionEnd"
+        let responseCapacityAvailable = !mutation ||
+            (completed.count < V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: controlReply) &&
+             completedCacheBudget.canReserve(preservingControlCapacity: !controlReply))
         guard V3ServiceMutationAdmissionPolicy.admits(isMutation: mutation,
             anotherMutationActive: mutationID != nil || operationMutationActive,
             authenticationActive: V3HeadlessRuntime.shared.auth.hasActiveSession,
             isAuthContinuation: authContinuation,
-            responseCapacityAvailable: completed.count < 512 &&
-                completedCacheBudget.canReserve(),
+            responseCapacityAvailable: responseCapacityAvailable,
             refreshActive: refreshAdmission.isActive,
             isRefreshRelease: refreshRelease) else {
             let failure = operation == "sourceRemoveConfirmed"
@@ -302,7 +305,7 @@ final class V3SideStoreService: NSObject {
             }
             let encoded = encode(response, operation: operation)
             if mutation {
-                if completedCacheBudget.record(encoded.count) {
+                if completedCacheBudget.record(encoded.count, controlResponse: controlReply) {
                     completed[id] = (encoded, deadline)
                 } else {
                     // Admission reserves one full maximum-size response for

@@ -296,15 +296,26 @@ struct CatalogResponseEncodingHarness {
 
         var replyBudget = V3MutationReplyCacheBudget()
         precondition(replyBudget.canReserve())
-        let nearBudget = V3MutationReplyCacheBudget.maximumStoredBytes - V3WireContract.responseLimit
+        let nearBudget = V3MutationReplyCacheBudget.maximumStoredBytes -
+            V3MutationReplyCacheBudget.reservedControlBytes - V3WireContract.responseLimit
         precondition(replyBudget.record(nearBudget))
         precondition(replyBudget.canReserve(),
-                     "the cache must reserve room for one maximum-size mutation reply")
+                     "ordinary replies must retain the reserved space for control replies")
         precondition(replyBudget.record(V3WireContract.responseLimit))
         precondition(!replyBudget.canReserve())
-        precondition(!replyBudget.record(1), "reply-cache accounting must never exceed its byte ceiling")
+        precondition(replyBudget.canReserve(maximumResponseBytes: V3WireContract.responseLimit,
+            preservingControlCapacity: false),
+            "refresh release can use the capacity reserved for terminal control replies")
+        precondition(replyBudget.record(V3WireContract.responseLimit, controlResponse: true))
+        precondition(!replyBudget.canReserve(maximumResponseBytes: 1, preservingControlCapacity: false),
+                     "reply-cache accounting must never exceed its byte ceiling")
+        precondition(V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: false) == 504 &&
+                     V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: true) == 512,
+                     "ordinary replies preserve bounded slots for terminal controls")
         replyBudget.remove(V3WireContract.responseLimit)
-        precondition(replyBudget.canReserve())
+        precondition(!replyBudget.canReserve(),
+                     "ordinary requests still preserve reserved control capacity after release")
+        precondition(replyBudget.canReserve(preservingControlCapacity: false))
 
         // V3_REFRESH_ADMISSION_WIRE_V1: reservation/release must cross the
         // actual plist contract as mutations with a run-scoped UUID.

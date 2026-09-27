@@ -176,17 +176,27 @@ enum V3RefreshAdmissionCancellationAckPolicy {
 
 struct V3MutationReplyCacheBudget {
     static let maximumStoredBytes = 64 * 1024 * 1024
+    static let maximumStoredReplies = 512
+    static let reservedControlBytes = V3WireContract.responseLimit
+    static let reservedControlReplies = 8
     private(set) var storedBytes = 0
 
-    func canReserve(maximumResponseBytes: Int = V3WireContract.responseLimit) -> Bool {
-        maximumResponseBytes >= 0 && maximumResponseBytes <= Self.maximumStoredBytes &&
-            storedBytes <= Self.maximumStoredBytes - maximumResponseBytes
+    func canReserve(maximumResponseBytes: Int = V3WireContract.responseLimit,
+                    preservingControlCapacity: Bool = true) -> Bool {
+        let limit = Self.maximumStoredBytes - (preservingControlCapacity ? Self.reservedControlBytes : 0)
+        return maximumResponseBytes >= 0 && maximumResponseBytes <= limit &&
+            storedBytes <= limit - maximumResponseBytes
     }
 
-    mutating func record(_ byteCount: Int) -> Bool {
-        guard byteCount >= 0, canReserve(maximumResponseBytes: byteCount) else { return false }
+    mutating func record(_ byteCount: Int, controlResponse: Bool = false) -> Bool {
+        guard byteCount >= 0,
+              canReserve(maximumResponseBytes: byteCount, preservingControlCapacity: !controlResponse) else { return false }
         storedBytes += byteCount
         return true
+    }
+
+    static func responseCountLimit(isControlResponse: Bool) -> Int {
+        isControlResponse ? maximumStoredReplies : maximumStoredReplies - reservedControlReplies
     }
 
     mutating func remove(_ byteCount: Int) {
