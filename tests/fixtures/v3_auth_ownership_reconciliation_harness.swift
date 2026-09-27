@@ -103,7 +103,11 @@ struct AuthOwnershipReconciliationHarness {
             "an authenticated-but-not-yet-provisioned account snapshot cannot hide the active Team/2FA prompt")
         let accountLagPresentation = V3AuthReconciliationPresentationPolicy.resolve(
             reportedState: "awaitingPrompt", authenticated: true, provisioningIncomplete: true)
+        let accountLagFacts = V3AuthSnapshotAuthorityPolicy.facts([
+            "authenticated": true, "provisioningIncomplete": true,
+            "provisioningRetryAvailable": false])
         precondition(accountLagPresentation.state == "authenticatedProvisioningIncomplete" &&
+                     accountLagFacts.authenticated && accountLagFacts.provisioningIncomplete &&
                      V3AuthReconciliationPresentationPolicy.shouldPreserveActivePrompt(
                         reportedState: "awaitingPrompt", hasPrompt: true,
                         activeSessionMatches: true, cancellationInProgress: false),

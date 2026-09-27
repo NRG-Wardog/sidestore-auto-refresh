@@ -51,6 +51,14 @@ def operation_sheet():
 
 
 class InstallFirstAttemptTests(unittest.TestCase):
+    def test_cleanup_fallback_requires_confirmed_backend_settlement_and_rejects_busy(self):
+        host = shell()
+        method = host[host.index("func cleanupStagedIPA(_ token: String"): ]
+        method = method[:method.index("\n    }\n", 20)]
+        self.assertIn("allowLocalFallback: Bool = false", host)
+        self.assertIn("V3StagedIPACleanupFallbackPolicy.mayDeleteLocally", method)
+        self.assertIn("$0.code == .busy", method)
+
     def test_startup_staging_cleanup_requires_service_ownership_snapshot(self):
         host = shell()
         status = host[host.index("func cleanupOrphanedStagedIPAs() async"):]

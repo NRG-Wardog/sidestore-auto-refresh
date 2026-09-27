@@ -142,7 +142,7 @@ class V3AuthErrorTests(unittest.TestCase):
                       (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
         self.assertIn("V3ServiceBridge.authSnapshot(snapshot)", shell_text)
         self.assertIn('V3ServiceBridge.strictBool(reply["resumable"])', shell_text)
-        self.assertIn("V3AuthSnapshotAuthorityPolicy.isAuthenticated(authSnapshot)", shell_text)
+        self.assertIn("V3AuthSnapshotAuthorityPolicy.facts(authSnapshot)", shell_text)
         self.assertIn("V3AuthReconciliationPresentationPolicy.resolve", shell_text)
         self.assertIn("The sign-in attempt was cancelled. SideStore currently reports an account as signed in.",
                       (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
@@ -174,7 +174,7 @@ class V3AuthErrorTests(unittest.TestCase):
         sign_in = host[host.index("final class V3AuthStore"):host.index("struct V3SignInLink")]
         self.assertIn("func reconcile(force: Bool = false, expectedSession: String? = nil) async", sign_in)
         self.assertIn('request(operation: "snapshot")', sign_in)
-        self.assertIn("V3AuthSnapshotAuthorityPolicy.isAuthenticated(authSnapshot)", sign_in)
+        self.assertIn("let authoritative = accountFacts.authenticated", sign_in)
         self.assertNotIn("!account.isEmpty", sign_in)
         self.assertIn("signedIn = false", sign_in)
         self.assertIn(".task { await auth.reconcile() }", host)
@@ -204,7 +204,8 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn('"operationNotDispatched"] = true', service)
         self.assertIn('"provisioningRetryAvailable": V3HeadlessRuntime.shared.auth.canResumeProvisioning()', service)
         self.assertIn("guard let authSnapshot = V3ServiceBridge.authSnapshot(snapshot) else", host)
-        self.assertIn('let canRetryProvisioning = authSnapshot["provisioningRetryAvailable"] ?? false', host)
+        self.assertIn("let accountFacts = V3AuthSnapshotAuthorityPolicy.facts(authSnapshot)", host)
+        self.assertIn("let canRetryProvisioning = accountFacts.provisioningRetryAvailable", host)
         self.assertIn("shouldReconcileAfterTerminal(current)", host)
         poll_start = host.index("private func pollLoop(id: String, sessionDeadline: Date)")
         poll_loop = host[poll_start:host.index("private func apply(_ reply: [String: Any])", poll_start)]

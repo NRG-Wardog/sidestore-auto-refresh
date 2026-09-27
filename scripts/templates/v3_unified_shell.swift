@@ -3856,6 +3856,7 @@ final class V3AuthStore: ObservableObject {
                 message = "SideStore returned account status that could not be validated. Reload status and try again."
                 return false
             }
+            let accountFacts = V3AuthSnapshotAuthorityPolicy.facts(authSnapshot)
             if V3AuthReconciliationPresentationPolicy.shouldPreserveActivePrompt(
                 reportedState: reportedTerminalState, hasPrompt: prompt != nil,
                 activeSessionMatches: session != nil && (expectedSession == nil || expectedSession == session),
@@ -3865,14 +3866,17 @@ final class V3AuthStore: ObservableObject {
                 // separate account snapshot can observe authenticated=true
                 // before provisioning activates its account row; it must not
                 // replace an answerable prompt with a terminal UI state.
+                signedIn = accountFacts.authenticated
+                provisioningIncomplete = accountFacts.provisioningIncomplete
+                if let snapshotTeam = snapshot["team"] as? String { team = snapshotTeam }
                 return true
             }
             // A persisted account row can outlive an authenticated Apple
             // session. Only SideStore's explicit session fact proves that
             // authentication is currently active.
-            let authoritative = V3AuthSnapshotAuthorityPolicy.isAuthenticated(authSnapshot)
-            let incomplete = authSnapshot["provisioningIncomplete"] ?? false
-            let canRetryProvisioning = authSnapshot["provisioningRetryAvailable"] ?? false
+            let authoritative = accountFacts.authenticated
+            let incomplete = accountFacts.provisioningIncomplete
+            let canRetryProvisioning = accountFacts.provisioningRetryAvailable
             if authoritative {
                 // V3_FINISH_LATER_RECONCILES_AS_SIGNED_IN_V1: authoritative state
                 // wins. A finished-later provisioning attempt still reconciles as

@@ -2706,8 +2706,20 @@ enum V3AuthReconciliationSessionPolicy {
 }
 
 enum V3AuthSnapshotAuthorityPolicy {
+    struct Facts: Equatable {
+        let authenticated: Bool
+        let provisioningIncomplete: Bool
+        let provisioningRetryAvailable: Bool
+    }
+
+    static func facts(_ snapshot: [String: Bool]) -> Facts {
+        Facts(authenticated: snapshot["authenticated"] == true,
+              provisioningIncomplete: snapshot["provisioningIncomplete"] == true,
+              provisioningRetryAvailable: snapshot["provisioningRetryAvailable"] == true)
+    }
+
     static func isAuthenticated(_ snapshot: [String: Bool]) -> Bool {
-        snapshot["authenticated"] == true
+        facts(snapshot).authenticated
     }
 
     static func needsSignIn(authenticated: Bool) -> Bool { !authenticated }
