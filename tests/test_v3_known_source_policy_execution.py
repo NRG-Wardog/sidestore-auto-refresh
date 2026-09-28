@@ -21,7 +21,7 @@ class KnownSourcePolicyExecutionTests(unittest.TestCase):
         classifier = source[start:end]
         kind_rule = classifier[classifier.index("kind = "):classifier.index("underlyingDomain = ")]
         self.assertIn("NSURLErrorDomain", kind_rule)
-        self.assertIn('"CFNetwork"', kind_rule)
+        self.assertIn('"kCFErrorDomainCFNetwork"', kind_rule)
         self.assertNotIn("NSPOSIXErrorDomain", kind_rule)
         self.assertIn("NSPOSIXErrorDomain", classifier[classifier.index("underlyingDomain = "):])
 
@@ -36,6 +36,7 @@ class KnownSourcePolicyExecutionTests(unittest.TestCase):
         production_classifier = source[start:end]
         harness = """
 import Foundation
+import CFNetwork
 
 """ + production_classifier + """
 
@@ -54,6 +55,16 @@ import Foundation
         precondition(urlFailure.kind == .network)
         precondition(urlFailure.underlyingDomain == NSURLErrorDomain)
         precondition(urlFailure.underlyingCode == URLError.timedOut.rawValue)
+
+        // Use Apple's exported domain constant to exercise the direct CFNetwork
+        // NSError domain spelling, rather than a guessed framework-name string.
+        let cfNetworkDomain = kCFErrorDomainCFNetwork as String
+        precondition(cfNetworkDomain == "kCFErrorDomainCFNetwork")
+        let cfNetwork = NSError(domain: cfNetworkDomain, code: 2)
+        let cfNetworkFailure = V3KnownSourcePolicyFailure(cfNetwork)
+        precondition(cfNetworkFailure.kind == .network)
+        precondition(cfNetworkFailure.underlyingDomain == cfNetworkDomain)
+        precondition(cfNetworkFailure.underlyingCode == 2)
         print("Known source policy classification PASS")
     }
 }

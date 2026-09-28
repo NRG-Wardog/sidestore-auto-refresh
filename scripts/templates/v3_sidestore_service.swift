@@ -229,9 +229,12 @@ private struct V3KnownSourcePolicyFailure: Error {
 
     init(_ error: Error) {
         let cause = error as NSError
-        kind = [NSURLErrorDomain, "CFNetwork"].contains(cause.domain)
+        // CFNetwork exposes this domain as kCFErrorDomainCFNetwork. Keep the
+        // domain's actual NSError string, not the framework name.
+        kind = [NSURLErrorDomain, "kCFErrorDomainCFNetwork"].contains(cause.domain)
             ? .network : .invalidResponse
-        underlyingDomain = [NSURLErrorDomain, NSPOSIXErrorDomain, "CFNetwork", "NSCocoaErrorDomain"]
+        underlyingDomain = [NSURLErrorDomain, NSPOSIXErrorDomain,
+                            "kCFErrorDomainCFNetwork", "NSCocoaErrorDomain"]
             .contains(cause.domain) ? cause.domain : "redacted"
         underlyingCode = cause.code
     }
