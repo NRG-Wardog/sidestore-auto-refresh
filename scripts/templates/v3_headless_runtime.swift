@@ -909,6 +909,28 @@ enum V3AuthFailureDisplay {
     }
 }
 
+enum V3TwoFactorPhoneSelectionPolicy {
+    enum Decision: Equatable {
+        case changeMethod
+        case cancel
+        case requestSMS(phoneID: String)
+        case requestVoice(phoneID: String)
+    }
+
+    static func resolve(method: String, action: String?, phoneIDs: [String]) -> Decision {
+        guard let action else { return .cancel }
+        if action == "changeMethod" { return .changeMethod }
+        guard action.hasPrefix("phone:") else { return .cancel }
+        let phoneID = String(action.dropFirst("phone:".count))
+        guard !phoneID.isEmpty, phoneIDs.contains(phoneID) else { return .cancel }
+        switch method {
+        case "sms": return .requestSMS(phoneID: phoneID)
+        case "voice": return .requestVoice(phoneID: phoneID)
+        default: return .cancel
+        }
+    }
+}
+
 @MainActor
 final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
     let sessionID: String
@@ -995,14 +1017,28 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
             var phoneID = phoneNumbers.first?.id ?? ""
             if phoneNumbers.count > 1 {
                 let phoneChoices = phoneNumbers.map { ["id": "phone:\($0.id)", "label": $0.number] }
-                    + [["id": "cancel", "label": "Cancel Sign In"]]
+                    + [["id": "changeMethod", "label": "Change Verification Method"],
+                       ["id": "cancel", "label": "Cancel Sign In"]]
                 let selection = try await ask(kind: "twoFactor", title: "Choose Phone Number",
                     message: "Select where Apple should send the verification code.",
                     fields: [["key": "step", "label": "step", "secure": "false", "value": V3TwoFactorStep.afterDeliveryChoice(method, phoneCount: phoneNumbers.count)?.rawValue ?? V3TwoFactorStep.choosePhoneNumber.rawValue],
                              ["key": "mode", "label": "mode", "secure": "false", "value": method]],
                     options: phoneChoices)
-                guard let chosen = selection["action"], chosen.hasPrefix("phone:") else { return .cancel }
-                phoneID = String(chosen.dropFirst("phone:".count))
+                switch V3TwoFactorPhoneSelectionPolicy.resolve(
+                    method: method, action: selection["action"], phoneIDs: phoneNumbers.map(\.id)) {
+                case .changeMethod:
+                    // The SideSign continuation has not received a delivery
+                    // response yet. Re-open method selection before dispatch.
+                    return try await chooseDeliveryMethod(phoneNumbers: phoneNumbers)
+                case .cancel:
+                    return .cancel
+                case .requestSMS(let selectedPhoneID):
+                    debugLog("[V3_AUTH] 2FA_DELIVERY_REQUESTED mode=sms")
+                    return .requestSMS(phoneID: selectedPhoneID)
+                case .requestVoice(let selectedPhoneID):
+                    debugLog("[V3_AUTH] 2FA_DELIVERY_REQUESTED mode=voice")
+                    return .requestVoice(phoneID: selectedPhoneID)
+                }
             }
             debugLog("[V3_AUTH] 2FA_DELIVERY_REQUESTED mode=\(method)")
             return method == "sms" ? .requestSMS(phoneID: phoneID) : .requestVoice(phoneID: phoneID)

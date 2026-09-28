@@ -323,6 +323,33 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         self.compile_and_run(failure + "\n" + helper + "\n" + harness,
                              "V3_SETUP_AND_SEMANTIC_UX_PASS")
 
+    def test_two_factor_phone_back_sends_no_delivery_and_allows_new_method(self):
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        policy_start = runtime.index("enum V3TwoFactorPhoneSelectionPolicy {")
+        policy_end = runtime.index("\n\n@MainActor\nfinal class V3HeadlessAuthHandler", policy_start)
+        production_policy = runtime[policy_start:policy_end]
+        choose_start = runtime.index("private func chooseDeliveryMethod(phoneNumbers:")
+        choose_end = runtime.index("\n    private func enterVerificationCode(", choose_start)
+        choose = runtime[choose_start:choose_end]
+        self.assertIn('["id": "changeMethod", "label": "Change Verification Method"]', choose)
+        self.assertIn("case .changeMethod:", choose)
+        self.assertIn("return try await chooseDeliveryMethod(phoneNumbers: phoneNumbers)", choose)
+        self.assertLess(choose.index("case .changeMethod:"), choose.index("2FA_DELIVERY_REQUESTED mode=sms"))
+        self.assertLess(choose.index("case .changeMethod:"), choose.index("2FA_DELIVERY_REQUESTED mode=voice"))
+
+        shell_source = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        prompt_start = shell_source.index("struct V3PromptSection: View")
+        phone_step_start = shell_source.index("case .choosePhoneNumber:", prompt_start)
+        phone_step_end = shell_source.index("case .enterVerificationCode:", phone_step_start)
+        phone_step = shell_source[phone_step_start:phone_step_end]
+        self.assertIn('Button("Change Verification Method"', phone_step)
+        self.assertIn('answer["action"] = "changeMethod"', phone_step)
+        self.assertIn("twoFactorCancelButton()", phone_step)
+
+        harness = (ROOT / "tests/fixtures/v3_two_factor_phone_method_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run("import Foundation\n" + production_policy + "\n" + harness,
+                             "V3_TWO_FACTOR_PHONE_METHOD_PASS")
+
     def test_shared_refresh_prerequisite_policy_executes(self):
         # V3_REFRESH_PREREQUISITE_POLICY_V1: executes the single authoritative
         # contract, including the canonical pairing failure identity and the

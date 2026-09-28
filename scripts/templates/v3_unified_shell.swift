@@ -3994,6 +3994,13 @@ struct V3PromptSection: View {
                     Text("Choose the phone number for this request.")
                         .font(.subheadline.weight(.semibold))
                     ForEach(phoneOptions, id: \.self) { option in twoFactorOption(option) }
+                    Button("Change Verification Method", systemImage: "arrow.uturn.backward") {
+                        var answer = fields
+                        answer["action"] = "changeMethod"
+                        answer["choice"] = "changeMethod"
+                        respond(answer)
+                    }
+                    .disabled(isSubmitting)
                     twoFactorCancelButton()
                 case .enterVerificationCode:
                     TextField("Verification code", text: binding("code"))
