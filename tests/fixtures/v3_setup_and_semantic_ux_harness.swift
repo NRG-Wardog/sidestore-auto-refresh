@@ -843,6 +843,22 @@ struct SetupAndSemanticUXHarness {
             id: UUID().uuidString)
         precondition(anisetteUnrelatedNumericCode.safeCause == .anisetteUnknownFailure,
                      "a familiar numeric code in an unrelated domain does not prove network loss")
+        let anisetteUnknownURLCode = V3AnisetteSyncFailurePolicy.failure(
+            NSError(domain: NSURLErrorDomain, code: -9999), id: UUID().uuidString)
+        let unknownURLCodeRoundTrip = plistRoundTrip(anisetteUnknownURLCode)
+        precondition(anisetteUnknownURLCode.operation == "anisetteSync" &&
+                     anisetteUnknownURLCode.stage == .command &&
+                     anisetteUnknownURLCode.code == .failed &&
+                     anisetteUnknownURLCode.safeCause == .anisetteUnknownFailure &&
+                     anisetteUnknownURLCode.retryable == nil &&
+                     unknownURLCodeRoundTrip?.operation == "anisetteSync" &&
+                     unknownURLCodeRoundTrip?.stage == .command &&
+                     unknownURLCodeRoundTrip?.code == .failed &&
+                     unknownURLCodeRoundTrip?.safeCause == .anisetteUnknownFailure &&
+                     unknownURLCodeRoundTrip?.retryable == nil &&
+                     unknownURLCodeRoundTrip?.underlyingDomain == NSURLErrorDomain &&
+                     unknownURLCodeRoundTrip?.underlyingCode == -9999,
+                     "unknown NSURLErrorDomain codes remain unknown through the production classifier and plist wire")
         let anisetteCancelled = V3AnisetteSyncFailurePolicy.failure(
             CancellationError(), id: UUID().uuidString)
         precondition(anisetteCancelled.code == .cancelled && anisetteCancelled.safeCause == nil &&

@@ -1025,8 +1025,7 @@ enum V3AnisetteSyncFailurePolicy {
             }
         }
         if native.domain == NSURLErrorDomain,
-           let code = URLError.Code(rawValue: native.code),
-           let cause = networkCause(code) {
+           let cause = networkCause(URLError.Code(rawValue: native.code)) {
             return CombinedFailure(operation: "anisetteSync", stage: .network,
                 code: .failed, id: id, underlying: native, retryable: true, safeCause: cause)
         }
