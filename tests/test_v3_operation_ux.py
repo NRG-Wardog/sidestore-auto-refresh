@@ -350,10 +350,16 @@ class ProvisioningClassificationTests(unittest.TestCase):
         text = runtime()
         fn = text[text.index("private func askProvisioningRetry"):]
         fn = fn[:fn.index("\n    }\n") + 6]
-        self.assertIn("domain=", fn)
-        self.assertIn("area=provisioning", fn)
-        self.assertIn("correlation=", fn)
+        self.assertIn("CombinedFailure.provisioningRetryTechnicalDetails(", fn)
+        self.assertNotIn("native.domain", fn)
+        self.assertNotIn("native.code", fn)
         self.assertIn('"technical"', fn)
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        helper = failure[failure.index("public static func provisioningRetryTechnicalDetails"):]
+        helper = helper[:helper.index("\n    }\n") + 6]
+        self.assertIn("safeDiagnosticUnderlying", helper)
+        self.assertIn("area=provisioning", helper)
+        self.assertIn("correlation=", helper)
 
 
 class PromptTechnicalTests(unittest.TestCase):
