@@ -58,7 +58,7 @@ struct SnapshotOwnershipHarness {
                 startSnapshot(manual: manual)
             case .joinSnapshot:
                 break
-            case .awaitMutationThenSnapshot, .deferForPresentation:
+            case .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:
                 snapshotOwedIntent.record(manual: manual)
             case .doNotObserve:
                 break
@@ -118,10 +118,10 @@ struct SnapshotOwnershipHarness {
             case .performSnapshot:
                 startSnapshot(manual: snapshotOwedIntent.requiresManualSnapshot ||
                     needsManual || !requiresConnectionRetry)
-            case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:
+            case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:
                 break
             case .doNotObserve:
-                guard snapshotOwedIntent.isOwed else { return }
+                guard snapshotOwed else { return }
                 snapshotOwedIntent.clear()
                 let waiting = waiters
                 waiters.removeAll()
@@ -143,7 +143,7 @@ struct SnapshotOwnershipHarness {
                 guard completesSnapshotImmediately else { return "inFlight" }
                 completeSnapshot()
                 return snapshotsPerformed.last ?? "applied"
-            case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:
+            case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:
                 waiters.append(manual)
                 return "parked"
             case .doNotObserve:
@@ -156,7 +156,7 @@ struct SnapshotOwnershipHarness {
         func reload(manual: Bool) {
             switch beginSnapshot(manual: manual) {
             case .performSnapshot, .joinSnapshot, .awaitMutationThenSnapshot,
-                 .deferForPresentation, .doNotObserve:
+                 .deferForPresentation, .stillBlocked, .doNotObserve:
                 break
             }
         }
@@ -385,6 +385,54 @@ struct SnapshotOwnershipHarness {
             s.completeSnapshot()
             precondition(s.snapshotsPerformed == ["applied"] && s.snapshotsStarted == 1,
                          "the request completes without a duplicate snapshot")
+        }
+
+        // 9d. mutation completion is not a refusal when a presentation still
+        // blocks the owed snapshot. Both a manual waiter and its manual intent
+        // remain parked until presentation dismissal, then exactly one snapshot
+        // starts and resolves the waiter with the authoritative result.
+        do {
+            let s = Store()
+            s.simulateFailedSnapshotLatch()
+            s.beginMutation()
+            s.presentationActive = true
+            precondition(s.reloadAndWait(manual: true) == "parked",
+                         "manual caller parks behind the mutation and presentation")
+            s.completeMutation()
+            precondition(s.snapshotOwed && s.waiters.count == 1,
+                         "mutation completion preserves owed intent and waiter while presentation remains")
+            precondition(s.resumptions.isEmpty && s.snapshotsStarted == 0,
+                         "a still-blocked drain neither resumes nor starts a snapshot")
+            s.presentationEnded()
+            precondition(s.activity == .snapshot && s.snapshotsStarted == 1,
+                         "presentation dismissal starts exactly one manual snapshot")
+            precondition(!s.requiresConnectionRetry && !s.snapshotOwed && s.waiters.count == 1,
+                         "manual start clears the retry latch while preserving the parked waiter")
+            s.completeSnapshot()
+            precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "applied",
+                         "the parked waiter receives the authoritative snapshot result")
+            precondition(s.snapshotsStarted == 1 && !s.snapshotOwed && s.waiters.isEmpty,
+                         "the overlap produces no duplicate snapshot or stranded waiter")
+        }
+
+        // 9e. a non-manual request remains policy-refused after every blocker
+        // ends when the connection retry latch is still set.
+        do {
+            let s = Store()
+            s.simulateFailedSnapshotLatch()
+            s.beginMutation()
+            s.presentationActive = true
+            precondition(s.reloadAndWait(manual: false) == "parked",
+                         "non-manual caller is parked while blocked")
+            s.completeMutation()
+            precondition(s.snapshotOwed && s.waiters.count == 1 && s.resumptions.isEmpty,
+                         "ending only the mutation is still blocked, not a refusal")
+            s.presentationEnded()
+            precondition(s.activity == .idle && s.snapshotsStarted == 0,
+                         "after blockers end policy refuses a non-manual retry")
+            precondition(!s.snapshotOwed && s.waiters.isEmpty && s.resumptions.count == 1 &&
+                         s.resumptions[0].1 == "notObserved",
+                         "the refused request is cleared and its waiter is released truthfully")
         }
 
         // 10. several simultaneous callers all receive the same result

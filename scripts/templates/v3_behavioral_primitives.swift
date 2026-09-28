@@ -2290,8 +2290,11 @@ enum V3SnapshotDecision: String, Equatable, CaseIterable {
     /// A presented operation owns the state a snapshot would report. The caller
     /// parks, and a snapshot is owed for when the operation ends.
     case deferForPresentation
-    /// Policy forbids a snapshot and none is owed, so the caller is told
-    /// truthfully that nothing was observed. No continuation is parked.
+    /// A snapshot is owed, but its mutation/presentation blocker is still
+    /// active. Keep the owed intent and parked waiters until that blocker ends.
+    case stillBlocked
+    /// Policy refuses an optional non-manual snapshot, so callers are told
+    /// truthfully that nothing was observed. No continuation may remain parked.
     case doNotObserve
 }
 
@@ -2319,7 +2322,8 @@ enum V3SnapshotGate {
                       owed: Bool, anyWaiterNeedsManual: Bool,
                       explicitManualOwed: Bool = false,
                       requiresConnectionRetry: Bool) -> V3SnapshotDecision {
-        guard owed, activity == .idle, !presentationActive else { return .doNotObserve }
+        guard owed else { return .doNotObserve }
+        guard activity == .idle, !presentationActive else { return .stillBlocked }
         return decide(activity: .idle, presentationActive: false,
                       manual: explicitManualOwed || anyWaiterNeedsManual || !requiresConnectionRetry,
                       requiresConnectionRetry: requiresConnectionRetry)

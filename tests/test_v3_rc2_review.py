@@ -196,7 +196,7 @@ class ReloadOrderingTests(unittest.TestCase):
         self.assertIn("static func drain(activity: V3LoadActivity", primitives_text)
         wait = text[text.index("func reloadAndWait(manual: Bool = true) async -> V3ReloadOutcome"):]
         wait = wait[:wait.index("    /// The shared synchronous gate.")]
-        self.assertIn("case .performSnapshot, .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:", wait)
+        self.assertIn("case .performSnapshot, .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:", wait)
         self.assertIn("snapshotWaiterRegistry.insert(waiterID, manual: manual)", wait)
         self.assertIn("Task { _ = await performSnapshot() }", wait)
         self.assertIn("withTaskCancellationHandler", wait)

@@ -1210,7 +1210,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         switch beginSnapshot(manual: manual) {
         case .performSnapshot:
             Task { _ = await performSnapshot() }
-        case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:
+        case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:
             // The request is remembered and satisfied by the drain once the
             // blocking activity ends. No continuation is parked, because this
             // caller does not wait.
@@ -1249,7 +1249,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         guard !Task.isCancelled else { return .notObserved }
         let decision = beginSnapshot(manual: manual)
         switch decision {
-        case .performSnapshot, .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:
+        case .performSnapshot, .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:
             // The service request belongs to the store, not to the first caller.
             // Cancellation removes only this caller's continuation and cannot
             // cancel the shared request for other waiters.
@@ -1297,7 +1297,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             startSnapshot(manual: manual)
         case .joinSnapshot:
             break
-        case .awaitMutationThenSnapshot, .deferForPresentation:
+        case .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:
             // A snapshot is owed. It is owed once, not once per requester, so a
             // burst of requests cannot queue a burst of fetches.
             snapshotOwedIntent.record(manual: manual)
@@ -1407,7 +1407,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             startSnapshot(manual: snapshotOwedIntent.requiresManualSnapshot ||
                 needsManual || !requiresConnectionRetry)
             Task { _ = await performSnapshot() }
-        case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:
+        case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:
             // Still blocked. The owed intent is kept for whoever ends it.
             break
         case .doNotObserve:
