@@ -229,7 +229,7 @@ private struct V3KnownSourcePolicyFailure: Error {
 
     init(_ error: Error) {
         let cause = error as NSError
-        kind = [NSURLErrorDomain, NSPOSIXErrorDomain, "CFNetwork"].contains(cause.domain)
+        kind = [NSURLErrorDomain, "CFNetwork"].contains(cause.domain)
             ? .network : .invalidResponse
         underlyingDomain = [NSURLErrorDomain, NSPOSIXErrorDomain, "CFNetwork", "NSCocoaErrorDomain"]
             .contains(cause.domain) ? cause.domain : "redacted"
