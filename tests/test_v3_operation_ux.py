@@ -5,6 +5,7 @@ show working state, reach a visible terminal result, guard duplicates,
 and reload authoritative state. No silent dismissals, no dead Retry
 buttons, no raw numeric error codes as user messages.
 """
+import re
 import shutil
 import subprocess
 import tempfile
@@ -534,7 +535,8 @@ class MiscBusyStateTests(unittest.TestCase):
         view = text[text.index("struct V3DeveloperServicesView"):]
         view = view[:view.index("struct V3FilePicker")]
         self.assertIn("Loading Developer Data...", view)
-        self.assertIn(".disabled(loading)", view)
+        self.assertIn("V3DeveloperDataActionAvailabilityPolicy.isEnabled(", view)
+        self.assertIn("authenticated: status.authenticated, isLoading: loading || status.loading", view)
 
     def test_health_recheck_busy(self):
         text = shell()
@@ -614,7 +616,7 @@ class AccountSessionRecoveryTests(unittest.TestCase):
         sign_out_action = view[view.index("if identityPresentation.showSignOut"):]
         self.assertIn('Label("Sign Out"', sign_out_action)
         self.assertIn("status.signOut()", sign_out_action)
-        self.assertIn(".disabled(!status.authenticated || status.loading)", view)
+        self.assertIn("V3DeveloperDataActionAvailabilityPolicy.isEnabled(", view)
 
         store = shell()[shell().index("final class V3SideStoreStatusStore"):]
         store = store[:store.index("private func rejectForUnresolvedRecovery")]
@@ -648,6 +650,56 @@ class AccountSessionRecoveryTests(unittest.TestCase):
             ("activeCertificatePresent", "activeCertificate != nil"),
         ):
             self.assertIn(f'"{field}": {expression}', snapshot)
+
+
+class DeveloperDataAvailabilityTests(unittest.TestCase):
+    def test_every_sync_app_id_callsite_uses_auth_and_loading_policy(self):
+        text = shell()
+        callsites = list(re.finditer(r"status\.syncAppIDs\(\)", text))
+        self.assertEqual(len(callsites), 2, "update this audit when Sync App IDs gains a new entry point")
+        boundary_tokens = ("\n            Button", "\n                Button", "\n            link(", "\n        }")
+        for callsite in callsites:
+            tail = text[callsite.end():]
+            disabled = tail.find(".disabled(")
+            boundaries = [tail.find(token) for token in boundary_tokens]
+            boundaries = [position for position in boundaries if position >= 0]
+            boundary = min(boundaries) if boundaries else len(tail)
+            self.assertGreaterEqual(disabled, 0, "every Sync App IDs button needs an explicit gate")
+            self.assertLess(disabled, boundary, "availability gate must belong to this button")
+            gate = tail[disabled:disabled + 220]
+            self.assertIn("V3DeveloperDataActionAvailabilityPolicy.isEnabled(", gate)
+            self.assertIn("authenticated: status.authenticated", gate)
+            self.assertIn("isLoading:", gate)
+
+    def test_developer_data_reload_never_requests_without_authentication(self):
+        text = shell()
+        view = text[text.index("struct V3DeveloperServicesView"):]
+        view = view[:view.index("struct V3FilePicker")]
+        reload = view[view.index("private func reload() async"):]
+        request = reload.index("async let teamsReply")
+        auth_guard = reload.index("guard status.authenticated else")
+        self.assertLess(auth_guard, request)
+        self.assertIn("loading = false", reload[auth_guard:request])
+        self.assertIn(".onChange(of: status.authenticated)", view)
+
+    def test_availability_policy_executes_auth_and_busy_invariants(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable; executable developer-action policy runs in macOS CI")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_developer_data_availability_harness.swift").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "main.swift"
+            executable = Path(temporary) / "developer-data-availability"
+            source.write_text("import Foundation\n" + failure + "\n" + primitives + "\n" + harness,
+                              encoding="utf-8")
+            compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
+                                      capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_DEVELOPER_DATA_AVAILABILITY_PASS", result.stdout)
 
 
 if __name__ == "__main__":

@@ -3582,6 +3582,12 @@ enum V3AccountSessionPresentationPolicy {
     }
 }
 
+enum V3DeveloperDataActionAvailabilityPolicy {
+    static func isEnabled(authenticated: Bool, isLoading: Bool) -> Bool {
+        authenticated && !isLoading
+    }
+}
+
 struct V3AuthSessionUnavailablePresentation: Equatable {
     let state: String
     let message: String

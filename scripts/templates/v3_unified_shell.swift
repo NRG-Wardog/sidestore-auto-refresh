@@ -2740,7 +2740,8 @@ struct V3AccountSettings: View {
             } label: {
                 Label("Sync App IDs", systemImage: "arrow.triangle.2.circlepath")
             }
-            .disabled(!status.authenticated || status.loading)
+            .disabled(!V3DeveloperDataActionAvailabilityPolicy.isEnabled(
+                authenticated: status.authenticated, isLoading: status.loading))
             .accessibilityHint("Sign in with Apple ID before syncing App IDs.")
             link("Certificates", icon: "doc.text") { V3CertificatesView().environmentObject(status) }
             link("Developer Services", icon: "wrench.and.screwdriver") { V3DeveloperServicesView().environmentObject(status) }
@@ -5963,9 +5964,13 @@ struct V3DeveloperServicesView: View {
             }
             Section("Actions") {
                 Button { status.syncAppIDs() } label: { Label("Sync App IDs", systemImage: "arrow.triangle.2.circlepath") }
-                    .disabled(status.loading)
+                    .disabled(!V3DeveloperDataActionAvailabilityPolicy.isEnabled(
+                        authenticated: status.authenticated, isLoading: status.loading || loading))
+                    .accessibilityHint("Sign in with Apple ID before syncing App IDs.")
                 Button(loading ? "Loading Developer Data..." : "Reload Developer Data") { Task { await reload() } }
-                    .disabled(loading)
+                    .disabled(!V3DeveloperDataActionAvailabilityPolicy.isEnabled(
+                        authenticated: status.authenticated, isLoading: loading || status.loading))
+                    .accessibilityHint("Sign in with Apple ID before loading developer data.")
             }
             simpleSection("Teams", rows: teams.map { "\($0["name"] ?? "") (\($0["identifier"] ?? ""))" })
             simpleSection("Devices", rows: devices.map { "\($0["name"] ?? "") · \($0["identifier"] ?? "")" })
@@ -5991,6 +5996,9 @@ struct V3DeveloperServicesView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("Developer Services")
         .task { await reload() }
+        .onChange(of: status.authenticated) { authenticated in
+            if authenticated { Task { await reload() } }
+        }
     }
     private func simpleSection(_ title: String, rows: [String]) -> some View {
         Section("\(title) (\(rows.count))") {
@@ -6010,6 +6018,10 @@ struct V3DeveloperServicesView: View {
     }
     private func reload() async {
         guard !loadingRequest else { return }
+        guard status.authenticated else {
+            loading = false
+            return
+        }
         loadingRequest = true
         loading = true
         defer { loading = false; loadingRequest = false }
