@@ -68,7 +68,13 @@ final class V3SideStoreService: NSObject {
         // classify the real reason instead of receiving an idless token it must
         // treat as a stale reply.
         guard let request = V3WireContract.decodeRequest(data) else {
-            reply(encode(invalidRequestReply(for: data)))
+            let requestID = V3WireContract.invalidRequestIdentity(from: data).id
+            let collision = requestID.map {
+                V3RequestReplayPolicy.isIdentifierCollision(
+                    cachedFingerprint: inFlightRequestFingerprints[$0] ?? completedRequestFingerprints[$0],
+                    incomingRequestData: data)
+            } ?? false
+            reply(encode(invalidRequestReply(for: data, identifierCollision: collision)))
             return
         }
         guard let id = request["id"] as? String,
@@ -91,7 +97,7 @@ final class V3SideStoreService: NSObject {
         if let previous = completed[id] {
             guard V3RequestReplayPolicy.matches(
                 cachedFingerprint: completedRequestFingerprints[id], incomingRequestData: data) else {
-                reply(encode(invalidRequestReply(for: data), operation: operation))
+                reply(encode(invalidRequestReply(for: data, identifierCollision: true), operation: operation))
                 return
             }
             reply(previous.data)
@@ -103,7 +109,7 @@ final class V3SideStoreService: NSObject {
         if tasks[id] != nil {
             guard V3RequestReplayPolicy.matchesInFlight(
                 cachedFingerprint: inFlightRequestFingerprints[id], incomingRequestData: data) else {
-                reply(encode(invalidRequestReply(for: data), operation: operation))
+                reply(encode(invalidRequestReply(for: data, identifierCollision: true), operation: operation))
                 return
             }
         }
@@ -398,14 +404,15 @@ final class V3SideStoreService: NSObject {
     // Reads only the envelope fields the contract already trusts: the request ID
     // must be a valid UUID and the operation must be on the allow list. Nothing
     // from the payload is echoed back.
-    private func invalidRequestReply(for data: Data) -> [String: Any] {
+    private func invalidRequestReply(for data: Data, identifierCollision: Bool = false) -> [String: Any] {
         let identity = V3WireContract.invalidRequestIdentity(from: data)
         let id = identity.id ?? UUID().uuidString
         let operation = identity.operation ?? "command"
         var response: [String: Any] = ["version": 1, "id": id, "error": "invalidRequest",
                 "failure": CombinedFailure(operation: operation, stage: .command,
                     code: .invalidConfiguration, id: id).wire]
-        if ["opStart", "authBegin", "authRetryProvisioning"].contains(operation) {
+        if V3RequestReplayPolicy.mayClaimNotDispatched(
+            operation: operation, identifierCollision: identifierCollision) {
             response["operationNotDispatched"] = true
         }
         return response

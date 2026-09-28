@@ -1,5 +1,4 @@
 @main
-@main
 struct SecretHandoffWireHarness {
     static func main() throws {
         let now = Date(timeIntervalSince1970: 1000)

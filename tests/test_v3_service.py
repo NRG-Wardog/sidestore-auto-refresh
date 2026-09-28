@@ -893,6 +893,63 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
 
 
 class WireExecutionTests(unittest.TestCase):
+    def test_shipped_wire_policies_bind_request_ids_and_coredata_entity_targets(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable")
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            program = directory / "main.swift"
+            program.write_text((ROOT / "scripts/templates/v3_wire_contract.swift").read_text() + r'''
+let now = Date(timeIntervalSince1970: 100000)
+let storeID = UUID().uuidString
+let installed = "x-coredata://\(storeID)/InstalledApp/p1"
+let storeApp = "x-coredata://\(storeID)/StoreApp/p2"
+let session = UUID().uuidString
+func encode(_ value: [String: Any]) -> Data {
+    try! PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
+}
+func request(_ operation: String, target: String, payload: [String: Any]? = nil) -> [String: Any] {
+    var result: [String: Any] = ["version": 1, "id": UUID().uuidString, "operation": operation,
+        "target": target, "deadline": now.addingTimeInterval(30)]
+    if let payload { result["payload"] = payload }
+    return result
+}
+precondition(V3WireContract.decodeRequest(encode(request("appIcon", target: installed)), now: now) != nil)
+precondition(V3WireContract.decodeRequest(encode(request("appIcon", target: storeApp)), now: now) == nil)
+precondition(V3WireContract.decodeRequest(encode(request("jit", target: installed)), now: now) != nil)
+precondition(V3WireContract.decodeRequest(encode(request("jit", target: storeApp)), now: now) == nil)
+let install = request("opStart", target: "", payload: ["kind": "install", "target": storeApp, "session": session])
+precondition(V3WireContract.decodeRequest(encode(install), now: now) != nil)
+var wrongInstallEntity = install
+wrongInstallEntity["payload"] = ["kind": "install", "target": installed, "session": session]
+precondition(V3WireContract.decodeRequest(encode(wrongInstallEntity), now: now) == nil)
+for kind in ["update", "refreshApp", "activate", "deactivate", "remove", "delete", "backup", "restore"] {
+    let valid = request("opStart", target: "", payload: ["kind": kind, "target": installed, "session": session])
+    precondition(V3WireContract.decodeRequest(encode(valid), now: now) != nil, kind)
+    var wrong = valid
+    wrong["payload"] = ["kind": kind, "target": storeApp, "session": session]
+    precondition(V3WireContract.decodeRequest(encode(wrong), now: now) == nil, kind)
+}
+let dispatched = Data("original-dispatched-opStart".utf8)
+let conflictingBytes = Data("same-id-different-command".utf8)
+let dispatchedFingerprint = V3RequestReplayPolicy.fingerprint(dispatched)
+precondition(V3RequestReplayPolicy.matchesInFlight(cachedFingerprint: dispatchedFingerprint,
+    incomingRequestData: dispatched))
+precondition(V3RequestReplayPolicy.isIdentifierCollision(cachedFingerprint: dispatchedFingerprint,
+    incomingRequestData: conflictingBytes))
+precondition(!V3RequestReplayPolicy.mayClaimNotDispatched(operation: "opStart", identifierCollision: true))
+precondition(V3RequestReplayPolicy.mayClaimNotDispatched(operation: "opStart", identifierCollision: false))
+precondition(!V3RequestReplayPolicy.mayClaimNotDispatched(operation: "snapshot", identifierCollision: false))
+print("V3 request identity and Core Data target policies PASS")
+''')
+            executable = directory / "wire-policy-tests"
+            compiled = subprocess.run([compiler, "-parse-as-library", str(program), "-o", str(executable)], capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3 request identity and Core Data target policies PASS", result.stdout)
+
     def test_shipped_native_callback_settles_once(self):
         compiler = shutil.which("swiftc")
         if not compiler:

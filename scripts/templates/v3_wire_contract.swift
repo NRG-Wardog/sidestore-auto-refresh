@@ -128,6 +128,8 @@ enum V3WireContract {
             "refreshAdmissionBegin", "refreshAdmissionEnd", "cancel"].contains(operation),
            !canonicalSecretToken(target) { return nil }
         if operation == "ipaCleanup", !canonicalLowercaseFileToken(target) { return nil }
+        if ["appIcon", "jit"].contains(operation),
+           !acceptsCoreDataTarget(target, entity: "InstalledApp") { return nil }
         if ["sourcePreview", "sourceAddConfirmed"].contains(operation), !isHTTPURL(target) { return nil }
         if operation == "backupResult", !["success", "failure"].contains(target) { return nil }
         if let cursor = request["cursor"] {
@@ -238,20 +240,24 @@ enum V3WireContract {
             return canonicalLowercaseFileToken(target)
         case "installURL":
             return isHTTPURL(target)
-        case "install", "update", "refreshApp", "activate", "deactivate",
-             "remove", "delete", "backup", "restore":
-            guard let components = URLComponents(string: target),
-                  components.scheme?.lowercased() == "x-coredata",
-                  let host = components.host, UUID(uuidString: host) != nil,
-                  components.user == nil, components.password == nil,
-                  components.port == nil, components.query == nil, components.fragment == nil else { return false }
-            let path = components.percentEncodedPath.split(separator: "/")
-            guard path.count == 2, ["InstalledApp", "StoreApp"].contains(String(path[0])),
-                  path[1].first == "p", Int(path[1].dropFirst()) != nil else { return false }
-            return true
+        case "install":
+            return acceptsCoreDataTarget(target, entity: "StoreApp")
+        case "update", "refreshApp", "activate", "deactivate", "remove", "delete", "backup", "restore":
+            return acceptsCoreDataTarget(target, entity: "InstalledApp")
         default:
             return false
         }
+    }
+
+    private static func acceptsCoreDataTarget(_ target: String, entity expectedEntity: String) -> Bool {
+        guard let components = URLComponents(string: target),
+              components.scheme?.lowercased() == "x-coredata",
+              let host = components.host, UUID(uuidString: host) != nil,
+              components.user == nil, components.password == nil,
+              components.port == nil, components.query == nil, components.fragment == nil else { return false }
+        let path = components.percentEncodedPath.split(separator: "/")
+        return path.count == 2 && String(path[0]) == expectedEntity &&
+            path[1].first == "p" && Int(path[1].dropFirst()) != nil
     }
 
     private static func isHTTPURL(_ value: String) -> Bool {
@@ -362,6 +368,15 @@ enum V3RequestReplayPolicy {
 
     static func matchesInFlight(cachedFingerprint: Data?, incomingRequestData: Data) -> Bool {
         matches(cachedFingerprint: cachedFingerprint, incomingRequestData: incomingRequestData)
+    }
+
+    static func isIdentifierCollision(cachedFingerprint: Data?, incomingRequestData: Data) -> Bool {
+        guard let cachedFingerprint else { return false }
+        return !matches(cachedFingerprint: cachedFingerprint, incomingRequestData: incomingRequestData)
+    }
+
+    static func mayClaimNotDispatched(operation: String, identifierCollision: Bool) -> Bool {
+        !identifierCollision && ["opStart", "authBegin", "authRetryProvisioning"].contains(operation)
     }
 }
 
