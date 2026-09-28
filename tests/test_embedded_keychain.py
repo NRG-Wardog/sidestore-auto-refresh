@@ -39,6 +39,11 @@ enum Store {
     static var logs: [String] = []
 }
 func debugLog(_ message: String) { Store.logs.append(message) }
+enum V3AppGroupProcessLock {
+    static func withLock<T>(containerRoot: URL? = nil, _ operation: () throws -> T) throws -> T {
+        try operation()
+    }
+}
 enum V3SecretHandoff {
     static func sharedKeychainAccessGroup() throws -> String {
         guard !Store.keychainGroup.isEmpty else { throw NSError(domain: NSOSStatusErrorDomain, code: -34018) }

@@ -95,51 +95,28 @@ enum LCSharedKeychainMigration {
 }
 // LC_SHARED_MIGRATION_POLICY_END
 
-/// Cooperative, process-shared serialization for the app and LiveProcess.
-/// flock is released by the kernel if a process exits while holding it.
+/// `AltStore/AppDelegate.swift` and this Keychain file compile in the pinned
+/// SideStore target (its synchronized source groups include both AltStore and
+/// SideStore). Reuse the handoff's single process-shared flock implementation.
 private enum LCSharedKeychainFileLock {
     static func withLock<T>(appGroup: String?, containerRoot: URL? = nil,
                             _ operation: () throws -> T) throws -> T {
         #if canImport(Darwin)
-        let container: URL
-        if let containerRoot { container = containerRoot }
-        else {
-            guard let appGroup, !appGroup.isEmpty,
-                  let sharedContainer = FileManager.default.containerURL(
-                    forSecurityApplicationGroupIdentifier: appGroup) else {
-                throw NSError(domain: "com.SideStore.Keychain", code: -34018)
-            }
-            container = sharedContainer
+        if let containerRoot {
+            return try V3AppGroupProcessLock.withLock(containerRoot: containerRoot, operation)
         }
+        guard let appGroup, !appGroup.isEmpty,
+              Bundle.main.altstoreAppGroup == appGroup,
+              FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) != nil else {
+            throw NSError(domain: "com.SideStore.Keychain", code: -34018)
+        }
+        return try V3AppGroupProcessLock.withLock(operation)
         #elseif canImport(Glibc)
         guard let containerRoot else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
-        let container = containerRoot
+        return try V3AppGroupProcessLock.withLock(containerRoot: containerRoot, operation)
         #else
         throw NSError(domain: "com.SideStore.Keychain", code: -34018)
         #endif
-        let directory = ["Library", "Application Support", "LiveContainer"].reduce(
-            container.standardizedFileURL) { $0.appendingPathComponent($1, isDirectory: true) }.standardizedFileURL
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700])
-            let values = try directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-            guard values.isDirectory == true, values.isSymbolicLink != true,
-                  directory.resolvingSymlinksInPath().standardizedFileURL == directory else {
-                throw NSError(domain: "com.SideStore.Keychain", code: 1009)
-            }
-        } catch { throw error }
-        let path = directory.appendingPathComponent("keychain-transaction.lock").path
-        let descriptor = open(path, O_CREAT | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
-        guard descriptor >= 0 else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(errno)) }
-        defer { _ = close(descriptor) }
-        guard fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(errno))
-        }
-        guard flock(descriptor, LOCK_EX) == 0 else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(errno))
-        }
-        defer { _ = flock(descriptor, LOCK_UN) }
-        return try operation()
     }
 }
 

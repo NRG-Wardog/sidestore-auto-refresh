@@ -50,8 +50,11 @@ class KeychainCoordinationSourceTests(unittest.TestCase):
         self.assertIn("code == 1010", RUNTIME)
 
     def test_migration_and_signout_use_process_shared_flock(self):
-        self.assertIn("flock(descriptor, LOCK_EX)", KEYCHAIN)
         self.assertIn("LCSharedKeychainFileLock.withLock(appGroup: installedAppGroup)", KEYCHAIN)
+        self.assertIn("Bundle.main.altstoreAppGroup == appGroup", KEYCHAIN)
+        self.assertIn("V3AppGroupProcessLock.withLock(operation)", KEYCHAIN)
+        self.assertIn("flock(descriptor, LOCK_EX)", HANDOFF)
+        self.assertNotIn("flock(descriptor", KEYCHAIN)
         self.assertIn("try withSharedTransaction {", KEYCHAIN)
         self.assertIn("older SideStore binary does not participate", KEYCHAIN)
         self.assertIn("no client-side protocol can", KEYCHAIN)
