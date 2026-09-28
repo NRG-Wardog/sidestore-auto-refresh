@@ -186,6 +186,63 @@ struct V3SafeFailureCopyHarness {
                      !sanitizedRefreshError.contains("7428391"),
                      "refresh manifest sanitization omits untrusted NSError fields before copy/export")
 
+        let sentinelRunID = UUID().uuidString
+        let hostileSentinelWire: [String: Any] = [
+            "version": 1, "operation": "refresh", "stage": "refreshVerification", "code": "failed",
+            "correlationID": sentinelRunID, "underlyingDomain": "none", "underlyingCode": 7428391
+        ]
+        let hostileSentinelManifest: [String: Any] = [
+            "liveContainerAutoRefreshVerification": [
+                "version": 2,
+                "schema": "LiveContainerRefreshManifestV2",
+                "run_id": sentinelRunID,
+                "expected_ids": ["com.example.sentinel"],
+                "results": [[
+                    "bundle_id": "com.example.sentinel",
+                    "success": false,
+                    "error_domain": "none",
+                    "error_code": 7428391,
+                    "error": "none sentinel collision 7428391",
+                    "failure": hostileSentinelWire
+                ]]
+            ]
+        ]
+        let hostileManifestData = try! PropertyListSerialization.data(
+            fromPropertyList: hostileSentinelManifest, format: .binary, options: 0)
+        let hostileManifestObject = try! PropertyListSerialization.propertyList(
+            from: hostileManifestData, format: nil) as! [String: Any]
+        let safeSentinelRefresh = CombinedVerification.sanitized(hostileManifestObject, runID: sentinelRunID)
+        guard let safeSentinelManifest = safeSentinelRefresh["liveContainerAutoRefreshVerification"] as? [String: Any],
+              let safeSentinelRows = safeSentinelManifest["results"] as? [[String: Any]],
+              let safeSentinelRow = safeSentinelRows.first,
+              let safeSentinelFailure = safeSentinelRow["failure"] as? [String: Any],
+              let safeSentinelData = try? PropertyListSerialization.data(
+                fromPropertyList: safeSentinelRefresh, format: .binary, options: 0),
+              let safeSentinelObject = try? PropertyListSerialization.propertyList(
+                from: safeSentinelData, format: nil) as? [String: Any],
+              let decodedSentinelManifest = safeSentinelObject["liveContainerAutoRefreshVerification"] as? [String: Any],
+              let decodedSentinelRows = decodedSentinelManifest["results"] as? [[String: Any]],
+              let decodedSentinelRow = decodedSentinelRows.first,
+              let decodedSentinelFailure = decodedSentinelRow["failure"] as? [String: Any] else {
+            preconditionFailure("sentinel-collision refresh failures must remain a valid property-list manifest")
+        }
+        let sentinelRefreshError = safeSentinelRow["error"] as? String ?? ""
+        let decodedSentinelError = decodedSentinelRow["error"] as? String ?? ""
+        precondition(safeSentinelRow["error_domain"] as? String == "redacted" &&
+                     safeSentinelRow["error_code"] as? Int == 0 &&
+                     safeSentinelFailure["underlyingDomain"] as? String == "redacted" &&
+                     safeSentinelFailure["underlyingCode"] as? Int == 0 &&
+                     decodedSentinelRow["error_domain"] as? String == "redacted" &&
+                     decodedSentinelRow["error_code"] as? Int == 0 &&
+                     decodedSentinelFailure["underlyingDomain"] as? String == "redacted" &&
+                     decodedSentinelFailure["underlyingCode"] as? Int == 0 &&
+                     sentinelRefreshError.contains("underlying_domain=redacted") &&
+                     sentinelRefreshError.contains("underlying_code=unknown") &&
+                     decodedSentinelError.contains("underlying_code=unknown") &&
+                     !sentinelRefreshError.contains("7428391") &&
+                     !decodedSentinelError.contains("7428391"),
+                     "refresh sanitization and plist roundtrip must redact none/nonzero sentinel collisions")
+
         let sideJITFailure = V3SideJITReachabilityFeedback.unreachable
         precondition(sideJITFailure ==
             "The SideJIT server could not be reached. Check its address and network, then try again.")
