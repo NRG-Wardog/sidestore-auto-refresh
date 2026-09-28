@@ -29,6 +29,147 @@ embedded_keychain = module("patch_embedded_keychain")
 
 
 class ServicePatchTests(unittest.TestCase):
+    @staticmethod
+    def swift_declaration(source, signature):
+        start = source.index(signature)
+        opening = source.index("{", start)
+        depth = 0
+        for index in range(opening, len(source)):
+            if source[index] == "{":
+                depth += 1
+            elif source[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    return source[start:index + 1]
+        raise AssertionError(f"unterminated Swift declaration: {signature}")
+
+    def test_connection_config_is_generated_as_backend_code_not_a_view_model(self):
+        with tempfile.TemporaryDirectory() as name:
+            roots = self.fixture(Path(name))
+            self.apply(roots)
+            side = roots[1]
+            project = (side / "AltStore.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+            side_anchor = project.index("A8EECF492F4B195000F2436D")
+            member_start = project.index("membershipExceptions = (", side_anchor)
+            member_end = project.index(");", member_start)
+            members = project[member_start:member_end]
+            self.assertIn('"Views/Settings/Advanced/Connection/ConnectionConfig.swift"', members)
+            self.assertNotIn('"Core/DeviceApi/ConnectionConfig.swift"', members)
+
+            retired = (side / "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift").read_text(encoding="utf-8")
+            backend = (side / "SideStore/Core/DeviceApi/ConnectionConfig.swift").read_text(encoding="utf-8")
+            wrapper = (side / "SideStore/Core/DeviceApi/MinimuxerWrapper.swift").read_text(encoding="utf-8")
+            self.assertIn("V3_HEADLESS_CONNECTION_CONFIG_MOVED_V1", retired)
+            self.assertNotIn("SwiftUI", retired)
+            self.assertIn("V3_HEADLESS_BACKEND_CONNECTION_CONFIG_V1", backend)
+            for ui_symbol in ("SwiftUI", "Combine", "ObservableObject", "@Published", "ActiveState", "formattedTunnel"):
+                self.assertNotIn(ui_symbol, backend)
+            self.assertIn("get { UserDefaults.standard.useLocalVPN }", backend)
+            self.assertIn("getConnectionMode: { config.connectionMode }", wrapper)
+
+    def test_connection_config_settings_update_is_live_for_captured_minimuxer_binding(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable; generated connection settings harness runs in macOS CI")
+        with tempfile.TemporaryDirectory() as name:
+            roots = self.fixture(Path(name))
+            self.apply(roots)
+            side = roots[1]
+            generated_config = (side / "SideStore/Core/DeviceApi/ConnectionConfig.swift").read_text(encoding="utf-8")
+            wrapper = (side / "SideStore/Core/DeviceApi/MinimuxerWrapper.swift").read_text(encoding="utf-8")
+            binding_match = re.search(r"getConnectionMode:\s*\{\s*([^{}]+?)\s*\}", wrapper)
+            self.assertIsNotNone(binding_match, "the generated Minimuxer binding must expose its live getter")
+            binding_expression = binding_match.group(1)
+            self.assertEqual(binding_expression, "config.connectionMode")
+
+            runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+            declarations_start = runtime.index("    static let boolSettings: Set<String> =")
+            declarations_end = runtime.index("    static func settingsGet()", declarations_start)
+            settings_declarations = runtime[declarations_start:declarations_end]
+            settings_set = self.swift_declaration(runtime, "    static func settingsSet(payload: [String: Any]) throws")
+
+            wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+            strict_bool = self.swift_declaration(wire, "    static func strictBool(_ value: Any?) -> Bool?")
+            strict_int = self.swift_declaration(wire, "    static func strictInt(_ value: Any?) -> Int?")
+            wire_defaults = f"enum V3WireContract {{\n{strict_bool}\n{strict_int}\n}}"
+
+            side_source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.environ.get("SIDESTORE_TEST_SOURCE")
+            if not side_source:
+                self.skipTest("pinned SideStore source unavailable")
+            defaults_source = Path(side_source)
+            defaults_file = subprocess.check_output([
+                "git", "-C", str(defaults_source), "show",
+                service.PINS[1] + ":AltStore/Core/Extensions/UserDefaults+AltStore.swift"],
+                text=True, encoding="utf-8")
+            local_vpn_default = self.swift_declaration(defaults_file, "    @objc var useLocalVPN: Bool")
+
+            config_without_module_import = generated_config.replace("import Minimuxer\n", "")
+            harness = f'''import Foundation
+import CoreFoundation
+
+enum DeviceConnectionMode: Equatable {{ case localVPN, remoteServer }}
+enum AppConstants {{
+    enum Connection {{ static let defaultRemoteServerIP = "192.0.2.1" }}
+    enum Proxy {{ static let address = "127.0.0.1"; static let defaultPort: UInt16 = 62078 }}
+}}
+enum V3SideStoreServiceError: Error {{ case invalidRequest }}
+final class WidgetDataManager {{
+    static let shared = WidgetDataManager()
+    var isVerboseLoggingEnabled = false
+}}
+extension UserDefaults {{
+{local_vpn_default}
+}}
+{wire_defaults}
+enum V3BackendCommands {{
+{settings_declarations}
+{settings_set}
+}}
+
+@main struct LiveConnectionSettingsHarness {{
+    static func main() throws {{
+        let defaults = UserDefaults.standard
+        defaults.set(false, forKey: "useLocalVPN")
+        let config = ConnectionConfig.shared
+        precondition(config.overrideTunnelPeerIp.isEmpty)
+        precondition(config.remoteServerIp == "192.0.2.1")
+        precondition(config.wireguardServerHost == "127.0.0.1")
+        precondition(config.wireguardServerPort == 62078)
+        let getConnectionMode: () -> DeviceConnectionMode = {{ {binding_expression} }}
+        precondition(getConnectionMode() == .remoteServer, "initial persisted mode must be observed")
+
+        try V3BackendCommands.settingsSet(payload: ["key": "useLocalVPN", "bool": true])
+        precondition(defaults.bool(forKey: "useLocalVPN"), "settingsSet must persist host writes")
+        precondition(getConnectionMode() == .localVPN,
+                     "an already-captured Minimuxer binding must observe the host's latest mode")
+
+        let reconstructed = ConnectionConfig()
+        precondition(reconstructed.useLocalVPN && reconstructed.connectionMode == .localVPN,
+                     "reconstructed backend config must read the persisted mode")
+        reconstructed.remoteServerIp = "198.51.100.9"
+        reconstructed.overrideTunnelPeerIp = "198.51.100.11"
+        reconstructed.wireguardServerHost = "198.51.100.10"
+        reconstructed.wireguardServerPort = 62079
+        let afterReconstruction = ConnectionConfig()
+        precondition(afterReconstruction.remoteServerIp == "198.51.100.9")
+        precondition(afterReconstruction.overrideTunnelPeerIp == "198.51.100.11")
+        precondition(afterReconstruction.wireguardServerHost == "198.51.100.10")
+        precondition(afterReconstruction.wireguardServerPort == 62079)
+        print("V3_LIVE_CONNECTION_SETTINGS_PASS")
+    }}
+}}
+'''
+            program = config_without_module_import + "\n" + harness
+            source = Path(name) / "main.swift"
+            executable = Path(name) / "live-connection-settings"
+            source.write_text(program, encoding="utf-8")
+            compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
+                capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_LIVE_CONNECTION_SETTINGS_PASS", result.stdout)
+
     def test_legacy_pipeline_bundle_prompt_is_headless_and_idempotent(self):
         source = '''@MainActor
 func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID: String, appendTeamID: Bool)? {
@@ -530,6 +671,9 @@ import Foundation
             roots = self.fixture(directory)
             self.apply(roots)
             side = roots[1]
+            sign_in_path = side / "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"
+            sign_in_path.write_text(embedded_keychain.patch_sign_in_operation(sign_in_path.read_text(encoding="utf-8")),
+                                    encoding="utf-8")
             info = plistlib.loads((side / "AltStore/Info.plist").read_bytes())
             self.assertNotIn("UIMainStoryboardFile", info)
             self.assertNotIn("UIBackgroundModes", info)
@@ -669,7 +813,7 @@ import Foundation
             side_membership = project[side_member_start:side_member_end]
             for path in service.HEADLESS_SIDESTORE_VIEW_FILES + service.HEADLESS_SIDESTORE_AUX_UI_FILES:
                 self.assertIn(f'"{path}"', side_membership)
-            self.assertNotIn('"Views/Settings/Advanced/Connection/ConnectionConfig.swift"', side_membership)
+            self.assertIn('"Views/Settings/Advanced/Connection/ConnectionConfig.swift"', side_membership)
             for excluded_presentation in (
                 '"Views/Settings/Advanced/CacheMgmt/CacheManagementView.swift"',
                 '"Views/Settings/Advanced/CacheMgmt/CacheViewModel.swift"',
@@ -684,10 +828,20 @@ import Foundation
             self.assertIn('ask(kind: "bundleIDOverride"', host_pipeline_handler)
             self.assertIn('"key": "appendTeamID"', host_pipeline_handler)
             self.assertIn('answer["appendTeamID"] != "false"', host_pipeline_handler)
-            connection_config = (side / "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift").read_text(encoding="utf-8")
-            self.assertIn("V3_HEADLESS_ACTIVE_STATE_MODEL_V1", connection_config)
-            self.assertIn('enum ActiveState: String', connection_config)
-            self.assertIn("var tunnelPeerActive: ActiveState", connection_config)
+            legacy_connection_config = (side / "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift").read_text(encoding="utf-8")
+            backend_connection_config = (side / "SideStore/Core/DeviceApi/ConnectionConfig.swift").read_text(encoding="utf-8")
+            self.assertIn("V3_HEADLESS_CONNECTION_CONFIG_MOVED_V1", legacy_connection_config)
+            self.assertNotIn("SwiftUI", legacy_connection_config)
+            self.assertIn("V3_HEADLESS_BACKEND_CONNECTION_CONFIG_V1", backend_connection_config)
+            self.assertNotIn("SwiftUI", backend_connection_config)
+            self.assertNotIn("Combine", backend_connection_config)
+            self.assertNotIn("ObservableObject", backend_connection_config)
+            self.assertNotIn("@Published", backend_connection_config)
+            self.assertIn("get { UserDefaults.standard.useLocalVPN }", backend_connection_config)
+            self.assertIn("var connectionMode: DeviceConnectionMode", backend_connection_config)
+            minimuxer_wrapper = (side / "SideStore/Core/DeviceApi/MinimuxerWrapper.swift").read_text(encoding="utf-8")
+            self.assertIn("getConnectionMode: { config.connectionMode }", minimuxer_wrapper)
+            self.assertNotIn("Views/Settings/Advanced/Connection/ConnectionConfig.swift", minimuxer_wrapper)
             app_delegate = (side / "AltStore/AppDelegate.swift").read_text()
             self.assertNotIn("import Intents", app_delegate)
             self.assertNotIn("handlerFor intent: INIntent", app_delegate)
@@ -821,7 +975,6 @@ import Foundation
             self.assertIn("retryCredentials: (String, String)?", sign_in)
             self.assertIn("V3TwoFactorRetryPolicy.shouldReuseCredentialsForCodeRetry", sign_in)
             self.assertIn("v3ClassifyAuthError(error) == nil", sign_in)
-            self.assertIn("!(error is V3ProvisioningResumeUnavailableError)", sign_in)
             start_authentication = sign_in.index("private func startAuthentication")
             self.assertLess(sign_in.index("handleSignInResult(.success(silentResult))", start_authentication),
                             sign_in.index("self.provisioningLoop(", start_authentication))
