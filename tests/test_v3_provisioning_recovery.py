@@ -14,7 +14,9 @@ Rules enforced here:
 - Retry Provisioning reuses the authenticated session; Finish Later keeps the
   account and reconciles against authoritative SideStore state.
 """
+import os
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -24,7 +26,41 @@ SHELL = ROOT / "scripts/templates/v3_unified_shell.swift"
 SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
 WIRE = ROOT / "scripts/templates/v3_wire_contract.swift"
 FAILURE = ROOT / "scripts/templates/combined_failure.swift"
-PINNED = ROOT / ".audit/v103-sources/SideStore/SideStore/Core/Operations/Errors/OperationError.swift"
+WORKFLOW = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
+PINNED_SIDESTORE_REF = re.search(
+    r"(?m)^  EMBEDDED_SIDESTORE_REF: ([0-9a-f]{40})$", WORKFLOW)[1]
+OPERATION_ERROR_RELATIVE_PATH = Path("SideStore/Core/Operations/Errors/OperationError.swift")
+
+
+def pinned_operation_error_source() -> Path:
+    """Return OperationError.swift from the exact SideStore source used by CI.
+
+    CI supplies EMBEDDED_SIDESTORE_TEST_SOURCE after checking out the pinned
+    SideStore revision. A local fallback keeps older developer checkouts useful;
+    absence is a local skip, while an explicitly supplied or present-but-wrong
+    checkout is a hard failure.
+    """
+    override = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
+    source = Path(override) if override else ROOT / ".audit/v103-sources/SideStore"
+    if not source.exists():
+        if override:
+            raise AssertionError(f"Embedded SideStore source path does not exist: {source}")
+        raise unittest.SkipTest(
+            "Pinned SideStore source unavailable locally; CI supplies EMBEDDED_SIDESTORE_TEST_SOURCE")
+
+    revision = subprocess.run(["git", "-C", str(source), "rev-parse", "HEAD"],
+                              capture_output=True, text=True)
+    if revision.returncode != 0:
+        raise AssertionError(f"Could not read the SideStore source revision at {source}: {revision.stderr}")
+    actual = revision.stdout.strip()
+    if actual != PINNED_SIDESTORE_REF:
+        raise AssertionError(
+            f"Embedded SideStore source must be pinned to {PINNED_SIDESTORE_REF}, got {actual}")
+
+    path = source / OPERATION_ERROR_RELATIVE_PATH
+    if not path.is_file():
+        raise AssertionError(f"Pinned SideStore source is missing {OPERATION_ERROR_RELATIVE_PATH}")
+    return path
 
 # Every typed case the physical failure can realistically surface after Apple
 # authentication has already succeeded, per the defect report.
@@ -121,9 +157,7 @@ class TypedOperationErrorClassificationTests(unittest.TestCase):
     def test_typed_cases_match_the_pinned_upstream_enum(self):
         # Guards against a case label that does not exist upstream, which is a
         # hard build failure in the SideStore target.
-        if not PINNED.exists():
-            self.skipTest("pinned SideStore sources unavailable")
-        pinned = PINNED.read_text(encoding="utf-8")
+        pinned = pinned_operation_error_source().read_text(encoding="utf-8")
         declared = set(re.findall(r"^\s{4}case ([A-Za-z_][A-Za-z0-9_]*)", pinned, re.M))
         used = set(re.findall(r"case \.([A-Za-z_][A-Za-z0-9_]*):", guidance_function()))
         unknown = used - declared
@@ -335,9 +369,7 @@ class ResumableProvisioningOperationTests(unittest.TestCase):
         # switch, a bare `.case` reference therefore names that function and does
         # not compile. The typed harness must always supply the payload, so this
         # is caught without a Swift round-trip.
-        if not PINNED.exists():
-            self.skipTest("pinned SideStore sources unavailable")
-        pinned = PINNED.read_text(encoding="utf-8")
+        pinned = pinned_operation_error_source().read_text(encoding="utf-8")
         defaulted = set()
         for line in pinned.splitlines():
             match = re.match(r"^\s{4}case ([A-Za-z_][A-Za-z0-9_]*)\((.*)\)\s*$", line)
