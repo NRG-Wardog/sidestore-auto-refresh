@@ -52,8 +52,8 @@ struct ServiceReadinessPolicyHarness {
         let misroutedData = try! PropertyListSerialization.data(fromPropertyList: misroutedReply,
             format: .binary, options: 0)
         if case .failed(let failure) = V3ServiceReadinessReply.decode(misroutedData, requestID: requestID) {
-            precondition(failure.operation == "authBegin",
-                "a correlated notReady from the wrong operation must remain terminal")
+            precondition(failure.operation == "signIn",
+                "a correlated auth notReady is normalized to sign-in and remains terminal")
         } else { preconditionFailure("a notReady response from a different operation must not be retried") }
         let scheduledRunID = UUID().uuidString
         let terminalReadiness = V3ServiceReadinessFailure(operation: "snapshot",

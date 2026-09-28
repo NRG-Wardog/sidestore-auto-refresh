@@ -19,6 +19,23 @@ BACKGROUND_AUTH_MISSING_MARKER = "LC_AUTH_CREDENTIALS_MISSING_V1"
 SIGN_IN_SNAPSHOT_MARKER = "LC_SIGNIN_CREDENTIAL_SNAPSHOT_V1"
 IMPORT_EXPORT_SNAPSHOT_MARKER = "LC_IMPORT_EXPORT_CREDENTIAL_SNAPSHOT_V1"
 TEMPLATE = Path(__file__).parent / "templates/embedded_shared_keychain.swift"
+KEYCHAIN_ACCESS_ADAPTER = '''extension Keychain {
+    func authenticationSnapshot() throws -> LCEmbeddedAuthenticationSnapshot? {
+        try LCEmbeddedSharedKeychain.readAuthenticationSnapshot(self.keychain)
+    }
+    func writeAuthenticationCredentials(appleID: String, password: String,
+                                        dsid: String, authToken: String) throws {
+        try LCEmbeddedSharedKeychain.writeAuthenticationCredentials(
+            appleID: appleID, password: password, dsid: dsid, authToken: authToken,
+            client: self.keychain)
+    }
+    func clearSignInInfoChecked() throws {
+        try LCEmbeddedSharedKeychain.clearSignInInfoChecked(self.keychain)
+    }
+    func embeddedAuthenticationFailure(_ error: Error) -> NSError {
+        LCEmbeddedSharedKeychain.authenticationFailure(for: error)
+    }
+}'''
 
 
 def once(text: str, old: str, new: str) -> str:
@@ -227,24 +244,7 @@ def patch(root: Path) -> None:
                 try? self.keychain.remove("importedCert_" + serial)
             }''', '            LCEmbeddedSharedKeychain.write("importedCert_" + serial, data: newValue, client: self.keychain)')
         text = once(text, "        try? self.keychain.removeAll()", "        LCEmbeddedSharedKeychain.clearAll(self.keychain)")
-        text += "\n" + helper + """\nextension Keychain {
-    func authenticationSnapshot() throws -> LCEmbeddedAuthenticationSnapshot? {
-        try LCEmbeddedSharedKeychain.readAuthenticationSnapshot(self.keychain)
-    }
-    func writeAuthenticationCredentials(appleID: String, password: String,
-                                        dsid: String, authToken: String) throws {
-        try LCEmbeddedSharedKeychain.writeAuthenticationCredentials(
-            appleID: appleID, password: password, dsid: dsid, authToken: authToken,
-            client: self.keychain)
-    }
-    func clearSignInInfoChecked() throws {
-        try LCEmbeddedSharedKeychain.clearSignInInfoChecked(self.keychain)
-    }
-    func embeddedAuthenticationFailure(_ error: Error) -> NSError {
-        LCEmbeddedSharedKeychain.authenticationFailure(for: error)
-    }
-}
-"""
+        text += "\n" + helper + "\n" + KEYCHAIN_ACCESS_ADAPTER + "\n"
     elif (helper not in text or "func writeAuthenticationCredentials(appleID: String, password: String," not in text or
           "func authenticationSnapshot() throws -> LCEmbeddedAuthenticationSnapshot?" not in text or
           "func embeddedAuthenticationFailure(_ error: Error) -> NSError" not in text):

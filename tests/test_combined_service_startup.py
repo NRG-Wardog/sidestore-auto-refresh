@@ -86,6 +86,7 @@ let testSuite = "CombinedCompletionTest." + UUID().uuidString
 @MainActor final class Probe {
     var launchID: UUID? = UUID()
     var refreshRunID: String?
+    var v3RefreshTerminalCallbackRunID: String?
     var refreshContinuation: Int? = 1
     var completions: [Result<Void, Error>] = []
     func finishRefreshContinuation(_ result: Result<Void, Error>) { completions.append(result); refreshContinuation = nil }

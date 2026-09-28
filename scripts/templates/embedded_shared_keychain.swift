@@ -267,7 +267,7 @@ fileprivate enum LCEmbeddedSharedKeychain {
             throw error
         }
         do {
-            let snapshot = try withSharedTransaction {
+            let snapshot = try withSharedTransaction { () throws -> LCEmbeddedAuthenticationSnapshot? in
                 guard let values = try authenticationValuesLocked(client) else { return nil }
                 func string(_ key: String) -> String? {
                     values[key].flatMap { String(data: $0, encoding: .utf8) }

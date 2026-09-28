@@ -117,6 +117,10 @@ enum KeychainAccess {
         func allKeys() -> [String] { Array(Store.data[group, default: [:]].keys) }
     }
 }
+final class Keychain {
+    let keychain: KeychainAccess.Keychain
+    init(_ keychain: KeychainAccess.Keychain) { self.keychain = keychain }
+}
 typealias CFTypeRef = AnyObject
 typealias CFDictionary = [String: Any]
 let kSecClass = "class", kSecClassGenericPassword = "genp", kSecAttrService = "svce"
@@ -451,14 +455,14 @@ HARNESS = r'''
             }
             DispatchQueue.global().async {
                 Thread.current.threadDictionary["pauseAuthSnapshotMarker"] = true
-                observed.set(try? client.authenticationSnapshot())
+                observed.set(try? Keychain(client).authenticationSnapshot())
                 Thread.current.threadDictionary.removeObject(forKey: "pauseAuthSnapshotMarker")
                 readerFinished.signal()
             }
             precondition(markerEntered.wait(timeout: .now() + 2) == .success,
                 "the reader pauses after reading the old ready marker")
             DispatchQueue.global().async {
-                try? client.writeAuthenticationCredentials(appleID: "new@example.com",
+                try? Keychain(client).writeAuthenticationCredentials(appleID: "new@example.com",
                     password: "new-password", dsid: "new-dsid", authToken: "new-token")
                 writerFinished.signal()
             }
@@ -476,7 +480,7 @@ HARNESS = r'''
                 beforeCommit?.appleIDXcodeToken == "old-token" &&
                 beforeCommit?.isAuthenticated == true,
                 "a credential consumer sees one complete old generation")
-            let afterCommit = try client.authenticationSnapshot()
+            let afterCommit = try Keychain(client).authenticationSnapshot()
             precondition(afterCommit?.appleIDEmailAddress == "new@example.com" &&
                 afterCommit?.appleIDPassword == "new-password" &&
                 afterCommit?.appleIDAdsid == "new-dsid" &&
@@ -487,17 +491,18 @@ HARNESS = r'''
             Store.migrationMarkerReadEntered = nil
         case "snapshot_access_error_preserves_actionable_keychain_failure":
             let client = LCEmbeddedSharedKeychain.makeClient()
+            let authKeychain = Keychain(client)
             Store.failure = -25308
             var snapshotFailure: Error?
             do {
-                _ = try client.authenticationSnapshot()
+                _ = try authKeychain.authenticationSnapshot()
                 preconditionFailure("locked Keychain snapshot must fail")
             } catch { snapshotFailure = error }
             precondition(LCEmbeddedSharedKeychain.authenticationFailure(for: snapshotFailure!).code == 1005,
                 "snapshot access denial must keep the actionable locked-Keychain classification")
             Store.failure = 0
             seed()
-            let restored = try client.authenticationSnapshot()
+            let restored = try authKeychain.authenticationSnapshot()
             precondition(restored?.isAuthenticated == true,
                 "a successful read after unlock returns a complete snapshot")
             precondition(LCEmbeddedSharedKeychain.authenticationFailure(
@@ -519,7 +524,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory(prefix="lc-keychain-tests-")
         cls.addClassCleanup(cls.temp.cleanup)
         source = Path(cls.temp.name) / "KeychainTests.swift"
-        source.write_text(DOUBLES + TEMPLATE.read_text() + HARNESS)
+        source.write_text(DOUBLES + TEMPLATE.read_text() + module.KEYCHAIN_ACCESS_ADAPTER + HARNESS)
         cls.executable = Path(cls.temp.name) / "keychain-tests"
         result = subprocess.run([compiler, "-swift-version", "5", "-parse-as-library", "-O", str(source), "-o", str(cls.executable)], capture_output=True, text=True)
         if result.returncode:

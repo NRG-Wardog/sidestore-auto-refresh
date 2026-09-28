@@ -346,10 +346,10 @@ struct SetupAndSemanticUXHarness {
             refreshAttemptActive: true, anotherHostMutationActive: true,
             userConfirmedReconciliation: false) &&
             !V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
-                operation: "refreshAdmissionReconcile", target: runB, activeRunID: runA,
+                operation: "refreshAdmissionReconcile", target: "not-a-run-id", activeRunID: runA,
                 refreshAttemptActive: true, anotherHostMutationActive: false,
                 userConfirmedReconciliation: true),
-            "refresh reconciliation requires explicit confirmation and a canonical target run ID")
+            "host reconciliation requires confirmation and a canonical target; the service checks exact run ownership")
         var refreshLease = V3RefreshAdmissionLease()
         precondition(!refreshLease.acquire(runID: runA, requestID: refreshRequestA, authenticationActive: true,
             anotherMutationActive: false),

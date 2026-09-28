@@ -370,7 +370,7 @@ struct CatalogResponseEncodingHarness {
         ]), requestID: readinessID) {} else {
             preconditionFailure("readiness requires the typed snapshot result payload")
         }
-        let notReadyFailure = CombinedFailure(operation: "command", stage: .serviceReadiness,
+        let notReadyFailure = CombinedFailure(operation: "snapshot", stage: .serviceReadiness,
             code: .notReady, id: readinessID, retryable: true)
         let notReadyEnvelope = ["version": 1, "id": readinessID, "ok": false,
             "error": "failed", "failure": notReadyFailure.wire] as [String: Any]

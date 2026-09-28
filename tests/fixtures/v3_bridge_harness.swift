@@ -126,9 +126,11 @@ struct BridgeTests {
         let value = try await bridge.request(operation: "snapshot")
         precondition(value["account"] as? String == "fixture")
         precondition(client.operations == ["snapshot"], "cold launch/status triggered a mutation")
-        _ = try await bridge.request(operation: "signIn")
+        let authSession = UUID().uuidString
+        _ = try await bridge.request(operation: "authBegin", target: authSession,
+            payload: ["session": authSession, "sessionDeadline": Date().addingTimeInterval(600)])
         _ = try await bridge.request(operation: "refreshApp", target: "fixture-app")
-        precondition(client.operations == ["snapshot", "signIn", "refreshApp"], "explicit account/refresh integration order changed")
+        precondition(client.operations == ["snapshot", "authBegin", "refreshApp"], "explicit account/refresh integration order changed")
         client.stale = true
         do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("stale reply accepted") } catch {}
         client.stale = false; client.oversized = true
@@ -177,7 +179,11 @@ struct BridgeTests {
         let recovery = V3ServiceBridge(readTimeout: 1, commandTimeout: 1, cancellationGrace: 0.02)
         let stopsBeforeRecovery = handler.stops
         client.hold = true
-        let stuck = Task { try await recovery.request(operation: "signIn") }
+        let stuckAuthSession = UUID().uuidString
+        let stuck = Task {
+            try await recovery.request(operation: "authBegin", target: stuckAuthSession,
+                payload: ["session": stuckAuthSession, "sessionDeadline": Date().addingTimeInterval(600)])
+        }
         await waitForRequest(client)
         stuck.cancel()
         _ = try? await stuck.value

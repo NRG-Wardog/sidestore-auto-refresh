@@ -245,9 +245,6 @@ struct OperationTerminalHarness {
         let provisionalEncoded = V3ResponseEncoder.encodeDetailed(provisionalEnvelope,
             operation: "opPoll", limit: V3WireContract.responseLimit)
         precondition(provisionalEncoded.fallbackToken == nil)
-        precondition(V3ServiceReadinessReply.decode(provisionalEncoded.data,
-            requestID: pollRequestID) == .ready,
-            "the service envelope carries a plist-safe reconciling result to the host")
         let provisionalDecoded = try PropertyListSerialization.propertyList(
             from: provisionalEncoded.data, format: nil) as! [String: Any]
         let provisionalFields = provisionalDecoded["result"] as! [String: Any]

@@ -110,6 +110,11 @@ struct OperationRecoveryHarness {
             target: session, payload: ["userConfirmed": true], operationSessionID: nil,
             recovery: refreshRecord, recoveryReadFailed: false, refreshOwnerLost: true)
         precondition(refreshReconcile.recoveryControl && refreshReconcile.refreshRelease)
+        let wrongRefreshReconcile = V3ServiceRecoveryAdmissionPolicy.decide(operation: "refreshAdmissionReconcile",
+            target: UUID().uuidString, payload: ["userConfirmed": true], operationSessionID: nil,
+            recovery: refreshRecord, recoveryReadFailed: false, refreshOwnerLost: true)
+        precondition(wrongRefreshReconcile.blocksMutation && !wrongRefreshReconcile.refreshRelease,
+            "the service journal rejects confirmation for a different refresh run")
         let unconfirmedRefreshReconcile = V3ServiceRecoveryAdmissionPolicy.decide(operation: "refreshAdmissionReconcile",
             target: session, payload: ["userConfirmed": true], operationSessionID: nil,
             recovery: refreshRecord, recoveryReadFailed: false, refreshOwnerLost: false)
