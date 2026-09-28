@@ -126,9 +126,9 @@ struct BridgeTests {
         let value = try await bridge.request(operation: "snapshot")
         precondition(value["account"] as? String == "fixture")
         precondition(client.operations == ["snapshot"], "cold launch/status triggered a mutation")
-        let authSession = UUID().uuidString
-        _ = try await bridge.request(operation: "authBegin", target: authSession,
-            payload: ["session": authSession, "sessionDeadline": Date().addingTimeInterval(600)])
+        let signInSession = UUID().uuidString
+        _ = try await bridge.request(operation: "authBegin", target: signInSession,
+            payload: ["session": signInSession, "sessionDeadline": Date().addingTimeInterval(600)])
         _ = try await bridge.request(operation: "refreshApp", target: "fixture-app")
         precondition(client.operations == ["snapshot", "authBegin", "refreshApp"], "explicit account/refresh integration order changed")
         client.stale = true

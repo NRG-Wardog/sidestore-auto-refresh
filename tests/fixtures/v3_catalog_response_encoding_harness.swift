@@ -469,9 +469,10 @@ struct CatalogResponseEncodingHarness {
         // actual plist contract as mutations with a run-scoped UUID.
         let refreshRunID = UUID().uuidString
         for operation in ["refreshAdmissionBegin", "refreshAdmissionEnd"] {
-            let request: [String: Any] = ["version": 1, "id": UUID().uuidString,
+            var request: [String: Any] = ["version": 1, "id": UUID().uuidString,
                 "operation": operation, "target": refreshRunID,
                 "deadline": Date().addingTimeInterval(30)]
+            if operation == "refreshAdmissionEnd" { request["payload"] = ["state": "completed"] }
             let requestData = try! PropertyListSerialization.data(
                 fromPropertyList: request, format: .binary, options: 0)
             guard let decodedRequest = V3WireContract.decodeRequest(requestData) else {

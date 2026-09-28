@@ -133,8 +133,8 @@ func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<C
     precondition(query[kSecAttrService] as? String == "com.kdt.livecontainer")
     precondition(query[kSecClass] as? String == kSecClassGenericPassword)
     precondition(query[kSecUseAuthenticationUI] as? String == kSecUseAuthenticationUIFail)
-    precondition(query[kSecAttrAccessGroup] as? String == Store.keychainGroup,
-        "the app group container identifier is not a Keychain access group")
+    precondition(query[kSecAttrAccessGroup] == nil,
+        "legacy migration uses entitlement-filtered service lookup, not the App Group as a Keychain group")
     if Store.failure != 0 { return Store.failure }
     let visible = [Store.processGroup, Store.keychainGroup]
     var rows: [[String: Any]] = []
@@ -596,7 +596,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
                 target.write_text(original, encoding="utf-8")
                 destinations.append(target)
             op = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
-            op.parent.mkdir(parents=True)
+            op.parent.mkdir(parents=True, exist_ok=True)
             op.write_text('''func preflight() throws {
         let auth = AuthManager.shared
         let credentials = auth.authenticationSnapshot

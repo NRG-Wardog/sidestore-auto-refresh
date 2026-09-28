@@ -270,7 +270,9 @@ struct OperationTerminalHarness {
         let completedFields = completedDecoded["result"] as! [String: Any]
         precondition(completedFields["state"] as? String == "completed" &&
             completedFields["backendSettled"] as? Bool == true &&
-            V3ServiceReadinessReply.decode(completedEncoded.data, requestID: pollRequestID) == .ready,
+            completedDecoded["id"] as? String == pollRequestID &&
+            V3WireContract.strictInt(completedDecoded["version"]) == 1 &&
+            V3WireContract.strictBool(completedDecoded["ok"]) == true,
             "the settled callback terminal survives service encoding and host envelope validation")
 
         let provisionalFailure = V3OperationTerminalResponse()

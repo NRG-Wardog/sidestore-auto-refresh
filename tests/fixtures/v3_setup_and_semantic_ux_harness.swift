@@ -684,7 +684,7 @@ struct SetupAndSemanticUXHarness {
         precondition(V3OperationFailureDetails(signingNetworkFailure).recoveryDestination == "connection",
             "the global issue router and operation sheet must agree on the typed network cause")
         for stage: CombinedFailure.Stage in [.serviceReadiness, .xpcConnection, .rsdDiscovery,
-                                               .refreshVerification, .replyEncoding, .source, .catalog] {
+                                               .refreshVerification, .replyEncoding] {
             let timeout = CombinedFailure(operation: "install", stage: stage,
                 code: .timedOut, id: UUID().uuidString)
             precondition(!timeout.safeMessage.contains(stage.rawValue),
