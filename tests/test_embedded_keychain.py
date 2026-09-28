@@ -19,6 +19,11 @@ SPEC.loader.exec_module(module)
 
 DOUBLES = r'''
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 // In-memory namespace isolation; each client pins its group at construction.
 enum Store {
     static var group: String? = "group.example.shared"
@@ -27,6 +32,10 @@ enum Store {
     static var data: [String: [String: Data]] = [:]
     static var failure = 0
     static var writes = 0
+    static var removeCalls = 0
+    static var removeFailAt: Int?
+    static var setCalls = 0
+    static var setFailAt: Int?
     static var logs: [String] = []
 }
 func debugLog(_ message: String) { Store.logs.append(message) }
@@ -54,10 +63,18 @@ enum KeychainAccess {
         }
         func set(_ value: Data, key: String) throws {
             if Store.failure != 0 { throw NSError(domain: NSOSStatusErrorDomain, code: Store.failure) }
+            Store.setCalls += 1
+            if let failAt = Store.setFailAt, Store.setCalls == failAt {
+                Store.setFailAt = nil; throw NSError(domain: NSOSStatusErrorDomain, code: -25291)
+            }
             Store.data[group, default: [:]][key] = value; Store.writes += 1
         }
         func remove(_ key: String) throws {
             if Store.failure != 0 { throw NSError(domain: NSOSStatusErrorDomain, code: Store.failure) }
+            Store.removeCalls += 1
+            if let failAt = Store.removeFailAt, Store.removeCalls == failAt {
+                Store.removeFailAt = nil; throw NSError(domain: NSOSStatusErrorDomain, code: -25291)
+            }
             Store.data[group]?.removeValue(forKey: key); Store.writes += 1
         }
         func allKeys() -> [String] { Array(Store.data[group, default: [:]].keys) }
@@ -184,14 +201,34 @@ HARNESS = r'''
             seed(); let client = LCEmbeddedSharedKeychain.makeClient(); LCEmbeddedSharedKeychain.prepare(client)
             Store.failure = -25291
             do {
-                try LCEmbeddedSharedKeychain.removeChecked("appleIDXcodeToken", client: client)
+                try LCEmbeddedSharedKeychain.clearSignInInfoChecked(client)
                 preconditionFailure("a locked Keychain deletion must not be reported as confirmed")
             } catch {}
             precondition(Store.data[group]?["appleIDXcodeToken"] == login["appleIDXcodeToken"])
+            precondition(Store.data[group]?[LCSharedKeychainMigration.marker] == LCSharedKeychainMigration.ready)
             Store.failure = 0
-            try LCEmbeddedSharedKeychain.removeChecked("appleIDXcodeToken", client: client)
-            precondition(Store.data[group]?["appleIDXcodeToken"] == nil,
-                "a successful checked removal confirms the credential is absent")
+            try LCEmbeddedSharedKeychain.clearSignInInfoChecked(client)
+            precondition(Store.data[group]?[LCSharedKeychainMigration.marker] == LCSharedKeychainMigration.signedOut)
+        case "checked_signout_rollback":
+            seed(); let client = LCEmbeddedSharedKeychain.makeClient(); LCEmbeddedSharedKeychain.prepare(client)
+            let before = Store.data[group]!
+            Store.removeCalls = 0; Store.removeFailAt = 2
+            do {
+                try LCEmbeddedSharedKeychain.clearSignInInfoChecked(client)
+                preconditionFailure("the second key deletion must fail")
+            } catch { precondition((error as NSError).code == -25291) }
+            precondition(Store.data[group] == before,
+                "a failed partial sign-out restores every auth value and its prior migration marker")
+        case "checked_signout_outcome_unknown":
+            seed(); let client = LCEmbeddedSharedKeychain.makeClient(); LCEmbeddedSharedKeychain.prepare(client)
+            Store.removeCalls = 0; Store.removeFailAt = 2
+            Store.setCalls = 0; Store.setFailAt = 2 // fail the first restoration write
+            do {
+                try LCEmbeddedSharedKeychain.clearSignInInfoChecked(client)
+                preconditionFailure("failed rollback must report an unknown result")
+            } catch { precondition((error as NSError).code == 1010) }
+            precondition(Store.data[group]?[LCSharedKeychainMigration.marker] == LCSharedKeychainMigration.signedOut,
+                "an unconfirmed rollback keeps the tombstone to suppress stale migration")
         case "clear_all_no_resurrection":
             seed(); let client = LCEmbeddedSharedKeychain.makeClient(); LCEmbeddedSharedKeychain.prepare(client)
             LCEmbeddedSharedKeychain.clearAll(client); LCEmbeddedSharedKeychain.prepare(client)
@@ -274,7 +311,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
             raise AssertionError(result.stderr)
 
     def test_execution_scenarios(self):
-        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "stale_snapshot_signout", "checked_signout_failure", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "certificate_only", "invalid_utf8"):
+        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "stale_snapshot_signout", "checked_signout_failure", "checked_signout_rollback", "checked_signout_outcome_unknown", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "certificate_only", "invalid_utf8"):
             with self.subTest(scenario=scenario):
                 result = subprocess.run([str(self.executable), scenario], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -298,7 +335,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         self.assertIn("func clearSignInInfoChecked() throws", patch)
-        self.assertIn("LCEmbeddedSharedKeychain.removeChecked(key, client: self.keychain)", patch)
+        self.assertIn("LCEmbeddedSharedKeychain.clearSignInInfoChecked(self.keychain)", patch)
         self.assertIn("try Keychain.shared.clearSignInInfoChecked()", runtime)
         self.assertLess(runtime.index("try Keychain.shared.clearSignInInfoChecked()"),
                         runtime.index("AuthManager.shared.signOut(keepCertificate: true"))

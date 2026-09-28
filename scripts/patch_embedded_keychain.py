@@ -27,7 +27,7 @@ def patch(root: Path) -> None:
     text = original
     helper = TEMPLATE.read_text(encoding="utf-8")
     if MARKER not in text:
-        text = once(text, "import Foundation\n", "import Foundation\nimport Security\n")
+        text = once(text, "import Foundation\n", "import Foundation\nimport Security\n#if canImport(Darwin)\nimport Darwin\n#elseif canImport(Glibc)\nimport Glibc\n#endif\n")
         text = once(text, "KeychainAccess.Keychain(service: Bundle.Info.appbundleIdentifier)\n                                            .accessibility(.afterFirstUnlock)\n                                            .synchronizable(true)",
                     "LCEmbeddedSharedKeychain.makeClient()")
         text = once(text, "case is Data.Type: return try? Keychain.shared.keychain.getData(self.key) as? Value",
@@ -49,9 +49,7 @@ def patch(root: Path) -> None:
         text = once(text, "        try? self.keychain.removeAll()", "        LCEmbeddedSharedKeychain.clearAll(self.keychain)")
         text += "\n" + helper + """\nextension Keychain {
     func clearSignInInfoChecked() throws {
-        for key in ["appleIDEmailAddress", "appleIDPassword", "appleIDAdsid", "appleIDXcodeToken"] {
-            try LCEmbeddedSharedKeychain.removeChecked(key, client: self.keychain)
-        }
+        try LCEmbeddedSharedKeychain.clearSignInInfoChecked(self.keychain)
     }
     func embeddedAuthenticationFailure() -> NSError { LCEmbeddedSharedKeychain.authenticationFailure() }
 }

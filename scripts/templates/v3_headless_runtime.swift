@@ -2377,9 +2377,11 @@ enum V3BackendCommands {
         do {
             try Keychain.shared.clearSignInInfoChecked()
         } catch {
+            let cause: CombinedFailure.SafeCause = (error as NSError).code == 1010
+                ? .keychainSignOutOutcomeUnknown : .keychainSignOutFailed
             throw CombinedFailure(operation: "signOut", stage: .authentication,
                 code: .failed, id: UUID().uuidString, underlying: error, retryable: true,
-                safeCause: .keychainSignOutFailed)
+                safeCause: cause)
         }
     }
 

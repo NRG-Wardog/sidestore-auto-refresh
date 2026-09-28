@@ -145,6 +145,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case authSessionUnavailable
         case authResponseCapacityUnavailable
         case keychainSignOutFailed
+        case keychainSignOutOutcomeUnknown
 
         fileprivate var inferredRetryable: Bool? {
             switch self {
@@ -199,7 +200,7 @@ public struct CombinedFailure: Error, LocalizedError {
                 return false
             case .authResponseCapacityUnavailable:
                 return true
-            case .keychainSignOutFailed:
+            case .keychainSignOutFailed, .keychainSignOutOutcomeUnknown:
                 return true
             }
         }
@@ -316,7 +317,8 @@ public struct CombinedFailure: Error, LocalizedError {
             case .authProvisioningRetryNotDispatched: return "SideStore did not start the provisioning retry; the saved authentication session was not changed by this request."
             case .authSessionUnavailable: return "SideStore no longer has the active sign-in session."
             case .authResponseCapacityUnavailable: return "SideStore could not start sign-in because it cannot safely reserve a response slot yet."
-            case .keychainSignOutFailed: return "SideStore could not confirm removal of the saved Apple sign-in data, so it kept the current session."
+            case .keychainSignOutFailed: return "SideStore could not confirm removal of the saved Apple sign-in data. Sign Out stopped, and any partial changes were rolled back."
+            case .keychainSignOutOutcomeUnknown: return "SideStore could not confirm the Sign Out outcome. Reload Account & Signing to reconcile which Apple account is active before continuing."
             }
         }
         switch stage {
@@ -517,6 +519,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Wait for SideStore to release earlier request results, reload account status, then try again. No Apple credentials were submitted."
             case .keychainSignOutFailed:
                 return "Unlock the iPhone and try Sign Out again. If it still fails, copy Diagnostics."
+            case .keychainSignOutOutcomeUnknown:
+                return "Reload Account & Signing to reconcile which Apple account is active before continuing. Do not assume Sign Out completed."
             }
         }
         switch stage {

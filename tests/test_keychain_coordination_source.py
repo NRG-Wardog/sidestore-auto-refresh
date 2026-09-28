@@ -10,6 +10,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 KEYCHAIN = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text(encoding="utf-8")
 HANDOFF = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
+FAILURE = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+RUNTIME = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
 
 
 class KeychainCoordinationSourceTests(unittest.TestCase):
@@ -33,6 +35,19 @@ class KeychainCoordinationSourceTests(unittest.TestCase):
                         signout.index("try client.remove(key)"))
         self.assertIn("guard try client.getData(key) == nil", signout)
         self.assertIn("client.set(LCSharedKeychainMigration.signedOut", KEYCHAIN[KEYCHAIN.index("static func clearAll("):])
+
+    def test_signout_failure_restores_snapshot_or_reports_unknown(self):
+        start = KEYCHAIN.index("static func clearSignInInfoChecked(")
+        end = KEYCHAIN.index("static func clearAll(", start)
+        transaction = KEYCHAIN[start:end]
+        self.assertLess(transaction.index("let saved = try keys.map"),
+                        transaction.index("client.set(LCSharedKeychainMigration.signedOut"))
+        self.assertIn("for (key, value) in saved", transaction)
+        self.assertIn("LCSharedKeychainMigration.marker) == priorMarker", transaction)
+        self.assertIn("code: 1010", transaction)
+        self.assertIn("case keychainSignOutOutcomeUnknown", FAILURE)
+        self.assertIn("reload account & signing to reconcile which apple account is active", FAILURE.lower())
+        self.assertIn("code == 1010", RUNTIME)
 
     def test_migration_and_signout_use_process_shared_flock(self):
         self.assertIn("flock(descriptor, LOCK_EX)", KEYCHAIN)

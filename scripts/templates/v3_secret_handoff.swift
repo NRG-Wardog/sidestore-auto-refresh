@@ -10,13 +10,24 @@ import Glibc
 /// Advisory process-shared lock for operations that must coordinate between
 /// the LiveContainer app and its embedded service process. NSLock is process local.
 enum V3AppGroupProcessLock {
-    static func withLock<T>(_ operation: () throws -> T) throws -> T {
+    static func withLock<T>(containerRoot: URL? = nil, _ operation: () throws -> T) throws -> T {
         #if canImport(Darwin)
-        guard let appGroup = Bundle.main.altstoreAppGroup, !appGroup.isEmpty,
-              let container = FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: appGroup) else {
-            throw V3SecretHandoffError.unavailable
+        let container: URL
+        if let containerRoot { container = containerRoot }
+        else {
+            guard let appGroup = Bundle.main.altstoreAppGroup, !appGroup.isEmpty,
+                  let sharedContainer = FileManager.default.containerURL(
+                    forSecurityApplicationGroupIdentifier: appGroup) else {
+                throw V3SecretHandoffError.unavailable
+            }
+            container = sharedContainer
         }
+        #elseif canImport(Glibc)
+        guard let containerRoot else { throw V3SecretHandoffError.unavailable }
+        let container = containerRoot
+        #else
+        throw V3SecretHandoffError.unavailable
+        #endif
         let directory = ["Library", "Application Support", "LiveContainer"].reduce(
             container.standardizedFileURL) { $0.appendingPathComponent($1, isDirectory: true) }.standardizedFileURL
         do {
@@ -36,9 +47,6 @@ enum V3AppGroupProcessLock {
         guard flock(descriptor, LOCK_EX) == 0 else { throw V3SecretHandoffError.unavailable }
         defer { _ = flock(descriptor, LOCK_UN) }
         return try operation()
-        #else
-        throw V3SecretHandoffError.unavailable
-        #endif
     }
 }
 

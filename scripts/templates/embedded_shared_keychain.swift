@@ -8,12 +8,6 @@
 // that lock or write the shared tombstone, so no client-side protocol can
 // exclude a credential snapshot it already took before this patch was active.
 
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
-
 // LC_SHARED_MIGRATION_POLICY_BEGIN
 struct LCLegacyKeychainItem {
     let group: String
@@ -104,13 +98,25 @@ enum LCSharedKeychainMigration {
 /// Cooperative, process-shared serialization for the app and LiveProcess.
 /// flock is released by the kernel if a process exits while holding it.
 private enum LCSharedKeychainFileLock {
-    static func withLock<T>(appGroup: String?, _ operation: () throws -> T) throws -> T {
+    static func withLock<T>(appGroup: String?, containerRoot: URL? = nil,
+                            _ operation: () throws -> T) throws -> T {
         #if canImport(Darwin)
-        guard let appGroup, !appGroup.isEmpty,
-              let container = FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: appGroup) else {
-            throw NSError(domain: "com.SideStore.Keychain", code: -34018)
+        let container: URL
+        if let containerRoot { container = containerRoot }
+        else {
+            guard let appGroup, !appGroup.isEmpty,
+                  let sharedContainer = FileManager.default.containerURL(
+                    forSecurityApplicationGroupIdentifier: appGroup) else {
+                throw NSError(domain: "com.SideStore.Keychain", code: -34018)
+            }
+            container = sharedContainer
         }
+        #elseif canImport(Glibc)
+        guard let containerRoot else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
+        let container = containerRoot
+        #else
+        throw NSError(domain: "com.SideStore.Keychain", code: -34018)
+        #endif
         let directory = ["Library", "Application Support", "LiveContainer"].reduce(
             container.standardizedFileURL) { $0.appendingPathComponent($1, isDirectory: true) }.standardizedFileURL
         do {
@@ -134,9 +140,6 @@ private enum LCSharedKeychainFileLock {
         }
         defer { _ = flock(descriptor, LOCK_UN) }
         return try operation()
-        #else
-        throw NSError(domain: "com.SideStore.Keychain", code: -34018)
-        #endif
     }
 }
 
@@ -310,6 +313,57 @@ fileprivate enum LCEmbeddedSharedKeychain {
             note(key, status: (error as NSError).code)
             throw error
         }
+    }
+
+    static func clearSignInInfoChecked(_ client: KeychainAccess.Keychain) throws {
+        guard installedGroup != nil else {
+            note("configuration", status: -34018)
+            throw NSError(domain: "com.SideStore.Keychain", code: -34018)
+        }
+        do {
+            try withSharedTransaction {
+                let keys = LCSharedKeychainMigration.authKeys
+                let saved = try keys.map { key in (key: key, value: try client.getData(key)) }
+                let priorMarker = try client.getData(LCSharedKeychainMigration.marker)
+                do {
+                    try client.set(LCSharedKeychainMigration.signedOut, key: LCSharedKeychainMigration.marker)
+                    guard try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.signedOut else {
+                        throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                    }
+                    for (key, value) in saved {
+                        if value != nil { try client.remove(key) }
+                        guard try client.getData(key) == nil else {
+                            throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                        }
+                    }
+                    note("signout", status: 0)
+                } catch {
+                    let removalError = error
+                    do {
+                        for (key, value) in saved {
+                            if let value { try client.set(value, key: key) }
+                            else if try client.getData(key) != nil { try client.remove(key) }
+                            guard try client.getData(key) == value else {
+                                throw NSError(domain: "com.SideStore.Keychain", code: 1010)
+                            }
+                        }
+                        if let priorMarker { try client.set(priorMarker, key: LCSharedKeychainMigration.marker) }
+                        else if try client.getData(LCSharedKeychainMigration.marker) != nil {
+                            try client.remove(LCSharedKeychainMigration.marker)
+                        }
+                        guard try client.getData(LCSharedKeychainMigration.marker) == priorMarker else {
+                            throw NSError(domain: "com.SideStore.Keychain", code: 1010)
+                        }
+                    } catch {
+                        note("signout", status: 1010)
+                        throw NSError(domain: "com.SideStore.Keychain", code: 1010,
+                            userInfo: [NSLocalizedDescriptionKey: "The sign-out result is unknown; reload account state before continuing."])
+                    }
+                    note("signout", status: (removalError as NSError).code)
+                    throw removalError
+                }
+            }
+        } catch { throw error }
     }
 
     static func clearAll(_ client: KeychainAccess.Keychain) {
