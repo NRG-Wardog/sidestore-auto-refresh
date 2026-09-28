@@ -9,11 +9,13 @@ import sys
 import tempfile
 import struct
 import unittest
+from unittest import mock
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from audit_ipa_signing import signing as inspect_signing
+import patch_v3_service
 
 spec = importlib.util.spec_from_file_location(
     "verify_candidate_ipa", ROOT / "scripts/verify_candidate_ipa.py")
@@ -54,6 +56,101 @@ def java_class_file():
     return (b"\xca\xfe\xba\xbe" + struct.pack(">HHH", 0, 61, 3) +
             b"\x07\x00\x02\x01\x00\x01A" +
             struct.pack(">7H", 0x21, 1, 0, 0, 0, 0, 0))
+
+
+class ExcludedSideStorePipelineUITests(unittest.TestCase):
+    def test_pipeline_ui_types_are_discovered_from_production_patch_file_list(self):
+        files = (patch_v3_service.HEADLESS_SIDESTORE_VIEW_FILES +
+                 patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES +
+                 patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES)
+        source_by_path = {
+            "SideStore/Managing Apps/AppExtensionView.swift": "struct AppExtensionView {}",
+            "SideStore/Permissions/ReviewPermissionsViewController.swift":
+                "final class ReviewPermissionsViewController {}",
+        }
+        tracked = ["SideStore/" + relative for relative in files]
+
+        def git_output(command, **kwargs):
+            if command[3:5] == ["ls-tree", "-r"]:
+                return "\n".join(tracked)
+            if command[3] == "show":
+                path = command[4].split(":", 1)[1]
+                return source_by_path.get(path, "")
+            raise AssertionError(f"unexpected git invocation: {command}")
+
+        with mock.patch.object(verify_module.subprocess, "check_output", side_effect=git_output):
+            found = verify_module.excluded_side_store_view_type_names(
+                Path("unused"), files, source_ref="pinned-revision")
+
+        self.assertEqual(found, ["AppExtensionView", "ReviewPermissionsViewController"])
+
+    def test_production_verifier_rejects_each_excluded_pipeline_ui_symbol_in_ipa(self):
+        forbidden_symbols = ("AppExtensionView", "ReviewPermissionsViewController")
+        product = "v3.0.3-rc"
+        builder_commit = "a" * 40
+        run_url = "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/123"
+        host_info = {
+            "LCProductLine": "Combined LC+SS " + product,
+            "LCBuilderCommit": builder_commit,
+            "CFBundleURLTypes": [{"CFBundleURLSchemes": sorted(verify_module.REQUIRED_SCHEMES)}],
+            "BGTaskSchedulerPermittedIdentifiers": sorted(verify_module.REQUIRED_BACKGROUND_IDS),
+            "UIBackgroundModes": sorted(verify_module.REQUIRED_BACKGROUND_MODES),
+        }
+        side_info = {
+            "CFBundleExecutable": "SideStore",
+            "LCProductLine": "Combined LC+SS " + product,
+            "LCBuilderCommit": builder_commit,
+            "LCBuildRunURL": run_url,
+        }
+        bundles = {
+            verify_module.BASE: {"info": host_info},
+            verify_module.BASE + "/Frameworks/SideStoreApp.framework": {"info": side_info},
+        }
+        for framework in verify_module.REQUIRED_FRAMEWORKS:
+            path = verify_module.BASE + "/Frameworks/" + framework
+            bundles.setdefault(path, {
+                "info": {"CFBundleExecutable": framework[:-len(".framework")]},
+                "executable_present": True,
+            })
+        bundles[verify_module.BASE + "/Frameworks/SideStoreApp.framework"].update(
+            {"executable_present": True})
+        ipa_info_path = verify_module.BASE + "/Info.plist"
+        side_store_path = (verify_module.BASE + "/Frameworks/SideStoreApp.framework/SideStore")
+        host_code_path = (verify_module.BASE +
+                          "/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI")
+
+        for symbol in forbidden_symbols:
+            with self.subTest(symbol=symbol), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ipa = root / "candidate.ipa"
+                side_source = root / "side-source"
+                side_source.mkdir()
+                encoded_symbol = f"$s9SideStore{len(symbol)}{symbol}C".encode("utf-8")
+                with zipfile.ZipFile(ipa, "w") as archive:
+                    archive.writestr(ipa_info_path, plistlib.dumps(host_info))
+                    archive.writestr(side_store_path,
+                                     thin_arm64_macho() +
+                                     b"com.kdt.livecontainer.v3-secret-handoff\x00" +
+                                     encoded_symbol)
+                    archive.writestr(host_code_path,
+                                     thin_arm64_macho() +
+                                     b"com.kdt.livecontainer.v3-secret-handoff")
+
+                with mock.patch.object(verify_module, "inventory", return_value={"bundles": bundles}), \
+                        mock.patch.object(verify_module.subprocess, "check_output",
+                                          return_value=verify_module.SOURCE_PINS[1]), \
+                        mock.patch.object(verify_module, "excluded_side_store_view_type_names",
+                                          return_value=[symbol]) as inventory_check:
+                    with self.assertRaisesRegex(ValueError,
+                                                "embedded SideStore still contains excluded presenter UI"):
+                        verify_module.verify(ipa, root / "unused-provenance.json", product,
+                                             side_source=side_source)
+
+                passed_files = inventory_check.call_args.args[1]
+                self.assertEqual(passed_files,
+                                 patch_v3_service.HEADLESS_SIDESTORE_VIEW_FILES +
+                                 patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES +
+                                 patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES)
 
 
 class CandidateArchiveSizeReportTests(unittest.TestCase):

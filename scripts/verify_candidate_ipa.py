@@ -20,6 +20,7 @@ import zipfile
 from audit_ipa_signing import inventory
 from package_livecontainer_combined import verify_shared_secret_handoff_group
 from patch_v3_service import (HEADLESS_SIDESTORE_AUX_UI_FILES,
+                              HEADLESS_SIDESTORE_PIPELINE_UI_FILES,
                               HEADLESS_SIDESTORE_VIEW_FILES, PINS as SOURCE_PINS)
 
 
@@ -844,8 +845,8 @@ def verify(ipa: Path, provenance_path: Path, product: str,
                              + ", ".join(legacy_intents))
         legacy_ui = find_legacy_side_store_ui_symbols(side_store_executable_data)
         headless_view_symbols = excluded_side_store_view_type_names(
-            side_source, HEADLESS_SIDESTORE_VIEW_FILES + HEADLESS_SIDESTORE_AUX_UI_FILES,
-            source_ref=SOURCE_PINS[1])
+            side_source, (HEADLESS_SIDESTORE_VIEW_FILES + HEADLESS_SIDESTORE_AUX_UI_FILES +
+                          HEADLESS_SIDESTORE_PIPELINE_UI_FILES), source_ref=SOURCE_PINS[1])
         legacy_view_types = missing_excluded_ui_symbols(side_store_executable_data, headless_view_symbols)
         legacy_ui = sorted(set(legacy_ui + legacy_view_types))
         if legacy_ui:
