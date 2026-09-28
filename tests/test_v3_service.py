@@ -691,7 +691,7 @@ import Foundation
             prior["patchVersion"] = 31
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "v31 prepared trees cannot be migrated safely"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 31 cannot be migrated safely to v32"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -724,7 +724,7 @@ import Foundation
             self.assertIn(".downloadAlert", (roots[0] / "LiveContainerSwiftUI/Views/LCTabView.swift").read_text())
             self.assertNotIn("LCUtils.openSideStore", (roots[0] / "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift").read_text(encoding="utf-8"))
 
-    def test_v30_manifest_migrates_anisette_model_and_target_exclusion(self):
+    def test_v30_manifest_fails_closed_without_mutation(self):
         side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
         if not side_source:
             self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the pinned SideStore checkout")
@@ -748,7 +748,7 @@ import Foundation
             manifest_path = roots[0] / ".v3-command-patch.json"
             v30_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(v30_manifest["patchVersion"], service.PATCH_VERSION)
-            v30_manifest["patchVersion"] = service.ANISETTE_MANIFEST_MIGRATION_VERSION
+            v30_manifest["patchVersion"] = 30
             v30_manifest["templates"].pop(service.HEADLESS_ANISETTE_MODELS_MANIFEST_KEY)
             v30_manifest["files"] = [record for record in v30_manifest["files"] if record[1] != model_relative]
             project_records = [record for record in v30_manifest["files"]
@@ -757,42 +757,11 @@ import Foundation
             project_records[0][2] = hashlib.sha256(v30_project.encode("utf-8")).hexdigest()
             manifest_path.write_text(json.dumps(v30_manifest, indent=2) + "\n", encoding="utf-8")
 
-            before_migration = self.snapshot(directory)
-            self.apply(roots)
-            pinned_view = subprocess.check_output([
-                "git", "-C", side_source, "show",
-                f"{service.PINS[1]}:{service.HEADLESS_ANISETTE_UI_SOURCE}"],
-                text=True, encoding="utf-8")
-            generated_model = service.headless_anisette_models(pinned_view)
-            self.assertEqual(model_path.read_text(encoding="utf-8"), generated_model)
-            migrated_project = project_path.read_text(encoding="utf-8")
-            self.assertIn(exclusion, migrated_project)
-            self.assertEqual(migrated_project,
-                             service.headless_project((Path(side_source) / "AltStore.xcodeproj/project.pbxproj").read_text(encoding="utf-8")))
-            migrated_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.assertEqual(migrated_manifest["patchVersion"], service.PATCH_VERSION)
-            self.assertEqual(migrated_manifest["pins"], list(service.PINS))
-            model_hash = hashlib.sha256(generated_model.encode("utf-8")).hexdigest()
-            self.assertEqual(migrated_manifest["templates"][service.HEADLESS_ANISETTE_MODELS_MANIFEST_KEY], model_hash)
-            migrated_records = [record for record in migrated_manifest["files"] if record[1] == model_relative]
-            self.assertEqual(migrated_records, [[1, model_relative, model_hash]])
-            migrated_project_records = [record for record in migrated_manifest["files"]
-                                        if record[0] == 1 and record[1] == "AltStore.xcodeproj/project.pbxproj"]
-            self.assertEqual(len(migrated_project_records), 1)
-            self.assertEqual(migrated_project_records[0][2], hashlib.sha256(migrated_project.encode("utf-8")).hexdigest())
-
-            migrated_snapshot = self.snapshot(directory)
-            changed = {path.replace("\\", "/") for path in migrated_snapshot
-                       if before_migration.get(path) != migrated_snapshot[path]}
-            self.assertEqual(changed, {
-                "live/.v3-command-patch.json",
-                "side/AltStore.xcodeproj/project.pbxproj",
-                "side/AltStore/Settings/AnisetteServerModels.swift",
-            })
-
-            self.apply(roots)
-            self.assertEqual(migrated_snapshot, self.snapshot(directory),
-                             "a migrated v30 Anisette manifest must replay idempotently")
+            before = self.snapshot(directory)
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 30 cannot be migrated safely to v32"):
+                self.apply(roots)
+            self.assertEqual(before, self.snapshot(directory),
+                             "the real v30 output shape must fail closed without partial migration")
 
     def test_v29_manifest_fails_closed_with_clean_checkout_recovery(self):
         with tempfile.TemporaryDirectory() as name:
@@ -806,7 +775,7 @@ import Foundation
             legacy["templates"].pop(service.HEADLESS_ANISETTE_MODELS_MANIFEST_KEY)
             manifest_path.write_text(json.dumps(legacy, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "v29 prepared trees cannot be migrated safely.*discard generated work directories"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 29 cannot be migrated safely to v32.*discard generated work directories"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory), "unsupported v29 manifests must fail without mutation")
 
@@ -820,7 +789,7 @@ import Foundation
             unknown["patchVersion"] = 999
             manifest_path.write_text(json.dumps(unknown, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "template changed; apply to fresh pinned sources"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 999 cannot be migrated safely to v32"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory), "unknown patch versions must fail without mutation")
 

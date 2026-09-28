@@ -13,7 +13,6 @@ TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
 PATCH_VERSION = 32
-ANISETTE_MANIFEST_MIGRATION_VERSION = 30
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -684,27 +683,6 @@ def headless_anisette_models(source):
     return "import Foundation\nimport SideSign\n\n" + data_model + "\n\n" + server_model + "\n"
 
 
-def add_headless_anisette_view_exclusion(project):
-    anchor = "A8EEC8CB2F4B146B00F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {"
-    if project.count(anchor) != 1:
-        raise SystemExit("v3 service: AltStore synchronized source exclusion anchor changed")
-    block_start = project.index(anchor)
-    member_start = project.index("membershipExceptions = (", block_start)
-    member_end = project.index(");", member_start)
-    members = project[member_start:member_end]
-    view = '"Settings/AnisetteServerList.swift"'
-    if view in members:
-        return project
-    insertion_marker = '"Settings/PatreonViewController.swift",'
-    if members.count(insertion_marker) != 1:
-        raise SystemExit("v3 service: Anisette exclusion insertion anchor changed")
-    marker_position = project.index(insertion_marker, member_start, member_end)
-    line_start = project.rfind("\n", member_start, marker_position) + 1
-    indentation = project[line_start:marker_position]
-    insertion = indentation + view + ",\n"
-    return project[:line_start] + insertion + project[line_start:]
-
-
 def headless_nuke_app_delegate(text):
     marker = "V3_HEADLESS_IMAGE_PIPELINE_REMOVED_V1"
     if marker in text:
@@ -1274,73 +1252,19 @@ def patch(live, side):
     headless_models = headless_anisette_models(anisette_ui_source)
     template_hashes[HEADLESS_ANISETTE_MODELS_MANIFEST_KEY] = hashlib.sha256(
         headless_models.encode("utf-8")).hexdigest()
-    v30_template_hashes = dict(template_hashes)
-    v30_template_hashes.pop(HEADLESS_ANISETTE_MODELS_MANIFEST_KEY)
     if manifest.exists():
         previous = json.loads(manifest.read_text())
-        if previous.get("patchVersion") == 29:
+        previous_version = previous.get("patchVersion")
+        if previous_version != PATCH_VERSION:
             raise SystemExit(
-                "v3 service: v29 prepared trees cannot be migrated safely after the Anisette extraction; "
+                f"v3 service: prepared patch version {previous_version!r} cannot be migrated safely to v{PATCH_VERSION}; "
                 "discard generated work directories and rebuild from the exact pinned sources")
         for index, relative, digest in previous["files"]:
             if hashlib.sha256((roots[index] / relative).read_bytes()).hexdigest() != digest:
                 raise SystemExit(f"v3 service: previously patched file drifted: {relative}")
-        if previous.get("patchVersion") == PATCH_VERSION and previous.get("templates") == template_hashes:
-            return
-
-        if (previous.get("patchVersion") == 31 and
-                previous.get("pins") == list(PINS)):
-            raise SystemExit(
-                "v3 service: v31 prepared trees cannot be migrated safely after the PipelineHandler UI extraction; "
-                "discard generated work directories and rebuild from the exact pinned sources")
-
-        # Version 30 is the real prior generated format: it includes the
-        # backend connection model hash, but has neither the extracted
-        # Anisette model nor the corresponding target membership exclusion.
-        if (previous.get("patchVersion") == ANISETTE_MANIFEST_MIGRATION_VERSION and
-                previous.get("pins") == list(PINS) and
-                previous.get("templates") == v30_template_hashes):
-            model_relative = HEADLESS_ANISETTE_MODELS_SOURCE
-            project_relative = "AltStore.xcodeproj/project.pbxproj"
-            if any(record[0] == 1 and record[1] == model_relative for record in previous["files"]):
-                raise SystemExit("v3 service: v30 manifest unexpectedly records an Anisette model")
-            model_path = side / model_relative
-            if model_path.exists():
-                raise SystemExit("v3 service: v30 prepared tree already contains an unrecorded Anisette model")
-            project_path = side / project_relative
-            project_records = [record for record in previous["files"]
-                               if record[0] == 1 and record[1] == project_relative]
-            if len(project_records) != 1:
-                raise SystemExit("v3 service: v30 manifest lacks a unique generated SideStore project")
-            old_project = project_path.read_text(encoding="utf-8")
-            anchor = "A8EEC8CB2F4B146B00F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {"
-            if old_project.count(anchor) != 1:
-                raise SystemExit("v3 service: v30 AltStore synchronized source exclusion anchor changed")
-            block_start = old_project.index(anchor)
-            member_start = old_project.index("membershipExceptions = (", block_start)
-            member_end = old_project.index(");", member_start)
-            if '"Settings/AnisetteServerList.swift"' in old_project[member_start:member_end]:
-                raise SystemExit("v3 service: v30 project unexpectedly excludes the Anisette view")
-            migrated_project = add_headless_anisette_view_exclusion(old_project)
-            if migrated_project == old_project:
-                raise SystemExit("v3 service: failed to add the Anisette UI target exclusion")
-            generated_models = headless_models.encode("utf-8")
-            migrated_project_bytes = migrated_project.encode("utf-8")
-
-            project_records[0][2] = hashlib.sha256(migrated_project_bytes).hexdigest()
-            previous["files"].append([1, model_relative, hashlib.sha256(generated_models).hexdigest()])
-            previous["patchVersion"] = PATCH_VERSION
-            previous["templates"] = template_hashes
-
-            # Validate every v30-owned byte and all migration anchors before
-            # writing either owned output. Only the project, new model, and
-            # manifest change in this in-place migration.
-            project_path.write_bytes(migrated_project_bytes)
-            model_path.write_bytes(generated_models)
-            manifest.write_text(json.dumps(previous, indent=2) + "\n", encoding="utf-8")
-            return
-
-        raise SystemExit("v3 service: template changed; apply to fresh pinned sources")
+        if previous.get("templates") != template_hashes:
+            raise SystemExit("v3 service: template changed; apply to fresh pinned sources")
+        return
 
     changes = {}
     def edit(root, relative, transform):
