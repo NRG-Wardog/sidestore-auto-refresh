@@ -89,7 +89,9 @@ class JITLessOwnershipTests(unittest.TestCase):
         health = shell[health_start:shell.index('.navigationTitle("Health Check")', health_start)]
         self.assertIn("V3JITLessHealthRecoveryPolicy.shouldOfferCanonicalSetup", health)
         self.assertIn('case .unknown:', health)
-        self.assertIn('Button(checking ? "Checking..." : "Re-check")', health)
+        unknown = health[health.index('case .unknown:'):health.index('case .activeCertificateMissing', health.index('case .unknown:'))]
+        self.assertIn('Button(reloadQueue.isChecking ? "Checking..." : "Re-check")', unknown)
+        self.assertIn('.disabled(reloadQueue.isChecking)', unknown)
 
 
 if __name__ == "__main__":
