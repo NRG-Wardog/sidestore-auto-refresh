@@ -94,6 +94,7 @@ class ServicePatchTests(unittest.TestCase):
              "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
             ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",
              "AltStore/Managing Apps/AppManager.swift",
+             "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
              "AltStore/Authentication/AuthenticationViewController.swift",
              "AltStore/Authentication/InstructionsViewController.swift",
              "AltStore/Authentication/ResignAltStoreViewController.swift",
@@ -354,20 +355,26 @@ class ServicePatchTests(unittest.TestCase):
             self.assertIn("struct RefreshAllAppsIntent", refresh_intent_source)
             self.assertNotIn("struct InstallIPAIntent", refresh_intent_source)
             self.assertNotIn("AppManager.shared.install(.url", refresh_intent_source)
-            self.assertIn("V3ShortcutRefreshRequest.make()", refresh_intent_source)
-            self.assertIn("request.userInfo", refresh_intent_source)
-            self.assertIn('Notification.Name("LiveContainerAutoRefreshRunNow")', refresh_intent_source)
+            self.assertIn("V3_SHORTCUT_GUEST_BACKEND_PIPELINE_V1", refresh_intent_source)
+            self.assertIn("AppManager.shared.backgroundRefresh", refresh_intent_source)
+            self.assertIn("DatabaseManager.shared.start()", refresh_intent_source)
+            self.assertIn("ProgressReportingIntent", refresh_intent_source)
+            self.assertIn("operationActor", refresh_intent_source)
+            self.assertNotIn('Notification.Name("LiveContainerAutoRefreshRunNow")', refresh_intent_source)
             shortcut_request_policy = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
             self.assertIn('"origin": "manualUnknown"', shortcut_request_policy)
             self.assertIn("static var openAppWhenRun = true", refresh_intent_source)
-            self.assertNotIn("AppManager.shared.backgroundRefresh", refresh_intent_source)
-            self.assertNotIn("DatabaseManager.shared.start()", refresh_intent_source)
-            self.assertNotIn("OperationActor", refresh_intent_source)
-            self.assertNotIn("ProgressReportingIntent", refresh_intent_source)
-            self.assertNotIn("self.progress", refresh_intent_source)
-            self.assertIn("Refresh All was requested in LiveContainer", refresh_intent_source)
-            self.assertIn('Notification.Name("LiveContainerAutoRefreshRunNow")', refresh_intent_source)
-            self.assertIn('"origin": "manualUnknown"', refresh_intent_source)
+            widget_intent_source = (side / "AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift").read_text(encoding="utf-8")
+            self.assertIn("ProgressReportingIntent", widget_intent_source)
+            self.assertIn("RefreshAllAppsIntent(presentsNotifications: true)", widget_intent_source)
+            support = (live / "SideStoreSupport/SideStore.swift").read_text(encoding="utf-8")
+            self.assertIn("V3ShortcutRefreshRequest.make()", support)
+            self.assertIn('Notification.Name("LiveContainerAutoRefreshRunNow")', support)
+            intent_helper = support[support.index("func performIntentRefresh("):support.index("class RefreshHandler")]
+            self.assertNotIn("RefreshHandler.shared.startRefresh(identifier: identifier", intent_helper)
+            self.assertIn("Refresh All was requested in LiveContainer", support)
+            self.assertIn('Notification.Name("LiveContainerAutoRefreshRunNow")', support)
+            self.assertIn('"origin": "manualUnknown"', shortcut_request_policy)
             self.assertIn("AppShortcut(intent: RefreshAllAppsIntent()", shortcuts_source)
             self.assertNotIn("InstallIPAIntent", shortcuts_source)
             widget_intent_source = (side / "AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift").read_text(encoding="utf-8")

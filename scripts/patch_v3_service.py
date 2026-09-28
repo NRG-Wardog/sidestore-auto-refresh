@@ -367,16 +367,14 @@ def headless_app_intents(text, relative):
         if "InstallIPAIntent" in text:
             raise SystemExit(f"v3 service: legacy IPA shortcut remains in {relative}")
         if relative.endswith("RefreshAllAppsIntent.swift") and (
-                "import Foundation\n" not in text or
-                "V3_SHORTCUT_REFRESH_SHARED_SCHEDULER_V1" not in text or
-                "Notification.Name(\"LiveContainerAutoRefreshRunNow\")" not in text or
-                "AppManager.shared.backgroundRefresh" in text or
-                "ProgressReportingIntent" in text or "self.progress" in text or
-                "openAppWhenRun = true" not in text):
-            raise SystemExit("v3 service: Refresh All intent is not routed through the shared host scheduler")
+                "V3_SHORTCUT_GUEST_BACKEND_PIPELINE_V1" not in text or
+                "AppManager.shared.backgroundRefresh" not in text or
+                "ProgressReportingIntent" not in text or "operationActor" not in text or
+                "openAppWhenRun = true" not in text or
+                "Notification.Name(\"LiveContainerAutoRefreshRunNow\")" in text):
+            raise SystemExit("v3 service: SideStore's scheduled backend adapter is missing or bypassed")
         return text
     if relative.endswith("RefreshAllAppsIntent.swift"):
-        text = replace(text, "import AppIntents\n", "import AppIntents\nimport Foundation\n")
         start_marker = "@available(iOS 17.0, tvOS 17.0, *)\nstruct InstallIPAIntent: AppIntent, ProgressReportingIntent"
         end_marker = "@available(iOS 17.0, tvOS 17.0, *)\nextension RefreshAllAppsIntent"
         if text.count(start_marker) != 1 or text.count(end_marker) != 1:
@@ -386,80 +384,22 @@ def headless_app_intents(text, relative):
         text = text[:start] + "// " + marker + ": IPA installation is host-owned.\n\n" + text[end:]
         if "struct InstallIPAIntent" in text or "AppManager.shared.install(.url" in text:
             raise SystemExit("v3 service: legacy IPA installation shortcut removal is partial")
-        shared_scheduler_marker = "V3_SHORTCUT_REFRESH_SHARED_SCHEDULER_V1"
-        if shared_scheduler_marker not in text:
-            actor_start = "@available(iOS 17.0, tvOS 17.0, *)\nextension RefreshAllAppsIntent\n{"
-            intent_start = "@available(iOS 17.0, tvOS 17.0, *)\nstruct RefreshAllAppsIntent"
-            if text.count(actor_start) != 1 or text.count(intent_start) != 1:
-                raise SystemExit("v3 service: legacy refresh-operation actor anchor changed")
-            start = text.index(actor_start)
-            end = text.index(intent_start, start)
-            text = text[:start] + "// " + shared_scheduler_marker + ": remove the direct AppManager refresh actor.\n\n" + text[end:]
-            title = '    static var title: LocalizedStringResource = "Refresh All Apps"\n'
-            if text.count(title) != 1:
-                raise SystemExit("v3 service: Refresh All title anchor changed")
-            text = text.replace(title, title + "    static var openAppWhenRun = true\n", 1)
-            intent_protocols = "struct RefreshAllAppsIntent: AppIntent, CustomIntentMigratedAppIntent, PredictableIntent, ProgressReportingIntent, ForegroundContinuableIntent"
-            if text.count(intent_protocols) != 1:
-                raise SystemExit("v3 service: Refresh All intent protocol list changed")
-            text = text.replace(intent_protocols,
-                "struct RefreshAllAppsIntent: AppIntent, CustomIntentMigratedAppIntent, PredictableIntent, ForegroundContinuableIntent", 1)
-
-            perform_start = "    func perform() async throws -> some IntentResult & ProvidesDialog\n    {"
-            if text.count(perform_start) != 1:
-                raise SystemExit("v3 service: Refresh All perform anchor changed")
-            perform_index = text.index(perform_start)
-            options_start = "    let presentsNotifications: Bool\n"
-            if text.count(options_start) != 1:
-                raise SystemExit("v3 service: legacy refresh notification option changed")
-            options_index = text.index(options_start)
-            if options_index >= perform_index:
-                raise SystemExit("v3 service: refresh options are not before perform")
-            text = text[:options_index] + '''    init()
-    {
-    }
-
-''' + text[perform_index:]
-            perform_index = text.index(perform_start)
-            private_extension = "\n@available(iOS 17.0, tvOS 17.0, *)\nprivate extension RefreshAllAppsIntent"
-            if text.count(private_extension) != 1:
-                raise SystemExit("v3 service: Refresh All implementation extension changed")
-            private_index = text.index(private_extension, perform_index)
-            struct_close = text.rfind("\n}\n", perform_index, private_index)
-            if struct_close < perform_index:
-                raise SystemExit("v3 service: Refresh All struct terminator changed")
-            replacement_perform = '''    func perform() async throws -> some IntentResult & ProvidesDialog
-    {
-        do {
-            try await self.refreshAllApps()
-            return .result(dialog: "Refresh All was requested in LiveContainer. Check Refresh History for the run result.")
-        } catch {
-            throw IntentError(error)
-        }
-    }'''
-            text = text[:perform_index] + replacement_perform + text[struct_close:]
-            private_index = text.index(private_extension, perform_index + len(replacement_perform))
-            text = text[:private_index] + '''
-@available(iOS 17.0, tvOS 17.0, *)
-private extension RefreshAllAppsIntent
-{
-    func refreshAllApps() async throws
-    {
-        try Task.checkCancellation()
-        let request = V3ShortcutRefreshRequest.make()
-        NotificationCenter.default.post(
-            name: Notification.Name("LiveContainerAutoRefreshRunNow"),
-            object: nil, userInfo: request.userInfo)
-    }
-}
-'''
-        if ("V3ShortcutRefreshRequest.make()" not in text or
-                "Notification.Name(\"LiveContainerAutoRefreshRunNow\")" not in text or
-                "AppManager.shared.backgroundRefresh" in text or
-                "operationActor" in text or "presentsNotifications" in text or
-                "ProgressReportingIntent" in text or ".progress" in text or
+        title = '    static var title: LocalizedStringResource = "Refresh All Apps"\n'
+        if text.count(title) != 1:
+            raise SystemExit("v3 service: Refresh All title anchor changed")
+        text = text.replace(title, title + "    static var openAppWhenRun = true\n", 1)
+        backend_marker = "V3_SHORTCUT_GUEST_BACKEND_PIPELINE_V1"
+        backend_anchor = "@available(iOS 17.0, tvOS 17.0, *)\nextension RefreshAllAppsIntent\n{"
+        if text.count(backend_anchor) != 1:
+            raise SystemExit("v3 service: SideStore refresh backend adapter changed")
+        text = text.replace(backend_anchor,
+            backend_anchor + "\n    // " + backend_marker + ": this guest action runs the canonical SideStore refresh pipeline.", 1)
+        if ("AppManager.shared.backgroundRefresh" not in text or
+                "DatabaseManager.shared.start()" not in text or
+                "ProgressReportingIntent" not in text or "operationActor" not in text or
+                "Notification.Name(\"LiveContainerAutoRefreshRunNow\")" in text or
                 "openAppWhenRun = true" not in text):
-            raise SystemExit("v3 service: Refresh All intent bypasses the shared host scheduler")
+            raise SystemExit("v3 service: SideStore refresh backend adapter was removed or redirected")
         return text
     if relative.endswith("AppShortcuts.swift"):
         start_marker = "        AppShortcut(intent: InstallIPAIntent(),"
@@ -476,34 +416,16 @@ private extension RefreshAllAppsIntent
 
 
 def headless_widget_refresh_intent(text):
-    marker = "V3_SHORTCUT_WIDGET_FORWARD_TO_REFRESH_INTENT_V1"
+    marker = "V3_SHORTCUT_WIDGET_BACKEND_FORWARD_V1"
     if marker in text:
-        if ('debugLog("Failed to refresh apps via widget. \\(error)")' in text or
-                "RefreshAllAppsIntent()" not in text or "ProgressReportingIntent" in text):
-            raise SystemExit("v3 service: widget intent failure forwarding is partial")
+        if ("ProgressReportingIntent" not in text or
+                "RefreshAllAppsIntent(presentsNotifications: true)" not in text):
+            raise SystemExit("v3 service: widget no longer forwards through the SideStore backend")
         return text
-    text = replace(text, "RefreshAllAppsIntent(presentsNotifications: true)",
-                   "RefreshAllAppsIntent()")
-    text = replace(text, "struct RefreshAllAppsWidgetIntent: AppIntent, ProgressReportingIntent\n{",
-                   "struct RefreshAllAppsWidgetIntent: AppIntent\n{")
-    text = replace(text,
-        '''        catch
-        {
-            debugLog("Failed to refresh apps via widget. \\(error)")
-        }
-''',
-        '''        catch
-        {
-            // V3_SHORTCUT_WIDGET_FORWARD_TO_REFRESH_INTENT_V1: never report a failed host request as success.
-            throw error
-        }
-''')
-    text = replace(text, "        return .result()",
-        '        return .result(dialog: "Refresh All was requested in LiveContainer. Check Refresh History for the run result.")')
-    if ("RefreshAllAppsIntent()" not in text or
-            "throw error" not in text or
-            "Refresh All was requested in LiveContainer" not in text):
-        raise SystemExit("v3 service: widget no longer forwards to the shared host refresh intent")
+    if ("ProgressReportingIntent" not in text or
+            "RefreshAllAppsIntent(presentsNotifications: true)" not in text):
+        raise SystemExit("v3 service: widget backend adapter changed")
+    text = replace(text, "import AppIntents\n", "import AppIntents\n// " + marker + ": retain the upstream guest-to-backend adapter.\n")
     return text
 
 

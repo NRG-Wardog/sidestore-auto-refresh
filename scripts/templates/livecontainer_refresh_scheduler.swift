@@ -224,21 +224,6 @@ enum LiveContainerAutoRefreshScheduler {
                                          userInfo: identity)
     }
 
-    private static func canonicalRequestID(_ value: String?) -> String? {
-        guard let value, let uuid = UUID(uuidString: value) else { return nil }
-        return uuid.uuidString
-    }
-
-    private static func canonicalManualOrigin(_ value: String?, source: String) -> String {
-        let allowed: Set<String> = ["home", "refreshManager", "setupAssistant", "deadlineAlarm", "vpnReturn", "manualUnknown"]
-        if let value, allowed.contains(value) { return value }
-        switch source {
-        case "alarm_action": return "deadlineAlarm"
-        case "vpn_return": return "vpnReturn"
-        default: return "manualUnknown"
-        }
-    }
-
     private static func beginRun(source: String, manual: Bool, requestID: String? = nil,
                                  manualOrigin: String? = nil) -> UUID? {
         guard activeRun == nil else { return nil }
@@ -253,9 +238,11 @@ enum LiveContainerAutoRefreshScheduler {
         if !manual, let last = defaults.object(forKey: lastAttemptKey) as? Date,
            Date().timeIntervalSince(last) < coalescingWindow { return nil }
         let id = UUID()
-        let runID = id.uuidString
-        let correlatedRequestID = manual ? (canonicalRequestID(requestID) ?? UUID().uuidString) : nil
-        let origin = manual ? canonicalManualOrigin(manualOrigin, source: source) : source
+        let correlation = V3RefreshRunCorrelation.make(source: source, manual: manual,
+            requestID: requestID, manualOrigin: manualOrigin, runID: id)
+        let runID = correlation.runID
+        let correlatedRequestID = correlation.requestID
+        let origin = correlation.origin
         activeRun = id
         if let correlatedRequestID {
             defaults.set(correlatedRequestID, forKey: activeManualRequestKey)

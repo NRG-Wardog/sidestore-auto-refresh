@@ -13,9 +13,13 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
     def test_shortcut_refresh_is_forwarded_to_host_scheduler(self):
         runtime = (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         intent = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
+        host_patch = (ROOT / "scripts/patch_livecontainer_autorefresh.py").read_text(encoding="utf-8")
         self.assertIn("struct V3ShortcutRefreshRequest", runtime)
-        self.assertIn('Notification.Name("LiveContainerAutoRefreshRunNow")', intent)
-        self.assertIn('"origin": "manualUnknown"', runtime)
+        self.assertIn('Notification.Name("LiveContainerAutoRefreshRunNow")', host_patch)
+        self.assertIn("V3ShortcutRefreshRequest.make()", host_patch)
+        self.assertIn('mangledName: "9SideStore20RefreshAllAppsIntentV"', host_patch)
+        self.assertIn("V3_SHORTCUT_GUEST_BACKEND_PIPELINE_V1", intent)
+        self.assertIn('origin: "manualUnknown"', runtime)
 
     def test_picker_delete_refresh_and_route_behavior_executes(self):
         compiler = shutil.which("swiftc")
