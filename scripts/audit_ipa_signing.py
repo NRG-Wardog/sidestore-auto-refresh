@@ -117,7 +117,11 @@ def _thin_signing(data):
 
 
 def inventory(path):
-    result = {'file': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'bundles': {}}
+    digest = hashlib.sha256()
+    with path.open('rb') as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b''):
+            digest.update(chunk)
+    result = {'file': str(path), 'sha256': digest.hexdigest(), 'bundles': {}}
     with zipfile.ZipFile(path) as archive:
         names = set(archive.namelist())
         for name in sorted(names):

@@ -194,6 +194,66 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
         self.assertEqual(inspect_signing(fat_macho(thin)), [expected])
         self.assertEqual(inspect_signing(fat64_macho(thin)), [expected])
 
+    def test_archive_preflight_limits_reject_metadata_before_member_decompression(self):
+        limits = {
+            "compressed_ipa_bytes": 100,
+            "member_count": 2,
+            "total_uncompressed_bytes": 100,
+            "member_uncompressed_bytes": 80,
+            "compression_ratio": 10,
+        }
+
+        class MetadataOnlyArchive:
+            def __init__(self, infos):
+                self.infos = infos
+                self.testzip_called = False
+
+            def infolist(self):
+                return self.infos
+
+            def testzip(self):
+                self.testzip_called = True
+                raise AssertionError("preflight must reject before decompression")
+
+        cases = (
+            (101, [], "compressed IPA exceeds"),
+            (50, [zipfile.ZipInfo(str(index)) for index in range(3)], "member-count limit"),
+            (50, [self._zip_info("large", 81, 20)], "member exceeds"),
+            (50, [self._zip_info("total-a", 60, 30), self._zip_info("total-b", 60, 30)],
+             "total expanded-size limit"),
+            (50, [self._zip_info("ratio", 50, 1)], "compression-ratio limit"),
+        )
+        for ipa_size, infos, message in cases:
+            with self.subTest(message=message):
+                archive = MetadataOnlyArchive(infos)
+                with self.assertRaisesRegex(ValueError, message):
+                    verify_module.preflight_archive(archive, ipa_size, limits)
+                self.assertFalse(archive.testzip_called)
+
+    @staticmethod
+    def _zip_info(name, expanded_size, compressed_size):
+        info = zipfile.ZipInfo(name)
+        info.file_size = expanded_size
+        info.compress_size = compressed_size
+        return info
+
+    def test_archive_preflight_accepts_normal_zip_and_runs_crc_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ipa = Path(directory) / "normal.ipa"
+            with zipfile.ZipFile(ipa, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("Payload/LiveContainer.app/Info.plist", plistlib.dumps({"CFBundleExecutable": "LiveContainer"}))
+                archive.writestr("Payload/LiveContainer.app/LiveContainer", thin_arm64_macho())
+                symlink = zipfile.ZipInfo(
+                    "Payload/LiveContainer.app/Frameworks/Example.framework/Versions/Current")
+                symlink.create_system = 3
+                symlink.external_attr = 0o120777 << 16
+                archive.writestr(symlink, "A")
+            with zipfile.ZipFile(ipa) as archive:
+                infos = verify_module.preflight_archive(archive, ipa.stat().st_size)
+            self.assertEqual(len(infos), 3)
+            self.assertEqual(infos[-1].external_attr >> 16 & 0o170000, 0o120000)
+            self.assertEqual(verify_module.sha256_file(ipa), hashlib.sha256(ipa.read_bytes()).hexdigest())
+
     def test_provenance_run_url_must_match_exact_github_actions_repo_and_shape(self):
         good = "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/36372125879"
         self.assertTrue(verify_module.is_github_actions_run_url(good))

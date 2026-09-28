@@ -81,6 +81,16 @@ REMOVED_SIDESTORE_UI_SYMBOLS = (
 
 
 CPU_TYPE_ARM64 = 0x0100000C
+MIB = 1024 * 1024
+# The observed candidate is about 39 MB compressed and 95 MB expanded. These
+# ceilings allow over 5x growth; count, per-member, and ratio caps also bound ZIP work.
+DEFAULT_ARCHIVE_LIMITS = {
+    "compressed_ipa_bytes": 250 * MIB,
+    "member_count": 100_000,
+    "total_uncompressed_bytes": 500 * MIB,
+    "member_uncompressed_bytes": 256 * MIB,
+    "compression_ratio": 1000,
+}
 THIN_MAGICS = {
     b"\xce\xfa\xed\xfe": ("<", 28), b"\xfe\xed\xfa\xce": (">", 28),
     b"\xcf\xfa\xed\xfe": ("<", 32), b"\xfe\xed\xfa\xcf": (">", 32),
@@ -373,6 +383,56 @@ def require_unique_archive_member_names(infos) -> None:
         seen.add(info.filename)
     if duplicates:
         raise ValueError("IPA contains duplicate ZIP member names: " + ", ".join(sorted(duplicates)[:8]))
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def validate_ipa_size(ipa_size_bytes: int, limits: dict | None = None) -> None:
+    policy = dict(DEFAULT_ARCHIVE_LIMITS)
+    if limits is not None:
+        policy.update(limits)
+    if ipa_size_bytes < 0 or ipa_size_bytes > policy["compressed_ipa_bytes"]:
+        raise ValueError("compressed IPA exceeds the configured size limit")
+
+
+def validate_archive_metadata(ipa_size_bytes: int, infos, limits: dict | None = None) -> None:
+    """Reject oversized ZIP metadata before any member is decompressed."""
+    policy = dict(DEFAULT_ARCHIVE_LIMITS)
+    if limits is not None:
+        policy.update(limits)
+    validate_ipa_size(ipa_size_bytes, policy)
+    if len(infos) > policy["member_count"]:
+        raise ValueError("IPA exceeds the configured ZIP member-count limit")
+    total_uncompressed = 0
+    for info in infos:
+        if info.file_size < 0 or info.compress_size < 0:
+            raise ValueError(f"ZIP member has invalid size metadata: {info.filename}")
+        if info.file_size > policy["member_uncompressed_bytes"]:
+            raise ValueError(f"ZIP member exceeds the configured expanded-size limit: {info.filename}")
+        total_uncompressed += info.file_size
+        if total_uncompressed > policy["total_uncompressed_bytes"]:
+            raise ValueError("IPA exceeds the configured total expanded-size limit")
+        if info.file_size:
+            if info.compress_size == 0 or info.file_size > info.compress_size * policy["compression_ratio"]:
+                raise ValueError(f"ZIP member exceeds the configured compression-ratio limit: {info.filename}")
+
+
+def preflight_archive(archive, ipa_size_bytes: int, limits: dict | None = None):
+    """Apply central-directory limits and duplicate checks before testzip reads payloads."""
+    validate_ipa_size(ipa_size_bytes, limits)
+    infos = archive.infolist()
+    validate_archive_metadata(ipa_size_bytes, infos, limits)
+    require_unique_archive_member_names(infos)
+    bad_member = archive.testzip()
+    if bad_member:
+        raise ValueError(f"corrupt IPA member: {bad_member}")
+    return infos
 
 
 REQUIRED_GENERATED_HOST_SOURCES = {
@@ -722,17 +782,13 @@ def verify(ipa: Path, provenance_path: Path, product: str,
         raise ValueError("the SideStore source checkout has no readable Git revision") from error
     if side_source_sha != SOURCE_PINS[1]:
         raise ValueError("SideStore source checkout does not match the pinned revision")
-    raw = ipa.read_bytes()
-    digest = hashlib.sha256(raw).hexdigest()
-    size = len(raw)
+    size = ipa.stat().st_size
+    validate_ipa_size(size)
+    digest = sha256_file(ipa)
     side_store_asset_report = {}
     with zipfile.ZipFile(ipa) as archive:
-        bad_member = archive.testzip()
-        if bad_member:
-            raise ValueError(f"corrupt IPA member: {bad_member}")
+        archive_infos = preflight_archive(archive, size)
         names = archive.namelist()
-        archive_infos = archive.infolist()
-        require_unique_archive_member_names(archive_infos)
         lower_names = [name.lower() for name in names]
         if any(".audit" in name.split("/") or ".git" in name.split("/") for name in lower_names):
             raise ValueError("audit or repository implementation data is packaged")
