@@ -33,6 +33,7 @@ struct OperationRecoveryJournalHarness {
         defer { try? FileManager.default.removeItem(at: root) }
 
         try testNonInstallSchemaAndTerminalRemoval(root: root)
+        try testPreparedCancellationAndDispatchedProtection(root: root)
         try testStagedIPATokenPersistsUntilSettledTerminal(root: root)
         try testProcessSharedLockWithTemporaryRoot(root: root)
         print("V3_OPERATION_RECOVERY_JOURNAL_PASS")
@@ -103,6 +104,35 @@ struct OperationRecoveryJournalHarness {
         try FileManager.default.removeItem(at: stagedFile)
         precondition(!FileManager.default.fileExists(atPath: stagedFile.path),
             "the local IPA can be removed after the correlated settled terminal")
+    }
+
+    private static func testPreparedCancellationAndDispatchedProtection(root: URL) throws {
+        let preparedID = UUID().uuidString
+        let reserved = try V3OperationRecoveryJournal.reserve(sessionID: preparedID, kind: "delete",
+            containerRoot: root)
+        precondition(reserved)
+        let cancelled = try V3OperationRecoveryJournal.clearPreparedAfterConfirmedCancellation(
+            sessionID: preparedID, replySessionID: preparedID, state: "cancelled",
+            backendSettled: true, stopConfirmed: true, knownStarted: false, containerRoot: root)
+        precondition(cancelled)
+        let afterCancel = try V3OperationRecoveryJournal.current(containerRoot: root)
+        precondition(afterCancel == nil)
+
+        let dispatchedID = UUID().uuidString
+        let dispatchedReservation = try V3OperationRecoveryJournal.reserve(sessionID: dispatchedID,
+            kind: "delete", containerRoot: root)
+        precondition(dispatchedReservation)
+        let didDispatch = try V3OperationRecoveryJournal.beginDispatch(sessionID: dispatchedID,
+            kind: "delete", containerRoot: root)
+        precondition(didDispatch)
+        let incorrectlyCleared = try V3OperationRecoveryJournal.clearPreparedAfterConfirmedCancellation(
+            sessionID: dispatchedID, replySessionID: dispatchedID, state: "cancelled",
+            backendSettled: true, stopConfirmed: true, knownStarted: false, containerRoot: root)
+        precondition(!incorrectlyCleared)
+        let retained = try V3OperationRecoveryJournal.current(containerRoot: root)
+        precondition(retained?.sessionID == dispatchedID && retained?.phase == .dispatched)
+        _ = try V3OperationRecoveryJournal.reconcileAfterDeviceCheck(sessionID: dispatchedID,
+            userConfirmed: true, containerRoot: root)
     }
 
     private static func testProcessSharedLockWithTemporaryRoot(root: URL) throws {

@@ -105,6 +105,32 @@ struct OperationRecoveryHarness {
             expectedRequestID: preparedRequestID, replyRequestID: preparedRequestID,
             operationNotDispatched: true), "a correlated service rejection proves dispatch never occurred")
 
+        var cancelledBeforeDispatch = V3OperationRecoveryLease()
+        let cancelledSessionID = UUID().uuidString
+        precondition(cancelledBeforeDispatch.reserve(sessionID: cancelledSessionID, kind: "delete") == .reserved)
+        precondition(!cancelledBeforeDispatch.clearPreparedAfterConfirmedCancellation(
+            sessionID: cancelledSessionID, replySessionID: cancelledSessionID,
+            state: "cancelled", backendSettled: true, stopConfirmed: true, knownStarted: true),
+            "the knownStarted=false path cannot be inferred from a started request")
+        precondition(!cancelledBeforeDispatch.clearPreparedAfterConfirmedCancellation(
+            sessionID: cancelledSessionID, replySessionID: UUID().uuidString,
+            state: "cancelled", backendSettled: true, stopConfirmed: true, knownStarted: false),
+            "a mismatched cancel reply cannot clear a prepared session")
+        precondition(cancelledBeforeDispatch.clearPreparedAfterConfirmedCancellation(
+            sessionID: cancelledSessionID, replySessionID: cancelledSessionID,
+            state: "cancelled", backendSettled: true, stopConfirmed: true, knownStarted: false),
+            "a correlated settled opCancel before opStart clears the prepared lease")
+        precondition(!cancelledBeforeDispatch.blocksMutation)
+
+        var dispatchedCancel = V3OperationRecoveryLease()
+        precondition(dispatchedCancel.reserve(sessionID: cancelledSessionID, kind: "delete") == .reserved)
+        precondition(dispatchedCancel.beginDispatch(sessionID: cancelledSessionID, kind: "delete"))
+        precondition(!dispatchedCancel.clearPreparedAfterConfirmedCancellation(
+            sessionID: cancelledSessionID, replySessionID: cancelledSessionID,
+            state: "cancelled", backendSettled: true, stopConfirmed: true, knownStarted: false),
+            "knownStarted=false never clears a dispatched lease")
+        precondition(dispatchedCancel.blocksMutation)
+
         var longRunningRefresh = V3RefreshAdmissionLease()
         let refreshID = UUID().uuidString
         precondition(longRunningRefresh.acquire(runID: refreshID, requestID: UUID().uuidString,

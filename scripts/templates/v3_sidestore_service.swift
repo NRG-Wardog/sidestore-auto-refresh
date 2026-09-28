@@ -139,6 +139,20 @@ private enum V3OperationRecoveryJournal {
             return true
         }
     }
+
+    @discardableResult
+    static func clearPreparedAfterConfirmedCancellation(sessionID: String, replySessionID: String?,
+        state: String?, backendSettled: Bool, stopConfirmed: Bool, knownStarted: Bool,
+        containerRoot: URL? = nil) throws -> Bool {
+        try withLease(containerRoot: containerRoot) { url in
+            var lease = try read(url)
+            guard lease.clearPreparedAfterConfirmedCancellation(sessionID: sessionID,
+                replySessionID: replySessionID, state: state, backendSettled: backendSettled,
+                stopConfirmed: stopConfirmed, knownStarted: knownStarted) else { return false }
+            try write(lease, to: url)
+            return true
+        }
+    }
 }
 
 // V3_NATIVE_CALLBACK_GATE_V1: native completions can arrive on arbitrary queues.
@@ -929,7 +943,16 @@ final class V3SideStoreService: NSObject {
                 id: target, knownStarted: knownStarted) else {
                 throw ServiceError.invalidRequest
             }
-            settleOperationRecoveryIfTerminal(result, requestedSessionID: target)
+            if knownStarted {
+                settleOperationRecoveryIfTerminal(result, requestedSessionID: target)
+            } else {
+                _ = try? V3OperationRecoveryJournal.clearPreparedAfterConfirmedCancellation(
+                    sessionID: target, replySessionID: result["session"] as? String,
+                    state: result["state"] as? String,
+                    backendSettled: V3WireContract.strictBool(result["backendSettled"]) == true,
+                    stopConfirmed: V3WireContract.strictBool(result["stopConfirmed"]) == true,
+                    knownStarted: false)
+            }
             return result
         case "ipaCleanup":
             let recovery: V3OperationRecoveryRecord?

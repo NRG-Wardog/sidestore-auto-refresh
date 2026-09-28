@@ -73,6 +73,8 @@ class V3OperationRecoveryTests(unittest.TestCase):
         self.assertIn("V3OperationRecoveryJournal.beginDispatch(sessionID: session", service)
         self.assertIn("settleOperationRecoveryIfTerminal", service)
         self.assertIn("clearPreparedOperationRecoveryIfProven", service)
+        self.assertIn("clearPreparedAfterConfirmedCancellation", service)
+        self.assertIn("clearPreparedAfterConfirmedCancellation", service)
         self.assertIn("lease?.stagedIPAToken", service)
         self.assertIn("response[\"operationRecovery\"] = safeRecovery", service)
         self.assertIn("refreshAdmission.ownerLost", service)
@@ -83,6 +85,14 @@ class V3OperationRecoveryTests(unittest.TestCase):
         self.assertIn("operation: \"opPoll\"", shell)
         self.assertIn("propertyListRepresentation", service)
         self.assertIn("decodePropertyList", service)
+        for anchor in ("func perform(_ operation:", "private func runMutation(",
+                       "func beginInstallPicker(", "func stageSharedIPA("):
+            start = shell.index(anchor)
+            self.assertIn("rejectForUnresolvedRecovery()", shell[start:start + 1800])
+        for anchor in ("func perform(_ operation:", "private func runMutation(",
+                       "func beginInstallPicker(", "func stageSharedIPA("):
+            start = shell.index(anchor)
+            self.assertIn("rejectForUnresolvedRecovery()", shell[start:start + 1800])
         self.assertIn("ownerLost", (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
 
 

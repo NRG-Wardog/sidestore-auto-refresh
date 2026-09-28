@@ -1419,6 +1419,12 @@ final class V3SideStoreStatusStore: ObservableObject {
             unresolvedRefreshRecoveryRunID = nil
         }
     }
+    private func rejectForUnresolvedRecovery() -> Bool {
+        guard unresolvedOperationRecovery != nil || unresolvedRefreshRecoveryRunID != nil else { return false }
+        error = "A previous operation is unresolved. Use the recovery banner at the top of SideStore to resume its status check or reconcile after checking the device."
+        return true
+    }
+
     func perform(_ operation: String, target: String = "", title: String, value: Bool? = nil) {
         // A second operation while one is presented must explain itself
         // instead of silently doing nothing (which looks like the first tap
@@ -1427,6 +1433,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             self.error = "Another operation is already running. Finish or cancel it before starting a new one."
             return
         }
+        guard !rejectForUnresolvedRecovery() else { return }
         guard loadActivity == .idle else {
             presentBusy()
             return
@@ -1476,6 +1483,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     /// started the owed snapshot this joins it instead of fetching twice.
     @discardableResult
     private func runMutation(_ operation: String, target: String = "", successNotice: String) -> Bool {
+        guard !rejectForUnresolvedRecovery() else { return false }
         guard loadActivity == .idle else {
             presentBusy()
             return false
@@ -1526,6 +1534,10 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
     func beginInstallPicker() {
         NSLog("[V3_INSTALL_UI] tap")
+        guard !rejectForUnresolvedRecovery() else {
+            NSLog("[V3_INSTALL_UI] tap_rejected reason=operation_recovery_required")
+            return
+        }
         guard presentation == nil else {
             NSLog("[V3_INSTALL_UI] tap_rejected reason=presentation_active")
             error = "Another operation is already running. Finish or cancel it before installing another app."
@@ -1595,6 +1607,7 @@ final class V3SideStoreStatusStore: ObservableObject {
 
     @discardableResult
     func stageSharedIPA(_ url: URL, bookmark: Data? = nil, title: String) -> String? {
+        guard !rejectForUnresolvedRecovery() else { return nil }
         guard presentation == nil, !installAttempt.hasActiveAttempt,
               let attemptID = installAttempt.beginDirectStaging() else {
             error = "Another operation is already running. Finish or cancel it before installing another app."
