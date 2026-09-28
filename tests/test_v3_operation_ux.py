@@ -582,13 +582,14 @@ class SafeFailureCopyTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; executable safe-copy harness runs in macOS CI")
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_safe_failure_copy_harness.swift").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "main.swift"
             executable = Path(temporary) / "safe-failure-copy"
-            source.write_text("import Foundation\n" + failure + "\n" + primitives + "\n" + harness,
+            source.write_text("import Foundation\n" + wire + "\n" + failure + "\n" + primitives + "\n" + harness,
                               encoding="utf-8")
             compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
                                       capture_output=True, text=True)
@@ -629,13 +630,14 @@ class AccountSessionRecoveryTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; executable account-state harness runs in macOS CI")
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_account_session_presentation_harness.swift").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "main.swift"
             executable = Path(temporary) / "account-session-presentation"
-            source.write_text("import Foundation\n" + failure + "\n" + primitives + "\n" + harness,
+            source.write_text("import Foundation\n" + wire + "\n" + failure + "\n" + primitives + "\n" + harness,
                               encoding="utf-8")
             compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
                                       capture_output=True, text=True)
@@ -689,13 +691,14 @@ class DeveloperDataAvailabilityTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; executable developer-action policy runs in macOS CI")
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_developer_data_availability_harness.swift").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "main.swift"
             executable = Path(temporary) / "developer-data-availability"
-            source.write_text("import Foundation\n" + failure + "\n" + primitives + "\n" + harness,
+            source.write_text("import Foundation\n" + wire + "\n" + failure + "\n" + primitives + "\n" + harness,
                               encoding="utf-8")
             compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
                                       capture_output=True, text=True)
