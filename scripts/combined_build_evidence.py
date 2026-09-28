@@ -11,7 +11,8 @@ import sys
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from verify_candidate_ipa import macho_cpu_subtypes, macho_uuids
+from verify_candidate_ipa import (MACHO_MAGICS, is_java_class_file, macho_cpu_subtypes,
+                                 macho_uuids, require_arm64_all_image)
 
 
 HOST_SOURCE_PATHS = [
@@ -77,11 +78,14 @@ def main():
     with zipfile.ZipFile(args.ipa) as archive:
         for name in archive.namelist():
             if name.endswith('/'): continue
+            with archive.open(name) as member:
+                magic = member.read(4)
+            if magic not in MACHO_MAGICS: continue
             data = archive.read(name)
+            if magic == b'\xca\xfe\xba\xbe' and is_java_class_file(data): continue
             values = macho_uuids(data)
             if values:
-                if set(values) != {'arm64'}:
-                    raise ValueError(f'unexpected architecture inventory in candidate: {name}')
+                require_arm64_all_image(data)
                 binaries[name] = values['arm64']
                 binary_subtypes[name] = macho_cpu_subtypes(data)['arm64']
         info = plistlib.loads(archive.read('Payload/LiveContainer.app/Info.plist'))

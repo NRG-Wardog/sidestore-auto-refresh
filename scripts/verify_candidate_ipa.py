@@ -199,6 +199,17 @@ def macho_cpu_subtypes(data: bytes) -> dict[str, int]:
     return result
 
 
+def require_arm64_all_image(data: bytes) -> dict[str, str]:
+    """Enforce the package's supported architecture: generic ARM64 (subtype 0)."""
+    archs = architectures(data)
+    if archs != {"arm64"}:
+        raise ValueError(f"unexpected architecture set {sorted(archs)}")
+    subtypes = macho_cpu_subtypes(data)
+    if subtypes.get("arm64") != 0:
+        raise ValueError(f"unsupported arm64 CPU subtype {subtypes.get('arm64')}; expected ARM64_ALL (0)")
+    return macho_uuids(data)
+
+
 def architectures(data: bytes) -> set[str]:
     view = memoryview(data)
     magic = bytes(view[:4])
@@ -851,11 +862,9 @@ def verify(ipa: Path, provenance_path: Path, product: str,
         binary_subtype_report = {}
         for path in sorted(set(executable_paths)):
             image = archive.read(path)
+            image_uuids = require_arm64_all_image(image)
             archs = architectures(image)
-            if archs != {"arm64"}:
-                raise ValueError(f"unexpected architecture set {sorted(archs)}: {path}")
             arch_report[path] = sorted(archs)
-            image_uuids = macho_uuids(image)
             if "arm64" not in image_uuids:
                 raise ValueError(f"arm64 Mach-O UUID is missing: {path}")
             binary_uuid_report[path] = image_uuids["arm64"]

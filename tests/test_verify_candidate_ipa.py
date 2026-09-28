@@ -109,6 +109,11 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate CPU subtype"):
             verify_module.architectures(duplicate)
         self.assertEqual(verify_module.macho_cpu_subtypes(thin_arm64_macho(subtype=2)), {"arm64": 2})
+        with self.assertRaisesRegex(ValueError, "expected ARM64_ALL"):
+            verify_module.require_arm64_all_image(thin_arm64_macho(subtype=2))
+        arm64e_fat = fat_macho(thin_arm64_macho(subtype=2), subtype=2)
+        with self.assertRaisesRegex(ValueError, "expected ARM64_ALL"):
+            verify_module.require_arm64_all_image(arm64e_fat)
 
     def test_provenance_run_url_must_match_exact_github_actions_repo_and_shape(self):
         good = "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/36372125879"
