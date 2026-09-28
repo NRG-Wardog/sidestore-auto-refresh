@@ -703,11 +703,17 @@ public struct CombinedFailure: Error, LocalizedError {
     }
 
     private static func strictInteger(_ value: Any?) -> Int? {
-        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
-              ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(String(cString: number.objCType)) else {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else {
             return nil
         }
-        return number.intValue
+        let type = String(cString: number.objCType)
+        guard ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(type) else {
+            return nil
+        }
+        if ["C", "S", "I", "L", "Q"].contains(type) {
+            return Int(exactly: number.uint64Value)
+        }
+        return Int(exactly: number.int64Value)
     }
 
     public static func preserving(_ error: Error?, operation: String, stage: Stage, code: Code = .failed, id: String, retryable: Bool? = nil) -> CombinedFailure {
@@ -919,11 +925,17 @@ public struct CombinedIPAFileError: Error, LocalizedError, CustomNSError {
 }
 
 private func v3StrictPlistInteger(_ value: Any?) -> Int? {
-    guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
-          ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(String(cString: number.objCType)) else {
+    guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else {
         return nil
     }
-    return number.intValue
+    let type = String(cString: number.objCType)
+    guard ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(type) else {
+        return nil
+    }
+    if ["C", "S", "I", "L", "Q"].contains(type) {
+        return Int(exactly: number.uint64Value)
+    }
+    return Int(exactly: number.int64Value)
 }
 
 enum V3NotDispatchedReplyPolicy {

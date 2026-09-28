@@ -8,6 +8,27 @@ struct MalformedStructuredFailureHarness {
             try PropertyListSerialization.data(fromPropertyList: reply, format: .binary, options: 0)
         }
 
+        let largestSigned = NSNumber(value: UInt64(Int.max))
+        let unsignedOverflow = NSNumber(value: UInt64(Int.max) + 1)
+        precondition(V3WireContract.strictInt(largestSigned) == Int.max &&
+                     v3StrictPlistInteger(largestSigned) == Int.max,
+            "all production decoders accept the largest representable signed integer")
+        let rangeFailureWire: [String: Any] = ["version": 1, "operation": "refresh",
+            "stage": "command", "code": "failed", "correlationID": id,
+            "underlyingDomain": "redacted", "underlyingCode": largestSigned]
+        precondition(CombinedFailure.decode(rangeFailureWire, expectedID: id)?.underlyingCode == Int.max)
+        var overflowFailureWire = rangeFailureWire
+        overflowFailureWire["underlyingCode"] = unsignedOverflow
+        precondition(V3WireContract.strictInt(unsignedOverflow) == nil &&
+                     v3StrictPlistInteger(unsignedOverflow) == nil &&
+                     CombinedFailure.decode(overflowFailureWire, expectedID: id) == nil,
+            "unsigned integers that do not fit Int are rejected without truncation")
+        if let overflowingReadinessData = try? encoded(["version": 1, "id": id, "ok": false,
+            "failure": overflowFailureWire]) {
+            precondition(V3ServiceReadinessReply.decode(overflowingReadinessData, requestID: id) == .invalid,
+                "an oversized integer cannot wrap into a plausible readiness failure")
+        }
+
         let malformedEnvelope: [String: Any] = [
             "version": 1, "operation": "refresh", "stage": "madeUpStage",
             "code": "busy", "correlationID": id, "underlyingDomain": "redacted",
@@ -29,6 +50,11 @@ struct MalformedStructuredFailureHarness {
 
         let typedFailure = CombinedFailure(operation: "refresh", stage: .signing,
             code: .failed, id: id, retryable: false, safeCause: .certificateUnavailable)
+        precondition(V3ServiceReadinessReply.knownSafeCauseValues ==
+                     Set(CombinedFailure.SafeCause.allCases.map(\.rawValue)) &&
+                     V3ServiceReadinessReply.knownSourceStepValues ==
+                     Set(CombinedFailure.SourceStep.allCases.map(\.rawValue)),
+            "readiness vocabulary must cover every typed cause and source step")
         let typedReply: [String: Any] = ["version": 1, "id": id, "ok": false,
             "error": "busy", "failure": typedFailure.wire]
         do {
@@ -52,6 +78,18 @@ struct MalformedStructuredFailureHarness {
             requestID: id)
         precondition(malformedReadiness == .invalid,
             "a malformed structured failure cannot be ignored by readiness decoding")
+        var unknownCauseFailure = typedFailure.wire
+        unknownCauseFailure["safeCause"] = "futureUnrecognizedCause"
+        let unknownCauseData = try encoded(["version": 1, "id": id, "ok": false,
+            "failure": unknownCauseFailure])
+        precondition(V3ServiceReadinessReply.decode(unknownCauseData, requestID: id) == .invalid,
+            "a readiness decoder cannot silently erase an unknown typed cause")
+        var unknownStepFailure = typedFailure.wire
+        unknownStepFailure["sourceStep"] = "futureUnrecognizedStep"
+        let unknownStepData = try encoded(["version": 1, "id": id, "ok": false,
+            "failure": unknownStepFailure])
+        precondition(V3ServiceReadinessReply.decode(unknownStepData, requestID: id) == .invalid,
+            "a readiness decoder cannot silently erase an unknown typed step")
         let readyLookingLegacyError: [String: Any] = [
             "version": 1, "id": id, "ok": true, "error": "busy",
             "result": ["ready": true]

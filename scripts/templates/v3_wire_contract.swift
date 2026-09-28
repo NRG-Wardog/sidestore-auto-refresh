@@ -42,7 +42,10 @@ enum V3WireContract {
         guard ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(type) else {
             return nil
         }
-        return number.intValue
+        if ["C", "S", "I", "L", "Q"].contains(type) {
+            return Int(exactly: number.uint64Value)
+        }
+        return Int(exactly: number.int64Value)
     }
 
     static func authSnapshot(_ reply: [String: Any]) -> V3AuthServiceSnapshot? {
@@ -487,6 +490,30 @@ enum V3ServiceReadinessReply: Equatable {
     case failed(V3ServiceReadinessFailure)
     case ready
 
+    // Keep this vocabulary aligned with CombinedFailure.SafeCause and
+    // CombinedFailure.SourceStep. The generated-source harness compares the
+    // sets so a new typed cause cannot silently disappear at this boundary.
+    static let knownSafeCauseValues: Set<String> = [
+        "networkConnectionLost", "networkTimedOut", "networkUnavailable",
+        "signingNetworkConnectionLost", "signingNetworkTimedOut", "signingNetworkUnavailable",
+        "developerPortalRejectedRequest", "developerPortalInvalidResponse",
+        "provisioningProfileUnavailable", "certificateUnavailable", "wifiUnavailable",
+        "localDevVPNUnavailable", "unknownSigningCause", "sourceNetworkFailure",
+        "sourceInvalidManifest", "sourcePersistenceUnverified", "sourceInvalidURL",
+        "sourceRemoveFailed", "sourceRemoveBusy", "sourceAddBusy", "operationInProgress",
+        "responseCapacityUnavailable", "staleRefreshAttempt", "knownSourcePolicyNetworkFailure",
+        "knownSourcePolicyInvalidResponse", "catalogUnavailable", "catalogSourceUnavailable",
+        "responseEncodingFailed", "responseTooLarge", "pairingRequired", "invalidPairingFile",
+        "pairingFilePreparationFailed", "authAttemptNotDispatched", "authProvisioningRetryNotDispatched",
+        "authSessionUnavailable", "authResponseCapacityUnavailable", "keychainSignOutFailed",
+        "keychainSignOutOutcomeUnknown"
+    ]
+    static let knownSourceStepValues: Set<String> = [
+        "provisioningProfileFetch", "certificateValidation", "localCodeSigning",
+        "sourceDownload", "manifestParsing", "knownSourcePolicyFetch",
+        "knownSourcePolicyParsing", "catalogRead"
+    ]
+
     static func decode(_ data: Data, requestID: String) -> V3ServiceReadinessReply {
         guard !data.isEmpty, data.count <= V3WireContract.responseLimit,
               let reply = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
@@ -515,13 +542,19 @@ enum V3ServiceReadinessReply: Equatable {
                 guard let value = V3WireContract.strictBool(raw) else { return .invalid }
                 retryable = value
             } else { retryable = nil }
-            guard envelope["safeCause"] == nil || envelope["safeCause"] as? String != nil,
-                  envelope["sourceStep"] == nil || envelope["sourceStep"] as? String != nil else { return .invalid }
-            guard ((envelope["safeCause"] as? String)?.utf8.count ?? 0) <= 128,
-                  ((envelope["sourceStep"] as? String)?.utf8.count ?? 0) <= 64 else { return .invalid }
+            let safeCause: String?
+            if let raw = envelope["safeCause"] {
+                guard let value = raw as? String, Self.knownSafeCauseValues.contains(value) else { return .invalid }
+                safeCause = value
+            } else { safeCause = nil }
+            let sourceStep: String?
+            if let raw = envelope["sourceStep"] {
+                guard let value = raw as? String, Self.knownSourceStepValues.contains(value) else { return .invalid }
+                sourceStep = value
+            } else { sourceStep = nil }
             let failure = V3ServiceReadinessFailure(operation: operation, stage: stage, code: code,
                 correlationID: requestID, underlyingDomain: domain, underlyingCode: underlyingCode,
-                safeCause: envelope["safeCause"] as? String, sourceStep: envelope["sourceStep"] as? String,
+                safeCause: safeCause, sourceStep: sourceStep,
                 retryable: retryable)
             if ["snapshot", "status"].contains(failure.operation) && failure.stage == "serviceReadiness" &&
                failure.code == "notReady" && failure.retryable == true {
