@@ -4202,6 +4202,15 @@ enum V3KnownSourcePreflightPolicy {
 }
 
 enum V3OperationSessionCorrelationPolicy {
+    static func requestSessionID(operation: String, target: String,
+                                 payload: [String: Any]) -> String? {
+        if operation == "opStart" { return payload["session"] as? String }
+        if ["opPoll", "opAnswer", "opCancel"].contains(operation) {
+            return target.isEmpty ? nil : target
+        }
+        return nil
+    }
+
     static func matches(operation: String, target: String, requestedStartSession: String?,
                         resultSession: String?) -> Bool {
         guard ["opStart", "opPoll", "opAnswer", "opCancel"].contains(operation) else { return true }

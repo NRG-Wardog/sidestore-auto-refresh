@@ -7,6 +7,17 @@ struct OperationRecoveryHarness {
         let ipa = UUID().uuidString.lowercased()
         let deleteTarget = "x-coredata://\(UUID().uuidString)/InstalledApp/p1"
 
+        precondition(V3OperationSessionCorrelationPolicy.requestSessionID(
+            operation: "opStart", target: "", payload: ["session": session]) == session)
+        for operation in ["opPoll", "opAnswer", "opCancel"] {
+            precondition(V3OperationSessionCorrelationPolicy.requestSessionID(
+                operation: operation, target: session, payload: [:]) == session)
+        }
+        precondition(V3OperationSessionCorrelationPolicy.requestSessionID(
+            operation: "snapshot", target: session, payload: [:]) == nil)
+        precondition(V3OperationSessionCorrelationPolicy.requestSessionID(
+            operation: "opStart", target: "", payload: [:]) == nil)
+
         let deleteRecord = V3OperationRecoveryRecord(sessionID: session, kind: "delete",
             phase: .prepared)
         precondition(deleteRecord != nil)

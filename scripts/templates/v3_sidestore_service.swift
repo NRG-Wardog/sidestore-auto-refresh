@@ -214,6 +214,10 @@ final class V3SideStoreService: NSObject {
             reply(encode(invalidRequestReply(for: data)))
             return
         }
+        let target = request["target"] as? String ?? ""
+        let payload = request["payload"] as? [String: Any] ?? [:]
+        let operationSessionID = V3OperationSessionCorrelationPolicy.requestSessionID(
+            operation: operation, target: target, payload: payload)
         let requestFingerprint = V3RequestReplayPolicy.fingerprint(data)
         let expiredReplies = completed.compactMap { key, value in
             value.deadline <= Date() ? (key, value.data.count) : nil
@@ -291,7 +295,6 @@ final class V3SideStoreService: NSObject {
             return
         }
         let mutation = !V3WireContract.readOperations.contains(operation)
-        let target = request["target"] as? String ?? ""
         let authenticationActive = V3HeadlessRuntime.shared.auth.hasActiveSession
         let authContinuation = V3ServiceMutationAdmissionPolicy.permitsAuthenticationControl(
             operation,
