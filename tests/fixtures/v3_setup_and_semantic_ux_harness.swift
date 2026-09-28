@@ -15,6 +15,14 @@ import Foundation
 @main
 struct SetupAndSemanticUXHarness {
     static func main() {
+        precondition(V3SharedKeychainAccessGroupPolicy.sharedGroup(in: [
+            "TEAMID.com.kdt.livecontainer", "TEAMID.com.kdt.livecontainer.shared"
+        ]) == "TEAMID.com.kdt.livecontainer.shared",
+            "canonical JIT-Less import must prefer the explicit shared SideStore keychain group")
+        precondition(V3SharedKeychainAccessGroupPolicy.sharedGroup(in: [
+            "TEAMID.com.kdt.livecontainer", "TEAMID.other.shared"
+        ]) == nil,
+            "a default or unrelated keychain group cannot stand in for SideStore's shared group")
         // V3_SETUP_COMPLETION_POLICY_V1
         var all = V3SetupCompletionInputs()
         all.accountComplete = true

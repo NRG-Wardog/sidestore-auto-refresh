@@ -23,7 +23,8 @@ def fixture(root: Path) -> Tuple[Path, Path]:
     (side / "AltStore").mkdir(parents=True)
     (live / "LiveContainerSwiftUI/Utilities/Shared.swift").write_text("public enum LCTabIdentifier: Hashable {\n    case sources\n    case apps\n    case tweaks\n    case settings\n}\n\npublic struct SharedModel {\n    @Published var selectedTab: LCTabIdentifier = .apps\n}\n")
     (live / "LiveContainerSwiftUI/App/LiveContainerSwiftUIApp.swift").write_text("struct Root {\n            LCTabView()\n}\n")
-    (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").write_text('''struct Settings {
+    (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").write_text('''import Foundation
+struct Settings {
     @State private var certificateDataFound = false
     var body: some View {
         NavigationView {
@@ -40,6 +41,29 @@ def fixture(root: Path) -> Tuple[Path, Path]:
                     }
                 }
 }
+
+    func importCertificateFromSideStore() async {
+        if UserDefaults.sideStoreExist() {
+            if let ans = await certificateImportFromBuiltInSideStoreAlert.open(), ans {
+                let query: [String: Any] = [
+                    kSecClass as String: kSecClassGenericPassword,
+                    kSecAttrAccount as String: "signingCertificate",
+                    kSecReturnData as String: true,
+                    kSecMatchLimit as String: kSecMatchLimitOne,
+                    kSecAttrService as String: "com.kdt.livecontainer",
+                    kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
+                ]
+                let passwordQuery: [String: Any] = [
+                    kSecClass as String: kSecClassGenericPassword,
+                    kSecAttrAccount as String: "signingCertificatePassword",
+                    kSecReturnData as String: true,
+                    kSecMatchLimit as String: kSecMatchLimitOne,
+                    kSecAttrService as String: "com.kdt.livecontainer",
+                    kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
+                ]
+            }
+        }
+    }
 
     func onSideStoreCertificateCallback(certificateData: Data, password: String) {
         certificateDataFound = true
@@ -88,6 +112,16 @@ struct LCTweaksView: View {
 
 
 class V3UnifiedShellTests(unittest.TestCase):
+    def test_builtin_certificate_import_scopes_both_queries_to_current_shared_group(self):
+        with tempfile.TemporaryDirectory() as directory:
+            live, side = fixture(Path(directory))
+            patch.patch(live, side)
+            settings = (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text()
+            self.assertIn("V3_SHARED_KEYCHAIN_GROUP_SCOPE_V1", settings)
+            self.assertIn("V3SharedKeychainAccessGroupPolicy.sharedGroup(in: groups)", settings)
+            self.assertEqual(settings.count("kSecAttrAccessGroup as String: sharedKeychainGroup"), 2)
+            self.assertIn('errorInfo = "The shared SideStore signing certificate is unavailable in this app build."', settings)
+
     def test_navigation_anchor_drift_fails_without_partial_writes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

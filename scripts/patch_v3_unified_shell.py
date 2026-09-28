@@ -67,6 +67,44 @@ def patch_host(root: Path) -> None:
 
     settings = root / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"
     text = settings.read_text(encoding="utf-8")
+    if "V3_SHARED_KEYCHAIN_GROUP_SCOPE_V1" not in text:
+        if "import Security" not in text:
+            text = replace_once(text, "import Foundation\n", "import Foundation\nimport Security\n",
+                "canonical JIT-Less keychain query Security import")
+        text = replace_once(text,
+            '    func importCertificateFromSideStore() async {\n'
+            '        if UserDefaults.sideStoreExist() {\n'
+            '            if let ans = await certificateImportFromBuiltInSideStoreAlert.open(), ans {\n'
+            '                let query: [String: Any] = [',
+            '    // V3_SHARED_KEYCHAIN_GROUP_SCOPE_V1: select the current embedded SideStore\n'
+            '    // credential group explicitly; stale legacy-group copies must not win a\n'
+            '    // kSecMatchLimitOne query after migration.\n'
+            '    private func v3SharedSideStoreKeychainAccessGroup() -> String? {\n'
+            '        let task = SecTaskCreateFromSelf(nil)\n'
+            '        guard let value = SecTaskCopyValueForEntitlement(task, "keychain-access-groups" as CFString, nil),\n'
+            '              let groups = value.takeRetainedValue() as? [String] else { return nil }\n'
+            '        return V3SharedKeychainAccessGroupPolicy.sharedGroup(in: groups)\n'
+            '    }\n'
+            '    func importCertificateFromSideStore() async {\n'
+            '        if UserDefaults.sideStoreExist() {\n'
+            '            if let ans = await certificateImportFromBuiltInSideStoreAlert.open(), ans {\n'
+            '                guard let sharedKeychainGroup = v3SharedSideStoreKeychainAccessGroup() else {\n'
+            '                    errorInfo = "The shared SideStore signing certificate is unavailable in this app build."\n'
+            '                    errorShow = true\n'
+            '                    return\n'
+            '                }\n'
+            '                let query: [String: Any] = [',
+            "canonical built-in certificate query scope")
+        old_group_query = (
+            '                    kSecAttrService as String: "com.kdt.livecontainer",\n'
+            '                    kSecAttrSynchronizable as String: kSecAttrSynchronizableAny')
+        new_group_query = (
+            '                    kSecAttrService as String: "com.kdt.livecontainer",\n'
+            '                    kSecAttrAccessGroup as String: sharedKeychainGroup,\n'
+            '                    kSecAttrSynchronizable as String: kSecAttrSynchronizableAny')
+        if text.count(old_group_query) != 2:
+            die("canonical built-in certificate importer: expected certificate and password queries")
+        text = text.replace(old_group_query, new_group_query)
     if "V3_CANONICAL_JITLESS_ROUTE_V1" not in text:
         text = replace_once(
             text,
@@ -194,6 +232,13 @@ def verify(live: Path, side: Path) -> None:
                   "v3OpenJITLessDiagnose = true", "V3CanonicalJITLessCertificateUpdated"):
         if token not in settings_source:
             die(f"canonical LiveContainer JIT-Less route is missing {token}")
+    for token in ("V3_SHARED_KEYCHAIN_GROUP_SCOPE_V1",
+                  "V3SharedKeychainAccessGroupPolicy.sharedGroup(in: groups)",
+                  "kSecAttrAccessGroup as String: sharedKeychainGroup"):
+        if token not in settings_source:
+            die(f"canonical JIT-Less importer is missing {token}")
+    if settings_source.count("kSecAttrAccessGroup as String: sharedKeychainGroup") != 2:
+        die("canonical JIT-Less importer must scope both certificate and password queries")
     if "V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1" not in settings_source:
         die("canonical JIT-Less route is not row-neutralized (an empty Settings row would render)")
     if "V3_SIDESTORE_STATUS_SNAPSHOT_V1" not in (side / "AltStore/AppDelegate.swift").read_text(encoding="utf-8"):

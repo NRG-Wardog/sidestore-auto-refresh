@@ -4318,3 +4318,9 @@ enum V3ServiceRecoveryAdmissionPolicy {
             blocksMutation: blocksMutation, refreshRelease: refreshRelease)
     }
 }
+
+enum V3SharedKeychainAccessGroupPolicy {
+    static func sharedGroup(in entitledGroups: [String]) -> String? {
+        entitledGroups.first(where: { $0.hasSuffix(".com.kdt.livecontainer.shared") })
+    }
+}
