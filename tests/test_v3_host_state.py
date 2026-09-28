@@ -10,6 +10,14 @@ SWIFTC = shutil.which("swiftc")
 
 
 class V3HostStateTests(unittest.TestCase):
+    def test_certificate_mutations_invalidate_cached_jitless_readiness(self):
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        start = shell.index("private func runConfirmed(action: String, serial: String) async {")
+        end = shell.index("\n}\n\nstruct V3DeveloperServicesView", start)
+        mutation = shell[start:end]
+        self.assertIn("status.invalidateSetupFacts()", mutation)
+        self.assertLess(mutation.index("status.invalidateSetupFacts()"), mutation.index("status.reload()"))
+
     def test_waiter_cancellation_and_health_reload_races_execute(self):
         if not SWIFTC:
             self.skipTest("Swift compiler unavailable; host state harness runs in macOS CI")

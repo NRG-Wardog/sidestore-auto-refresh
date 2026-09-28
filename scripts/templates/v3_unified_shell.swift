@@ -5842,6 +5842,10 @@ struct V3CertificatesView: View {
             case "revoke": _ = try await V3ServiceBridge.shared.request(operation: "certRevoke", target: serial)
             default: _ = try await V3ServiceBridge.shared.request(operation: "certCreate")
             }
+            // Certificate mutations can invalidate the cached JIT-Less
+            // comparison. Ordinary snapshots do not carry that private fact,
+            // so force a fresh authoritative observation before setup reuses it.
+            status.invalidateSetupFacts()
             status.reload()
             await reload()
             portalLoaded = false
