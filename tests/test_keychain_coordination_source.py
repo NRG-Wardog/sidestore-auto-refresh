@@ -90,7 +90,9 @@ class KeychainCoordinationSourceTests(unittest.TestCase):
         self.assertLess(transaction.index("guard committed == expected"),
                         transaction.index("note(\"authWrite\", status: 0)"))
         self.assertIn("note(\"authWrite\", status: 1010)", transaction)
-        self.assertIn("if statuses.contains(1010)", KEYCHAIN)
+        self.assertIn("native.domain == keychainDomain && native.code == 1010", KEYCHAIN)
+        self.assertNotIn("lastIssues", KEYCHAIN,
+                         "authentication guidance must derive from the current thrown error")
 
 
 if __name__ == "__main__":
