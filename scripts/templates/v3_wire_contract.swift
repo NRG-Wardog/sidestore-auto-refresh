@@ -91,7 +91,7 @@ enum V3WireContract {
         "signOut", "syncAppIDs", "clearCache", "jit", "backupResult",
         "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning",
         "opStart", "opPoll", "opAnswer", "opCancel", "opRecoveryPrepare", "opRecoveryReconcile",
-        "refreshAdmissionReconcile", "ipaCleanup", "ipaActiveTokens",
+        "refreshAdmissionReconcile", "recoveryDiscardUnreadable", "ipaCleanup", "ipaActiveTokens",
         "certList", "certSetActive", "certDelete", "certPortalList", "certRevoke", "certCreate",
         "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles",
         "sourcePreview", "sourceAddConfirmed", "sourceRemoveConfirmed",
@@ -121,6 +121,7 @@ enum V3WireContract {
             "syncAppIDs", "clearCache", "settingsGet", "settingsSet", "sidesignGet", "sidesignSet",
             "sidesignReset", "sidesignExport", "anisetteList", "anisetteReset", "anisetteSync",
             "healthSnapshot", "logTail", "certList", "certPortalList", "certCreate", "opRecoveryPrepare",
+            "recoveryDiscardUnreadable",
             "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles"
         ]
         if emptyTargetOperations.contains(operation) && !target.isEmpty { return nil }
@@ -159,7 +160,8 @@ enum V3WireContract {
 
     private static let requiredPayloadOperations: Set<String> = [
         "authBegin", "authRetryProvisioning", "authRespond", "opAnswer", "opStart", "opRecoveryPrepare",
-        "cancel", "accountExport", "accountImport", "settingsSet", "sidesignSet", "refreshAdmissionEnd"
+        "cancel", "accountExport", "accountImport", "settingsSet", "sidesignSet", "refreshAdmissionEnd",
+        "recoveryDiscardUnreadable"
     ]
 
     private static func acceptsPayload(operation: String, target: String,
@@ -206,6 +208,8 @@ enum V3WireContract {
                   let session = payload["session"] as? String, canonicalSecretToken(session) else { return false }
             return acceptsOperationTarget(kind: kind, target: operationTarget)
         case "opRecoveryReconcile", "refreshAdmissionReconcile":
+            return Set(payload.keys) == Set(["userConfirmed"]) && strictBool(payload["userConfirmed"]) == true
+        case "recoveryDiscardUnreadable":
             return Set(payload.keys) == Set(["userConfirmed"]) && strictBool(payload["userConfirmed"]) == true
         case "refreshAdmissionEnd":
             return Set(payload.keys) == Set(["state"]) &&
@@ -425,7 +429,7 @@ struct V3MutationReplyCacheBudget {
     private(set) var storedBytes = 0
 
     static func isControlReply(operation: String) -> Bool {
-        ["refreshAdmissionEnd", "refreshAdmissionReconcile", "opRecoveryReconcile",
+        ["refreshAdmissionEnd", "refreshAdmissionReconcile", "opRecoveryReconcile", "recoveryDiscardUnreadable",
          "authBegin", "authRetryProvisioning", "opStart"]
             .contains(operation) || V3RequestReplayPolicy.requiresCompletedReply(operation: operation)
     }

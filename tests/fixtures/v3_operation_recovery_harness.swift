@@ -27,6 +27,15 @@ struct OperationRecoveryHarness {
         invalidRefreshRequest["payload"] = ["state": "retry"]
         precondition(V3WireContract.encodeRequest(invalidRefreshRequest) == nil,
             "arbitrary text cannot clear refresh ownership")
+        let unreadableRepairRequest: [String: Any] = ["version": 1, "id": UUID().uuidString,
+            "operation": "recoveryDiscardUnreadable", "target": "",
+            "deadline": Date().addingTimeInterval(30), "payload": ["userConfirmed": true]]
+        precondition(V3WireContract.decodeRequest(V3WireContract.encodeRequest(unreadableRepairRequest)!) != nil,
+            "unreadable journal repair is an explicit empty-target control request")
+        var unconfirmedUnreadableRepair = unreadableRepairRequest
+        unconfirmedUnreadableRepair["payload"] = ["userConfirmed": false]
+        precondition(V3WireContract.encodeRequest(unconfirmedUnreadableRepair) == nil,
+            "unreadable journal repair cannot be requested without true device confirmation")
 
         let deleteRecord = V3OperationRecoveryRecord(sessionID: session, kind: "delete",
             phase: .prepared)
@@ -87,6 +96,20 @@ struct OperationRecoveryHarness {
             target: session, payload: ["userConfirmed": true], operationSessionID: nil,
             recovery: refreshRecord, recoveryReadFailed: false, refreshOwnerLost: false)
         precondition(unconfirmedRefreshReconcile.recoveryControl && !unconfirmedRefreshReconcile.refreshRelease)
+        let readableRecordCannotBeDiscarded = V3ServiceRecoveryAdmissionPolicy.decide(
+            operation: "recoveryDiscardUnreadable", target: "", payload: ["userConfirmed": true],
+            operationSessionID: nil, recovery: preparedOperation,
+            recoveryReadFailed: false, refreshOwnerLost: false)
+        precondition(readableRecordCannotBeDiscarded.blocksMutation,
+            "device check cannot delete a valid operation journal")
+        let unreadableConfirmed = V3ServiceRecoveryAdmissionPolicy.decide(
+            operation: "recoveryDiscardUnreadable", target: "", payload: ["userConfirmed": true],
+            operationSessionID: nil, recovery: nil, recoveryReadFailed: true, refreshOwnerLost: false)
+        precondition(unreadableConfirmed.recoveryControl && !unreadableConfirmed.blocksMutation)
+        let unreadableUnconfirmed = V3ServiceRecoveryAdmissionPolicy.decide(
+            operation: "recoveryDiscardUnreadable", target: "", payload: ["userConfirmed": false],
+            operationSessionID: nil, recovery: nil, recoveryReadFailed: true, refreshOwnerLost: false)
+        precondition(!unreadableUnconfirmed.recoveryControl && unreadableUnconfirmed.blocksMutation)
 
         let deadline = Date().addingTimeInterval(30)
         let prepareRequest: [String: Any] = ["version": 1, "id": UUID().uuidString,

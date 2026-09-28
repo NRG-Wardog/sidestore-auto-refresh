@@ -28,6 +28,7 @@ struct V3UnifiedTabs: View {
     @State private var showNotificationsPrompt = false
     @State private var showOperationDeviceCheck = false
     @State private var showRefreshDeviceCheck = false
+    @State private var showUnreadableRecoveryDeviceCheck = false
     private let monitor = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     var body: some View {
         TabView(selection: $sharedModel.selectedTab) {
@@ -143,6 +144,32 @@ struct V3UnifiedTabs: View {
                         } message: {
                             Text("Only continue after confirming SideStore is no longer refreshing apps on the device.")
                         }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.regularMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 12)
+                .padding(.top, 4)
+            } else if status.unresolvedRecoveryJournalUnreadable {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("SideStore paused changes because its recovery record cannot be read")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Check the device before clearing this record. An earlier install, update, refresh, or delete may still be running.")
+                        .font(.caption)
+                    Button("I checked; no SideStore operation is running") {
+                        showUnreadableRecoveryDeviceCheck = true
+                    }
+                    .font(.caption.weight(.semibold))
+                    .confirmationDialog("Clear the unreadable recovery record?",
+                        isPresented: $showUnreadableRecoveryDeviceCheck, titleVisibility: .visible) {
+                        Button("Clear after device check", role: .destructive) {
+                            status.discardUnreadableRecoveryAfterDeviceCheck()
+                        }
+                        Button("Keep waiting", role: .cancel) {}
+                    } message: {
+                        Text("Only continue after confirming the device is no longer installing, updating, refreshing, or deleting an app.")
+                    }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -992,6 +1019,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published var error: String?
     @Published private(set) var unresolvedOperationRecovery: V3OperationRecoveryRecord?
     @Published private(set) var unresolvedRefreshRecoveryRunID: String?
+    @Published private(set) var unresolvedRecoveryJournalUnreadable = false
     // V3_USER_FACING_ISSUE_V1: the structured issue behind the global alert.
     // The string form is retained for compatibility and copyable summaries, but
     // actions are chosen from the typed issue, never from the string.
@@ -1070,6 +1098,26 @@ final class V3SideStoreStatusStore: ObservableObject {
                 reload()
             } catch {
                 self.error = "SideStore could not clear the refresh hold. Reconnect and try again."
+            }
+        }
+    }
+
+    func discardUnreadableRecoveryAfterDeviceCheck() {
+        guard unresolvedRecoveryJournalUnreadable else { return }
+        Task {
+            do {
+                let reply = try await V3ServiceBridge.shared.request(
+                    operation: "recoveryDiscardUnreadable", payload: ["userConfirmed": true])
+                guard V3WireContract.strictBool(reply["discardedUnreadable"]) == true else {
+                    throw CombinedFailure(operation: "command", stage: .command,
+                        code: .staleResult, id: UUID().uuidString, retryable: false)
+                }
+                unresolvedRecoveryJournalUnreadable = false
+                notice = "The unreadable recovery record was cleared after your device check."
+                await cleanupOrphanedStagedIPAs()
+                reload()
+            } catch {
+                self.error = "SideStore could not clear its unreadable recovery record. Keep operations paused and try reloading status."
             }
         }
     }
@@ -1418,10 +1466,15 @@ final class V3SideStoreStatusStore: ObservableObject {
         } else {
             unresolvedRefreshRecoveryRunID = nil
         }
+        unresolvedRecoveryJournalUnreadable = V3WireContract.strictBool(
+            snapshot["recoveryJournalUnreadable"]) == true
     }
     private func rejectForUnresolvedRecovery() -> Bool {
-        guard unresolvedOperationRecovery != nil || unresolvedRefreshRecoveryRunID != nil else { return false }
-        error = "A previous operation is unresolved. Use the recovery banner at the top of SideStore to resume its status check or reconcile after checking the device."
+        guard unresolvedOperationRecovery != nil || unresolvedRefreshRecoveryRunID != nil ||
+              unresolvedRecoveryJournalUnreadable else { return false }
+        error = unresolvedRecoveryJournalUnreadable
+            ? "The recovery record cannot be read. Use the recovery banner after checking the device before starting another operation."
+            : "A previous operation is unresolved. Use the recovery banner at the top of SideStore to resume its status check or reconcile after checking the device."
         return true
     }
 

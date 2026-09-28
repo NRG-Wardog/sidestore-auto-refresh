@@ -4300,18 +4300,22 @@ enum V3ServiceRecoveryAdmissionPolicy {
         let refreshControl = refreshRecordMatches &&
             ((operation == "refreshAdmissionEnd" && hasRefreshTerminal) ||
              (operation == "refreshAdmissionReconcile" && userConfirmed))
-        let recoveryControl = operationControl || refreshControl
+        let unreadableRecoveryControl = operation == "recoveryDiscardUnreadable" &&
+            recoveryReadFailed && recovery == nil && userConfirmed
+        let recoveryControl = operationControl || refreshControl || unreadableRecoveryControl
         let matchingPreparedStart = operation == "opStart" && recovery?.kind != "refreshAll" &&
             operationSessionID == recovery?.sessionID && payload["kind"] as? String == recovery?.kind &&
             recovery?.phase == .prepared
         let matchingPreparedReservation = operation == "opRecoveryPrepare" && recovery?.kind != "refreshAll" &&
             payload["session"] as? String == recovery?.sessionID && payload["kind"] as? String == recovery?.kind &&
             recovery?.phase == .prepared
-        let blocksMutation = recoveryReadFailed ||
+        let blocksMutation = (recoveryReadFailed && !unreadableRecoveryControl) ||
             (recovery != nil && !recoveryControl && !matchingPreparedStart && !matchingPreparedReservation)
-        let refreshRelease = refreshRecordMatches &&
+        let unreadableRefreshRelease = operation == "recoveryDiscardUnreadable" &&
+            recoveryReadFailed && refreshOwnerLost && userConfirmed
+        let refreshRelease = unreadableRefreshRelease || (refreshRecordMatches &&
             ((operation == "refreshAdmissionEnd" && hasRefreshTerminal) ||
-             (operation == "refreshAdmissionReconcile" && refreshOwnerLost && userConfirmed))
+             (operation == "refreshAdmissionReconcile" && refreshOwnerLost && userConfirmed)))
         return V3ServiceRecoveryAdmissionDecision(recoveryControl: recoveryControl,
             matchingPreparedStart: matchingPreparedStart,
             matchingPreparedReservation: matchingPreparedReservation,

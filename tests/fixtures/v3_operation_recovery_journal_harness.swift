@@ -38,6 +38,7 @@ struct OperationRecoveryJournalHarness {
         defer { try? FileManager.default.removeItem(at: root) }
 
         try testNonInstallSchemaAndTerminalRemoval(root: root)
+        try testUnreadableJournalRequiresDeviceConfirmedRepair(root: root)
         try testRefreshAdmissionSurvivesServiceRecreation(root: root)
         try testPreparedCancellationAndDispatchedProtection(root: root)
         try testStagedIPATokenPersistsUntilSettledTerminal(root: root)
@@ -180,6 +181,35 @@ struct OperationRecoveryJournalHarness {
         precondition(reconciled)
         let checkedReleased = try V3OperationRecoveryJournal.current(containerRoot: root)
         precondition(checkedReleased == nil)
+    }
+
+    private static func testUnreadableJournalRequiresDeviceConfirmedRepair(root: URL) throws {
+        let sessionID = UUID().uuidString
+        let valid = try V3OperationRecoveryJournal.reserve(sessionID: sessionID, kind: "delete",
+            containerRoot: root)
+        precondition(valid)
+        let refusedToDeleteValid = try V3OperationRecoveryJournal.discardUnreadableAfterDeviceCheck(
+            userConfirmed: true, containerRoot: root)
+        precondition(!refusedToDeleteValid)
+        let validRecord = try V3OperationRecoveryJournal.current(containerRoot: root)
+        precondition(validRecord?.sessionID == sessionID)
+        _ = try V3OperationRecoveryJournal.reconcileAfterDeviceCheck(sessionID: sessionID,
+            userConfirmed: true, containerRoot: root)
+
+        let url = recordURL(root: root)
+        try Data([0x00, 0x01, 0x02]).write(to: url, options: .atomic)
+        do {
+            _ = try V3OperationRecoveryJournal.current(containerRoot: root)
+            fatalError("malformed recovery plist must be reported as unreadable")
+        } catch {}
+        let refusedWithoutConfirmation = try V3OperationRecoveryJournal.discardUnreadableAfterDeviceCheck(
+            userConfirmed: false, containerRoot: root)
+        precondition(!refusedWithoutConfirmation && FileManager.default.fileExists(atPath: url.path))
+        let cleared = try V3OperationRecoveryJournal.discardUnreadableAfterDeviceCheck(
+            userConfirmed: true, containerRoot: root)
+        precondition(cleared && !FileManager.default.fileExists(atPath: url.path))
+        let empty = try V3OperationRecoveryJournal.current(containerRoot: root)
+        precondition(empty == nil)
     }
 
     private static func verifyRefreshInFreshProcess(root: URL, runID: String) throws {

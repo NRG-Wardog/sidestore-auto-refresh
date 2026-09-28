@@ -81,6 +81,21 @@ private enum V3OperationRecoveryJournal {
         try withLease(containerRoot: containerRoot) { try read($0).record }
     }
 
+    @discardableResult
+    static func discardUnreadableAfterDeviceCheck(userConfirmed: Bool,
+                                                   containerRoot: URL? = nil) throws -> Bool {
+        guard userConfirmed else { return false }
+        return try withLease(containerRoot: containerRoot) { url in
+            do {
+                _ = try read(url)
+                return false
+            } catch {
+                try FileManager.default.removeItem(at: url)
+                return true
+            }
+        }
+    }
+
     static func reserve(sessionID: String, kind: String, stagedIPAToken: String? = nil,
                         containerRoot: URL? = nil) throws -> Bool {
         try withLease(containerRoot: containerRoot) { url in
@@ -949,6 +964,19 @@ final class V3SideStoreService: NSObject {
                     stagedIPAToken: stagedIPAToken) else { throw ServiceError.busy }
             } catch { throw ServiceError.busy }
             return ["session": session, "kind": kind, "phase": "prepared"]
+        case "recoveryDiscardUnreadable":
+            guard target.isEmpty, V3WireContract.strictBool(payload["userConfirmed"]) == true else {
+                throw ServiceError.invalidRequest
+            }
+            do {
+                guard try V3OperationRecoveryJournal.discardUnreadableAfterDeviceCheck(userConfirmed: true) else {
+                    throw ServiceError.invalidRequest
+                }
+            } catch { throw ServiceError.busy }
+            if refreshAdmission.ownerLost, let runID = refreshAdmission.runID {
+                _ = refreshAdmission.release(runID: runID)
+            }
+            return ["discardedUnreadable": true]
         case "opRecoveryReconcile":
             guard let parsedID = UUID(uuidString: target), parsedID.uuidString == target,
                   V3WireContract.strictBool(payload["userConfirmed"]) == true else {
@@ -1255,12 +1283,19 @@ final class V3SideStoreService: NSObject {
         let activeAuthenticationSessionID = V3HeadlessRuntime.shared.auth.activeSessionIDForSnapshot
         _ = refreshAdmission.expire()
         let operationRecovery: V3OperationRecoveryRecord?
-        do { operationRecovery = try V3OperationRecoveryJournal.current() }
-        catch { throw ServiceError.busy }
+        let recoveryJournalUnreadable: Bool
+        do {
+            operationRecovery = try V3OperationRecoveryJournal.current()
+            recoveryJournalUnreadable = false
+        } catch {
+            operationRecovery = nil
+            recoveryJournalUnreadable = true
+        }
         var response: [String: Any] = ["updatedAt": Date(), "busy": mutationID != nil ||
                     activeAuthenticationSessionID != nil ||
                     V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive ||
-                    operationRecovery != nil,
+                    operationRecovery != nil || recoveryJournalUnreadable,
+                 "recoveryJournalUnreadable": recoveryJournalUnreadable,
                  "account": account,
                  "authenticated": authenticated,
                  "authenticationActive": activeAuthenticationSessionID != nil,

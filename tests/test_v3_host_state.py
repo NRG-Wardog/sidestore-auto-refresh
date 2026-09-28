@@ -10,6 +10,13 @@ SWIFTC = shutil.which("swiftc")
 
 
 class V3HostStateTests(unittest.TestCase):
+    def test_unreadable_recovery_journal_is_visible_and_blocks_new_work(self):
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertIn("unresolvedRecoveryJournalUnreadable", shell)
+        self.assertIn('operation: "recoveryDiscardUnreadable"', shell)
+        self.assertIn("I checked; no SideStore operation is running", shell)
+        self.assertIn("guard unresolvedOperationRecovery != nil || unresolvedRefreshRecoveryRunID != nil ||", shell)
+
     def test_certificate_mutations_invalidate_cached_jitless_readiness(self):
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         start = shell.index("private func runConfirmed(action: String, serial: String) async {")
