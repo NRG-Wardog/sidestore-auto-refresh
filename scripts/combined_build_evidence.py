@@ -14,7 +14,8 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from verify_candidate_ipa import (MACHO_MAGICS, is_java_class_file, macho_cpu_subtypes,
                                  macho_uuids, require_arm64_all_image,
-                                 DEFAULT_ARCHIVE_LIMITS, validate_ipa_size)
+                                 DEFAULT_ARCHIVE_LIMITS, preflight_archive,
+                                 preflight_zip_directory, validate_ipa_size)
 
 
 HOST_SOURCE_PATHS = [
@@ -61,30 +62,59 @@ def snapshot_ipa_file(path, limits=None):
     digest = hashlib.sha256()
     bytes_read = 0
     chunk_size = 1024 * 1024
-    snapshot = tempfile.TemporaryFile(mode='w+b')
+    snapshot_directory = tempfile.TemporaryDirectory(prefix='combined-ipa-snapshot-')
+    snapshot_path = Path(snapshot_directory.name) / 'candidate.ipa'
     try:
         with path.open('rb') as source:
             before = os.fstat(source.fileno())
             validate_ipa_size(before.st_size, policy)
-            while True:
-                chunk = source.read(min(chunk_size, max_size - bytes_read + 1))
-                if not chunk:
-                    break
-                bytes_read += len(chunk)
-                if bytes_read > max_size:
-                    raise ValueError("compressed IPA exceeds the configured size limit")
-                snapshot.write(chunk)
-                digest.update(chunk)
+            with snapshot_path.open('wb') as snapshot:
+                while True:
+                    chunk = source.read(min(chunk_size, max_size - bytes_read + 1))
+                    if not chunk:
+                        break
+                    bytes_read += len(chunk)
+                    if bytes_read > max_size:
+                        raise ValueError("compressed IPA exceeds the configured size limit")
+                    snapshot.write(chunk)
+                    digest.update(chunk)
             after = os.fstat(source.fileno())
         if bytes_read != before.st_size:
             raise ValueError("IPA size changed while hashing")
         if file_signature(before) != file_signature(after):
             raise ValueError("IPA changed while hashing")
-        snapshot.seek(0)
-        return snapshot, bytes_read, digest.hexdigest(), file_signature(after)
+        return snapshot_directory, snapshot_path, bytes_read, digest.hexdigest(), file_signature(after)
     except Exception:
-        snapshot.close()
+        snapshot_directory.cleanup()
         raise
+
+
+def hash_ipa_file(path, limits=None):
+    """Rehash the candidate with bounded reads for the final provenance check."""
+    policy = dict(DEFAULT_ARCHIVE_LIMITS)
+    if limits is not None:
+        policy.update(limits)
+    max_size = policy['compressed_ipa_bytes']
+    digest = hashlib.sha256()
+    bytes_read = 0
+    chunk_size = 1024 * 1024
+    with path.open('rb') as source:
+        before = os.fstat(source.fileno())
+        validate_ipa_size(before.st_size, policy)
+        while True:
+            chunk = source.read(min(chunk_size, max_size - bytes_read + 1))
+            if not chunk:
+                break
+            bytes_read += len(chunk)
+            if bytes_read > max_size:
+                raise ValueError("compressed IPA exceeds the configured size limit")
+            digest.update(chunk)
+        after = os.fstat(source.fileno())
+    if bytes_read != before.st_size:
+        raise ValueError("IPA size changed while hashing")
+    if file_signature(before) != file_signature(after):
+        raise ValueError("IPA changed while hashing")
+    return bytes_read, digest.hexdigest()
 
 
 def require_unchanged_ipa_path(path, expected_signature):
@@ -120,8 +150,11 @@ def main():
             path.write_bytes(plistlib.dumps(info, fmt=plistlib.FMT_BINARY))
         return
     # Reject an oversized package before archive inspection or evidence writes.
-    snapshot, ipa_size, ipa_sha256, ipa_signature = snapshot_ipa_file(args.ipa)
+    snapshot_directory, snapshot_path, ipa_size, ipa_sha256, ipa_signature = snapshot_ipa_file(args.ipa)
     try:
+        # Reuse the verifier's EOCD and central-directory byte/count scan
+        # against the exact private snapshot that was hashed.
+        preflight_zip_directory(snapshot_path, ipa_size)
         args.output.mkdir(parents=True, exist_ok=True)
         # Ensure repeated collection cannot retain stale files from an earlier run.
         for name in ('host', 'embedded', 'generated', 'embedded-generated'):
@@ -131,8 +164,12 @@ def main():
         if provenance_path.exists(): provenance_path.unlink()
         binaries = {}
         binary_subtypes = {}
-        with zipfile.ZipFile(snapshot) as archive:
-            for name in archive.namelist():
+        with zipfile.ZipFile(snapshot_path) as archive:
+            # Validate central metadata, expanded member limits and duplicates
+            # before testzip decompresses or any later archive.read() occurs.
+            archive_infos = preflight_archive(archive, ipa_size)
+            for info_entry in archive_infos:
+                name = info_entry.filename
                 if name.endswith('/'): continue
                 with archive.open(name) as member:
                     magic = member.read(4)
@@ -155,7 +192,7 @@ def main():
                     assert b'lc_stage=uniqueDeviceID' in data, 'Issue 24 structured category absent'
         require_unchanged_ipa_path(args.ipa, ipa_signature)
     finally:
-        snapshot.close()
+        snapshot_directory.cleanup()
     symbols = {}
     symbol_hashes = {}
     for index, root in enumerate(args.paths):
@@ -205,6 +242,10 @@ def main():
         framework_uuids=binaries, framework_cpu_subtypes=binary_subtypes,
         dsym_uuids=symbols, dsym_sha256=symbol_hashes, generated_source_sha256=generated,
         dependencies={key: os.environ[key] for key in ('LIVE_CONTAINER_REF', 'EMBEDDED_SIDESTORE_REF', 'MINIMUXER_REF', 'SIDESIGN_REF', 'SIDESIGN_GSA_FIX', 'IDEVICE_REF', 'JKTCP_REF')})
+    final_size, final_sha256 = hash_ipa_file(args.ipa)
+    if final_size != ipa_size or final_sha256 != ipa_sha256:
+        raise ValueError("IPA changed during evidence collection")
+    require_unchanged_ipa_path(args.ipa, ipa_signature)
     provenance_path.write_text(json.dumps(evidence, indent=2, sort_keys=True) + '\n', encoding='utf-8')
 
 
