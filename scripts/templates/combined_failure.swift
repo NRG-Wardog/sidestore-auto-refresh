@@ -274,9 +274,21 @@ public struct CombinedFailure: Error, LocalizedError {
         self.sourceStep = sourceStep
         self.retryable = retryable ?? self.safeCause?.inferredRetryable
     }
-    private static let operations: Set<String> = ["connect", "status", "command", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit", "pairingImportData", "anisetteSync"]
+    private static let operations: Set<String> = ["connect", "status", "command", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit", "pairingImportData", "anisetteList", "anisetteReset", "anisetteSync"]
     private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError"]
     private static let verificationDomains: Set<String> = ["ALTServerErrorDomain", "ALTErrorDomain", "IdeviceGatewayError", "DeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy"]
+
+    /// Copyable diagnostics may include a native code only when its domain is
+    /// in the same fixed allowlist used by structured failures. Arbitrary NSError
+    /// domains can contain endpoint or user supplied text, so both fields are
+    /// suppressed together when provenance is not recognized.
+    public static func safeDiagnosticUnderlying(domain: String, code: Int) -> (domain: String, code: String) {
+        guard Self.domains.contains(domain), domain != "none", domain != "redacted" else {
+            return ("redacted", "unknown")
+        }
+        return (domain, String(code))
+    }
+
     private var timeoutAction: String {
         switch operation {
         case "connect": return "connect to SideStore"

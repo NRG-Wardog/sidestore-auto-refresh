@@ -941,8 +941,10 @@ struct SetupAndSemanticUXHarness {
                      "a numeric error code must never be shown as guidance")
         precondition(!V3FailureGuidance.message(untyped).contains("LiveContainer.Service"),
                      "the raw error domain must not be shown as guidance")
-        precondition(V3FailureGuidance.diagnostics(untyped).contains("4865"),
-                     "the code stays available through diagnostics")
+        precondition(V3FailureGuidance.diagnostics(untyped).contains("underlying_domain=redacted") &&
+                     V3FailureGuidance.diagnostics(untyped).contains("underlying_code=unknown") &&
+                     !V3FailureGuidance.diagnostics(untyped).contains("4865"),
+                     "an unrecognized NSError domain redacts its numeric code from diagnostics")
         // An untyped failure has no proven cause, so it must not claim one.
         let untypedIssue = V3UserFacingIssue.make(
             operation: "command", stage: CombinedFailure.Stage.command.rawValue,

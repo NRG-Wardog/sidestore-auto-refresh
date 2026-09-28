@@ -2058,12 +2058,23 @@ enum V3IssueAction: String, Equatable, CaseIterable {
 
 enum V3AnisetteFailureGuidance {
     static func message(_ failure: CombinedFailure) -> String? {
-        guard failure.operation.lowercased().hasPrefix("anisette"),
-              failure.stage == .network ||
-                failure.safeCause == .networkConnectionLost ||
-                failure.safeCause == .networkTimedOut ||
-                failure.safeCause == .networkUnavailable else { return nil }
+        guard failure.operation.lowercased().hasPrefix("anisette") else { return nil }
+        if failure.code == .cancelled {
+            return "What happened: The Anisette Servers request was cancelled.\nWhat you can do: Reopen Anisette Servers to check the current state before trying again."
+        }
+        guard failure.stage == .network ||
+              failure.safeCause == .networkConnectionLost ||
+              failure.safeCause == .networkTimedOut ||
+              failure.safeCause == .networkUnavailable else { return nil }
         return "What happened: SideStore could not reach the configured Anisette server.\nWhat you can do: Check its address and your network, then try again. This does not show that LocalDevVPN is unavailable."
+    }
+}
+
+enum V3SideJITReachabilityFeedback {
+    static let unreachable = "The SideJIT server could not be reached. Check its address and network, then try again."
+
+    static func reachable(httpStatusCode: Int?) -> String {
+        httpStatusCode.map { "Reachable (HTTP \($0))." } ?? "Reachable."
     }
 }
 
@@ -2477,7 +2488,9 @@ enum V3FailureGuidance {
             return combined.technicalDetails
         }
         let nsError = error as NSError
-        return "operation=untyped stage=command code=\(nsError.code) domain=\(nsError.domain) underlying=redacted"
+        let underlying = CombinedFailure.safeDiagnosticUnderlying(domain: nsError.domain,
+            code: nsError.code)
+        return "operation=untyped stage=command code=failed underlying_domain=\(underlying.domain) underlying_code=\(underlying.code)"
     }
 }
 

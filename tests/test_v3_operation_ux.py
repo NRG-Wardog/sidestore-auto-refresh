@@ -5,6 +5,9 @@ show working state, reach a visible terminal result, guard duplicates,
 and reload authoritative state. No silent dismissals, no dead Retry
 buttons, no raw numeric error codes as user messages.
 """
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -563,6 +566,32 @@ class MiscBusyStateTests(unittest.TestCase):
         view = view[:view.index("struct V3SideJITView")]
         self.assertIn("Exporting...", view)
         self.assertIn("Importing...", view)
+
+
+class SafeFailureCopyTests(unittest.TestCase):
+    def test_untyped_error_diagnostics_sidejit_and_anisette_cancellation_are_safe(self):
+        side_jit = shell()[shell().index("struct V3SideJITView"):]
+        side_jit = side_jit[:side_jit.index("struct V3ReleaseTrackHostView")]
+        self.assertIn("ping = V3SideJITReachabilityFeedback.unreachable", side_jit)
+        self.assertNotIn("error.localizedDescription", side_jit)
+
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable; executable safe-copy harness runs in macOS CI")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_safe_failure_copy_harness.swift").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "main.swift"
+            executable = Path(temporary) / "safe-failure-copy"
+            source.write_text("import Foundation\n" + failure + "\n" + primitives + "\n" + harness,
+                              encoding="utf-8")
+            compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
+                                      capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_SAFE_FAILURE_COPY_PASS", result.stdout)
 
 
 if __name__ == "__main__":

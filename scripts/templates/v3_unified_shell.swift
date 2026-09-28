@@ -7136,9 +7136,10 @@ struct V3SideJITView: View {
                 var request = URLRequest(url: url, timeoutInterval: 10)
                 request.httpMethod = "GET"
                 let (_, response) = try await URLSession.shared.data(for: request)
-                ping = (response as? HTTPURLResponse).map { "Reachable (HTTP \($0.statusCode))." } ?? "Reachable."
+                ping = V3SideJITReachabilityFeedback.reachable(
+                    httpStatusCode: (response as? HTTPURLResponse)?.statusCode)
             } catch {
-                ping = "Unreachable: \(error.localizedDescription)"
+                ping = V3SideJITReachabilityFeedback.unreachable
             }
         }
     }
