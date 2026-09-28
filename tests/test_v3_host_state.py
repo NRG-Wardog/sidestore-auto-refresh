@@ -38,6 +38,12 @@ class V3HostStateTests(unittest.TestCase):
         self.assertIn("status.beginSetupFactObservation()", health)
         self.assertIn("while reloadQueue.finishIteration()", health)
         self.assertIn("healthRevisionIsCurrent(factRevision)", health)
+        self.assertGreaterEqual(shell.count("V3PairingPresentationPolicy.displayText(statusConnected: status.connected,"), 3)
+        action = shell[shell.index("if let action = status.issue?.primaryAction"):]
+        action = action[:action.index("if status.hasUncertainInstallCancellation")]
+        self.assertIn("if status.performPrimaryIssueAction()", action)
+        self.assertIn("status.clearIssue()", action)
+        self.assertIn("issue = nil", shell[shell.index("private func presentBusy()"):shell.index("private func runMutation", shell.index("private func presentBusy()"))])
 
 
 if __name__ == "__main__":

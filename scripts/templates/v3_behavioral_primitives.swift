@@ -2580,8 +2580,27 @@ enum V3PairingPresentationPolicy {
             pairingStatus: pairingStatus).state
     }
 
+    /// A cached pairing value remains useful as history after a failed reload,
+    /// but it must not look like a current authoritative result.
+    static func displayText(statusConnected: Bool, pairingStatus: String) -> String {
+        guard !statusConnected else { return pairingStatus }
+        guard pairingStatus != "Unknown" else { return "Unknown" }
+        return "Unknown (last known: \(pairingStatus))"
+    }
+
     static func isConfirmed(statusConnected: Bool, pairingStatus: String?) -> Bool {
         state(statusConnected: statusConnected, pairingStatus: pairingStatus) == .satisfied
+    }
+}
+
+enum V3IssueActionOutcomePolicy {
+    /// Re-request actions dismiss the issue only when their request was
+    /// accepted. A rejected retry replaces the alert with its current blocker.
+    static func shouldDismiss(action: V3IssueAction, didStart: Bool) -> Bool {
+        switch action {
+        case .retrySource, .reloadSources: return didStart
+        default: return true
+        }
     }
 }
 

@@ -133,8 +133,9 @@ struct V3UnifiedTabs: View {
             // looked like a choice.
                 if let action = status.issue?.primaryAction, action != .dismiss {
                 Button(action.title) {
-                    status.performPrimaryIssueAction()
-                    status.clearIssue()
+                    if status.performPrimaryIssueAction() {
+                        status.clearIssue()
+                    }
                 }
             }
             if status.hasUncertainInstallCancellation {
@@ -983,15 +984,18 @@ final class V3SideStoreStatusStore: ObservableObject {
     /// sources themselves, because reloading status does not re-fetch a manifest
     /// and would leave the user looking at the same empty or stale catalog while
     /// the button claims it retried.
-    func performPrimaryIssueAction() {
-        guard let action = issue?.primaryAction else { return }
+    func performPrimaryIssueAction() -> Bool {
+        guard let action = issue?.primaryAction else { return true }
         switch action {
         case .retrySource:
-            refreshSources()
+            return V3IssueActionOutcomePolicy.shouldDismiss(
+                action: action, didStart: refreshSources())
         case .reloadSources:
             reload()
+            return V3IssueActionOutcomePolicy.shouldDismiss(action: action, didStart: true)
         default:
             openIssueRecovery()
+            return V3IssueActionOutcomePolicy.shouldDismiss(action: action, didStart: true)
         }
     }
 
@@ -1322,6 +1326,9 @@ final class V3SideStoreStatusStore: ObservableObject {
     /// dismissed alert: the user was told a source retry had happened when
     /// nothing had been requested. Every entry point now reports the conflict.
     private func presentBusy() {
+        // If a retry action was rejected, replace its original failure instead
+        // of leaving an alert whose old text hides the new busy explanation.
+        issue = nil
         self.error = "SideStore is still loading. Wait for the current request to finish, then try again."
     }
 
@@ -1332,10 +1339,11 @@ final class V3SideStoreStatusStore: ObservableObject {
     /// after it; a caller already parked is released by that snapshot, not by
     /// this one. The trailing reload is a plain request, so if the drain already
     /// started the owed snapshot this joins it instead of fetching twice.
-    private func runMutation(_ operation: String, target: String = "", successNotice: String) {
+    @discardableResult
+    private func runMutation(_ operation: String, target: String = "", successNotice: String) -> Bool {
         guard loadActivity == .idle else {
             presentBusy()
-            return
+            return false
         }
         beginMutation()
         Task {
@@ -1349,12 +1357,16 @@ final class V3SideStoreStatusStore: ObservableObject {
                 failed(error)
             }
         }
+        return true
     }
     func signOut() { runMutation("signOut", successNotice: "Signed out successfully.") }
     func jit(target: String) { runMutation("jit", target: target, successNotice: "JIT enabled.") }
     func syncAppIDs() { runMutation("syncAppIDs", successNotice: "App IDs synced.") }
     func clearCache() { runMutation("clearCache", successNotice: "Download cache cleared.") }
-    func refreshSources() { runMutation("refreshSources", successNotice: "Sources updated.") }
+    @discardableResult
+    func refreshSources() -> Bool {
+        runMutation("refreshSources", successNotice: "Sources updated.")
+    }
     func stageSharedFile(_ data: Data, purpose: String) async -> String? {
         guard !data.isEmpty, data.count <= 4_194_304 else {
             self.error = "The selected file is empty or too large to hand to the SideStore service."
@@ -2516,7 +2528,8 @@ struct V3AccountSettings: View {
             HStack {
                 Label("Pairing Status", systemImage: "link")
                 Spacer()
-                Text(status.pairing)
+                Text(V3PairingPresentationPolicy.displayText(statusConnected: status.connected,
+                    pairingStatus: status.pairing))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
@@ -5809,7 +5822,8 @@ struct V3PairingView: View {
                 HStack {
                     Text("Pairing Status")
                     Spacer()
-                    Text(status.pairing).foregroundColor(.secondary)
+                    Text(V3PairingPresentationPolicy.displayText(statusConnected: status.connected,
+                        pairingStatus: status.pairing)).foregroundColor(.secondary)
                 }
                 if !message.isEmpty {
                     Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled)
@@ -8287,7 +8301,8 @@ private struct V3HomeView: View {
                         HStack {
                             Label("Pairing Status", systemImage: "link")
                             Spacer()
-                            Text(status.pairing)
+                            Text(V3PairingPresentationPolicy.displayText(statusConnected: status.connected,
+                                pairingStatus: status.pairing))
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
                         }

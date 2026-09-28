@@ -38,6 +38,21 @@ struct V3HostStateHarness {
         precondition(!health.finishIteration(), "the queued request runs exactly once")
         precondition(!health.isChecking)
 
+        precondition(V3PairingPresentationPolicy.displayText(statusConnected: true,
+            pairingStatus: "Pairing file available") == "Pairing file available")
+        precondition(V3PairingPresentationPolicy.displayText(statusConnected: false,
+            pairingStatus: "Pairing file available") ==
+            "Unknown (last known: Pairing file available)")
+        precondition(V3PairingPresentationPolicy.displayText(statusConnected: false,
+            pairingStatus: "Unknown") == "Unknown")
+
+        precondition(!V3IssueActionOutcomePolicy.shouldDismiss(action: .retrySource,
+            didStart: false), "a rejected Retry Source action keeps its busy result visible")
+        precondition(V3IssueActionOutcomePolicy.shouldDismiss(action: .retrySource,
+            didStart: true))
+        precondition(V3IssueActionOutcomePolicy.shouldDismiss(action: .openSources,
+            didStart: false), "navigation actions still dismiss the issue")
+
         print("V3_HOST_STATE_PASS")
     }
 }

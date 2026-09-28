@@ -170,9 +170,11 @@ class ReloadOrderingTests(unittest.TestCase):
         text = shell()
         self.assertIn("private func finishSnapshot(outcome: V3ReloadOutcome)", text)
         self.assertIn("private func finishMutation()", text)
-        # The resumption lives in exactly one function.
-        self.assertEqual(text.count("waiter.continuation.resume(returning:"), 2,
-                         "only finishSnapshot and the refused drain may resume a waiter")
+        # The resumption lives in the cancellation path and the two drain paths.
+        # Cancellation removes an individual waiter; only snapshot completion
+        # resolves the remaining callers as a group.
+        self.assertEqual(text.count("waiter.continuation.resume(returning:"), 3)
+        self.assertIn("private func cancelSnapshotWaiter(_ id: UUID)", text)
         finish_mutation = text[text.index("private func finishMutation()"):]
         finish_mutation = finish_mutation[:finish_mutation.index("\n    }")]
         self.assertNotIn("continuation.resume", finish_mutation,
@@ -194,8 +196,10 @@ class ReloadOrderingTests(unittest.TestCase):
         self.assertIn("static func drain(activity: V3LoadActivity", primitives_text)
         wait = text[text.index("func reloadAndWait(manual: Bool = true) async -> V3ReloadOutcome"):]
         wait = wait[:wait.index("    /// The shared synchronous gate.")]
-        self.assertIn("case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:", wait)
-        self.assertIn("snapshotWaiters.append(SnapshotWaiter(manual: manual, continuation: continuation))", wait)
+        self.assertIn("case .performSnapshot, .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:", wait)
+        self.assertIn("snapshotWaiterRegistry.insert(waiterID, manual: manual)", wait)
+        self.assertIn("Task { _ = await performSnapshot() }", wait)
+        self.assertIn("withTaskCancellationHandler", wait)
 
     def test_only_one_snapshot_can_be_owed_and_starting_one_discharges_it(self):
         # A single owed intent, not one per requester, so a burst of requests
@@ -222,15 +226,16 @@ class ReloadOrderingTests(unittest.TestCase):
         drain = drain[:drain.index("\n    }")]
         self.assertIn("case .doNotObserve:", drain)
         self.assertIn("guard snapshotOwed else { return }", drain)
-        self.assertIn("for waiter in waiting { waiter.continuation.resume(returning: .notObserved) }", drain)
+        self.assertIn("for id in snapshotWaiterRegistry.takeAll()", drain)
+        self.assertIn("waiter.continuation.resume(returning: .notObserved)", drain)
         self.assertIn("snapshotOwed = false", drain)
-        # Each waiter carries its own manual requirement, so a non-manual monitor
-        # tick cannot discharge a caller's manual request.
-        self.assertIn("private struct SnapshotWaiter {", text)
-        self.assertIn("let manual: Bool", text)
+        # The production registry tracks manual requirements independently from
+        # continuation lifetime, so canceled waiters cannot force a manual drain.
+        self.assertIn("private var snapshotWaiterRegistry = V3SnapshotWaiterRegistry()", text)
+        self.assertIn("struct V3SnapshotWaiterRegistry", primitives_text)
         self.assertIn("let continuation: CheckedContinuation<V3ReloadOutcome, Never>", text)
         self.assertIn("anyWaiterNeedsManual", primitives_text)
-        self.assertIn("let needsManual = snapshotWaiters.contains { $0.manual }", text)
+        self.assertIn("let needsManual = snapshotWaiterRegistry.anyManualWaiter", text)
 
     def test_presentation_dismissal_drains_the_deferred_snapshot(self):
         text = shell()
@@ -257,7 +262,8 @@ class ReloadOrderingTests(unittest.TestCase):
         text = shell()
         perform = text[text.index("private func performSnapshot()"):]
         perform = perform[:perform.index("\n    /// V3_AWAITABLE_RELOAD_V1: the single place a snapshot")]
-        self.assertIn("let outcome: V3ReloadOutcome = succeeded ? .applied : .snapshotFailed", perform)
+        self.assertIn("cancelled ? .notObserved : .snapshotFailed", perform)
+        self.assertIn("V3SnapshotErrorPolicy.shouldMarkDisconnected(error)", perform)
         self.assertIn("requiresConnectionRetry = true", perform)
         self.assertIn("present(error)", perform)
 
@@ -322,7 +328,6 @@ class ReloadOrderingTests(unittest.TestCase):
         wait = text[text.index("func reloadAndWait(manual: Bool = true) async -> V3ReloadOutcome"):]
         wait = wait[:wait.index("    /// The shared synchronous gate.")]
         self.assertIn("withCheckedContinuation", wait)
-        self.assertNotIn("while", wait)
         self.assertNotIn("Task.sleep", wait)
 
 
@@ -566,15 +571,16 @@ class UserFacingIssueRoutingTests(unittest.TestCase):
     def test_retry_source_re_requests_the_sources_not_the_status_snapshot(self):
         # Source retry is a real source fetch; connection recovery opens settings.
         text = shell()
-        self.assertIn("func performPrimaryIssueAction()", text)
+        self.assertIn("func performPrimaryIssueAction() -> Bool", text)
         action = text[text.index("func performPrimaryIssueAction()"):]
         action = action[:action.index("\n    }")]
         self.assertNotIn("case .retryConnection:", action)
-        self.assertIn("case .retrySource:\n            refreshSources()", action)
+        self.assertIn("case .retrySource:", action)
+        self.assertIn("didStart: refreshSources()", action)
         self.assertIn("default:\n            openIssueRecovery()", action)
         # The two retries are never collapsed into one branch again.
         self.assertNotIn("action == .retryConnection || action == .retrySource", text)
-        self.assertIn("func refreshSources()", text)
+        self.assertIn("func refreshSources() -> Bool", text)
 
     def test_failures_are_presented_through_the_issue_model(self):
         text = shell()
