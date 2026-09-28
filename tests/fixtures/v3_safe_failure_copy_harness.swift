@@ -22,12 +22,46 @@ struct V3SafeFailureCopyHarness {
                      !redactedDetails.contains("4865"),
                      "untrusted NSError fields must not cross the copy boundary")
 
+        let privateNativeDomain = "com.private.user-7428391.endpoint"
+        let privateNativeDescription = "private endpoint 7428391 could not be reached"
+        let privateNativeFailure = CombinedFailure(operation: "command", stage: .command,
+            code: .failed, id: UUID().uuidString,
+            underlying: NSError(domain: privateNativeDomain, code: 7428391,
+                userInfo: [NSLocalizedDescriptionKey: privateNativeDescription]),
+            safeCause: .anisetteUnknownFailure)
+        let privateNativeDetails = privateNativeFailure.technicalDetails
+        let privateNativeWire = privateNativeFailure.wire
+        let privateNativeEncoded = privateNativeFailure.encodedString
+        let privateNativeDecoded = CombinedFailure.fromEncodedString(
+            privateNativeEncoded, expectedID: privateNativeFailure.correlationID)
+        precondition(privateNativeDetails.contains("underlying_domain=redacted") &&
+                     privateNativeDetails.contains("underlying_code=unknown") &&
+                     !privateNativeDetails.contains(privateNativeDomain) &&
+                     !privateNativeDetails.contains(privateNativeDescription) &&
+                     !privateNativeDetails.contains("7428391"),
+                     "a typed failure must omit both untrusted native domain and code from copied details")
+        precondition(privateNativeWire["underlyingDomain"] as? String == "redacted" &&
+                     privateNativeWire["underlyingCode"] as? Int == 0 &&
+                     privateNativeWire["safeCause"] as? String == "anisetteUnknownFailure" &&
+                     !privateNativeEncoded.contains(privateNativeDomain) &&
+                     !privateNativeEncoded.contains("7428391") &&
+                     privateNativeDecoded?.underlyingDomain == "redacted" &&
+                     privateNativeDecoded?.underlyingCode == 0 &&
+                     privateNativeDecoded?.safeCause == .anisetteUnknownFailure &&
+                     privateNativeDecoded?.technicalDetails.contains("underlying_code=unknown") == true,
+                     "the structured envelope preserves the safe cause while omitting the private numeric code")
+
         let typed = CombinedFailure(operation: "command", stage: .network,
             code: .failed, id: UUID().uuidString,
             underlying: NSError(domain: NSURLErrorDomain, code: -1009),
             safeCause: .networkUnavailable)
         precondition(V3FailureGuidance.diagnostics(typed) == typed.technicalDetails,
                      "already structured CombinedFailure diagnostics must remain unchanged")
+        precondition(typed.underlyingDomain == NSURLErrorDomain &&
+                     typed.underlyingCode == -1009 &&
+                     typed.wire["underlyingCode"] as? Int == -1009 &&
+                     typed.technicalDetails.contains("underlying_code=-1009"),
+                     "allowlisted native domains retain their useful numeric codes")
 
         let sideJITFailure = V3SideJITReachabilityFeedback.unreachable
         precondition(sideJITFailure ==

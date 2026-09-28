@@ -663,7 +663,8 @@ public struct CombinedFailure: Error, LocalizedError {
         return message
     }
     public var technicalDetails: String {
-        "schema=1 operation=\(operation) stage=\(stage.rawValue) code=\(code.rawValue) correlation=\(correlationID) underlying_domain=\(underlyingDomain) underlying_code=\(underlyingCode) retryable=\(retryable.map(String.init) ?? "unknown") source_step=\(sourceStep?.rawValue ?? "unknown") safe_cause=\(safeCause?.rawValue ?? "unknown")" + installVerdict + requestContextSuffix
+        let displayedUnderlyingCode = underlyingDomain == "redacted" ? "unknown" : String(underlyingCode)
+        return "schema=1 operation=\(operation) stage=\(stage.rawValue) code=\(code.rawValue) correlation=\(correlationID) underlying_domain=\(underlyingDomain) underlying_code=\(displayedUnderlyingCode) retryable=\(retryable.map(String.init) ?? "unknown") source_step=\(sourceStep?.rawValue ?? "unknown") safe_cause=\(safeCause?.rawValue ?? "unknown")" + installVerdict + requestContextSuffix
     }
     // Appended only when present, so every existing diagnostic stays
     // byte-identical.
@@ -704,7 +705,10 @@ public struct CombinedFailure: Error, LocalizedError {
     }
     public var wire: [String: Any] {
         var result: [String: Any] = ["version": 1, "operation": operation, "stage": stage.rawValue, "code": code.rawValue,
-            "correlationID": correlationID, "underlyingDomain": underlyingDomain, "underlyingCode": underlyingCode]
+            "correlationID": correlationID, "underlyingDomain": underlyingDomain,
+            // Unknown domains may encode user data. Do not serialize their native
+            // numeric code separately; the redacted domain has no safe code value.
+            "underlyingCode": underlyingDomain == "redacted" ? 0 : underlyingCode]
         if let safeCause { result["safeCause"] = safeCause.rawValue }
         if let sourceStep { result["sourceStep"] = sourceStep.rawValue }
         if let retryable { result["retryable"] = retryable }
