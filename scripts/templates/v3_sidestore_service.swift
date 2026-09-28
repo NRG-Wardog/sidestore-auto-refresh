@@ -1276,7 +1276,8 @@ final class V3SideStoreService: NSObject {
         let apps = InstalledApp.all(in: context)
         let sources = try context.fetch(NSFetchRequest<Source>(entityName: "Source"))
         let team = DatabaseManager.shared.activeTeam()
-        let certificate = CertificateManager.shared.activeCertificate?.certificate.x509
+        let activeCertificate = CertificateManager.shared.activeCertificate
+        let certificate = activeCertificate?.certificate.x509
         // V3_AUTH_SESSION_SNAPSHOT_V1: Apple authentication can succeed before
         // the account row is activated, because activation happens at the end
         // of SignInOperation.finalizeAuthentication. Reporting "Not signed in"
@@ -1308,12 +1309,15 @@ final class V3SideStoreService: NSObject {
                  "recoveryJournalUnreadable": recoveryJournalUnreadable,
                  "account": account,
                  "authenticated": authenticated,
+                 "activeAccountPresent": activeAccount != nil,
+                 "activeTeamPresent": team != nil,
+                 "activeCertificatePresent": activeCertificate != nil,
                  "authenticationActive": activeAuthenticationSessionID != nil,
                  "provisioningIncomplete": authenticated && activeAccount == nil,
                 "provisioningRetryAvailable": V3HeadlessRuntime.shared.auth.canResumeProvisioning(),
                 "team": team?.name ?? "No active team", "teamID": team?.identifier ?? "",
                 "signing": team == nil ? "Sign in required" : "Team selected",
-                "certificate": CertificateManager.shared.activeCertificate == nil ? "No active certificate" : "Active certificate available",
+                "certificate": activeCertificate == nil ? "No active certificate" : "Active certificate available",
                 "certificateExpiration": certificate?.expiryDate ?? Date.distantPast,
                 "pairing": V3BackendCommands.pairingFileStatus(),
                 "installedApps": apps.map { app in

@@ -3568,26 +3568,17 @@ struct V3AccountSessionPresentation: Equatable {
 }
 
 enum V3AccountSessionPresentationPolicy {
-    static func resolve(authenticated: Bool, account: String?, team: String?,
-                        certificate: String?) -> V3AccountSessionPresentation {
-        let hasAccount = hasValue(account, excluding: ["Not signed in", "Not available"])
-        let hasTeam = hasValue(team, excluding: ["No active team", "Unknown"])
-        let hasActiveCertificate = certificate == "Active certificate available"
-        let hasSavedState = hasAccount || hasTeam || hasActiveCertificate
+    static func resolve(authenticated: Bool, activeAccountPresent: Bool,
+                        activeTeamPresent: Bool, activeCertificatePresent: Bool) -> V3AccountSessionPresentation {
+        let hasSavedState = activeAccountPresent || activeTeamPresent || activeCertificatePresent
         return V3AccountSessionPresentation(
             showSignIn: !authenticated,
-            showSavedAppleID: hasAccount,
+            showSavedAppleID: activeAccountPresent,
             showUnverifiedSavedState: !authenticated && hasSavedState,
             // Authentication can be unreadable while the active Core Data
             // account/team/certificate still exists. Sign Out remains an
             // explicit checked action so the user can reconcile that state.
             showSignOut: authenticated || hasSavedState)
-    }
-
-    private static func hasValue(_ value: String?, excluding sentinels: Set<String>) -> Bool {
-        guard let value else { return false }
-        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !normalized.isEmpty && !sentinels.contains(normalized)
     }
 }
 

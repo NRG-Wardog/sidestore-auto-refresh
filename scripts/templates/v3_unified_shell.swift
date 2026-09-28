@@ -870,6 +870,11 @@ final class V3SideStoreStatusStore: ObservableObject {
     // session separately from the active account row, because authentication
     // completes before provisioning activates that row.
     @Published private(set) var authenticated = false
+    // V3_AUTH_LOCAL_STATE_SNAPSHOT_V1: persisted account/team/certificate
+    // presence is separate from credential readability and display strings.
+    @Published private(set) var activeAccountPresent = false
+    @Published private(set) var activeTeamPresent = false
+    @Published private(set) var activeCertificatePresent = false
     @Published private(set) var provisioningIncomplete = false
     // V3_SETUP_COMPLETION_POLICY_V1: the last authoritative Wi-Fi observation.
     // Probing Wi-Fi is async, so Home reads this cache instead of guessing.
@@ -1431,6 +1436,9 @@ final class V3SideStoreStatusStore: ObservableObject {
         certificateExpiration = (snapshot["certificateExpiration"] as? Date).flatMap { $0 == .distantPast ? nil : $0 }
         pairing = snapshot["pairing"] as? String ?? "Unknown"
         authenticated = V3ServiceBridge.strictBool(snapshot["authenticated"]) ?? false
+        activeAccountPresent = V3ServiceBridge.strictBool(snapshot["activeAccountPresent"]) ?? false
+        activeTeamPresent = V3ServiceBridge.strictBool(snapshot["activeTeamPresent"]) ?? false
+        activeCertificatePresent = V3ServiceBridge.strictBool(snapshot["activeCertificatePresent"]) ?? false
         provisioningIncomplete = V3ServiceBridge.strictBool(snapshot["provisioningIncomplete"]) ?? false
         updatedAt = snapshot["updatedAt"] as? Date
         installedApps = (snapshot["installedApps"] as? [[String: Any]] ?? []).compactMap(V3SideStoreApp.init)
@@ -2628,7 +2636,9 @@ struct V3AccountSettings: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     private var identityPresentation: V3AccountSessionPresentation {
         V3AccountSessionPresentationPolicy.resolve(authenticated: status.authenticated,
-            account: status.account, team: status.team, certificate: status.certificate)
+            activeAccountPresent: status.activeAccountPresent,
+            activeTeamPresent: status.activeTeamPresent,
+            activeCertificatePresent: status.activeCertificatePresent)
     }
 
     var body: some View {
@@ -2730,6 +2740,8 @@ struct V3AccountSettings: View {
             } label: {
                 Label("Sync App IDs", systemImage: "arrow.triangle.2.circlepath")
             }
+            .disabled(!status.authenticated || status.loading)
+            .accessibilityHint("Sign in with Apple ID before syncing App IDs.")
             link("Certificates", icon: "doc.text") { V3CertificatesView().environmentObject(status) }
             link("Developer Services", icon: "wrench.and.screwdriver") { V3DeveloperServicesView().environmentObject(status) }
             if identityPresentation.showSignOut {

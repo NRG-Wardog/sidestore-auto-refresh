@@ -608,9 +608,18 @@ class AccountSessionRecoveryTests(unittest.TestCase):
         self.assertIn("identityPresentation.showSignOut", view)
         self.assertIn('Label("Saved account state is not verified"', view)
         self.assertIn('V3SignInLink(title: "Sign In with Apple ID")', view)
+        self.assertIn("activeAccountPresent: status.activeAccountPresent", view)
+        self.assertIn("activeTeamPresent: status.activeTeamPresent", view)
+        self.assertIn("activeCertificatePresent: status.activeCertificatePresent", view)
         sign_out_action = view[view.index("if identityPresentation.showSignOut"):]
         self.assertIn('Label("Sign Out"', sign_out_action)
         self.assertIn("status.signOut()", sign_out_action)
+        self.assertIn(".disabled(!status.authenticated || status.loading)", view)
+
+        store = shell()[shell().index("final class V3SideStoreStatusStore"):]
+        store = store[:store.index("private func rejectForUnresolvedRecovery")]
+        for fact in ("activeAccountPresent", "activeTeamPresent", "activeCertificatePresent"):
+            self.assertIn(f'{fact} = V3ServiceBridge.strictBool(snapshot["{fact}"]) ?? false', store)
 
         compiler = shutil.which("swiftc")
         if not compiler:
@@ -629,6 +638,16 @@ class AccountSessionRecoveryTests(unittest.TestCase):
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("V3_ACCOUNT_SESSION_PRESENTATION_PASS", result.stdout)
+
+    def test_service_snapshot_exports_typed_local_signing_state_facts(self):
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        snapshot = service[service.index("private func snapshot() throws -> [String: Any]"):]
+        for field, expression in (
+            ("activeAccountPresent", "activeAccount != nil"),
+            ("activeTeamPresent", "team != nil"),
+            ("activeCertificatePresent", "activeCertificate != nil"),
+        ):
+            self.assertIn(f'"{field}": {expression}', snapshot)
 
 
 if __name__ == "__main__":
