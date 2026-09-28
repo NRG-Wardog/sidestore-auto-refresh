@@ -1263,6 +1263,8 @@ for operation in ["authBegin", "authRetryProvisioning", "authPoll", "authRespond
         request["target"] = "https://example.invalid/source.json"
     } else if operation == "ipaActiveTokens" {
         request["target"] = ""
+    } else if operation == "anisetteList" {
+        request["target"] = ""
     } else if operation == "settingsSet" {
         request["target"] = ""
         request["payload"] = ["key": "isBackgroundRefreshEnabled", "type": "bool", "bool": false]

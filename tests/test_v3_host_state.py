@@ -42,12 +42,13 @@ class V3HostStateTests(unittest.TestCase):
         if not SWIFTC:
             self.skipTest("Swift compiler unavailable; host state harness runs in macOS CI")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         helpers = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_host_state_harness.swift").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "main.swift"
             executable = Path(temporary) / "host-state"
-            source.write_text(failure + "\n" + helpers + "\n" + harness, encoding="utf-8")
+            source.write_text(failure + "\n" + wire + "\n" + helpers + "\n" + harness, encoding="utf-8")
             compiled = subprocess.run([SWIFTC, "-parse-as-library", str(source), "-o", str(executable)],
                                       capture_output=True, text=True)
             self.assertEqual(compiled.returncode, 0, compiled.stderr)

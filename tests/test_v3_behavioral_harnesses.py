@@ -87,11 +87,12 @@ class V3BehavioralHarnessTests(unittest.TestCase):
 
     def test_refresh_intent_operation_creation_failure_resumes_scheduler(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         start = helper.index("enum V3RefreshIntentStartPolicy {")
         end = helper.index("\nenum V3SetupTestAttemptPolicy", start)
         policy = helper[start:end]
         harness = (ROOT / "tests/fixtures/v3_refresh_intent_start_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run("import Foundation\n" + policy + "\n" + harness,
+        self.compile_and_run("import Foundation\n" + failure + "\n" + policy + "\n" + harness,
                              "V3_REFRESH_INTENT_START_PASS")
 
     def test_invalid_pairing_remains_typed_and_actionable(self):

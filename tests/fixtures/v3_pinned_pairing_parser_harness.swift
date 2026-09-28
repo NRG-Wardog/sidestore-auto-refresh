@@ -2,6 +2,7 @@ import Foundation
 
 enum MinimuxerConstants {
     static let appName = "LiveContainer"
+    static let lockdowndPort: UInt16 = 62078
     static let remotePairingPort: UInt16 = 49151
 }
 

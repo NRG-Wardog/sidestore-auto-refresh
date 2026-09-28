@@ -53,7 +53,7 @@ private enum V3OperationRecoveryJournal {
             }
             let data = try Data(contentsOf: url)
             guard data.count <= 4096,
-                  let plist = try PropertyListSerialization.propertyList(from: data, format: nil),
+                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
                   let record = V3OperationRecoveryRecord.decodePropertyList(plist) else {
                 throw V3SecretHandoffError.malformed
             }

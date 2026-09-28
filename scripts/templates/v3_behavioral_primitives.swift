@@ -4160,7 +4160,7 @@ enum V3ServiceMutationAdmissionPolicy {
             return userConfirmedReconciliation &&
                 UUID(uuidString: target)?.uuidString == target
         }
-        ["refreshAdmissionBegin", "refreshAdmissionEnd"].contains(operation) &&
+        return ["refreshAdmissionBegin", "refreshAdmissionEnd"].contains(operation) &&
             refreshAttemptActive && !anotherHostMutationActive && !target.isEmpty && activeRunID == target
     }
 }
