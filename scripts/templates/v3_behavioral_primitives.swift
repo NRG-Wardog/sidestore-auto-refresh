@@ -310,6 +310,32 @@ enum V3JITLessSetupActionPolicy {
     }
 }
 
+struct V3SignInJITLessGuidance: Equatable {
+    let readiness: V3JITLessReadiness
+    let presentation: V3JITLessPresentation
+    let action: V3JITLessSetupAction
+}
+
+/// Composes the existing authoritative readiness, presentation, and action
+/// policies for the post-sign-in page. It observes a fact; it never reads or
+/// guesses certificate readiness itself.
+enum V3SignInJITLessGuidancePolicy {
+    static func resolve(osMajor: Int, readiness: V3JITLessReadiness?) -> V3SignInJITLessGuidance? {
+        guard V3JITLessCompletionPolicy.isRequired(osMajor: osMajor) else { return nil }
+        // A "not required" fact cannot be trusted on a supported iOS version.
+        // Treat it as unverified instead of presenting setup as complete.
+        let observed: V3JITLessReadiness
+        if let readiness, readiness != .notRequired {
+            observed = readiness
+        } else {
+            observed = .unknown
+        }
+        return V3SignInJITLessGuidance(readiness: observed,
+            presentation: V3JITLessPresentation.present(observed),
+            action: V3JITLessSetupActionPolicy.action(for: observed))
+    }
+}
+
 enum V3JITLessHealthRecoveryPolicy {
     static func shouldOfferCanonicalSetup(for readiness: V3JITLessReadiness,
                                           activeCertificateAvailable: Bool) -> Bool {

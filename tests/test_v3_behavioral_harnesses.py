@@ -323,6 +323,19 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         self.compile_and_run(failure + "\n" + helper + "\n" + harness,
                              "V3_SETUP_AND_SEMANTIC_UX_PASS")
 
+    def test_sign_in_jitless_ui_uses_authoritative_readiness_and_actions(self):
+        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        sign_in_start = host.index("struct V3SignInView: View")
+        sign_in_end = host.index("\nstruct V3CertificateRow", sign_in_start)
+        sign_in = host[sign_in_start:sign_in_end]
+        self.assertIn("V3SignInJITLessGuidancePolicy.resolve", sign_in)
+        self.assertIn("readiness: status.jitlessReadiness", sign_in)
+        self.assertNotIn('Text("Next: Set Up JIT-Less")', sign_in)
+        self.assertIn('Label("Review JIT-Less Status"', sign_in)
+        self.assertIn('Button("Continue to JIT-Less Setup")', sign_in)
+        self.assertIn('Button("Refresh JIT-Less Certificate")', sign_in)
+        self.assertIn('Label("Open Certificates"', sign_in)
+
     def test_two_factor_phone_back_sends_no_delivery_and_allows_new_method(self):
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
         policy_start = runtime.index("enum V3TwoFactorPhoneSelectionPolicy {")

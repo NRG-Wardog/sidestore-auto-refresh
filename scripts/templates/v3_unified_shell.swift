@@ -5504,14 +5504,41 @@ struct V3SignInView: View {
                         Spacer()
                         if !auth.team.isEmpty { Text(auth.team).foregroundColor(.secondary) }
                     }
-                    if V3JITLessCompletionPolicy.isRequired(osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion) {
+                    if let jitless = jitlessGuidance {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Next: Set Up JIT-Less")
+                            Label(jitless.presentation.title, systemImage: jitless.presentation.icon)
                                 .font(.subheadline.weight(.semibold))
-                            Text("LiveContainer needs a JIT-Less certificate configured before guest apps can launch on iOS 26 and later.")
+                                .foregroundColor(jitless.presentation.tint)
+                            Text(jitless.presentation.detail)
                                 .font(.footnote).foregroundColor(.secondary)
-                            Button("Continue to JIT-Less Setup") { openJITLessSetup() }
-                                .buttonStyle(.borderedProminent)
+                            if jitless.presentation.isOutstandingSetupTask {
+                                switch jitless.action {
+                                case .setUp:
+                                    Button("Continue to JIT-Less Setup") { openJITLessSetup() }
+                                        .buttonStyle(.borderedProminent)
+                                case .refreshCertificate:
+                                    Button("Refresh JIT-Less Certificate") { openJITLessSetup() }
+                                        .buttonStyle(.borderedProminent)
+                                case .openCertificates:
+                                    NavigationLink {
+                                        V3CertificatesView().environmentObject(status)
+                                    } label: {
+                                        Label("Open Certificates", systemImage: "doc.text")
+                                    }
+                                case .openSetup:
+                                    Button("Open JIT-Less Setup") { openJITLessSetup() }
+                                        .buttonStyle(.borderedProminent)
+                                case .none:
+                                    EmptyView()
+                                }
+                            } else if jitless.readiness == .ready {
+                                NavigationLink {
+                                    V3HealthView().environmentObject(status).environmentObject(sharedModel)
+                                } label: {
+                                    Label("Review JIT-Less Status", systemImage: "stethoscope")
+                                }
+                                .font(.caption)
+                            }
                         }
                         .padding(.vertical, 4)
                     }
@@ -5762,6 +5789,11 @@ struct V3SignInView: View {
         V3AuthCancellationFeedbackPolicy.statusLabel(isCancelling: auth.isCancelling,
             normalLabel: V3AuthStatusTextPolicy.label(state: auth.state, isSignedIn: auth.isSignedIn,
                 provisioningFinishedLater: auth.provisioningFinishedLater))
+    }
+    private var jitlessGuidance: V3SignInJITLessGuidance? {
+        V3SignInJITLessGuidancePolicy.resolve(
+            osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
+            readiness: status.jitlessReadiness)
     }
 
     // V3_FINISH_LATER_PRESERVES_ACCOUNT_V1: closing the flow reloads the

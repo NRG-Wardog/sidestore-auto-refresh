@@ -517,6 +517,40 @@ struct SetupAndSemanticUXHarness {
         precondition(ready.severity == .completed && !ready.isOutstandingSetupTask)
         precondition(ready.title == "Configured / Ready")
         precondition(V3JITLessPresentation.present(.notRequired).severity == .completed)
+        let signInReady = V3SignInJITLessGuidancePolicy.resolve(osMajor: 26, readiness: .ready)!
+        precondition(signInReady.presentation.title == "Configured / Ready" &&
+                     !signInReady.presentation.isOutstandingSetupTask &&
+                     signInReady.action == .none,
+                     "a signed-in account with ready JIT-Less is not prompted to set it up again")
+        let signInMissing = V3SignInJITLessGuidancePolicy.resolve(osMajor: 26, readiness: .setupRequired)!
+        precondition(signInMissing.presentation.title == "JIT-Less certificate not configured" &&
+                     signInMissing.action == .setUp,
+                     "a confirmed missing JIT-Less copy goes to canonical setup")
+        for stale: V3JITLessReadiness in [.needsCertificateRefresh, .certificateMismatch, .revoked] {
+            let guidance = V3SignInJITLessGuidancePolicy.resolve(osMajor: 26, readiness: stale)!
+            precondition(guidance.presentation.isOutstandingSetupTask &&
+                         guidance.action == .refreshCertificate,
+                         "\(stale.rawValue) routes to canonical certificate refresh")
+        }
+        for activeCertificateIssue: V3JITLessReadiness in [
+            .activeCertificateMissing, .activeCertificateRevoked, .activeCertificateExpired
+        ] {
+            let guidance = V3SignInJITLessGuidancePolicy.resolve(
+                osMajor: 26, readiness: activeCertificateIssue)!
+            precondition(guidance.action == .openCertificates,
+                         "\(activeCertificateIssue.rawValue) routes to SideStore Certificates")
+        }
+        let signInUnknown = V3SignInJITLessGuidancePolicy.resolve(osMajor: 26, readiness: nil)!
+        precondition(signInUnknown.readiness == .unknown &&
+                     signInUnknown.presentation.title == "Validation unknown" &&
+                     signInUnknown.action == .openSetup,
+                     "unobserved readiness is shown as unknown, never as confirmed missing")
+        let contradictoryNotRequired = V3SignInJITLessGuidancePolicy.resolve(
+            osMajor: 26, readiness: .notRequired)!
+        precondition(contradictoryNotRequired.readiness == .unknown,
+                     "an iOS 26+ view cannot accept a stale not-required fact as ready")
+        precondition(V3SignInJITLessGuidancePolicy.resolve(osMajor: 25, readiness: .setupRequired) == nil,
+                     "older iOS keeps the legacy sign-in presentation with no JIT-Less stage")
         // Everything that still needs work is flagged as an outstanding task.
         for state: V3JITLessReadiness in [.setupRequired, .certificateMismatch, .certificateImported,
                                           .needsCertificateRefresh, .revoked, .activeCertificateMissing,
