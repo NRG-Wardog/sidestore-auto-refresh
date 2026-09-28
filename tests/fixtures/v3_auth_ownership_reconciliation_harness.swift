@@ -718,6 +718,12 @@ struct AuthOwnershipReconciliationHarness {
             V3AuthTerminalFailureActionPolicy.guidance(
                 kind: "networkFailure", retryable: false)?.contains("not marked safe to retry") == true,
             "a nonretryable terminal auth failure must not expose a retry action")
+        precondition(V3AuthTerminalFailureActionPolicy.resolve(
+            kind: "invalidCode", retryable: true) ==
+            .beginNewSignIn(title: "Start New Sign-In to Enter a New Code") &&
+            V3AuthTerminalFailureActionPolicy.guidance(
+                kind: "invalidCode", retryable: true)?.contains("after credentials are accepted") == true,
+            "a terminal code error must explain that this action starts a fresh credentials flow")
         for kind in ["serviceUnavailable", "anisetteFailure", "networkFailure"] {
             precondition(V3AuthTerminalFailureActionPolicy.resolve(kind: kind, retryable: true) ==
                          .beginNewSignIn(title: "Start New Sign-In"),

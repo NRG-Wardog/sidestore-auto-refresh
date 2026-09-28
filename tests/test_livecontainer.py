@@ -32,6 +32,14 @@ func performIntentRefresh(identifier: String, mangledTypeName: String, intentPro
 
 let priorIntentResult = .result(dialog: "All apps have been refreshed.")
 
+public struct RefreshAllAppsWidgetIntent {
+    public static var title: LocalizedStringResource { "Refresh Apps via Widget" }
+}
+
+public struct RefreshAllAppsIntent {
+    public static var title: LocalizedStringResource = "Refresh All Apps"
+}
+
 class RefreshHandler: NSObject, RefreshServer {
 }
 ''')
@@ -75,6 +83,7 @@ class LiveContainerPatchTests(unittest.TestCase):
             self.assertNotIn("RefreshHandler.shared.startRefresh(identifier: identifier", helper)
             self.assertIn("Refresh All was requested in LiveContainer", support)
             self.assertNotIn("All apps have been refreshed.", support)
+            self.assertEqual(support.count("public static var openAppWhenRun = true"), 2)
             delegate = (root / "LiveContainerSwiftUI/App/AppDelegate.swift").read_text()
             self.assertIn("V3ShortcutRefreshRequest(userInfo: notification.userInfo)", delegate)
             self.assertIn("guard let request = V3ShortcutRefreshRequest(userInfo: notification.userInfo) else", delegate)

@@ -217,9 +217,9 @@ enum StoreApp { static let altstoreAppID = "fixture.host" }
             "result": safePairing], operation: "refresh", limit: V3WireContract.responseLimit)
         let pairingDecoded = try PropertyListSerialization.propertyList(from: pairingBytes, format: nil) as! [String: Any]
         let pairingResult = pairingDecoded["result"] as! [String: Any]
-        let manifest = pairingResult["liveContainerAutoRefreshVerification"] as! [String: Any]
-        let manifestRows = manifest["results"] as! [[String: Any]]
-        let roundTripped = CombinedFailure.decode(manifestRows[0]["failure"] as! [String: Any], expectedID: run)!
+        let pairingManifest = pairingResult["liveContainerAutoRefreshVerification"] as! [String: Any]
+        let pairingManifestRows = pairingManifest["results"] as! [[String: Any]]
+        let roundTripped = CombinedFailure.decode(pairingManifestRows[0]["failure"] as! [String: Any], expectedID: run)!
         precondition(roundTripped.stage == .pairing && roundTripped.safeCause == .invalidPairingFile &&
                      roundTripped.correlationID == run && roundTripped.retryable == false,
                      "invalid-pairing semantics must survive encoding and decoding of the refresh manifest")

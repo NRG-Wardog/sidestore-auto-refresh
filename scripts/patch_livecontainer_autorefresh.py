@@ -97,6 +97,20 @@ func performIntentRefresh(identifier: String, mangledTypeName: String, intentPro
         text = replace_once(text, 'dialog: "All apps have been refreshed."',
             'dialog: "Refresh All was requested in LiveContainer. Check Refresh History for the run result."',
             "truthful host AppIntent completion copy")
+    widget_start = text.index("public struct RefreshAllAppsWidgetIntent")
+    main_start = text.index("public struct RefreshAllAppsIntent", widget_start)
+    handler_start = text.index("class RefreshHandler:", main_start)
+    widget_intent = text[widget_start:main_start]
+    main_intent = text[main_start:handler_start]
+    widget_title = '    public static var title: LocalizedStringResource { "Refresh Apps via Widget" }\n'
+    main_title = '    public static var title: LocalizedStringResource = "Refresh All Apps"\n'
+    if "public static var openAppWhenRun = true" not in widget_intent:
+        text = replace_once(text, widget_title,
+            widget_title + "    // LC_REFRESH_HOST_INTENT_FOREGROUND_V1: widget requests must execute in the host app.\n"
+            "    public static var openAppWhenRun = true\n", "foreground widget intent")
+    if "public static var openAppWhenRun = true" not in main_intent:
+        text = replace_once(text, main_title,
+            main_title + "    public static var openAppWhenRun = true\n", "foreground refresh intent")
     if "LC_REFRESH_BRIDGE_V3_BEGIN" in text:
         if BRIDGE.strip() not in text:
             die("outdated bridge template: reapply to the pinned clean source")
@@ -277,6 +291,13 @@ def verify(root: Path) -> None:
         die("host AppIntent still bypasses the shared scheduler")
     if 'dialog: "All apps have been refreshed."' in support:
         die("host AppIntent still reports completion before the scheduler run")
+    widget_start = support.index("public struct RefreshAllAppsWidgetIntent")
+    main_start = support.index("public struct RefreshAllAppsIntent", widget_start)
+    handler_start = support.index("class RefreshHandler:", main_start)
+    if "public static var openAppWhenRun = true" not in support[widget_start:main_start]:
+        die("host widget AppIntent is not configured to execute in LiveContainer")
+    if "public static var openAppWhenRun = true" not in support[main_start:handler_start]:
+        die("host Refresh All AppIntent is not configured to execute in LiveContainer")
     if r'\\(' in HOST_SCHEDULER:
         die("Swift interpolation was double-escaped in a plain Swift template")
     compiler = shutil.which("swiftc")

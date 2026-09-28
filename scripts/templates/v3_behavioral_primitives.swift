@@ -3633,7 +3633,7 @@ enum V3AuthTerminalFailureActionPolicy {
         switch kind {
         case "rateLimited": return .beginNewSignIn(title: "Start New Sign-In")
         case "invalidCredentials": return .beginNewSignIn(title: "Check Password and Start New Sign-In")
-        case "invalidCode": return .beginNewSignIn(title: "Enter a New Code")
+        case "invalidCode": return .beginNewSignIn(title: "Start New Sign-In to Enter a New Code")
         case "serviceUnavailable", "anisette", "anisetteFailure", "network", "networkFailure":
             return .beginNewSignIn(title: "Start New Sign-In")
         default: break
@@ -3652,6 +3652,8 @@ enum V3AuthTerminalFailureActionPolicy {
             return "This failure is not marked safe to retry. Resolve the displayed prerequisite and review Diagnostics."
         case .beginNewSignIn(_) where kind == "rateLimited":
             return "Apple is limiting sign-in attempts. Wait before starting a new sign-in."
+        case .beginNewSignIn(_) where kind == "invalidCode":
+            return "This sign-in attempt ended. Start a new sign-in; Apple will request a fresh verification code after credentials are accepted."
         case .beginNewSignIn(_) where kind == "serviceUnavailable":
             return "Apple's authentication service is temporarily unavailable. Wait for it to recover, then start a new sign-in."
         case .beginNewSignIn(_) where kind == "anisette" || kind == "anisetteFailure":
