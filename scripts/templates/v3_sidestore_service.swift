@@ -4,8 +4,6 @@
 // V3_HEADLESS_SERVICE_V2: headless backend. This file owns the command gate,
 // snapshots, and non-interactive reads. All interactive work runs through
 // V3HeadlessRuntime sessions; no window, presenter, or visible UI exists here.
-import SwiftUI
-
 // V3_OPERATION_RECOVERY_JOURNAL_V1
 // Shared by LiveContainer's App Group and this service process. Serialization
 // uses the existing process-shared App Group lock; the record stores only IDs

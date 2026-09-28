@@ -28,6 +28,11 @@ results = module("patch_refresh_result_bridge")
 
 
 class ServicePatchTests(unittest.TestCase):
+    def test_headless_service_template_does_not_import_swiftui(self):
+        service_template = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        self.assertNotIn("import SwiftUI", service_template)
+        self.assertIn("private enum V3OperationRecoveryJournal", service_template)
+
     def test_external_url_log_redaction_is_idempotent_and_omits_sensitive_values(self):
         scene = '\n'.join((
             'debugLog("[SceneDelegate] scene(_:openURLContexts:) called with URL: \\(context.url)")',
