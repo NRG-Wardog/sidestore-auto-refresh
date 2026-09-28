@@ -186,10 +186,6 @@ struct V3UnifiedTabs: View {
             V3OperationSheet(request: request).environmentObject(status)
         }
         .sheet(isPresented: $status.signInPresented, onDismiss: {
-            // Sign-in can create or replace the active certificate. Status
-            // snapshots omit the separate JIT-Less certificate comparison,
-            // so invalidate that fact before requesting the post-auth snapshot.
-            status.invalidateSetupFacts()
             status.reload()
             routePendingCanonicalJITLessSetup()
         }) {
@@ -5695,6 +5691,10 @@ struct V3SignInView: View {
         .onDisappear {
             auth.cancel()
             auth.clearPreviousFailure()
+            // Every entry route (sheet and NavigationLink) shares this view.
+            // Sign-in can change SideStore's active certificate, which is not
+            // represented in the ordinary snapshot used by status.reload().
+            status.invalidateSetupFacts()
             status.reload()
         }
     }

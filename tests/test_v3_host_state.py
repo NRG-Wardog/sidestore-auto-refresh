@@ -10,13 +10,18 @@ SWIFTC = shutil.which("swiftc")
 
 
 class V3HostStateTests(unittest.TestCase):
-    def test_sign_in_return_invalidates_jitless_setup_facts_before_reload(self):
+    def test_all_sign_in_routes_invalidate_jitless_facts_before_reload(self):
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        start = shell.index('.sheet(isPresented: $status.signInPresented, onDismiss: {')
-        end = shell.index("}) {", start)
-        dismissal = shell[start:end]
-        self.assertIn("status.invalidateSetupFacts()", dismissal)
-        self.assertLess(dismissal.index("status.invalidateSetupFacts()"), dismissal.index("status.reload()"))
+        start = shell.index("struct V3SignInView: View")
+        end = shell.index("private var statusText", start)
+        sign_in_lifecycle = shell[start:end]
+        self.assertIn("auth.cancel()", sign_in_lifecycle)
+        disappear_start = sign_in_lifecycle.rindex(".onDisappear {")
+        disappear_end = sign_in_lifecycle.index("\n        }", disappear_start)
+        disappear = sign_in_lifecycle[disappear_start:disappear_end]
+        invalidation = disappear.index("status.invalidateSetupFacts()")
+        reload = disappear.index("status.reload()", invalidation)
+        self.assertLess(invalidation, reload)
 
     def test_unreadable_recovery_journal_is_visible_and_blocks_new_work(self):
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
