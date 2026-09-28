@@ -713,6 +713,7 @@ struct SetupAndSemanticUXHarness {
         let decodedAnisetteNetworkFailure = plistRoundTrip(anisetteNetworkFailure)
         let anisetteGuidance = decodedAnisetteNetworkFailure.flatMap(V3AnisetteFailureGuidance.message)
         precondition(anisetteGuidance?.contains("configured Anisette server") == true &&
+                     decodedAnisetteNetworkFailure?.operation == "anisetteSync" &&
                      decodedAnisetteNetworkFailure?.stage == .network &&
                      decodedAnisetteNetworkFailure?.code == .failed &&
                      decodedAnisetteNetworkFailure?.retryable == true &&
@@ -749,6 +750,7 @@ struct SetupAndSemanticUXHarness {
                      anisetteRejected.retryable == false &&
                      rejectedRoundTrip?.operation == "anisetteSync" &&
                      rejectedRoundTrip?.stage == .command &&
+                     rejectedRoundTrip?.code == .failed &&
                      rejectedRoundTrip?.safeCause == .anisetteServerRejected &&
                      rejectedRoundTrip?.retryable == false &&
                      anisetteRejected.safeMessage.contains("unsuccessful response") &&
@@ -822,7 +824,9 @@ struct SetupAndSemanticUXHarness {
         precondition(anisetteUnknown.stage == .command &&
                      anisetteUnknown.safeCause == .anisetteUnknownFailure &&
                      anisetteUnknown.retryable == nil &&
+                     unknownRoundTrip?.operation == "anisetteSync" &&
                      unknownRoundTrip?.stage == .command &&
+                     unknownRoundTrip?.code == .failed &&
                      unknownRoundTrip?.safeCause == .anisetteUnknownFailure &&
                      unknownRoundTrip?.retryable == nil &&
                      anisetteUnknown.safeMessage.contains("unknown reason") &&
