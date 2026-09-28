@@ -210,10 +210,10 @@ class ReloadOrderingTests(unittest.TestCase):
         start = start[:start.index("\n    }")]
         self.assertIn("snapshotOwedIntent.clear()", start,
                       "starting any snapshot must discharge the owed intent")
-        begin = text[text.index("private func beginSnapshot(manual: Bool) -> V3SnapshotDecision"):]
+        begin = text[text.index("private func beginSnapshot(manual: Bool,"):]
         begin = begin[:begin.index("\n    private func startSnapshot")]
-        self.assertIn("snapshotOwedIntent.record(manual: manual)", begin)
-        self.assertEqual(begin.count("snapshotOwedIntent.record(manual: manual)"), 1,
+        self.assertIn("snapshotOwedIntent.record(manual: manual && !waiterWillBeInstalled)", begin)
+        self.assertEqual(begin.count("snapshotOwedIntent.record(manual: manual && !waiterWillBeInstalled)"), 1,
                          "only the deferring branches may set the owed intent")
 
     def test_no_continuation_can_be_stranded(self):
@@ -229,8 +229,8 @@ class ReloadOrderingTests(unittest.TestCase):
         self.assertIn("for id in snapshotWaiterRegistry.takeAll()", drain)
         self.assertIn("waiter.continuation.resume(returning: .notObserved)", drain)
         self.assertIn("snapshotOwedIntent.clear()", drain)
-        # The production registry tracks manual requirements independently from
-        # continuation lifetime, so canceled waiters cannot force a manual drain.
+        # The waiter registry owns awaiting manual requirements; the separate
+        # owed-intent helper owns only fire-and-forget manual reloads.
         self.assertIn("private var snapshotWaiterRegistry = V3SnapshotWaiterRegistry()", text)
         self.assertIn("struct V3SnapshotWaiterRegistry", primitives_text)
         self.assertIn("let continuation: CheckedContinuation<V3ReloadOutcome, Never>", text)
@@ -247,7 +247,7 @@ class ReloadOrderingTests(unittest.TestCase):
     def test_awaitable_reload_completes_after_state_is_applied(self):
         text = shell()
         self.assertIn("func reloadAndWait(manual: Bool = true) async -> V3ReloadOutcome", text)
-        self.assertIn("private func beginSnapshot(manual: Bool) -> V3SnapshotDecision", text)
+        self.assertIn("private func beginSnapshot(manual: Bool,", text)
         self.assertIn("private func performSnapshot() async -> V3ReloadOutcome", text)
         perform = text[text.index("private func performSnapshot()"):]
         perform = perform[:perform.index("\n    /// V3_AWAITABLE_RELOAD_V1: the single place a snapshot")]
@@ -315,7 +315,7 @@ class ReloadOrderingTests(unittest.TestCase):
         wait = wait[:wait.index("    /// The shared synchronous gate.")]
         self.assertNotIn("Task.sleep", wait)
         for action in ("private func presentBusy()", "private func drainOwedSnapshot()",
-                       "private func beginSnapshot(manual: Bool)",
+                       "private func beginSnapshot(manual: Bool,",
                        "private func dismissKeyboard()", "private func cancelSourceEditing()",
                        "private func previewSource()"):
             block = text[text.index(action):]

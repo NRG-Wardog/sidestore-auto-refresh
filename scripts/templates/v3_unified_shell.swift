@@ -1247,7 +1247,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @discardableResult
     func reloadAndWait(manual: Bool = true) async -> V3ReloadOutcome {
         guard !Task.isCancelled else { return .notObserved }
-        let decision = beginSnapshot(manual: manual)
+        let decision = beginSnapshot(manual: manual, waiterWillBeInstalled: true)
         switch decision {
         case .performSnapshot, .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:
             // The service request belongs to the store, not to the first caller.
@@ -1288,7 +1288,8 @@ final class V3SideStoreStatusStore: ObservableObject {
     /// The shared synchronous gate. It names the activity instead of inferring
     /// one from a shared busy flag, and it is the only place a snapshot is
     /// started or a waiter is parked.
-    private func beginSnapshot(manual: Bool) -> V3SnapshotDecision {
+    private func beginSnapshot(manual: Bool,
+                               waiterWillBeInstalled: Bool = false) -> V3SnapshotDecision {
         let decision = V3SnapshotGate.decide(
             activity: loadActivity, presentationActive: presentation != nil,
             manual: manual, requiresConnectionRetry: requiresConnectionRetry)
@@ -1300,7 +1301,10 @@ final class V3SideStoreStatusStore: ObservableObject {
         case .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:
             // A snapshot is owed. It is owed once, not once per requester, so a
             // burst of requests cannot queue a burst of fetches.
-            snapshotOwedIntent.record(manual: manual)
+            // Awaiting callers carry manual intent in the waiter registry so a
+            // canceled last waiter cannot force a later retry. Fire-and-forget
+            // reloads have no waiter and retain their manual intent here.
+            snapshotOwedIntent.record(manual: manual && !waiterWillBeInstalled)
         case .doNotObserve:
             break
         }

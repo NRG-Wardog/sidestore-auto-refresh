@@ -25,7 +25,11 @@ struct SnapshotOwnershipHarness {
         private(set) var requiresConnectionRetry = false
         private var snapshotOwedIntent = V3SnapshotOwedIntent()
         var snapshotOwed: Bool { snapshotOwedIntent.isOwed }
+        var manualSnapshotOwed: Bool { snapshotOwedIntent.requiresManualSnapshot }
         private(set) var waiters: [Bool] = []
+        private var snapshotWaiterRegistry = V3SnapshotWaiterRegistry()
+        private var waiterIDs: [UUID] = []
+        private(set) var lastWaiterID: UUID?
         /// Every snapshot actually performed, in order. The tests assert on this
         /// so a duplicate or a missing fetch is observable.
         private(set) var snapshotsPerformed: [String] = []
@@ -49,7 +53,8 @@ struct SnapshotOwnershipHarness {
             requiresConnectionRetry = true
         }
 
-        func beginSnapshot(manual: Bool) -> V3SnapshotDecision {
+        func beginSnapshot(manual: Bool,
+                           waiterWillBeInstalled: Bool = false) -> V3SnapshotDecision {
             let decision = V3SnapshotGate.decide(
                 activity: activity, presentationActive: presentationActive,
                 manual: manual, requiresConnectionRetry: requiresConnectionRetry)
@@ -59,11 +64,29 @@ struct SnapshotOwnershipHarness {
             case .joinSnapshot:
                 break
             case .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:
-                snapshotOwedIntent.record(manual: manual)
+                snapshotOwedIntent.record(manual: manual && !waiterWillBeInstalled)
             case .doNotObserve:
                 break
             }
             return decision
+        }
+
+        @discardableResult
+        func cancelWaiter(_ id: UUID) -> Bool {
+            guard snapshotWaiterRegistry.remove(id),
+                  let index = waiterIDs.firstIndex(of: id) else { return false }
+            waiterIDs.remove(at: index)
+            waiters.remove(at: index)
+            if lastWaiterID == id { lastWaiterID = nil }
+            return true
+        }
+
+        private func parkWaiter(manual: Bool) {
+            let id = UUID()
+            lastWaiterID = id
+            waiterIDs.append(id)
+            waiters.append(manual)
+            snapshotWaiterRegistry.insert(id, manual: manual)
         }
 
         func startSnapshot(manual: Bool) {
@@ -91,6 +114,8 @@ struct SnapshotOwnershipHarness {
         func finishSnapshot(outcome: String) {
             activity = .idle
             loading = false
+            _ = snapshotWaiterRegistry.takeAll()
+            waiterIDs.removeAll()
             let waiting = waiters
             waiters.removeAll()
             for manual in waiting { resumptions.append((manual, outcome)) }
@@ -110,7 +135,7 @@ struct SnapshotOwnershipHarness {
         }
 
         func drainOwedSnapshot() {
-            let needsManual = waiters.contains { $0 }
+            let needsManual = snapshotWaiterRegistry.anyManualWaiter
             switch V3SnapshotGate.drain(activity: activity, presentationActive: presentationActive,
                                         owed: snapshotOwedIntent.isOwed, anyWaiterNeedsManual: needsManual,
                                         explicitManualOwed: snapshotOwedIntent.requiresManualSnapshot,
@@ -123,6 +148,8 @@ struct SnapshotOwnershipHarness {
             case .doNotObserve:
                 guard snapshotOwed else { return }
                 snapshotOwedIntent.clear()
+                _ = snapshotWaiterRegistry.takeAll()
+                waiterIDs.removeAll()
                 let waiting = waiters
                 waiters.removeAll()
                 for manual in waiting { resumptions.append((manual, "notObserved")) }
@@ -138,13 +165,13 @@ struct SnapshotOwnershipHarness {
         /// "notObserved" for one the policy refuses, and the snapshot's real
         /// outcome for one that owns a snapshot which completed immediately.
         func reloadAndWait(manual: Bool) -> String {
-            switch beginSnapshot(manual: manual) {
+            switch beginSnapshot(manual: manual, waiterWillBeInstalled: true) {
             case .performSnapshot:
                 guard completesSnapshotImmediately else { return "inFlight" }
                 completeSnapshot()
                 return snapshotsPerformed.last ?? "applied"
             case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:
-                waiters.append(manual)
+                parkWaiter(manual: manual)
                 return "parked"
             case .doNotObserve:
                 return "notObserved"
@@ -433,6 +460,62 @@ struct SnapshotOwnershipHarness {
             precondition(!s.snapshotOwed && s.waiters.isEmpty && s.resumptions.count == 1 &&
                          s.resumptions[0].1 == "notObserved",
                          "the refused request is cleared and its waiter is released truthfully")
+        }
+
+        // 9f. canceling the sole manual reloadAndWait caller removes its manual
+        // requirement. Once mutation and presentation blockers end, the request
+        // is refused by the retry latch instead of performing work for a caller
+        // that already canceled.
+        do {
+            let s = Store()
+            s.simulateFailedSnapshotLatch()
+            s.beginMutation()
+            s.presentationActive = true
+            precondition(s.reloadAndWait(manual: true) == "parked",
+                         "the manual waiter parks behind both blockers")
+            guard let waiterID = s.lastWaiterID else {
+                preconditionFailure("the parked caller has a waiter identity")
+            }
+            s.completeMutation()
+            precondition(s.snapshotOwed && s.resumptions.isEmpty,
+                         "mutation completion preserves the still-blocked waiter")
+            precondition(s.cancelWaiter(waiterID), "cancel removes the sole waiter exactly once")
+            precondition(!s.cancelWaiter(waiterID), "a canceled waiter cannot be removed twice")
+            precondition(s.snapshotOwed && !s.manualSnapshotOwed,
+                         "waiter cancellation removes manual intent without clearing the owed request")
+            s.presentationEnded()
+            precondition(s.activity == .idle && s.snapshotsStarted == 0,
+                         "without any manual owner, the retry latch refuses the drain")
+            precondition(s.requiresConnectionRetry && !s.snapshotOwed && s.waiters.isEmpty &&
+                         s.resumptions.isEmpty,
+                         "no snapshot or waiter survives the canceled request")
+        }
+
+        // 9g. an independent fire-and-forget manual reload remains authoritative
+        // after the awaiting caller is canceled, so it still starts one snapshot.
+        do {
+            let s = Store()
+            s.simulateFailedSnapshotLatch()
+            s.beginMutation()
+            s.presentationActive = true
+            s.reload(manual: true)
+            precondition(s.reloadAndWait(manual: true) == "parked",
+                         "the awaiting caller joins the independent owed request")
+            guard let waiterID = s.lastWaiterID else {
+                preconditionFailure("the joined caller has a waiter identity")
+            }
+            s.completeMutation()
+            precondition(s.cancelWaiter(waiterID), "the awaiting caller cancels independently")
+            precondition(s.manualSnapshotOwed,
+                         "the fire-and-forget request retains its manual intent")
+            s.presentationEnded()
+            precondition(s.activity == .snapshot && s.snapshotsStarted == 1 &&
+                         !s.requiresConnectionRetry,
+                         "the independent manual request starts exactly one snapshot")
+            s.completeSnapshot()
+            precondition(s.snapshotsPerformed == ["applied"] && s.snapshotsStarted == 1 &&
+                         s.waiters.isEmpty,
+                         "the snapshot completes once after the only waiter canceled")
         }
 
         // 10. several simultaneous callers all receive the same result
