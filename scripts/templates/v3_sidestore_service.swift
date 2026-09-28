@@ -14,9 +14,13 @@ private enum V3OperationRecoveryJournal {
     private static let components = ["Library", "Application Support", "LiveContainer"]
     private static let fileName = "operation-recovery.plist"
 
-    private static func recordURL() throws -> URL {
-        guard let container = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: V3IPAStaging.sideStoreAppGroupIdentifier) else {
+    private static func recordURL(containerRoot: URL?) throws -> URL {
+        let container: URL
+        if let containerRoot { container = containerRoot }
+        else if let sharedContainer = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: V3IPAStaging.sideStoreAppGroupIdentifier) {
+            container = sharedContainer
+        } else {
             throw V3SecretHandoffError.unavailable
         }
         let directory = components.reduce(container.standardizedFileURL) {
@@ -35,8 +39,10 @@ private enum V3OperationRecoveryJournal {
         return directory.appendingPathComponent(fileName, isDirectory: false)
     }
 
-    private static func withLease<T>(_ body: (URL) throws -> T) throws -> T {
-        try V3AppGroupProcessLock.withLock { try body(recordURL()) }
+    private static func withLease<T>(containerRoot: URL?, _ body: (URL) throws -> T) throws -> T {
+        try V3AppGroupProcessLock.withLock(containerRoot: containerRoot) {
+            try body(recordURL(containerRoot: containerRoot))
+        }
     }
 
     private static func read(_ url: URL) throws -> V3OperationRecoveryLease {
@@ -73,12 +79,13 @@ private enum V3OperationRecoveryJournal {
         } catch { throw V3SecretHandoffError.unavailable }
     }
 
-    static func current() throws -> V3OperationRecoveryRecord? {
-        try withLease { try read($0).record }
+    static func current(containerRoot: URL? = nil) throws -> V3OperationRecoveryRecord? {
+        try withLease(containerRoot: containerRoot) { try read($0).record }
     }
 
-    static func reserve(sessionID: String, kind: String, stagedIPAToken: String? = nil) throws -> Bool {
-        try withLease { url in
+    static func reserve(sessionID: String, kind: String, stagedIPAToken: String? = nil,
+                        containerRoot: URL? = nil) throws -> Bool {
+        try withLease(containerRoot: containerRoot) { url in
             var lease = try read(url)
             let result = lease.reserve(sessionID: sessionID, kind: kind, stagedIPAToken: stagedIPAToken)
             if result == .reserved { try write(lease, to: url) }
@@ -86,8 +93,9 @@ private enum V3OperationRecoveryJournal {
         }
     }
 
-    static func beginDispatch(sessionID: String, kind: String, stagedIPAToken: String? = nil) throws -> Bool {
-        try withLease { url in
+    static func beginDispatch(sessionID: String, kind: String, stagedIPAToken: String? = nil,
+                              containerRoot: URL? = nil) throws -> Bool {
+        try withLease(containerRoot: containerRoot) { url in
             var lease = try read(url)
             guard lease.beginDispatch(sessionID: sessionID, kind: kind, stagedIPAToken: stagedIPAToken) else { return false }
             try write(lease, to: url)
@@ -96,8 +104,9 @@ private enum V3OperationRecoveryJournal {
     }
 
     @discardableResult
-    static func settle(sessionID: String, replySessionID: String?, state: String?, backendSettled: Bool) throws -> Bool {
-        try withLease { url in
+    static func settle(sessionID: String, replySessionID: String?, state: String?, backendSettled: Bool,
+                       containerRoot: URL? = nil) throws -> Bool {
+        try withLease(containerRoot: containerRoot) { url in
             var lease = try read(url)
             guard lease.settle(sessionID: sessionID, replySessionID: replySessionID,
                 state: state, backendSettled: backendSettled) else { return false }
@@ -107,8 +116,9 @@ private enum V3OperationRecoveryJournal {
     }
 
     @discardableResult
-    static func reconcileAfterDeviceCheck(sessionID: String, userConfirmed: Bool) throws -> Bool {
-        try withLease { url in
+    static func reconcileAfterDeviceCheck(sessionID: String, userConfirmed: Bool,
+                                          containerRoot: URL? = nil) throws -> Bool {
+        try withLease(containerRoot: containerRoot) { url in
             var lease = try read(url)
             guard lease.reconcileAfterDeviceCheck(sessionID: sessionID, userConfirmed: userConfirmed) else { return false }
             try write(lease, to: url)
@@ -118,8 +128,9 @@ private enum V3OperationRecoveryJournal {
 
     @discardableResult
     static func clearPreparedAfterNotDispatched(sessionID: String, expectedRequestID: String,
-                                                 replyRequestID: String?, operationNotDispatched: Bool) throws -> Bool {
-        try withLease { url in
+                                                 replyRequestID: String?, operationNotDispatched: Bool,
+                                                 containerRoot: URL? = nil) throws -> Bool {
+        try withLease(containerRoot: containerRoot) { url in
             var lease = try read(url)
             guard lease.clearPreparedAfterNotDispatched(sessionID: sessionID,
                 expectedRequestID: expectedRequestID, replyRequestID: replyRequestID,

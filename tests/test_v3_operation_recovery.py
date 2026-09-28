@@ -28,6 +28,38 @@ class V3OperationRecoveryTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("V3_OPERATION_RECOVERY_PASS", result.stdout)
 
+    def test_production_journal_persistence_and_process_lock_with_temporary_root(self):
+        if not SWIFTC:
+            self.skipTest("Swift compiler unavailable; executable journal harness runs in macOS CI")
+        handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        lock_start = handoff.index("enum V3AppGroupProcessLock {")
+        lock_end = handoff.index("\nenum V3SecretHandoffError", lock_start)
+        error_start = lock_end + 1
+        error_end = handoff.index("\nenum V3SecretHandoffRecord", error_start)
+        journal_start = service.index("private enum V3OperationRecoveryJournal {")
+        journal_end = service.index("\n// V3_NATIVE_CALLBACK_GATE_V1", journal_start)
+        lock = handoff[lock_start:lock_end]
+        error = handoff[error_start:error_end]
+        journal = service[journal_start:journal_end]
+        fixture = (ROOT / "tests/fixtures/v3_operation_recovery_journal_harness.swift").read_text(encoding="utf-8")
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        injected_imports = "import Foundation\n#if canImport(Darwin)\nimport Darwin\n#elseif canImport(Glibc)\nimport Glibc\n#endif\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            main = Path(temporary) / "journal-main.swift"
+            executable = Path(temporary) / "journal-harness"
+            main.write_text(injected_imports + wire + "\n" + failure + "\n" + primitives +
+                "\nenum V3IPAStaging { static let sideStoreAppGroupIdentifier = \"group.com.SideStore.SideStore\" }\n" +
+                lock + "\n" + error + "\n" + journal + "\n" + fixture, encoding="utf-8")
+            compiled = subprocess.run([SWIFTC, "-parse-as-library", str(main), "-o", str(executable)],
+                capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_OPERATION_RECOVERY_JOURNAL_PASS", result.stdout)
+
     def test_host_and_service_use_journal_before_dispatch_and_preserve_ipa(self):
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
