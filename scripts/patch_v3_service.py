@@ -12,7 +12,11 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 27
+PATCH_VERSION = 28
+HEADLESS_SIDESTORE_APP_UI_FILES = (
+    "Components/AppBannerView.swift",
+    "Components/AppBannerCollectionViewCell.swift",
+)
 HEADLESS_SIDESTORE_VIEW_FILES = (
     "Views/Components/AppInfoView.swift",
     "Views/Components/BundleResourceBrowserView.swift",
@@ -211,6 +215,11 @@ def headless_project(text):
 			"tvOS/Main.storyboard",
 			);
 			platformFiltersByRelativePath = {'''
+    app_ui_exclusions = "".join(f'\t\t\t\t"{path}",\n' for path in HEADLESS_SIDESTORE_APP_UI_FILES)
+    headless_exception = replace(
+        headless_exception,
+        '\t\t\t\t"Components/HeaderContentViewController.swift",\n',
+        '\t\t\t\t"Components/HeaderContentViewController.swift",\n' + app_ui_exclusions)
     if text.count(side_exception) != 1:
         raise SystemExit("v3 service: SideStore resource-exclusion anchor changed")
     text = text.replace(side_exception, headless_exception, 1)
@@ -246,8 +255,9 @@ def headless_project(text):
         '\t\t\t\t"Handlers/SignInFlowHandler.swift",\n',
         '\t\t\t\t"Handlers/SignInFlowHandler.swift",\n' + view_exclusions)
     text = replace(text, side_store_source_exception, headless_side_store_source_exception)
-    # Starscream has no source references; MarkdownKit is used only by an
-    # excluded view. Remove both products so they are not fetched or linked.
+    # Starscream has no source references. MarkdownKit and Nuke are used only
+    # by excluded legacy UI/cache code; the backend clears the old cache folder
+    # directly without retaining an image-pipeline package.
     for marker in (
         'A8C37029302DA7F30010213A /* MarkdownKit in Frameworks */ = {',
         'A8C37027302DA7F30010213A /* XCRemoteSwiftPackageReference "MarkdownKit" */ = {',
@@ -255,6 +265,9 @@ def headless_project(text):
         'A8C37035302DA84D0010213A /* Starscream in Frameworks */ = {',
         'A8C37033302DA84D0010213A /* XCRemoteSwiftPackageReference "Starscream" */ = {',
         'A8C37034302DA84D0010213A /* Starscream */ = {',
+        'A8C3702F302DA82A0010213A /* Nuke in Frameworks */ = {',
+        'A8C3702D302DA82A0010213A /* XCRemoteSwiftPackageReference "Nuke" */ = {',
+        'A8C3702E302DA82A0010213A /* Nuke */ = {',
     ):
         text = remove_pbx_object(text, marker)
     references = (
@@ -264,6 +277,9 @@ def headless_project(text):
         r"(?m)^\s*A8C37035302DA84D0010213A /\* Starscream in Frameworks \*/,\r?\n",
         r"(?m)^\s*A8C37034302DA84D0010213A /\* Starscream \*/,\r?\n",
         r"(?m)^\s*A8C37033302DA84D0010213A /\* XCRemoteSwiftPackageReference \"Starscream\" \*/,\r?\n",
+        r"(?m)^\s*A8C3702F302DA82A0010213A /\* Nuke in Frameworks \*/,\r?\n",
+        r"(?m)^\s*A8C3702D302DA82A0010213A /\* XCRemoteSwiftPackageReference \"Nuke\" \*/,\r?\n",
+        r"(?m)^\s*A8C3702E302DA82A0010213A /\* Nuke \*/,\r?\n",
     )
     for pattern in references:
         text, count = re.subn(pattern, "", text)
@@ -542,6 +558,83 @@ def headless_app_open(text):
             "importAppDeepLinkURLKey", "addSourceDeepLinkNotification", "addSourceDeepLinkURLKey")):
         raise SystemExit("v3 service: legacy app IPA-import state remains")
     return text
+
+
+def headless_nuke_app_delegate(text):
+    marker = "V3_HEADLESS_IMAGE_PIPELINE_REMOVED_V1"
+    if marker in text:
+        if any(value in text for value in ("import Nuke", "prepareImageCache", "ImagePipeline", "DataLoader")):
+            raise SystemExit("v3 service: legacy image pipeline remains in headless AppDelegate")
+        return text
+    text = replace(text, "import Nuke\n", "")
+    text = replace(text, "        self.prepareImageCache()\n",
+                   "        // " + marker + ": the headless service does not initialize legacy screen imagery.\n")
+    start_marker = "    func prepareImageCache()\n"
+    end_marker = "\n    func open(_ url: URL) -> Bool"
+    if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+        raise SystemExit("v3 service: AppDelegate image-pipeline method anchor changed")
+    start = text.index(start_marker)
+    end = text.index(end_marker, start)
+    text = text[:start] + text[end:]
+    if any(value in text for value in ("import Nuke", "prepareImageCache", "ImagePipeline", "DataLoader")):
+        raise SystemExit("v3 service: legacy image-pipeline references remain in headless AppDelegate")
+    return text
+
+
+LEGACY_IMAGE_CACHE_CLEANUP_HELPER = '''// V3_LEGACY_IMAGE_CACHE_CLEANUP_V1: clear the former SideStore screen cache without Nuke.
+enum V3LegacyImageCacheCleanup {
+    static let directoryName = "io.sidestore.Nuke"
+
+    static func clear(cachesDirectory: URL?, fileManager: FileManager = .default) throws {
+        guard let cachesDirectory else { return }
+        let root = cachesDirectory.standardizedFileURL
+        let cache = root.appendingPathComponent(directoryName, isDirectory: true).standardizedFileURL
+        guard cache.deletingLastPathComponent() == root else {
+            throw NSError(domain: "com.SideStore.Cache", code: 1)
+        }
+        guard fileManager.fileExists(atPath: cache.path) else { return }
+        try fileManager.removeItem(at: cache)
+    }
+}'''
+
+
+def headless_clear_cache_operation(text):
+    marker = "V3_LEGACY_IMAGE_CACHE_CLEANUP_V1"
+    if marker in text:
+        if ("import Nuke" in text or "ImagePipeline" in text or
+                "V3LegacyImageCacheCleanup.clear(cachesDirectory:" not in text):
+            raise SystemExit("v3 service: legacy image-cache operation adapter is incomplete")
+        return text
+    text = replace(text, "import Nuke\n", LEGACY_IMAGE_CACHE_CLEANUP_HELPER + "\n")
+    old = '''    private func clearNukeCache() {
+        guard let dataCache = ImagePipeline.shared.configuration.dataCache as? DataCache else { return }
+        dataCache.removeAll()
+    }'''
+    new = '''    private func clearNukeCache() {
+        do {
+            try V3LegacyImageCacheCleanup.clear(cachesDirectory:
+                FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first)
+        } catch {
+            self.debugLog("[ClearAppCacheOperation] legacy image-cache removal failed")
+        }
+    }'''
+    text = replace(text, old, new)
+    if "import Nuke" in text or "ImagePipeline" in text:
+        raise SystemExit("v3 service: Nuke remains in the headless cache-clear operation")
+    return text
+
+
+def headless_sidestore_app_delegate(text):
+    text = headless_background_fetch(text)
+    text = headless_app_intent_routing(text)
+    text = headless_app_open(text)
+    text = headless_nuke_app_delegate(text)
+    return text + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + \
+        (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8") + \
+        (TEMPLATES / "v3_secret_handoff.swift").read_text(encoding="utf-8") + \
+        (TEMPLATES / "v3_ipa_staging.swift").read_text(encoding="utf-8") + \
+        (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8") + \
+        (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8")
 
 
 def headless_scene_open(text):
@@ -1008,17 +1101,9 @@ def patch(live, side):
             (TEMPLATES / "v3_service_bridge.swift").read_text(encoding="utf-8")
     edit(live, "SideStoreSupport/SideStore.swift", host)
     # The shared combined-startup adapter owns structured refresh error/result encoding.
-    def sidestore_app_delegate(s):
-        s = headless_background_fetch(s)
-        s = headless_app_intent_routing(s)
-        s = headless_app_open(s)
-        return s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + \
-            (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8") + \
-            (TEMPLATES / "v3_secret_handoff.swift").read_text(encoding="utf-8") + \
-            (TEMPLATES / "v3_ipa_staging.swift").read_text(encoding="utf-8") + \
-            (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8") + \
-            (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8")
-    edit(side, "AltStore/AppDelegate.swift", sidestore_app_delegate)
+    edit(side, "AltStore/AppDelegate.swift", headless_sidestore_app_delegate)
+    edit(side, "SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
+         headless_clear_cache_operation)
     edit(side, "SideStore/Core/Auth/AuthManager.swift", headless_auth_manager)
     edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui)
     edit(side, "SideStore/Handlers/PipelineHandler.swift", headless_pipeline_handler)
@@ -1041,21 +1126,22 @@ def patch(live, side):
          lambda s: redact_external_url_logs(s, "AltStore/SceneDelegate.swift"))
     edit(side, "SideStore/DeepLinks/URLHandler.swift",
          lambda s: redact_external_url_logs(s, "SideStore/DeepLinks/URLHandler.swift"))
-    def remove_starscream_pin(text):
+    def remove_headless_ui_package_pins(text):
         resolved = json.loads(text)
         pins = resolved.get("pins")
         if not isinstance(pins, list):
             raise SystemExit("v3 service: SideStore package lock has no pin list")
-        filtered = [pin for pin in pins if pin.get("identity") not in ("starscream", "markdownkit")]
+        removed_identities = {"starscream", "markdownkit", "nuke"}
+        filtered = [pin for pin in pins if pin.get("identity") not in removed_identities]
         removed = len(pins) - len(filtered)
-        if removed == 0 and not any(pin.get("identity") in ("starscream", "markdownkit") for pin in pins):
+        if removed == 0 and not any(pin.get("identity") in removed_identities for pin in pins):
             return text
-        if removed != 2:
-            raise SystemExit("v3 service: expected exactly one Starscream and one MarkdownKit pin")
+        if removed != len(removed_identities):
+            raise SystemExit("v3 service: expected exactly one pin for each removed legacy UI package")
         resolved["pins"] = filtered
         return json.dumps(resolved, indent=2) + "\n"
     edit(side, "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
-         remove_starscream_pin)
+         remove_headless_ui_package_pins)
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
         "        NavigationView {\n            ScrollView {", "        NavigationView {\n            ScrollView {\n                V3InstalledAppsSection(query: searchContext.debouncedQuery)"))
     edit(live, "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift", lambda s: replace(s,
@@ -1275,9 +1361,12 @@ def verify_sign_in_operation(side, pinned_ref):
 
 def verify_headless_ui_adapters(side, pinned_ref):
     adapters = (
+        ("AltStore/AppDelegate.swift", headless_sidestore_app_delegate),
         ("SideStore/Core/Auth/AuthManager.swift", headless_auth_manager),
         ("AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui),
         ("SideStore/Handlers/PipelineHandler.swift", headless_pipeline_handler),
+        ("SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
+         headless_clear_cache_operation),
         ("SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift", headless_connection_config),
     )
     for relative, transform in adapters:
@@ -1285,6 +1374,12 @@ def verify_headless_ui_adapters(side, pinned_ref):
             ["git", "-C", str(side), "show", f"{pinned_ref}:{relative}"],
             text=True, encoding="utf-8")
         expected = transform(source)
+        if relative == "AltStore/AppDelegate.swift":
+            expected = replace(expected,
+                '                debugLog("Started DatabaseManager.")\n',
+                '                debugLog("Started DatabaseManager.")\n'
+                '                // V3_SIDESTORE_STATUS_SNAPSHOT_V1: retired in favor of live XPC reads.\n')
+            expected = redact_external_url_logs(expected, relative)
         if relative == "SideStore/Core/Auth/AuthManager.swift":
             expected = apply_embedded_credential_snapshot_patch(expected, "patch_auth_manager")
         actual = (side / relative).read_text(encoding="utf-8")

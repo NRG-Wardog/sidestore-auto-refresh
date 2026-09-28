@@ -57,6 +57,81 @@ func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID:
         self.assertNotIn("import SwiftUI", service_template)
         self.assertIn("private enum V3OperationRecoveryJournal", service_template)
 
+    def test_legacy_nuke_cache_cleanup_is_file_scoped_and_repeatable(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable; cache cleanup behavior runs in macOS CI")
+        with tempfile.TemporaryDirectory() as name:
+            roots = self.fixture(Path(name))
+            self.apply(roots)
+            clear_source = (roots[1] / "SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift").read_text()
+            start = clear_source.index("// V3_LEGACY_IMAGE_CACHE_CLEANUP_V1")
+            end = clear_source.index("\nstruct BatchError", start)
+            helper = clear_source[start:end]
+            harness = '''
+import Foundation
+@main struct LegacyImageCacheCleanupHarness {
+    static func main() throws {
+        let manager = FileManager.default
+        let root = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = root.appendingPathComponent("io.sidestore.Nuke", isDirectory: true)
+        let neighbor = root.appendingPathComponent("keep-me", isDirectory: true)
+        try manager.createDirectory(at: cache, withIntermediateDirectories: true)
+        try manager.createDirectory(at: neighbor, withIntermediateDirectories: true)
+        try Data([1]).write(to: cache.appendingPathComponent("entry"))
+        try Data([2]).write(to: neighbor.appendingPathComponent("entry"))
+        try V3LegacyImageCacheCleanup.clear(cachesDirectory: root, fileManager: manager)
+        precondition(!manager.fileExists(atPath: cache.path))
+        precondition(manager.fileExists(atPath: neighbor.appendingPathComponent("entry").path))
+        try V3LegacyImageCacheCleanup.clear(cachesDirectory: root, fileManager: manager)
+        try V3LegacyImageCacheCleanup.clear(cachesDirectory: nil, fileManager: manager)
+        try? manager.removeItem(at: root)
+        print("V3_LEGACY_IMAGE_CACHE_CLEANUP_PASS")
+    }
+}
+'''
+            with tempfile.TemporaryDirectory() as build:
+                source = Path(build) / "main.swift"
+                executable = Path(build) / "cache-cleanup"
+                source.write_text("import Foundation\n" + helper + "\n" + harness, encoding="utf-8")
+                compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
+                    capture_output=True, text=True)
+                self.assertEqual(compiled.returncode, 0, compiled.stderr)
+                result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("V3_LEGACY_IMAGE_CACHE_CLEANUP_PASS", result.stdout)
+
+    def test_every_pinned_nuke_import_is_excluded_or_headless_adapted(self):
+        source_value = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.getenv("SIDESTORE_TEST_SOURCE")
+        if not source_value:
+            self.skipTest("pinned SideStore source unavailable")
+        source = Path(source_value)
+        project_text = (source / "AltStore.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+        generated_project = service.headless_project(project_text)
+
+        def excluded_members(anchor):
+            anchor_start = generated_project.index(anchor)
+            member_start = generated_project.index("membershipExceptions = (", anchor_start)
+            member_end = generated_project.index(");", member_start)
+            return set(re.findall(r'"([^"\\]+)"', generated_project[member_start:member_end]))
+
+        app_excluded = excluded_members("A8EEC8CB2F4B146B00F2436D")
+        side_excluded = excluded_members("A8EECF492F4B195000F2436D")
+        unaccounted = []
+        for root_name, excluded, adapted in (
+            ("AltStore", app_excluded, {"AppDelegate.swift"}),
+            ("SideStore", side_excluded, {"Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift"}),
+        ):
+            root = source / root_name
+            for path in root.rglob("*.swift"):
+                if "import Nuke" not in path.read_text(encoding="utf-8"):
+                    continue
+                relative = path.relative_to(root).as_posix()
+                if relative not in excluded and relative not in adapted:
+                    unaccounted.append(f"{root_name}/{relative}")
+        self.assertEqual(unaccounted, [],
+            "every Nuke import must be removed from the headless target or replaced by a backend adapter")
+
     def test_backend_auth_pair_decisions_use_one_keychain_snapshot(self):
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
@@ -365,6 +440,7 @@ func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID:
              "SideStore/Core/Operations/PipelineExecutor.swift",
              "SideStore/Core/Operations/PipelineRunner.swift",
              "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
+             "SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
              "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
              "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift",
              "SideStore/Utils/importexport/ImportExport.swift",
@@ -471,7 +547,15 @@ func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID:
             project = (side / "AltStore.xcodeproj/project.pbxproj").read_text()
             self.assertNotIn("Starscream", project)
             self.assertNotIn("MarkdownKit", project)
-            self.assertIn("Nuke", project, "Nuke remains required by retained cache management code")
+            self.assertNotIn("Nuke", project)
+            app_delegate = (side / "AltStore/AppDelegate.swift").read_text()
+            self.assertIn("V3_HEADLESS_IMAGE_PIPELINE_REMOVED_V1", app_delegate)
+            self.assertNotIn("import Nuke", app_delegate)
+            self.assertNotIn("prepareImageCache", app_delegate)
+            cache_operation = (side / "SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift").read_text()
+            self.assertIn("V3_LEGACY_IMAGE_CACHE_CLEANUP_V1", cache_operation)
+            self.assertNotIn("import Nuke", cache_operation)
+            self.assertNotIn("ImagePipeline", cache_operation)
             for widget_edge in ("BF989175250AABF4002ACF50", "BF989176250AABF4002ACF50",
                                 "BF989177250AABF4002ACF50", "BF98917B250AABF4002ACF50"):
                 self.assertIn(widget_edge, project,
@@ -485,6 +569,8 @@ func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID:
             member_start = project.index("membershipExceptions = (", exception_anchor)
             member_end = project.index(");", member_start)
             membership = project[member_start:member_end]
+            self.assertIn('"Components/AppBannerView.swift"', membership)
+            self.assertIn('"Components/AppBannerCollectionViewCell.swift"', membership)
             for required_host_intent_adapter in (
                 '"Intents/App Intents/AppShortcuts.swift"',
                 '"Intents/App Intents/RefreshAllAppsIntent.swift"',
@@ -692,7 +778,7 @@ func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID:
             resolved = json.loads((side / "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved").read_text())
             self.assertNotIn("starscream", [pin["identity"] for pin in resolved["pins"]])
             self.assertNotIn("markdownkit", [pin["identity"] for pin in resolved["pins"]])
-            self.assertIn("nuke", [pin["identity"] for pin in resolved["pins"]])
+            self.assertNotIn("nuke", [pin["identity"] for pin in resolved["pins"]])
             jit = (roots[0] / "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift").read_text(encoding="utf-8")
             self.assertNotIn('sidestore://enable-jit', jit)
             self.assertIn('V3ServiceBridge.shared.request(operation: "jit"', jit)
