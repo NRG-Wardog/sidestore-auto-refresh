@@ -501,10 +501,20 @@ HARNESS = r'''
             precondition(LCEmbeddedSharedKeychain.authenticationFailure(for: snapshotFailure!).code == 1005,
                 "snapshot access denial must keep the actionable locked-Keychain classification")
             Store.failure = 0
-            seed()
+            // This recovery assertion is about a complete token-auth route.
+            // Keep the shared seed() partial so migration tests still cover
+            // DSID/token-only legacy data independently.
+            Store.data[Store.processGroup] = [
+                "appleIDEmailAddress": Data("test@example.com".utf8),
+                "appleIDAdsid": Data("test-account-id".utf8),
+                "appleIDXcodeToken": Data("sensitive-test-token".utf8)
+            ]
             let restored = try authKeychain.authenticationSnapshot()
-            precondition(restored?.isAuthenticated == true,
-                "a successful read after unlock returns a complete snapshot")
+            precondition(restored?.appleIDEmailAddress == "test@example.com" &&
+                         restored?.appleIDAdsid == "test-account-id" &&
+                         restored?.appleIDXcodeToken == "sensitive-test-token" &&
+                         restored?.appleIDPassword == nil && restored?.isAuthenticated == true,
+                "a successful read after unlock returns a complete token-authenticated snapshot")
             precondition(LCEmbeddedSharedKeychain.authenticationFailure(
                 for: NSError(domain: "OtherDomain", code: -25308)).code == 1009,
                 "an unrelated domain's numeric code cannot masquerade as a locked Keychain result")
