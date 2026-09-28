@@ -838,6 +838,15 @@ struct V3OperationAttemptState {
         return generation
     }
 
+    mutating func attach(sessionID: String) -> UUID? {
+        guard let id = UUID(uuidString: sessionID), id.uuidString == sessionID else { return nil }
+        generation = id
+        self.sessionID = sessionID
+        isTerminal = false
+        transitionInFlight = false
+        return id
+    }
+
     mutating func bind(sessionID: String, generation: UUID) -> Bool {
         guard self.generation == generation, !isTerminal,
               self.sessionID == sessionID else { return false }
@@ -946,6 +955,86 @@ struct V3OperationMutationRegistry {
             cancelledBeforeStart.removeValue(forKey: id)
         }
     }
+}
+
+// V3_OPERATION_RECOVERY_JOURNAL_V1
+// This record is shared by LiveContainer and the embedded SideStore service.
+// It intentionally contains identifiers and allow-listed markers only. It has
+// no timestamp: process age and elapsed time never prove device settlement.
+struct V3OperationRecoveryRecord: Equatable {
+    enum Phase: String, Equatable { case prepared, dispatched }
+    let sessionID: String
+    let kind: String
+    let phase: Phase
+    let stagedIPAToken: String?
+
+    static let allowedKinds: Set<String> = [
+        "install", "installURL", "installSharedIPA", "update", "refreshApp",
+        "activate", "deactivate", "remove", "delete", "backup", "restore"
+    ]
+
+    init?(sessionID: String, kind: String, phase: Phase, stagedIPAToken: String? = nil) {
+        guard let id = UUID(uuidString: sessionID), id.uuidString == sessionID,
+              Self.allowedKinds.contains(kind) else { return nil }
+        if let stagedIPAToken {
+            guard let token = UUID(uuidString: stagedIPAToken),
+                  token.uuidString.lowercased() == stagedIPAToken else { return nil }
+        }
+        self.sessionID = sessionID
+        self.kind = kind
+        self.phase = phase
+        self.stagedIPAToken = stagedIPAToken
+    }
+}
+
+struct V3OperationRecoveryLease: Equatable {
+    enum DispatchResult: Equatable { case reserved, alreadyOwned, blocked }
+    private(set) var record: V3OperationRecoveryRecord?
+
+    init(record: V3OperationRecoveryRecord? = nil) { self.record = record }
+
+    mutating func reserve(sessionID: String, kind: String, stagedIPAToken: String? = nil) -> DispatchResult {
+        guard let requested = V3OperationRecoveryRecord(sessionID: sessionID, kind: kind,
+                phase: .prepared, stagedIPAToken: stagedIPAToken) else { return .blocked }
+        guard let current = record else { record = requested; return .reserved }
+        guard current.sessionID == requested.sessionID, current.kind == requested.kind,
+              current.stagedIPAToken == requested.stagedIPAToken,
+              current.phase == .prepared else { return .blocked }
+        return .alreadyOwned
+    }
+
+    mutating func beginDispatch(sessionID: String, kind: String,
+                                stagedIPAToken: String? = nil) -> Bool {
+        guard let current = record, current.sessionID == sessionID,
+              current.kind == kind, current.phase == .prepared,
+              current.stagedIPAToken == stagedIPAToken,
+              let dispatched = V3OperationRecoveryRecord(sessionID: sessionID, kind: kind,
+                  phase: .dispatched, stagedIPAToken: stagedIPAToken) else { return false }
+        record = dispatched
+        return true
+    }
+
+    @discardableResult
+    mutating func settle(sessionID: String, replySessionID: String?, state: String?,
+                         backendSettled: Bool) -> Bool {
+        guard let current = record, current.sessionID == sessionID,
+              current.phase == .dispatched, replySessionID == sessionID, backendSettled,
+              ["completed", "failed", "cancelled", "timedOut", "requiresSource", "waitingForAuthentication"].contains(state ?? "") else {
+            return false
+        }
+        record = nil
+        return true
+    }
+
+    @discardableResult
+    mutating func reconcileAfterDeviceCheck(sessionID: String, userConfirmed: Bool) -> Bool {
+        guard userConfirmed, record?.sessionID == sessionID else { return false }
+        record = nil
+        return true
+    }
+
+    var blocksMutation: Bool { record != nil }
+    var protectedStagedIPAToken: String? { record?.stagedIPAToken }
 }
 
 // A staged IPA remains owned while any session task can still inspect it,

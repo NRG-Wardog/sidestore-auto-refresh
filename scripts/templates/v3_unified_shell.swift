@@ -26,6 +26,7 @@ struct V3UnifiedTabs: View {
     @EnvironmentObject private var sharedModel: SharedModel
     @StateObject private var status = V3SideStoreStatusStore()
     @State private var showNotificationsPrompt = false
+    @State private var showOperationDeviceCheck = false
     private let monitor = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     var body: some View {
         TabView(selection: $sharedModel.selectedTab) {
@@ -90,6 +91,41 @@ struct V3UnifiedTabs: View {
                 .frame(width: 1, height: 1)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
+        }
+        .overlay(alignment: .top) {
+            if let recovery = status.unresolvedOperationRecovery {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("A previous \(recovery.kind) may still be running")
+                        .font(.subheadline.weight(.semibold))
+                    Text(recovery.phase == .dispatched
+                        ? "Check its status or confirm on the device that the operation has stopped."
+                        : "The service prepared an operation but did not confirm dispatch. Check the device before clearing this hold.")
+                        .font(.caption)
+                    if recovery.phase == .dispatched {
+                        Button("Resume Status Check") { status.resumeOperationRecovery() }
+                            .font(.caption.weight(.semibold))
+                    }
+                    Button("I checked; device operation has stopped") {
+                        showOperationDeviceCheck = true
+                    }
+                    .font(.caption.weight(.semibold))
+                    .confirmationDialog("Reconcile the previous operation?", isPresented: $showOperationDeviceCheck,
+                        titleVisibility: .visible) {
+                        Button("I checked; clear the recovery hold", role: .destructive) {
+                            status.reconcileDurableOperationAfterDeviceCheck()
+                        }
+                        Button("Keep waiting", role: .cancel) {}
+                    } message: {
+                        Text("Only continue after confirming the device is no longer installing, updating, refreshing, or deleting the app.")
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.regularMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 12)
+                .padding(.top, 4)
+            }
         }
         .fullScreenCover(item: $status.presentation, onDismiss: {
             status.operationCoverDidDismiss()
@@ -756,14 +792,16 @@ struct V3OperationRequest: Identifiable {
     let target: String
     let title: String
     let installAttemptID: UUID?
+    let recoverySessionID: String?
 
     init(id: UUID = UUID(), operation: String, target: String, title: String,
-         installAttemptID: UUID? = nil) {
+         installAttemptID: UUID? = nil, recoverySessionID: String? = nil) {
         self.id = id
         self.operation = operation
         self.target = target
         self.title = title
         self.installAttemptID = installAttemptID
+        self.recoverySessionID = recoverySessionID
     }
 }
 
@@ -927,6 +965,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var sources: [V3SideStoreSource] = []
     @Published private(set) var settings: [String: Bool] = [:]
     @Published var error: String?
+    @Published private(set) var unresolvedOperationRecovery: V3OperationRecoveryRecord?
     // V3_USER_FACING_ISSUE_V1: the structured issue behind the global alert.
     // The string form is retained for compatibility and copyable summaries, but
     // actions are chosen from the typed issue, never from the string.
@@ -955,6 +994,36 @@ final class V3SideStoreStatusStore: ObservableObject {
             issue = structured
             self.error = structured.summary
         }
+    }
+
+    func reconcileDurableOperationAfterDeviceCheck() {
+        guard let record = unresolvedOperationRecovery else { return }
+        Task {
+            do {
+                let reply = try await V3ServiceBridge.shared.request(operation: "opRecoveryReconcile",
+                    target: record.sessionID, payload: ["userConfirmed": true])
+                guard reply["session"] as? String == record.sessionID,
+                      V3WireContract.strictBool(reply["reconciled"]) == true else {
+                    throw CombinedFailure(operation: "opRecoveryReconcile", stage: .command,
+                        code: .staleResult, id: record.sessionID, retryable: false)
+                }
+                V3ServiceBridge.shared.retireReconciledOperationService(sessionID: record.sessionID)
+                unresolvedOperationRecovery = nil
+                notice = "The recovery hold was cleared after your device check."
+                reload()
+            } catch {
+                self.error = "SideStore could not clear the recovery hold. Reconnect and try again."
+            }
+        }
+    }
+
+    func resumeOperationRecovery() {
+        guard let record = unresolvedOperationRecovery, record.phase == .dispatched,
+              presentation == nil, !installAttempt.hasActiveAttempt else { return }
+        let title = "Recover \(record.kind)"
+        presentation = V3OperationRequest(operation: record.kind,
+            target: record.stagedIPAToken ?? "", title: title,
+            recoverySessionID: record.sessionID)
     }
 
     func clearIssue() {
@@ -1283,6 +1352,16 @@ final class V3SideStoreStatusStore: ObservableObject {
         sources = (snapshot["sources"] as? [[String: Any]] ?? []).compactMap(V3SideStoreSource.init)
         settings = snapshot["settings"] as? [String: Bool] ?? [:]
         connected = true
+        if let recovery = snapshot["operationRecovery"] as? [String: Any],
+           let session = recovery["session"] as? String,
+           let kind = recovery["kind"] as? String,
+           let phaseText = recovery["phase"] as? String,
+           let phase = V3OperationRecoveryRecord.Phase(rawValue: phaseText) {
+            unresolvedOperationRecovery = V3OperationRecoveryRecord(sessionID: session, kind: kind,
+                phase: phase, stagedIPAToken: recovery["stagedIPAToken"] as? String)
+        } else {
+            unresolvedOperationRecovery = nil
+        }
     }
     func perform(_ operation: String, target: String = "", title: String, value: Bool? = nil) {
         // A second operation while one is presented must explain itself
@@ -1472,6 +1551,9 @@ final class V3SideStoreStatusStore: ObservableObject {
     func cleanupOrphanedStagedIPAs() async {
         guard let container = V3IPAStaging.sideStoreContainerRoot() else { return }
         var protectedTokens = Set<String>()
+        if let token = unresolvedOperationRecovery?.stagedIPAToken {
+            protectedTokens.insert(token)
+        }
         if let hostToken = installAttempt.token,
            let canonical = try? V3IPAStaging.canonicalToken(hostToken) {
             protectedTokens.insert(canonical)
@@ -3008,7 +3090,17 @@ struct V3OperationSheet: View {
     }
     private func start() {
         guard startedGeneration == nil, !attempt.transitionInFlight else { return }
-        startAttempt(generation: attempt.begin())
+        if let recoverySessionID = request.recoverySessionID {
+            guard let generation = attempt.attach(sessionID: recoverySessionID) else {
+                message = "The saved operation identity is invalid. Check the device before continuing."
+                needsDeviceConfirmation = true
+                uncertainSessionID = recoverySessionID
+                return
+            }
+            startAttempt(generation: generation)
+        } else {
+            startAttempt(generation: attempt.begin())
+        }
     }
     private func startAttempt(generation: UUID) {
         guard attempt.generation == generation, startedGeneration != generation else { return }
@@ -3022,12 +3114,27 @@ struct V3OperationSheet: View {
     private func run(generation: UUID) async {
         var backendSessionStarted = false
         do {
-            status.installBackendStartRequested(attemptID: request.installAttemptID,
-                operationID: request.id, sessionID: generation.uuidString)
-            let reply = try await V3ServiceBridge.shared.request(operation: "opStart",
-                payload: ["kind": request.operation, "target": request.target,
-                          "session": generation.uuidString])
-            if reply["failedToStart"] as? Bool == true {
+            let recovering = request.recoverySessionID != nil
+            let reply: [String: Any]
+            if recovering {
+                reply = try await V3ServiceBridge.shared.request(operation: "opPoll",
+                    target: generation.uuidString)
+            } else {
+                status.installBackendStartRequested(attemptID: request.installAttemptID,
+                    operationID: request.id, sessionID: generation.uuidString)
+                let prepared = try await V3ServiceBridge.shared.request(operation: "opRecoveryPrepare",
+                    payload: ["kind": request.operation, "target": request.target,
+                              "session": generation.uuidString])
+                guard prepared["session"] as? String == generation.uuidString,
+                      prepared["phase"] as? String == "prepared" else {
+                    throw CombinedFailure(operation: request.operation, stage: .command,
+                        code: .staleResult, id: generation.uuidString, retryable: false)
+                }
+                reply = try await V3ServiceBridge.shared.request(operation: "opStart",
+                    payload: ["kind": request.operation, "target": request.target,
+                              "session": generation.uuidString])
+            }
+            if !recovering, reply["failedToStart"] as? Bool == true {
                 handleStartFailure(reply, generation: generation)
                 return
             }
@@ -3043,7 +3150,7 @@ struct V3OperationSheet: View {
                 return
             }
             guard id == generation.uuidString else {
-                _ = try? await V3ServiceBridge.shared.request(operation: "opCancel", target: id)
+                if !recovering { _ = try? await V3ServiceBridge.shared.request(operation: "opCancel", target: id) }
                 let failure = CombinedFailure(operation: request.operation, stage: .command,
                     code: .staleResult, id: generation.uuidString, retryable: false)
                 failureContext.recordStartFailure(failure)
@@ -3073,7 +3180,8 @@ struct V3OperationSheet: View {
                 failureContext.recordStartFailure(failure)
             }
             presentCurrentFailure()
-            if V3ServiceBridge.shared.hasUncertainOperationSession(generation.uuidString) {
+            if V3ServiceBridge.shared.hasUncertainOperationSession(generation.uuidString) ||
+                request.recoverySessionID == generation.uuidString {
                 needsDeviceConfirmation = true
                 uncertainSessionID = generation.uuidString
                 retryBlocked = true
@@ -3109,40 +3217,30 @@ struct V3OperationSheet: View {
     }
     private func confirmUncertainOperationAfterDeviceCheck() {
         guard let sessionID = uncertainSessionID else { return }
-        guard V3ServiceBridge.shared.confirmUncertainOperationAfterDeviceCheck(sessionID: sessionID) else {
+        Task {
+            do {
+                let reply = try await V3ServiceBridge.shared.request(operation: "opRecoveryReconcile",
+                    target: sessionID, payload: ["userConfirmed": true])
+                guard reply["session"] as? String == sessionID,
+                      V3WireContract.strictBool(reply["reconciled"]) == true else {
+                    throw CombinedFailure(operation: request.operation, stage: .command,
+                        code: .staleResult, id: sessionID, retryable: false)
+                }
+            } catch {
+                message = "SideStore could not clear the recovery hold. Keep waiting and check the device again."
+                whatToDo = "No new operation was started. Reconnect before trying reconciliation again."
+                return
+            }
+            V3ServiceBridge.shared.retireReconciledOperationService(sessionID: sessionID)
             uncertainSessionID = nil
             needsDeviceConfirmation = false
             terminalBackendSettled = true
             retryBlocked = true
-            if state == "completed" {
-                terminalBackendSettled = true
-                deviceCheckConfirmedForCompletion = true
-                message = request.operation == "delete"
-                    ? "The app removal is verified and SideStore has finished the operation cleanup."
-                    : request.title + " completed successfully."
-                whatToDo = "Reload app status to confirm the result."
-            } else {
-                message = "The operation has settled. Reload app status before starting another mutation."
-                whatToDo = "Check the installed app list and verify the result."
-            }
+            deviceCheckConfirmedForCompletion = false
             finishReconciliationAfterRetirement()
             status.reload()
-            return
-        }
-        uncertainSessionID = nil
-        needsDeviceConfirmation = false
-        terminalBackendSettled = true
-        retryBlocked = true
-        deviceCheckConfirmedForCompletion = state == "completed"
-        finishReconciliationAfterRetirement()
-        status.reload()
-        if state == "completed" {
-            message = "The app removal was verified. SideStore was restarted to clear a delete callback that did not settle."
-            whatToDo = "Reload app status to confirm the app remains absent, then tap Done."
-            technicalDetails += " service_retired_after_user_confirmation=yes delete_verified=yes"
-        } else {
-            message = "SideStore restarted after your device check. The previous operation result remains unknown."
-            whatToDo = "Wait for app status to reload, then verify the installed app before starting another operation."
+            message = "The previous operation result remains unknown."
+            whatToDo = "Reload app status, then verify the installed app before starting another operation."
             technicalDetails += " service_retired_after_user_confirmation=yes outcome=unknown"
         }
     }

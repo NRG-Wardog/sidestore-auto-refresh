@@ -195,6 +195,17 @@ public final class V3ServiceBridge {
         return true
     }
 
+    /// Retire the service after the explicit recovery RPC has cleared the exact
+    /// durable session. This never runs on process restart or a timeout.
+    public func retireReconciledOperationService(sessionID: String) {
+        activeOperationSessions.remove(sessionID)
+        uncertainOperationSessions.remove(sessionID)
+        operationMonitors.removeValue(forKey: sessionID)?.cancel()
+        knownOperationSessions.removeValue(forKey: sessionID)
+        RefreshHandler.shared.v3_stopService()
+        disconnected()
+    }
+
     public func forgetSettledOperationSession(_ sessionID: String) {
         guard !activeOperationSessions.contains(sessionID),
               !uncertainOperationSessions.contains(sessionID) else { return }
@@ -220,6 +231,9 @@ public final class V3ServiceBridge {
         }()
         let scopedSessionControl = ["opAnswer", "opCancel"].contains(operation) &&
             activeOperationSessions.contains(target)
+        let explicitRecoveryConfirmation = operation == "opRecoveryReconcile" &&
+            V3WireContract.strictBool(payload?["userConfirmed"]) == true &&
+            UUID(uuidString: target)?.uuidString == target
         let scopedAuthSessionControl = ["authRespond", "authCancel"].contains(operation) &&
             authSessionOwnership.owns(target)
         let replacesAuthSession = ["authBegin", "authRetryProvisioning"].contains(operation) &&
@@ -245,7 +259,7 @@ public final class V3ServiceBridge {
             refreshAttemptActive: RefreshHandler.shared.v3RefreshToken != nil,
             anotherHostMutationActive: isMutating)
         if mutation {
-            guard scopedSessionControl || scopedAuthSessionControl || replacesAuthSession || scopedRefreshAdmissionControl ||
+            guard scopedSessionControl || explicitRecoveryConfirmation || scopedAuthSessionControl || replacesAuthSession || scopedRefreshAdmissionControl ||
                     (!isMutating && RefreshHandler.shared.v3RefreshToken == nil) else {
                 if ["authBegin", "authRetryProvisioning"].contains(operation) {
                     let failure = CombinedFailure(operation: "signIn", stage: .command,
@@ -267,7 +281,7 @@ public final class V3ServiceBridge {
                 throw CombinedFailure(operation: operation, stage: .command, code: .busy,
                                       id: id, retryable: true, safeCause: .operationInProgress)
             }
-            if !scopedSessionControl && !scopedAuthSessionControl { activeMutation = id }
+            if !scopedSessionControl && !explicitRecoveryConfirmation && !scopedAuthSessionControl { activeMutation = id }
         }
         defer { if activeMutation == id { activeMutation = nil } }
         let isBoundedSessionCreation = ["authBegin", "authRetryProvisioning",
