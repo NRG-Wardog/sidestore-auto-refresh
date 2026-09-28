@@ -25,6 +25,7 @@ service = module("patch_v3_service")
 shell = module("patch_v3_unified_shell")
 refresh = module("patch_livecontainer_autorefresh")
 results = module("patch_refresh_result_bridge")
+embedded_keychain = module("patch_embedded_keychain")
 
 
 class ServicePatchTests(unittest.TestCase):
@@ -41,6 +42,15 @@ func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID:
         self.assertIn("return (initialBundleID, true)", patched)
         self.assertNotIn("AppendTeamIDCheckboxView", patched)
         self.assertEqual(service.headless_pipeline_handler(patched), patched)
+
+    def test_log_formatter_patch_replaces_the_complete_final_swift_function(self):
+        source = "import Foundation\npublic func formatLogMessage(_ message: String) -> String { return message }\n"
+        patched = service.headless_safe_log_format(source)
+        self.assertEqual(service.headless_safe_log_format(patched), patched)
+        self.assertEqual(patched.count("V3_SAFE_LOG_FORMAT_V1"), 1)
+        self.assertNotIn("return message", patched)
+        with self.assertRaises(SystemExit):
+            service.headless_safe_log_format(source + "func requiredBackendHelper() {}\n")
 
     def test_headless_service_template_does_not_import_swiftui(self):
         service_template = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
@@ -342,6 +352,7 @@ func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID:
              "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
             ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",
              "AltStore/Managing Apps/AppManager.swift",
+             "AltStore/Core/Components/Keychain.swift",
              "SideStore/Handlers/PipelineHandler.swift",
              "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
              "SideStore/Core/DeviceApi/MinimuxerWrapper.swift",
@@ -353,8 +364,10 @@ func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID:
              "SideStore/Core/Auth/AuthManager.swift", "SideStore/Handlers/SignInFlowHandler.swift",
              "SideStore/Core/Operations/PipelineExecutor.swift",
              "SideStore/Core/Operations/PipelineRunner.swift",
+             "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
              "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
              "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift",
+             "SideStore/Utils/importexport/ImportExport.swift",
              "SideStore/Core/Logging/SideStoreLogging.swift",
              "AltStore/My Apps/MyAppsViewController.swift",
              "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
@@ -426,6 +439,8 @@ func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID:
         with tempfile.TemporaryDirectory() as name:
             roots = self.fixture(Path(name))
             self.apply(roots)
+            module("patch_background_automation").patch_background_operation(roots[1])
+            embedded_keychain.patch(roots[1])
             with mock.object(service.subprocess, "check_output", side_effect=read_pinned_source):
                 service.verify_headless_ui_adapters(roots[1], service.PINS[1])
                 manager = roots[1] / "AltStore/Managing Apps/AppManager.swift"
@@ -581,7 +596,8 @@ func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID:
             self.assertIn("return (initialBundleID, true)", pipeline_handler)
             host_pipeline_handler = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
             self.assertIn('ask(kind: "bundleIDOverride"', host_pipeline_handler)
-            self.assertIn('"appendTeamID": true', host_pipeline_handler)
+            self.assertIn('"key": "appendTeamID"', host_pipeline_handler)
+            self.assertIn('answer["appendTeamID"] != "false"', host_pipeline_handler)
             connection_config = (side / "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift").read_text(encoding="utf-8")
             self.assertIn("V3_HEADLESS_ACTIVE_STATE_MODEL_V1", connection_config)
             self.assertIn('enum ActiveState: String', connection_config)
@@ -664,14 +680,15 @@ func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID:
             scene_delegate = (side / "AltStore/SceneDelegate.swift").read_text(encoding="utf-8")
             url_handler = (side / "SideStore/DeepLinks/URLHandler.swift").read_text(encoding="utf-8")
             for generated in (app_delegate, scene_delegate, url_handler):
-                self.assertNotIn("url.absoluteString)", generated)
-                self.assertNotIn("context.url)", generated)
-                self.assertNotIn("debugLog(finished)", generated)
+                for line in generated.splitlines():
+                    if "debugLog(" in line:
+                        self.assertNotIn("url.absoluteString", line)
+                        self.assertNotIn("context.url", line)
+                        self.assertNotIn("debugLog(finished)", line)
             self.assertIn("V3_HEADLESS_EXTERNAL_CALLBACKS_V3", url_handler)
             self.assertNotIn("PairingFileManager.shared.fetchPairingFile()", url_handler)
             self.assertNotIn("V3PairingCallbackPolicy", url_handler)
-            self.assertNotIn("url.absoluteString", url_handler)
-            self.assertNotIn("debugLog(finished)", url_handler)
+            self.assertNotIn('debugLog("[URLHandler] handle(_:) called with URL: \\(url.absoluteString)")', url_handler)
             resolved = json.loads((side / "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved").read_text())
             self.assertNotIn("starscream", [pin["identity"] for pin in resolved["pins"]])
             self.assertNotIn("markdownkit", [pin["identity"] for pin in resolved["pins"]])

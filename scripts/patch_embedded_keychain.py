@@ -13,6 +13,9 @@ import sys
 
 MARKER = "LC_EMBEDDED_SHARED_KEYCHAIN_V1"
 AUTH_MANAGER_MARKER = "LC_AUTH_CREDENTIAL_SNAPSHOT_V1"
+AUTH_SESSION_SNAPSHOT_MARKER = "LC_AUTHENTICATED_SESSION_SNAPSHOT_V1"
+BACKGROUND_AUTH_SNAPSHOT_MARKER = "LC_AUTO_REFRESH_CREDENTIAL_SNAPSHOT_V1"
+BACKGROUND_AUTH_MISSING_MARKER = "LC_AUTH_CREDENTIALS_MISSING_V1"
 SIGN_IN_SNAPSHOT_MARKER = "LC_SIGNIN_CREDENTIAL_SNAPSHOT_V1"
 IMPORT_EXPORT_SNAPSHOT_MARKER = "LC_IMPORT_EXPORT_CREDENTIAL_SNAPSHOT_V1"
 TEMPLATE = Path(__file__).parent / "templates/embedded_shared_keychain.swift"
@@ -26,8 +29,18 @@ def once(text: str, old: str, new: str) -> str:
 
 def patch_auth_manager(text: str) -> str:
     if AUTH_MANAGER_MARKER in text:
-        if "Keychain.shared.authenticationSnapshot()" not in text:
+        if ("Keychain.shared.authenticationSnapshot()" not in text or
+                AUTH_SESSION_SNAPSHOT_MARKER not in text or
+                "try Keychain.shared.authenticationSnapshot()" not in text or
+                "credentialSnapshot?.appleIDAdsid" not in text or
+                "credentialSnapshot?.appleIDXcodeToken" not in text or
+                "Keychain.shared.embeddedAuthenticationFailure(error)" not in text):
             raise ValueError("embedded keychain: auth snapshot adapter is missing")
+        start = text.index("public func getAuthenticatedSession()")
+        end = text.index("\n    }", start)
+        session = text[start:end]
+        if "self.adsid" in session or "self.xcodeToken" in session:
+            raise ValueError("embedded keychain: authenticated session still combines independent getters")
         return text
     old = '''    public var isAuthenticated: Bool {
         let hasEmail = Keychain.shared.appleIDEmailAddress != nil
@@ -54,7 +67,56 @@ def patch_auth_manager(text: str) -> str:
     }''', '''    public var hasStoredXcodeToken: Bool {
         return authenticationSnapshot?.hasTokenCredentials ?? false
     }''')
+    text = once(text,
+        '''            guard let adsid = self.adsid,                           // directory services id
+                  let xcodeToken = self.xcodeToken else             // xcode token
+            {''',
+        "            // " + AUTH_SESSION_SNAPSHOT_MARKER + "\n"
+        "            let credentialSnapshot: LCEmbeddedAuthenticationSnapshot?\n"
+        "            do { credentialSnapshot = try Keychain.shared.authenticationSnapshot() }\n"
+        "            catch { throw Keychain.shared.embeddedAuthenticationFailure(error) }\n"
+        "            guard let adsid = credentialSnapshot?.appleIDAdsid,\n"
+        "                  let xcodeToken = credentialSnapshot?.appleIDXcodeToken else {")
     return text
+
+
+def patch_background_auth_snapshot(text: str) -> str:
+    marker = "// " + BACKGROUND_AUTH_SNAPSHOT_MARKER
+    if marker in text:
+        required = ("authSnapshot?.appleIDPassword", "authSnapshot?.appleIDXcodeToken",
+                    "Keychain.shared.authenticationSnapshot()",
+                    "Keychain.shared.embeddedAuthenticationFailure(error)")
+        if not all(value in text for value in required) or "auth.currentAppleID" in text or "auth.adsid" in text:
+            raise ValueError("embedded keychain: background auth preflight snapshot is incomplete")
+        return text
+    old = '''        let auth = AuthManager.shared
+        let credentials = auth.authenticationSnapshot
+        let hasPasswordCredentials = credentials?.appleIDEmailAddress != nil && credentials?.appleIDPassword != nil
+        let hasTokenCredentials = credentials?.appleIDAdsid != nil && credentials?.appleIDXcodeToken != nil
+        let hasReusableSession = auth.session != nil && auth.team != nil && CertificateManager.shared.activeCertificate != nil
+        debugLog("[AUTO_REFRESH] AUTH_CREDENTIAL_VISIBILITY password_path=\\(hasPasswordCredentials) token_path=\\(hasTokenCredentials) session_path=\\(hasReusableSession)")
+'''
+    new = '''        // ''' + BACKGROUND_AUTH_SNAPSHOT_MARKER + ''': each credential route uses one locked Keychain epoch.
+        let auth = AuthManager.shared
+        let hasReusableSession = auth.session != nil && auth.team != nil && CertificateManager.shared.activeCertificate != nil
+        let authSnapshot: LCEmbeddedAuthenticationSnapshot?
+        if hasReusableSession {
+            authSnapshot = nil
+        } else {
+            do {
+                authSnapshot = try Keychain.shared.authenticationSnapshot()
+            } catch {
+                let error = Keychain.shared.embeddedAuthenticationFailure(error)
+                debugLog("[AUTO_REFRESH] AUTH_PREFLIGHT_FAIL reason=keychain_access")
+                self.scheduleFinishedRefreshingNotification(for: .failure(error), delay: 0)
+                throw error
+            }
+        }
+        let hasPasswordCredentials = authSnapshot?.appleIDEmailAddress != nil && authSnapshot?.appleIDPassword != nil
+        let hasTokenCredentials = authSnapshot?.appleIDAdsid != nil && authSnapshot?.appleIDXcodeToken != nil
+        debugLog("[AUTO_REFRESH] AUTH_CREDENTIAL_VISIBILITY password_path=\\(hasPasswordCredentials) token_path=\\(hasTokenCredentials) session_path=\\(hasReusableSession)")
+'''
+    return once(text, old, new)
 
 
 def patch_sign_in_operation(text: str) -> str:
@@ -178,23 +240,37 @@ def patch(root: Path) -> None:
     func clearSignInInfoChecked() throws {
         try LCEmbeddedSharedKeychain.clearSignInInfoChecked(self.keychain)
     }
-    func embeddedAuthenticationFailure() -> NSError { LCEmbeddedSharedKeychain.authenticationFailure() }
+    func embeddedAuthenticationFailure(_ error: Error) -> NSError {
+        LCEmbeddedSharedKeychain.authenticationFailure(for: error)
+    }
 }
 """
     elif (helper not in text or "func writeAuthenticationCredentials(appleID: String, password: String," not in text or
-          "func authenticationSnapshot() throws -> LCEmbeddedAuthenticationSnapshot?" not in text):
+          "func authenticationSnapshot() throws -> LCEmbeddedAuthenticationSnapshot?" not in text or
+          "func embeddedAuthenticationFailure(_ error: Error) -> NSError" not in text):
         missing = [name for name, present in (
             ("helper", helper in text),
             ("bulk auth writer", "func writeAuthenticationCredentials(appleID: String, password: String," in text),
             ("auth snapshot bridge", "func authenticationSnapshot() throws -> LCEmbeddedAuthenticationSnapshot?" in text),
+            ("error-aware auth failure bridge", "func embeddedAuthenticationFailure(_ error: Error) -> NSError" in text),
         ) if not present]
         raise ValueError("outdated shared keychain patch: missing " + ", ".join(missing))
-    op = operation.read_text(encoding="utf-8")
-    if "Keychain.shared.embeddedAuthenticationFailure()" not in op:
+    op = patch_background_auth_snapshot(operation.read_text(encoding="utf-8"))
+    missing_marker = "// " + BACKGROUND_AUTH_MISSING_MARKER
+    if missing_marker in op:
+        if ("code: 1004" not in op or "The refresh process cannot access saved sign-in credentials" not in op or
+                "Keychain.shared.embeddedAuthenticationFailure()" in op):
+            raise ValueError("embedded keychain: missing-credentials failure classification drifted")
+    else:
         start = op.index("        guard hasPasswordCredentials || hasTokenCredentials || hasReusableSession else {")
         end = op.index('            debugLog("[AUTO_REFRESH] AUTH_PREFLIGHT_FAIL', start)
         # Keep the guard, logging, failure notification, and throwing behavior.
-        replacement = "        guard hasPasswordCredentials || hasTokenCredentials || hasReusableSession else {\n            let error = Keychain.shared.embeddedAuthenticationFailure()\n"
+        replacement = (
+            "        guard hasPasswordCredentials || hasTokenCredentials || hasReusableSession else {\n"
+            "            // " + BACKGROUND_AUTH_MISSING_MARKER + ": key access failures are classified at the throwing read.\n"
+            '            let error = NSError(domain: "com.SideStore.Authentication", code: 1004,\n'
+            '                userInfo: [NSLocalizedDescriptionKey: "The refresh process cannot access saved sign-in credentials or a reusable session. Open SideStore to check your account."])\n'
+        )
         op = op[:start] + replacement + op[end:]
     assert "guard hasPasswordCredentials || hasTokenCredentials || hasReusableSession else" in op
     assert 'throw error' in op

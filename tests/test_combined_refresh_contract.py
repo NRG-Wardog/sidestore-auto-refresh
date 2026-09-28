@@ -59,7 +59,9 @@ class CombinedRefreshContractTests(unittest.TestCase):
             with mock.object(patch, "verify_pin", return_value=None):
                 patch.patch_combined_cli(root)
             applied = snapshot()
-            self.assertIn(b"Keychain.shared.embeddedAuthenticationFailure()", applied[paths[1]])
+            self.assertIn(b"Keychain.shared.embeddedAuthenticationFailure(error)", applied[paths[1]])
+            self.assertIn(b"LC_AUTO_REFRESH_CREDENTIAL_SNAPSHOT_V1", applied[paths[1]])
+            self.assertIn(b"LC_AUTH_CREDENTIALS_MISSING_V1", applied[paths[1]])
             self.assertIn(b'"failure": failure.wire', applied[paths[1]])
             with mock.object(patch, "verify_pin", return_value=None):
                 patch.patch_combined_cli(root)

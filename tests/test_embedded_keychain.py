@@ -19,6 +19,10 @@ SPEC.loader.exec_module(module)
 SERVICE_SPEC = importlib.util.spec_from_file_location("v3_service_patch", ROOT / "scripts/patch_v3_service.py")
 service_module = importlib.util.module_from_spec(SERVICE_SPEC)
 SERVICE_SPEC.loader.exec_module(service_module)
+BACKGROUND_SPEC = importlib.util.spec_from_file_location(
+    "background_automation_patch", ROOT / "scripts/patch_background_automation.py")
+background_module = importlib.util.module_from_spec(BACKGROUND_SPEC)
+BACKGROUND_SPEC.loader.exec_module(background_module)
 
 DOUBLES = r'''
 import Foundation
@@ -77,7 +81,9 @@ enum KeychainAccess {
         func accessibility(_ value: Accessibility) -> Keychain { self }
         func synchronizable(_ value: Bool) -> Keychain { self }
         func getData(_ key: String) throws -> Data? {
-            if Store.failure != 0 { throw NSError(domain: NSOSStatusErrorDomain, code: Store.failure) }
+            if Store.failure != 0 {
+                throw NSError(domain: "com.kishikawakatsumi.KeychainAccess.error", code: Store.failure)
+            }
             let value = Store.data[group]?[key]
             if key == "LCSharedKeychainReadyV1" && Store.pauseNextMigrationMarkerRead &&
                Thread.current.threadDictionary["pauseAuthSnapshotMarker"] as? Bool == true {
@@ -183,7 +189,8 @@ HARNESS = r'''
             let client = LCEmbeddedSharedKeychain.makeClient(); Store.failure = -25308
             LCEmbeddedSharedKeychain.prepare(client)
             precondition(LCEmbeddedSharedKeychain.read("appleIDAdsid", client: client) == nil)
-            let error = LCEmbeddedSharedKeychain.authenticationFailure()
+            let error = LCEmbeddedSharedKeychain.authenticationFailure(
+                for: NSError(domain: "com.kishikawakatsumi.KeychainAccess.error", code: Store.failure))
             precondition(error.domain == "com.SideStore.Keychain" && error.code == 1005)
             precondition(Store.writes == 0)
         case "migration_retry_after_unlock":
@@ -198,17 +205,20 @@ HARNESS = r'''
             let client = LCEmbeddedSharedKeychain.makeClient(); Store.failure = -34018
             LCEmbeddedSharedKeychain.prepare(client)
             _ = LCEmbeddedSharedKeychain.read("appleIDAdsid", client: client)
-            precondition(LCEmbeddedSharedKeychain.authenticationFailure().code == 1006)
+            precondition(LCEmbeddedSharedKeychain.authenticationFailure(
+                for: NSError(domain: "com.SideStore.Keychain", code: -34018)).code == 1006)
         case "missing_group":
             Store.group = nil
             let client = LCEmbeddedSharedKeychain.makeClient()
             LCEmbeddedSharedKeychain.write("appleIDPassword", data: Data("secret".utf8), client: client)
-            precondition(Store.writes == 0 && LCEmbeddedSharedKeychain.authenticationFailure().code == 1006)
+            precondition(Store.writes == 0 && LCEmbeddedSharedKeychain.authenticationFailure(
+                for: NSError(domain: "com.SideStore.Keychain", code: -34018)).code == 1006)
         case "wrong_identity":
             Bundle.Info.appbundleIdentifier = "com.SideStore.SideStore"
             let client = LCEmbeddedSharedKeychain.makeClient()
             LCEmbeddedSharedKeychain.write("appleIDPassword", data: Data("secret".utf8), client: client)
-            precondition(Store.writes == 0 && LCEmbeddedSharedKeychain.authenticationFailure().code == 1006)
+            precondition(Store.writes == 0 && LCEmbeddedSharedKeychain.authenticationFailure(
+                for: NSError(domain: "com.SideStore.Keychain", code: -34018)).code == 1006)
         case "signout_no_resurrection":
             seed(); let client = LCEmbeddedSharedKeychain.makeClient(); LCEmbeddedSharedKeychain.prepare(client)
             for key in LCSharedKeychainMigration.authKeys { LCEmbeddedSharedKeychain.write(key, data: nil, client: client) }
@@ -312,7 +322,8 @@ HARNESS = r'''
             seed(); let client = LCEmbeddedSharedKeychain.makeClient(); LCEmbeddedSharedKeychain.prepare(client)
             Store.data[group]?["appleIDXcodeToken"] = Data([0xff])
             precondition(LCEmbeddedSharedKeychain.readString("appleIDXcodeToken", client: client) == nil)
-            precondition(LCEmbeddedSharedKeychain.authenticationFailure().code == 1009)
+            precondition(LCEmbeddedSharedKeychain.authenticationFailure(
+                for: NSError(domain: "com.SideStore.Keychain", code: 1009)).code == 1009)
         case "preserve_new_login":
             seed(); let client = LCEmbeddedSharedKeychain.makeClient()
             LCEmbeddedSharedKeychain.write("appleIDAdsid", data: Data("new-id".utf8), client: client)
@@ -389,16 +400,17 @@ HARNESS = r'''
             // return the explicit unknown-outcome code and leave readiness false.
             Store.failSetKey = "appleIDPassword"
             Store.failSetKeyCount = 2
+            var writeFailure: Error?
             do {
                 try LCEmbeddedSharedKeychain.writeAuthenticationCredentials(
                     appleID: "new@example.com", password: "new-password",
                     dsid: "new-dsid", authToken: "new-token", client: client)
                 preconditionFailure("the injected write and rollback failures must be reported")
-            } catch { precondition((error as NSError).code == 1010) }
+            } catch { writeFailure = error; precondition((error as NSError).code == 1010) }
             let marker = try client.getData(LCSharedKeychainMigration.marker)
             precondition(marker != LCSharedKeychainMigration.ready,
                 "an uncertain rollback must never leave the credential set advertised as ready")
-            precondition(LCEmbeddedSharedKeychain.authenticationFailure().code == 1010,
+            precondition(LCEmbeddedSharedKeychain.authenticationFailure(for: writeFailure!).code == 1010,
                 "the unconfirmed credential save remains visible as an unknown outcome")
         case "credential_snapshot_serializes_bulk_replacement":
             let client = LCEmbeddedSharedKeychain.makeClient()
@@ -467,6 +479,24 @@ HARNESS = r'''
                 "the following credential consumer sees one complete new generation")
             LCEmbeddedSharedKeychain.transactionOverride = { try $0() }
             Store.migrationMarkerReadEntered = nil
+        case "snapshot_access_error_preserves_actionable_keychain_failure":
+            let client = LCEmbeddedSharedKeychain.makeClient()
+            Store.failure = -25308
+            var snapshotFailure: Error?
+            do {
+                _ = try client.authenticationSnapshot()
+                preconditionFailure("locked Keychain snapshot must fail")
+            } catch { snapshotFailure = error }
+            precondition(LCEmbeddedSharedKeychain.authenticationFailure(for: snapshotFailure!).code == 1005,
+                "snapshot access denial must keep the actionable locked-Keychain classification")
+            Store.failure = 0
+            seed()
+            let restored = try client.authenticationSnapshot()
+            precondition(restored?.isAuthenticated == true,
+                "a successful read after unlock returns a complete snapshot")
+            precondition(LCEmbeddedSharedKeychain.authenticationFailure(
+                for: NSError(domain: "OtherDomain", code: -25308)).code == 1009,
+                "an unrelated domain's numeric code cannot masquerade as a locked Keychain result")
         default: fatalError("unknown scenario")
         }
         print("PASSED: " + scenario)
@@ -490,7 +520,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
             raise AssertionError(result.stderr)
 
     def test_execution_scenarios(self):
-        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "stale_snapshot_signout", "checked_signout_failure", "checked_signout_rollback", "checked_signout_outcome_unknown", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "partial_single_auth_item_never_marks_ready", "stale_ready_partial_route_is_downgraded", "partial_signin_write_failure_no_ready", "partial_signin_failure_preserves_previous_credentials", "partial_signin_rollback_unverified_is_unknown", "credential_snapshot_serializes_bulk_replacement", "certificate_only", "invalid_utf8"):
+        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "stale_snapshot_signout", "checked_signout_failure", "checked_signout_rollback", "checked_signout_outcome_unknown", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "partial_single_auth_item_never_marks_ready", "stale_ready_partial_route_is_downgraded", "partial_signin_write_failure_no_ready", "partial_signin_failure_preserves_previous_credentials", "partial_signin_rollback_unverified_is_unknown", "credential_snapshot_serializes_bulk_replacement", "snapshot_access_error_preserves_actionable_keychain_failure", "certificate_only", "invalid_utf8"):
             with self.subTest(scenario=scenario):
                 result = subprocess.run([str(self.executable), scenario], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0,
@@ -557,6 +587,12 @@ class EmbeddedKeychainTests(unittest.TestCase):
             op = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
             op.parent.mkdir(parents=True)
             op.write_text('''func preflight() throws {
+        let auth = AuthManager.shared
+        let credentials = auth.authenticationSnapshot
+        let hasPasswordCredentials = credentials?.appleIDEmailAddress != nil && credentials?.appleIDPassword != nil
+        let hasTokenCredentials = credentials?.appleIDAdsid != nil && credentials?.appleIDXcodeToken != nil
+        let hasReusableSession = auth.session != nil && auth.team != nil && CertificateManager.shared.activeCertificate != nil
+        debugLog("[AUTO_REFRESH] AUTH_CREDENTIAL_VISIBILITY password_path=\\(hasPasswordCredentials) token_path=\\(hasTokenCredentials) session_path=\\(hasReusableSession)")
         guard hasPasswordCredentials || hasTokenCredentials || hasReusableSession else {
             let error = NSError(domain: "com.SideStore.Authentication", code: 1004)
             debugLog("[AUTO_REFRESH] AUTH_PREFLIGHT_FAIL reason=no_accessible_authentication_path")
@@ -571,11 +607,42 @@ class EmbeddedKeychainTests(unittest.TestCase):
             self.assertIn(module.IMPORT_EXPORT_SNAPSHOT_MARKER, destinations[3].read_text(encoding="utf-8"))
             module.patch(root)
             self.assertEqual(first, tuple(path.read_bytes() for path in destinations) + (op.read_bytes(),))
-            self.assertIn("Keychain.shared.embeddedAuthenticationFailure()", op.read_text())
+            background_auth = op.read_text(encoding="utf-8")
+            self.assertIn(module.BACKGROUND_AUTH_SNAPSHOT_MARKER, background_auth)
+            self.assertIn("Keychain.shared.embeddedAuthenticationFailure(error)", background_auth)
+            self.assertIn(module.BACKGROUND_AUTH_MISSING_MARKER, background_auth)
+            self.assertNotIn("auth.currentAppleID", background_auth)
+            self.assertNotIn("auth.adsid", background_auth)
+            self.assertIn(module.BACKGROUND_AUTH_SNAPSHOT_MARKER, op.read_text())
+            self.assertNotIn("auth.currentAppleID", op.read_text())
             self.assertNotIn("try? Keychain.shared.keychain.get", destinations[0].read_text())
 
 
 class KeychainPatchGenerationTests(unittest.TestCase):
+    def test_pinned_background_refresh_auth_preflight_uses_one_snapshot(self):
+        source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        if not source:
+            self.skipTest("pinned SideStore source unavailable locally; required in combined CI")
+        relative = "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(Path(source) / relative, target)
+            background_module.patch_background_operation(root)
+            patched = module.patch_background_auth_snapshot(target.read_text(encoding="utf-8"))
+            first = patched
+            replay = module.patch_background_auth_snapshot(patched)
+            self.assertEqual(first, replay)
+            self.assertIn(module.BACKGROUND_AUTH_SNAPSHOT_MARKER, patched)
+            self.assertIn("authSnapshot?.appleIDEmailAddress", patched)
+            self.assertIn("authSnapshot?.appleIDPassword", patched)
+            self.assertIn("authSnapshot?.appleIDAdsid", patched)
+            self.assertIn("authSnapshot?.appleIDXcodeToken", patched)
+            self.assertIn("Keychain.shared.embeddedAuthenticationFailure(error)", patched)
+            self.assertNotIn("auth.currentAppleID", patched)
+            self.assertNotIn("auth.adsid", patched)
+
     def test_pinned_patch_generates_one_snapshot_for_authentication_pairs(self):
         source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
         if not source:
@@ -602,6 +669,12 @@ class KeychainPatchGenerationTests(unittest.TestCase):
             background = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
             background.parent.mkdir(parents=True, exist_ok=True)
             background.write_text('''func preflight() throws {
+        let auth = AuthManager.shared
+        let credentials = auth.authenticationSnapshot
+        let hasPasswordCredentials = credentials?.appleIDEmailAddress != nil && credentials?.appleIDPassword != nil
+        let hasTokenCredentials = credentials?.appleIDAdsid != nil && credentials?.appleIDXcodeToken != nil
+        let hasReusableSession = auth.session != nil && auth.team != nil && CertificateManager.shared.activeCertificate != nil
+        debugLog("[AUTO_REFRESH] AUTH_CREDENTIAL_VISIBILITY password_path=\\(hasPasswordCredentials) token_path=\\(hasTokenCredentials) session_path=\\(hasReusableSession)")
         guard hasPasswordCredentials || hasTokenCredentials || hasReusableSession else {
             let error = NSError(domain: "com.SideStore.Authentication", code: 1004)
             debugLog("[AUTO_REFRESH] AUTH_PREFLIGHT_FAIL reason=no_accessible_authentication_path")
@@ -616,12 +689,24 @@ class KeychainPatchGenerationTests(unittest.TestCase):
             self.assertIn("authenticationSnapshot?.hasPasswordCredentials", auth)
             self.assertIn("authenticationSnapshot?.hasTokenCredentials", auth)
             self.assertNotIn("let hasEmail = Keychain.shared.appleIDEmailAddress", auth)
+            auth_session_start = auth.index("public func getAuthenticatedSession()")
+            auth_session_end = auth.index("\n    }", auth_session_start)
+            auth_session = auth[auth_session_start:auth_session_end]
+            self.assertIn(module.AUTH_SESSION_SNAPSHOT_MARKER, auth_session)
+            self.assertIn("credentialSnapshot?.appleIDAdsid", auth_session)
+            self.assertIn("credentialSnapshot?.appleIDXcodeToken", auth_session)
+            self.assertIn("try Keychain.shared.authenticationSnapshot()", auth_session)
+            self.assertIn("Keychain.shared.embeddedAuthenticationFailure(error)", auth_session)
+            self.assertNotIn("self.adsid", auth_session)
+            self.assertNotIn("self.xcodeToken", auth_session)
             self.assertIn("LC_SIGNIN_CREDENTIAL_SNAPSHOT_V1", sign_in)
             self.assertIn("let credentials = AuthManager.shared.authenticationSnapshot", sign_in)
             self.assertNotIn("if let adsid = AuthManager.shared.adsid", sign_in)
             self.assertNotIn("if let appleID = AuthManager.shared.currentAppleID", sign_in)
             self.assertIn("LC_IMPORT_EXPORT_CREDENTIAL_SNAPSHOT_V1", import_export)
             self.assertIn("let authSnapshot = AuthManager.shared.authenticationSnapshot", import_export)
+            self.assertIn(module.BACKGROUND_AUTH_SNAPSHOT_MARKER, background.read_text(encoding="utf-8"))
+            self.assertNotIn("AuthManager.shared.currentAppleID", background.read_text(encoding="utf-8"))
             expected_auth = module.patch_auth_manager(service_module.headless_auth_manager(
                 (Path(source) / relative_files[1]).read_text(encoding="utf-8")))
             expected_sign_in = module.patch_sign_in_operation(service_module.patch_sign_in_operation(

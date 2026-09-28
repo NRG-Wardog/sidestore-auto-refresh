@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 26
+PATCH_VERSION = 27
 HEADLESS_SIDESTORE_VIEW_FILES = (
     "Views/Components/AppInfoView.swift",
     "Views/Components/BundleResourceBrowserView.swift",
@@ -470,13 +470,29 @@ def headless_safe_log_format(text):
     }
     return output.joined(separator: "\n")
 }'''
+    if text.count(signature) != 1:
+        raise SystemExit("v3 service: expected one SideStore log formatter")
+    start = text.index(signature)
+    prefix = text[:start]
+    tail = text[start:]
     if marker in text:
-        start = text.index(signature)
-        end = text.index("\n}", start) + 2
-        if text[start:end] != replacement:
+        if tail.rstrip() != replacement.rstrip():
             raise SystemExit("v3 service: safe SideStore log formatter drifted")
         return text
-    return replace_swift_function(text, signature, replacement, "SideStore log formatter")
+
+    # The pinned formatter is the final top-level function in this file. Its
+    # regex literals contain `}` characters, so a brace counter that ignores
+    # Swift string syntax can cut the old implementation in the middle and
+    # leave executable fragments after the replacement. Require the exact
+    # final-function layout before replacing the complete tail.
+    lines = tail.rstrip().splitlines()
+    if not lines or not lines[-1].strip().endswith("}"):
+        raise SystemExit("v3 service: SideStore log formatter is incomplete")
+    if len(lines) > 1 and lines[-1].strip() != "}":
+        raise SystemExit("v3 service: SideStore log formatter is no longer the final top-level function")
+    if any(line and not line[0].isspace() for line in lines[1:-1]):
+        raise SystemExit("v3 service: SideStore log formatter is no longer the final top-level function")
+    return prefix + replacement + ("\n" if text.endswith("\n") else "")
 
 
 def headless_app_open(text):

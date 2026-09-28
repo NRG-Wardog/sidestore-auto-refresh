@@ -172,8 +172,6 @@ struct LCEmbeddedAuthenticationSnapshot: Equatable {
 }
 
 fileprivate enum LCEmbeddedSharedKeychain {
-    private static let lock = NSLock()
-    private static var lastIssues: [String: Int] = [:]
     private static var installedGroup: String?
     private static var installedAppGroup: String?
     private static var service = ""
@@ -264,18 +262,27 @@ fileprivate enum LCEmbeddedSharedKeychain {
 
     static func readAuthenticationSnapshot(_ client: KeychainAccess.Keychain) throws -> LCEmbeddedAuthenticationSnapshot? {
         guard installedGroup != nil else {
-            throw NSError(domain: "com.SideStore.Keychain", code: -34018)
+            let error = NSError(domain: "com.SideStore.Keychain", code: -34018)
+            recordAuthenticationSnapshotIssue(error.code)
+            throw error
         }
-        return try withSharedTransaction {
-            guard let values = try authenticationValuesLocked(client) else { return nil }
-            func string(_ key: String) -> String? {
-                values[key].flatMap { String(data: $0, encoding: .utf8) }
+        do {
+            let snapshot = try withSharedTransaction {
+                guard let values = try authenticationValuesLocked(client) else { return nil }
+                func string(_ key: String) -> String? {
+                    values[key].flatMap { String(data: $0, encoding: .utf8) }
+                }
+                return LCEmbeddedAuthenticationSnapshot(
+                    appleIDEmailAddress: string("appleIDEmailAddress"),
+                    appleIDPassword: string("appleIDPassword"),
+                    appleIDAdsid: string("appleIDAdsid"),
+                    appleIDXcodeToken: string("appleIDXcodeToken"))
             }
-            return LCEmbeddedAuthenticationSnapshot(
-                appleIDEmailAddress: string("appleIDEmailAddress"),
-                appleIDPassword: string("appleIDPassword"),
-                appleIDAdsid: string("appleIDAdsid"),
-                appleIDXcodeToken: string("appleIDXcodeToken"))
+            recordAuthenticationSnapshotIssue(snapshot == nil ? -25300 : 0)
+            return snapshot
+        } catch {
+            recordAuthenticationSnapshotIssue((error as NSError).code)
+            throw error
         }
     }
 
@@ -676,37 +683,44 @@ fileprivate enum LCEmbeddedSharedKeychain {
     private static func note(_ key: String, status: Int) {
         // Item names and status ONLY. Never log values or NSError.userInfo,
         // which third-party wrappers may populate with a complete query.
-        lock.lock()
-        if status == 0 { lastIssues.removeValue(forKey: key) } else { lastIssues[key] = status }
-        lock.unlock()
         let label = LCSharedKeychainMigration.knownKeys.contains(key) ? key : "storage"
         debugLog("[LC_KEYCHAIN] ACCESS item=\(label) status=\(status) pid=\(ProcessInfo.processInfo.processIdentifier)")
     }
 
-    static func authenticationFailure() -> NSError {
-        lock.lock(); let issues = lastIssues; lock.unlock()
-        let statuses = Set(issues.values)
-        if statuses.contains(-34018) {
+    private static func recordAuthenticationSnapshotIssue(_ status: Int) {
+        debugLog("[LC_KEYCHAIN] SNAPSHOT status=\(status) pid=\(ProcessInfo.processInfo.processIdentifier)")
+    }
+
+    static func authenticationFailure(for error: Error) -> NSError {
+        let native = error as NSError
+        let keychainDomain = "com.SideStore.Keychain"
+        let keychainAccessErrorDomain = "com.kishikawakatsumi.KeychainAccess.error"
+        let isKeychainAccessError = native.domain == NSOSStatusErrorDomain ||
+            native.domain == keychainAccessErrorDomain
+        if native.code == -34018 &&
+           (native.domain == keychainDomain || native.domain == NSOSStatusErrorDomain ||
+            native.domain == keychainAccessErrorDomain) {
             return NSError(domain: "LiveContainerRefresh.Configuration", code: 1006,
                 userInfo: [NSLocalizedDescriptionKey: "This installation cannot access SideStore's shared Keychain group. Keep the LiveProcess extension and use the same signing team; do not sign out. Check LC_KEYCHAIN diagnostics."])
         }
-        if statuses.contains(-25308) || statuses.contains(-25291) || statuses.contains(-25315) {
+        if isKeychainAccessError &&
+           [-25308, -25291, -25315].contains(native.code) {
             return NSError(domain: "com.SideStore.Keychain", code: 1005,
                 userInfo: [NSLocalizedDescriptionKey: "Saved sign-in details are temporarily inaccessible. Unlock the iPhone and retry; your account has not been signed out."])
         }
-        if statuses.contains(1008) {
+        if native.domain == keychainDomain && native.code == 1008 {
             return NSError(domain: "LiveContainerRefresh.Configuration", code: 1008,
                 userInfo: [NSLocalizedDescriptionKey: "Conflicting saved SideStore logins were found. Automatic migration stopped without replacing them. Open embedded SideStore to choose the intended account."])
         }
-        if statuses.contains(1010) {
+        if native.domain == keychainDomain && native.code == 1010 {
             return NSError(domain: "com.SideStore.Keychain", code: 1010,
                 userInfo: [NSLocalizedDescriptionKey: "SideStore could not confirm whether the Apple sign-in credentials were saved. Reload Account & Signing before continuing."])
         }
-        if let status = statuses.sorted().first(where: { $0 != -25300 }) {
-            return NSError(domain: "com.SideStore.Keychain", code: 1009,
-                userInfo: [NSLocalizedDescriptionKey: "SideStore Keychain access failed (status \(status)). Your account has not been signed out. Check LC_KEYCHAIN diagnostics."])
-        }
-        return NSError(domain: "com.SideStore.Authentication", code: 1004,
-            userInfo: [NSLocalizedDescriptionKey: "Open embedded SideStore once in this LiveContainer installation so its existing sign-in can be migrated to the shared Keychain, then return and retry. If SideStore itself asks you to sign in, complete that there."])
+        let knownDomain = isKeychainAccessError || native.domain == keychainDomain
+        let detail = knownDomain
+            ? "SideStore Keychain access failed (status \(native.code)). Your account has not been signed out. Check LC_KEYCHAIN diagnostics."
+            : "SideStore could not safely read the saved authentication state. Your account has not been signed out. Check LC_KEYCHAIN diagnostics."
+        return NSError(domain: "com.SideStore.Keychain", code: 1009,
+            userInfo: [NSLocalizedDescriptionKey: detail])
     }
 }
