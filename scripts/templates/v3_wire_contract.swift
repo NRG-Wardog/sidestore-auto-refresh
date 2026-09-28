@@ -357,6 +357,12 @@ enum V3WireContract {
 }
 
 enum V3RequestReplayPolicy {
+    static let cancellationOperations: Set<String> = ["cancel", "authCancel", "opCancel"]
+
+    static func requiresCompletedReply(operation: String) -> Bool {
+        cancellationOperations.contains(operation)
+    }
+
     static func fingerprint(_ requestData: Data) -> Data {
         Data(SHA256.hash(data: requestData))
     }
@@ -407,7 +413,7 @@ struct V3MutationReplyCacheBudget {
 
     static func isControlReply(operation: String) -> Bool {
         ["refreshAdmissionEnd", "authBegin", "authRetryProvisioning", "opStart"]
-            .contains(operation)
+            .contains(operation) || V3RequestReplayPolicy.requiresCompletedReply(operation: operation)
     }
 
     static func shouldCacheResponse(operation: String) -> Bool {

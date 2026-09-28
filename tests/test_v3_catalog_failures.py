@@ -142,12 +142,16 @@ class ServiceSidePropagationTests(unittest.TestCase):
         text = service()
         start = text.index("private func receive(")
         block = text[start:text.index("let expiredReplies = completed.compactMap", start)]
-        # Both rejection paths ask the same correlated builder.
-        self.assertEqual(block.count("encode(invalidRequestReply(for: data))"), 2)
+        # Rejection paths share the correlated builder. Collision safety is
+        # checked in the builder so every caller gets the same protection.
+        self.assertIn("reply(encode(invalidRequestReply(for: data)))", block)
         builder_start = text.index("private func invalidRequestReply(")
         builder = text[builder_start:text.index("private func encode(", builder_start)]
         self.assertIn('"error": "invalidRequest"', builder)
         self.assertIn("code: .invalidConfiguration, id: id", builder)
+        self.assertIn("isIdentifierCollision(", builder)
+        self.assertIn("inFlightRequestFingerprints[$0] ?? completedRequestFingerprints[$0]", builder)
+        self.assertIn("mayClaimNotDispatched(", builder)
         # Only trusted envelope fields are echoed back, never the payload.
         wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         self.assertIn('operations.contains($0) ? $0 : nil', wire)

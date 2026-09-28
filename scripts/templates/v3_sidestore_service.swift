@@ -50,6 +50,7 @@ final class V3SideStoreService: NSObject {
     private var completedRequestFingerprints: [String: Data] = [:]
     private var inFlightRequestFingerprints: [String: Data] = [:]
     private var completedCacheBudget = V3MutationReplyCacheBudget()
+    private var pendingCancellationReplyReservations: Set<String> = []
     var mutationID: String?
     private var refreshAdmission = V3RefreshAdmissionLease()
     private var pendingRefreshAdmissionRequests: Set<String> = []
@@ -68,13 +69,7 @@ final class V3SideStoreService: NSObject {
         // classify the real reason instead of receiving an idless token it must
         // treat as a stale reply.
         guard let request = V3WireContract.decodeRequest(data) else {
-            let requestID = V3WireContract.invalidRequestIdentity(from: data).id
-            let collision = requestID.map {
-                V3RequestReplayPolicy.isIdentifierCollision(
-                    cachedFingerprint: inFlightRequestFingerprints[$0] ?? completedRequestFingerprints[$0],
-                    incomingRequestData: data)
-            } ?? false
-            reply(encode(invalidRequestReply(for: data, identifierCollision: collision)))
+            reply(encode(invalidRequestReply(for: data)))
             return
         }
         guard let id = request["id"] as? String,
@@ -97,7 +92,7 @@ final class V3SideStoreService: NSObject {
         if let previous = completed[id] {
             guard V3RequestReplayPolicy.matches(
                 cachedFingerprint: completedRequestFingerprints[id], incomingRequestData: data) else {
-                reply(encode(invalidRequestReply(for: data, identifierCollision: true), operation: operation))
+                reply(encode(invalidRequestReply(for: data), operation: operation))
                 return
             }
             reply(previous.data)
@@ -109,7 +104,7 @@ final class V3SideStoreService: NSObject {
         if tasks[id] != nil {
             guard V3RequestReplayPolicy.matchesInFlight(
                 cachedFingerprint: inFlightRequestFingerprints[id], incomingRequestData: data) else {
-                reply(encode(invalidRequestReply(for: data, identifierCollision: true), operation: operation))
+                reply(encode(invalidRequestReply(for: data), operation: operation))
                 return
             }
         }
@@ -118,6 +113,13 @@ final class V3SideStoreService: NSObject {
             guard let cancelScope = (request["payload"] as? [String: Any])?["scope"] as? String,
                   V3WireContract.cancellationScopes.contains(cancelScope) else {
                 reply(encode(invalidRequestReply(for: data), operation: operation))
+                return
+            }
+            guard reserveCancellationReply(operation: operation, id: id) else {
+                let failure = CombinedFailure(operation: operation, stage: .command, code: .busy,
+                    id: id, retryable: true, safeCause: .responseCapacityUnavailable)
+                reply(encode(["version": 1, "id": id, "error": "busy", "failure": failure.wire],
+                    operation: operation))
                 return
             }
             let isPendingRefreshAdmission = cancelScope == "request" &&
@@ -134,7 +136,10 @@ final class V3SideStoreService: NSObject {
                 _ = refreshAdmission.release(requestID: target)
                 cancellationReply["refreshAdmissionReleased"] = true
             }
-            reply(encode(cancellationReply, operation: operation))
+            let encoded = encode(cancellationReply, operation: operation)
+            _ = finishCancellationReplyReservation(id: id, requestFingerprint: requestFingerprint,
+                deadline: deadline, encoded: encoded)
+            reply(encoded)
             return
         }
         guard tasks[id] == nil else {
@@ -163,14 +168,24 @@ final class V3SideStoreService: NSObject {
         let refreshRelease = operation == "refreshAdmissionEnd" && refreshAdmission.owns(target)
         let controlReply = V3MutationReplyCacheBudget.isControlReply(operation: operation)
         let cacheResponse = V3MutationReplyCacheBudget.shouldCacheResponse(operation: operation)
-        let responseCapacityAvailable = !mutation ||
-            !cacheResponse ||
-            (completed.count < V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: controlReply) &&
+        let cancellationReplay = V3RequestReplayPolicy.requiresCompletedReply(operation: operation)
+        let responseCapacityAvailable = !cacheResponse || (!mutation && !cancellationReplay) ||
+            (cancellationReplay
+                ? canReserveCancellationReply(operation: operation)
+                : completed.count + pendingCancellationReplyReservations.count <
+                    V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: controlReply) &&
              completedCacheBudget.canReserve(
                 maximumResponseBytes: V3MutationReplyCacheBudget.minimumReplyBytesToAdmit(operation: operation),
                 preservingControlCapacity: !controlReply) &&
              V3MutationReplyCacheBudget.canAdmit(operation: operation,
-                completedReplyCount: completed.count))
+                completedReplyCount: completed.count + pendingCancellationReplyReservations.count))
+        if cancellationReplay && !responseCapacityAvailable {
+            let failure = CombinedFailure(operation: operation, stage: .command, code: .busy,
+                id: id, retryable: true, safeCause: .responseCapacityUnavailable)
+            reply(encode(["version": 1, "id": id, "error": "busy", "failure": failure.wire],
+                operation: operation))
+            return
+        }
         guard V3ServiceMutationAdmissionPolicy.admits(isMutation: mutation,
             anotherMutationActive: mutationID != nil || operationMutationActive,
             authenticationActive: authenticationActive,
@@ -195,6 +210,13 @@ final class V3SideStoreService: NSObject {
                 response["operationNotDispatched"] = true
             }
             reply(encode(response, operation: operation))
+            return
+        }
+        if cancellationReplay, !reserveCancellationReply(operation: operation, id: id) {
+            let failure = CombinedFailure(operation: operation, stage: .command, code: .busy,
+                id: id, retryable: true, safeCause: .responseCapacityUnavailable)
+            reply(encode(["version": 1, "id": id, "error": "busy", "failure": failure.wire],
+                operation: operation))
             return
         }
         if mutation { mutationID = id }
@@ -369,14 +391,22 @@ final class V3SideStoreService: NSObject {
                 }
             }
             let encoded = encode(response, operation: operation)
-            if mutation && cacheResponse {
-                if completedCacheBudget.record(encoded.count, controlResponse: controlReply) {
+            if mutation && cacheResponse || cancellationReplay && cacheResponse {
+                let cached: Bool
+                if cancellationReplay {
+                    cached = finishCancellationReplyReservation(id: id,
+                        requestFingerprint: requestFingerprint, deadline: deadline, encoded: encoded)
+                } else if completedCacheBudget.record(encoded.count, controlResponse: controlReply) {
                     completed[id] = (encoded, deadline)
                     completedRequestFingerprints[id] = requestFingerprint
+                    cached = true
                 } else {
-                    // Admission reserves one full maximum-size response for
-                    // this serialized mutation. Reaching this branch means an
-                    // internal cache-accounting invariant was violated.
+                    cached = false
+                }
+                if !cached {
+                    // Admission reserves one full maximum-size response before
+                    // dispatch. Reaching this branch means cache accounting
+                    // lost a reservation while the command was running.
                     debugLog("[V3_WIRE] mutation_reply_cache_reservation_failed operation=\(operation)")
                 }
             }
@@ -404,10 +434,15 @@ final class V3SideStoreService: NSObject {
     // Reads only the envelope fields the contract already trusts: the request ID
     // must be a valid UUID and the operation must be on the allow list. Nothing
     // from the payload is echoed back.
-    private func invalidRequestReply(for data: Data, identifierCollision: Bool = false) -> [String: Any] {
+    private func invalidRequestReply(for data: Data) -> [String: Any] {
         let identity = V3WireContract.invalidRequestIdentity(from: data)
         let id = identity.id ?? UUID().uuidString
         let operation = identity.operation ?? "command"
+        let identifierCollision = identity.id.map {
+            V3RequestReplayPolicy.isIdentifierCollision(
+                cachedFingerprint: inFlightRequestFingerprints[$0] ?? completedRequestFingerprints[$0],
+                incomingRequestData: data)
+        } ?? false
         var response: [String: Any] = ["version": 1, "id": id, "error": "invalidRequest",
                 "failure": CombinedFailure(operation: operation, stage: .command,
                     code: .invalidConfiguration, id: id).wire]
@@ -416,6 +451,35 @@ final class V3SideStoreService: NSObject {
             response["operationNotDispatched"] = true
         }
         return response
+    }
+
+    private func canReserveCancellationReply(operation: String) -> Bool {
+        guard V3RequestReplayPolicy.requiresCompletedReply(operation: operation) else { return false }
+        let controlReply = V3MutationReplyCacheBudget.isControlReply(operation: operation)
+        return completed.count + pendingCancellationReplyReservations.count <
+                V3MutationReplyCacheBudget.responseCountLimit(isControlResponse: controlReply) &&
+            completedCacheBudget.canReserve(
+                maximumResponseBytes: V3WireContract.responseLimit,
+                preservingControlCapacity: !controlReply) &&
+            V3MutationReplyCacheBudget.canAdmit(operation: operation, completedReplyCount: completed.count)
+    }
+
+    private func reserveCancellationReply(operation: String, id: String) -> Bool {
+        guard !pendingCancellationReplyReservations.contains(id),
+              canReserveCancellationReply(operation: operation),
+              completedCacheBudget.record(V3WireContract.responseLimit, controlResponse: true) else { return false }
+        pendingCancellationReplyReservations.insert(id)
+        return true
+    }
+
+    private func finishCancellationReplyReservation(id: String, requestFingerprint: Data,
+                                                     deadline: Date, encoded: Data) -> Bool {
+        guard pendingCancellationReplyReservations.remove(id) != nil else { return false }
+        completedCacheBudget.remove(V3WireContract.responseLimit)
+        guard completedCacheBudget.record(encoded.count, controlResponse: true) else { return false }
+        completed[id] = (encoded, deadline)
+        completedRequestFingerprints[id] = requestFingerprint
+        return true
     }
 
     // V3_RESPONSE_CLASSIFICATION_CARRIER_V1: the encoder and its typed fallback

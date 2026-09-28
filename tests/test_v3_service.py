@@ -972,6 +972,25 @@ precondition(V3RequestReplayPolicy.isIdentifierCollision(cachedFingerprint: disp
 precondition(!V3RequestReplayPolicy.mayClaimNotDispatched(operation: "opStart", identifierCollision: true))
 precondition(V3RequestReplayPolicy.mayClaimNotDispatched(operation: "opStart", identifierCollision: false))
 precondition(!V3RequestReplayPolicy.mayClaimNotDispatched(operation: "snapshot", identifierCollision: false))
+let cancelID = UUID().uuidString
+let cancel = ["version": 1, "id": cancelID, "operation": "cancel", "target": UUID().uuidString,
+    "deadline": now.addingTimeInterval(30), "payload": ["scope": "request"]] as [String: Any]
+let exactCancelReplay = encode(cancel)
+let cancelFingerprint = V3RequestReplayPolicy.fingerprint(exactCancelReplay)
+precondition(V3RequestReplayPolicy.requiresCompletedReply(operation: "cancel"))
+precondition(V3RequestReplayPolicy.requiresCompletedReply(operation: "authCancel"))
+precondition(V3RequestReplayPolicy.requiresCompletedReply(operation: "opCancel"))
+precondition(V3RequestReplayPolicy.matches(cachedFingerprint: cancelFingerprint,
+    incomingRequestData: exactCancelReplay), "exact cancel replay keeps its completed reply")
+var changedCancel = cancel
+changedCancel["target"] = UUID().uuidString
+precondition(V3RequestReplayPolicy.isIdentifierCollision(cachedFingerprint: cancelFingerprint,
+    incomingRequestData: encode(changedCancel)), "same cancel ID with another target is a collision")
+changedCancel = cancel
+changedCancel["payload"] = ["scope": "auth"]
+precondition(V3RequestReplayPolicy.isIdentifierCollision(cachedFingerprint: cancelFingerprint,
+    incomingRequestData: encode(changedCancel)), "same cancel ID with another scope is a collision")
+precondition(!V3RequestReplayPolicy.mayClaimNotDispatched(operation: "cancel", identifierCollision: true))
 print("V3 request identity and Core Data target policies PASS")
 ''')
             executable = directory / "wire-policy-tests"
