@@ -79,16 +79,17 @@ class RefreshClassificationTests(unittest.TestCase):
 
     def test_network_domains_classified_by_domain(self):
         text = template()
-        self.assertIn('"NSPOSIXErrorDomain"', text)
         self.assertIn('"NSURLErrorDomain"', text)
+        capture = text[text.index("static func capture"):]
+        self.assertIn('case "NSURLErrorDomain":', capture)
+        self.assertNotIn('case "NSPOSIXErrorDomain":', capture)
 
     def test_no_bare_numeric_code_guessing(self):
         text = template()
         fn = text[text.index("static func capture"):]
-        # A numeric literal must never decide a stage on its own; only the
-        # standard POSIX errno mapping under NSPOSIXErrorDomain is allowed,
-        # which is domain-qualified above. Gateway codes are preserved as
-        # underlying data, never promoted to a stage.
+        # A numeric literal or bare POSIX domain must never imply a network
+        # stage. Gateway codes are preserved as underlying data, never
+        # promoted to a stage without typed context.
         self.assertNotIn("code == 20", fn)
         self.assertNotIn("code == 22", fn)
         self.assertNotIn("code == 35", fn)
@@ -199,8 +200,8 @@ class RefreshClassificationTests(unittest.TestCase):
         """Ensure no bare numeric literal (without domain) decides stage."""
         text = template()
         fn = text[text.index("static func capture"):]
-        # Only domain-qualified mappings are allowed.
-        # POSIX errno under NSPOSIXErrorDomain is domain-qualified.
+        # Only typed domains with established semantics may change the caller
+        # stage; a bare POSIX domain is intentionally not enough.
         # Gateway codes are preserved as underlyingCode only.
         forbidden_patterns = [
             "code ==",

@@ -117,14 +117,51 @@ func debugLog(_ value: String) {}
 @main struct Tests {
  static func main() throws {
   let id = UUID().uuidString
-  // 1. POSIX errno keeps its own domain and the network stage from the domain.
+  // 1. A bare POSIX errno keeps the caller stage; its domain does not prove socket I/O.
   do {
    let error = NSError(domain: "NSPOSIXErrorDomain", code: 20,
-       userInfo: [NSLocalizedDescriptionKey: "recv failed errno=20"])
+       userInfo: [NSLocalizedDescriptionKey: "not a directory"])
     let failure = CombinedFailure.capture(error, operation: "install", stage: .installation, id: id)
-   precondition(failure.stage == .network, "posix stage")
+   precondition(failure.stage == .installation, "bare POSIX error must not be guessed as network")
    precondition(failure.underlyingDomain == "NSPOSIXErrorDomain", "posix domain: \\\\(failure.underlyingDomain)")
    precondition(failure.underlyingCode == 20, "posix code")
+   precondition(failure.safeCause == nil, "bare POSIX error must not imply network recovery")
+  }
+  // A wrapped local POSIX error still cannot override its caller's file stage.
+  do {
+   let posix = NSError(domain: "NSPOSIXErrorDomain", code: 20,
+       userInfo: [NSLocalizedDescriptionKey: "not a directory"])
+   let cocoa = NSError(domain: "NSCocoaErrorDomain", code: 4,
+       userInfo: [NSLocalizedDescriptionKey: "file operation failed", NSUnderlyingErrorKey: posix])
+   let failure = CombinedFailure.capture(cocoa, operation: "install", stage: .filePreparation, id: id)
+   precondition(failure.stage == .filePreparation, "wrapped local POSIX error keeps file stage")
+   precondition(failure.underlyingDomain == "NSPOSIXErrorDomain", "wrapped POSIX domain preserved")
+   precondition(failure.underlyingCode == 20, "wrapped POSIX code preserved")
+  }
+  // Explicit transport context supplied by the caller remains authoritative.
+  do {
+   let error = NSError(domain: "NSPOSIXErrorDomain", code: 61,
+       userInfo: [NSLocalizedDescriptionKey: "connection refused"])
+   let failure = CombinedFailure.capture(error, operation: "refresh", stage: .network, id: id)
+   precondition(failure.stage == .network, "caller-proven network stage is preserved")
+  }
+  // A typed URL-loading error is sufficient evidence for network classification.
+  do {
+   let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorNetworkConnectionLost,
+       userInfo: [NSLocalizedDescriptionKey: "connection lost"])
+   let failure = CombinedFailure.capture(error, operation: "install", stage: .installation, id: id)
+   precondition(failure.stage == .network, "typed URL network failure")
+   precondition(failure.safeCause == .networkConnectionLost, "typed network cause")
+  }
+  // Native CFNetwork domains survive the structured failure wire allowlist.
+  do {
+   let error = NSError(domain: "kCFErrorDomainCFNetwork", code: -1003,
+       userInfo: [NSLocalizedDescriptionKey: "host not found"])
+   let failure = CombinedFailure.capture(error, operation: "source", stage: .network, id: id)
+   let decoded = CombinedFailure.fromEncodedString(failure.encodedString, expectedID: id)!
+   precondition(decoded.stage == .network, "CFNetwork source stage")
+   precondition(decoded.underlyingDomain == "kCFErrorDomainCFNetwork", "CFNetwork domain survives wire")
+   precondition(decoded.underlyingCode == -1003, "CFNetwork code survives wire")
   }
   // 2. An HTTP status is never relabelled as a gateway error.
   do {

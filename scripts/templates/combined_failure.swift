@@ -323,7 +323,7 @@ public struct CombinedFailure: Error, LocalizedError {
         self.retryable = retryable ?? self.safeCause?.inferredRetryable
     }
     private static let operations: Set<String> = ["connect", "status", "command", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit", "pairingImportData", "anisetteList", "anisetteReset", "anisetteSync"]
-    private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError"]
+    private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "kCFErrorDomainCFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError"]
     private static let verificationDomains: Set<String> = ["ALTServerErrorDomain", "ALTErrorDomain", "IdeviceGatewayError", "DeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy"]
 
     /// Copyable diagnostics may include a native code only when its domain is
@@ -889,10 +889,11 @@ public struct CombinedFailure: Error, LocalizedError {
                 switch cause.domain {
                 case "com.SideStore.Authentication":
                     resolved = .authentication
-                case "NSPOSIXErrorDomain":
-                    // POSIX error domains carry standard errno values.
-                    resolved = .network
                 case "NSURLErrorDomain":
+                    // URL-loading errors have typed network provenance. A
+                    // bare POSIX NSError does not reveal whether it came from
+                    // a socket or local file operation, so it keeps the
+                    // caller's stage unless the caller marked it explicitly.
                     resolved = .network
                 case "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError":
                     resolved = .command
