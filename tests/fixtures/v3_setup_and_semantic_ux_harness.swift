@@ -865,6 +865,24 @@ struct SetupAndSemanticUXHarness {
                      cancelledRoundTrip?.underlyingCode == NSURLErrorCancelled &&
                      V3AnisetteFailureGuidance.message(anisetteNSErrorCancelled) == nil,
                      "raw NSError URL cancellation remains cancellation through the real plist boundary")
+        let anisetteURLErrorCancelled = V3AnisetteSyncFailurePolicy.failure(
+            URLError(.cancelled), id: UUID().uuidString)
+        let urlErrorCancelledRoundTrip = plistRoundTrip(anisetteURLErrorCancelled)
+        precondition(anisetteURLErrorCancelled.operation == "anisetteSync" &&
+                     anisetteURLErrorCancelled.stage == .command &&
+                     anisetteURLErrorCancelled.code == .cancelled &&
+                     anisetteURLErrorCancelled.retryable == false &&
+                     anisetteURLErrorCancelled.safeCause == nil &&
+                     anisetteURLErrorCancelled.underlyingDomain == "NSURLErrorDomain" &&
+                     anisetteURLErrorCancelled.underlyingCode == NSURLErrorCancelled &&
+                     urlErrorCancelledRoundTrip?.operation == "anisetteSync" &&
+                     urlErrorCancelledRoundTrip?.stage == .command &&
+                     urlErrorCancelledRoundTrip?.code == .cancelled &&
+                     urlErrorCancelledRoundTrip?.retryable == false &&
+                     urlErrorCancelledRoundTrip?.safeCause == nil &&
+                     urlErrorCancelledRoundTrip?.underlyingDomain == "NSURLErrorDomain" &&
+                     urlErrorCancelledRoundTrip?.underlyingCode == NSURLErrorCancelled,
+                     "typed URLError cancellation preserves the same terminal metadata through plist")
         let ordinaryRefreshFailure = CombinedFailure(operation: "refresh", stage: .network,
             code: .failed, id: UUID().uuidString, retryable: true, safeCause: .networkConnectionLost)
         precondition(V3AnisetteFailureGuidance.message(ordinaryRefreshFailure) == nil,
