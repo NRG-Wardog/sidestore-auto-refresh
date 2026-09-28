@@ -70,6 +70,28 @@ class KeychainCoordinationSourceTests(unittest.TestCase):
         self.assertIn("flock(descriptor, LOCK_EX)", HANDOFF)
         self.assertIn("NSLock is process local", HANDOFF)
 
+    def test_authentication_signin_uses_complete_credential_transaction(self):
+        runtime = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
+        start = runtime.index("def patch_sign_in_operation(text):")
+        end = runtime.index("\n\ndef patch(", start)
+        patcher = runtime[start:end]
+        self.assertIn("V3_AUTH_CREDENTIAL_TRANSACTION_V1", patcher)
+        self.assertIn("Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)", patcher)
+        self.assertIn("func writeAuthenticationCredentials(appleID: String, password: String,", KEYCHAIN)
+
+        transaction = KEYCHAIN[
+            KEYCHAIN.index("static func writeAuthenticationCredentials("):
+            KEYCHAIN.index("    private static func writeOne(")
+        ]
+        self.assertLess(transaction.index("try client.set(LCSharedKeychainMigration.signedOut"),
+                        transaction.index("for key in keys"))
+        self.assertLess(transaction.index("guard written == expected"),
+                        transaction.index("try client.set(LCSharedKeychainMigration.ready"))
+        self.assertLess(transaction.index("guard committed == expected"),
+                        transaction.index("note(\"authWrite\", status: 0)"))
+        self.assertIn("note(\"authWrite\", status: 1010)", transaction)
+        self.assertIn("if statuses.contains(1010)", KEYCHAIN)
+
 
 if __name__ == "__main__":
     unittest.main()

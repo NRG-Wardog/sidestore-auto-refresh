@@ -813,6 +813,8 @@ def patch_sign_in_operation(text):
             "if self.isCancelled || error is CancellationError || v3ClassifyAuthError(error) == nil",
             "if self.v3ForceProvisioningRetry {",
             "!(error is V3ProvisioningResumeUnavailableError)",
+            "V3_AUTH_CREDENTIAL_TRANSACTION_V1",
+            "Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)",
         )
         if text.count(marker) != 1 or any(value not in text for value in required):
             raise SystemExit("v3 service: provisioning retry SignInOperation patch is partial")
@@ -898,6 +900,14 @@ def patch_sign_in_operation(text):
         "            if !AuthManager.shared.hasStoredPassword &&\n"
         "               !AuthManager.shared.hasStoredXcodeToken &&\n"
         "               !(error is V3ProvisioningResumeUnavailableError)\n")
+    text = replace(text,
+        "        AuthManager.shared.adsid = session.dsid\n"
+        "        AuthManager.shared.xcodeToken = session.authToken\n"
+        "        AuthManager.shared.currentAppleID = appleID\n"
+        "        AuthManager.shared.password = password\n",
+        "        // V3_AUTH_CREDENTIAL_TRANSACTION_V1: commit the complete credential route\n"
+        "        // and readiness marker together after exact read-back verification.\n"
+        "        try Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)\n")
     return text
 
 

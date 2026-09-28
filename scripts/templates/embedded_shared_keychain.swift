@@ -36,13 +36,34 @@ enum LCSharedKeychainMigration {
             (present("appleIDAdsid") && present("appleIDXcodeToken"))
     }
 
+    static func readAuthenticationValues(read: (String) throws -> Data?) throws -> [String: Data] {
+        var values: [String: Data] = [:]
+        for key in authKeys {
+            if let value = try read(key) { values[key] = value }
+        }
+        return values
+    }
+
     /// Returns true only after a verified migration, or an existing committed
     /// namespace. No mixing credentials from different legacy access groups.
     static func prepare(group: String, items: () throws -> [LCLegacyKeychainItem],
                         read: (String) throws -> Data?, write: (String, Data) throws -> Void,
                         afterSnapshot: () throws -> Void = {}) throws -> Bool {
         let initialMarker = try read(marker)
-        if initialMarker == ready { return true }
+        if initialMarker == ready {
+            let current = try readAuthenticationValues(read: read)
+            guard complete(current) else {
+                // A ready marker is meaningful only when a complete auth route
+                // is present in this namespace. Repair old partial markers by
+                // failing closed, never by treating one credential item as ready.
+                try write(marker, signedOut)
+                guard try read(marker) == signedOut else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                }
+                return false
+            }
+            return true
+        }
         if initialMarker == signedOut { return false }
         var candidates: [String: [String: Data]] = [:]
         for item in try items() where item.group != group && supported(item.key) {
@@ -61,7 +82,16 @@ enum LCSharedKeychainMigration {
         try afterSnapshot()
         let currentMarker = try read(marker)
         if currentMarker == signedOut { return false }
-        guard currentMarker == nil else { return currentMarker == ready }
+        if currentMarker == ready {
+            let current = try readAuthenticationValues(read: read)
+            if complete(current) { return true }
+            try write(marker, signedOut)
+            guard try read(marker) == signedOut else {
+                throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+            }
+            return false
+        }
+        guard currentMarker == nil else { return false }
         let refreshedItems = try items().filter { $0.group != group && supported($0.key) }
         var refreshed: [String: [String: Data]] = [:]
         for item in refreshedItems {
@@ -88,6 +118,14 @@ enum LCSharedKeychainMigration {
         // Readers ignore an incomplete migration until this commit marker.
         try write(marker, ready)
         guard try read(marker) == ready else {
+            throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+        }
+        let committed = try readAuthenticationValues(read: read)
+        guard complete(committed) else {
+            try write(marker, signedOut)
+            guard try read(marker) == signedOut else {
+                throw NSError(domain: "com.SideStore.Keychain", code: 1010)
+            }
             throw NSError(domain: "com.SideStore.Keychain", code: 1009)
         }
         return true
@@ -245,24 +283,232 @@ fileprivate enum LCEmbeddedSharedKeychain {
         guard installedGroup != nil else { note(key, status: -34018); return }
         do {
             try withSharedTransaction {
-                if LCSharedKeychainMigration.authKeys.contains(key) {
-                    // New auth data begins a credential epoch. Deletion records
-                    // sign-out before removal so a stale migration cannot undo it.
-                    let marker = data == nil ? LCSharedKeychainMigration.signedOut : LCSharedKeychainMigration.ready
-                    if try client.getData(LCSharedKeychainMigration.marker) != marker {
-                        try client.set(marker, key: LCSharedKeychainMigration.marker)
-                        guard try client.getData(LCSharedKeychainMigration.marker) == marker else {
-                            throw NSError(domain: "com.SideStore.Keychain", code: 1009)
-                        }
-                    }
-                }
-                if let data { try client.set(data, key: key) } else { try client.remove(key) }
-                guard try client.getData(key) == data else {
-                    throw NSError(domain: "com.SideStore.Keychain", code: 1009)
-                }
+                try writeOne(key, data: data, client: client)
             }
             note(key, status: 0)
         } catch { note(key, status: (error as NSError).code) }
+    }
+
+    /// Commits the four values produced by one Apple authentication response as
+    /// a single credential epoch. The migration marker remains non-ready until
+    /// every value and at least one complete credential route have been read
+    /// back from the shared Keychain.
+    static func writeAuthenticationCredentials(appleID: String, password: String,
+                                               dsid: String, authToken: String,
+                                               client: KeychainAccess.Keychain) throws {
+        guard installedGroup != nil else {
+            note("authWrite", status: -34018)
+            throw NSError(domain: "com.SideStore.Keychain", code: -34018)
+        }
+        let expected: [String: Data] = [
+            "appleIDEmailAddress": Data(appleID.utf8),
+            "appleIDPassword": Data(password.utf8),
+            "appleIDAdsid": Data(dsid.utf8),
+            "appleIDXcodeToken": Data(authToken.utf8)
+        ]
+        guard LCSharedKeychainMigration.complete(expected),
+              expected.count == LCSharedKeychainMigration.authKeys.count else {
+            note("authWrite", status: 1009)
+            throw NSError(domain: "com.SideStore.Keychain", code: 1009,
+                userInfo: [NSLocalizedDescriptionKey: "SideStore could not verify a complete Apple sign-in credential set."])
+        }
+
+        do {
+            try withSharedTransaction {
+                let keys = LCSharedKeychainMigration.authKeys
+                let original = try LCSharedKeychainMigration.readAuthenticationValues {
+                    try client.getData($0)
+                }
+                let originalMarker = try client.getData(LCSharedKeychainMigration.marker)
+                guard originalMarker == nil || originalMarker == LCSharedKeychainMigration.ready ||
+                      originalMarker == LCSharedKeychainMigration.signedOut else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                }
+                let rollbackMarker: Data? = {
+                    if originalMarker == LCSharedKeychainMigration.ready &&
+                       LCSharedKeychainMigration.complete(original) { return LCSharedKeychainMigration.ready }
+                    if originalMarker == LCSharedKeychainMigration.signedOut { return LCSharedKeychainMigration.signedOut }
+                    if originalMarker == LCSharedKeychainMigration.ready { return LCSharedKeychainMigration.signedOut }
+                    return nil
+                }()
+
+                do {
+                    // Block all cooperating readers before the first item changes.
+                    try client.set(LCSharedKeychainMigration.signedOut,
+                                   key: LCSharedKeychainMigration.marker)
+                    guard try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.signedOut else {
+                        throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                    }
+
+                    for key in keys {
+                        guard let value = expected[key] else {
+                            throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                        }
+                        try client.set(value, key: key)
+                        guard try client.getData(key) == value else {
+                            throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                        }
+                    }
+
+                    let written = try LCSharedKeychainMigration.readAuthenticationValues {
+                        try client.getData($0)
+                    }
+                    guard written == expected, LCSharedKeychainMigration.complete(written) else {
+                        throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                    }
+                    try client.set(LCSharedKeychainMigration.ready, key: LCSharedKeychainMigration.marker)
+                    guard try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.ready else {
+                        throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                    }
+                    let committed = try LCSharedKeychainMigration.readAuthenticationValues {
+                        try client.getData($0)
+                    }
+                    guard committed == expected, LCSharedKeychainMigration.complete(committed) else {
+                        throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                    }
+                } catch {
+                    let writeError = error
+                    do {
+                        // Keep reads fail-closed throughout rollback. Restore the
+                        // previous item set, verify every key, then restore only
+                        // a marker justified by that exact prior state.
+                        try client.set(LCSharedKeychainMigration.signedOut,
+                                       key: LCSharedKeychainMigration.marker)
+                        guard try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.signedOut else {
+                            throw NSError(domain: "com.SideStore.Keychain", code: 1010)
+                        }
+                        for key in keys {
+                            if let value = original[key] { try client.set(value, key: key) }
+                            else if try client.getData(key) != nil { try client.remove(key) }
+                            guard try client.getData(key) == original[key] else {
+                                throw NSError(domain: "com.SideStore.Keychain", code: 1010)
+                            }
+                        }
+                        if let rollbackMarker {
+                            try client.set(rollbackMarker, key: LCSharedKeychainMigration.marker)
+                        } else if try client.getData(LCSharedKeychainMigration.marker) != nil {
+                            try client.remove(LCSharedKeychainMigration.marker)
+                        }
+                        guard try client.getData(LCSharedKeychainMigration.marker) == rollbackMarker else {
+                            throw NSError(domain: "com.SideStore.Keychain", code: 1010)
+                        }
+                        let restored = try LCSharedKeychainMigration.readAuthenticationValues {
+                            try client.getData($0)
+                        }
+                        guard restored == original,
+                              rollbackMarker != LCSharedKeychainMigration.ready ||
+                                LCSharedKeychainMigration.complete(restored) else {
+                            throw NSError(domain: "com.SideStore.Keychain", code: 1010)
+                        }
+                    } catch {
+                        // If rollback cannot be proven, leave a tombstone whenever
+                        // possible so a partial account is never advertised ready.
+                        try? client.set(LCSharedKeychainMigration.signedOut,
+                                        key: LCSharedKeychainMigration.marker)
+                        note("authWrite", status: 1010)
+                        throw NSError(domain: "com.SideStore.Keychain", code: 1010,
+                            userInfo: [NSLocalizedDescriptionKey: "SideStore could not confirm whether the Apple sign-in credentials were saved. Reload Account & Signing before continuing."])
+                    }
+                    throw writeError
+                }
+            }
+            note("authWrite", status: 0)
+        } catch {
+            note("authWrite", status: (error as NSError).code)
+            throw error
+        }
+    }
+
+    private static func writeOne(_ key: String, data: Data?,
+                                 client: KeychainAccess.Keychain) throws {
+        guard LCSharedKeychainMigration.authKeys.contains(key) else {
+            if let data { try client.set(data, key: key) } else { try client.remove(key) }
+            guard try client.getData(key) == data else {
+                throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+            }
+            return
+        }
+
+        let markerKey = LCSharedKeychainMigration.marker
+        let oldValue = try client.getData(key)
+        let oldMarker = try client.getData(markerKey)
+        guard oldMarker == nil || oldMarker == LCSharedKeychainMigration.ready ||
+              oldMarker == LCSharedKeychainMigration.signedOut else {
+            throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+        }
+        let oldValues = try LCSharedKeychainMigration.readAuthenticationValues {
+            try client.getData($0)
+        }
+        let rollbackMarker: Data? = {
+            if oldMarker == LCSharedKeychainMigration.ready {
+                return LCSharedKeychainMigration.complete(oldValues)
+                    ? LCSharedKeychainMigration.ready : LCSharedKeychainMigration.signedOut
+            }
+            return oldMarker
+        }()
+        let nextValues: [String: Data] = {
+            var values = oldValues
+            if let data { values[key] = data } else { values.removeValue(forKey: key) }
+            return values
+        }()
+        let nextMarker = LCSharedKeychainMigration.complete(nextValues)
+            ? LCSharedKeychainMigration.ready : LCSharedKeychainMigration.signedOut
+
+        do {
+            // A single-key write must never declare ready based only on the key
+            // being written. Incomplete routes remain hidden behind the marker.
+            if oldMarker != LCSharedKeychainMigration.signedOut {
+                try client.set(LCSharedKeychainMigration.signedOut, key: markerKey)
+                guard try client.getData(markerKey) == LCSharedKeychainMigration.signedOut else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                }
+            }
+            if let data { try client.set(data, key: key) } else { try client.remove(key) }
+            guard try client.getData(key) == data else {
+                throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+            }
+            let verified = try LCSharedKeychainMigration.readAuthenticationValues {
+                try client.getData($0)
+            }
+            guard verified == nextValues else {
+                throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+            }
+            if nextMarker == LCSharedKeychainMigration.ready {
+                try client.set(LCSharedKeychainMigration.ready, key: markerKey)
+                guard try client.getData(markerKey) == LCSharedKeychainMigration.ready else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                }
+            } else if oldMarker == nil || oldMarker == LCSharedKeychainMigration.ready {
+                try client.set(LCSharedKeychainMigration.signedOut, key: markerKey)
+                guard try client.getData(markerKey) == LCSharedKeychainMigration.signedOut else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                }
+            }
+        } catch {
+            let writeError = error
+            do {
+                try client.set(LCSharedKeychainMigration.signedOut, key: markerKey)
+                guard try client.getData(markerKey) == LCSharedKeychainMigration.signedOut else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1010)
+                }
+                if let oldValue { try client.set(oldValue, key: key) }
+                else if try client.getData(key) != nil { try client.remove(key) }
+                guard try client.getData(key) == oldValue else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1010)
+                }
+                if let rollbackMarker { try client.set(rollbackMarker, key: markerKey) }
+                else { try client.remove(markerKey) }
+                guard try client.getData(markerKey) == rollbackMarker else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1010)
+                }
+            } catch {
+                try? client.set(LCSharedKeychainMigration.signedOut, key: markerKey)
+                note("authWrite", status: 1010)
+                throw NSError(domain: "com.SideStore.Keychain", code: 1010,
+                    userInfo: [NSLocalizedDescriptionKey: "SideStore could not confirm whether the Apple sign-in credentials were saved. Reload Account & Signing before continuing."])
+            }
+            throw writeError
+        }
     }
 
     static func removeChecked(_ key: String, client: KeychainAccess.Keychain) throws {
@@ -387,6 +633,10 @@ fileprivate enum LCEmbeddedSharedKeychain {
         if statuses.contains(1008) {
             return NSError(domain: "LiveContainerRefresh.Configuration", code: 1008,
                 userInfo: [NSLocalizedDescriptionKey: "Conflicting saved SideStore logins were found. Automatic migration stopped without replacing them. Open embedded SideStore to choose the intended account."])
+        }
+        if statuses.contains(1010) {
+            return NSError(domain: "com.SideStore.Keychain", code: 1010,
+                userInfo: [NSLocalizedDescriptionKey: "SideStore could not confirm whether the Apple sign-in credentials were saved. Reload Account & Signing before continuing."])
         }
         if let status = statuses.sorted().first(where: { $0 != -25300 }) {
             return NSError(domain: "com.SideStore.Keychain", code: 1009,

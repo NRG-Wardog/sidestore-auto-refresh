@@ -36,6 +36,8 @@ enum Store {
     static var removeFailAt: Int?
     static var setCalls = 0
     static var setFailAt: Int?
+    static var failSetKey: String?
+    static var failSetKeyCount = 0
     static var logs: [String] = []
 }
 func debugLog(_ message: String) { Store.logs.append(message) }
@@ -69,6 +71,11 @@ enum KeychainAccess {
         func set(_ value: Data, key: String) throws {
             if Store.failure != 0 { throw NSError(domain: NSOSStatusErrorDomain, code: Store.failure) }
             Store.setCalls += 1
+            if Store.failSetKey == key && Store.failSetKeyCount > 0 {
+                Store.failSetKeyCount -= 1
+                if Store.failSetKeyCount == 0 { Store.failSetKey = nil }
+                throw NSError(domain: NSOSStatusErrorDomain, code: -25291)
+            }
             if let failAt = Store.setFailAt, Store.setCalls == failAt {
                 Store.setFailAt = nil; throw NSError(domain: NSOSStatusErrorDomain, code: -25291)
             }
@@ -293,6 +300,87 @@ HARNESS = r'''
             LCEmbeddedSharedKeychain.write("appleIDXcodeToken", data: Data("new-token".utf8), client: client)
             LCEmbeddedSharedKeychain.prepare(client)
             precondition(LCEmbeddedSharedKeychain.read("appleIDAdsid", client: client) == Data("new-id".utf8))
+        case "partial_single_auth_item_never_marks_ready":
+            let client = LCEmbeddedSharedKeychain.makeClient()
+            LCEmbeddedSharedKeychain.write("appleIDAdsid", data: Data("only-one-item".utf8), client: client)
+            let partialMarker = try client.getData(LCSharedKeychainMigration.marker)
+            precondition(partialMarker == LCSharedKeychainMigration.signedOut,
+                "one authentication item cannot commit the ready marker")
+            precondition(LCEmbeddedSharedKeychain.read("appleIDAdsid", client: client) == nil,
+                "an incomplete route remains unreadable as authentication state")
+        case "stale_ready_partial_route_is_downgraded":
+            let client = LCEmbeddedSharedKeychain.makeClient()
+            try client.set(Data("partial-id".utf8), key: "appleIDAdsid")
+            try client.set(LCSharedKeychainMigration.ready, key: LCSharedKeychainMigration.marker)
+            LCEmbeddedSharedKeychain.prepare(client)
+            let repairedMarker = try client.getData(LCSharedKeychainMigration.marker)
+            precondition(repairedMarker == LCSharedKeychainMigration.signedOut,
+                "an old ready marker without a full route is downgraded")
+            precondition(LCEmbeddedSharedKeychain.read("appleIDAdsid", client: client) == nil)
+        case "partial_signin_write_failure_no_ready":
+            let client = LCEmbeddedSharedKeychain.makeClient()
+            Store.failSetKey = "appleIDPassword"
+            Store.failSetKeyCount = 1
+            do {
+                try LCEmbeddedSharedKeychain.writeAuthenticationCredentials(
+                    appleID: "new@example.com", password: "new-password",
+                    dsid: "new-dsid", authToken: "new-token", client: client)
+                preconditionFailure("the injected password write must fail")
+            } catch { precondition((error as NSError).code == -25291) }
+            let values = try LCSharedKeychainMigration.readAuthenticationValues { try client.getData($0) }
+            let marker = try client.getData(LCSharedKeychainMigration.marker)
+            precondition(values.isEmpty, "the partial credential route is rolled back")
+            precondition(marker == nil,
+                "a failed partial sign-in must never strand a ready marker")
+            precondition(!LCSharedKeychainMigration.complete(values))
+        case "partial_signin_failure_preserves_previous_credentials":
+            let client = LCEmbeddedSharedKeychain.makeClient()
+            let previous: [String: Data] = [
+                "appleIDEmailAddress": Data("old@example.com".utf8),
+                "appleIDPassword": Data("old-password".utf8),
+                "appleIDAdsid": Data("old-dsid".utf8),
+                "appleIDXcodeToken": Data("old-token".utf8)
+            ]
+            for (key, value) in previous { try client.set(value, key: key) }
+            try client.set(LCSharedKeychainMigration.ready, key: LCSharedKeychainMigration.marker)
+            Store.failSetKey = "appleIDPassword"
+            Store.failSetKeyCount = 1
+            do {
+                try LCEmbeddedSharedKeychain.writeAuthenticationCredentials(
+                    appleID: "new@example.com", password: "new-password",
+                    dsid: "new-dsid", authToken: "new-token", client: client)
+                preconditionFailure("the injected password write must fail")
+            } catch { precondition((error as NSError).code == -25291) }
+            let restored = try LCSharedKeychainMigration.readAuthenticationValues { try client.getData($0) }
+            let marker = try client.getData(LCSharedKeychainMigration.marker)
+            precondition(restored == previous, "all previous credentials survive the failed replacement")
+            precondition(marker == LCSharedKeychainMigration.ready)
+            precondition(LCSharedKeychainMigration.complete(restored))
+        case "partial_signin_rollback_unverified_is_unknown":
+            let client = LCEmbeddedSharedKeychain.makeClient()
+            let previous: [String: Data] = [
+                "appleIDEmailAddress": Data("old@example.com".utf8),
+                "appleIDPassword": Data("old-password".utf8),
+                "appleIDAdsid": Data("old-dsid".utf8),
+                "appleIDXcodeToken": Data("old-token".utf8)
+            ]
+            for (key, value) in previous { try client.set(value, key: key) }
+            try client.set(LCSharedKeychainMigration.ready, key: LCSharedKeychainMigration.marker)
+            // Fail the new password and its rollback write. The transaction must
+            // return the explicit unknown-outcome code and leave readiness false.
+            Store.failSetKey = "appleIDPassword"
+            Store.failSetKeyCount = 2
+            do {
+                try LCEmbeddedSharedKeychain.writeAuthenticationCredentials(
+                    appleID: "new@example.com", password: "new-password",
+                    dsid: "new-dsid", authToken: "new-token", client: client)
+                preconditionFailure("the injected write and rollback failures must be reported")
+            } catch { precondition((error as NSError).code == 1010) }
+            let marker = try client.getData(LCSharedKeychainMigration.marker)
+            precondition(marker != LCSharedKeychainMigration.ready,
+                "an uncertain rollback must never leave the credential set advertised as ready")
+            precondition(LCEmbeddedSharedKeychain.authenticationFailure().code == 1010,
+                "the unconfirmed credential save remains visible as an unknown outcome")
         default: fatalError("unknown scenario")
         }
         print("PASSED: " + scenario)
@@ -316,7 +404,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
             raise AssertionError(result.stderr)
 
     def test_execution_scenarios(self):
-        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "stale_snapshot_signout", "checked_signout_failure", "checked_signout_rollback", "checked_signout_outcome_unknown", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "certificate_only", "invalid_utf8"):
+        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "stale_snapshot_signout", "checked_signout_failure", "checked_signout_rollback", "checked_signout_outcome_unknown", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "partial_single_auth_item_never_marks_ready", "stale_ready_partial_route_is_downgraded", "partial_signin_write_failure_no_ready", "partial_signin_failure_preserves_previous_credentials", "partial_signin_rollback_unverified_is_unknown", "certificate_only", "invalid_utf8"):
             with self.subTest(scenario=scenario):
                 result = subprocess.run([str(self.executable), scenario], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -333,6 +421,10 @@ class EmbeddedKeychainTests(unittest.TestCase):
         self.assertIn("kSecUseAuthenticationUIFail", text)
         self.assertNotIn("\\(error)", text)
         self.assertIn(".afterFirstUnlock", text)
+        self.assertIn("writeAuthenticationCredentials", text)
+        self.assertIn("LCSharedKeychainMigration.complete(written)", text)
+        self.assertIn("LCSharedKeychainMigration.complete(committed)", text)
+        self.assertIn("could not confirm whether the Apple sign-in credentials were saved", text)
 
     def test_signout_checks_all_auth_key_deletions_before_reporting_success(self):
         patch = (ROOT / "scripts/patch_embedded_keychain.py").read_text(encoding="utf-8")
@@ -370,6 +462,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
 }''')
             module.patch(root)
             first = (target.read_bytes(), op.read_bytes())
+            self.assertIn("writeAuthenticationCredentials", target.read_text(encoding="utf-8"))
             module.patch(root)
             self.assertEqual(first, (target.read_bytes(), op.read_bytes()))
             self.assertIn("Keychain.shared.embeddedAuthenticationFailure()", op.read_text())
