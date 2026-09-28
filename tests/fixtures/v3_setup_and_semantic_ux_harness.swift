@@ -372,8 +372,12 @@ struct SetupAndSemanticUXHarness {
             anotherMutationActive: false, now: leaseStart))
         precondition(!expiringLease.expire(now: leaseStart.addingTimeInterval(90)) && expiringLease.isActive,
             "the short begin-request deadline cannot expire the 600-second native refresh lease")
-        precondition(expiringLease.expire(now: expiry) && !expiringLease.isActive,
-            "a lost host terminal reply cannot leave refresh admission held forever")
+        precondition(expiringLease.expire(now: expiry) && expiringLease.isActive && expiringLease.ownerLost,
+            "a lost host owner is recorded after 660 seconds without releasing native refresh admission")
+        precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+            anotherMutationActive: false, authenticationActive: false, isAuthContinuation: false,
+            responseCapacityAvailable: true, refreshActive: expiringLease.isActive),
+            "time alone cannot admit an install/update while native refresh may still be active")
         var cancelledLease = V3RefreshAdmissionLease()
         precondition(cancelledLease.acquire(runID: runA, requestID: refreshRequestA,
             authenticationActive: false, anotherMutationActive: false))

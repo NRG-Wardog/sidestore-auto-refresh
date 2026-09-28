@@ -49,16 +49,8 @@ private enum V3OperationRecoveryJournal {
             }
             let data = try Data(contentsOf: url)
             guard data.count <= 4096,
-                  let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-                  Set(plist.keys) == Set(["version", "session", "kind", "phase", "ipa"]),
-                  V3WireContract.strictInt(plist["version"]) == 1,
-                  let session = plist["session"] as? String,
-                  let kind = plist["kind"] as? String,
-                  let phaseRaw = plist["phase"] as? String,
-                  let phase = V3OperationRecoveryRecord.Phase(rawValue: phaseRaw),
-                  let ipaValue = plist["ipa"], (ipaValue is NSNull || ipaValue is String),
-                  let record = V3OperationRecoveryRecord(sessionID: session, kind: kind,
-                    phase: phase, stagedIPAToken: ipaValue as? String) else {
+                  let plist = try PropertyListSerialization.propertyList(from: data, format: nil),
+                  let record = V3OperationRecoveryRecord.decodePropertyList(plist) else {
                 throw V3SecretHandoffError.malformed
             }
             return V3OperationRecoveryLease(record: record)
@@ -73,11 +65,9 @@ private enum V3OperationRecoveryJournal {
             }
             return
         }
-        let plist: [String: Any] = ["version": 1, "session": record.sessionID,
-            "kind": record.kind, "phase": record.phase.rawValue,
-            "ipa": record.stagedIPAToken.map { $0 as Any } ?? NSNull()]
         do {
-            let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .binary, options: 0)
+            let data = try PropertyListSerialization.data(fromPropertyList: record.propertyListRepresentation,
+                format: .binary, options: 0)
             try data.write(to: url, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         } catch { throw V3SecretHandoffError.unavailable }
@@ -121,6 +111,19 @@ private enum V3OperationRecoveryJournal {
         try withLease { url in
             var lease = try read(url)
             guard lease.reconcileAfterDeviceCheck(sessionID: sessionID, userConfirmed: userConfirmed) else { return false }
+            try write(lease, to: url)
+            return true
+        }
+    }
+
+    @discardableResult
+    static func clearPreparedAfterNotDispatched(sessionID: String, expectedRequestID: String,
+                                                 replyRequestID: String?, operationNotDispatched: Bool) throws -> Bool {
+        try withLease { url in
+            var lease = try read(url)
+            guard lease.clearPreparedAfterNotDispatched(sessionID: sessionID,
+                expectedRequestID: expectedRequestID, replyRequestID: replyRequestID,
+                operationNotDispatched: operationNotDispatched) else { return false }
             try write(lease, to: url)
             return true
         }
@@ -302,7 +305,9 @@ final class V3SideStoreService: NSObject {
                 !matchingPreparedReservation)
         let operationMutationActive = operation == "opRecoveryReconcile" && recoveryControl
             ? false : policyOperationMutationActive
-        let refreshRelease = operation == "refreshAdmissionEnd" && refreshAdmission.owns(target)
+        let refreshRelease = (operation == "refreshAdmissionEnd" && refreshAdmission.owns(target)) ||
+            (operation == "refreshAdmissionReconcile" && refreshAdmission.owns(target) &&
+             refreshAdmission.ownerLost && V3WireContract.strictBool(payload["userConfirmed"]) == true)
         let controlReply = V3MutationReplyCacheBudget.isControlReply(operation: operation)
         let cacheResponse = V3MutationReplyCacheBudget.shouldCacheResponse(operation: operation)
         let cancellationReplay = V3RequestReplayPolicy.requiresCompletedReply(operation: operation)
@@ -346,6 +351,7 @@ final class V3SideStoreService: NSObject {
             if ["opStart", "authBegin", "authRetryProvisioning"].contains(operation) {
                 response["operationNotDispatched"] = true
             }
+            clearPreparedOperationRecoveryIfProven(request: request, reply: response)
             reply(encode(response, operation: operation))
             return
         }
@@ -526,6 +532,7 @@ final class V3SideStoreService: NSObject {
                         V3HeadlessPairingFailure.tagIfInvalidPairing(error),
                         operation: operation, stage: stage, id: id).wire
                 }
+                clearPreparedOperationRecoveryIfProven(request: request, reply: response)
             }
             let encoded = encode(response, operation: operation)
             if mutation && cacheResponse || cancellationReplay && cacheResponse {
@@ -650,6 +657,18 @@ final class V3SideStoreService: NSObject {
             replySessionID: reply["session"] as? String, state: state, backendSettled: backendSettled)
     }
 
+    private func clearPreparedOperationRecoveryIfProven(request: [String: Any], reply: [String: Any]) {
+        guard request["operation"] as? String == "opStart",
+              let requestID = request["id"] as? String,
+              reply["id"] as? String == requestID,
+              V3WireContract.strictBool(reply["operationNotDispatched"]) == true,
+              let payload = request["payload"] as? [String: Any],
+              let sessionID = payload["session"] as? String else { return }
+        _ = try? V3OperationRecoveryJournal.clearPreparedAfterNotDispatched(
+            sessionID: sessionID, expectedRequestID: requestID,
+            replyRequestID: reply["id"] as? String, operationNotDispatched: true)
+    }
+
     private func run(_ operation: String, request: [String: Any], id: String) async throws -> [String: Any] {
         let context = DatabaseManager.shared.viewContext
         let target = request["target"] as? String ?? ""
@@ -683,6 +702,13 @@ final class V3SideStoreService: NSObject {
                 throw ServiceError.notFound
             }
             return ["runID": target, "released": true]
+        case "refreshAdmissionReconcile":
+            guard let parsed = UUID(uuidString: target), parsed.uuidString == target,
+                  V3WireContract.strictBool(payload["userConfirmed"]) == true,
+                  refreshAdmission.reconcileAfterDeviceCheck(runID: target, userConfirmed: true) else {
+                throw ServiceError.invalidRequest
+            }
+            return ["runID": target, "released": true, "reconciled": true]
         case "appIcon":
             let app: InstalledApp = try object(target)
             guard let image = try await app.loadIcon() else { return [:] }
@@ -1174,6 +1200,9 @@ final class V3SideStoreService: NSObject {
                 "kind": operationRecovery.kind, "phase": operationRecovery.phase.rawValue]
             if let token = operationRecovery.stagedIPAToken { safeRecovery["stagedIPAToken"] = token }
             response["operationRecovery"] = safeRecovery
+        }
+        if refreshAdmission.ownerLost, let runID = refreshAdmission.runID {
+            response["refreshRecovery"] = ["runID": runID, "ownerLost": true]
         }
         return response
     }

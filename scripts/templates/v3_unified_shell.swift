@@ -27,6 +27,7 @@ struct V3UnifiedTabs: View {
     @StateObject private var status = V3SideStoreStatusStore()
     @State private var showNotificationsPrompt = false
     @State private var showOperationDeviceCheck = false
+    @State private var showRefreshDeviceCheck = false
     private let monitor = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     var body: some View {
         TabView(selection: $sharedModel.selectedTab) {
@@ -118,6 +119,30 @@ struct V3UnifiedTabs: View {
                     } message: {
                         Text("Only continue after confirming the device is no longer installing, updating, refreshing, or deleting the app.")
                     }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.regularMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 12)
+                .padding(.top, 4)
+            } else if status.unresolvedRefreshRecoveryRunID != nil {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("A previous refresh may still be running")
+                        .font(.subheadline.weight(.semibold))
+                    Text("The service lost its refresh owner after the wait limit. Check the device before clearing the hold.")
+                        .font(.caption)
+                    Button("I checked; refresh has stopped") { showRefreshDeviceCheck = true }
+                        .font(.caption.weight(.semibold))
+                        .confirmationDialog("Reconcile the previous refresh?", isPresented: $showRefreshDeviceCheck,
+                            titleVisibility: .visible) {
+                            Button("I checked; clear the refresh hold", role: .destructive) {
+                                status.reconcileLostRefreshAfterDeviceCheck()
+                            }
+                            Button("Keep waiting", role: .cancel) {}
+                        } message: {
+                            Text("Only continue after confirming SideStore is no longer refreshing apps on the device.")
+                        }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -966,6 +991,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var settings: [String: Bool] = [:]
     @Published var error: String?
     @Published private(set) var unresolvedOperationRecovery: V3OperationRecoveryRecord?
+    @Published private(set) var unresolvedRefreshRecoveryRunID: String?
     // V3_USER_FACING_ISSUE_V1: the structured issue behind the global alert.
     // The string form is retained for compatibility and copyable summaries, but
     // actions are chosen from the typed issue, never from the string.
@@ -1024,6 +1050,28 @@ final class V3SideStoreStatusStore: ObservableObject {
         presentation = V3OperationRequest(operation: record.kind,
             target: record.stagedIPAToken ?? "", title: title,
             recoverySessionID: record.sessionID)
+    }
+
+    func reconcileLostRefreshAfterDeviceCheck() {
+        guard let runID = unresolvedRefreshRecoveryRunID else { return }
+        Task {
+            do {
+                let reply = try await V3ServiceBridge.shared.request(operation: "refreshAdmissionReconcile",
+                    target: runID, payload: ["userConfirmed": true])
+                guard reply["runID"] as? String == runID,
+                      V3WireContract.strictBool(reply["released"]) == true,
+                      V3WireContract.strictBool(reply["reconciled"]) == true else {
+                    throw CombinedFailure(operation: "refresh", stage: .command,
+                        code: .staleResult, id: runID, retryable: false)
+                }
+                V3ServiceBridge.shared.retireReconciledRefreshService(runID: runID)
+                unresolvedRefreshRecoveryRunID = nil
+                notice = "The refresh hold was cleared after your device check."
+                reload()
+            } catch {
+                self.error = "SideStore could not clear the refresh hold. Reconnect and try again."
+            }
+        }
     }
 
     func clearIssue() {
@@ -1361,6 +1409,14 @@ final class V3SideStoreStatusStore: ObservableObject {
                 phase: phase, stagedIPAToken: recovery["stagedIPAToken"] as? String)
         } else {
             unresolvedOperationRecovery = nil
+        }
+        if let refresh = snapshot["refreshRecovery"] as? [String: Any],
+           let runID = refresh["runID"] as? String,
+           V3WireContract.strictBool(refresh["ownerLost"]) == true,
+           UUID(uuidString: runID)?.uuidString == runID {
+            unresolvedRefreshRecoveryRunID = runID
+        } else {
+            unresolvedRefreshRecoveryRunID = nil
         }
     }
     func perform(_ operation: String, target: String = "", title: String, value: Bool? = nil) {

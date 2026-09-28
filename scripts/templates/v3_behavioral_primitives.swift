@@ -985,6 +985,35 @@ struct V3OperationRecoveryRecord: Equatable {
         self.phase = phase
         self.stagedIPAToken = stagedIPAToken
     }
+
+    var propertyListRepresentation: [String: Any] {
+        var value: [String: Any] = ["version": 1, "session": sessionID,
+            "kind": kind, "phase": phase.rawValue]
+        if let stagedIPAToken { value["ipa"] = stagedIPAToken }
+        return value
+    }
+
+    static func decodePropertyList(_ value: Any) -> V3OperationRecoveryRecord? {
+        guard let plist = value as? [String: Any] else { return nil }
+        let requiredKeys: Set<String> = ["version", "session", "kind", "phase"]
+        let hasIPA = plist.keys.contains("ipa")
+        guard let version = plist["version"] as? NSNumber,
+              CFGetTypeID(version) != CFBooleanGetTypeID(), version.intValue == 1 else { return nil }
+        guard Set(plist.keys) == (hasIPA ? requiredKeys.union(["ipa"]) : requiredKeys),
+              let session = plist["session"] as? String,
+              let kind = plist["kind"] as? String,
+              let phaseRaw = plist["phase"] as? String,
+              let phase = Phase(rawValue: phaseRaw) else { return nil }
+        let token: String?
+        if hasIPA {
+            guard let value = plist["ipa"] as? String else { return nil }
+            token = value
+        } else {
+            token = nil
+        }
+        return V3OperationRecoveryRecord(sessionID: session, kind: kind,
+            phase: phase, stagedIPAToken: token)
+    }
 }
 
 struct V3OperationRecoveryLease: Equatable {
@@ -1029,6 +1058,16 @@ struct V3OperationRecoveryLease: Equatable {
     @discardableResult
     mutating func reconcileAfterDeviceCheck(sessionID: String, userConfirmed: Bool) -> Bool {
         guard userConfirmed, record?.sessionID == sessionID else { return false }
+        record = nil
+        return true
+    }
+
+    @discardableResult
+    mutating func clearPreparedAfterNotDispatched(sessionID: String, expectedRequestID: String,
+                                                   replyRequestID: String?, operationNotDispatched: Bool) -> Bool {
+        guard operationNotDispatched, replyRequestID == expectedRequestID,
+              UUID(uuidString: expectedRequestID)?.uuidString == expectedRequestID,
+              let current = record, current.sessionID == sessionID, current.phase == .prepared else { return false }
         record = nil
         return true
     }
@@ -4088,13 +4127,13 @@ struct V3RefreshAdmissionLease {
     private(set) var runID: String?
     private(set) var requestID: String?
     private(set) var expiresAt: Date?
+    private(set) var ownerLost = false
 
     var isActive: Bool { runID != nil }
 
     mutating func expire(now: Date = Date()) -> Bool {
-        guard let expiresAt, expiresAt <= now else { return false }
-        runID = nil
-        requestID = nil
+        guard let expiresAt, expiresAt <= now, !ownerLost else { return false }
+        ownerLost = true
         self.expiresAt = nil
         return true
     }
@@ -4111,6 +4150,7 @@ struct V3RefreshAdmissionLease {
         self.runID = runID
         self.requestID = requestID
         expiresAt = now.addingTimeInterval(Self.lifetime)
+        ownerLost = false
         return true
     }
 
@@ -4122,6 +4162,7 @@ struct V3RefreshAdmissionLease {
         self.runID = nil
         requestID = nil
         expiresAt = nil
+        ownerLost = false
         return true
     }
 
@@ -4131,7 +4172,14 @@ struct V3RefreshAdmissionLease {
         runID = nil
         self.requestID = nil
         expiresAt = nil
+        ownerLost = false
         return true
+    }
+
+    @discardableResult
+    mutating func reconcileAfterDeviceCheck(runID: String, userConfirmed: Bool) -> Bool {
+        guard ownerLost, userConfirmed, owns(runID) else { return false }
+        return release(runID: runID)
     }
 }
 

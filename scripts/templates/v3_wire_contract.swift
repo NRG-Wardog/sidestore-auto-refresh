@@ -90,7 +90,8 @@ enum V3WireContract {
         "refreshAdmissionBegin", "refreshAdmissionEnd",
         "signOut", "syncAppIDs", "clearCache", "jit", "backupResult",
         "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning",
-        "opStart", "opPoll", "opAnswer", "opCancel", "ipaCleanup", "ipaActiveTokens",
+        "opStart", "opPoll", "opAnswer", "opCancel", "opRecoveryPrepare", "opRecoveryReconcile",
+        "refreshAdmissionReconcile", "ipaCleanup", "ipaActiveTokens",
         "certList", "certSetActive", "certDelete", "certPortalList", "certRevoke", "certCreate",
         "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles",
         "sourcePreview", "sourceAddConfirmed", "sourceRemoveConfirmed",
@@ -119,13 +120,14 @@ enum V3WireContract {
             "snapshot", "opStart", "accountExport", "ipaActiveTokens", "refreshSources", "signOut",
             "syncAppIDs", "clearCache", "settingsGet", "settingsSet", "sidesignGet", "sidesignSet",
             "sidesignReset", "sidesignExport", "anisetteList", "anisetteReset", "anisetteSync",
-            "healthSnapshot", "logTail", "certList", "certPortalList", "certCreate",
+            "healthSnapshot", "logTail", "certList", "certPortalList", "certCreate", "opRecoveryPrepare",
             "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles"
         ]
         if emptyTargetOperations.contains(operation) && !target.isEmpty { return nil }
         if ["authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning",
             "opPoll", "opAnswer", "opCancel", "pairingImportData", "sidesignImport", "accountImport",
-            "refreshAdmissionBegin", "refreshAdmissionEnd", "cancel"].contains(operation),
+            "refreshAdmissionBegin", "refreshAdmissionEnd", "refreshAdmissionReconcile",
+            "opRecoveryReconcile", "cancel"].contains(operation),
            !canonicalSecretToken(target) { return nil }
         if operation == "ipaCleanup", !canonicalLowercaseFileToken(target) { return nil }
         if ["appIcon", "jit"].contains(operation),
@@ -156,7 +158,7 @@ enum V3WireContract {
     }
 
     private static let requiredPayloadOperations: Set<String> = [
-        "authBegin", "authRetryProvisioning", "authRespond", "opAnswer", "opStart",
+        "authBegin", "authRetryProvisioning", "authRespond", "opAnswer", "opStart", "opRecoveryPrepare",
         "cancel", "accountExport", "accountImport", "settingsSet", "sidesignSet"
     ]
 
@@ -197,6 +199,14 @@ enum V3WireContract {
                   let operationTarget = payload["target"] as? String, operationTarget.utf8.count <= 4096,
                   let session = payload["session"] as? String, canonicalSecretToken(session) else { return false }
             return acceptsOperationTarget(kind: kind, target: operationTarget)
+        case "opRecoveryPrepare":
+            guard Set(payload.keys) == Set(["kind", "target", "session"]),
+                  let kind = payload["kind"] as? String,
+                  let operationTarget = payload["target"] as? String, operationTarget.utf8.count <= 4096,
+                  let session = payload["session"] as? String, canonicalSecretToken(session) else { return false }
+            return acceptsOperationTarget(kind: kind, target: operationTarget)
+        case "opRecoveryReconcile", "refreshAdmissionReconcile":
+            return Set(payload.keys) == Set(["userConfirmed"]) && strictBool(payload["userConfirmed"]) == true
         case "opCancel":
             return Set(payload.keys) == Set(["knownStarted"]) &&
                 strictBool(payload["knownStarted"]) != nil
@@ -412,7 +422,8 @@ struct V3MutationReplyCacheBudget {
     private(set) var storedBytes = 0
 
     static func isControlReply(operation: String) -> Bool {
-        ["refreshAdmissionEnd", "authBegin", "authRetryProvisioning", "opStart"]
+        ["refreshAdmissionEnd", "refreshAdmissionReconcile", "opRecoveryReconcile",
+         "authBegin", "authRetryProvisioning", "opStart"]
             .contains(operation) || V3RequestReplayPolicy.requiresCompletedReply(operation: operation)
     }
 
