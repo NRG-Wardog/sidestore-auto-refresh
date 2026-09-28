@@ -51,6 +51,64 @@ struct V3SafeFailureCopyHarness {
                      privateNativeDecoded?.technicalDetails.contains("underlying_code=unknown") == true,
                      "the structured envelope preserves the safe cause while omitting the private numeric code")
 
+        let noUnderlyingFailure = CombinedFailure(operation: "command", stage: .command,
+            code: .failed, id: UUID().uuidString)
+        precondition(noUnderlyingFailure.underlyingDomain == "none" && noUnderlyingFailure.underlyingCode == 0 &&
+                     noUnderlyingFailure.wire["underlyingDomain"] as? String == "none" &&
+                     noUnderlyingFailure.wire["underlyingCode"] as? Int == 0,
+                     "the reserved no-underlying sentinel must remain the canonical none/0 pair")
+
+        let sentinelPrivateDescription = "sentinel-collision-private-7428391"
+        let sentinelFailure = CombinedFailure(operation: "command", stage: .command,
+            code: .failed, id: UUID().uuidString,
+            underlying: NSError(domain: "none", code: 7428391,
+                userInfo: [NSLocalizedDescriptionKey: sentinelPrivateDescription]))
+        let sentinelDetails = sentinelFailure.technicalDetails
+        let sentinelWire = sentinelFailure.wire
+        let sentinelEncoded = sentinelFailure.encodedString
+        let sentinelDecoded = CombinedFailure.fromEncodedString(
+            sentinelEncoded, expectedID: sentinelFailure.correlationID)
+        precondition(sentinelFailure.underlyingDomain == "redacted" && sentinelFailure.underlyingCode == 0 &&
+                     sentinelDetails.contains("underlying_domain=redacted") &&
+                     sentinelDetails.contains("underlying_code=unknown") &&
+                     !sentinelDetails.contains("7428391") && !sentinelDetails.contains(sentinelPrivateDescription),
+                     "NSError domain none cannot carry a distinctive private numeric code")
+        precondition(sentinelWire["underlyingDomain"] as? String == "redacted" &&
+                     sentinelWire["underlyingCode"] as? Int == 0 &&
+                     sentinelDecoded?.underlyingDomain == "redacted" &&
+                     sentinelDecoded?.underlyingCode == 0 &&
+                     !sentinelEncoded.contains("7428391"),
+                     "initializer, wire, and encoded roundtrip must canonicalize the reserved-domain collision")
+        let sentinelNativeDiagnostics = V3FailureGuidance.diagnostics(
+            NSError(domain: "none", code: 7428391,
+                userInfo: [NSLocalizedDescriptionKey: sentinelPrivateDescription]))
+        let sentinelPromptDiagnostics = CombinedFailure.provisioningRetryTechnicalDetails(
+            for: NSError(domain: "none", code: 7428391), correlationID: UUID().uuidString)
+        precondition(sentinelNativeDiagnostics.contains("underlying_domain=redacted") &&
+                     sentinelNativeDiagnostics.contains("underlying_code=unknown") &&
+                     !sentinelNativeDiagnostics.contains("7428391") &&
+                     sentinelPromptDiagnostics.contains("domain=redacted") &&
+                     sentinelPromptDiagnostics.contains("code=unknown") &&
+                     !sentinelPromptDiagnostics.contains("7428391"),
+                     "none/nonzero sentinels must not expose numeric codes through any copyable diagnostic path")
+
+        let collisionID = UUID().uuidString
+        let encodedCollision: [String: Any] = [
+            "version": 1, "operation": "command", "stage": "command", "code": "failed",
+            "correlationID": collisionID, "underlyingDomain": "none", "underlyingCode": 7428391
+        ]
+        let collisionData = try! PropertyListSerialization.data(
+            fromPropertyList: encodedCollision, format: .binary, options: 0)
+        let collisionText = "LCFAILURE1:" + collisionData.base64EncodedString()
+        let collisionDecoded = CombinedFailure.fromEncodedString(collisionText, expectedID: collisionID)
+        precondition(collisionDecoded?.underlyingDomain == "redacted" &&
+                     collisionDecoded?.underlyingCode == 0 &&
+                     collisionDecoded?.technicalDetails.contains("underlying_code=unknown") == true &&
+                     collisionDecoded?.technicalDetails.contains("7428391") == false &&
+                     collisionDecoded?.wire["underlyingDomain"] as? String == "redacted" &&
+                     collisionDecoded?.wire["underlyingCode"] as? Int == 0,
+                     "decoder must canonicalize malicious none/nonzero envelopes before diagnostics")
+
         let typed = CombinedFailure(operation: "command", stage: .network,
             code: .failed, id: UUID().uuidString,
             underlying: NSError(domain: NSURLErrorDomain, code: -1009),

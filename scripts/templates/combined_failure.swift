@@ -267,9 +267,9 @@ public struct CombinedFailure: Error, LocalizedError {
         self.stage = stage; self.code = code
         correlationID = UUID(uuidString: id) != nil ? id : UUID().uuidString
         let error = underlying as NSError?
-        let domain = error?.domain ?? "none"
-        underlyingDomain = Self.domains.contains(domain) ? domain : "redacted"
-        underlyingCode = error?.code ?? 0
+        let safeUnderlying = Self.safeWireUnderlying(domain: error?.domain ?? "none", code: error?.code ?? 0)
+        underlyingDomain = safeUnderlying.domain
+        underlyingCode = safeUnderlying.code
         let inferredSourceAddBusy = operation == "sourceAddConfirmed" && code == .busy
             ? SafeCause.sourceAddBusy : nil
         self.safeCause = safeCause ?? inferredSourceAddBusy
@@ -285,7 +285,7 @@ public struct CombinedFailure: Error, LocalizedError {
     /// domains can contain endpoint or user supplied text, so both fields are
     /// suppressed together when provenance is not recognized.
     public static func safeDiagnosticUnderlying(domain: String, code: Int) -> (domain: String, code: String) {
-        guard Self.domains.contains(domain), domain != "none", domain != "redacted" else {
+        guard (Self.domains.contains(domain) && domain != "none") || (domain == "none" && code == 0) else {
             return ("redacted", "unknown")
         }
         return (domain, String(code))
@@ -300,11 +300,13 @@ public struct CombinedFailure: Error, LocalizedError {
         return "domain=\(underlying.domain) code=\(underlying.code) area=provisioning correlation=\(correlationID)"
     }
 
-    /// The serialized wire keeps an integer field for compatibility. Zero is a
-    /// non-native sentinel when the domain is redacted; the numeric NSError code
-    /// is never copied alongside an unknown domain.
+    /// The serialized wire keeps an integer field for compatibility. `none/0`
+    /// means no underlying error; `redacted/0` means native details were hidden.
+    /// The reserved `none` domain never authorizes a nonzero native code.
     fileprivate static func safeWireUnderlying(domain: String, code: Int) -> (domain: String, code: Int) {
-        guard Self.domains.contains(domain), domain != "redacted" else {
+        // `none` is reserved for absence of an underlying error; it does not
+        // establish provenance for a caller-supplied numeric code.
+        guard (Self.domains.contains(domain) && domain != "none") || (domain == "none" && code == 0) else {
             return ("redacted", 0)
         }
         return (domain, code)
