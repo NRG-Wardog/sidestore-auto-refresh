@@ -2317,11 +2317,31 @@ enum V3SnapshotGate {
     /// latent permanent hang.
     static func drain(activity: V3LoadActivity, presentationActive: Bool,
                       owed: Bool, anyWaiterNeedsManual: Bool,
+                      explicitManualOwed: Bool = false,
                       requiresConnectionRetry: Bool) -> V3SnapshotDecision {
         guard owed, activity == .idle, !presentationActive else { return .doNotObserve }
         return decide(activity: .idle, presentationActive: false,
-                      manual: anyWaiterNeedsManual || !requiresConnectionRetry,
+                      manual: explicitManualOwed || anyWaiterNeedsManual || !requiresConnectionRetry,
                       requiresConnectionRetry: requiresConnectionRetry)
+    }
+}
+
+// Fire-and-forget reloads have no waiter from which to recover their manual
+// intent after a mutation or presentation defers them. Keep that intent with
+// the owed snapshot so a manual request still clears a prior connection retry
+// latch when the blocker ends.
+struct V3SnapshotOwedIntent: Equatable {
+    private(set) var isOwed = false
+    private(set) var requiresManualSnapshot = false
+
+    mutating func record(manual: Bool) {
+        isOwed = true
+        requiresManualSnapshot = requiresManualSnapshot || manual
+    }
+
+    mutating func clear() {
+        isOwed = false
+        requiresManualSnapshot = false
     }
 }
 

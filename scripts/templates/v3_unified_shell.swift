@@ -1181,7 +1181,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     // At most one snapshot is owed, because at most one can be pending. Starting
     // any snapshot discharges it, so an unrelated reload can never leave a stale
     // intent behind to cause a second fetch.
-    private var snapshotOwed = false
+    private var snapshotOwedIntent = V3SnapshotOwedIntent()
     // Callers awaiting an authoritative snapshot. The registry tracks whether
     // each needs a manual snapshot, because the owed drain is shared and a
     // non-manual monitor tick must not discharge a caller's manual requirement.
@@ -1300,7 +1300,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         case .awaitMutationThenSnapshot, .deferForPresentation:
             // A snapshot is owed. It is owed once, not once per requester, so a
             // burst of requests cannot queue a burst of fetches.
-            snapshotOwed = true
+            snapshotOwedIntent.record(manual: manual)
         case .doNotObserve:
             break
         }
@@ -1311,7 +1311,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     /// owed intent, which is what stops an unrelated reload from leaving a stale
     /// request behind to cause a second fetch.
     private func startSnapshot(manual: Bool) {
-        snapshotOwed = false
+        snapshotOwedIntent.clear()
         if manual {
             requiresConnectionRetry = false
             // A deliberate reload is also a deliberate request to try the
@@ -1400,17 +1400,19 @@ final class V3SideStoreStatusStore: ObservableObject {
     private func drainOwedSnapshot() {
         let needsManual = snapshotWaiterRegistry.anyManualWaiter
         switch V3SnapshotGate.drain(activity: loadActivity, presentationActive: presentation != nil,
-                                    owed: snapshotOwed, anyWaiterNeedsManual: needsManual,
+                                    owed: snapshotOwedIntent.isOwed, anyWaiterNeedsManual: needsManual,
+                                    explicitManualOwed: snapshotOwedIntent.requiresManualSnapshot,
                                     requiresConnectionRetry: requiresConnectionRetry) {
         case .performSnapshot:
-            startSnapshot(manual: needsManual || !requiresConnectionRetry)
+            startSnapshot(manual: snapshotOwedIntent.requiresManualSnapshot ||
+                needsManual || !requiresConnectionRetry)
             Task { _ = await performSnapshot() }
         case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:
             // Still blocked. The owed intent is kept for whoever ends it.
             break
         case .doNotObserve:
-            guard snapshotOwed else { return }
-            snapshotOwed = false
+            guard snapshotOwedIntent.isOwed else { return }
+            snapshotOwedIntent.clear()
             for id in snapshotWaiterRegistry.takeAll() {
                 guard let waiter = snapshotWaiters.removeValue(forKey: id) else { continue }
                 waiter.continuation.resume(returning: .notObserved)

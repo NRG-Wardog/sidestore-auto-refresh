@@ -205,15 +205,15 @@ class ReloadOrderingTests(unittest.TestCase):
         # A single owed intent, not one per requester, so a burst of requests
         # cannot queue a burst of fetches.
         text = shell()
-        self.assertIn("private var snapshotOwed = false", text)
+        self.assertIn("private var snapshotOwedIntent = V3SnapshotOwedIntent()", text)
         start = text[text.index("private func startSnapshot(manual: Bool)"):]
         start = start[:start.index("\n    }")]
-        self.assertIn("snapshotOwed = false", start,
+        self.assertIn("snapshotOwedIntent.clear()", start,
                       "starting any snapshot must discharge the owed intent")
         begin = text[text.index("private func beginSnapshot(manual: Bool) -> V3SnapshotDecision"):]
         begin = begin[:begin.index("\n    private func startSnapshot")]
-        self.assertIn("snapshotOwed = true", begin)
-        self.assertEqual(begin.count("snapshotOwed = true"), 1,
+        self.assertIn("snapshotOwedIntent.record(manual: manual)", begin)
+        self.assertEqual(begin.count("snapshotOwedIntent.record(manual: manual)"), 1,
                          "only the deferring branches may set the owed intent")
 
     def test_no_continuation_can_be_stranded(self):
@@ -225,10 +225,10 @@ class ReloadOrderingTests(unittest.TestCase):
         drain = text[text.index("private func drainOwedSnapshot()"):]
         drain = drain[:drain.index("\n    }")]
         self.assertIn("case .doNotObserve:", drain)
-        self.assertIn("guard snapshotOwed else { return }", drain)
+        self.assertIn("guard snapshotOwedIntent.isOwed else { return }", drain)
         self.assertIn("for id in snapshotWaiterRegistry.takeAll()", drain)
         self.assertIn("waiter.continuation.resume(returning: .notObserved)", drain)
-        self.assertIn("snapshotOwed = false", drain)
+        self.assertIn("snapshotOwedIntent.clear()", drain)
         # The production registry tracks manual requirements independently from
         # continuation lifetime, so canceled waiters cannot force a manual drain.
         self.assertIn("private var snapshotWaiterRegistry = V3SnapshotWaiterRegistry()", text)

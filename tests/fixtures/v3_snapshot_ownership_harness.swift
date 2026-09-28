@@ -23,11 +23,13 @@ struct SnapshotOwnershipHarness {
         private(set) var activity: V3LoadActivity = .idle
         private(set) var loading = false
         private(set) var requiresConnectionRetry = false
-        private(set) var snapshotOwed = false
+        private var snapshotOwedIntent = V3SnapshotOwedIntent()
+        var snapshotOwed: Bool { snapshotOwedIntent.isOwed }
         private(set) var waiters: [Bool] = []
         /// Every snapshot actually performed, in order. The tests assert on this
         /// so a duplicate or a missing fetch is observable.
         private(set) var snapshotsPerformed: [String] = []
+        private(set) var snapshotsStarted = 0
         /// Resumptions, in order, as (waiterNeedsManual, outcome).
         private(set) var resumptions: [(Bool, String)] = []
         var presentationActive = false
@@ -57,7 +59,7 @@ struct SnapshotOwnershipHarness {
             case .joinSnapshot:
                 break
             case .awaitMutationThenSnapshot, .deferForPresentation:
-                snapshotOwed = true
+                snapshotOwedIntent.record(manual: manual)
             case .doNotObserve:
                 break
             }
@@ -65,8 +67,9 @@ struct SnapshotOwnershipHarness {
         }
 
         func startSnapshot(manual: Bool) {
-            snapshotOwed = false
+            snapshotOwedIntent.clear()
             if manual { requiresConnectionRetry = false }
+            snapshotsStarted += 1
             activity = .snapshot
             loading = true
         }
@@ -109,15 +112,17 @@ struct SnapshotOwnershipHarness {
         func drainOwedSnapshot() {
             let needsManual = waiters.contains { $0 }
             switch V3SnapshotGate.drain(activity: activity, presentationActive: presentationActive,
-                                        owed: snapshotOwed, anyWaiterNeedsManual: needsManual,
+                                        owed: snapshotOwedIntent.isOwed, anyWaiterNeedsManual: needsManual,
+                                        explicitManualOwed: snapshotOwedIntent.requiresManualSnapshot,
                                         requiresConnectionRetry: requiresConnectionRetry) {
             case .performSnapshot:
-                startSnapshot(manual: needsManual || !requiresConnectionRetry)
+                startSnapshot(manual: snapshotOwedIntent.requiresManualSnapshot ||
+                    needsManual || !requiresConnectionRetry)
             case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:
                 break
             case .doNotObserve:
-                guard snapshotOwed else { return }
-                snapshotOwed = false
+                guard snapshotOwedIntent.isOwed else { return }
+                snapshotOwedIntent.clear()
                 let waiting = waiters
                 waiters.removeAll()
                 for manual in waiting { resumptions.append((manual, "notObserved")) }
@@ -337,6 +342,49 @@ struct SnapshotOwnershipHarness {
             precondition(t.resumptions.count == 1 && t.resumptions[0].1 == "notObserved", "a refused drain must resume its waiters rather than strand them")
             precondition(t.waiters.isEmpty, "no continuation may remain parked")
             precondition(!t.snapshotOwed, "the refused intent is cleared, not retried forever")
+        }
+
+        // 9b. fire-and-forget manual intent survives a mutation while a retry
+        // latch is set. The caller has no continuation, so the owed intent must
+        // remember that it was explicit/manual rather than being inferred from
+        // the waiter registry after the mutation finishes.
+        do {
+            let s = Store()
+            s.simulateFailedSnapshotLatch()
+            s.beginMutation()
+            s.reload(manual: true)
+            precondition(s.snapshotOwed, "the manual reload is owed behind the mutation")
+            s.completeMutation()
+            precondition(s.activity == .snapshot,
+                         "the deferred manual request must start despite the retry latch")
+            precondition(!s.requiresConnectionRetry,
+                         "starting the manual snapshot clears the retry latch")
+            precondition(s.snapshotsStarted == 1,
+                         "one deferred manual request starts exactly one snapshot")
+            precondition(!s.snapshotOwed, "starting consumes the owed request")
+            s.completeSnapshot()
+            precondition(s.snapshotsPerformed == ["applied"],
+                         "the actual manual snapshot completes once")
+            precondition(s.snapshotsStarted == 1, "completion does not schedule a duplicate")
+        }
+
+        // 9c. the same contract holds when a presentation, rather than a
+        // mutation, blocks an explicit fire-and-forget reload.
+        do {
+            let s = Store()
+            s.simulateFailedSnapshotLatch()
+            s.presentationActive = true
+            s.reload(manual: true)
+            precondition(s.snapshotOwed, "the manual reload is owed behind the presentation")
+            s.presentationEnded()
+            precondition(s.activity == .snapshot,
+                         "presentation dismissal starts the owed manual snapshot")
+            precondition(!s.requiresConnectionRetry,
+                         "the owed manual snapshot clears the retry latch")
+            precondition(s.snapshotsStarted == 1, "the owed request starts exactly once")
+            s.completeSnapshot()
+            precondition(s.snapshotsPerformed == ["applied"] && s.snapshotsStarted == 1,
+                         "the request completes without a duplicate snapshot")
         }
 
         // 10. several simultaneous callers all receive the same result
