@@ -118,7 +118,12 @@ class RepositoryTests(unittest.TestCase):
                 REQUIRED_SCRIPTS | LIVE_CONTAINER_SCRIPTS | {"patch_sidesign_privacy.py", "verify_candidate_ipa.py"},
         )
 
-    def test_patch_scripts_parse_and_are_idempotent(self):
+    def test_patch_scripts_parse_and_contain_guard_markers(self):
+        """Syntax and guard-marker checks; actual repeat-application tests live beside patch fixtures.
+
+        Examples include test_automation, test_app_layout, test_embedded_keychain,
+        test_guest_return, test_sidesign_privacy, and test_v3_unified_shell.
+        """
         for name in REQUIRED_SCRIPTS | {LIVE_CONTAINER_SCRIPT, LIVE_CONTAINER_STARTUP_SCRIPT,
                                         COMBINED_REFRESH_SCRIPT, EMBEDDED_KEYCHAIN_SCRIPT, "patch_combined_transport.py", "patch_refresh_result_bridge.py", APP_LAYOUT_SCRIPT, V3_UNIFIED_SHELL_SCRIPT,
                                         "patch_sidesign_2fa_state.py"}:

@@ -181,7 +181,7 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         harness = (ROOT / "tests/fixtures/v3_operation_phase_progress_harness.swift").read_text(encoding="utf-8")
         self.compile_and_run(failure + "\n" + helper + "\n" + harness, "V3_OPERATION_PHASE_PROGRESS_PASS")
 
-    def test_delete_completion_pending_callback_remains_reconcilable(self):
+    def test_operation_terminal_harness_covers_delete_reconciliation_and_cancellation(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_operation_terminal_harness.swift").read_text(encoding="utf-8")
@@ -247,15 +247,6 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         harness = (ROOT / "tests/fixtures/v3_operation_retry_failure_harness.swift").read_text(encoding="utf-8")
         self.compile_and_run(helper + "\n" + failure + "\n" + harness,
                              "V3_RETRY_SIGNING_STAGE_AND_START_FAILURE_PASS")
-
-    def test_operation_cancellation_request_cannot_overwrite_native_terminal(self):
-        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
-        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
-        harness = (ROOT / "tests/fixtures/v3_operation_terminal_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run("import Foundation\n" + failure + "\n" + wire + "\n" + helper + "\n" + harness,
-                             "V3_OPERATION_CANCELLATION_TERMINAL_PASS")
-
 
     def test_picker_staging_file_lifetime_and_path_validation_execute(self):
         helper = (ROOT / "scripts/templates/v3_ipa_staging.swift").read_text(encoding="utf-8")
