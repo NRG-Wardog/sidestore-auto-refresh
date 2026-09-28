@@ -861,6 +861,8 @@ struct SetupAndSemanticUXHarness {
                      cancelledRoundTrip?.code == .cancelled &&
                      cancelledRoundTrip?.retryable == false &&
                      cancelledRoundTrip?.safeCause == nil &&
+                     cancelledRoundTrip?.underlyingDomain == "NSURLErrorDomain" &&
+                     cancelledRoundTrip?.underlyingCode == NSURLErrorCancelled &&
                      V3AnisetteFailureGuidance.message(anisetteNSErrorCancelled) == nil,
                      "raw NSError URL cancellation remains cancellation through the real plist boundary")
         let ordinaryRefreshFailure = CombinedFailure(operation: "refresh", stage: .network,
