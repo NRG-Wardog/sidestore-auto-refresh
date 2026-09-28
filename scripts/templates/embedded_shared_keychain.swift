@@ -3,6 +3,16 @@
 // Host and LiveProcess already share an App Group, but not necessarily their
 // DEFAULT keychain access group. Explicitly select an entitled common Keychain
 // group; the App Group container identifier is not a Keychain access group.
+// The app and patched LiveProcess serialize migration/sign-out with an app-group
+// flock. An already-running older SideStore binary does not participate in
+// that lock or write the shared tombstone, so no client-side protocol can
+// exclude a credential snapshot it already took before this patch was active.
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 // LC_SHARED_MIGRATION_POLICY_BEGIN
 struct LCLegacyKeychainItem {
@@ -14,6 +24,7 @@ struct LCLegacyKeychainItem {
 enum LCSharedKeychainMigration {
     static let marker = "LCSharedKeychainReadyV1"
     static let ready = Data("1".utf8)
+    static let signedOut = Data("signed-out-v1".utf8)
     static let authKeys = ["appleIDEmailAddress", "appleIDPassword", "appleIDAdsid", "appleIDXcodeToken"]
     static let knownKeys = Set(authKeys + ["signingCertificate", "signingCertificatePassword",
         "signingCertificatePrivateKey", "signingCertificateSerialNumber", "identifier", "adiPb"])
@@ -34,8 +45,11 @@ enum LCSharedKeychainMigration {
     /// Returns true only after a verified migration, or an existing committed
     /// namespace. No mixing credentials from different legacy access groups.
     static func prepare(group: String, items: () throws -> [LCLegacyKeychainItem],
-                        read: (String) throws -> Data?, write: (String, Data) throws -> Void) throws -> Bool {
-        if try read(marker) == ready { return true }
+                        read: (String) throws -> Data?, write: (String, Data) throws -> Void,
+                        afterSnapshot: () throws -> Void = {}) throws -> Bool {
+        let initialMarker = try read(marker)
+        if initialMarker == ready { return true }
+        if initialMarker == signedOut { return false }
         var candidates: [String: [String: Data]] = [:]
         for item in try items() where item.group != group && supported(item.key) {
             if let previous = candidates[item.group]?[item.key], previous != item.data {
@@ -48,6 +62,21 @@ enum LCSharedKeychainMigration {
         guard completeSets.allSatisfy({ $0 == source }) else {
             throw NSError(domain: "LiveContainerRefresh.Configuration", code: 1008)
         }
+        // The hook makes snapshot/sign-out ordering testable. In production,
+        // the shared file lock below serializes cooperating processes.
+        try afterSnapshot()
+        let currentMarker = try read(marker)
+        if currentMarker == signedOut { return false }
+        guard currentMarker == nil else { return currentMarker == ready }
+        let refreshedItems = try items().filter { $0.group != group && supported($0.key) }
+        var refreshed: [String: [String: Data]] = [:]
+        for item in refreshedItems {
+            if let previous = refreshed[item.group]?[item.key], previous != item.data {
+                throw NSError(domain: "LiveContainerRefresh.Configuration", code: 1008)
+            }
+            refreshed[item.group, default: [:]][item.key] = item.data
+        }
+        guard refreshed.values.contains(where: { $0 == source }) else { return false }
         // Check ALL conflicts before writing anything. Partial migrations can
         // retry, but may not overwrite credentials from a different sign-in.
         for key in source.keys.sorted() {
@@ -72,14 +101,67 @@ enum LCSharedKeychainMigration {
 }
 // LC_SHARED_MIGRATION_POLICY_END
 
+/// Cooperative, process-shared serialization for the app and LiveProcess.
+/// flock is released by the kernel if a process exits while holding it.
+private enum LCSharedKeychainFileLock {
+    static func withLock<T>(appGroup: String?, _ operation: () throws -> T) throws -> T {
+        #if canImport(Darwin)
+        guard let appGroup, !appGroup.isEmpty,
+              let container = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: appGroup) else {
+            throw NSError(domain: "com.SideStore.Keychain", code: -34018)
+        }
+        let directory = ["Library", "Application Support", "LiveContainer"].reduce(
+            container.standardizedFileURL) { $0.appendingPathComponent($1, isDirectory: true) }.standardizedFileURL
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700])
+            let values = try directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            guard values.isDirectory == true, values.isSymbolicLink != true,
+                  directory.resolvingSymlinksInPath().standardizedFileURL == directory else {
+                throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+            }
+        } catch { throw error }
+        let path = directory.appendingPathComponent("keychain-transaction.lock").path
+        let descriptor = open(path, O_CREAT | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+        guard descriptor >= 0 else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(errno)) }
+        defer { _ = close(descriptor) }
+        guard fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(errno))
+        }
+        guard flock(descriptor, LOCK_EX) == 0 else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(errno))
+        }
+        defer { _ = flock(descriptor, LOCK_UN) }
+        return try operation()
+        #else
+        throw NSError(domain: "com.SideStore.Keychain", code: -34018)
+        #endif
+    }
+}
+
 fileprivate enum LCEmbeddedSharedKeychain {
     private static let lock = NSLock()
     private static var lastIssues: [String: Int] = [:]
     private static var installedGroup: String?
+    private static var installedAppGroup: String?
     private static var service = ""
+    // Injectable only for deterministic ordering tests. Production always uses
+    // the shared-container flock above; NSLock protects diagnostics only.
+    static var transactionOverride: (((() throws -> Void) throws -> Void))?
+
+    private static func withSharedTransaction<T>(_ operation: () throws -> T) throws -> T {
+        if let transactionOverride {
+            var result: Result<T, Error>?
+            try transactionOverride { result = Result { try operation() } }
+            return try result!.get()
+        }
+        return try LCSharedKeychainFileLock.withLock(appGroup: installedAppGroup) { try operation() }
+    }
 
     static func makeClient() -> KeychainAccess.Keychain {
         installedGroup = nil
+        installedAppGroup = nil
         service = Bundle.Info.appbundleIdentifier
         let appGroup = Bundle.main.altstoreAppGroup
         let keychainGroup = try? V3SecretHandoff.sharedKeychainAccessGroup()
@@ -88,6 +170,7 @@ fileprivate enum LCEmbeddedSharedKeychain {
         if service == "com.kdt.livecontainer", let appGroup, !appGroup.isEmpty,
            let keychainGroup, !keychainGroup.isEmpty {
             installedGroup = keychainGroup
+            installedAppGroup = appGroup
             debugLog("[LC_KEYCHAIN] SHARED_GROUP_SELECTED service=\(service) keychain_group=livecontainer.shared")
             return KeychainAccess.Keychain(service: service, accessGroup: keychainGroup)
                 .accessibility(.afterFirstUnlock).synchronizable(true)
@@ -102,9 +185,11 @@ fileprivate enum LCEmbeddedSharedKeychain {
     static func prepare(_ client: KeychainAccess.Keychain) {
         guard let group = installedGroup else { return }
         do {
-            let ready = try LCSharedKeychainMigration.prepare(group: group,
-                items: { try legacyItems(service: service) },
-                read: { try client.getData($0) }, write: { try client.set($1, key: $0) })
+            let ready = try withSharedTransaction {
+                try LCSharedKeychainMigration.prepare(group: group,
+                    items: { try legacyItems(service: service) },
+                    read: { try client.getData($0) }, write: { try client.set($1, key: $0) })
+            }
             note("migration", status: ready ? 0 : -25300)
             debugLog("[LC_KEYCHAIN] MIGRATION_READY value=\(ready) pid=\(ProcessInfo.processInfo.processIdentifier)")
         } catch { note("migration", status: (error as NSError).code) }
@@ -179,14 +264,22 @@ fileprivate enum LCEmbeddedSharedKeychain {
     static func write(_ key: String, data: Data?, client: KeychainAccess.Keychain) {
         guard installedGroup != nil else { note(key, status: -34018); return }
         do {
-            // Also retained on sign-out: never resurrect an old login on restart.
-            if LCSharedKeychainMigration.authKeys.contains(key),
-               try client.getData(LCSharedKeychainMigration.marker) != LCSharedKeychainMigration.ready {
-                try client.set(LCSharedKeychainMigration.ready, key: LCSharedKeychainMigration.marker)
-            }
-            if let data { try client.set(data, key: key) } else { try client.remove(key) }
-            guard try client.getData(key) == data else {
-                throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+            try withSharedTransaction {
+                if LCSharedKeychainMigration.authKeys.contains(key) {
+                    // New auth data begins a credential epoch. Deletion records
+                    // sign-out before removal so a stale migration cannot undo it.
+                    let marker = data == nil ? LCSharedKeychainMigration.signedOut : LCSharedKeychainMigration.ready
+                    if try client.getData(LCSharedKeychainMigration.marker) != marker {
+                        try client.set(marker, key: LCSharedKeychainMigration.marker)
+                        guard try client.getData(LCSharedKeychainMigration.marker) == marker else {
+                            throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                        }
+                    }
+                }
+                if let data { try client.set(data, key: key) } else { try client.remove(key) }
+                guard try client.getData(key) == data else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                }
             }
             note(key, status: 0)
         } catch { note(key, status: (error as NSError).code) }
@@ -198,13 +291,19 @@ fileprivate enum LCEmbeddedSharedKeychain {
             throw NSError(domain: "com.SideStore.Keychain", code: -34018)
         }
         do {
-            if try client.getData(key) == nil {
-                note(key, status: 0)
-                return
-            }
-            try client.remove(key)
-            guard try client.getData(key) == nil else {
-                throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+            try withSharedTransaction {
+                if LCSharedKeychainMigration.authKeys.contains(key) {
+                    try client.set(LCSharedKeychainMigration.signedOut, key: LCSharedKeychainMigration.marker)
+                    guard try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.signedOut else {
+                        throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                    }
+                }
+                if try client.getData(key) != nil {
+                    try client.remove(key)
+                    guard try client.getData(key) == nil else {
+                        throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                    }
+                }
             }
             note(key, status: 0)
         } catch {
@@ -216,12 +315,19 @@ fileprivate enum LCEmbeddedSharedKeychain {
     static func clearAll(_ client: KeychainAccess.Keychain) {
         guard installedGroup != nil else { note("configuration", status: -34018); return }
         do {
-            // Keep the migration tombstone. Remove only this service's items,
-            // not the whole group and not other apps' credentials.
-            for key in client.allKeys() where key != LCSharedKeychainMigration.marker {
-                try client.remove(key)
+            try withSharedTransaction {
+                try client.set(LCSharedKeychainMigration.signedOut, key: LCSharedKeychainMigration.marker)
+                guard try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.signedOut else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                }
+                // Remove only this service's items, not the whole access group.
+                for key in client.allKeys() where key != LCSharedKeychainMigration.marker {
+                    try client.remove(key)
+                    guard try client.getData(key) == nil else {
+                        throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                    }
+                }
             }
-            try client.set(LCSharedKeychainMigration.ready, key: LCSharedKeychainMigration.marker)
             note("clear", status: 0)
         } catch { note("clear", status: (error as NSError).code) }
     }

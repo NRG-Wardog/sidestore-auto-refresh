@@ -94,6 +94,9 @@ func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<C
 HARNESS = r'''
 @main struct Tests {
     static func main() throws {
+        // This harness exercises injected operation ordering, not the Darwin
+        // process-shared flock used by the product binaries.
+        LCEmbeddedSharedKeychain.transactionOverride = { try $0() }
         let scenario = CommandLine.arguments[1]
         let group = Store.keychainGroup
         let login = ["appleIDAdsid": Data("test-account-id".utf8), "appleIDXcodeToken": Data("sensitive-test-token".utf8)]
@@ -164,6 +167,19 @@ HARNESS = r'''
             LCEmbeddedSharedKeychain.prepare(client)
             precondition(LCEmbeddedSharedKeychain.read("appleIDXcodeToken", client: client) == nil)
             precondition(Store.data[Store.processGroup] == login)
+            precondition(Store.data[group]?[LCSharedKeychainMigration.marker] == LCSharedKeychainMigration.signedOut,
+                "sign-out leaves a verified tombstone that blocks legacy migration")
+        case "stale_snapshot_signout":
+            let client = LCEmbeddedSharedKeychain.makeClient()
+            let items = login.map { LCLegacyKeychainItem(group: Store.processGroup, key: $0.key, data: $0.value) }
+            let migrated = try LCSharedKeychainMigration.prepare(group: group, items: { items },
+                read: { try client.getData($0) }, write: { try client.set($1, key: $0) }, afterSnapshot: {
+                    try client.set(LCSharedKeychainMigration.signedOut, key: LCSharedKeychainMigration.marker)
+                    for key in LCSharedKeychainMigration.authKeys { Store.data[Store.processGroup]?.removeValue(forKey: key) }
+                })
+            precondition(!migrated && Store.data[group]?[LCSharedKeychainMigration.marker] == LCSharedKeychainMigration.signedOut)
+            precondition(Store.data[group]?.keys.filter { LCSharedKeychainMigration.authKeys.contains($0) }.isEmpty == true,
+                "a snapshot captured before sign-out cannot populate the shared namespace after its tombstone")
         case "checked_signout_failure":
             seed(); let client = LCEmbeddedSharedKeychain.makeClient(); LCEmbeddedSharedKeychain.prepare(client)
             Store.failure = -25291
@@ -179,7 +195,7 @@ HARNESS = r'''
         case "clear_all_no_resurrection":
             seed(); let client = LCEmbeddedSharedKeychain.makeClient(); LCEmbeddedSharedKeychain.prepare(client)
             LCEmbeddedSharedKeychain.clearAll(client); LCEmbeddedSharedKeychain.prepare(client)
-            precondition(Store.data[group] == [LCSharedKeychainMigration.marker: LCSharedKeychainMigration.ready])
+            precondition(Store.data[group] == [LCSharedKeychainMigration.marker: LCSharedKeychainMigration.signedOut])
             precondition(Store.data[Store.processGroup] == login)
         case "unchanged_no_writes":
             seed(); let client = LCEmbeddedSharedKeychain.makeClient(); LCEmbeddedSharedKeychain.prepare(client)
@@ -258,7 +274,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
             raise AssertionError(result.stderr)
 
     def test_execution_scenarios(self):
-        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "checked_signout_failure", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "certificate_only", "invalid_utf8"):
+        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "stale_snapshot_signout", "checked_signout_failure", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "certificate_only", "invalid_utf8"):
             with self.subTest(scenario=scenario):
                 result = subprocess.run([str(self.executable), scenario], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)

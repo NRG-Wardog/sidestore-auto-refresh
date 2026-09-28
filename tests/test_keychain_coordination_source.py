@@ -1,0 +1,57 @@
+"""Source-level guards for the Keychain coordination protocol.
+
+The executable Swift harness in test_embedded_keychain.py injects sign-out at
+the snapshot boundary. These checks run on hosts without swiftc and verify the
+production adapters use the process-shared lock around the relevant operations.
+"""
+from pathlib import Path
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+KEYCHAIN = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text(encoding="utf-8")
+HANDOFF = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
+
+
+class KeychainCoordinationSourceTests(unittest.TestCase):
+    def test_stale_migration_snapshot_rechecks_tombstone_before_writing(self):
+        start = KEYCHAIN.index("static func prepare(group: String")
+        end = KEYCHAIN.index("// LC_SHARED_MIGRATION_POLICY_END", start)
+        migration = KEYCHAIN[start:end]
+        self.assertIn("afterSnapshot()", migration)
+        self.assertIn("if currentMarker == signedOut { return false }", migration)
+        self.assertLess(migration.index("if currentMarker == signedOut"),
+                        migration.index("for key in source.keys.sorted()"))
+        self.assertIn("refreshed.values.contains(where: { $0 == source })", migration)
+
+    def test_verified_signout_tombstone_precedes_auth_deletion(self):
+        start = KEYCHAIN.index("static func removeChecked(")
+        end = KEYCHAIN.index("static func clearAll(", start)
+        signout = KEYCHAIN[start:end]
+        self.assertLess(signout.index("client.set(LCSharedKeychainMigration.signedOut"),
+                        signout.index("try client.remove(key)"))
+        self.assertLess(signout.index("== LCSharedKeychainMigration.signedOut"),
+                        signout.index("try client.remove(key)"))
+        self.assertIn("guard try client.getData(key) == nil", signout)
+        self.assertIn("client.set(LCSharedKeychainMigration.signedOut", KEYCHAIN[KEYCHAIN.index("static func clearAll("):])
+
+    def test_migration_and_signout_use_process_shared_flock(self):
+        self.assertIn("flock(descriptor, LOCK_EX)", KEYCHAIN)
+        self.assertIn("LCSharedKeychainFileLock.withLock(appGroup: installedAppGroup)", KEYCHAIN)
+        self.assertIn("try withSharedTransaction {", KEYCHAIN)
+        self.assertIn("older SideStore binary does not participate", KEYCHAIN)
+        self.assertIn("no client-side protocol can", KEYCHAIN)
+
+    def test_handoff_copy_and_delete_are_inside_process_shared_lock(self):
+        start = HANDOFF.index("private static func consume(_ token: String, kind: String)")
+        end = HANDOFF.index("static func sharedKeychainAccessGroup()", start)
+        consume = HANDOFF[start:end]
+        self.assertIn("V3AppGroupProcessLock.withLock", consume)
+        self.assertLess(consume.index("V3AppGroupProcessLock.withLock"),
+                        consume.index("private static func consumeLocked"))
+        self.assertLess(consume.index("SecItemCopyMatching"), consume.index("SecItemDelete"))
+        self.assertIn("flock(descriptor, LOCK_EX)", HANDOFF)
+        self.assertIn("NSLock is process local", HANDOFF)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,6 +1,47 @@
 import Foundation
 import Security
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+
+/// Advisory process-shared lock for operations that must coordinate between
+/// the LiveContainer app and its embedded service process. NSLock is process local.
+enum V3AppGroupProcessLock {
+    static func withLock<T>(_ operation: () throws -> T) throws -> T {
+        #if canImport(Darwin)
+        guard let appGroup = Bundle.main.altstoreAppGroup, !appGroup.isEmpty,
+              let container = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: appGroup) else {
+            throw V3SecretHandoffError.unavailable
+        }
+        let directory = ["Library", "Application Support", "LiveContainer"].reduce(
+            container.standardizedFileURL) { $0.appendingPathComponent($1, isDirectory: true) }.standardizedFileURL
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700])
+            let values = try directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            guard values.isDirectory == true, values.isSymbolicLink != true,
+                  directory.resolvingSymlinksInPath().standardizedFileURL == directory else {
+                throw V3SecretHandoffError.unavailable
+            }
+        } catch { throw V3SecretHandoffError.unavailable }
+        let path = directory.appendingPathComponent("keychain-transaction.lock").path
+        let descriptor = open(path, O_CREAT | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+        guard descriptor >= 0 else { throw V3SecretHandoffError.unavailable }
+        defer { _ = close(descriptor) }
+        guard fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else { throw V3SecretHandoffError.unavailable }
+        guard flock(descriptor, LOCK_EX) == 0 else { throw V3SecretHandoffError.unavailable }
+        defer { _ = flock(descriptor, LOCK_UN) }
+        return try operation()
+        #else
+        throw V3SecretHandoffError.unavailable
+        #endif
+    }
+}
+
 enum V3SecretHandoffError: Error, LocalizedError {
     case unavailable
     case invalidToken
@@ -345,7 +386,9 @@ enum V3SecretHandoff {
 
     static func discard(_ token: String) {
         guard isValidToken(token), let group = try? sharedKeychainAccessGroup() else { return }
-        _ = SecItemDelete(itemQuery(token, group: group) as CFDictionary)
+        _ = try? V3AppGroupProcessLock.withLock {
+            _ = SecItemDelete(itemQuery(token, group: group) as CFDictionary)
+        }
     }
 
     static func cleanupExpiredItems() {
@@ -378,6 +421,15 @@ enum V3SecretHandoff {
 
     private static func consume(_ token: String, kind: String) throws -> Data {
         guard isValidToken(token) else { throw V3SecretHandoffError.invalidToken }
+        // The process-shared advisory lock surrounds both copy and delete.
+        // This makes competing patched processes serialize the one-time take;
+        // NSLock alone cannot coordinate separate app/service processes.
+        return try V3AppGroupProcessLock.withLock {
+            try consumeLocked(token, kind: kind)
+        }
+    }
+
+    private static func consumeLocked(_ token: String, kind: String) throws -> Data {
         let group = try sharedKeychainAccessGroup()
         var query = itemQuery(token, group: group)
         query[kSecReturnData as String] = true
