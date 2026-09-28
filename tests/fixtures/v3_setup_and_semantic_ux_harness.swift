@@ -328,6 +328,20 @@ struct SetupAndSemanticUXHarness {
             operation: "settingsSet", target: runA, activeRunID: runA,
             refreshAttemptActive: true),
             "the refresh exception must not authorize unrelated host mutations")
+        precondition(V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
+            operation: "refreshAdmissionReconcile", target: runA, activeRunID: nil,
+            refreshAttemptActive: true, anotherHostMutationActive: true,
+            userConfirmedReconciliation: true),
+            "an explicit exact-run device confirmation must reach the service even while the stale host owner is busy")
+        precondition(!V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
+            operation: "refreshAdmissionReconcile", target: runA, activeRunID: nil,
+            refreshAttemptActive: true, anotherHostMutationActive: true,
+            userConfirmedReconciliation: false) &&
+            !V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
+                operation: "refreshAdmissionReconcile", target: runB, activeRunID: runA,
+                refreshAttemptActive: true, anotherHostMutationActive: false,
+                userConfirmedReconciliation: true),
+            "refresh reconciliation requires explicit confirmation and a canonical target run ID")
         var refreshLease = V3RefreshAdmissionLease()
         precondition(!refreshLease.acquire(runID: runA, requestID: refreshRequestA, authenticationActive: true,
             anotherMutationActive: false),

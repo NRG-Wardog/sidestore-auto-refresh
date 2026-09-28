@@ -4097,7 +4097,12 @@ enum V3ServiceMutationAdmissionPolicy {
 
     static func ownsRefreshAdmissionControl(operation: String, target: String,
                                              activeRunID: String?, refreshAttemptActive: Bool,
-                                             anotherHostMutationActive: Bool = false) -> Bool {
+                                             anotherHostMutationActive: Bool = false,
+                                             userConfirmedReconciliation: Bool = false) -> Bool {
+        if operation == "refreshAdmissionReconcile" {
+            return userConfirmedReconciliation &&
+                UUID(uuidString: target)?.uuidString == target
+        }
         ["refreshAdmissionBegin", "refreshAdmissionEnd"].contains(operation) &&
             refreshAttemptActive && !anotherHostMutationActive && !target.isEmpty && activeRunID == target
     }

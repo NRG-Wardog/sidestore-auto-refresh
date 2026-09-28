@@ -263,10 +263,8 @@ public final class V3ServiceBridge {
             operation: operation, target: target,
             activeRunID: RefreshHandler.shared.v3RefreshAdmissionRunID,
             refreshAttemptActive: RefreshHandler.shared.v3RefreshToken != nil,
-            anotherHostMutationActive: isMutating) ||
-            (operation == "refreshAdmissionReconcile" &&
-             V3WireContract.strictBool(payload?["userConfirmed"]) == true &&
-             UUID(uuidString: target)?.uuidString == target)
+            anotherHostMutationActive: isMutating,
+            userConfirmedReconciliation: V3WireContract.strictBool(payload?["userConfirmed"]) == true)
         if mutation {
             guard scopedSessionControl || explicitRecoveryConfirmation || scopedAuthSessionControl || replacesAuthSession || scopedRefreshAdmissionControl ||
                     (!isMutating && RefreshHandler.shared.v3RefreshToken == nil) else {
