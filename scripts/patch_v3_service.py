@@ -368,7 +368,11 @@ def headless_app_intents(text, relative):
             raise SystemExit(f"v3 service: legacy IPA shortcut remains in {relative}")
         if relative.endswith("RefreshAllAppsIntent.swift") and (
                 "V3_SHORTCUT_GUEST_BACKEND_PIPELINE_V1" not in text or
+                "V3RefreshIntentStartPolicy.create" not in text or
+                "classify: V3HeadlessPairingFailure.tagIfInvalidPairing" not in text or
                 "AppManager.shared.backgroundRefresh" not in text or
+                "try? AppManager.shared.backgroundRefresh" in text or
+                "throw V3HeadlessPairingFailure.tagIfInvalidPairing(error)" not in text or
                 "ProgressReportingIntent" not in text or "operationActor" not in text or
                 "openAppWhenRun = true" not in text or
                 "Notification.Name(\"LiveContainerAutoRefreshRunNow\")" in text):
@@ -384,6 +388,29 @@ def headless_app_intents(text, relative):
         text = text[:start] + "// " + marker + ": IPA installation is host-owned.\n\n" + text[end:]
         if "struct InstallIPAIntent" in text or "AppManager.shared.install(.url" in text:
             raise SystemExit("v3 service: legacy IPA installation shortcut removal is partial")
+        text = replace(text,
+            "try await withCheckedThrowingContinuation { continuation in",
+            "try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in")
+        text = replace(text,
+            "let operation = try? AppManager.shared.backgroundRefresh(installedApps, presentsNotifications: self.presentsNotifications) { (result) in",
+            "let operation = V3RefreshIntentStartPolicy.create({\n"
+            "                try AppManager.shared.backgroundRefresh(installedApps, presentsNotifications: self.presentsNotifications) { (result) in")
+        nil_guard = (
+            "            }\n"
+            "            \n"
+            "            guard let operation else {\n"
+            "                debugLog(\"[RefreshAllAppsIntent] backgroundRefresh instance is nil\")\n"
+            "                return \n"
+            "            }"
+        )
+        resumed_guard = """            }
+            }, continuation: continuation,
+                classify: V3HeadlessPairingFailure.tagIfInvalidPairing)
+            guard let operation else { return }"""
+        text = replace(text, nil_guard, resumed_guard)
+        text = replace(text,
+            "                        guard case let .failure(error) = result else { continue }\n                        throw error",
+            "                        guard case let .failure(error) = result else { continue }\n                        throw V3HeadlessPairingFailure.tagIfInvalidPairing(error)")
         title = '    static var title: LocalizedStringResource = "Refresh All Apps"\n'
         if text.count(title) != 1:
             raise SystemExit("v3 service: Refresh All title anchor changed")
@@ -395,6 +422,10 @@ def headless_app_intents(text, relative):
         text = text.replace(backend_anchor,
             backend_anchor + "\n    // " + backend_marker + ": this guest action runs the canonical SideStore refresh pipeline.", 1)
         if ("AppManager.shared.backgroundRefresh" not in text or
+                "V3RefreshIntentStartPolicy.create" not in text or
+                "classify: V3HeadlessPairingFailure.tagIfInvalidPairing" not in text or
+                "try? AppManager.shared.backgroundRefresh" in text or
+                "throw V3HeadlessPairingFailure.tagIfInvalidPairing(error)" not in text or
                 "DatabaseManager.shared.start()" not in text or
                 "ProgressReportingIntent" not in text or "operationActor" not in text or
                 "Notification.Name(\"LiveContainerAutoRefreshRunNow\")" in text or

@@ -159,9 +159,12 @@ def patch_host_delegate(root: Path) -> None:
             Task { @MainActor in LiveContainerAutoRefreshScheduler.scheduleChanged() }
         }
         NotificationCenter.default.addObserver(forName: Notification.Name("LiveContainerAutoRefreshRunNow"), object: nil, queue: .main) { notification in
-            let request = V3ShortcutRefreshRequest(userInfo: notification.userInfo)
-            let requestID = request?.requestID
-            let origin = request?.origin
+            guard let request = V3ShortcutRefreshRequest(userInfo: notification.userInfo) else {
+                NSLog("[V3_REFRESH] RUN_NOW_REJECTED reason=invalid_request_identity")
+                return
+            }
+            let requestID = request.requestID
+            let origin = request.origin
             Task { @MainActor in LiveContainerAutoRefreshScheduler.runNow(requestID: requestID, origin: origin) }
         }
         NotificationCenter.default.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { _ in
@@ -259,6 +262,8 @@ def verify(root: Path) -> None:
             die(f"generated host missing {marker}")
     if "V3ShortcutRefreshRequest(userInfo: notification.userInfo)" not in delegate:
         die("host refresh observer does not validate the request handoff")
+    if "guard let request = V3ShortcutRefreshRequest(userInfo: notification.userInfo) else" not in delegate:
+        die("host refresh observer does not reject malformed requests before scheduler admission")
     if BRIDGE.strip() not in support:
         die("combined intent bridge does not match the packaged metadata contract")
     helper_start = support.index("func performIntentRefresh(")

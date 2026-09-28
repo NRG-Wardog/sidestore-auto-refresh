@@ -95,6 +95,7 @@ class ServicePatchTests(unittest.TestCase):
             ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",
              "AltStore/Managing Apps/AppManager.swift",
              "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
+             "SideStore/Core/DeviceApi/MinimuxerWrapper.swift",
              "AltStore/Authentication/AuthenticationViewController.swift",
              "AltStore/Authentication/InstructionsViewController.swift",
              "AltStore/Authentication/ResignAltStoreViewController.swift",
@@ -357,6 +358,10 @@ class ServicePatchTests(unittest.TestCase):
             self.assertNotIn("AppManager.shared.install(.url", refresh_intent_source)
             self.assertIn("V3_SHORTCUT_GUEST_BACKEND_PIPELINE_V1", refresh_intent_source)
             self.assertIn("AppManager.shared.backgroundRefresh", refresh_intent_source)
+            self.assertIn("V3RefreshIntentStartPolicy.create", refresh_intent_source)
+            self.assertIn("classify: V3HeadlessPairingFailure.tagIfInvalidPairing", refresh_intent_source)
+            self.assertNotIn("try? AppManager.shared.backgroundRefresh", refresh_intent_source)
+            self.assertIn("throw V3HeadlessPairingFailure.tagIfInvalidPairing(error)", refresh_intent_source)
             self.assertIn("DatabaseManager.shared.start()", refresh_intent_source)
             self.assertIn("ProgressReportingIntent", refresh_intent_source)
             self.assertIn("operationActor", refresh_intent_source)
@@ -378,13 +383,9 @@ class ServicePatchTests(unittest.TestCase):
             self.assertIn("AppShortcut(intent: RefreshAllAppsIntent()", shortcuts_source)
             self.assertNotIn("InstallIPAIntent", shortcuts_source)
             widget_intent_source = (side / "AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift").read_text(encoding="utf-8")
-            self.assertIn("V3_SHORTCUT_WIDGET_FORWARD_TO_REFRESH_INTENT_V1", widget_intent_source)
-            self.assertIn("RefreshAllAppsIntent()", widget_intent_source)
-            self.assertIn("throw error", widget_intent_source)
-            self.assertNotIn("ProgressReportingIntent", widget_intent_source)
-            self.assertIn("Refresh All was requested in LiveContainer", widget_intent_source)
-            self.assertNotIn("ProgressReportingIntent", widget_intent_source)
-            self.assertNotIn("debugLog(\"Failed to refresh apps via widget. \\(error)\")", widget_intent_source)
+            self.assertIn("V3_SHORTCUT_WIDGET_BACKEND_FORWARD_V1", widget_intent_source)
+            self.assertIn("RefreshAllAppsIntent(presentsNotifications: true)", widget_intent_source)
+            self.assertIn("ProgressReportingIntent", widget_intent_source)
             pairing_view = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
             pairing_view = pairing_view[pairing_view.index("struct V3PairingView:"):pairing_view.index("@MainActor\nfinal class V3SettingsStore")]
             self.assertIn("failure.recovery", pairing_view)

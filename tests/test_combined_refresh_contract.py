@@ -117,7 +117,28 @@ class CombinedRefreshContractTests(unittest.TestCase):
             root = Path(directory); file = self.fixture(root); self.apply(root)
             # Inject only the UserDefaults suite, preserving actual generated helper logic.
             helper = file.read_text().replace('"group.com.SideStore.SideStore"', "testSuite")
-            swift = (ROOT / "scripts/templates/combined_failure.swift").read_text() + r'''
+            wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text()
+            failure = (ROOT / "scripts/templates/combined_failure.swift").read_text()
+            primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text()
+            bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text()
+            context = bridge[bridge.index("enum V3CatalogRequestContext {"):]
+            context = context[:context.index("\n@MainActor")]
+            runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
+            classifier_start = runtime.index("enum V3HeadlessPairingFailure {")
+            classifier_end = runtime.index("\n// V3_HEADLESS_RUNTIME_V1", classifier_start)
+            pairing_classifier = runtime[classifier_start:classifier_end]
+            swift = wire + "\n" + failure + "\n" + primitives + "\n" + context + r'''
+enum OperationError: Error {
+    case invalidPairingFile(reason: String)
+    case other
+}
+enum MinimuxerError: Error {
+    case invalidPairing(protocol: String, reason: String)
+    case other
+}
+struct MinimuxerServiceError: Error { let error: Error }
+struct ALTWrappedError: Error { let wrappedError: Error }
+''' + pairing_classifier + r'''
 let testSuite = "CombinedRecordTest." + UUID().uuidString
 @MainActor var logs: [String] = []
 struct InstalledApp {
@@ -180,6 +201,43 @@ enum StoreApp { static let altstoreAppID = "fixture.host" }
             precondition(!String(decoding: encoded, as: UTF8.self).contains("SECRET_TOKEN"))
             precondition(!logs.joined().contains("SECRET_TOKEN") && !logs.joined().contains("private.invalid"))
             precondition(logs.contains { $0.contains("REFRESH_FAILED") && $0.contains("stage=" + stage.rawValue) })
+        }
+        logs = []
+        let privatePairingReason = "PAIRING_PRIVATE_PARSE_DETAIL"
+        Operation().record(OperationError.invalidPairingFile(reason: privatePairingReason))
+        let pairingStored = defaults.dictionary(forKey: "liveContainerAutoRefreshVerification")!
+        let pairingRows = pairingStored["results"] as! [[String: Any]]
+        let pairingFailure = CombinedFailure.decode(pairingRows[0]["failure"] as! [String: Any], expectedID: run)!
+        precondition(pairingFailure.stage == .pairing && pairingFailure.safeCause == .invalidPairingFile &&
+                     pairingFailure.retryable == false && pairingFailure.correlationID == run,
+                     "the refresh recorder must preserve typed invalid-pairing cause and exact run correlation")
+        let safePairing = CombinedVerification.sanitized(
+            ["liveContainerAutoRefreshVerification": pairingStored], runID: run)
+        let pairingBytes = try V3ResponseEncoder.encode(["version": 1, "id": run, "ok": true,
+            "result": safePairing], operation: "refresh", limit: V3WireContract.responseLimit)
+        let pairingDecoded = try PropertyListSerialization.propertyList(from: pairingBytes, format: nil) as! [String: Any]
+        let manifest = (pairingDecoded["result"] as! [String: Any])
+            ["liveContainerAutoRefreshVerification"] as! [String: Any]
+        let manifestRows = manifest["results"] as! [[String: Any]]
+        let roundTripped = CombinedFailure.decode(manifestRows[0]["failure"] as! [String: Any], expectedID: run)!
+        precondition(roundTripped.stage == .pairing && roundTripped.safeCause == .invalidPairingFile &&
+                     roundTripped.correlationID == run && roundTripped.retryable == false,
+                     "invalid-pairing semantics must survive encoding and decoding of the refresh manifest")
+        precondition(!String(decoding: pairingBytes, as: UTF8.self).contains(privatePairingReason) &&
+                     !logs.joined().contains(privatePairingReason),
+                     "private pairing parser details must not cross response or log boundaries")
+        let errorReply: [String: Any] = ["version": 1, "id": run, "ok": false,
+            "error": "failed", "failure": roundTripped.wire]
+        let errorBytes = V3ResponseEncoder.encode(errorReply, operation: "refresh", limit: V3WireContract.responseLimit)
+        do {
+            _ = try V3CatalogRequestContext.classifyReply(errorBytes, operation: "refresh", id: run)
+            preconditionFailure("a failed pairing envelope was accepted as a successful host reply")
+        } catch let received as CombinedFailure {
+            precondition(received.stage == .pairing && received.safeCause == .invalidPairingFile &&
+                         received.correlationID == run && received.retryable == false,
+                         "the host classifier must preserve pairing stage, cause, retryability, and request ID")
+        } catch {
+            preconditionFailure("the pairing failure changed at the host response classifier: \(error)")
         }
         let stale = CombinedFailure(operation: "refresh", stage: .signing, id: UUID().uuidString).wire
         let legacy: [String: Any] = ["run_id": run, "expected_ids": ["fixture.app"], "results": [

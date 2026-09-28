@@ -3400,6 +3400,19 @@ public struct V3RefreshRunCorrelation: Equatable {
     }
 }
 
+enum V3RefreshIntentStartPolicy {
+    static func create<T>(_ factory: () throws -> T,
+                          continuation: CheckedContinuation<Void, Error>,
+                          classify: (Error) -> Error = { $0 }) -> T? {
+        do {
+            return try factory()
+        } catch {
+            continuation.resume(throwing: classify(error))
+            return nil
+        }
+    }
+}
+
 enum V3SetupTestAttemptPolicy {
     static func mayApply(capturedAttemptID: String, currentAttemptID: String?,
                          taskCancelled: Bool) -> Bool {

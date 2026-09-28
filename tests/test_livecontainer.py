@@ -77,6 +77,8 @@ class LiveContainerPatchTests(unittest.TestCase):
             self.assertNotIn("All apps have been refreshed.", support)
             delegate = (root / "LiveContainerSwiftUI/App/AppDelegate.swift").read_text()
             self.assertIn("V3ShortcutRefreshRequest(userInfo: notification.userInfo)", delegate)
+            self.assertIn("guard let request = V3ShortcutRefreshRequest(userInfo: notification.userInfo) else", delegate)
+            self.assertIn("RUN_NOW_REJECTED reason=invalid_request_identity", delegate)
             apply(root)
             self.assertEqual(first, {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()})
             info = plistlib.loads((root / "LiveContainer/Info.plist").read_bytes())

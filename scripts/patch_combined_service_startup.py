@@ -145,8 +145,14 @@ def patch(live, side, product):
     def template(name):
         return (TEMPLATES / name).read_text(encoding="utf-8")
     def host(text):
-        text = replace(text, 'return .result(dialog: "All apps have been refreshed.")',
-            'return .result(dialog: "Refresh request completed. Check Refresh for verified installation results.")')
+        old_result = 'return .result(dialog: "All apps have been refreshed.")'
+        requested_result = 'return .result(dialog: "Refresh All was requested in LiveContainer. Check Refresh History for the run result.")'
+        if old_result in text:
+            text = replace(text, old_result,
+                requested_result if product == "v3" else
+                'return .result(dialog: "Refresh request completed. Check Refresh for verified installation results.")')
+        elif product == "v3" and requested_result not in text:
+            raise SystemExit("combined startup anchor drift: Refresh All request result copy")
         text = text.replace("        RefreshHandler.shared.progress = intentProgress", "        await MainActor.run { RefreshHandler.shared.progress = intentProgress }")
         start = text.index("class RefreshHandler:")
         if text[max(0, start-11):start] == "@MainActor\n": start -= 11

@@ -304,7 +304,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .responseEncodingFailed: return "SideStore could not encode the response for this request."
             case .responseTooLarge: return "SideStore produced a response that is too large to transfer."
             case .pairingRequired: return "A pairing file is required before this device can be refreshed."
-            case .invalidPairingFile: return "The existing pairing file was rejected by the device."
+            case .invalidPairingFile: return "SideStore could not read or validate the pairing file."
             case .authAttemptNotDispatched: return "SideStore did not start this sign-in attempt, so Apple authentication was not submitted."
             case .authProvisioningRetryNotDispatched: return "SideStore did not start the provisioning retry; the saved authentication session was not changed by this request."
             case .authSessionUnavailable: return "SideStore no longer has the active sign-in session."
@@ -484,7 +484,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .pairingRequired:
                 return "Add the pairing file, then retry the refresh."
             case .invalidPairingFile:
-                return "Open Pairing File and replace the invalid pairing record, then retry."
+                return "Open Pairing File and replace the saved pairing file with a valid one, then retry."
             case .authAttemptNotDispatched:
                 if code == .busy {
                     return "Wait for the active SideStore operation to finish, then start sign-in again."
