@@ -84,10 +84,12 @@ REMOVED_SIDESTORE_UI_SYMBOLS = (
 CPU_TYPE_ARM64 = 0x0100000C
 MIB = 1024 * 1024
 # The observed candidate is about 39 MB compressed and 95 MB expanded. These
-# ceilings allow over 5x growth; count, per-member, and ratio caps also bound ZIP work.
+# ceilings allow over 5x growth; the entry cap stays below classic ZIP's ZIP64
+# sentinel, so ZIP64 is unnecessary and is rejected by the pre-constructor scan.
 DEFAULT_ARCHIVE_LIMITS = {
     "compressed_ipa_bytes": 250 * MIB,
-    "member_count": 100_000,
+    "member_count": 60_000,
+    "central_directory_bytes": 64 * MIB,
     "total_uncompressed_bytes": 500 * MIB,
     "member_uncompressed_bytes": 256 * MIB,
     "compression_ratio": 1000,
@@ -422,6 +424,105 @@ def validate_archive_metadata(ipa_size_bytes: int, infos, limits: dict | None = 
         if info.file_size:
             if info.compress_size == 0 or info.file_size > info.compress_size * policy["compression_ratio"]:
                 raise ValueError(f"ZIP member exceeds the configured compression-ratio limit: {info.filename}")
+
+
+def preflight_zip_directory(path: Path, ipa_size_bytes: int, limits: dict | None = None) -> int:
+    """Validate EOCD and count central-directory entries without building ZipInfo objects."""
+    policy = dict(DEFAULT_ARCHIVE_LIMITS)
+    if limits is not None:
+        policy.update(limits)
+    validate_ipa_size(ipa_size_bytes, policy)
+    member_limit = policy["member_count"]
+    if member_limit <= 0 or member_limit >= 0xFFFF:
+        raise ValueError("ZIP member-count limit must be between 1 and the classic ZIP maximum")
+    if ipa_size_bytes < 22:
+        raise ValueError("IPA is too short to contain a ZIP end record")
+
+    tail_length = min(ipa_size_bytes, 22 + 0xFFFF)
+    with path.open("rb") as source:
+        source.seek(ipa_size_bytes - tail_length)
+        tail = source.read(tail_length)
+        eocd_offset_in_tail = tail.rfind(b"PK\x05\x06")
+        while eocd_offset_in_tail >= 0:
+            if eocd_offset_in_tail + 22 <= len(tail):
+                comment_size = struct.unpack_from("<H", tail, eocd_offset_in_tail + 20)[0]
+                if eocd_offset_in_tail + 22 + comment_size == len(tail):
+                    break
+            eocd_offset_in_tail = tail.rfind(b"PK\x05\x06", 0, eocd_offset_in_tail)
+        if eocd_offset_in_tail < 0:
+            raise ValueError("IPA ZIP end record is missing or malformed")
+
+        eocd_offset = ipa_size_bytes - tail_length + eocd_offset_in_tail
+        (_signature, disk_number, directory_disk, entries_on_disk, entry_count,
+         directory_size, directory_offset, _comment_size) = struct.unpack_from(
+             "<4s4H2LH", tail, eocd_offset_in_tail)
+        if disk_number or directory_disk or entries_on_disk != entry_count:
+            raise ValueError("multi-disk ZIP archives are unsupported")
+        if (entry_count == 0xFFFF or directory_size == 0xFFFFFFFF or
+                directory_offset == 0xFFFFFFFF):
+            raise ValueError("ZIP64 archives are unsupported by the configured size limits")
+        if entry_count > member_limit:
+            raise ValueError("IPA exceeds the configured ZIP member-count limit")
+
+        directory_end = eocd_offset
+        if directory_size > policy["central_directory_bytes"]:
+            raise ValueError("IPA central directory exceeds the configured size limit")
+        if directory_size > directory_end:
+            raise ValueError("IPA central directory is outside the archive")
+        directory_start = directory_end - directory_size
+        # ZIP permits a prepended stub; infer its size from the recorded offset.
+        prefix_size = directory_start - directory_offset
+        if prefix_size < 0:
+            raise ValueError("IPA central directory offset is outside the archive")
+
+        if eocd_offset >= 20:
+            source.seek(eocd_offset - 20)
+            locator = source.read(20)
+            if locator[:4] == b"PK\x06\x07":
+                raise ValueError("ZIP64 archives are unsupported by the configured size limits")
+
+        position = directory_start
+        counted = 0
+        while position < directory_end:
+            if counted >= member_limit:
+                raise ValueError("IPA exceeds the configured ZIP member-count limit")
+            source.seek(position)
+            fixed = source.read(46)
+            if len(fixed) != 46 or fixed[:4] != b"PK\x01\x02":
+                raise ValueError("IPA central directory contains a malformed entry")
+            fields = struct.unpack_from("<4s6H3I5H2I", fixed)
+            (_signature, _made_by, _needed, _flags, _method, _mtime, _mdate,
+             _crc, compressed_size, expanded_size, name_size, extra_size,
+             comment_size, disk_start, _internal_attributes, _external_attributes,
+             _local_header_offset) = fields
+            entry_size = 46 + name_size + extra_size + comment_size
+            if entry_size > directory_end - position:
+                raise ValueError("IPA central-directory entry exceeds its bounds")
+            if disk_start:
+                raise ValueError("multi-disk ZIP archives are unsupported")
+            if (compressed_size == 0xFFFFFFFF or expanded_size == 0xFFFFFFFF or
+                    disk_start == 0xFFFF or _local_header_offset == 0xFFFFFFFF):
+                raise ValueError("ZIP64 archives are unsupported by the configured size limits")
+            source.seek(position + 46 + name_size)
+            extra = source.read(extra_size)
+            if len(extra) != extra_size:
+                raise ValueError("IPA central-directory extra data is truncated")
+            extra_position = 0
+            while extra_position < len(extra):
+                if extra_position + 4 > len(extra):
+                    raise ValueError("IPA central-directory extra field is malformed")
+                extra_id, field_size = struct.unpack_from("<HH", extra, extra_position)
+                extra_position += 4
+                if field_size > len(extra) - extra_position:
+                    raise ValueError("IPA central-directory extra field exceeds its bounds")
+                if extra_id == 0x0001:
+                    raise ValueError("ZIP64 archives are unsupported by the configured size limits")
+                extra_position += field_size
+            counted += 1
+            position += entry_size
+        if position != directory_end or counted != entry_count:
+            raise ValueError("IPA central-directory count or size does not match its end record")
+    return counted
 
 
 def preflight_archive(archive, ipa_size_bytes: int, limits: dict | None = None):
@@ -801,6 +902,7 @@ def verify(ipa: Path, provenance_path: Path, product: str,
         raise ValueError("SideStore source checkout does not match the pinned revision")
     size = ipa.stat().st_size
     validate_ipa_size(size)
+    preflight_zip_directory(ipa, size)
     digest = sha256_file(ipa)
     side_store_asset_report = {}
     with zipfile.ZipFile(ipa) as archive:

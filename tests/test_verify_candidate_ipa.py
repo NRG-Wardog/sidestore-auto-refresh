@@ -58,6 +58,19 @@ def java_class_file():
             struct.pack(">7H", 0x21, 1, 0, 0, 0, 0, 0))
 
 
+def write_zip_with_central_entries(path, count):
+    entry = (struct.pack(
+        "<4s6H3I5H2I", b"PK\x01\x02", 20, 20, 0, 0, 0, 0,
+        0, 0, 0, 1, 0, 0, 0, 0, 0, 0) + b"x")
+    with path.open("wb") as archive:
+        for _ in range(count):
+            archive.write(entry)
+        directory_size = count * len(entry)
+        archive.write(struct.pack(
+            "<4s4H2LH", b"PK\x05\x06", 0, 0, count, count,
+            directory_size, 0, 0))
+
+
 class ExcludedSideStorePipelineUITests(unittest.TestCase):
     def test_pipeline_ui_types_are_discovered_from_production_patch_file_list(self):
         side_files = (patch_v3_service.HEADLESS_SIDESTORE_VIEW_FILES +
@@ -388,6 +401,43 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
             self.assertEqual(len(infos), 3)
             self.assertEqual(infos[-1].external_attr >> 16 & 0o170000, 0o120000)
             self.assertEqual(verify_module.sha256_file(ipa), hashlib.sha256(ipa.read_bytes()).hexdigest())
+            self.assertEqual(verify_module.preflight_zip_directory(ipa, ipa.stat().st_size), 3)
+
+    def test_verify_rejects_high_count_eocd_before_zipfile_constructor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ipa = root / "high-count.ipa"
+            write_zip_with_central_entries(
+                ipa, verify_module.DEFAULT_ARCHIVE_LIMITS["member_count"] + 1)
+            side_source = root / "pinned-source"
+            side_source.mkdir()
+            with mock.patch.object(
+                    verify_module.subprocess, "check_output",
+                    return_value=verify_module.SOURCE_PINS[1]), \
+                    mock.patch.object(verify_module.zipfile, "ZipFile") as constructor:
+                with self.assertRaisesRegex(ValueError, "member-count limit"):
+                    verify_module.verify(ipa, root / "provenance.json", "v3",
+                                         side_source=side_source)
+                constructor.assert_not_called()
+
+    def test_central_directory_scan_stops_at_configured_member_cap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ipa = Path(directory) / "count-mismatch.ipa"
+            write_zip_with_central_entries(ipa, 3)
+            data = bytearray(ipa.read_bytes())
+            struct.pack_into("<HH", data, len(data) - 14, 2, 2)
+            ipa.write_bytes(data)
+            limits = dict(verify_module.DEFAULT_ARCHIVE_LIMITS, member_count=2)
+            with self.assertRaisesRegex(ValueError, "member-count limit"):
+                verify_module.preflight_zip_directory(ipa, ipa.stat().st_size, limits)
+
+    def test_preflight_explicitly_rejects_zip64_eocd_sentinels(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ipa = Path(directory) / "zip64-sentinel.ipa"
+            ipa.write_bytes(struct.pack(
+                "<4s4H2LH", b"PK\x05\x06", 0, 0, 0xFFFF, 0xFFFF, 0, 0, 0))
+            with self.assertRaisesRegex(ValueError, "ZIP64 archives are unsupported"):
+                verify_module.preflight_zip_directory(ipa, ipa.stat().st_size)
 
     def test_provenance_run_url_must_match_exact_github_actions_repo_and_shape(self):
         good = "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/36372125879"
