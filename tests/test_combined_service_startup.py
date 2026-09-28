@@ -99,12 +99,21 @@ let testSuite = "CombinedCompletionTest." + UUID().uuidString
         let run = UUID().uuidString, newer = UUID().uuidString
         let key = CombinedVerification.uncertainMutationKey
         let valid: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2", "run_id": run,
-            "expected_ids": ["a", "b"], "results": [["bundle_id": "a", "success": true], ["bundle_id": "b", "success": true]]]
-        func receive(_ manifest: [String: Any], marker: String? = nil, error: String? = nil) throws -> Probe {
+            "expected_ids": ["a", "b"], "host_handoff": false,
+            "results": [["bundle_id": "a", "success": true], ["bundle_id": "b", "success": true]]]
+        func receive(_ manifest: [String: Any], marker: String? = nil,
+                     handoffRunID: Any? = nil, outerHandoff: Any? = nil,
+                     includeOuterHandoff: Bool = false, error: String? = nil) throws -> Probe {
             let owner = Probe(); owner.refreshRunID = run
             defaults.set(marker ?? run, forKey: key)
             defaults.removeObject(forKey: "liveContainerAutoRefreshHostHandoff")
-            let payload = try PropertyListSerialization.data(fromPropertyList: ["liveContainerAutoRefreshVerification": manifest], format: .binary, options: 0)
+            var rawPayload: [String: Any] = ["liveContainerAutoRefreshVerification": manifest]
+            if let handoffRunID { rawPayload["liveContainerAutoRefreshHostHandoffRunID"] = handoffRunID }
+            if includeOuterHandoff, let outerHandoff { rawPayload["liveContainerAutoRefreshHostHandoff"] = outerHandoff }
+            // Exercise the exact production sanitizer before passing its plist
+            // output to the exact production completion consumer below.
+            let safePayload = CombinedVerification.sanitized(rawPayload, runID: run)
+            let payload = try PropertyListSerialization.data(fromPropertyList: safePayload, format: .binary, options: 0)
             owner.completedRefresh(error, runID: run, verification: payload, id: owner.launchID!)
             precondition(owner.completions.count == 1)
             owner.completedRefresh(error, runID: run, verification: payload, id: owner.launchID!)
@@ -133,9 +142,52 @@ let testSuite = "CombinedCompletionTest." + UUID().uuidString
         var failed = valid; failed["results"] = [["bundle_id": "a", "success": true], ["bundle_id": "b", "success": false]]
         _ = try receive(failed)
         precondition(defaults.string(forKey: key) == nil, "known terminal failure should allow policy evaluation")
+        // The real producer persists true and this run ID before the manifest
+        // copies the persisted Boolean into host_handoff.
         var handoff = valid; handoff["host_handoff"] = true
-        _ = try receive(handoff)
+        let currentHandoff = try receive(handoff, handoffRunID: run,
+            outerHandoff: true, includeOuterHandoff: true)
+        guard case .success = currentHandoff.completions[0] else { preconditionFailure("matching true handoff rejected") }
         precondition(defaults.string(forKey: key) == run, "host replacement is not yet verified")
+        let missingOuter = try receive(handoff, handoffRunID: run)
+        guard case .failure = missingOuter.completions[0] else { preconditionFailure("missing current-run outer flag accepted") }
+        precondition(defaults.string(forKey: key) == run, "missing handoff marker cleared uncertainty")
+        var missingManifestFlag = valid; missingManifestFlag.removeValue(forKey: "host_handoff")
+        let missingManifest = try receive(missingManifestFlag, handoffRunID: run,
+            outerHandoff: true, includeOuterHandoff: true)
+        guard case .failure = missingManifest.completions[0] else { preconditionFailure("missing current-run manifest flag accepted") }
+        precondition(defaults.string(forKey: key) == run, "missing manifest marker cleared uncertainty")
+        let outerOnly = try receive(valid, handoffRunID: run,
+            outerHandoff: true, includeOuterHandoff: true)
+        guard case .failure = outerOnly.completions[0] else { preconditionFailure("outer true / manifest false contradiction accepted") }
+        precondition(defaults.string(forKey: key) == run, "contradictory outer marker cleared uncertainty")
+        let manifestOnly = try receive(handoff, handoffRunID: run,
+            outerHandoff: false, includeOuterHandoff: true)
+        guard case .failure = manifestOnly.completions[0] else { preconditionFailure("manifest true / outer false contradiction accepted") }
+        precondition(defaults.string(forKey: key) == run, "contradictory manifest marker cleared uncertainty")
+        var malformedMarker = handoff
+        malformedMarker["host_handoff"] = "true"
+        let malformed = try receive(malformedMarker, handoffRunID: run,
+            outerHandoff: true, includeOuterHandoff: true)
+        guard case .failure = malformed.completions[0] else { preconditionFailure("wrong-typed manifest handoff accepted") }
+        precondition(defaults.string(forKey: key) == run, "malformed handoff cleared uncertainty")
+        let malformedOuter = try receive(handoff, handoffRunID: run,
+            outerHandoff: "true", includeOuterHandoff: true)
+        guard case .failure = malformedOuter.completions[0] else { preconditionFailure("wrong-typed outer handoff accepted") }
+        precondition(defaults.string(forKey: key) == run, "malformed outer marker cleared uncertainty")
+        let malformedRunID = try receive(handoff, handoffRunID: 7,
+            outerHandoff: true, includeOuterHandoff: true)
+        guard case .failure = malformedRunID.completions[0] else { preconditionFailure("wrong-typed handoff run ID accepted") }
+        precondition(defaults.string(forKey: key) == run, "malformed handoff run ID cleared uncertainty")
+        let staleRunID = try receive(handoff, handoffRunID: newer,
+            outerHandoff: true, includeOuterHandoff: true)
+        guard case .failure = staleRunID.completions[0] else { preconditionFailure("handoff flags with stale run ID accepted") }
+        precondition(defaults.string(forKey: key) == run, "stale handoff run ID cleared uncertainty")
+        var noRunRefresh = valid
+        noRunRefresh["host_handoff"] = false
+        let normalRefresh = try receive(noRunRefresh)
+        guard case .success = normalRefresh.completions[0] else { preconditionFailure("no-run normal refresh rejected") }
+        precondition(defaults.string(forKey: key) == nil, "normal refresh did not clear confirmed uncertainty")
         _ = try receive(valid, marker: newer)
         precondition(defaults.string(forKey: key) == newer, "old completion erased a newer uncertainty marker")
         _ = try receive(valid, marker: newer, error: CombinedFailure(operation: "refresh", stage: .signing, id: run).encodedString)
@@ -254,6 +306,16 @@ int main(int argc, char **argv) { @autoreleasepool {
 
 
 class StartupPatchTests(unittest.TestCase):
+    def test_automatic_host_handoff_persists_run_before_manifest_copies_flag(self):
+        source = (ROOT / "scripts/patch_background_automation.py").read_text(encoding="utf-8")
+        persist = source[source.index("    private func persistAutomaticHostHandoff()"):source.index("    private func persistAutomaticRefreshVerification(")]
+        manifest = source[source.index("private func persistAutomaticRefreshVerification"):source.rindex("VERIFICATION_MANIFEST_V1")]
+        self.assertLess(persist.index('defaults.set(true, forKey: "liveContainerAutoRefreshHostHandoff")'),
+                        persist.index('defaults.set(refreshIdentifier, forKey: "liveContainerAutoRefreshHostHandoffRunID")'))
+        self.assertIn('"host_handoff": defaults.bool(forKey: "liveContainerAutoRefreshHostHandoff")', manifest)
+        self.assertLess(source.index("self?.persistAutomaticHostHandoff()"),
+                        source.index("self.persistAutomaticRefreshVerification(results: results"))
+
     def fixture(self, directory):
         live_source = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
         side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")

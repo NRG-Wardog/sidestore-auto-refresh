@@ -85,13 +85,31 @@ public enum CombinedVerification {
         } else {
             manifestHostHandoff = nil
         }
-        let hasCurrentHostHandoff = payload["liveContainerAutoRefreshHostHandoffRunID"] as? String == runID
-        let currentHostHandoff: Bool?
-        if hasCurrentHostHandoff, let rawHostHandoff = payload["liveContainerAutoRefreshHostHandoff"] {
-            guard let value = strictBoolean(rawHostHandoff) else { return [:] }
-            currentHostHandoff = value
+        let outerHostHandoffRunID: String?
+        if let rawRunID = payload["liveContainerAutoRefreshHostHandoffRunID"] {
+            guard let value = rawRunID as? String else { return [:] }
+            outerHostHandoffRunID = value
         } else {
-            currentHostHandoff = nil
+            outerHostHandoffRunID = nil
+        }
+        let outerHostHandoff: Bool?
+        if let rawHostHandoff = payload["liveContainerAutoRefreshHostHandoff"] {
+            guard let value = strictBoolean(rawHostHandoff) else { return [:] }
+            outerHostHandoff = value
+        } else {
+            outerHostHandoff = nil
+        }
+        let hasCurrentHostHandoff = outerHostHandoffRunID == runID
+        // The producer persists true plus this run ID before writing the
+        // manifest's copied host_handoff flag. Never turn an incomplete or
+        // contradictory current-run handoff into false at the XPC boundary.
+        if hasCurrentHostHandoff {
+            guard manifestHostHandoff == true, outerHostHandoff == true else { return [:] }
+        } else {
+            // A true manifest/outer marker without its matching run ID is
+            // incomplete evidence. A normal refresh may omit the outer marker
+            // or carry explicit false values.
+            guard manifestHostHandoff != true, outerHostHandoff != true else { return [:] }
         }
         var result: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2", "run_id": runID, "expected_ids": expected]
         if let requested = manifest["requested_ids"] as? [String] { result["requested_ids"] = requested }
@@ -119,7 +137,7 @@ public enum CombinedVerification {
         var safe: [String: Any] = ["liveContainerAutoRefreshVerification": result]
         if hasCurrentHostHandoff {
             safe["liveContainerAutoRefreshHostHandoffRunID"] = runID
-            safe["liveContainerAutoRefreshHostHandoff"] = currentHostHandoff ?? false
+            safe["liveContainerAutoRefreshHostHandoff"] = true
             for key in ["liveContainerAutoRefreshHostHandoffStartedAt", "liveContainerAutoRefreshHostPreviousExpiration"] {
                 if let value = payload[key] as? Date { safe[key] = value }
             }
