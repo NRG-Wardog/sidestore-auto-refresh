@@ -207,6 +207,12 @@ HARNESS = r'''
             _ = LCEmbeddedSharedKeychain.read("appleIDAdsid", client: client)
             precondition(LCEmbeddedSharedKeychain.authenticationFailure(
                 for: NSError(domain: "com.SideStore.Keychain", code: -34018)).code == 1006)
+            precondition(LCEmbeddedSharedKeychain.authenticationFailure(
+                for: NSError(domain: "com.kishikawakatsumi.KeychainAccess.error", code: -34018)).code == 1006,
+                "the pinned KeychainAccess entitlement status keeps configuration guidance")
+            precondition(LCEmbeddedSharedKeychain.authenticationFailure(
+                for: NSError(domain: "UnrelatedDomain", code: -34018)).code == 1009,
+                "the same numeric status from an unrelated domain remains generic")
         case "missing_group":
             Store.group = nil
             let client = LCEmbeddedSharedKeychain.makeClient()
