@@ -21,6 +21,10 @@ struct SecretHandoffCapacityProcessHarness {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let createdAt = Date()
+        precondition(V3SecretHandoffRecord.encode(kind: "string",
+            payload: Data(repeating: 1, count: V3SecretHandoffRecord.maximumPayloadBytes + 1),
+            createdAt: createdAt) == nil,
+            "the per-record payload byte limit remains enforced")
         for index in 0..<(maximumItems - 1) {
             let file = records.appendingPathComponent("seed-\(index).record")
             try recordData("seed", createdAt: createdAt).write(to: file, options: .atomic)
@@ -114,8 +118,19 @@ struct SecretHandoffCapacityProcessHarness {
                      "the waiting store observes the consumer's released capacity slot")
         let finalRecords = try FileManager.default.contentsOfDirectory(at: records,
             includingPropertiesForKeys: nil).filter { $0.pathExtension == "record" }
+        var finalPayloadBytes = 0
+        for file in finalRecords {
+            guard let data = try? Data(contentsOf: file),
+                  let payload = V3SecretHandoffRecord.decode(data, expectedKind: "string",
+                      now: Date()) else {
+                preconditionFailure("consumer/store coordination must leave only valid outstanding records")
+            }
+            finalPayloadBytes += payload.count
+        }
         precondition(finalRecords.count == maximumItems,
                      "consume and a waiting add remain within the shared outstanding-item cap")
+        precondition(finalPayloadBytes <= aggregatePayloadBound,
+                     "consume/store interleaving also stays within the derived payload-byte bound")
         print("V3_SECRET_HANDOFF_CROSS_PROCESS_CAPACITY_PASS")
     }
 
