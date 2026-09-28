@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 31
+PATCH_VERSION = 32
 ANISETTE_MANIFEST_MIGRATION_VERSION = 30
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
@@ -88,6 +88,10 @@ HEADLESS_SIDESTORE_AUX_UI_FILES = (
     "Views/Settings/Advanced/CacheMgmt/CacheManagementView.swift",
     "Views/Settings/Advanced/CacheMgmt/CacheViewModel.swift",
     "Views/Settings/Advanced/Connection/ConnectionConfig.swift",
+)
+HEADLESS_SIDESTORE_PIPELINE_UI_FILES = (
+    "Managing Apps/AppExtensionView.swift",
+    "Permissions/ReviewPermissionsViewController.swift",
 )
 
 HEADLESS_BACKEND_CONNECTION_CONFIG = '''// V3_HEADLESS_BACKEND_CONNECTION_CONFIG_V1: backend-owned transport configuration.
@@ -314,10 +318,12 @@ def headless_project(text):
 			);
 			platformFiltersByRelativePath = {'''
     app_ui_exclusions = "".join(f'\t\t\t\t"{path}",\n' for path in HEADLESS_SIDESTORE_APP_UI_FILES)
+    pipeline_ui_exclusions = "".join(
+        f'\t\t\t\t"{path}",\n' for path in HEADLESS_SIDESTORE_PIPELINE_UI_FILES)
     headless_exception = replace(
         headless_exception,
         '\t\t\t\t"Components/HeaderContentViewController.swift",\n',
-        '\t\t\t\t"Components/HeaderContentViewController.swift",\n' + app_ui_exclusions)
+        '\t\t\t\t"Components/HeaderContentViewController.swift",\n' + app_ui_exclusions + pipeline_ui_exclusions)
     if text.count(side_exception) != 1:
         raise SystemExit("v3 service: SideStore resource-exclusion anchor changed")
     text = text.replace(side_exception, headless_exception, 1)
@@ -860,15 +866,74 @@ def headless_app_manager_ui(text):
 
 def headless_pipeline_handler(text):
     marker = "V3_HEADLESS_BUNDLE_ID_PROMPT_V1"
-    signature = "func resolveBundleIDOverride(initialBundleID: String) async throws"
-    replacement = '''func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID: String, appendTeamID: Bool)? {
-    // ''' + marker + ''': the combined host owns the interactive prompt. This
-    // legacy adapter preserves the former no-presenter default without UIKit.
+    decisions_marker = "V3_HEADLESS_PIPELINE_UI_DECISIONS_V1"
+    expected = {
+        "func resolveBundleIDMismatch(targetID: String, activeEffectiveID: String) async -> Bool":
+            '''func resolveBundleIDMismatch(targetID: String, activeEffectiveID: String) async -> Bool {
+    // ''' + decisions_marker + ''': no UI context means fail closed.
+    return false
+}''',
+        "func reviewPermissions(_ permissions: [ALTEntitlement], for app: AppProtocol, mode: PermissionReviewMode) async throws":
+            '''func reviewPermissions(_ permissions: [ALTEntitlement], for app: AppProtocol, mode: PermissionReviewMode) async throws {
+    // ''' + decisions_marker + ''': permission review cannot be approved headlessly.
+    throw OperationError.invalidOperationContext("PipelineHandler: Cannot review permissions because presenting view controller is unavailable")
+}''',
+        "func selectAppExtensionsToRemove(":
+            '''func selectAppExtensionsToRemove(
+        appBundle: ALTApplication,
+        localAppExtensions: [ALTApplication],
+        excessExtensions: Set<ALTApplication>
+    ) async throws -> ExtensionRemovalDecision {
+        // ''' + decisions_marker + ''': keep all extensions without the review UI.
+        return .keepAll(useMainProfile: false)
+    }''',
+        "func resolveUnsupportediOSVersion(errorDescription: String, appName: String, compatibleVersion: String) async throws -> Bool":
+            '''func resolveUnsupportediOSVersion(errorDescription: String, appName: String, compatibleVersion: String) async throws -> Bool {
+    // ''' + decisions_marker + ''': do not download an unrequested compatibility version.
+    return false
+}''',
+        "func resolveBundleIDOverride(initialBundleID: String) async throws":
+            '''func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID: String, appendTeamID: Bool)? {
+    // ''' + marker + ''': the combined host owns the interactive prompt.
     return (initialBundleID, true)
-}'''
-    patched = replace_swift_function(text, signature, replacement, "headless bundle-ID prompt adapter")
-    if marker in text and patched != text:
-        raise SystemExit("v3 service: headless PipelineHandler prompt adapter drifted")
+}''',
+        "func resolveAppGroupMismatch(originalGroup: String, correctedGroup: String) async throws -> AppGroupResolution":
+            '''func resolveAppGroupMismatch(originalGroup: String, correctedGroup: String) async throws -> AppGroupResolution {
+    // ''' + decisions_marker + ''': preserve the validated corrected group without UI.
+    return .correctAndProceed(correctedGroup)
+}''',
+    }
+
+    def declaration(source, signature):
+        if source.count(signature) != 1:
+            raise SystemExit(f"v3 service: expected one PipelineHandler adapter {signature!r}")
+        start = source.index(signature)
+        # Include indentation and any actor annotation by replacing only the declaration body.
+        brace = source.index("{", start)
+        depth = 0
+        for index in range(brace, len(source)):
+            if source[index] == "{":
+                depth += 1
+            elif source[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    return source[start:index + 1]
+        raise SystemExit(f"v3 service: unbalanced PipelineHandler adapter {signature!r}")
+
+    if decisions_marker in text or marker in text:
+        for signature, replacement in expected.items():
+            if declaration(text, signature) != replacement:
+                raise SystemExit("v3 service: headless PipelineHandler UI decisions drifted")
+        if "AppExtensionViewHostingController" in text or "ReviewPermissionsViewController" in text:
+            raise SystemExit("v3 service: removed PipelineHandler UI controller reference remains")
+        return text
+
+    patched = text
+    for signature, replacement in expected.items():
+        patched = replace_swift_function(patched, signature, replacement,
+                                         "headless PipelineHandler UI decision")
+    if "AppExtensionViewHostingController" in patched or "ReviewPermissionsViewController" in patched:
+        raise SystemExit("v3 service: removed PipelineHandler UI controller reference remains")
     return patched
 
 
@@ -1222,6 +1287,12 @@ def patch(live, side):
                 raise SystemExit(f"v3 service: previously patched file drifted: {relative}")
         if previous.get("patchVersion") == PATCH_VERSION and previous.get("templates") == template_hashes:
             return
+
+        if (previous.get("patchVersion") == 31 and
+                previous.get("pins") == list(PINS)):
+            raise SystemExit(
+                "v3 service: v31 prepared trees cannot be migrated safely after the PipelineHandler UI extraction; "
+                "discard generated work directories and rebuild from the exact pinned sources")
 
         # Version 30 is the real prior generated format: it includes the
         # backend connection model hash, but has neither the extracted

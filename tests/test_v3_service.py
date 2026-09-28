@@ -181,17 +181,16 @@ enum V3BackendCommands {{
             self.assertIn("V3_LIVE_CONNECTION_SETTINGS_PASS", result.stdout)
 
     def test_legacy_pipeline_bundle_prompt_is_headless_and_idempotent(self):
-        source = '''@MainActor
-func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID: String, appendTeamID: Bool)? {
-    let checkboxView = AppendTeamIDCheckboxView(isChecked: true)
-    return await withCheckedContinuation { continuation in
-        continuation.resume(returning: (initialBundleID, checkboxView.isChecked))
-    }
-}'''
+        side_source = Path(os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or ROOT / ".audit/v3-side-upstream")
+        source_path = side_source / "SideStore/Handlers/PipelineHandler.swift"
+        if not source_path.is_file():
+            self.skipTest("Pinned SideStore PipelineHandler source unavailable")
+        source = source_path.read_text(encoding="utf-8")
         patched = service.headless_pipeline_handler(source)
         self.assertIn("V3_HEADLESS_BUNDLE_ID_PROMPT_V1", patched)
         self.assertIn("return (initialBundleID, true)", patched)
-        self.assertNotIn("AppendTeamIDCheckboxView", patched)
+        self.assertNotIn("AppExtensionViewHostingController", patched)
+        self.assertNotIn("ReviewPermissionsViewController", patched)
         self.assertEqual(service.headless_pipeline_handler(patched), patched)
 
     def test_log_formatter_patch_replaces_the_complete_final_swift_function(self):
@@ -591,6 +590,9 @@ import Foundation
              "SideStore/Core/Auth/AuthManager.swift", "SideStore/Handlers/SignInFlowHandler.swift",
              "SideStore/Core/Operations/PipelineExecutor.swift",
              "SideStore/Core/Operations/PipelineRunner.swift",
+             "SideStore/Core/Operations/OperationStepDefinition.swift",
+             "SideStore/Core/Operations/PipelineOperations/VerifyAppOperation.swift",
+             "SideStore/Handlers/PipelineHandler.swift",
              "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
              "SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
              "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
@@ -623,6 +625,75 @@ import Foundation
 
     def snapshot(self, directory):
         return {str(p.relative_to(directory)): p.read_bytes() for p in directory.rglob("*") if p.is_file()}
+
+    def test_pipeline_ui_extraction_preserves_no_presenter_safety_and_refresh_routing(self):
+        with tempfile.TemporaryDirectory() as name:
+            roots = self.fixture(Path(name))
+            self.apply(roots)
+            side = roots[1]
+            pipeline = (side / "SideStore/Handlers/PipelineHandler.swift").read_text(encoding="utf-8")
+            for controller in ("AppExtensionViewHostingController", "ReviewPermissionsViewController"):
+                self.assertNotIn(controller, pipeline)
+            self.assertIn("return false", pipeline[pipeline.index("func resolveBundleIDMismatch("):
+                                                       pipeline.index("func reviewPermissions(")])
+            self.assertIn(
+                'throw OperationError.invalidOperationContext("PipelineHandler: Cannot review permissions because presenting view controller is unavailable")',
+                pipeline)
+            self.assertIn("return .keepAll(useMainProfile: false)", pipeline)
+            self.assertIn("return false", pipeline[pipeline.index("func resolveUnsupportediOSVersion("):])
+            self.assertIn("return (initialBundleID, true)", pipeline)
+            self.assertIn("return .correctAndProceed(correctedGroup)", pipeline)
+            self.assertEqual(service.headless_pipeline_handler(pipeline), pipeline)
+
+            step_source = (side / "SideStore/Core/Operations/OperationStepDefinition.swift").read_text(encoding="utf-8")
+            refresh_steps = step_source[step_source.index("static let refresh:"):
+                                        step_source.index("static let activateLegacy:")]
+            self.assertEqual(re.findall(r"PipelineExecutionStep\(\.(\w+),\s*(\d+)\)", refresh_steps), [
+                ("updateAppCertificate", "5"),
+                ("verifyCertificate", "10"),
+                ("fetchProvisioningProfiles", "45"),
+                ("refreshApp", "40"),
+            ])
+            runner = (side / "SideStore/Core/Operations/PipelineRunner.swift").read_text(encoding="utf-8")
+            permission_mode = runner[runner.index("let permissionReviewMode:"):runner.index("let operationProgress =")]
+            self.assertRegex(permission_mode, r"default:\s*permissionReviewMode\s*=\s*\.none")
+            self.assertNotIn("case .refresh:", permission_mode)
+            self.assertNotIn(".verifyApp", refresh_steps)
+            self.assertNotIn(".removeAppExtensions", refresh_steps)
+            verify = (side / "SideStore/Core/Operations/PipelineOperations/VerifyAppOperation.swift").read_text(encoding="utf-8")
+            self.assertIn("guard self.permissionsMode != .none else { return }", verify)
+            self.assertIn("handler.reviewPermissions", verify)
+
+            project = (side / "AltStore.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+            side_store_target_exception = project[project.index("A8EEC8CB2F4B146B00F2436D"):]
+            member_start = side_store_target_exception.index("membershipExceptions = (")
+            member_end = side_store_target_exception.index(");", member_start)
+            membership = side_store_target_exception[member_start:member_end]
+            for path in service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES:
+                self.assertIn(f'"{path}"', membership)
+
+            intent = (side / "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift").read_text(encoding="utf-8")
+            widget = (side / "AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift").read_text(encoding="utf-8")
+            self.assertIn("V3_SHORTCUT_GUEST_BACKEND_PIPELINE_V1", intent)
+            self.assertIn("AppManager.shared.backgroundRefresh", intent)
+            self.assertIn("RefreshAllAppsIntent(presentsNotifications: true)", widget)
+            runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+            self.assertIn('ask(kind: "bundleIDOverride"', runtime)
+            self.assertIn('ask(kind: "appGroupMismatch"', runtime)
+
+    def test_v31_generated_tree_fails_closed_without_mutation(self):
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            roots = self.fixture(directory)
+            self.apply(roots)
+            manifest = roots[0] / ".v3-command-patch.json"
+            prior = json.loads(manifest.read_text(encoding="utf-8"))
+            prior["patchVersion"] = 31
+            manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
+            before = self.snapshot(directory)
+            with self.assertRaisesRegex(SystemExit, "v31 prepared trees cannot be migrated safely"):
+                self.apply(roots)
+            self.assertEqual(before, self.snapshot(directory))
 
     def test_pinned_patch_replay_and_tamper(self):
         with tempfile.TemporaryDirectory() as name:
