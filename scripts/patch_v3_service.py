@@ -943,15 +943,16 @@ def patch_sign_in_operation(text):
             "V3TwoFactorRetryPolicy.shouldReuseCredentialsForCodeRetry",
             "if self.isCancelled || error is CancellationError || v3ClassifyAuthError(error) == nil",
             "if self.v3ForceProvisioningRetry {",
-            "!(error is V3ProvisioningResumeUnavailableError)",
-            "V3_AUTH_FAILURE_CLEANUP_REQUIRES_CONFIRMED_EMPTY_SNAPSHOT_V1",
-            "Keychain.shared.signInFailureCleanupSnapshot()",
-            "LCEmbeddedSignInCleanupPolicy.signOutAfterFailureIfConfirmedEmpty(",
+            "V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1",
             "V3_AUTH_CREDENTIAL_TRANSACTION_V1",
             "Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)",
         )
         if text.count(marker) != 1 or any(value not in text for value in required):
             raise SystemExit("v3 service: provisioning retry SignInOperation patch is partial")
+        failure_start = text.index("V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1")
+        failure_end = text.index("try? await self.finalizeAuthentication", failure_start)
+        if "AuthManager.shared.signOut()" in text[failure_start:failure_end]:
+            raise SystemExit("v3 service: failed authentication still clears account state")
         return text
 
     text = replace(text,
@@ -1034,13 +1035,8 @@ def patch_sign_in_operation(text):
         "            {\n"
         "                AuthManager.shared.signOut()\n"
         "            }\n",
-        "            // V3_AUTH_FAILURE_CLEANUP_REQUIRES_CONFIRMED_EMPTY_SNAPSHOT_V1\n"
-        "            // Partial or inconsistent Keychain state remains unknown and must not sign out.\n"
-        "            if !(error is V3ProvisioningResumeUnavailableError) {\n"
-        "                let cleanupSnapshot = Result { try Keychain.shared.signInFailureCleanupSnapshot() }\n"
-        "                LCEmbeddedSignInCleanupPolicy.signOutAfterFailureIfConfirmedEmpty(\n"
-        "                    snapshot: cleanupSnapshot, signOut: { AuthManager.shared.signOut() })\n"
-        "            }\n")
+        "            // V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1: explicit user Sign Out\n"
+        "            // owns account/keychain destruction; failed attempts are non-destructive.\n")
     text = replace(text,
         "        AuthManager.shared.adsid = session.dsid\n"
         "        AuthManager.shared.xcodeToken = session.authToken\n"
