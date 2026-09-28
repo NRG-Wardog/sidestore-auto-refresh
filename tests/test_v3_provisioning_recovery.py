@@ -190,16 +190,25 @@ class TypedOperationErrorClassificationTests(unittest.TestCase):
         self.assertIn("SideStore could not finish provisioning for a reason it does not classify.", function)
 
     def test_technical_details_remain_diagnostic_only(self):
-        # domain=/code=/area=provisioning/correlation stay, and no payload is
-        # interpolated into the copied technical line.
+        # Safe domain/code/area/correlation stay in the separate diagnostic
+        # field, but untrusted NSError details are formatted by the canonical
+        # redaction helper rather than interpolated by the prompt.
         body = runtime()
         start = body.index("private func askProvisioningRetry")
         end = body.index("func resolvePostAuth", start)
         prompt = body[start:end]
-        for token in ("domain=", "code=", "area=provisioning", "correlation=", '"technical"'):
-            self.assertIn(token, prompt)
+        self.assertIn("CombinedFailure.provisioningRetryTechnicalDetails(", prompt)
+        self.assertNotIn("native.domain", prompt)
+        self.assertNotIn("native.code", prompt)
+        self.assertIn('"technical"', prompt)
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        helper_start = failure.index("public static func provisioningRetryTechnicalDetails")
+        helper_end = failure.index("\n    }\n", helper_start) + 6
+        helper = failure[helper_start:helper_end]
+        for token in ("safeDiagnosticUnderlying", "area=provisioning", "correlation="):
+            self.assertIn(token, helper)
         for forbidden in ("reason", "failureReason", "localizedDescription", "errors"):
-            self.assertNotIn(forbidden, prompt)
+            self.assertNotIn(forbidden, prompt + helper)
 
 
 class RecoveryActionLabelTests(unittest.TestCase):

@@ -30,8 +30,12 @@ class V3TwoFactorTests(unittest.TestCase):
 
     def test_sms_request_with_phone_id(self):
         text = runtime()
-        self.assertIn("return method == \"sms\" ? .requestSMS(phoneID: phoneID) : .requestVoice(phoneID: phoneID)", text)
-        self.assertIn('phoneID = String(chosen.dropFirst("phone:".count))', text)
+        policy = text[text.index("enum V3TwoFactorPhoneSelectionPolicy"):]
+        policy = policy[:policy.index("\n}\n") + 3]
+        self.assertIn('case "sms": return .requestSMS(phoneID: phoneID)', policy)
+        self.assertIn('phoneIDs.contains(phoneID)', policy)
+        self.assertIn('case .requestSMS(let selectedPhoneID)', text)
+        self.assertIn('return .requestSMS(phoneID: selectedPhoneID)', text)
 
     def test_voice_request_with_phone_id(self):
         text = runtime()
@@ -41,7 +45,11 @@ class V3TwoFactorTests(unittest.TestCase):
         text = runtime()
         # Phone options are offered alongside delivery methods.
         self.assertIn('"id": "phone:\\($0.id)"', text)
-        self.assertIn('String(chosen.dropFirst("phone:".count))', text)
+        policy = text[text.index("enum V3TwoFactorPhoneSelectionPolicy"):]
+        policy = policy[:policy.index("\n}\n") + 3]
+        self.assertIn('action.hasPrefix("phone:")', policy)
+        self.assertIn('phoneIDs.contains(phoneID)', policy)
+        self.assertIn('if action == "changeMethod" { return .changeMethod }', policy)
 
     def test_code_submission(self):
         text = runtime()
