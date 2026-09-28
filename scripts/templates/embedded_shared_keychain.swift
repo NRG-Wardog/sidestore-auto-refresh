@@ -158,6 +158,19 @@ private enum LCSharedKeychainFileLock {
     }
 }
 
+struct LCEmbeddedAuthenticationSnapshot: Equatable {
+    let appleIDEmailAddress: String?
+    let appleIDPassword: String?
+    let appleIDAdsid: String?
+    let appleIDXcodeToken: String?
+
+    var isAuthenticated: Bool {
+        appleIDEmailAddress != nil && (appleIDPassword != nil || appleIDXcodeToken != nil)
+    }
+    var hasPasswordCredentials: Bool { appleIDPassword != nil }
+    var hasTokenCredentials: Bool { appleIDXcodeToken != nil }
+}
+
 fileprivate enum LCEmbeddedSharedKeychain {
     private static let lock = NSLock()
     private static var lastIssues: [String: Int] = [:]
@@ -203,14 +216,16 @@ fileprivate enum LCEmbeddedSharedKeychain {
     static func prepare(_ client: KeychainAccess.Keychain) {
         guard let group = installedGroup else { return }
         do {
-            let ready = try withSharedTransaction {
-                try LCSharedKeychainMigration.prepare(group: group,
-                    items: { try legacyItems(service: service) },
-                    read: { try client.getData($0) }, write: { try client.set($1, key: $0) })
-            }
+            let ready = try withSharedTransaction { try prepareLocked(group: group, client: client) }
             note("migration", status: ready ? 0 : -25300)
             debugLog("[LC_KEYCHAIN] MIGRATION_READY value=\(ready) pid=\(ProcessInfo.processInfo.processIdentifier)")
         } catch { note("migration", status: (error as NSError).code) }
+    }
+
+    private static func prepareLocked(group: String, client: KeychainAccess.Keychain) throws -> Bool {
+        try LCSharedKeychainMigration.prepare(group: group,
+            items: { try legacyItems(service: service) },
+            read: { try client.getData($0) }, write: { try client.set($1, key: $0) })
     }
 
     private static func legacyItems(service: String) throws -> [LCLegacyKeychainItem] {
@@ -237,8 +252,60 @@ fileprivate enum LCEmbeddedSharedKeychain {
 
     static func isReady(_ client: KeychainAccess.Keychain) -> Bool {
         guard installedGroup != nil else { return false }
-        do { return try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.ready }
+        do {
+            // This marker also gates the legacy certificate-format migration;
+            // keep that lifecycle independent of the auth snapshot's content.
+            return try withSharedTransaction {
+                try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.ready
+            }
+        }
         catch { note("migration", status: (error as NSError).code); return false }
+    }
+
+    static func readAuthenticationSnapshot(_ client: KeychainAccess.Keychain) throws -> LCEmbeddedAuthenticationSnapshot? {
+        guard installedGroup != nil else {
+            throw NSError(domain: "com.SideStore.Keychain", code: -34018)
+        }
+        return try withSharedTransaction {
+            guard let values = try authenticationValuesLocked(client) else { return nil }
+            func string(_ key: String) -> String? {
+                values[key].flatMap { String(data: $0, encoding: .utf8) }
+            }
+            return LCEmbeddedAuthenticationSnapshot(
+                appleIDEmailAddress: string("appleIDEmailAddress"),
+                appleIDPassword: string("appleIDPassword"),
+                appleIDAdsid: string("appleIDAdsid"),
+                appleIDXcodeToken: string("appleIDXcodeToken"))
+        }
+    }
+
+    /// Reads the marker and all four auth values under one process-shared lock.
+    /// Callers that make a decision from a credential pair must use the returned
+    /// snapshot instead of combining separate KeychainItem getter results.
+    private static func authenticationValuesLocked(_ client: KeychainAccess.Keychain) throws -> [String: Data]? {
+        guard installedGroup != nil else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
+        var marker = try client.getData(LCSharedKeychainMigration.marker)
+        if marker == LCSharedKeychainMigration.signedOut { return nil }
+        if marker != LCSharedKeychainMigration.ready {
+            guard let group = installedGroup else { return nil }
+            _ = try prepareLocked(group: group, client: client)
+            marker = try client.getData(LCSharedKeychainMigration.marker)
+        }
+        guard marker == LCSharedKeychainMigration.ready else { return nil }
+        let values = try LCSharedKeychainMigration.readAuthenticationValues { try client.getData($0) }
+        guard LCSharedKeychainMigration.complete(values) else {
+            try client.set(LCSharedKeychainMigration.signedOut, key: LCSharedKeychainMigration.marker)
+            guard try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.signedOut else {
+                throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+            }
+            return nil
+        }
+        // A pre-patch process may not honor the flock. Recheck its epoch marker
+        // after reading the values so a sign-out/change during the read fails closed.
+        guard try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.ready else {
+            return nil
+        }
+        return values
     }
 
     static func readString(_ key: String, client: KeychainAccess.Keychain) -> String? {
@@ -252,20 +319,17 @@ fileprivate enum LCEmbeddedSharedKeychain {
     static func read(_ key: String, client: KeychainAccess.Keychain) -> Data? {
         guard installedGroup != nil else { note(key, status: -34018); return nil }
         do {
+            if LCSharedKeychainMigration.authKeys.contains(key) {
+                let data = try withSharedTransaction {
+                    try authenticationValuesLocked(client)?[key]
+                }
+                if data != nil { note("migration", status: 0) }
+                note(key, status: data == nil ? -25300 : 0)
+                return data
+            }
             var ready = try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.ready
-            if !ready && LCSharedKeychainMigration.authKeys.contains(key) {
-                // Initialization can happen while securityd is locked or the
-                // shared entitlement is temporarily unavailable. Retry migration
-                // on a later auth-key read instead of caching "not ready" for the
-                // lifetime of this Keychain client.
-                prepare(client)
-                ready = try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.ready
-            }
-            if !ready && LCSharedKeychainMigration.authKeys.contains(key) {
-                note(key, status: -25300); return nil
-            }
             var data = try client.getData(key)
-            if data == nil && !ready && !LCSharedKeychainMigration.authKeys.contains(key) {
+            if data == nil && !ready {
                 // Preserve certificate-only/imported-certificate setups before
                 // an Apple login is migrated. This fallback is READ ONLY and
                 // cannot make an authentication preflight pass.

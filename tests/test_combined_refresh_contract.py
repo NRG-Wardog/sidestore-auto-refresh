@@ -26,7 +26,13 @@ class CombinedRefreshContractTests(unittest.TestCase):
         background = importlib.util.module_from_spec(spec); spec.loader.exec_module(background)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "side"
-            paths = ["AltStore/Core/Components/Keychain.swift", "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"]
+            paths = [
+                "AltStore/Core/Components/Keychain.swift",
+                "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
+                "SideStore/Core/Auth/AuthManager.swift",
+                "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+                "SideStore/Utils/importexport/ImportExport.swift",
+            ]
             for relative in paths:
                 target = root / relative
                 target.parent.mkdir(parents=True, exist_ok=True)

@@ -222,8 +222,8 @@ class RecoveryActionLabelTests(unittest.TestCase):
         # Both the keychain session and its ownership by the account whose
         # provisioning failed must hold, otherwise credentials would be skipped
         # for a session that cannot actually resume.
-        self.assertIn("let sessionAppleID = AuthManager.shared.currentAppleID?.lowercased()", guard)
-        self.assertIn("guard AuthManager.shared.isAuthenticated, let resumable, !resumable.appleID.isEmpty,", guard)
+        self.assertIn("let sessionAppleID = authCredentials?.appleIDEmailAddress?.lowercased()", guard)
+        self.assertIn("guard authCredentials?.isAuthenticated == true, let resumable, !resumable.appleID.isEmpty,", guard)
         self.assertIn("resumable.appleID == sessionAppleID else {", guard)
         self.assertIn("Sign in again with this Apple ID", guard)
         # The refusal is explicit rather than a silent interactive fallback.
@@ -282,7 +282,8 @@ class AuthSuccessIsNotProvisioningSuccessTests(unittest.TestCase):
         snapshot = service[start:]
         self.assertIn('"authenticated": authenticated', snapshot)
         self.assertIn('"provisioningIncomplete": authenticated && activeAccount == nil', snapshot)
-        self.assertIn("AuthManager.shared.currentAppleID", snapshot)
+        self.assertIn("AuthManager.shared.authenticationSnapshot", snapshot)
+        self.assertIn("authCredentials?.appleIDEmailAddress", snapshot)
         # The old unconditional "Not signed in" shortcut is gone.
         self.assertNotIn('DatabaseManager.shared.activeAccount()?.appleID ?? "Not signed in"', snapshot)
 

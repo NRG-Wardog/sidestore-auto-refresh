@@ -536,11 +536,11 @@ final class V3AuthCenter {
     private(set) var resumableProvisioning: (appleID: String, stage: String)?
 
     func canResumeProvisioning() -> Bool {
-        let currentAppleID = AuthManager.shared.currentAppleID
+        let credentials = AuthManager.shared.authenticationSnapshot
         return V3AuthSessionAdmissionPolicy.mayStartNewSession(hasActiveSession: hasActiveSession) &&
             V3ProvisioningResumeAvailabilityPolicy.canResume(
-            authenticated: AuthManager.shared.isAuthenticated,
-            currentAppleID: currentAppleID,
+            authenticated: credentials?.isAuthenticated == true,
+            currentAppleID: credentials?.appleIDEmailAddress,
             resumableAppleID: resumableProvisioning?.appleID,
             hasSession: AuthManager.shared.session != nil,
             hasTeamAccount: AuthManager.shared.team?.account != nil)
@@ -582,14 +582,16 @@ final class V3AuthCenter {
             cleanupSessions()
             return poll(id: id) ?? ["session": id, "state": "cancelled", "authenticated": false]
         }
+        let authCredentials = mode == .resumeProvisioning
+            ? AuthManager.shared.authenticationSnapshot : nil
         if mode == .resumeProvisioning {
             // Refuse to claim a reusable session that cannot be reused. This is
             // the only place that decides whether a retry may skip credentials,
             // so it checks both the keychain session and that it belongs to the
             // account whose provisioning actually failed.
-            let sessionAppleID = AuthManager.shared.currentAppleID?.lowercased()
+            let sessionAppleID = authCredentials?.appleIDEmailAddress?.lowercased()
             let resumable = resumableProvisioning
-            guard AuthManager.shared.isAuthenticated, let resumable, !resumable.appleID.isEmpty,
+            guard authCredentials?.isAuthenticated == true, let resumable, !resumable.appleID.isEmpty,
                   resumable.appleID == sessionAppleID else {
                 let failure = CombinedFailure(operation: "signIn", stage: .authentication, code: .notReady,
                     id: id, retryable: false)
@@ -611,7 +613,7 @@ final class V3AuthCenter {
                 .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         }
         if mode == .resumeProvisioning {
-            newSession.authenticatedAppleID = AuthManager.shared.currentAppleID?.lowercased()
+            newSession.authenticatedAppleID = authCredentials?.appleIDEmailAddress?.lowercased()
         }
         sessions[id] = newSession
         activeID = id
@@ -811,13 +813,14 @@ final class V3AuthCenter {
             authenticationCallbackSeen: session.authenticatedAppleID != nil,
             submittedAppleID: session.submittedAppleID, activeAppleID: activeAppleID,
             accountAppleIDAtStart: session.accountAppleIDAtStart)
-        let authenticatedAppleID = (session.authenticatedAppleID ?? AuthManager.shared.currentAppleID)?.lowercased()
-        if authenticated, AuthManager.shared.isAuthenticated,
+        let authCredentials = AuthManager.shared.authenticationSnapshot
+        let authenticatedAppleID = (session.authenticatedAppleID ?? authCredentials?.appleIDEmailAddress)?.lowercased()
+        if authenticated, authCredentials?.isAuthenticated == true,
            let authenticatedAppleID, !authenticatedAppleID.isEmpty,
            resumableProvisioning?.appleID != authenticatedAppleID {
             resumableProvisioning = (authenticatedAppleID, "sessionTimeout")
         }
-        let resumable = AuthManager.shared.isAuthenticated &&
+        let resumable = authCredentials?.isAuthenticated == true &&
             authenticatedAppleID.map { resumableProvisioning?.appleID == $0 } == true
         session.cancellationRequested = true
         session.task?.cancel()

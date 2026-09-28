@@ -1281,9 +1281,10 @@ final class V3SideStoreService: NSObject {
         // itself is authoritative; the active row is reported separately as
         // provisioningIncomplete so no active team is ever implied.
         let activeAccount = DatabaseManager.shared.activeAccount()
-        let authenticated = AuthManager.shared.isAuthenticated
+        let authCredentials = AuthManager.shared.authenticationSnapshot
+        let authenticated = authCredentials?.isAuthenticated == true
         let account = activeAccount?.appleID
-            ?? (authenticated ? AuthManager.shared.currentAppleID : nil)
+            ?? (authenticated ? authCredentials?.appleIDEmailAddress : nil)
             ?? "Not signed in"
         let activeAuthenticationSessionID = V3HeadlessRuntime.shared.auth.activeSessionIDForSnapshot
         _ = refreshAdmission.expire()

@@ -1048,8 +1048,9 @@ def patch_background_operation(sidestore: Path) -> None:
         // Match the upstream cached-session and silent sign-in credential paths.
         // This checks available authentication material, not server validity.
         let auth = AuthManager.shared
-        let hasPasswordCredentials = auth.currentAppleID != nil && auth.hasStoredPassword
-        let hasTokenCredentials = auth.adsid != nil && auth.hasStoredXcodeToken
+        let credentials = auth.authenticationSnapshot
+        let hasPasswordCredentials = credentials?.appleIDEmailAddress != nil && credentials?.appleIDPassword != nil
+        let hasTokenCredentials = credentials?.appleIDAdsid != nil && credentials?.appleIDXcodeToken != nil
         let hasReusableSession = auth.session != nil && auth.team != nil && CertificateManager.shared.activeCertificate != nil
         debugLog("[AUTO_REFRESH] AUTH_CREDENTIAL_VISIBILITY password_path=\\(hasPasswordCredentials) token_path=\\(hasTokenCredentials) session_path=\\(hasReusableSession)")
         guard hasPasswordCredentials || hasTokenCredentials || hasReusableSession else {

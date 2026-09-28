@@ -76,23 +76,29 @@ def _patch_verified(root: Path) -> None:
 def patch_combined_cli(root: Path) -> None:
     # Validate the real source revision before even staging the existing Keychain patch.
     verify_pin(root)
-    paths = [Path("AltStore/Core/Components/Keychain.swift"),
-             Path("SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"),
-             Path(".combined-refresh-contract.json")]
+    source_paths = [
+        Path("AltStore/Core/Components/Keychain.swift"),
+        Path("SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"),
+        Path("SideStore/Core/Auth/AuthManager.swift"),
+        Path("SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"),
+        Path("SideStore/Utils/importexport/ImportExport.swift"),
+    ]
+    manifest_path = Path(".combined-refresh-contract.json")
+    paths = source_paths + [manifest_path]
     originals = {relative: (root / relative).read_bytes() for relative in paths if (root / relative).exists()}
     from patch_embedded_keychain import patch as patch_shared_keychain
     with tempfile.TemporaryDirectory(prefix="combined-contract-") as directory:
         staged = Path(directory)
         for relative, data in originals.items():
             target = staged / relative; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data)
-        if paths[2] in originals:
+        if manifest_path in originals:
             # Detect drift before another transformer could accidentally conceal it.
             _patch_verified(staged)
         # Reuse the authoritative Keychain patch unchanged. It also edits the operation,
         # so run it before hashing the final contract output. Neither touches live source
         # until both transformations and Swift parsing have validated successfully.
         patch_shared_keychain(staged)
-        for relative in paths[:2]:
+        for relative in source_paths:
             target = staged / relative
             target.write_bytes(target.read_text(encoding="utf-8").encode("utf-8"))
         _patch_verified(staged)

@@ -2,6 +2,7 @@
 """Pinned, transactional and hash-verified v3 command integration."""
 from pathlib import Path
 import hashlib
+import importlib.util
 import json
 import plistlib
 import re
@@ -11,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 24
+PATCH_VERSION = 26
 HEADLESS_SIDESTORE_VIEW_FILES = (
     "Views/Components/AppInfoView.swift",
     "Views/Components/BundleResourceBrowserView.swift",
@@ -77,7 +78,6 @@ HEADLESS_SIDESTORE_AUX_UI_FILES = (
     "DeepLinks/InstallAppDialog.swift",
     "Views/Settings/Advanced/CacheMgmt/CacheManagementView.swift",
     "Views/Settings/Advanced/CacheMgmt/CacheViewModel.swift",
-    "Views/Components/CustomAppIDAlertViewController.swift",
 )
 
 
@@ -610,6 +610,20 @@ def headless_app_manager_ui(text):
     return replace(text, "import Intents\n", "")
 
 
+def headless_pipeline_handler(text):
+    marker = "V3_HEADLESS_BUNDLE_ID_PROMPT_V1"
+    signature = "func resolveBundleIDOverride(initialBundleID: String) async throws"
+    replacement = '''func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID: String, appendTeamID: Bool)? {
+    // ''' + marker + ''': the combined host owns the interactive prompt. This
+    // legacy adapter preserves the former no-presenter default without UIKit.
+    return (initialBundleID, true)
+}'''
+    patched = replace_swift_function(text, signature, replacement, "headless bundle-ID prompt adapter")
+    if marker in text and patched != text:
+        raise SystemExit("v3 service: headless PipelineHandler prompt adapter drifted")
+    return patched
+
+
 def headless_connection_config(text):
     marker = "V3_HEADLESS_ACTIVE_STATE_MODEL_V1"
     declaration = '''enum ActiveState: String {
@@ -799,6 +813,14 @@ def replace(text, old, new):
     return text.replace(old, new, 1)
 
 
+def apply_embedded_credential_snapshot_patch(text, transform_name):
+    script = Path(__file__).with_name("patch_embedded_keychain.py")
+    spec = importlib.util.spec_from_file_location("v3_embedded_keychain_patch", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return getattr(module, transform_name)(text)
+
+
 def patch_sign_in_operation(text):
     marker = "V3_PROVISIONING_RETRY_BYPASSES_CACHED_SIGNIN_V1"
     if marker in text:
@@ -983,6 +1005,7 @@ def patch(live, side):
     edit(side, "AltStore/AppDelegate.swift", sidestore_app_delegate)
     edit(side, "SideStore/Core/Auth/AuthManager.swift", headless_auth_manager)
     edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui)
+    edit(side, "SideStore/Handlers/PipelineHandler.swift", headless_pipeline_handler)
     edit(side, "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
          headless_connection_config)
     edit(side, "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
@@ -1228,6 +1251,7 @@ def verify_sign_in_operation(side, pinned_ref):
         ["git", "-C", str(side), "show", f"{pinned_ref}:{relative}"],
         text=True, encoding="utf-8")
     expected = patch_sign_in_operation(source)
+    expected = apply_embedded_credential_snapshot_patch(expected, "patch_sign_in_operation")
     actual = (side / relative).read_text(encoding="utf-8")
     if actual != expected:
         raise SystemExit("v3 service: SignInOperation differs from the exact generated pinned patch")
@@ -1237,6 +1261,7 @@ def verify_headless_ui_adapters(side, pinned_ref):
     adapters = (
         ("SideStore/Core/Auth/AuthManager.swift", headless_auth_manager),
         ("AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui),
+        ("SideStore/Handlers/PipelineHandler.swift", headless_pipeline_handler),
         ("SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift", headless_connection_config),
     )
     for relative, transform in adapters:
@@ -1244,6 +1269,8 @@ def verify_headless_ui_adapters(side, pinned_ref):
             ["git", "-C", str(side), "show", f"{pinned_ref}:{relative}"],
             text=True, encoding="utf-8")
         expected = transform(source)
+        if relative == "SideStore/Core/Auth/AuthManager.swift":
+            expected = apply_embedded_credential_snapshot_patch(expected, "patch_auth_manager")
         actual = (side / relative).read_text(encoding="utf-8")
         if actual != expected:
             raise SystemExit(f"v3 service: {relative} differs from its exact pinned headless UI patch")

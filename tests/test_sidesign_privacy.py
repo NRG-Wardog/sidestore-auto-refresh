@@ -184,6 +184,9 @@ class SideSignPrivacyTests(unittest.TestCase):
                 destination = root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source / relative, destination)
+            logging_path = root / patch.SIDESTORE_LOGGING
+            logging_path.write_text(v3_service_patch.headless_safe_log_format(
+                logging_path.read_text(encoding="utf-8")), encoding="utf-8")
             patch.patch_sidestore_tree(root)
             logging = (root / patch.SIDESTORE_LOGGING).read_text(encoding="utf-8")
             operations = (root / patch.OPERATION_LOGGING).read_text(encoding="utf-8")

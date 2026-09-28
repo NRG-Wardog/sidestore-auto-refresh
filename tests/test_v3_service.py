@@ -28,10 +28,45 @@ results = module("patch_refresh_result_bridge")
 
 
 class ServicePatchTests(unittest.TestCase):
+    def test_legacy_pipeline_bundle_prompt_is_headless_and_idempotent(self):
+        source = '''@MainActor
+func resolveBundleIDOverride(initialBundleID: String) async throws -> (customID: String, appendTeamID: Bool)? {
+    let checkboxView = AppendTeamIDCheckboxView(isChecked: true)
+    return await withCheckedContinuation { continuation in
+        continuation.resume(returning: (initialBundleID, checkboxView.isChecked))
+    }
+}'''
+        patched = service.headless_pipeline_handler(source)
+        self.assertIn("V3_HEADLESS_BUNDLE_ID_PROMPT_V1", patched)
+        self.assertIn("return (initialBundleID, true)", patched)
+        self.assertNotIn("AppendTeamIDCheckboxView", patched)
+        self.assertEqual(service.headless_pipeline_handler(patched), patched)
+
     def test_headless_service_template_does_not_import_swiftui(self):
         service_template = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         self.assertNotIn("import SwiftUI", service_template)
         self.assertIn("private enum V3OperationRecoveryJournal", service_template)
+
+    def test_backend_auth_pair_decisions_use_one_keychain_snapshot(self):
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        availability = runtime[runtime.index("func canResumeProvisioning()"):
+            runtime.index("    var sessions: [String: Session]", runtime.index("func canResumeProvisioning()"))]
+        self.assertIn("let credentials = AuthManager.shared.authenticationSnapshot", availability)
+        self.assertIn("authenticated: credentials?.isAuthenticated == true", availability)
+        self.assertIn("currentAppleID: credentials?.appleIDEmailAddress", availability)
+        begin = runtime[runtime.index("func begin(deadline: Date,"):
+            runtime.index("    func poll(id: String)", runtime.index("func begin(deadline: Date,"))]
+        self.assertIn("let authCredentials = mode == .resumeProvisioning", begin)
+        self.assertIn("authCredentials?.appleIDEmailAddress", begin)
+        self.assertNotIn("AuthManager.shared.currentAppleID", begin)
+        expire = runtime[runtime.index("func expire(id: String)"):
+            runtime.index("    @discardableResult\n    func cancel(id: String)", runtime.index("func expire(id: String)"))]
+        self.assertEqual(expire.count("AuthManager.shared.authenticationSnapshot"), 1)
+        status = service[service.index("private func snapshot()"):
+            service.index("\n}", service.index("private func snapshot()"))]
+        self.assertIn("let authCredentials = AuthManager.shared.authenticationSnapshot", status)
+        self.assertNotIn("AuthManager.shared.currentAppleID", status)
 
     def test_external_url_log_redaction_is_idempotent_and_omits_sensitive_values(self):
         scene = '\n'.join((
@@ -232,7 +267,7 @@ class ServicePatchTests(unittest.TestCase):
         harness = (ROOT / "tests/fixtures/v3_log_privacy_harness.swift").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as name:
             program = Path(name) / "main.swift"
-            program.write_text(generated + "\n" + harness, encoding="utf-8")
+            program.write_text("import Foundation\n" + generated + "\n" + harness, encoding="utf-8")
             executable = Path(name) / "log-alias-privacy-tests"
             compiled = subprocess.run([compiler, "-parse-as-library", str(program), "-o", str(executable)],
                 capture_output=True, text=True)
@@ -307,6 +342,7 @@ class ServicePatchTests(unittest.TestCase):
              "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
             ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",
              "AltStore/Managing Apps/AppManager.swift",
+             "SideStore/Handlers/PipelineHandler.swift",
              "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
              "SideStore/Core/DeviceApi/MinimuxerWrapper.swift",
              "AltStore/Authentication/AuthenticationViewController.swift",
@@ -319,6 +355,7 @@ class ServicePatchTests(unittest.TestCase):
              "SideStore/Core/Operations/PipelineRunner.swift",
              "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
              "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift",
+             "SideStore/Core/Logging/SideStoreLogging.swift",
              "AltStore/My Apps/MyAppsViewController.swift",
              "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
              "AltStore/Intents/App Intents/AppShortcuts.swift",
@@ -533,11 +570,18 @@ class ServicePatchTests(unittest.TestCase):
                 self.assertIn(f'"{path}"', side_membership)
             self.assertNotIn('"Views/Settings/Advanced/Connection/ConnectionConfig.swift"', side_membership)
             for excluded_presentation in (
-                '"Views/Components/CustomAppIDAlertViewController.swift"',
                 '"Views/Settings/Advanced/CacheMgmt/CacheManagementView.swift"',
                 '"Views/Settings/Advanced/CacheMgmt/CacheViewModel.swift"',
             ):
                 self.assertIn(excluded_presentation, side_membership)
+            self.assertNotIn('"Views/Components/CustomAppIDAlertViewController.swift"', side_membership)
+            pipeline_handler = (side / "SideStore/Handlers/PipelineHandler.swift").read_text(encoding="utf-8")
+            self.assertIn("V3_HEADLESS_BUNDLE_ID_PROMPT_V1", pipeline_handler)
+            self.assertNotIn("AppendTeamIDCheckboxView", pipeline_handler)
+            self.assertIn("return (initialBundleID, true)", pipeline_handler)
+            host_pipeline_handler = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+            self.assertIn('ask(kind: "bundleIDOverride"', host_pipeline_handler)
+            self.assertIn('"appendTeamID": true', host_pipeline_handler)
             connection_config = (side / "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift").read_text(encoding="utf-8")
             self.assertIn("V3_HEADLESS_ACTIVE_STATE_MODEL_V1", connection_config)
             self.assertIn('enum ActiveState: String', connection_config)
@@ -1009,7 +1053,7 @@ precondition(!V3RequestReplayPolicy.mayClaimNotDispatched(operation: "cancel", i
 print("V3 request identity and Core Data target policies PASS")
 ''')
             executable = directory / "wire-policy-tests"
-            compiled = subprocess.run([compiler, "-parse-as-library", str(program), "-o", str(executable)], capture_output=True, text=True)
+            compiled = subprocess.run([compiler, str(program), "-o", str(executable)], capture_output=True, text=True)
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)

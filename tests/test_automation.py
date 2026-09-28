@@ -191,8 +191,8 @@ GENERATED_STARTUP
         expressions = {}
         for name in ("hasPasswordCredentials", "hasTokenCredentials", "hasReusableSession"):
             expressions[name] = source.split("let " + name + " = ", 1)[1].splitlines()[0]
-        keys = ("auth.currentAppleID", "auth.hasStoredPassword", "auth.adsid",
-                "auth.hasStoredXcodeToken", "auth.session", "auth.team",
+        keys = ("credentials?.appleIDEmailAddress", "credentials?.appleIDPassword",
+                "credentials?.appleIDAdsid", "credentials?.appleIDXcodeToken", "auth.session", "auth.team",
                 "CertificateManager.shared.activeCertificate")
         def accepted(*present):
             for expression in expressions.values():
@@ -202,8 +202,8 @@ GENERATED_STARTUP
                 if eval(expression.replace("&&", " and "), {"__builtins__": {}}):
                     return True
             return False
-        self.assertTrue(accepted("auth.adsid", "auth.hasStoredXcodeToken"))
-        self.assertTrue(accepted("auth.currentAppleID", "auth.hasStoredPassword"))
+        self.assertTrue(accepted("credentials?.appleIDAdsid", "credentials?.appleIDXcodeToken"))
+        self.assertTrue(accepted("credentials?.appleIDEmailAddress", "credentials?.appleIDPassword"))
         self.assertTrue(accepted("auth.session", "auth.team", "CertificateManager.shared.activeCertificate"))
         self.assertFalse(accepted())
         self.assertFalse(accepted("auth.currentAppleID"))
