@@ -3832,11 +3832,17 @@ final class V3AuthStore: ObservableObject {
     // whether provisioning then failed.
     var isSignedIn: Bool { signedIn }
     var hasSession: Bool { session != nil }
-    var signInButtonTitle: String {
-        if previousFailure?["kind"] as? String == "rateLimited" { return "I Waited — Try Again" }
-        if state == "promptExpired" { return "Start New Sign In" }
-        if state == "timedOut" { return "Try Sign In Again" }
-        return state == "idle" ? "Begin Sign In" : "Try Again"
+    private var terminalFailureKind: String? { previousFailure?["kind"] as? String }
+    private var terminalFailureRetryable: Bool? {
+        V3ServiceBridge.strictBool(previousFailure?["retryable"])
+    }
+    var terminalFailureAction: V3AuthTerminalFailureAction {
+        V3AuthTerminalFailureActionPolicy.resolve(kind: terminalFailureKind,
+            retryable: terminalFailureRetryable)
+    }
+    var terminalFailureGuidance: String? {
+        V3AuthTerminalFailureActionPolicy.guidance(kind: terminalFailureKind,
+            retryable: terminalFailureRetryable)
     }
     // The provisioning problem is only present when a classified failure arrived.
     var hasProvisioningProblem: Bool {
@@ -5171,14 +5177,42 @@ struct V3SignInView: View {
                         .font(.footnote.weight(.medium))
                         .foregroundColor(.orange)
                 }
-                if auth.state == "idle" || auth.state == "failed" || auth.state == "cancelled" ||
-                    auth.state == "timedOut" || auth.state == "promptExpired" {
-                    Button {
-                        auth.begin()
-                    } label: {
-                        Label(auth.signInButtonTitle, systemImage: "person.badge.key.fill")
+                if auth.state == "idle" {
+                    Button { auth.begin() } label: {
+                        Label("Begin Sign In", systemImage: "person.badge.key.fill")
                     }
                     .disabled(!auth.canBegin)
+                } else if auth.state == "failed" || auth.state == "cancelled" ||
+                    auth.state == "timedOut" || auth.state == "promptExpired" {
+                    switch auth.terminalFailureAction {
+                    case .beginNewSignIn(let title):
+                        Button { auth.begin() } label: {
+                            Label(title, systemImage: "person.badge.key.fill")
+                        }
+                        .disabled(!auth.canBegin)
+                        if let guidance = auth.terminalFailureGuidance {
+                            Text(guidance).font(.caption).foregroundColor(.secondary)
+                        }
+                    case .repairAppleAccount:
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(auth.terminalFailureGuidance ?? "Resolve the account issue shown by Apple before signing in again.")
+                                .font(.footnote).foregroundColor(.orange)
+                            Link("Open Apple Account", destination: URL(string: "https://account.apple.com")!)
+                            Button("Begin Sign-In After Repair") { auth.begin() }
+                                .disabled(!auth.canBegin)
+                        }
+                    case .useAppSpecificPassword:
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(auth.terminalFailureGuidance ?? "Apple requires an app-specific password for this authentication path.")
+                                .font(.footnote).foregroundColor(.orange)
+                            Link("Open Apple Account", destination: URL(string: "https://account.apple.com")!)
+                            Button("Use App-Specific Password") { auth.begin() }
+                                .disabled(!auth.canBegin)
+                        }
+                    case .blocked:
+                        Text(auth.terminalFailureGuidance ?? "This failure is not marked safe to retry. Review Diagnostics before another attempt.")
+                            .font(.footnote).foregroundColor(.orange)
+                    }
                 }
                 if auth.state != "resultUnknown" && V3AuthCancellationRetryPolicy.canRetry(isCancelling: auth.isCancelling,
                     cancellationConfirmed: auth.cancellationConfirmed,
@@ -5618,6 +5652,7 @@ struct V3PairingView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @State private var pickerPresented = false
     @State private var message = ""
+    @State private var pairingFailure: CombinedFailure?
     @State private var working = false
     var body: some View {
         List {
@@ -5629,6 +5664,27 @@ struct V3PairingView: View {
                 }
                 if !message.isEmpty {
                     Text(message).font(.footnote).foregroundColor(.red).textSelection(.enabled)
+                }
+            }
+            if let failure = pairingFailure {
+                Section("Pairing file was rejected") {
+                    Text(failure.safeMessage)
+                        .font(.footnote)
+                        .foregroundColor(.red)
+                        .textSelection(.enabled)
+                    Text("What you can do")
+                        .font(.caption.weight(.semibold))
+                    Text(failure.recovery)
+                        .font(.footnote)
+                    DisclosureGroup("Technical details") {
+                        Text(failure.technicalDetails)
+                            .font(.caption2)
+                            .textSelection(.enabled)
+                    }
+                    Button("Copy Diagnostics", systemImage: "doc.on.doc") {
+                        UIPasteboard.general.string = failure.technicalDetails
+                    }
+                    Button("Choose Pairing File Again") { pickerPresented = true }
                 }
             }
             // V3_PAIRING_PLACEMENT_FIRST_V1: the pairing mechanism works. The
@@ -5719,6 +5775,8 @@ struct V3PairingView: View {
 
     private func importFile(_ url: URL) async {
         working = true
+        message = ""
+        pairingFailure = nil
         defer { working = false }
         do {
             let scoped = url.startAccessingSecurityScopedResource()
@@ -5728,7 +5786,13 @@ struct V3PairingView: View {
             _ = try await V3ServiceBridge.shared.request(operation: "pairingImportData", target: token)
             message = ""
             status.reload()
-        } catch { message = V3FailureGuidance.message(error) }
+        } catch {
+            if let failure = error as? CombinedFailure {
+                pairingFailure = failure
+            } else {
+                message = V3FailureGuidance.message(error)
+            }
+        }
     }
 }
 

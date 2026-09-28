@@ -336,6 +336,9 @@ def patch(minimuxer: Path):
     sidestore = minimuxer.parent.parent
     runner = sidestore / "SideStore/Core/Operations/PipelineRunner.swift"
     def pipeline(text):
+        text = replace_once(text, "let opError = error.asOperationError",
+            "let opError = V3HeadlessPairingFailure.tagIfInvalidPairing(error.asOperationError)",
+            "preserve typed pairing failure through Minimuxer readiness conversion")
         if "        /* Minimuxer Readiness Check */" in text and "        try await Task.detached {" not in text:
             # ff25922 removed the redundant detached task. Retain its structured
             # cancellation, CellularRefreshManager gate and MainActor completion.
@@ -500,6 +503,9 @@ def verify(root):
     wrapper = root.parent.parent / "SideStore/Core/DeviceApi/MinimuxerWrapper.swift"
     if wrapper.is_file() and "createCoreDevice" not in wrapper.read_text(encoding="utf-8"):
         raise SystemExit("MinimuxerWrapper missing transport error mapping")
+    runner = root.parent.parent / "SideStore/Core/Operations/PipelineRunner.swift"
+    if runner.is_file() and "V3HeadlessPairingFailure.tagIfInvalidPairing(error.asOperationError)" not in runner.read_text(encoding="utf-8"):
+        raise SystemExit("PipelineRunner drops typed invalid-pairing semantics after Minimuxer conversion")
 
 
 if __name__ == "__main__":

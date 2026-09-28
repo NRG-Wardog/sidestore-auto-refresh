@@ -235,6 +235,7 @@ class CombinedTransportTests(SourceFixture):
         self.assertIn("if !gateway.hasActiveTransportBatch { return .success(false) }", impl)
         self.assertNotIn("no ipsec interface (required for lockdown", impl.lower())
         runner = (self.side / "SideStore/Core/Operations/PipelineRunner.swift").read_text(encoding="utf-8")
+        self.assertIn("V3HeadlessPairingFailure.tagIfInvalidPairing(error.asOperationError)", runner)
         begin = runner.index("await transportCore.beginTransportBatch()")
         task = runner.index("do {", begin)
         readiness = runner.index("/* Minimuxer Readiness Check */", task)

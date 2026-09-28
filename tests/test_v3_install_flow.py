@@ -232,7 +232,8 @@ class InstallStructuredFailureTests(unittest.TestCase):
         for key in ('"message": failure.message', '"technical": failure.technicalDetails',
                     '"failure": failure.wire', '"retryable"'):
             self.assertIn(key, fn)
-        self.assertIn("CombinedFailure.capture(error, operation: kind, stage: stage, id: id)", fn)
+        self.assertIn("let classifiedError = V3HeadlessPairingFailure.tagIfInvalidPairing(error)", fn)
+        self.assertIn("CombinedFailure.capture(classifiedError, operation: kind, stage: stage, id: id)", fn)
 
     def test_host_renders_structured_failure(self):
         sheet = operation_sheet()
@@ -305,7 +306,8 @@ class InstallPPQEndToEndTests(unittest.TestCase):
         # terminalFailure passes the operation session id as the capture id,
         # which becomes the wire correlationID shown in Copy Diagnostics.
         text = runtime()
-        self.assertIn("CombinedFailure.capture(error, operation: kind, stage: stage, id: id)", text)
+        self.assertIn("let classifiedError = V3HeadlessPairingFailure.tagIfInvalidPairing(error)", text)
+        self.assertIn("CombinedFailure.capture(classifiedError, operation: kind, stage: stage, id: id)", text)
         failure = FAILURE.read_text(encoding="utf-8")
         self.assertIn("correlationID = UUID(uuidString: id) != nil ? id : UUID().uuidString", failure)
         self.assertIn("correlation=", failure)

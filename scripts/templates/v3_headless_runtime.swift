@@ -5,6 +5,48 @@ import UIKit
 import SideSign
 import Minimuxer
 
+enum V3HeadlessPairingFailure {
+    static func tagIfInvalidPairing(_ error: Error) -> Error {
+        if error is CombinedFailure { return error }
+        guard let typedError = invalidPairingSource(error, depth: 0) else { return error }
+        let native = typedError as NSError
+        return NSError(domain: native.domain, code: native.code, userInfo: [
+            NSLocalizedDescriptionKey: "The existing pairing file was rejected by the device.",
+            "LCStructuredFailureStageV1": CombinedFailure.Stage.pairing.rawValue,
+            "LCStructuredFailureCauseV1": CombinedFailure.SafeCause.invalidPairingFile.rawValue
+        ])
+    }
+
+    private static func invalidPairingSource(_ error: Error, depth: Int) -> Error? {
+        guard depth < 8 else { return nil }
+        if let operationError = error as? OperationError,
+           case .invalidPairingFile(_) = operationError {
+            return error
+        }
+        if let minimuxerError = error as? MinimuxerError,
+           case .invalidPairing(_, _) = minimuxerError {
+            return error
+        }
+        if let serviceError = error as? MinimuxerServiceError {
+            return invalidPairingSource(serviceError.error, depth: depth + 1)
+        }
+        if let wrappedError = error as? ALTWrappedError {
+            return invalidPairingSource(wrappedError.wrappedError, depth: depth + 1)
+        }
+        let native = error as NSError
+        if let underlying = native.userInfo[NSUnderlyingErrorKey] as? Error,
+           let found = invalidPairingSource(underlying, depth: depth + 1) {
+            return found
+        }
+        if let underlying = native.userInfo[NSMultipleUnderlyingErrorsKey] as? [Error] {
+            for error in underlying {
+                if let found = invalidPairingSource(error, depth: depth + 1) { return found }
+            }
+        }
+        return nil
+    }
+}
+
 // V3_HEADLESS_RUNTIME_V1: SideStore executes as a headless backend. No window,
 // presenter, view controller, picker, alert, or remotely rendered view exists
 // on any normal path below. Every human decision crosses the bridge as data.
@@ -1587,18 +1629,8 @@ final class V3OperationCenter {
         // underlying domain/code, retryable). No arbitrary userInfo, file
         // paths, or auth secrets ever leave the SideStore process.
         // The session id is the end-to-end correlation identifier.
-        let typedSource: Error = (error as? MinimuxerServiceError)?.error ?? error
-        let invalidPairing: Bool
-        if let minimuxerError = typedSource as? MinimuxerError,
-           case .invalidPairing(_, _) = minimuxerError {
-            invalidPairing = true
-        } else {
-            invalidPairing = false
-        }
-        let failure = V3PairingFailureClassificationPolicy.classify(
-            typedInvalidPairing: invalidPairing, operation: kind, id: id,
-            underlying: typedSource) ??
-            ((error as? CombinedFailure) ?? CombinedFailure.capture(error, operation: kind, stage: stage, id: id))
+        let classifiedError = V3HeadlessPairingFailure.tagIfInvalidPairing(error)
+        let failure = CombinedFailure.capture(classifiedError, operation: kind, stage: stage, id: id)
         var terminal: [String: Any] = ["state": "failed", "stage": failure.stage.rawValue,
             "code": failure.code.rawValue, "message": failure.message,
             "technical": failure.technicalDetails, "failure": failure.wire]

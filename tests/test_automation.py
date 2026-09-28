@@ -29,14 +29,12 @@ FILES = ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",
 def has_pinned_side_store_source() -> bool:
     if not (SOURCE / FILES[0]).is_file():
         return False
-    if PINNED_SOURCE_ENV:
-        # The workflow verifies an explicit checkout's exact commit before the
-        # test suite starts. A developer-supplied path should run and fail on
-        # incompatible APIs rather than be silently skipped here.
-        return True
     revision = subprocess.run(["git", "-C", str(SOURCE), "rev-parse", "HEAD"],
                               capture_output=True, text=True)
-    return revision.returncode == 0 and revision.stdout.strip() == PINNED_SIDESTORE_REF
+    matches = revision.returncode == 0 and revision.stdout.strip() == PINNED_SIDESTORE_REF
+    if PINNED_SOURCE_ENV and not matches:
+        raise AssertionError(f"explicit SideStore test source must be pinned to {PINNED_SIDESTORE_REF}")
+    return matches
 
 
 class AutomationTests(unittest.TestCase):

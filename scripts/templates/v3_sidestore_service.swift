@@ -324,7 +324,9 @@ final class V3SideStoreService: NSObject {
                     // auth/operation session that caused the failure.
                     response["failure"] = structuredFailure.correlating(to: id).wire
                 } else {
-                    response["failure"] = CombinedFailure.capture(error, operation: operation, stage: stage, id: id).wire
+                    response["failure"] = CombinedFailure.capture(
+                        V3HeadlessPairingFailure.tagIfInvalidPairing(error),
+                        operation: operation, stage: stage, id: id).wire
                 }
             }
             let encoded = encode(response, operation: operation)

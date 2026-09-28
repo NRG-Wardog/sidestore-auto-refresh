@@ -703,6 +703,21 @@ struct AuthOwnershipReconciliationHarness {
             !V3AuthFailureDiagnosticsPolicy.shouldShowTerminalDetails(
                 state: "idle", hasPrompt: false, hasFailure: true),
             "terminal auth failure details remain visible after the prompt is dismissed but stay hidden for an active prompt or idle state")
+        let unknownAuthAction = V3AuthTerminalFailureActionPolicy.resolve(kind: "unknown", retryable: nil)
+        precondition(unknownAuthAction == .beginNewSignIn(title: "Start New Sign-In") &&
+                     V3AuthTerminalFailureActionPolicy.guidance(kind: "unknown", retryable: nil)?
+                        .contains("exact cause or retry safety could not be confirmed") == true,
+                     "unknown terminal auth cause must not be labeled a blind Retry")
+        precondition(V3AuthTerminalFailureActionPolicy.resolve(
+            kind: "accountRepairRequired", retryable: false) == .repairAppleAccount &&
+            V3AuthTerminalFailureActionPolicy.guidance(
+                kind: "accountRepairRequired", retryable: false)?.contains("Resolve the account issue") == true,
+            "account repair must be shown as a prerequisite with its own action")
+        precondition(V3AuthTerminalFailureActionPolicy.resolve(
+            kind: "networkFailure", retryable: false) == .blocked &&
+            V3AuthTerminalFailureActionPolicy.guidance(
+                kind: "networkFailure", retryable: false)?.contains("not marked safe to retry") == true,
+            "a nonretryable terminal auth failure must not expose a retry action")
 
         let lowercaseID = UUID().uuidString.lowercased()
         let lowercaseInvalidRequest = try PropertyListSerialization.data(fromPropertyList: [

@@ -11,7 +11,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 21
+PATCH_VERSION = 24
 HEADLESS_SIDESTORE_VIEW_FILES = (
     "Views/Components/AppInfoView.swift",
     "Views/Components/BundleResourceBrowserView.swift",
@@ -318,10 +318,13 @@ def headless_auth_manager(text):
 
 def headless_app_manager_ui(text):
     marker = "V3_HEADLESS_APP_MANAGER_SIGNIN_REMOVED_V1"
+    pairing_marker = "V3_TYPED_PAIRING_FAILURE_PROPAGATION_V1"
     if marker in text:
         if ("AuthManager.shared.signIn(\n                    presentingViewController:" in text
                 or "import Intents\n" in text
-                or "ResignAltStoreViewController" in text):
+                or "ResignAltStoreViewController" in text
+                or pairing_marker not in text
+                or "V3HeadlessPairingFailure.tagIfInvalidPairing(error)" not in text):
             raise SystemExit("v3 service: legacy AppManager sign-in wrapper removal is partial")
         return text
     start_marker = "    func signIn(presentingViewController: UIViewController?,\n"
@@ -339,7 +342,23 @@ def headless_app_manager_ui(text):
         "isResignActive: false")
     if "ResignAltStoreViewController" in text:
         raise SystemExit("v3 service: legacy resign presenter still reaches AppManager")
+    text = replace(text, "        let nsError = error as NSError",
+        "        // " + pairing_marker + ": keep typed pairing failure context through AppManager mapping.\n"
+        "        let nsError = V3HeadlessPairingFailure.tagIfInvalidPairing(error) as NSError")
     return replace(text, "import Intents\n", "")
+
+
+def headless_connection_config(text):
+    marker = "V3_HEADLESS_ACTIVE_STATE_MODEL_V1"
+    declaration = '''enum ActiveState: String {
+    case yes = "Yes"
+    case no = "No"
+}'''
+    if marker in text:
+        if declaration not in text:
+            raise SystemExit("v3 service: shared ActiveState model extraction is partial")
+        return text
+    return replace(text, "import Combine\n", "import Combine\n\n// " + marker + ": shared by the retained connection model and host-only settings UI.\n" + declaration + "\n")
 
 
 def headless_app_intents(text, relative):
@@ -347,8 +366,17 @@ def headless_app_intents(text, relative):
     if marker in text:
         if "InstallIPAIntent" in text:
             raise SystemExit(f"v3 service: legacy IPA shortcut remains in {relative}")
+        if relative.endswith("RefreshAllAppsIntent.swift") and (
+                "import Foundation\n" not in text or
+                "V3_SHORTCUT_REFRESH_SHARED_SCHEDULER_V1" not in text or
+                "Notification.Name(\"LiveContainerAutoRefreshRunNow\")" not in text or
+                "AppManager.shared.backgroundRefresh" in text or
+                "ProgressReportingIntent" in text or "self.progress" in text or
+                "openAppWhenRun = true" not in text):
+            raise SystemExit("v3 service: Refresh All intent is not routed through the shared host scheduler")
         return text
     if relative.endswith("RefreshAllAppsIntent.swift"):
+        text = replace(text, "import AppIntents\n", "import AppIntents\nimport Foundation\n")
         start_marker = "@available(iOS 17.0, tvOS 17.0, *)\nstruct InstallIPAIntent: AppIntent, ProgressReportingIntent"
         end_marker = "@available(iOS 17.0, tvOS 17.0, *)\nextension RefreshAllAppsIntent"
         if text.count(start_marker) != 1 or text.count(end_marker) != 1:
@@ -358,47 +386,80 @@ def headless_app_intents(text, relative):
         text = text[:start] + "// " + marker + ": IPA installation is host-owned.\n\n" + text[end:]
         if "struct InstallIPAIntent" in text or "AppManager.shared.install(.url" in text:
             raise SystemExit("v3 service: legacy IPA installation shortcut removal is partial")
-        error_preserved_marker = "V3_SHORTCUT_REFRESH_ERROR_PRESERVED_V1"
-        if error_preserved_marker not in text:
-            old_start = "let operation = try? AppManager.shared.backgroundRefresh("
-            if text.count(old_start) != 1:
-                raise SystemExit("v3 service: refresh operation creation anchor changed")
-            text = text.replace(old_start,
-                '''// V3_SHORTCUT_REFRESH_ERROR_PRESERVED_V1: preserve native creation failures.
-            let operation: BackgroundRefreshAppsOperation
-            do {
-                operation = try V3ShortcutRefreshFailurePolicy.createOperation(
-                correlationID: UUID().uuidString) {
-                try AppManager.shared.backgroundRefresh(''', 1)
-            old_boundary = re.compile(
-                r"            \}\r?\n[ \t]*\r?\n            guard let operation else \{")
-            if len(old_boundary.findall(text)) != 1:
-                raise SystemExit("v3 service: refresh completion closure boundary changed")
-            text = old_boundary.sub("            }\n            }\n\n            guard let operation else {", text, count=1)
-            old_guard = re.compile(
-                r"            guard let operation else \{\r?\n"
-                r"                debugLog\(\"\[RefreshAllAppsIntent\] backgroundRefresh instance is nil\"\)\r?\n"
-                r"                return[ \t]*\r?\n"
-                r"            \}\r?\n[ \t]*\r?\n")
-            if len(old_guard.findall(text)) != 1:
-                raise SystemExit("v3 service: refresh nil-operation guard changed")
-            text = old_guard.sub("", text, count=1)
-            post_creation = re.compile(
-                r"            \}\r?\n[ \t]*\r?\n            operation\.ignoresServerNotFoundError")
-            if len(post_creation.findall(text)) != 1:
-                raise SystemExit("v3 service: refresh operation post-creation anchor changed")
-            text = post_creation.sub(
-                '''            }
-            } catch {
-                continuation.resume(throwing: V3ShortcutRefreshFailurePolicy.propagate(error))
-                return
-            }
+        shared_scheduler_marker = "V3_SHORTCUT_REFRESH_SHARED_SCHEDULER_V1"
+        if shared_scheduler_marker not in text:
+            actor_start = "@available(iOS 17.0, tvOS 17.0, *)\nextension RefreshAllAppsIntent\n{"
+            intent_start = "@available(iOS 17.0, tvOS 17.0, *)\nstruct RefreshAllAppsIntent"
+            if text.count(actor_start) != 1 or text.count(intent_start) != 1:
+                raise SystemExit("v3 service: legacy refresh-operation actor anchor changed")
+            start = text.index(actor_start)
+            end = text.index(intent_start, start)
+            text = text[:start] + "// " + shared_scheduler_marker + ": remove the direct AppManager refresh actor.\n\n" + text[end:]
+            title = '    static var title: LocalizedStringResource = "Refresh All Apps"\n'
+            if text.count(title) != 1:
+                raise SystemExit("v3 service: Refresh All title anchor changed")
+            text = text.replace(title, title + "    static var openAppWhenRun = true\n", 1)
+            intent_protocols = "struct RefreshAllAppsIntent: AppIntent, CustomIntentMigratedAppIntent, PredictableIntent, ProgressReportingIntent, ForegroundContinuableIntent"
+            if text.count(intent_protocols) != 1:
+                raise SystemExit("v3 service: Refresh All intent protocol list changed")
+            text = text.replace(intent_protocols,
+                "struct RefreshAllAppsIntent: AppIntent, CustomIntentMigratedAppIntent, PredictableIntent, ForegroundContinuableIntent", 1)
 
-            operation.ignoresServerNotFoundError''', text, count=1)
-        if ("try? AppManager.shared.backgroundRefresh" in text or
-                "V3ShortcutRefreshFailurePolicy.createOperation" not in text or
-                "continuation.resume(throwing: V3ShortcutRefreshFailurePolicy.propagate(error))" not in text):
-            raise SystemExit("v3 service: refresh creation errors are not preserved")
+            perform_start = "    func perform() async throws -> some IntentResult & ProvidesDialog\n    {"
+            if text.count(perform_start) != 1:
+                raise SystemExit("v3 service: Refresh All perform anchor changed")
+            perform_index = text.index(perform_start)
+            options_start = "    let presentsNotifications: Bool\n"
+            if text.count(options_start) != 1:
+                raise SystemExit("v3 service: legacy refresh notification option changed")
+            options_index = text.index(options_start)
+            if options_index >= perform_index:
+                raise SystemExit("v3 service: refresh options are not before perform")
+            text = text[:options_index] + '''    init()
+    {
+    }
+
+''' + text[perform_index:]
+            perform_index = text.index(perform_start)
+            private_extension = "\n@available(iOS 17.0, tvOS 17.0, *)\nprivate extension RefreshAllAppsIntent"
+            if text.count(private_extension) != 1:
+                raise SystemExit("v3 service: Refresh All implementation extension changed")
+            private_index = text.index(private_extension, perform_index)
+            struct_close = text.rfind("\n}\n", perform_index, private_index)
+            if struct_close < perform_index:
+                raise SystemExit("v3 service: Refresh All struct terminator changed")
+            replacement_perform = '''    func perform() async throws -> some IntentResult & ProvidesDialog
+    {
+        do {
+            try await self.refreshAllApps()
+            return .result(dialog: "Refresh All was requested in LiveContainer. Check Refresh History for the run result.")
+        } catch {
+            throw IntentError(error)
+        }
+    }'''
+            text = text[:perform_index] + replacement_perform + text[struct_close:]
+            private_index = text.index(private_extension, perform_index + len(replacement_perform))
+            text = text[:private_index] + '''
+@available(iOS 17.0, tvOS 17.0, *)
+private extension RefreshAllAppsIntent
+{
+    func refreshAllApps() async throws
+    {
+        try Task.checkCancellation()
+        let request = V3ShortcutRefreshRequest.make()
+        NotificationCenter.default.post(
+            name: Notification.Name("LiveContainerAutoRefreshRunNow"),
+            object: nil, userInfo: request.userInfo)
+    }
+}
+'''
+        if ("V3ShortcutRefreshRequest.make()" not in text or
+                "Notification.Name(\"LiveContainerAutoRefreshRunNow\")" not in text or
+                "AppManager.shared.backgroundRefresh" in text or
+                "operationActor" in text or "presentsNotifications" in text or
+                "ProgressReportingIntent" in text or ".progress" in text or
+                "openAppWhenRun = true" not in text):
+            raise SystemExit("v3 service: Refresh All intent bypasses the shared host scheduler")
         return text
     if relative.endswith("AppShortcuts.swift"):
         start_marker = "        AppShortcut(intent: InstallIPAIntent(),"
@@ -415,11 +476,16 @@ def headless_app_intents(text, relative):
 
 
 def headless_widget_refresh_intent(text):
-    marker = "V3_SHORTCUT_WIDGET_FAILURE_PROPAGATION_V1"
+    marker = "V3_SHORTCUT_WIDGET_FORWARD_TO_REFRESH_INTENT_V1"
     if marker in text:
-        if 'debugLog("Failed to refresh apps via widget. \\(error)")' in text:
-            raise SystemExit("v3 service: widget intent still logs raw refresh errors")
+        if ('debugLog("Failed to refresh apps via widget. \\(error)")' in text or
+                "RefreshAllAppsIntent()" not in text or "ProgressReportingIntent" in text):
+            raise SystemExit("v3 service: widget intent failure forwarding is partial")
         return text
+    text = replace(text, "RefreshAllAppsIntent(presentsNotifications: true)",
+                   "RefreshAllAppsIntent()")
+    text = replace(text, "struct RefreshAllAppsWidgetIntent: AppIntent, ProgressReportingIntent\n{",
+                   "struct RefreshAllAppsWidgetIntent: AppIntent\n{")
     text = replace(text,
         '''        catch
         {
@@ -428,13 +494,16 @@ def headless_widget_refresh_intent(text):
 ''',
         '''        catch
         {
-            // V3_SHORTCUT_WIDGET_FAILURE_PROPAGATION_V1: do not report success for a failed refresh.
-            debugLog("Widget refresh failed.")
-            throw V3ShortcutRefreshFailurePolicy.propagate(error)
+            // V3_SHORTCUT_WIDGET_FORWARD_TO_REFRESH_INTENT_V1: never report a failed host request as success.
+            throw error
         }
 ''')
-    if "throw V3ShortcutRefreshFailurePolicy.propagate(error)" not in text:
-        raise SystemExit("v3 service: widget refresh failure is swallowed")
+    text = replace(text, "        return .result()",
+        '        return .result(dialog: "Refresh All was requested in LiveContainer. Check Refresh History for the run result.")')
+    if ("RefreshAllAppsIntent()" not in text or
+            "throw error" not in text or
+            "Refresh All was requested in LiveContainer" not in text):
+        raise SystemExit("v3 service: widget no longer forwards to the shared host refresh intent")
     return text
 
 
@@ -665,6 +734,8 @@ def patch(live, side):
     edit(side, "AltStore/AppDelegate.swift", sidestore_app_delegate)
     edit(side, "SideStore/Core/Auth/AuthManager.swift", headless_auth_manager)
     edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui)
+    edit(side, "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
+         headless_connection_config)
     edit(side, "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
          lambda s: headless_app_intents(s, "RefreshAllAppsIntent.swift"))
     edit(side, "AltStore/Intents/App Intents/AppShortcuts.swift",
@@ -903,6 +974,7 @@ def verify_headless_ui_adapters(side, pinned_ref):
     adapters = (
         ("SideStore/Core/Auth/AuthManager.swift", headless_auth_manager),
         ("AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui),
+        ("SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift", headless_connection_config),
     )
     for relative, transform in adapters:
         source = subprocess.check_output(

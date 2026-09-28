@@ -88,8 +88,12 @@ class V3BehavioralHarnessTests(unittest.TestCase):
     def test_invalid_pairing_remains_typed_and_actionable(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        start = runtime.index("enum V3HeadlessPairingFailure {")
+        end = runtime.index("\n// V3_HEADLESS_RUNTIME_V1", start)
+        pairing_classifier = runtime[start:end]
         harness = (ROOT / "tests/fixtures/v3_pairing_failure_guidance_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run(failure + "\n" + helper + "\n" + harness,
+        self.compile_and_run(failure + "\n" + helper + "\n" + pairing_classifier + "\n" + harness,
                              "V3_PAIRING_FAILURE_GUIDANCE_PASS")
 
     def test_service_admission_retains_active_backend_operation_ownership(self):

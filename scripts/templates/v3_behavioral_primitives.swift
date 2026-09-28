@@ -3331,33 +3331,15 @@ enum V3AuthPollMonitorRecoveryPolicy {
     }
 }
 
-enum V3ShortcutRefreshFailurePolicy {
-    static func operationCreationFailure(correlationID: String) -> CombinedFailure {
-        CombinedFailure(operation: "refresh", stage: .command, code: .notReady,
-            id: correlationID, safeCause: .refreshCouldNotStart)
+struct V3ShortcutRefreshRequest {
+    let requestID: String
+
+    static func make() -> V3ShortcutRefreshRequest {
+        V3ShortcutRefreshRequest(requestID: UUID().uuidString)
     }
 
-    static func createOperation<Operation>(correlationID: String,
-                                           create: () throws -> Operation?) throws -> Operation {
-        do {
-            guard let operation = try create() else {
-                throw operationCreationFailure(correlationID: correlationID)
-            }
-            return operation
-        } catch {
-            throw propagate(error)
-        }
-    }
-
-    static func propagate(_ error: Error) -> Error { error }
-}
-
-enum V3PairingFailureClassificationPolicy {
-    static func classify(typedInvalidPairing: Bool, operation: String, id: String,
-                         underlying: Error?) -> CombinedFailure? {
-        guard typedInvalidPairing else { return nil }
-        return CombinedFailure(operation: operation, stage: .pairing, code: .invalidResponse,
-            id: id, underlying: underlying, retryable: false, safeCause: .invalidPairingFile)
+    var userInfo: [AnyHashable: Any] {
+        ["requestID": requestID, "origin": "manualUnknown"]
     }
 }
 
@@ -3560,6 +3542,47 @@ enum V3AuthFailureDiagnosticsPolicy {
         let codeText = underlyingCode.map(String.init) ?? "unknown"
         let retryableText = retryableValue.map { $0 ? "yes" : "no" } ?? "unknown"
         return "kind=\(kind) stage=\(stage) code=\(code) correlation=\(correlation) underlying=\(underlyingDomain)/\(codeText) retryable=\(retryableText)"
+    }
+}
+
+enum V3AuthTerminalFailureAction: Equatable {
+    case beginNewSignIn(title: String)
+    case repairAppleAccount
+    case useAppSpecificPassword
+    case blocked
+}
+
+enum V3AuthTerminalFailureActionPolicy {
+    static func resolve(kind: String?, retryable: Bool?) -> V3AuthTerminalFailureAction {
+        switch kind {
+        case "accountRepairRequired": return .repairAppleAccount
+        case "appSpecificPasswordRequired": return .useAppSpecificPassword
+        case "rateLimited": return .beginNewSignIn(title: "I Waited — Start New Sign-In")
+        case "invalidCredentials": return .beginNewSignIn(title: "Check Password and Start New Sign-In")
+        case "invalidCode": return .beginNewSignIn(title: "Enter a New Code")
+        case "serviceUnavailable": return .beginNewSignIn(title: "Try Sign-In Later")
+        case "anisette", "anisetteFailure": return .beginNewSignIn(title: "Resolve Anisette Issue")
+        case "network", "networkFailure": return .beginNewSignIn(title: "Check Connection and Try Again")
+        default: break
+        }
+        if retryable == false { return .blocked }
+        if retryable == nil || kind == "unknown" { return .beginNewSignIn(title: "Start New Sign-In") }
+        return .beginNewSignIn(title: "Try Sign-In Again")
+    }
+
+    static func guidance(kind: String?, retryable: Bool?) -> String? {
+        switch resolve(kind: kind, retryable: retryable) {
+        case .repairAppleAccount:
+            return "Resolve the account issue shown by Apple, then begin a new sign-in."
+        case .useAppSpecificPassword:
+            return "Create an app-specific password for this authentication path, then enter it in the password prompt."
+        case .blocked:
+            return "This failure is not marked safe to retry. Resolve the displayed prerequisite and review Diagnostics."
+        case .beginNewSignIn(_) where kind == "unknown" || (kind == nil && retryable == nil):
+            return "The exact cause or retry safety could not be confirmed. Starting again creates a new attempt and may not resolve the previous failure."
+        case .beginNewSignIn(_):
+            return nil
+        }
     }
 }
 
