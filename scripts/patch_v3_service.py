@@ -951,7 +951,10 @@ def patch_sign_in_operation(text):
             raise SystemExit("v3 service: provisioning retry SignInOperation patch is partial")
         failure_start = text.index("V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1")
         failure_end = text.index("try? await self.finalizeAuthentication", failure_start)
-        if "AuthManager.shared.signOut()" in text[failure_start:failure_end]:
+        destructive = ("AuthManager.shared.signOut()", "Keychain.shared.clearSignInInfo",
+                       "CertificateManager.shared.clearActiveCertificate",
+                       "DatabaseManager.shared.deactivateActiveAccountAndTeam")
+        if any(value in text[failure_start:failure_end] for value in destructive):
             raise SystemExit("v3 service: failed authentication still clears account state")
         return text
 

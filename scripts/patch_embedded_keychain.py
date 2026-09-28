@@ -146,7 +146,9 @@ def patch_sign_in_operation(text: str) -> str:
             raise ValueError("embedded keychain: SignInOperation credential snapshot or non-destructive failure contract is incomplete")
         marker = text.index("V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1")
         terminal = text.index("try? await self.finalizeAuthentication", marker)
-        if "signOut" in text[marker:terminal]:
+        destructive = ("signOut", "clearSignInInfo", "clearActiveCertificate",
+                       "deactivateActiveAccountAndTeam")
+        if any(value in text[marker:terminal] for value in destructive):
             raise ValueError("embedded keychain: failed sign-in catch still performs destructive sign-out")
         return text
     if "V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1" not in text:

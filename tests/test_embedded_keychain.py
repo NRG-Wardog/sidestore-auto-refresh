@@ -737,6 +737,8 @@ class KeychainPatchGenerationTests(unittest.TestCase):
             failure_catch = sign_in[failure_start:failure_end]
             self.assertNotIn("AuthManager.shared.signOut()", failure_catch)
             self.assertNotIn("Keychain.shared.clearSignInInfo", failure_catch)
+            self.assertNotIn("CertificateManager.shared.clearActiveCertificate", failure_catch)
+            self.assertNotIn("DatabaseManager.shared.deactivateActiveAccountAndTeam", failure_catch)
             self.assertNotIn("hasStoredPassword", failure_catch)
             self.assertNotIn("hasStoredXcodeToken", failure_catch)
             self.assertIn(module.BACKGROUND_AUTH_SNAPSHOT_MARKER, background.read_text(encoding="utf-8"))
