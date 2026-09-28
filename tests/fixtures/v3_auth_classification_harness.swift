@@ -54,7 +54,7 @@ struct AuthClassificationHarness {
         precondition(provisioning.stage == .installation, "provisioning was mislabeled as authentication")
 
         precondition(V3SignInFailureRoutingPolicy.shouldOpenSignIn(
-            stage: .authentication, safeCause: .invalidCredentials),
+            stage: .authentication, safeCause: nil),
             "an authentication failure should return the user to credentials")
         precondition(!V3SignInFailureRoutingPolicy.shouldOpenSignIn(
             stage: .authentication, safeCause: .keychainSignOutFailed),

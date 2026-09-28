@@ -47,15 +47,19 @@ struct MalformedStructuredFailureHarness {
             "failure": ["version": 1, "stage": "madeUpStage"],
             "result": ["ready": true]
         ]
-        precondition(V3ServiceReadinessReply.decode(try encoded(readyLookingMalformed),
-            requestID: id) == .invalid,
+        let malformedReadinessData = try encoded(readyLookingMalformed)
+        let malformedReadiness = V3ServiceReadinessReply.decode(malformedReadinessData,
+            requestID: id)
+        precondition(malformedReadiness == .invalid,
             "a malformed structured failure cannot be ignored by readiness decoding")
         let readyLookingLegacyError: [String: Any] = [
             "version": 1, "id": id, "ok": true, "error": "busy",
             "result": ["ready": true]
         ]
-        precondition(V3ServiceReadinessReply.decode(try encoded(readyLookingLegacyError),
-            requestID: id) == .invalid,
+        let legacyReadinessData = try encoded(readyLookingLegacyError)
+        let legacyReadiness = V3ServiceReadinessReply.decode(legacyReadinessData,
+            requestID: id)
+        precondition(legacyReadiness == .invalid,
             "an unstructured error cannot be accepted as a ready result")
         let readinessFailure: [String: Any] = [
             "version": 1, "id": id, "ok": false, "failure": typedFailure.wire

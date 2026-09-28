@@ -1,5 +1,10 @@
 import Foundation
 
+enum MinimuxerConstants {
+    static let appName = "LiveContainer"
+    static let remotePairingPort: UInt16 = 49151
+}
+
 @main
 struct PinnedPairingParserHarness {
     static func main() throws {

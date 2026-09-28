@@ -207,7 +207,7 @@ class CombinedTransportTests(SourceFixture):
         self.assertIn("tunnel_create_usb(provider, &adapter, &handshake)", connection)
         self.assertRegex(connection, r'\} catch \{\s*releaseTransport\(\)\s*'
                          r'debugLog\("\[SIDESTORE_COREDEVICE\] selected_transport=FAILED_NO_VALID_TRANSPORT '
-                         r'reason=[^\n]+\)\s*throw error\s*\}\s*\}$')
+                         r'stage=coreDevice result=failed"\)\s*throw error\s*\}\s*\}$')
         self.assertNotIn("performWithTcpService", connection)
         route = function(text, "ensureRPConnection")
         self.assertRegex(route, r"if usesCoreDevice \{\s*try ensureCoreDeviceConnection\(\)\s*return\s*\}")

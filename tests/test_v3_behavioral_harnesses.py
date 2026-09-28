@@ -145,19 +145,21 @@ class V3BehavioralHarnessTests(unittest.TestCase):
     def test_service_readiness_backoff_is_bounded_and_ready_wins_deadline(self):
         wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
         helper = handler[:handler.index("@MainActor\nclass RefreshHandler")]
         harness = (ROOT / "tests/fixtures/v3_service_readiness_policy_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run("import Foundation\n" + failure + "\n" + wire + "\n" + helper + "\n" + harness,
+        self.compile_and_run("import Foundation\n" + failure + "\n" + wire + "\n" + primitives + "\n" + helper + "\n" + harness,
                              "V3_SERVICE_READINESS_POLICY_PASS")
 
     def test_secret_handoff_keeps_credentials_codes_and_backup_passwords_out_of_plists(self):
         template = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
-        record = template[template.index("enum V3SecretHandoffRecord {"):template.index("\nenum V3SecretHandoff {")]
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        record = template[template.index("enum V3SecretHandoffRecord {"):template.index("\nenum V3SharedFileRecord {")]
         shared_file = template[template.index("enum V3SharedFileRecord {"):template.index("\nenum V3SecretHandoff {")]
         wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_secret_handoff_wire_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run("import Foundation\n" + wire + "\n" + record + "\n" + shared_file + "\n" + harness,
+        self.compile_and_run("import Foundation\n" + failure + "\n" + wire + "\n" + record + "\n" + shared_file + "\n" + harness,
                              "V3_SECRET_HANDOFF_WIRE_PASS")
 
     def test_service_admission_retains_active_backend_operation_ownership(self):
