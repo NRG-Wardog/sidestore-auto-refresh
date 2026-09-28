@@ -84,6 +84,7 @@ class V3OperationRecoveryTests(unittest.TestCase):
         self.assertIn("recoveryDiscardUnreadable", service)
         self.assertIn("recoveryJournalUnreadable", service)
         self.assertIn("V3ServiceRecoveryAdmissionPolicy.decide(", service)
+        self.assertIn("V3OperationCancelKnownStartedPolicy.resolve(sessionID: target", service)
         self.assertIn('payload: ["state": terminalState]',
                       (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8"))
         self.assertIn("reconcileDurableOperationAfterDeviceCheck", shell)

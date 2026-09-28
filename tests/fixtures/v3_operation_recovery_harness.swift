@@ -72,8 +72,26 @@ struct OperationRecoveryHarness {
             payload: [:], operationSessionID: session, recovery: preparedOperation,
             recoveryReadFailed: false, refreshOwnerLost: false)
         precondition(matchingPoll.recoveryControl && !matchingPoll.blocksMutation)
+        precondition(!V3OperationCancelKnownStartedPolicy.resolve(sessionID: session,
+            hostReportedKnownStarted: false, recovery: preparedOperation),
+            "prepared recovery remains cancelable before opStart")
 
         let refreshRecord = V3OperationRecoveryRecord(sessionID: session, kind: "refreshAll", phase: .prepared)!
+        let dispatchedOperation = V3OperationRecoveryRecord(sessionID: session,
+            kind: "delete", phase: .dispatched)!
+        precondition(V3OperationCancelKnownStartedPolicy.resolve(sessionID: session,
+            hostReportedKnownStarted: false, recovery: dispatchedOperation),
+            "after relaunch, the durable dispatched phase overrides a lost host-local session set")
+        let coldCancelReply = V3OperationMissingSessionPolicy.unknownTerminal(sessionID: session,
+            knownStarted: V3OperationCancelKnownStartedPolicy.resolve(sessionID: session,
+                hostReportedKnownStarted: false, recovery: dispatchedOperation))
+        precondition(coldCancelReply?["state"] as? String == "failed" &&
+            V3WireContract.strictBool(coldCancelReply?["backendSettled"]) == false &&
+            V3OperationReplyFieldPolicy.outcomeUnknown(coldCancelReply?["outcomeUnknown"]) == true,
+            "a missing in-memory session after cold relaunch cannot be reported as a confirmed cancellation")
+        precondition(!V3OperationCancelKnownStartedPolicy.resolve(sessionID: UUID().uuidString,
+            hostReportedKnownStarted: false, recovery: dispatchedOperation),
+            "a different session cannot inherit dispatched evidence")
         let overlappingStart = V3ServiceRecoveryAdmissionPolicy.decide(operation: "opStart", target: "",
             payload: ["kind": "delete"], operationSessionID: UUID().uuidString, recovery: refreshRecord,
             recoveryReadFailed: false, refreshOwnerLost: true)

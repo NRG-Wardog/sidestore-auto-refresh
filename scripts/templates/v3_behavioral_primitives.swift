@@ -4323,6 +4323,15 @@ enum V3ServiceRecoveryAdmissionPolicy {
     }
 }
 
+enum V3OperationCancelKnownStartedPolicy {
+    static func resolve(sessionID: String, hostReportedKnownStarted: Bool,
+                        recovery: V3OperationRecoveryRecord?) -> Bool {
+        guard let recovery, recovery.sessionID == sessionID,
+              recovery.kind != "refreshAll" else { return hostReportedKnownStarted }
+        return recovery.phase == .dispatched
+    }
+}
+
 enum V3SharedKeychainAccessGroupPolicy {
     static func sharedGroup(in entitledGroups: [String]) -> String? {
         entitledGroups.first(where: { $0.hasSuffix(".com.kdt.livecontainer.shared") })

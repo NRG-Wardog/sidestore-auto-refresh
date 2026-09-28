@@ -1026,7 +1026,12 @@ final class V3SideStoreService: NSObject {
             settleOperationRecoveryIfTerminal(reply, requestedSessionID: target)
             return reply
         case "opCancel":
-            let knownStarted = V3WireContract.strictBool(payload["knownStarted"]) ?? true
+            let hostReportedKnownStarted = V3WireContract.strictBool(payload["knownStarted"]) ?? true
+            let cancellationRecovery: V3OperationRecoveryRecord?
+            do { cancellationRecovery = try V3OperationRecoveryJournal.current() }
+            catch { throw ServiceError.busy }
+            let knownStarted = V3OperationCancelKnownStartedPolicy.resolve(sessionID: target,
+                hostReportedKnownStarted: hostReportedKnownStarted, recovery: cancellationRecovery)
             guard let result = await V3HeadlessRuntime.shared.operations.cancelAndWait(
                 id: target, knownStarted: knownStarted) else {
                 throw ServiceError.invalidRequest
