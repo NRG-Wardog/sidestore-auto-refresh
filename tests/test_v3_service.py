@@ -581,6 +581,7 @@ import Foundation
              "AltStore/Core/Components/Keychain.swift",
              "SideStore/Handlers/PipelineHandler.swift",
              "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
+             "AltStore/Settings/AnisetteServerList.swift",
              "SideStore/Core/DeviceApi/MinimuxerWrapper.swift",
              "AltStore/Authentication/AuthenticationViewController.swift",
              "AltStore/Authentication/InstructionsViewController.swift",
@@ -759,9 +760,17 @@ import Foundation
         real_check_output = service.subprocess.check_output
 
         def read_pinned_source(arguments, **kwargs):
-            relative = arguments[-1].split(":", 1)[1]
-            return real_check_output(["git", "-C", side_source, "show",
-                f"{service.PINS[1]}:{relative}"], text=True, encoding="utf-8")
+            # The production verifier uses `git show` and `git grep` against
+            # the pinned worktree. Tests run it over a temporary patched copy,
+            # so redirect only Git's repository root while preserving the
+            # exact pinned command and revision.
+            if len(arguments) > 4 and arguments[3] == "show":
+                return real_check_output(["git", "-C", side_source, *arguments[3:]],
+                                         text=True, encoding="utf-8")
+            if len(arguments) > 3 and arguments[3] == "grep":
+                return real_check_output(["git", "-C", side_source, *arguments[3:]],
+                                         text=True, encoding="utf-8")
+            return real_check_output(arguments, **kwargs)
 
         with tempfile.TemporaryDirectory() as name:
             roots = self.fixture(Path(name))
