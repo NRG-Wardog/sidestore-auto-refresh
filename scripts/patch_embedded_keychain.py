@@ -140,23 +140,15 @@ def patch_sign_in_operation(text: str) -> str:
     if SIGN_IN_SNAPSHOT_MARKER in text:
         required = ("AuthManager.shared.authenticationSnapshot", "credentials?.appleIDAdsid",
                     "credentials?.appleIDXcodeToken", "credentials?.appleIDEmailAddress",
-                    "credentials?.appleIDPassword")
+                    "credentials?.appleIDPassword",
+                    "V3_AUTH_FAILURE_CLEANUP_REQUIRES_CONFIRMED_EMPTY_SNAPSHOT_V1",
+                    "LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: authSnapshotResult)")
         if not all(token in text for token in required):
-            raise ValueError("embedded keychain: SignInOperation credential snapshot is incomplete")
+            raise ValueError("embedded keychain: SignInOperation credential or failure-cleanup snapshot is incomplete")
         return text
-
-    preflight_pattern = re.compile(
-        r'            if !AuthManager\.shared\.hasStoredPassword\s*&&\s*'
-        r'!AuthManager\.shared\.hasStoredXcodeToken'
-        r'(?P<suffix>\s*&&\s*!\(error is V3ProvisioningResumeUnavailableError\))?\s*\{')
-    def replace_preflight(match):
-        suffix = match.group("suffix") or ""
-        return ('            let authSnapshot = AuthManager.shared.authenticationSnapshot\n'
-                '            if authSnapshot?.appleIDPassword == nil &&\n'
-                '               authSnapshot?.appleIDXcodeToken == nil' + suffix + ' {')
-    text, count = preflight_pattern.subn(replace_preflight, text, count=1)
-    if count != 1:
-        raise ValueError("embedded keychain: SignInOperation credential preflight anchor changed")
+    if ("V3_AUTH_FAILURE_CLEANUP_REQUIRES_CONFIRMED_EMPTY_SNAPSHOT_V1" not in text or
+            "LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: authSnapshotResult)" not in text):
+        raise ValueError("embedded keychain: SignInOperation lacks confirmed-empty failure cleanup")
 
     start = text.index("    private func silentSignIn() async throws -> (ALTAccount, ALTAppleAPISession)? {")
     end = text.index("\n    private func authenticationLoop()", start)

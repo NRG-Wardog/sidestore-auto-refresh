@@ -171,6 +171,19 @@ struct LCEmbeddedAuthenticationSnapshot: Equatable {
     var hasTokenCredentials: Bool { appleIDXcodeToken != nil }
 }
 
+/// SignInOperation may clean up stale SideStore account state after a failed
+/// sign-in only when the Keychain snapshot authoritatively confirms that no
+/// reusable credential route exists. A Keychain access error is unknown state,
+/// not evidence that the account is signed out.
+enum LCEmbeddedSignInCleanupPolicy {
+    static func shouldSignOutAfterFailure(
+        snapshot: Result<LCEmbeddedAuthenticationSnapshot?, Error>
+    ) -> Bool {
+        guard case .success(let credentials) = snapshot else { return false }
+        return credentials == nil
+    }
+}
+
 fileprivate enum LCEmbeddedSharedKeychain {
     private static var installedGroup: String?
     private static var installedAppGroup: String?
@@ -297,6 +310,12 @@ fileprivate enum LCEmbeddedSharedKeychain {
             guard let group = installedGroup else { return nil }
             _ = try prepareLocked(group: group, client: client)
             marker = try client.getData(LCSharedKeychainMigration.marker)
+        }
+        guard marker == nil || marker == LCSharedKeychainMigration.signedOut ||
+              marker == LCSharedKeychainMigration.ready else {
+            // An unknown marker is neither a committed credential route nor a
+            // confirmed empty/signed-out namespace. Preserve it as unknown.
+            throw NSError(domain: "com.SideStore.Keychain", code: 1009)
         }
         guard marker == LCSharedKeychainMigration.ready else { return nil }
         let values = try LCSharedKeychainMigration.readAuthenticationValues { try client.getData($0) }

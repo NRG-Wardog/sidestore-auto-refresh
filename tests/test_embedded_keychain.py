@@ -508,6 +508,40 @@ HARNESS = r'''
             precondition(LCEmbeddedSharedKeychain.authenticationFailure(
                 for: NSError(domain: "OtherDomain", code: -25308)).code == 1009,
                 "an unrelated domain's numeric code cannot masquerade as a locked Keychain result")
+        case "sign_in_cleanup_requires_confirmed_empty_snapshot":
+            let client = LCEmbeddedSharedKeychain.makeClient()
+            let authKeychain = Keychain(client)
+            let empty = Result { try authKeychain.authenticationSnapshot() }
+            let emptySnapshot = try empty.get()
+            precondition(emptySnapshot == nil,
+                "an empty Keychain returns a confirmed empty snapshot rather than an access error")
+            precondition(LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: empty),
+                "a confirmed empty credential snapshot preserves the existing stale-account cleanup")
+
+            try client.set(Data("unrecognized-marker".utf8), key: LCSharedKeychainMigration.marker)
+            let unknown = Result { try authKeychain.authenticationSnapshot() }
+            if case .success = unknown {
+                preconditionFailure("an unknown Keychain migration marker is not a confirmed empty snapshot")
+            }
+            precondition(!LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: unknown),
+                "unknown marker state must not be mistaken for signed-out state")
+            try client.remove(LCSharedKeychainMigration.marker)
+
+            try authKeychain.writeAuthenticationCredentials(appleID: "user@example.com", password: "password",
+                dsid: "dsid", authToken: "token")
+            let present = Result { try authKeychain.authenticationSnapshot() }
+            let presentSnapshot = try present.get()
+            precondition(presentSnapshot?.isAuthenticated == true,
+                "the committed credentials are authoritatively visible before cleanup is decided")
+            precondition(!LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: present),
+                "a saved credential snapshot must preserve account state after sign-in failure")
+
+            let keychain = Keychain(LCEmbeddedSharedKeychain.makeClient())
+            Store.failure = -25308
+            let locked = Result { try keychain.authenticationSnapshot() }
+            precondition(!LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: locked),
+                "an actual locked-Keychain snapshot error is unknown state, never confirmed signed-out state")
+            Store.failure = 0
         default: fatalError("unknown scenario")
         }
         print("PASSED: " + scenario)
@@ -531,7 +565,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
             raise AssertionError(result.stderr)
 
     def test_execution_scenarios(self):
-        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "stale_snapshot_signout", "checked_signout_failure", "checked_signout_rollback", "checked_signout_outcome_unknown", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "partial_single_auth_item_never_marks_ready", "stale_ready_partial_route_is_downgraded", "partial_signin_write_failure_no_ready", "partial_signin_failure_preserves_previous_credentials", "partial_signin_rollback_unverified_is_unknown", "credential_snapshot_serializes_bulk_replacement", "snapshot_access_error_preserves_actionable_keychain_failure", "certificate_only", "invalid_utf8"):
+        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "stale_snapshot_signout", "checked_signout_failure", "checked_signout_rollback", "checked_signout_outcome_unknown", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "partial_single_auth_item_never_marks_ready", "stale_ready_partial_route_is_downgraded", "partial_signin_write_failure_no_ready", "partial_signin_failure_preserves_previous_credentials", "partial_signin_rollback_unverified_is_unknown", "credential_snapshot_serializes_bulk_replacement", "snapshot_access_error_preserves_actionable_keychain_failure", "sign_in_cleanup_requires_confirmed_empty_snapshot", "certificate_only", "invalid_utf8"):
             with self.subTest(scenario=scenario):
                 result = subprocess.run([str(self.executable), scenario], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0,
@@ -716,6 +750,14 @@ class KeychainPatchGenerationTests(unittest.TestCase):
             self.assertNotIn("if let appleID = AuthManager.shared.currentAppleID", sign_in)
             self.assertIn("LC_IMPORT_EXPORT_CREDENTIAL_SNAPSHOT_V1", import_export)
             self.assertIn("let authSnapshot = AuthManager.shared.authenticationSnapshot", import_export)
+            cleanup_start = sign_in.index("V3_AUTH_FAILURE_CLEANUP_REQUIRES_CONFIRMED_EMPTY_SNAPSHOT_V1")
+            cleanup_end = sign_in.index("try? await self.finalizeAuthentication", cleanup_start)
+            cleanup = sign_in[cleanup_start:cleanup_end]
+            self.assertIn("Result { try Keychain.shared.authenticationSnapshot() }", cleanup)
+            self.assertIn("LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: authSnapshotResult)", cleanup)
+            self.assertNotIn("hasStoredPassword", cleanup)
+            self.assertNotIn("hasStoredXcodeToken", cleanup)
+            self.assertIn("!(error is V3ProvisioningResumeUnavailableError)", cleanup)
             self.assertIn(module.BACKGROUND_AUTH_SNAPSHOT_MARKER, background.read_text(encoding="utf-8"))
             self.assertNotIn("AuthManager.shared.currentAppleID", background.read_text(encoding="utf-8"))
             expected_auth = module.patch_auth_manager(service_module.headless_auth_manager(

@@ -944,6 +944,8 @@ def patch_sign_in_operation(text):
             "if self.isCancelled || error is CancellationError || v3ClassifyAuthError(error) == nil",
             "if self.v3ForceProvisioningRetry {",
             "!(error is V3ProvisioningResumeUnavailableError)",
+            "V3_AUTH_FAILURE_CLEANUP_REQUIRES_CONFIRMED_EMPTY_SNAPSHOT_V1",
+            "LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: authSnapshotResult)",
             "V3_AUTH_CREDENTIAL_TRANSACTION_V1",
             "Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)",
         )
@@ -1028,8 +1030,10 @@ def patch_sign_in_operation(text):
     text = replace(text,
         "            if !AuthManager.shared.hasStoredPassword &&\n"
         "               !AuthManager.shared.hasStoredXcodeToken\n",
-        "            if !AuthManager.shared.hasStoredPassword &&\n"
-        "               !AuthManager.shared.hasStoredXcodeToken &&\n"
+        "            // V3_AUTH_FAILURE_CLEANUP_REQUIRES_CONFIRMED_EMPTY_SNAPSHOT_V1\n"
+        "            // A Keychain read error is unknown state and must never trigger sign-out.\n"
+        "            let authSnapshotResult = Result { try Keychain.shared.authenticationSnapshot() }\n"
+        "            if LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: authSnapshotResult) &&\n"
         "               !(error is V3ProvisioningResumeUnavailableError)\n")
     text = replace(text,
         "        AuthManager.shared.adsid = session.dsid\n"
