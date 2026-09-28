@@ -4,6 +4,8 @@ struct PairingImportRecoveryHarness {
         let id = UUID().uuidString
         let invalidFile = CombinedFailure(operation: "pairingImportData", stage: .pairing,
             code: .failed, id: id, retryable: false, safeCause: .invalidPairingFile)
+        precondition(invalidFile.operation == "pairingImportData",
+            "pairing-import must retain its typed operation through normalization")
         precondition(V3PairingImportFailurePolicy.shouldOfferFileRetry(invalidFile),
             "only a typed file validation failure should offer Choose Pairing File Again")
 
