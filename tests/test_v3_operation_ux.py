@@ -214,14 +214,16 @@ class StoreFeedbackTests(unittest.TestCase):
     def test_notice_alert_exists(self):
         self.assertIn("status.notice", shell())
 
-    def test_sign_out_hidden_when_signed_out(self):
+    def test_sign_out_requires_authentication_or_saved_local_state(self):
         text = shell()
         view = text[text.index("struct V3AccountSettings"):]
         view = view[:view.index('Section("Device")')]
-        # Both gated blocks exist; each sits directly above its control.
-        self.assertEqual(view.count("if !status.needsSignIn {"), 2)
-        signout = view[view.index('"Sign Out"') - 500:view.index('"Sign Out"') + 100]
-        self.assertIn("needsSignIn", signout)
+        # Sign-In Status remains authentication-gated. Sign Out uses the
+        # snapshot's saved account/team/certificate state so an unreadable
+        # credential does not hide explicit cleanup.
+        self.assertEqual(view.count("if !status.needsSignIn {"), 1)
+        self.assertIn("if identityPresentation.showSignOut", view)
+        self.assertIn("V3AccountSessionPresentationPolicy.resolve", view)
 
     def test_no_duplicate_sign_in_actions(self):
         text = shell()
@@ -592,6 +594,41 @@ class SafeFailureCopyTests(unittest.TestCase):
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("V3_SAFE_FAILURE_COPY_PASS", result.stdout)
+
+
+class AccountSessionRecoveryTests(unittest.TestCase):
+    def test_saved_unverified_account_keeps_signin_and_explicit_signout(self):
+        source = shell()
+        view = source[source.index("struct V3AccountSettings"):]
+        view = view[:view.index("struct V3BoolSettingRow")]
+        self.assertIn("V3AccountSessionPresentationPolicy.resolve", view)
+        self.assertIn("identityPresentation.showSignIn", view)
+        self.assertIn("identityPresentation.showSavedAppleID", view)
+        self.assertIn("identityPresentation.showUnverifiedSavedState", view)
+        self.assertIn("identityPresentation.showSignOut", view)
+        self.assertIn('Label("Saved account state is not verified"', view)
+        self.assertIn('V3SignInLink(title: "Sign In with Apple ID")', view)
+        sign_out_action = view[view.index("if identityPresentation.showSignOut"):]
+        self.assertIn('Label("Sign Out"', sign_out_action)
+        self.assertIn("status.signOut()", sign_out_action)
+
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable; executable account-state harness runs in macOS CI")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_account_session_presentation_harness.swift").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "main.swift"
+            executable = Path(temporary) / "account-session-presentation"
+            source.write_text("import Foundation\n" + failure + "\n" + primitives + "\n" + harness,
+                              encoding="utf-8")
+            compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
+                                      capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_ACCOUNT_SESSION_PRESENTATION_PASS", result.stdout)
 
 
 if __name__ == "__main__":

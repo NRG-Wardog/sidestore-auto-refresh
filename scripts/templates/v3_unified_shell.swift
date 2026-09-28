@@ -2626,6 +2626,11 @@ struct V3CatalogView: View {
 
 struct V3AccountSettings: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
+    private var identityPresentation: V3AccountSessionPresentation {
+        V3AccountSessionPresentationPolicy.resolve(authenticated: status.authenticated,
+            account: status.account, team: status.team, certificate: status.certificate)
+    }
+
     var body: some View {
         Section("Setup") {
             Button {
@@ -2636,8 +2641,27 @@ struct V3AccountSettings: View {
             }
         }
         Section("Account and Signing") {
-            if status.needsSignIn {
+            if identityPresentation.showSignIn {
                 V3SignInLink(title: "Sign In with Apple ID")
+                if identityPresentation.showSavedAppleID {
+                    HStack {
+                        Label("Saved Apple ID", systemImage: "person.crop.circle.fill")
+                        Spacer()
+                        Text(status.account)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                if identityPresentation.showUnverifiedSavedState {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Saved account state is not verified",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("SideStore still has saved account, team, or certificate information, but cannot confirm an active Apple sign-in. Sign in again or explicitly sign out.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                }
             } else {
                 HStack {
                     Label("Apple ID", systemImage: "person.crop.circle.fill")
@@ -2708,7 +2732,7 @@ struct V3AccountSettings: View {
             }
             link("Certificates", icon: "doc.text") { V3CertificatesView().environmentObject(status) }
             link("Developer Services", icon: "wrench.and.screwdriver") { V3DeveloperServicesView().environmentObject(status) }
-            if !status.needsSignIn {
+            if identityPresentation.showSignOut {
                 Button(role: .destructive) {
                     status.signOut()
                 } label: {

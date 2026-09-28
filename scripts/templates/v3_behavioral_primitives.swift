@@ -3560,6 +3560,37 @@ enum V3AuthSnapshotAuthorityPolicy {
     static func needsSignIn(authenticated: Bool) -> Bool { !authenticated }
 }
 
+struct V3AccountSessionPresentation: Equatable {
+    let showSignIn: Bool
+    let showSavedAppleID: Bool
+    let showUnverifiedSavedState: Bool
+    let showSignOut: Bool
+}
+
+enum V3AccountSessionPresentationPolicy {
+    static func resolve(authenticated: Bool, account: String?, team: String?,
+                        certificate: String?) -> V3AccountSessionPresentation {
+        let hasAccount = hasValue(account, excluding: ["Not signed in", "Not available"])
+        let hasTeam = hasValue(team, excluding: ["No active team", "Unknown"])
+        let hasActiveCertificate = certificate == "Active certificate available"
+        let hasSavedState = hasAccount || hasTeam || hasActiveCertificate
+        return V3AccountSessionPresentation(
+            showSignIn: !authenticated,
+            showSavedAppleID: hasAccount,
+            showUnverifiedSavedState: !authenticated && hasSavedState,
+            // Authentication can be unreadable while the active Core Data
+            // account/team/certificate still exists. Sign Out remains an
+            // explicit checked action so the user can reconcile that state.
+            showSignOut: authenticated || hasSavedState)
+    }
+
+    private static func hasValue(_ value: String?, excluding sentinels: Set<String>) -> Bool {
+        guard let value else { return false }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !normalized.isEmpty && !sentinels.contains(normalized)
+    }
+}
+
 struct V3AuthSessionUnavailablePresentation: Equatable {
     let state: String
     let message: String
