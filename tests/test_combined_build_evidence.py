@@ -1,12 +1,16 @@
 """Validate candidate identity/UUID evidence without requiring an Apple device."""
 import importlib.util
 import hashlib
+import os
 from pathlib import Path
+import plistlib
 import struct
+import sys
 import tempfile
 import unittest
 import uuid
 from unittest import mock
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('candidate_evidence', ROOT / 'scripts/combined_build_evidence.py')
@@ -14,8 +18,14 @@ evidence = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(evidence)
 
 
+def thin_arm64_macho(image_uuid):
+    header = b'\xcf\xfa\xed\xfe' + struct.pack(
+        '<7I', 0x0100000C, 0, 6, 1, 24, 0, 0)
+    return header + struct.pack('<II', 0x1B, 24) + image_uuid
+
+
 class CandidateEvidenceTests(unittest.TestCase):
-    def test_ipa_hash_uses_bounded_reads_and_preserves_raw_digest(self):
+    def test_ipa_snapshot_uses_bounded_reads_and_preserves_raw_digest(self):
         payload = bytes(range(256)) * 9000
         with tempfile.TemporaryDirectory() as directory:
             ipa = Path(directory) / 'candidate.ipa'
@@ -38,6 +48,9 @@ class CandidateEvidenceTests(unittest.TestCase):
                     requested_reads.append(size)
                     return self.stream.read(size)
 
+                def fileno(self):
+                    return self.stream.fileno()
+
             def recorded_open(path, *args, **kwargs):
                 stream = original_open(path, *args, **kwargs)
                 if path == ipa:
@@ -45,19 +58,111 @@ class CandidateEvidenceTests(unittest.TestCase):
                 return stream
 
             with mock.patch.object(Path, 'open', recorded_open):
-                size, digest = evidence.hash_ipa_file(ipa, {'compressed_ipa_bytes': len(payload)})
+                snapshot, size, digest, signature = evidence.snapshot_ipa_file(
+                    ipa, {'compressed_ipa_bytes': len(payload)})
+            try:
+                self.assertEqual(snapshot.read(), payload)
+                self.assertEqual(signature[2], len(payload))
+            finally:
+                snapshot.close()
             self.assertEqual(size, len(payload))
             self.assertEqual(digest, hashlib.sha256(payload).hexdigest())
             self.assertTrue(requested_reads)
             self.assertTrue(all(0 < amount <= 1024 * 1024 for amount in requested_reads))
 
-    def test_oversized_ipa_is_rejected_before_opening_for_hash(self):
+    def test_oversized_ipa_is_rejected_before_reading_contents(self):
         with tempfile.TemporaryDirectory() as directory:
             ipa = Path(directory) / 'oversized.ipa'
             ipa.write_bytes(b'0123456789')
-            with mock.patch.object(Path, 'open', side_effect=AssertionError('must preflight before open')):
+            original_open = Path.open
+            requested_reads = []
+
+            class ReadRecorder:
+                def __init__(self, stream): self.stream = stream
+                def __enter__(self): return self
+                def __exit__(self, *args): return self.stream.__exit__(*args)
+                def fileno(self): return self.stream.fileno()
+                def read(self, size=-1):
+                    requested_reads.append(size)
+                    return self.stream.read(size)
+
+            def recorded_open(path, *args, **kwargs):
+                stream = original_open(path, *args, **kwargs)
+                return ReadRecorder(stream) if path == ipa else stream
+
+            with mock.patch.object(Path, 'open', recorded_open):
                 with self.assertRaisesRegex(ValueError, 'compressed IPA exceeds'):
-                    evidence.hash_ipa_file(ipa, {'compressed_ipa_bytes': 9})
+                    evidence.snapshot_ipa_file(ipa, {'compressed_ipa_bytes': 9})
+            self.assertEqual(requested_reads, [], 'size preflight must precede payload reads')
+
+    def test_collect_rejects_oversized_path_replacement_after_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ipa = root / 'candidate.ipa'
+            output = root / 'evidence'
+            host_build = root / 'host-build'
+            side_build = root / 'side-build'
+            host_build.mkdir()
+            side_build.mkdir()
+            commit = 'a' * 40
+            run_url = 'https://github.com/example/project/actions/runs/123'
+            identity = {'LCProductLine': 'Combined LC+SS v3.0.3-rc',
+                        'LCBuilderCommit': commit, 'LCBuildRunURL': run_url}
+            support = thin_arm64_macho(b'0123456789abcdef') + b'LCFAILURE1:'
+            side_store = (thin_arm64_macho(b'fedcba9876543210') + b'LCStructuredFailureStageV1' +
+                          b'UNIQUE_DEVICE_ID_QUERY_FAIL' + b'lc_stage=uniqueDeviceID')
+            with zipfile.ZipFile(ipa, 'w') as archive:
+                archive.writestr('Payload/LiveContainer.app/Info.plist', plistlib.dumps(identity))
+                archive.writestr('Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework/SideStoreSupport', support)
+                archive.writestr('Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore', side_store)
+            for base, paths in ((host_build, evidence.HOST_SOURCE_PATHS + evidence.V3_HOST_SOURCE_PATHS),
+                                (side_build, evidence.EMBEDDED_SOURCE_PATHS)):
+                for name in paths:
+                    target = base / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text('source ' + name, encoding='utf-8')
+            dwarf = host_build / 'SideStoreSupport.framework.dSYM' / 'Contents' / 'Resources' / 'DWARF' / 'SideStoreSupport'
+            dwarf.parent.mkdir(parents=True)
+            dwarf.write_bytes(support)
+
+            oversized_replacement = root / 'oversized.ipa'
+            with oversized_replacement.open('wb') as replacement:
+                replacement.truncate(evidence.DEFAULT_ARCHIVE_LIMITS['compressed_ipa_bytes'] + 1)
+
+            old_argv = sys.argv
+            env_keys = ('GITHUB_SHA', 'GITHUB_REPOSITORY', 'GITHUB_RUN_ID', 'LIVE_CONTAINER_REF',
+                        'EMBEDDED_SIDESTORE_REF', 'MINIMUXER_REF', 'SIDESIGN_REF', 'SIDESIGN_GSA_FIX',
+                        'IDEVICE_REF', 'JKTCP_REF')
+            saved_env = {key: os.environ.get(key) for key in env_keys}
+            argv = ['combined_build_evidence.py', 'collect', '--product', 'v3.0.3-rc',
+                    '--ipa', str(ipa), '--output', str(output), '--source', str(host_build),
+                    '--side-source', str(side_build), str(host_build), str(side_build)]
+            real_zipfile = evidence.zipfile.ZipFile
+            replaced = False
+
+            def replace_path_then_open(source, *args, **kwargs):
+                nonlocal replaced
+                if not replaced:
+                    os.replace(oversized_replacement, ipa)
+                    replaced = True
+                return real_zipfile(source, *args, **kwargs)
+
+            try:
+                os.environ.update({'GITHUB_SHA': commit, 'GITHUB_REPOSITORY': 'example/project',
+                    'GITHUB_RUN_ID': '123', **{key: 'b' * 40 for key in env_keys[3:]}})
+                sys.argv = argv
+                with mock.patch.object(evidence.zipfile, 'ZipFile', side_effect=replace_path_then_open):
+                    with self.assertRaisesRegex(ValueError, 'IPA changed after evidence snapshot'):
+                        evidence.main()
+                self.assertTrue(replaced, 'the path replacement must happen after snapshot creation')
+                self.assertGreater(ipa.stat().st_size, evidence.DEFAULT_ARCHIVE_LIMITS['compressed_ipa_bytes'])
+                self.assertFalse((output / 'candidate-provenance.json').exists(),
+                    'collection must not emit provenance for a replaced over-limit path')
+            finally:
+                sys.argv = old_argv
+                for key, value in saved_env.items():
+                    if value is None: os.environ.pop(key, None)
+                    else: os.environ[key] = value
 
     def test_matching_uuid_and_malformed_commands(self):
         expected = uuid.UUID('07E95F24-0DF4-3F9F-B1B4-3AF4881C1CBD')

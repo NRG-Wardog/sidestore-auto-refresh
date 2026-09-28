@@ -8,6 +8,7 @@ import plistlib
 import re
 import shutil
 import sys
+import tempfile
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -45,26 +46,55 @@ def macho_uuid(data):
     return next(iter(uuids.values()), None)
 
 
-def hash_ipa_file(path, limits=None):
-    """Preflight package size, then hash the raw IPA with bounded memory."""
-    size = path.stat().st_size
-    validate_ipa_size(size, limits)
+def file_signature(stat_result):
+    """Return stable file identity and timestamp fields for path-replacement checks."""
+    return (stat_result.st_dev, stat_result.st_ino, stat_result.st_size,
+            stat_result.st_mtime_ns, stat_result.st_ctime_ns)
+
+
+def snapshot_ipa_file(path, limits=None):
+    """Copy and hash one bounded open-file stream for later ZIP inspection."""
+    policy = dict(DEFAULT_ARCHIVE_LIMITS)
+    if limits is not None:
+        policy.update(limits)
+    max_size = policy["compressed_ipa_bytes"]
     digest = hashlib.sha256()
     bytes_read = 0
     chunk_size = 1024 * 1024
-    max_size = dict(DEFAULT_ARCHIVE_LIMITS, **(limits or {}))["compressed_ipa_bytes"]
-    with path.open('rb') as source:
-        while True:
-            chunk = source.read(min(chunk_size, max_size - bytes_read + 1))
-            if not chunk:
-                break
-            bytes_read += len(chunk)
-            if bytes_read > max_size:
-                raise ValueError("compressed IPA exceeds the configured size limit")
-            digest.update(chunk)
-    if bytes_read != size:
-        raise ValueError("IPA size changed while hashing")
-    return size, digest.hexdigest()
+    snapshot = tempfile.TemporaryFile(mode='w+b')
+    try:
+        with path.open('rb') as source:
+            before = os.fstat(source.fileno())
+            validate_ipa_size(before.st_size, policy)
+            while True:
+                chunk = source.read(min(chunk_size, max_size - bytes_read + 1))
+                if not chunk:
+                    break
+                bytes_read += len(chunk)
+                if bytes_read > max_size:
+                    raise ValueError("compressed IPA exceeds the configured size limit")
+                snapshot.write(chunk)
+                digest.update(chunk)
+            after = os.fstat(source.fileno())
+        if bytes_read != before.st_size:
+            raise ValueError("IPA size changed while hashing")
+        if file_signature(before) != file_signature(after):
+            raise ValueError("IPA changed while hashing")
+        snapshot.seek(0)
+        return snapshot, bytes_read, digest.hexdigest(), file_signature(after)
+    except Exception:
+        snapshot.close()
+        raise
+
+
+def require_unchanged_ipa_path(path, expected_signature):
+    """Fail if collection's original path no longer names the snapshotted IPA."""
+    try:
+        actual_signature = file_signature(path.stat())
+    except OSError as error:
+        raise ValueError("IPA changed after evidence snapshot") from error
+    if actual_signature != expected_signature:
+        raise ValueError("IPA changed after evidence snapshot")
 
 
 def main():
@@ -90,38 +120,42 @@ def main():
             path.write_bytes(plistlib.dumps(info, fmt=plistlib.FMT_BINARY))
         return
     # Reject an oversized package before archive inspection or evidence writes.
-    ipa_size, ipa_sha256 = hash_ipa_file(args.ipa)
-    args.output.mkdir(parents=True, exist_ok=True)
-    # Ensure repeated collection cannot retain stale files from an earlier run.
-    for name in ('host', 'embedded', 'generated', 'embedded-generated'):
-        target = args.output / name
-        if target.exists(): shutil.rmtree(target)
-    provenance_path = args.output / 'candidate-provenance.json'
-    if provenance_path.exists(): provenance_path.unlink()
-    binaries = {}
-    binary_subtypes = {}
-    with zipfile.ZipFile(args.ipa) as archive:
-        for name in archive.namelist():
-            if name.endswith('/'): continue
-            with archive.open(name) as member:
-                magic = member.read(4)
-            if magic not in MACHO_MAGICS: continue
-            data = archive.read(name)
-            if magic == b'\xca\xfe\xba\xbe' and is_java_class_file(data): continue
-            values = macho_uuids(data)
-            if values:
-                require_arm64_all_image(data)
-                binaries[name] = values['arm64']
-                binary_subtypes[name] = macho_cpu_subtypes(data)['arm64']
-        info = plistlib.loads(archive.read('Payload/LiveContainer.app/Info.plist'))
-        assert all(info.get(key) == value for key, value in identity.items()), 'packaged identity mismatch'
-        for executable in ('SideStoreSupport.framework/SideStoreSupport', 'SideStoreApp.framework/SideStore'):
-            data = archive.read('Payload/LiveContainer.app/Frameworks/' + executable)
-            marker = b'LCFAILURE1:' if executable.startswith('SideStoreSupport') else b'LCStructuredFailureStageV1'
-            assert marker in data, 'structured error protocol absent: ' + executable
-            if executable.startswith('SideStoreApp'):
-                assert b'UNIQUE_DEVICE_ID_QUERY_FAIL' in data, 'Issue 24 query diagnostics absent'
-                assert b'lc_stage=uniqueDeviceID' in data, 'Issue 24 structured category absent'
+    snapshot, ipa_size, ipa_sha256, ipa_signature = snapshot_ipa_file(args.ipa)
+    try:
+        args.output.mkdir(parents=True, exist_ok=True)
+        # Ensure repeated collection cannot retain stale files from an earlier run.
+        for name in ('host', 'embedded', 'generated', 'embedded-generated'):
+            target = args.output / name
+            if target.exists(): shutil.rmtree(target)
+        provenance_path = args.output / 'candidate-provenance.json'
+        if provenance_path.exists(): provenance_path.unlink()
+        binaries = {}
+        binary_subtypes = {}
+        with zipfile.ZipFile(snapshot) as archive:
+            for name in archive.namelist():
+                if name.endswith('/'): continue
+                with archive.open(name) as member:
+                    magic = member.read(4)
+                if magic not in MACHO_MAGICS: continue
+                data = archive.read(name)
+                if magic == b'\xca\xfe\xba\xbe' and is_java_class_file(data): continue
+                values = macho_uuids(data)
+                if values:
+                    require_arm64_all_image(data)
+                    binaries[name] = values['arm64']
+                    binary_subtypes[name] = macho_cpu_subtypes(data)['arm64']
+            info = plistlib.loads(archive.read('Payload/LiveContainer.app/Info.plist'))
+            assert all(info.get(key) == value for key, value in identity.items()), 'packaged identity mismatch'
+            for executable in ('SideStoreSupport.framework/SideStoreSupport', 'SideStoreApp.framework/SideStore'):
+                data = archive.read('Payload/LiveContainer.app/Frameworks/' + executable)
+                marker = b'LCFAILURE1:' if executable.startswith('SideStoreSupport') else b'LCStructuredFailureStageV1'
+                assert marker in data, 'structured error protocol absent: ' + executable
+                if executable.startswith('SideStoreApp'):
+                    assert b'UNIQUE_DEVICE_ID_QUERY_FAIL' in data, 'Issue 24 query diagnostics absent'
+                    assert b'lc_stage=uniqueDeviceID' in data, 'Issue 24 structured category absent'
+        require_unchanged_ipa_path(args.ipa, ipa_signature)
+    finally:
+        snapshot.close()
     symbols = {}
     symbol_hashes = {}
     for index, root in enumerate(args.paths):
