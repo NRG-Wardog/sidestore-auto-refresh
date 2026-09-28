@@ -1,6 +1,9 @@
 import importlib.util
 import hashlib
+import json
+import os
 from pathlib import Path
+import plistlib
 import sys
 import tempfile
 import struct
@@ -13,23 +16,34 @@ spec = importlib.util.spec_from_file_location(
     "verify_candidate_ipa", ROOT / "scripts/verify_candidate_ipa.py")
 verify_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(verify_module)
+evidence_spec = importlib.util.spec_from_file_location(
+    "combined_build_evidence", ROOT / "scripts/combined_build_evidence.py")
+evidence_module = importlib.util.module_from_spec(evidence_spec)
+evidence_spec.loader.exec_module(evidence_module)
 
 
-def thin_arm64_macho(image_uuid=b"0123456789abcdef"):
+def thin_arm64_macho(image_uuid=b"0123456789abcdef", subtype=0, include_uuid=True):
     if len(image_uuid) != 16:
         raise ValueError("Mach-O UUID must contain 16 bytes")
     header = b"\xcf\xfa\xed\xfe" + struct.pack(
-        "<7I", 0x0100000C, 0, 6, 1, 24, 0, 0)
-    return header + struct.pack("<II", 0x1B, 24) + image_uuid
+        "<7I", 0x0100000C, subtype, 6, int(include_uuid), 24 if include_uuid else 0, 0, 0)
+    return header + (struct.pack("<II", 0x1B, 24) + image_uuid if include_uuid else b"")
 
 
-def fat_macho(slice_bytes, offset=None, architecture=0x0100000C):
+def fat_macho(slice_bytes, offset=None, architecture=0x0100000C, subtype=0):
     if offset is None:
         offset = 28
     header = b"\xca\xfe\xba\xbe" + struct.pack(">I", 1)
-    arch = struct.pack(">IIIII", architecture, 0, offset, len(slice_bytes), 0)
+    arch = struct.pack(">IIIII", architecture, subtype, offset, len(slice_bytes), 0)
     prefix = header + arch
     return prefix + bytes(max(0, offset - len(prefix))) + slice_bytes
+
+
+def java_class_file():
+    # Minimal structurally valid class: constant-pool Class entry, no members.
+    return (b"\xca\xfe\xba\xbe" + struct.pack(">HHH", 0, 61, 3) +
+            b"\x07\x00\x02\x01\x00\x01A" +
+            struct.pack(">7H", 0x21, 1, 0, 0, 0, 0, 0))
 
 
 class CandidateArchiveSizeReportTests(unittest.TestCase):
@@ -42,7 +56,8 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
             "Payload/LiveContainer.app/Frameworks/libswiftCore.dylib": arm64,
             "SwiftSupport/Unexpected.dylib": arm64,
             "Payload/LiveContainer.app/Resources/Example.class":
-                b"\xca\xfe\xba\xbe" + struct.pack(">HHH", 0, 61, 1),
+                java_class_file(),
+            "Payload/LiveContainer.app/Resources/Example.resource": java_class_file(),
             "Payload/LiveContainer.app/Assets.car": b"not-a-macho",
         }
         with tempfile.TemporaryDirectory() as directory:
@@ -55,6 +70,7 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
                 self.assertEqual(paths, set(files) - {
                     "Payload/LiveContainer.app/Assets.car",
                     "Payload/LiveContainer.app/Resources/Example.class",
+                    "Payload/LiveContainer.app/Resources/Example.resource",
                 })
                 for path in paths:
                     self.assertIn("arm64", verify_module.architectures(archive.read(path)), path)
@@ -79,6 +95,20 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
             verify_module.architectures(out_of_range)
         with self.assertRaisesRegex(ValueError, "does not match"):
             verify_module.architectures(fat_macho(thin_arm64_macho(), architecture=0x01000007))
+        with self.assertRaisesRegex(ValueError, "subtype"):
+            verify_module.architectures(fat_macho(thin_arm64_macho(subtype=2), subtype=0))
+        with self.assertRaisesRegex(ValueError, "missing an LC_UUID"):
+            verify_module.architectures(fat_macho(thin_arm64_macho(include_uuid=False)))
+        second = thin_arm64_macho(b"fedcba9876543210")
+        first = thin_arm64_macho()
+        second_offset = 48 + len(first)
+        duplicate = (b"\xca\xfe\xba\xbe" + struct.pack(">I", 2) +
+                    struct.pack(">IIIII", 0x0100000C, 0, 48, len(first), 0) +
+                    struct.pack(">IIIII", 0x0100000C, 0, second_offset, len(second), 0) +
+                    first + second)
+        with self.assertRaisesRegex(ValueError, "duplicate CPU subtype"):
+            verify_module.architectures(duplicate)
+        self.assertEqual(verify_module.macho_cpu_subtypes(thin_arm64_macho(subtype=2)), {"arm64": 2})
 
     def test_provenance_run_url_must_match_exact_github_actions_repo_and_shape(self):
         good = "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/36372125879"
@@ -107,25 +137,126 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
             generated.mkdir(parents=True)
             generated_file = generated / "V3UnifiedShell.swift"
             generated_file.write_text("struct CandidateShell {}", encoding="utf-8")
-            generated_hash = hashlib.sha256(generated_file.read_bytes()).hexdigest()
             embedded = root / "embedded-generated" / "SideStore" / "Core" / "Operations"
             embedded.mkdir(parents=True)
             embedded_file = embedded / "PipelineRunner.swift"
             embedded_file.write_text("struct CandidatePipeline {}", encoding="utf-8")
-            embedded_hash = hashlib.sha256(embedded_file.read_bytes()).hexdigest()
-            verify_module.verify_generated_source_evidence(root, {
-                "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": generated_hash,
-                "embedded/SideStore/Core/Operations/PipelineRunner.swift": embedded_hash,
-            })
+            hashes = {}
+            for name in verify_module.REQUIRED_GENERATED_HOST_SOURCES:
+                path = root / "generated" / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if not path.exists(): path.write_text("generated " + name, encoding="utf-8")
+                hashes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+            for name in verify_module.REQUIRED_GENERATED_EMBEDDED_SOURCES:
+                path = root / "embedded-generated" / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if not path.exists(): path.write_text("generated " + name, encoding="utf-8")
+                hashes["embedded/" + name] = hashlib.sha256(path.read_bytes()).hexdigest()
+            verify_module.verify_generated_source_evidence(root, hashes)
+            incomplete = dict(hashes)
+            incomplete.pop("LiveContainerSwiftUI/Views/V3UnifiedShell.swift")
+            with self.assertRaisesRegex(ValueError, "inventory mismatch"):
+                verify_module.verify_generated_source_evidence(root, incomplete)
             with self.assertRaisesRegex(ValueError, "hash mismatch"):
-                verify_module.verify_generated_source_evidence(root, {
-                    "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "0" * 64,
-                })
+                wrong_hashes = dict(hashes)
+                wrong_hashes["LiveContainerSwiftUI/Views/V3UnifiedShell.swift"] = "0" * 64
+                verify_module.verify_generated_source_evidence(root, wrong_hashes)
             host_symbols = root / "host" / "SideStoreSupport.framework.dSYM" / "Contents" / "Resources" / "DWARF"
             host_symbols.mkdir(parents=True)
             (host_symbols / "SideStoreSupport").write_bytes(image)
+            decoy = root / "host" / "unrelated" / "SideStoreSupport"
+            decoy.parent.mkdir(parents=True)
+            decoy.write_bytes(image)
             self.assertEqual(verify_module.preserved_dsym_uuids(root, {image_uuid}),
                              {"SideStoreSupport": image_uuid})
+            uuids, hashes = verify_module.preserved_dsym_evidence(root, {image_uuid})
+            dwarf_relative = "host/SideStoreSupport.framework.dSYM/Contents/Resources/DWARF/SideStoreSupport"
+            self.assertEqual(hashes[dwarf_relative], hashlib.sha256(image).hexdigest())
+
+    def test_class_extension_does_not_hide_malformed_cafebabe_mach_magic(self):
+        malformed = b"\xca\xfe\xba\xbe" + bytes(20)
+        with tempfile.TemporaryDirectory() as directory:
+            ipa = Path(directory) / "not-a-class.ipa"
+            with zipfile.ZipFile(ipa, "w") as archive:
+                archive.writestr("Payload/LiveContainer.app/Resources/Bad.class", malformed)
+            with zipfile.ZipFile(ipa) as archive:
+                self.assertIn("Payload/LiveContainer.app/Resources/Bad.class",
+                              verify_module.mach_o_paths(archive, archive.infolist()))
+        self.assertFalse(verify_module.is_java_class_file(malformed))
+        self.assertFalse(verify_module.is_java_class_file(java_class_file()[:-1]))
+
+    def test_collector_inventory_matches_verifier_inventory(self):
+        self.assertEqual(set(evidence_module.HOST_SOURCE_PATHS + evidence_module.V3_HOST_SOURCE_PATHS),
+                         verify_module.REQUIRED_GENERATED_HOST_SOURCES)
+        self.assertEqual(set(evidence_module.EMBEDDED_SOURCE_PATHS),
+                         verify_module.REQUIRED_GENERATED_EMBEDDED_SOURCES)
+
+    def test_collect_is_reproducible_and_removes_stale_evidence_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ipa = root / "candidate.ipa"
+            output = root / "evidence"
+            host_build = root / "host-build"
+            side_build = root / "side-build"
+            host_build.mkdir()
+            side_build.mkdir()
+            commit = "a" * 40
+            run_url = "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/123"
+            identity = {"LCProductLine": "Combined LC+SS v3.0.3-rc",
+                        "LCBuilderCommit": commit, "LCBuildRunURL": run_url}
+            info = plistlib.dumps(identity)
+            support = thin_arm64_macho(b"0123456789abcdef") + b"LCFAILURE1:"
+            side_store = (thin_arm64_macho(b"fedcba9876543210") + b"LCStructuredFailureStageV1" +
+                          b"UNIQUE_DEVICE_ID_QUERY_FAIL" + b"lc_stage=uniqueDeviceID")
+            with zipfile.ZipFile(ipa, "w") as archive:
+                archive.writestr("Payload/LiveContainer.app/Info.plist", info)
+                archive.writestr("Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework/SideStoreSupport", support)
+                archive.writestr("Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore", side_store)
+            for base, paths in ((host_build, evidence_module.HOST_SOURCE_PATHS + evidence_module.V3_HOST_SOURCE_PATHS),
+                                (side_build, evidence_module.EMBEDDED_SOURCE_PATHS)):
+                for name in paths:
+                    target = base / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text("source " + name, encoding="utf-8")
+            dwarf = host_build / "SideStoreSupport.framework.dSYM" / "Contents" / "Resources" / "DWARF" / "SideStoreSupport"
+            dwarf.parent.mkdir(parents=True)
+            dwarf.write_bytes(support)
+            env_keys = ("GITHUB_SHA", "GITHUB_REPOSITORY", "GITHUB_RUN_ID", "LIVE_CONTAINER_REF",
+                        "EMBEDDED_SIDESTORE_REF", "MINIMUXER_REF", "SIDESIGN_REF", "SIDESIGN_GSA_FIX",
+                        "IDEVICE_REF", "JKTCP_REF")
+            saved_env = {key: os.environ.get(key) for key in env_keys}
+            old_argv = sys.argv
+            try:
+                os.environ.update({
+                    "GITHUB_SHA": commit, "GITHUB_REPOSITORY": "NRG-Wardog/sidestore-auto-refresh",
+                    "GITHUB_RUN_ID": "123", **{key: "b" * 40 for key in env_keys[3:]},
+                })
+                argv = ["combined_build_evidence.py", "collect", "--product", "v3.0.3-rc",
+                        "--ipa", str(ipa), "--output", str(output), "--source", str(host_build),
+                        "--side-source", str(side_build), str(host_build), str(side_build)]
+                sys.argv = argv
+                evidence_module.main()
+                first = {path.relative_to(output).as_posix(): path.read_bytes()
+                         for path in output.rglob("*") if path.is_file()}
+                (output / "generated" / "stale.swift").write_text("stale", encoding="utf-8")
+                evidence_module.main()
+                second = {path.relative_to(output).as_posix(): path.read_bytes()
+                          for path in output.rglob("*") if path.is_file()}
+                self.assertEqual(first, second)
+                self.assertNotIn("generated/stale.swift", second)
+                provenance = json.loads(second["candidate-provenance.json"])
+                self.assertEqual(provenance["framework_cpu_subtypes"], {
+                    "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore": 0,
+                    "Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework/SideStoreSupport": 0,
+                })
+                self.assertEqual(provenance["generated_source_sha256"].keys(),
+                                 set(evidence_module.HOST_SOURCE_PATHS + evidence_module.V3_HOST_SOURCE_PATHS) |
+                                 {"embedded/" + name for name in evidence_module.EMBEDDED_SOURCE_PATHS})
+            finally:
+                sys.argv = old_argv
+                for key, value in saved_env.items():
+                    if value is None: os.environ.pop(key, None)
+                    else: os.environ[key] = value
 
     def test_host_and_liveprocess_require_both_shared_app_groups(self):
         required = verify_module.REQUIRED_LIVECONTAINER_GROUPS

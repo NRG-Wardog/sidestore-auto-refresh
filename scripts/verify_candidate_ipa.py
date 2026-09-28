@@ -95,7 +95,7 @@ def _architecture_name(cpu: int) -> str:
     return "arm64" if cpu == CPU_TYPE_ARM64 else f"cpu:{cpu}"
 
 
-def _thin_macho_info(data) -> tuple[int, str | None]:
+def _thin_macho_info(data) -> tuple[int, int, str | None]:
     magic = bytes(data[:4])
     layout = THIN_MAGICS.get(magic)
     if layout is None:
@@ -103,7 +103,7 @@ def _thin_macho_info(data) -> tuple[int, str | None]:
     endian, header_size = layout
     if len(data) < header_size:
         raise ValueError("truncated Mach-O header")
-    cpu, _subtype, _filetype, command_count, command_bytes = struct.unpack_from(endian + "IIIII", data, 4)
+    cpu, subtype, _filetype, command_count, command_bytes = struct.unpack_from(endian + "IIIII", data, 4)
     if command_count > 65535 or command_bytes > len(data) - header_size:
         raise ValueError("invalid Mach-O load-command bounds")
     command_end = header_size + command_bytes
@@ -122,14 +122,14 @@ def _thin_macho_info(data) -> tuple[int, str | None]:
         offset += size
     if offset != command_end:
         raise ValueError("Mach-O load-command size does not match its header")
-    return cpu, image_uuid
+    return cpu, subtype, image_uuid
 
 
 def macho_uuids(data: bytes) -> dict[str, str]:
     view = memoryview(data)
     magic = bytes(view[:4])
     if magic in THIN_MAGICS:
-        cpu, image_uuid = _thin_macho_info(view)
+        cpu, _subtype, image_uuid = _thin_macho_info(view)
         return {_architecture_name(cpu): image_uuid} if image_uuid else {}
     fat_layout = FAT_MAGICS.get(magic)
     if fat_layout is None:
@@ -143,24 +143,59 @@ def macho_uuids(data: bytes) -> dict[str, str]:
         raise ValueError("invalid fat Mach-O architecture table")
     table_end = 8 + count * entry_size
     slices = []
+    architectures_seen = set()
     result: dict[str, str] = {}
     for index in range(count):
         entry = 8 + index * entry_size
         if is_64:
-            cpu, _subtype, offset, size, _align, _reserved = struct.unpack_from(endian + "IIQQII", view, entry)
+            cpu, subtype, offset, size, _align, _reserved = struct.unpack_from(endian + "IIQQII", view, entry)
         else:
-            cpu, _subtype, offset, size, _align = struct.unpack_from(endian + "IIIII", view, entry)
+            cpu, subtype, offset, size, _align = struct.unpack_from(endian + "IIIII", view, entry)
+        architecture = (cpu, subtype)
+        if architecture in architectures_seen:
+            raise ValueError("fat Mach-O contains a duplicate CPU subtype slice")
+        architectures_seen.add(architecture)
         if size == 0 or offset < table_end or offset > len(view) or size > len(view) - offset:
             raise ValueError("fat Mach-O slice is outside the file")
         end = offset + size
         if any(offset < other_end and other_start < end for other_start, other_end in slices):
             raise ValueError("fat Mach-O slices overlap")
         slices.append((offset, end))
-        slice_cpu, image_uuid = _thin_macho_info(view[offset:end])
-        if slice_cpu != cpu:
-            raise ValueError("fat Mach-O architecture does not match its slice header")
-        if image_uuid:
-            result[_architecture_name(cpu)] = image_uuid
+        slice_cpu, slice_subtype, image_uuid = _thin_macho_info(view[offset:end])
+        if slice_cpu != cpu or slice_subtype != subtype:
+            raise ValueError("fat Mach-O CPU type or subtype does not match its slice header")
+        if not image_uuid:
+            raise ValueError("fat Mach-O slice is missing an LC_UUID command")
+        name = _architecture_name(cpu)
+        if name in result:
+            raise ValueError("fat Mach-O contains multiple slices for one CPU architecture")
+        result[name] = image_uuid
+    return result
+
+
+def macho_cpu_subtypes(data: bytes) -> dict[str, int]:
+    """Return the CPU subtype for each validated thin or universal slice."""
+    view = memoryview(data)
+    magic = bytes(view[:4])
+    if magic in THIN_MAGICS:
+        cpu, subtype, _image_uuid = _thin_macho_info(view)
+        return {_architecture_name(cpu): subtype}
+    fat_layout = FAT_MAGICS.get(magic)
+    if fat_layout is None:
+        return {}
+    # Reuse the UUID parser so all table/slice consistency checks also apply.
+    macho_uuids(data)
+    endian, is_64 = fat_layout
+    count = struct.unpack_from(endian + "I", view, 4)[0]
+    entry_size = 32 if is_64 else 20
+    result = {}
+    for index in range(count):
+        entry = 8 + index * entry_size
+        cpu, subtype = struct.unpack_from(endian + "II", view, entry)
+        name = _architecture_name(cpu)
+        if name in result:
+            raise ValueError("fat Mach-O contains multiple slices for one CPU architecture")
+        result[name] = subtype
     return result
 
 
@@ -168,7 +203,7 @@ def architectures(data: bytes) -> set[str]:
     view = memoryview(data)
     magic = bytes(view[:4])
     if magic in THIN_MAGICS:
-        cpu, _image_uuid = _thin_macho_info(view)
+        cpu, _subtype, _image_uuid = _thin_macho_info(view)
         return {_architecture_name(cpu)}
     if magic in FAT_MAGICS:
         # Parse and validate every slice, including slices without an LC_UUID.
@@ -197,13 +232,117 @@ def mach_o_paths(archive: zipfile.ZipFile, infos, root: str | None = None) -> se
             continue
         with archive.open(info) as member:
             magic = member.read(4)
-            # CAFEBABE is also the Java class-file magic. A valid class resource
-            # is not an executable image and must not be sent to the fat parser.
-            if info.filename.lower().endswith(".class") and magic == b"\xca\xfe\xba\xbe":
+            # CAFEBABE is also the Java class-file magic. Ignore it only when
+            # the entire member has a structurally valid class-file layout.
+            if magic == b"\xca\xfe\xba\xbe" and is_java_class_file(archive.read(info)):
                 continue
             if magic in MACHO_MAGICS:
                 paths.add(info.filename)
     return paths
+
+
+def is_java_class_file(data: bytes) -> bool:
+    """Recognize a class file by its class-file structure, not its suffix."""
+    if len(data) < 10 or data[:4] != b"\xca\xfe\xba\xbe":
+        return False
+    try:
+        _minor, major, count = struct.unpack_from(">HHH", data, 4)
+        if major < 45 or major > 100 or count == 0:
+            return False
+        offset = 10
+        pool = [None] * count
+        index = 1
+        while index < count:
+            tag = data[offset]
+            offset += 1
+            if tag == 1:
+                length = struct.unpack_from(">H", data, offset)[0]
+                offset += 2 + length
+                pool[index] = (tag,)
+            elif tag in (3, 4, 9, 10, 11, 12, 17, 18):
+                first, second = struct.unpack_from(">HH", data, offset)
+                offset += 4
+                pool[index] = (tag, first, second)
+            elif tag in (5, 6):
+                offset += 8
+                pool[index] = (tag,)
+                index += 1
+            elif tag in (7, 8, 16, 19, 20):
+                value = struct.unpack_from(">H", data, offset)[0]
+                offset += 2
+                pool[index] = (tag, value)
+            elif tag == 15:
+                kind, reference = struct.unpack_from(">BH", data, offset)
+                offset += 3
+                pool[index] = (tag, kind, reference)
+            else:
+                return False
+            if offset > len(data):
+                return False
+            index += 1
+
+        def has_tag(pool_index, *tags):
+            return (0 < pool_index < len(pool) and pool[pool_index] is not None and
+                    pool[pool_index][0] in tags)
+
+        for entry in pool[1:]:
+            if entry is None:
+                continue
+            tag = entry[0]
+            if tag == 7 and not has_tag(entry[1], 1):
+                return False
+            if tag == 8 and not has_tag(entry[1], 1):
+                return False
+            if tag in (9, 10, 11) and not (has_tag(entry[1], 7) and has_tag(entry[2], 12)):
+                return False
+            if tag == 12 and not (has_tag(entry[1], 1) and has_tag(entry[2], 1)):
+                return False
+            if tag == 15 and (entry[1] < 1 or entry[1] > 9 or
+                              not has_tag(entry[2], 9, 10, 11)):
+                return False
+            if tag == 16 and not has_tag(entry[1], 1):
+                return False
+            if tag in (17, 18) and not has_tag(entry[2], 12):
+                return False
+            if tag in (19, 20) and not has_tag(entry[1], 1):
+                return False
+        # access_flags, this_class, super_class, interfaces_count
+        _access, this_class, _super_class, interfaces = struct.unpack_from(">HHHH", data, offset)
+        if not has_tag(this_class, 7) or (_super_class and not has_tag(_super_class, 7)):
+            return False
+        offset += 8 + interfaces * 2
+        interface_values = struct.unpack_from(">" + "H" * interfaces, data, offset - interfaces * 2) if interfaces else ()
+        if any(not has_tag(value, 7) for value in interface_values):
+            return False
+        for _ in range(2):  # fields_count and methods_count with members
+            count_members = struct.unpack_from(">H", data, offset)[0]
+            offset += 2
+            for _member in range(count_members):
+                _flags, name_index, descriptor_index, attributes = struct.unpack_from(">HHHH", data, offset)
+                if not has_tag(name_index, 1) or not has_tag(descriptor_index, 1):
+                    return False
+                offset += 8
+                for _attribute in range(attributes):
+                    _name = struct.unpack_from(">H", data, offset)[0]
+                    length = struct.unpack_from(">I", data, offset + 2)[0]
+                    if not has_tag(_name, 1):
+                        return False
+                    offset += 6 + length
+                    if offset > len(data):
+                        return False
+        attributes = struct.unpack_from(">H", data, offset)[0]
+        offset += 2
+        for _attribute in range(attributes):
+            name_index = struct.unpack_from(">H", data, offset)[0]
+            length = struct.unpack_from(">I", data, offset + 2)[0]
+            if not has_tag(name_index, 1):
+                return False
+            offset += 6 + length
+            if offset > len(data):
+                return False
+        return offset == len(data)
+    except (IndexError, struct.error):
+        return False
 
 
 def require_unique_archive_member_names(infos) -> None:
@@ -217,7 +356,43 @@ def require_unique_archive_member_names(infos) -> None:
         raise ValueError("IPA contains duplicate ZIP member names: " + ", ".join(sorted(duplicates)[:8]))
 
 
-def verify_generated_source_evidence(evidence_root: Path, hashes: dict) -> None:
+REQUIRED_GENERATED_HOST_SOURCES = {
+    "SideStoreSupport/SideStore.swift", "SideStoreSupport/SideStoreClient.swift",
+    "SideStoreSupport/XPCServer.m", "SideStoreSupport/XPCServer.h",
+    "LiveContainer/LCBootstrap.m", "LiveContainer/LCContainerStorage.h",
+    "LiveContainerSwiftUI/App/AppDelegate.swift",
+    "LiveContainerSwiftUI/Models/AppLayoutStyle.swift",
+    "LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift",
+    "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift",
+    "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBanner.swift",
+    "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerView.swift",
+    "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerViewController.swift",
+    ".lc-app-layout.json", ".combined-service-startup.json",
+    "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+    "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
+}
+REQUIRED_GENERATED_EMBEDDED_SOURCES = {
+    "AltStore/AppDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift",
+    "SideStore/Core/Operations/PipelineRunner.swift",
+    "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
+    ".combined-refresh-contract.json",
+    "Dependencies/minimuxer/DeviceGateway/idevice/IdeviceGateway.swift",
+}
+
+
+def verify_generated_source_evidence(evidence_root: Path, hashes: dict,
+                                    product: str = "v3") -> None:
+    required = set(REQUIRED_GENERATED_HOST_SOURCES)
+    if product in ("v2",):
+        required.difference_update({
+            "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+            "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
+        })
+    required.update("embedded/" + name for name in REQUIRED_GENERATED_EMBEDDED_SOURCES)
+    if set(hashes) != required:
+        missing = sorted(required - set(hashes))
+        extra = sorted(set(hashes) - required)
+        raise ValueError(f"generated source evidence inventory mismatch (missing={missing}, extra={extra})")
     for name, expected in hashes.items():
         if not isinstance(name, str) or not isinstance(expected, str) or \
                 not re.fullmatch(r"[0-9a-f]{64}", expected):
@@ -240,29 +415,49 @@ def verify_generated_source_evidence(evidence_root: Path, hashes: dict) -> None:
             raise ValueError(f"generated source evidence file is missing: {name}")
         if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             raise ValueError(f"generated source evidence hash mismatch: {name}")
+    for directory, prefix in ((evidence_root / "generated", ""),
+                              (evidence_root / "embedded-generated", "embedded/")):
+        actual = {prefix + path.relative_to(directory).as_posix()
+                  for path in directory.rglob("*") if path.is_file()} if directory.exists() else set()
+        expected = ({name for name in hashes if not name.startswith("embedded/")}
+                    if not prefix else {name for name in hashes if name.startswith(prefix)})
+        if actual != expected:
+            raise ValueError("generated source evidence files do not match the provenance inventory")
 
 
-def preserved_dsym_uuids(evidence_root: Path, packaged_uuids: set[str]) -> dict[str, str]:
+def preserved_dsym_evidence(evidence_root: Path, packaged_uuids: set[str]) -> tuple[dict[str, str], dict[str, str]]:
     found = {}
+    hashes = {}
     for root_name in ("host", "embedded"):
         root = evidence_root / root_name
         if not root.is_dir():
             continue
-        for dwarf in sorted(root.rglob("*")):
-            if not dwarf.is_file():
+        for dsym in sorted(root.rglob("*.dSYM")):
+            dwarf_root = dsym / "Contents" / "Resources" / "DWARF"
+            if not dwarf_root.is_dir():
                 continue
-            try:
-                uuids = macho_uuids(dwarf.read_bytes())
-            except ValueError:
-                continue
-            for value in uuids.values():
-                if value not in packaged_uuids:
+            for dwarf in sorted(dwarf_root.iterdir()):
+                if not dwarf.is_file():
                     continue
-                previous = found.get(dwarf.name)
-                if previous is not None and previous != value:
-                    raise ValueError(f"ambiguous dSYM UUID evidence for {dwarf.name}")
-                found[dwarf.name] = value
-    return found
+                relative = dwarf.relative_to(evidence_root).as_posix()
+                data = dwarf.read_bytes()
+                hashes[relative] = hashlib.sha256(data).hexdigest()
+                try:
+                    uuids = macho_uuids(data)
+                except ValueError:
+                    continue
+                for value in uuids.values():
+                    if value not in packaged_uuids:
+                        continue
+                    previous = found.get(dwarf.name)
+                    if previous is not None and previous != value:
+                        raise ValueError(f"ambiguous dSYM UUID evidence for {dwarf.name}")
+                    found[dwarf.name] = value
+    return found, hashes
+
+
+def preserved_dsym_uuids(evidence_root: Path, packaged_uuids: set[str]) -> dict[str, str]:
+    return preserved_dsym_evidence(evidence_root, packaged_uuids)[0]
 
 
 def is_github_actions_run_url(value: object) -> bool:
@@ -653,6 +848,7 @@ def verify(ipa: Path, provenance_path: Path, product: str,
                              + ", ".join(missing_bundle_executables))
         arch_report = {}
         binary_uuid_report = {}
+        binary_subtype_report = {}
         for path in sorted(set(executable_paths)):
             image = archive.read(path)
             archs = architectures(image)
@@ -663,6 +859,7 @@ def verify(ipa: Path, provenance_path: Path, product: str,
             if "arm64" not in image_uuids:
                 raise ValueError(f"arm64 Mach-O UUID is missing: {path}")
             binary_uuid_report[path] = image_uuids["arm64"]
+            binary_subtype_report[path] = macho_cpu_subtypes(image)["arm64"]
         size_report = archive_size_report(archive_infos, set(executable_paths))
 
         for name in names:
@@ -695,6 +892,8 @@ def verify(ipa: Path, provenance_path: Path, product: str,
     framework_uuids = provenance.get("framework_uuids")
     if not isinstance(framework_uuids, dict) or framework_uuids != binary_uuid_report:
         raise ValueError("provenance Mach-O UUID inventory does not match every packaged executable")
+    if provenance.get("framework_cpu_subtypes") != binary_subtype_report:
+        raise ValueError("provenance Mach-O CPU subtype inventory does not match every packaged executable")
     dsym_uuids = provenance.get("dsym_uuids")
     if not isinstance(dsym_uuids, dict) or not dsym_uuids:
         raise ValueError("matching dSYM UUID evidence is missing")
@@ -712,13 +911,12 @@ def verify(ipa: Path, provenance_path: Path, product: str,
                 not re.fullmatch(r"[0-9a-f]{64}", value)
                 for name, value in generated_hashes.items())):
         raise ValueError("generated source evidence hashes are missing or invalid")
-    if ("LiveContainerSwiftUI/Views/V3UnifiedShell.swift" not in generated_hashes or
-            "embedded/SideStore/Core/Operations/PipelineRunner.swift" not in generated_hashes):
-        raise ValueError("required generated host and SideStore source hashes are missing")
-    verify_generated_source_evidence(provenance_path.parent, generated_hashes)
-    actual_dsym_uuids = preserved_dsym_uuids(provenance_path.parent, packaged_uuids)
+    verify_generated_source_evidence(provenance_path.parent, generated_hashes, product)
+    actual_dsym_uuids, actual_dsym_hashes = preserved_dsym_evidence(provenance_path.parent, packaged_uuids)
     if actual_dsym_uuids != dsym_uuids:
         raise ValueError("preserved dSYM contents do not match provenance UUID evidence")
+    if provenance.get("dsym_sha256") != actual_dsym_hashes:
+        raise ValueError("preserved dSYM DWARF files do not match provenance SHA-256 evidence")
     for key in ("LIVE_CONTAINER_REF", "EMBEDDED_SIDESTORE_REF", "MINIMUXER_REF",
                 "SIDESIGN_REF", "SIDESIGN_GSA_FIX", "IDEVICE_REF", "JKTCP_REF"):
         if not re.fullmatch(r"[0-9a-f]{40}", str(provenance.get("dependencies", {}).get(key, ""))):
@@ -735,6 +933,7 @@ def verify(ipa: Path, provenance_path: Path, product: str,
         **size_report,
         "builder_commit": info["LCBuilderCommit"],
         "architectures": arch_report,
+        "cpu_subtypes": binary_subtype_report,
         "macho_uuid_count": len(binary_uuid_report),
         "matching_dsym_count": len(dsym_uuids),
         "liveprocess_extension": live_process_path,

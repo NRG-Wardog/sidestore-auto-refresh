@@ -7,20 +7,40 @@ from pathlib import Path
 import plistlib
 import re
 import shutil
-import struct
-import uuid
+import sys
 import zipfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from verify_candidate_ipa import macho_cpu_subtypes, macho_uuids
+
+
+HOST_SOURCE_PATHS = [
+    'SideStoreSupport/SideStore.swift', 'SideStoreSupport/SideStoreClient.swift',
+    'SideStoreSupport/XPCServer.m', 'SideStoreSupport/XPCServer.h', 'LiveContainer/LCBootstrap.m',
+    'LiveContainer/LCContainerStorage.h', 'LiveContainerSwiftUI/App/AppDelegate.swift',
+    'LiveContainerSwiftUI/Models/AppLayoutStyle.swift',
+    'LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift',
+    'LiveContainerSwiftUI/Views/AppList/LCAppListView.swift',
+    *['LiveContainerSwiftUI/Views/AppList/LCAppBanner/' + name for name in
+      ('LCAppBanner.swift', 'LCAppBannerView.swift', 'LCAppBannerViewController.swift')],
+    '.lc-app-layout.json', '.combined-service-startup.json',
+]
+V3_HOST_SOURCE_PATHS = [
+    'LiveContainerSwiftUI/Views/V3UnifiedShell.swift',
+    'LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift',
+]
+EMBEDDED_SOURCE_PATHS = [
+    'AltStore/AppDelegate.swift', 'SideStore/Core/Operations/PipelineExecutor.swift',
+    'SideStore/Core/Operations/PipelineRunner.swift',
+    'SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift',
+    '.combined-refresh-contract.json',
+    'Dependencies/minimuxer/DeviceGateway/idevice/IdeviceGateway.swift',
+]
 
 
 def macho_uuid(data):
-    if data[:4] != b'\xcf\xfa\xed\xfe': return None
-    offset = 32
-    for _ in range(struct.unpack_from('<I', data, 16)[0]):
-        command, size = struct.unpack_from('<II', data, offset)
-        if size < 8 or offset + size > len(data): raise ValueError('invalid Mach-O command')
-        if command == 0x1b: return str(uuid.UUID(bytes=data[offset+8:offset+24])).upper()
-        offset += size
-    return None
+    uuids = macho_uuids(data)
+    return next(iter(uuids.values()), None)
 
 
 def main():
@@ -46,14 +66,24 @@ def main():
             path.write_bytes(plistlib.dumps(info, fmt=plistlib.FMT_BINARY))
         return
     args.output.mkdir(parents=True, exist_ok=True)
+    # Ensure repeated collection cannot retain stale files from an earlier run.
+    for name in ('host', 'embedded', 'generated', 'embedded-generated'):
+        target = args.output / name
+        if target.exists(): shutil.rmtree(target)
+    provenance_path = args.output / 'candidate-provenance.json'
+    if provenance_path.exists(): provenance_path.unlink()
     binaries = {}
+    binary_subtypes = {}
     with zipfile.ZipFile(args.ipa) as archive:
         for name in archive.namelist():
             if name.endswith('/'): continue
-            with archive.open(name) as member:
-                header = member.read(65536)
-            value = macho_uuid(header)
-            if value: binaries[name] = value
+            data = archive.read(name)
+            values = macho_uuids(data)
+            if values:
+                if set(values) != {'arm64'}:
+                    raise ValueError(f'unexpected architecture inventory in candidate: {name}')
+                binaries[name] = values['arm64']
+                binary_subtypes[name] = macho_cpu_subtypes(data)['arm64']
         info = plistlib.loads(archive.read('Payload/LiveContainer.app/Info.plist'))
         assert all(info.get(key) == value for key, value in identity.items()), 'packaged identity mismatch'
         for executable in ('SideStoreSupport.framework/SideStoreSupport', 'SideStoreApp.framework/SideStore'):
@@ -64,31 +94,30 @@ def main():
                 assert b'UNIQUE_DEVICE_ID_QUERY_FAIL' in data, 'Issue 24 query diagnostics absent'
                 assert b'lc_stage=uniqueDeviceID' in data, 'Issue 24 structured category absent'
     symbols = {}
+    symbol_hashes = {}
     for index, root in enumerate(args.paths):
         for dsym in root.glob('*.dSYM'):
-            for dwarf in (dsym / 'Contents/Resources/DWARF').iterdir():
-                value = macho_uuid(dwarf.read_bytes())
-                if value in binaries.values():
-                    destination = args.output / ('host' if index == 0 else 'embedded') / dsym.name
-                    shutil.copytree(dsym, destination, dirs_exist_ok=True)
-                    symbols[dwarf.name] = value
+            dwarf_root = dsym / 'Contents/Resources/DWARF'
+            if not dwarf_root.is_dir(): continue
+            dwarf_files = sorted(path for path in dwarf_root.iterdir() if path.is_file())
+            matches = {}
+            for dwarf in dwarf_files:
+                for value in macho_uuids(dwarf.read_bytes()).values():
+                    if value in binaries.values(): matches[dwarf.name] = value
+            if matches:
+                location = 'host' if index == 0 else 'embedded'
+                destination = args.output / location / dsym.name
+                shutil.copytree(dsym, destination, dirs_exist_ok=True)
+                symbols.update(matches)
+                for dwarf in dwarf_files:
+                    data = dwarf.read_bytes()
+                    evidence_path = location + '/' + dsym.name + '/Contents/Resources/DWARF/' + dwarf.name
+                    symbol_hashes[evidence_path] = hashlib.sha256(data).hexdigest()
     support = binaries['Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework/SideStoreSupport']
     assert support in symbols.values(), 'matching SideStoreSupport dSYM required'
     generated = {}
     if args.source:
-        paths = ['SideStoreSupport/SideStore.swift', 'SideStoreSupport/SideStoreClient.swift',
-            'SideStoreSupport/XPCServer.m', 'SideStoreSupport/XPCServer.h', 'LiveContainer/LCBootstrap.m',
-            'LiveContainer/LCContainerStorage.h', 'LiveContainerSwiftUI/App/AppDelegate.swift',
-            'LiveContainerSwiftUI/Models/AppLayoutStyle.swift', 'LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift',
-            'LiveContainerSwiftUI/Views/AppList/LCAppListView.swift']
-        paths += ['LiveContainerSwiftUI/Views/AppList/LCAppBanner/' + name for name in
-                  ('LCAppBanner.swift', 'LCAppBannerView.swift', 'LCAppBannerViewController.swift')]
-        paths += ['.lc-app-layout.json', '.combined-service-startup.json']
-        if args.product == 'v3' or args.product.startswith('v3.'):
-            paths += ['LiveContainerSwiftUI/Views/V3UnifiedShell.swift']
-            # The generated Settings list is the host UI most likely to carry
-            # layout residue from the injection patches, so it ships as evidence.
-            paths += ['LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift']
+        paths = HOST_SOURCE_PATHS + (V3_HOST_SOURCE_PATHS if args.product == 'v3' or args.product.startswith('v3.') else [])
         for name in paths:
             data = (args.source / name).read_bytes()
             target = args.output / 'generated' / name
@@ -96,25 +125,26 @@ def main():
             target.write_bytes(data)
             generated[name] = hashlib.sha256(data).hexdigest()
     if args.side_source:
-        for name in ['AltStore/AppDelegate.swift', 'SideStore/Core/Operations/PipelineExecutor.swift',
-                     'SideStore/Core/Operations/PipelineRunner.swift',
-                     'SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift',
-                     '.combined-refresh-contract.json',
-                     'Dependencies/minimuxer/DeviceGateway/idevice/IdeviceGateway.swift']:
+        for name in EMBEDDED_SOURCE_PATHS:
             data = (args.side_source / name).read_bytes()
             target = args.output / 'embedded-generated' / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
             generated['embedded/' + name] = hashlib.sha256(data).hexdigest()
+    expected_generated = set(HOST_SOURCE_PATHS + (V3_HOST_SOURCE_PATHS if args.product == 'v3' or args.product.startswith('v3.') else []))
+    expected_generated.update('embedded/' + name for name in EMBEDDED_SOURCE_PATHS)
+    if set(generated) != expected_generated:
+        raise ValueError('collected generated-source inventory is incomplete')
     ipa_size = args.ipa.stat().st_size
     ipa_sha256 = hashlib.sha256(args.ipa.read_bytes()).hexdigest()
     evidence = dict(identity, schema=1, candidate_product_version=args.product,
         physical_device_execution=False,
         verification_scope='Static package identity, error protocol, UUID and dSYM matching; not runtime validation',
         ipa=args.ipa.name, ipa_size_bytes=ipa_size, sha256=ipa_sha256, raw_ipa_sha256=ipa_sha256,
-        framework_uuids=binaries, dsym_uuids=symbols, generated_source_sha256=generated,
+        framework_uuids=binaries, framework_cpu_subtypes=binary_subtypes,
+        dsym_uuids=symbols, dsym_sha256=symbol_hashes, generated_source_sha256=generated,
         dependencies={key: os.environ[key] for key in ('LIVE_CONTAINER_REF', 'EMBEDDED_SIDESTORE_REF', 'MINIMUXER_REF', 'SIDESIGN_REF', 'SIDESIGN_GSA_FIX', 'IDEVICE_REF', 'JKTCP_REF')})
-    (args.output / 'candidate-provenance.json').write_text(json.dumps(evidence, indent=2) + '\n')
+    provenance_path.write_text(json.dumps(evidence, indent=2, sort_keys=True) + '\n', encoding='utf-8')
 
 
 if __name__ == '__main__': main()
