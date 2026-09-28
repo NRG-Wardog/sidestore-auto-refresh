@@ -1083,17 +1083,6 @@ struct V3OperationRecoveryLease: Equatable {
         return true
     }
 
-    @discardableResult
-    mutating func clearPreparedAfterConfirmedCancellation(sessionID: String, replySessionID: String?,
-        state: String?, backendSettled: Bool, stopConfirmed: Bool, knownStarted: Bool) -> Bool {
-        guard !knownStarted, let current = record,
-              current.sessionID == sessionID, current.phase == .prepared,
-              replySessionID == sessionID, state == "cancelled",
-              backendSettled, stopConfirmed else { return false }
-        record = nil
-        return true
-    }
-
     var blocksMutation: Bool { record != nil }
     var protectedStagedIPAToken: String? { record?.stagedIPAToken }
 }
