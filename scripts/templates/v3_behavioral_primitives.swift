@@ -3331,15 +3331,72 @@ enum V3AuthPollMonitorRecoveryPolicy {
     }
 }
 
-struct V3ShortcutRefreshRequest {
-    let requestID: String
+public struct V3ShortcutRefreshRequest: Equatable {
+    public let requestID: String
+    public let origin: String
 
-    static func make() -> V3ShortcutRefreshRequest {
-        V3ShortcutRefreshRequest(requestID: UUID().uuidString)
+    public init?(userInfo: [AnyHashable: Any]?) {
+        guard let userInfo,
+              let value = userInfo["requestID"] as? String,
+              let uuid = UUID(uuidString: value), uuid.uuidString == value,
+              let origin = userInfo["origin"] as? String,
+              V3RefreshRunCorrelation.allowedManualOrigins.contains(origin) else { return nil }
+        self.requestID = uuid.uuidString
+        self.origin = origin
     }
 
-    var userInfo: [AnyHashable: Any] {
-        ["requestID": requestID, "origin": "manualUnknown"]
+    public static func make() -> V3ShortcutRefreshRequest {
+        V3ShortcutRefreshRequest(requestID: UUID().uuidString, origin: "manualUnknown")
+    }
+
+    private init(requestID: String, origin: String) {
+        self.requestID = requestID
+        self.origin = origin
+    }
+
+    public var userInfo: [AnyHashable: Any] {
+        ["requestID": requestID, "origin": origin]
+    }
+}
+
+public struct V3RefreshRunCorrelation: Equatable {
+    public static let allowedManualOrigins: Set<String> = [
+        "home", "refreshManager", "setupAssistant", "deadlineAlarm", "vpnReturn", "manualUnknown"
+    ]
+
+    public let runID: String
+    public let requestID: String?
+    public let origin: String
+
+    public static func make(source: String, manual: Bool, requestID: String?,
+                            manualOrigin: String?, runID: UUID) -> V3RefreshRunCorrelation {
+        guard manual else {
+            return V3RefreshRunCorrelation(runID: runID.uuidString, requestID: nil, origin: source)
+        }
+        let canonicalRequest: String
+        if let requestID, let parsed = UUID(uuidString: requestID) {
+            canonicalRequest = parsed.uuidString
+        } else {
+            canonicalRequest = UUID().uuidString
+        }
+        let canonicalOrigin: String
+        if let manualOrigin, allowedManualOrigins.contains(manualOrigin) {
+            canonicalOrigin = manualOrigin
+        } else if source == "alarm_action" {
+            canonicalOrigin = "deadlineAlarm"
+        } else if source == "vpn_return" {
+            canonicalOrigin = "vpnReturn"
+        } else {
+            canonicalOrigin = "manualUnknown"
+        }
+        return V3RefreshRunCorrelation(runID: runID.uuidString, requestID: canonicalRequest,
+                                       origin: canonicalOrigin)
+    }
+
+    private init(runID: String, requestID: String?, origin: String) {
+        self.runID = runID
+        self.requestID = requestID
+        self.origin = origin
     }
 }
 
@@ -3557,15 +3614,17 @@ enum V3AuthTerminalFailureActionPolicy {
         switch kind {
         case "accountRepairRequired": return .repairAppleAccount
         case "appSpecificPasswordRequired": return .useAppSpecificPassword
-        case "rateLimited": return .beginNewSignIn(title: "I Waited — Start New Sign-In")
-        case "invalidCredentials": return .beginNewSignIn(title: "Check Password and Start New Sign-In")
-        case "invalidCode": return .beginNewSignIn(title: "Enter a New Code")
-        case "serviceUnavailable": return .beginNewSignIn(title: "Try Sign-In Later")
-        case "anisette", "anisetteFailure": return .beginNewSignIn(title: "Resolve Anisette Issue")
-        case "network", "networkFailure": return .beginNewSignIn(title: "Check Connection and Try Again")
         default: break
         }
         if retryable == false { return .blocked }
+        switch kind {
+        case "rateLimited": return .beginNewSignIn(title: "Start New Sign-In")
+        case "invalidCredentials": return .beginNewSignIn(title: "Check Password and Start New Sign-In")
+        case "invalidCode": return .beginNewSignIn(title: "Enter a New Code")
+        case "serviceUnavailable", "anisette", "anisetteFailure", "network", "networkFailure":
+            return .beginNewSignIn(title: "Start New Sign-In")
+        default: break
+        }
         if retryable == nil || kind == "unknown" { return .beginNewSignIn(title: "Start New Sign-In") }
         return .beginNewSignIn(title: "Try Sign-In Again")
     }
@@ -3578,11 +3637,33 @@ enum V3AuthTerminalFailureActionPolicy {
             return "Create an app-specific password for this authentication path, then enter it in the password prompt."
         case .blocked:
             return "This failure is not marked safe to retry. Resolve the displayed prerequisite and review Diagnostics."
+        case .beginNewSignIn(_) where kind == "rateLimited":
+            return "Apple is limiting sign-in attempts. Wait before starting a new sign-in."
+        case .beginNewSignIn(_) where kind == "serviceUnavailable":
+            return "Apple's authentication service is temporarily unavailable. Wait for it to recover, then start a new sign-in."
+        case .beginNewSignIn(_) where kind == "anisette" || kind == "anisetteFailure":
+            return "SideStore could not obtain Anisette data. Check Anisette Servers in Settings, then start a new sign-in."
+        case .beginNewSignIn(_) where kind == "network" || kind == "networkFailure":
+            return "The connection to Apple's authentication service failed. Check Connection or LocalDevVPN, then start a new sign-in."
         case .beginNewSignIn(_) where kind == "unknown" || (kind == nil && retryable == nil):
             return "The exact cause or retry safety could not be confirmed. Starting again creates a new attempt and may not resolve the previous failure."
         case .beginNewSignIn(_):
             return nil
         }
+    }
+}
+
+enum V3AuthRepairURLPolicy {
+    static func openableURL(_ rawValue: String) -> URL? {
+        guard rawValue.count <= 2_048,
+              let components = URLComponents(string: rawValue),
+              components.scheme?.lowercased() == "https",
+              let host = components.host?.lowercased(),
+              host == "apple.com" || host.hasSuffix(".apple.com"),
+              components.port == nil || components.port == 443,
+              components.user == nil, components.password == nil,
+              let url = components.url else { return nil }
+        return url
     }
 }
 

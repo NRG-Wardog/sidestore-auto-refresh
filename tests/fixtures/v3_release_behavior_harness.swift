@@ -136,5 +136,16 @@ struct ReleaseBehaviorHarness {
         require(firstRequest.userInfo["requestID"] as? String == firstRequest.requestID &&
                 firstRequest.userInfo["origin"] as? String == "manualUnknown",
                 "the Shortcut request must carry the exact correlation identity and an allowed manual origin")
+        let decoded = V3ShortcutRefreshRequest(userInfo: firstRequest.userInfo)
+        require(decoded == firstRequest, "the production host notification decoder preserves the exact shortcut request")
+        require(V3ShortcutRefreshRequest(userInfo: ["requestID": "bad", "origin": "manualUnknown"]) == nil &&
+                V3ShortcutRefreshRequest(userInfo: ["requestID": firstRequest.requestID, "origin": "bad"]) == nil,
+                "malformed request identity or origin must not be trusted")
+        let runID = UUID()
+        let correlation = V3RefreshRunCorrelation.make(source: "manual", manual: true,
+            requestID: decoded?.requestID, manualOrigin: decoded?.origin, runID: runID)
+        require(correlation.requestID == firstRequest.requestID && correlation.runID == runID.uuidString &&
+                correlation.origin == "manualUnknown" && correlation.requestID != correlation.runID,
+                "host scheduler correlation keeps requestID and runID distinct while binding both to one attempt")
     }
 }

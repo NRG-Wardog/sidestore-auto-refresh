@@ -718,6 +718,21 @@ struct AuthOwnershipReconciliationHarness {
             V3AuthTerminalFailureActionPolicy.guidance(
                 kind: "networkFailure", retryable: false)?.contains("not marked safe to retry") == true,
             "a nonretryable terminal auth failure must not expose a retry action")
+        for kind in ["serviceUnavailable", "anisetteFailure", "networkFailure"] {
+            precondition(V3AuthTerminalFailureActionPolicy.resolve(kind: kind, retryable: true) ==
+                         .beginNewSignIn(title: "Start New Sign-In"),
+                         "the terminal button must say what it actually does instead of claiming it opens a prerequisite")
+        }
+        precondition(V3AuthTerminalFailureActionPolicy.guidance(
+            kind: "serviceUnavailable", retryable: true)?.contains("Wait for it to recover") == true)
+        precondition(V3AuthTerminalFailureActionPolicy.guidance(
+            kind: "anisetteFailure", retryable: true)?.contains("Anisette Servers in Settings") == true)
+        precondition(V3AuthTerminalFailureActionPolicy.guidance(
+            kind: "networkFailure", retryable: true)?.contains("Check Connection or LocalDevVPN") == true)
+        precondition(V3AuthRepairURLPolicy.openableURL("https://iforgot.apple.com/password/verify/appleid") != nil)
+        precondition(V3AuthRepairURLPolicy.openableURL("http://iforgot.apple.com/") == nil)
+        precondition(V3AuthRepairURLPolicy.openableURL("https://apple.com.attacker.invalid/") == nil)
+        precondition(V3AuthRepairURLPolicy.openableURL("https://user:pass@apple.com/") == nil)
 
         let lowercaseID = UUID().uuidString.lowercased()
         let lowercaseInvalidRequest = try PropertyListSerialization.data(fromPropertyList: [
