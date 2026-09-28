@@ -163,7 +163,7 @@ class EveryEntryPointUsesThePolicyTests(unittest.TestCase):
         text = shell()
         start = text.index("private func start()", text.index("struct V3RefreshAllButton"))
         body = text[start:text.index("private func monitorRun", start)]
-        self.assertIn("V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing)", body)
+        self.assertIn("V3RefreshPrerequisite.evaluate(statusConnected: status.connected,", body)
         self.assertLess(body.index("V3RefreshPrerequisite.evaluate"), body.index(RUN_NOW))
 
     def test_manual_refresh_in_the_refresh_manager(self):
@@ -190,7 +190,7 @@ class EveryEntryPointUsesThePolicyTests(unittest.TestCase):
 
     def test_targeted_refresh(self):
         body = targeted_refresh()
-        self.assertIn("V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing)", body)
+        self.assertIn("V3RefreshPrerequisite.evaluate(statusConnected: status.connected,", body)
         self.assertIn("blocksTargetedRefresh", body)
         self.assertIn('Button("Show Pairing Setup")', body)
         self.assertIn("status.pairingPresented = true", body)

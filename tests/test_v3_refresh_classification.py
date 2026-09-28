@@ -48,7 +48,7 @@ class RefreshClassificationTests(unittest.TestCase):
         start = host.index("private func start()", host.index("struct V3RefreshAllButton"))
         end = host.index("private func monitorRun", start)
         body = host[start:end]
-        self.assertIn("V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing)", body)
+        self.assertIn("V3RefreshPrerequisite.evaluate(statusConnected: status.connected,", body)
         self.assertLess(body.index("V3RefreshPrerequisite.evaluate"),
                         body.index("NotificationCenter.default.post"))
         # The pairing identity is minted once, in the shared policy.

@@ -2408,6 +2408,66 @@ enum V3SetupFactRevisionPolicy {
     }
 }
 
+// V3_HOST_SNAPSHOT_WAITER_LIFETIME_V1
+// Snapshot callers may cancel while the shared service request must continue
+// for other callers. This registry gives each waiter one removable identity and
+// drains only the waiters that are still pending when the snapshot finishes.
+struct V3SnapshotWaiterRegistry {
+    private var manualByID: [UUID: Bool] = [:]
+
+    var isEmpty: Bool { manualByID.isEmpty }
+    var anyManualWaiter: Bool { manualByID.values.contains(true) }
+
+    mutating func insert(_ id: UUID, manual: Bool) {
+        manualByID[id] = manual
+    }
+
+    @discardableResult
+    mutating func remove(_ id: UUID) -> Bool {
+        manualByID.removeValue(forKey: id) != nil
+    }
+
+    mutating func takeAll() -> [UUID] {
+        let ids = Array(manualByID.keys)
+        manualByID.removeAll(keepingCapacity: true)
+        return ids
+    }
+}
+
+enum V3SnapshotErrorPolicy {
+    /// Cancellation is a local control-flow result, not evidence that the
+    /// backend became disconnected.
+    static func shouldMarkDisconnected(_ error: Error) -> Bool {
+        !(error is CancellationError)
+    }
+}
+
+// Health notifications can arrive while a request is in flight. Keep one
+// pending rerun so a certificate update is observed after the current request.
+struct V3HealthReloadQueue {
+    private(set) var isChecking = false
+    private(set) var rerunRequested = false
+
+    mutating func request() -> Bool {
+        guard !isChecking else {
+            rerunRequested = true
+            return false
+        }
+        isChecking = true
+        return true
+    }
+
+    /// Returns true when exactly one queued request should run next.
+    mutating func finishIteration() -> Bool {
+        guard rerunRequested else {
+            isChecking = false
+            return false
+        }
+        rerunRequested = false
+        return true
+    }
+}
+
 enum V3RetryDisposition: Equatable {
     case allowed
     case unknown

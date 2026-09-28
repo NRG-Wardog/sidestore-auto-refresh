@@ -1030,14 +1030,14 @@ final class V3SideStoreStatusStore: ObservableObject {
     // any snapshot discharges it, so an unrelated reload can never leave a stale
     // intent behind to cause a second fetch.
     private var snapshotOwed = false
-    // Callers awaiting an authoritative snapshot. Each carries whether it needs
-    // a manual snapshot, because the owed drain is shared and a non-manual
-    // monitor tick must not discharge a caller's manual requirement.
+    // Callers awaiting an authoritative snapshot. The registry tracks whether
+    // each needs a manual snapshot, because the owed drain is shared and a
+    // non-manual monitor tick must not discharge a caller's manual requirement.
     private struct SnapshotWaiter {
-        let manual: Bool
         let continuation: CheckedContinuation<V3ReloadOutcome, Never>
     }
-    private var snapshotWaiters: [SnapshotWaiter] = []
+    private var snapshotWaiters: [UUID: SnapshotWaiter] = [:]
+    private var snapshotWaiterRegistry = V3SnapshotWaiterRegistry()
     private var pendingPickerError: (attemptID: UUID, message: String)?
     @Published private(set) var installAttempt = V3InstallAttemptState()
     var installedAppCount: Int { installedApps.count }
@@ -1094,20 +1094,43 @@ final class V3SideStoreStatusStore: ObservableObject {
     /// every parked case only a snapshot completion resumes the caller.
     @discardableResult
     func reloadAndWait(manual: Bool = true) async -> V3ReloadOutcome {
-        switch beginSnapshot(manual: manual) {
-        case .performSnapshot:
-            return await performSnapshot()
-        case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:
-            // Parked. There is no suspension between the gate decision and this
-            // append, so a snapshot finishing in between cannot be missed and a
-            // continuation cannot be left stranded.
-            return await withCheckedContinuation { continuation in
-                snapshotWaiters.append(SnapshotWaiter(manual: manual, continuation: continuation))
+        guard !Task.isCancelled else { return .notObserved }
+        let decision = beginSnapshot(manual: manual)
+        switch decision {
+        case .performSnapshot, .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation:
+            // The service request belongs to the store, not to the first caller.
+            // Cancellation removes only this caller's continuation and cannot
+            // cancel the shared request for other waiters.
+            let waiterID = UUID()
+            return await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    if case .performSnapshot = decision {
+                        Task { _ = await performSnapshot() }
+                    }
+                    guard !Task.isCancelled else {
+                        continuation.resume(returning: .notObserved)
+                        return
+                    }
+                    snapshotWaiters[waiterID] = SnapshotWaiter(continuation: continuation)
+                    snapshotWaiterRegistry.insert(waiterID, manual: manual)
+                }
+            } onCancel: {
+                Task { @MainActor [weak self] in
+                    self?.cancelSnapshotWaiter(waiterID)
+                }
             }
         case .doNotObserve:
             // Nothing ran and nothing is owed, so no continuation is parked.
             return .notObserved
         }
+    }
+
+    /// Resolves a canceled caller immediately while leaving a shared snapshot
+    /// alive for its other waiters and the store's authoritative cache.
+    private func cancelSnapshotWaiter(_ id: UUID) {
+        guard snapshotWaiterRegistry.remove(id),
+              let waiter = snapshotWaiters.removeValue(forKey: id) else { return }
+        waiter.continuation.resume(returning: .notObserved)
     }
 
     /// The shared synchronous gate. It names the activity instead of inferring
@@ -1164,15 +1187,20 @@ final class V3SideStoreStatusStore: ObservableObject {
 
     private func performSnapshot() async -> V3ReloadOutcome {
         var succeeded = false
+        var cancelled = false
         do {
             accept(try await V3ServiceBridge.shared.request(operation: "snapshot"))
             succeeded = true
         } catch {
-            connected = false
-            requiresConnectionRetry = true
-            present(error)
+            if V3SnapshotErrorPolicy.shouldMarkDisconnected(error) {
+                connected = false
+                requiresConnectionRetry = true
+                present(error)
+            } else {
+                cancelled = true
+            }
         }
-        let outcome: V3ReloadOutcome = succeeded ? .applied : .snapshotFailed
+        let outcome: V3ReloadOutcome = succeeded ? .applied : (cancelled ? .notObserved : .snapshotFailed)
         // The only place a snapshot waiter is ever resumed. State is fully
         // applied first, so no caller can observe a partially updated snapshot.
         finishSnapshot(outcome: outcome)
@@ -1195,9 +1223,10 @@ final class V3SideStoreStatusStore: ObservableObject {
         // authoritative state has landed. A mutation advancing it would claim a
         // snapshot had happened.
         installAttempt.reloadFinished()
-        let waiting = snapshotWaiters
-        snapshotWaiters.removeAll()
-        for waiter in waiting { waiter.continuation.resume(returning: outcome) }
+        for id in snapshotWaiterRegistry.takeAll() {
+            guard let waiter = snapshotWaiters.removeValue(forKey: id) else { continue }
+            waiter.continuation.resume(returning: outcome)
+        }
         drainOwedSnapshot()
     }
 
@@ -1217,7 +1246,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     /// continuation is resumed with `.notObserved` rather than left suspended,
     /// which is what let a non-manual deferred reload hang a task forever.
     private func drainOwedSnapshot() {
-        let needsManual = snapshotWaiters.contains { $0.manual }
+        let needsManual = snapshotWaiterRegistry.anyManualWaiter
         switch V3SnapshotGate.drain(activity: loadActivity, presentationActive: presentation != nil,
                                     owed: snapshotOwed, anyWaiterNeedsManual: needsManual,
                                     requiresConnectionRetry: requiresConnectionRetry) {
@@ -1230,9 +1259,10 @@ final class V3SideStoreStatusStore: ObservableObject {
         case .doNotObserve:
             guard snapshotOwed else { return }
             snapshotOwed = false
-            let waiting = snapshotWaiters
-            snapshotWaiters.removeAll()
-            for waiter in waiting { waiter.continuation.resume(returning: .notObserved) }
+            for id in snapshotWaiterRegistry.takeAll() {
+                guard let waiter = snapshotWaiters.removeValue(forKey: id) else { continue }
+                waiter.continuation.resume(returning: .notObserved)
+            }
         }
     }
     func accept(_ snapshot: [String: Any]) {
@@ -6362,12 +6392,15 @@ struct V3SideSignView: View {
         guard !busy, !exporting else { return }
         exporting = true
         defer { exporting = false }
+        message = ""
+        notice = ""
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "sidesignExport")
             let text = try consumeConfigToken(in: reply)
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("sidesign-config.json")
             try text.write(to: url, atomically: true, encoding: .utf8)
             shareItems = [url]
+            notice = "Configuration exported."
         } catch { message = V3FailureGuidance.message(error) }
     }
 
@@ -6514,7 +6547,7 @@ struct V3HealthView: View {
     @State private var jitlessReadiness: V3JITLessReadiness = .unknown
     @State private var jitlessDetail = "Checking"
     @State private var activeCertificateAvailable = false
-    @State private var checking = false
+    @State private var reloadQueue = V3HealthReloadQueue()
 
     var body: some View {
         List {
@@ -6535,8 +6568,8 @@ struct V3HealthView: View {
                 }
             }
             Section {
-                Button(checking ? "Checking..." : "Re-check") { Task { await reload() } }
-                    .disabled(checking)
+                Button(reloadQueue.isChecking ? "Checking..." : "Re-check") { Task { await reload() } }
+                    .disabled(reloadQueue.isChecking)
             }
             Section("Certificates") {
                 ForEach(certRows, id: \.0) { row in
@@ -6587,8 +6620,8 @@ struct V3HealthView: View {
                                 for: .unknown, activeCertificateAvailable: activeCertificateAvailable) {
                                 Button("Open JIT-Less Setup") { openJITLessSetup() }
                             }
-                            Button(checking ? "Checking..." : "Re-check") { Task { await reload() } }
-                                .disabled(checking)
+                            Button(reloadQueue.isChecking ? "Checking..." : "Re-check") { Task { await reload() } }
+                                .disabled(reloadQueue.isChecking)
                         case .activeCertificateMissing, .activeCertificateRevoked,
                              .activeCertificateExpired:
                             // Refreshing the copy cannot repair SideStore's own
@@ -6607,22 +6640,30 @@ struct V3HealthView: View {
         .navigationTitle("Health Check")
         .task { await reload() }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3CanonicalJITLessCertificateUpdated"))) { _ in
+            // Invalidate immediately, even if this view already has a health
+            // request in flight. Its result is stale as soon as the certificate
+            // changes, and reload() queues one follow-up request.
+            status.invalidateSetupFacts()
             Task { await reload() }
         }
     }
 
     private func reload() async {
-        guard !checking else { return }
-        checking = true
-        let factRevision = status.currentSetupFactRevision
-        defer { checking = false }
+        guard reloadQueue.request() else { return }
+        repeat {
+            let factRevision = status.beginSetupFactObservation()
+            await reloadOnce(factRevision: factRevision)
+        } while reloadQueue.finishIteration()
+    }
+
+    private func reloadOnce(factRevision: UInt64) async {
         rows.removeAll(keepingCapacity: true)
         certRows.removeAll(keepingCapacity: true)
         message = ""
         jitlessDetail = "Checking"
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
-            guard status.isSetupFactRevisionCurrent(factRevision) else { return }
+            guard healthRevisionIsCurrent(factRevision) else { return }
             var result: [(String, String)] = []
             result.append(("Account", reply["account"] as? String ?? ""))
             result.append(("Team", reply["team"] as? String ?? ""))
@@ -6638,7 +6679,7 @@ struct V3HealthView: View {
             let certificateState = reply["certificateState"] as? [String: Any] ?? [:]
             activeCertificateAvailable = certificateState["active"] as? Bool == true
             let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificateState)
-            guard status.isSetupFactRevisionCurrent(factRevision) else { return }
+            guard healthRevisionIsCurrent(factRevision) else { return }
             certRows = certComparison(service: certificateState,
                 hasImportedCopy: readiness.hasImportedCopy, localFacts: readiness.certificateFacts)
             jitlessReadiness = readiness.readiness
@@ -6648,13 +6689,22 @@ struct V3HealthView: View {
             status.recordJITLessReadiness(readiness.readiness, revision: factRevision)
             message = ""
         } catch {
-            guard status.isSetupFactRevisionCurrent(factRevision) else { return }
+            guard healthRevisionIsCurrent(factRevision) else { return }
             message = V3FailureGuidance.message(error)
             jitlessReadiness = .unknown
             jitlessDetail = "Could not check JIT-Less status"
             activeCertificateAvailable = false
             status.recordJITLessReadiness(.unknown, revision: factRevision)
         }
+    }
+
+    private func healthRevisionIsCurrent(_ revision: UInt64) -> Bool {
+        guard !status.isSetupFactRevisionCurrent(revision) else { return true }
+        // A host lifecycle or another authoritative observer invalidated this
+        // request while it was running. Recheck after it finishes so Health
+        // does not stay on a stale result or an empty "Checking" state.
+        _ = reloadQueue.request()
+        return false
     }
 
     private func openJITLessSetup() {
