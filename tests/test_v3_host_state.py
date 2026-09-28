@@ -10,6 +10,14 @@ SWIFTC = shutil.which("swiftc")
 
 
 class V3HostStateTests(unittest.TestCase):
+    def test_sign_in_return_invalidates_jitless_setup_facts_before_reload(self):
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        start = shell.index('.sheet(isPresented: $status.signInPresented, onDismiss: {')
+        end = shell.index("}) {", start)
+        dismissal = shell[start:end]
+        self.assertIn("status.invalidateSetupFacts()", dismissal)
+        self.assertLess(dismissal.index("status.invalidateSetupFacts()"), dismissal.index("status.reload()"))
+
     def test_unreadable_recovery_journal_is_visible_and_blocks_new_work(self):
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         self.assertIn("unresolvedRecoveryJournalUnreadable", shell)

@@ -1769,14 +1769,13 @@ struct V3RefreshAllAttemptState {
                 : "Refresh completed. Results for this run were verified; \(skippedCount) running app(s) were skipped."
         case "failed":
             phase = .failed
-            guard let failure = record["failure"] as? [String: Any],
-                  failure["operation"] as? String == "refresh",
-                  failure["correlationID"] as? String == runID else {
-                terminalMessage = "Refresh failed during refreshVerification, but no safe underlying cause was available."
+            guard let failureWire = record["failure"] as? [String: Any],
+                  let failure = CombinedFailure.decode(failureWire, expectedID: runID),
+                  failure.operation == "refresh" else {
+                terminalMessage = "Refresh failed, but no matching safe cause was available."
                 return true
             }
-            terminalMessage = (record["message"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                ?? "Refresh failed during refreshVerification, but no safe underlying cause was available."
+            terminalMessage = failure.safeMessage
         default:
             return false
         }
@@ -1827,15 +1826,37 @@ struct V3RefreshAllAttemptState {
 }
 
 enum V3RefreshAllFailureDiagnostics {
+    static func withoutRunRecord(requestID: String, runID: String?, message: String,
+                                 health: String) -> String? {
+        guard let request = UUID(uuidString: requestID), request.uuidString == requestID else { return nil }
+        let safeRunID: String
+        if let runID, let parsed = UUID(uuidString: runID), parsed.uuidString == runID {
+            safeRunID = runID
+        } else {
+            safeRunID = "not_started"
+        }
+        let safeCorrelation = safeRunID == "not_started" ? requestID : safeRunID
+        func safeLine(_ value: String) -> String {
+            String(value.filter { $0.isASCII && $0 != "\n" && $0 != "\r" }.prefix(512))
+        }
+        return [
+            "schema=1", "request_id=\(requestID)", "manual_refresh_request=\(requestID)",
+            "run_id=\(safeRunID)", "state=failed", "operation=refresh", "stage=unknown",
+            "code=unknown", "correlation=\(safeCorrelation)",
+            "underlying_domain=redacted", "underlying_code=unknown", "retryable=unknown",
+            "safe_cause=unknown", "source_step=unknown", "health=\(safeLine(health))",
+            "safe_message=\(safeLine(message))"
+        ].joined(separator: "\n")
+    }
+
     static func text(requestID: String, runID: String,
                      record: [String: Any]) -> String? {
         guard UUID(uuidString: requestID) != nil, UUID(uuidString: runID) != nil,
               record["request_id"] as? String == requestID,
               record["run_id"] as? String == runID,
               record["state"] as? String == "failed" else { return nil }
-        let failure = record["failure"] as? [String: Any]
-        let failureMatchesRun = failure?["operation"] as? String == "refresh" &&
-            failure?["correlationID"] as? String == runID
+        let failureWire = record["failure"] as? [String: Any]
+        let failure = failureWire.flatMap { CombinedFailure.decode($0, expectedID: runID) }
         let manifest = record["manifest"] as? [String: Any]
             ?? record["manifest_summary"] as? [String: Any] ?? [:]
         func safeIDs(_ key: String) -> String {
@@ -1851,10 +1872,10 @@ enum V3RefreshAllFailureDiagnostics {
             let value = (record[key] as? String ?? "unknown")
             return String(value.filter { $0.isASCII && $0 != "\n" && $0 != "\r" }.prefix(80))
         }
-        if !failureMatchesRun {
+        if failure?.operation != "refresh" {
             return [
                 "schema=1", "request_id=\(requestID)", "manual_refresh_request=\(requestID)", "run_id=\(runID)",
-                "state=failed", "operation=refresh", "stage=refreshVerification",
+                "state=failed", "operation=refresh", "stage=unknown",
                 "code=staleResult", "correlation=\(runID)",
                 "underlying_domain=redacted", "underlying_code=unknown",
                 "retryable=unknown", "safe_cause=unknown", "source_step=unknown",
@@ -1866,17 +1887,11 @@ enum V3RefreshAllFailureDiagnostics {
                 "requested_app_ids=\(safeIDs("requested_ids"))",
                 "attempted_app_ids=\(safeIDs("expected_ids"))",
                 "skipped_app_ids=\(safeIDs("skipped_ids"))",
-                "safe_message=Refresh failed during refreshVerification, but no safe underlying cause was available."
+                "safe_message=Refresh failed, but no matching safe cause was available."
             ].joined(separator: "\n")
         }
         guard let failure else { return nil }
-        func scalar(_ key: String, _ fallback: String) -> String {
-            guard let value = failure[key] as? String else { return fallback }
-            return value.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: " ")
-        }
-        let retryable = (failure["retryable"] as? Bool).map { $0 ? "true" : "false" } ?? "unknown"
-        let safeMessage = (record["message"] as? String ?? "Refresh failed during command, but no safe underlying cause was available.")
-            .replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: " ")
+        let retryable = failure.retryable.map { $0 ? "true" : "false" } ?? "unknown"
         return [
             "schema=1",
             "request_id=\(requestID)",
@@ -1894,16 +1909,16 @@ enum V3RefreshAllFailureDiagnostics {
             "requested_app_ids=\(safeIDs("requested_ids"))",
             "attempted_app_ids=\(safeIDs("expected_ids"))",
             "skipped_app_ids=\(safeIDs("skipped_ids"))",
-            "operation=\(scalar("operation", "refresh"))",
-            "stage=\(scalar("stage", "unknown"))",
-            "code=\(scalar("code", "unknown"))",
-            "correlation=\(scalar("correlationID", runID))",
-            "underlying_domain=\(scalar("underlyingDomain", "redacted"))",
-            "underlying_code=\((failure["underlyingCode"] as? Int).map { String($0) } ?? "unknown")",
+            "operation=\(failure.operation)",
+            "stage=\(failure.stage.rawValue)",
+            "code=\(failure.code.rawValue)",
+            "correlation=\(failure.correlationID)",
+            "underlying_domain=\(failure.underlyingDomain)",
+            "underlying_code=\(failure.underlyingCode)",
             "retryable=\(retryable)",
-            "safe_cause=\(scalar("safeCause", "unknown"))",
-            "source_step=\(scalar("sourceStep", "unknown"))",
-            "safe_message=\(safeMessage)"
+            "safe_cause=\(failure.safeCause?.rawValue ?? "unknown")",
+            "source_step=\(failure.sourceStep?.rawValue ?? "unknown")",
+            "safe_message=\(failure.safeMessage.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: " "))"
         ].joined(separator: "\n")
     }
 }
@@ -2717,6 +2732,10 @@ struct V3RefreshPrerequisite: Equatable {
         }
     }
 
+    static func isConfirmed(pairingStatus: String?) -> Bool {
+        evaluate(pairingStatus: pairingStatus).state == .satisfied
+    }
+
     /// A cached pairing string is authoritative only while its snapshot is
     /// connected. After a failed snapshot, preserve the value for diagnostics
     /// but treat it as unknown for admission so stale state cannot block a run.
@@ -3241,10 +3260,6 @@ struct V3AuthSessionOwnership {
             let oldest = deadlines.sorted { $0.value < $1.value }
             for (id, _) in oldest.prefix(deadlines.count - 256) { deadlines.removeValue(forKey: id) }
         }
-    }
-
-    static func isConfirmed(pairingStatus: String?) -> Bool {
-        evaluate(pairingStatus: pairingStatus).state == .satisfied
     }
 
     mutating func observe(operation: String, sessionID: String, replySessionID: String?,

@@ -605,6 +605,18 @@ struct SetupAndSemanticUXHarness {
             returnToSetupPending: false, lastAttemptAt: factsTime,
             now: factsTime.addingTimeInterval(V3SetupFactObservationPolicy.maximumAge)),
             "setup facts refresh after the bounded cache age")
+        let recentlyObservedAfterSignIn = factsTime.addingTimeInterval(30)
+        precondition(!V3SetupFactObservationPolicy.shouldObserve(connected: true,
+            setupPresented: false, operationPresented: false, loading: false,
+            returnToSetupPending: false, lastAttemptAt: factsTime,
+            now: recentlyObservedAfterSignIn),
+            "a recent readiness result would otherwise remain cached after authentication")
+        let invalidatedAfterSignIn: Date? = nil
+        precondition(V3SetupFactObservationPolicy.shouldObserve(connected: true,
+            setupPresented: false, operationPresented: false, loading: false,
+            returnToSetupPending: false, lastAttemptAt: invalidatedAfterSignIn,
+            now: recentlyObservedAfterSignIn),
+            "sign-in invalidation makes the newly provisioned active certificate observable immediately")
         precondition(!V3JITLessCompletionPolicy.isComplete(nil),
                      "an unobserved JIT-Less state must stay outstanding")
         precondition(!V3JITLessCompletionPolicy.isComplete(.unknown))

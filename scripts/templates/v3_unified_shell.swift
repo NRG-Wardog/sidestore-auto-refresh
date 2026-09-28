@@ -186,6 +186,10 @@ struct V3UnifiedTabs: View {
             V3OperationSheet(request: request).environmentObject(status)
         }
         .sheet(isPresented: $status.signInPresented, onDismiss: {
+            // Sign-in can create or replace the active certificate. Status
+            // snapshots omit the separate JIT-Less certificate comparison,
+            // so invalidate that fact before requesting the post-auth snapshot.
+            status.invalidateSetupFacts()
             status.reload()
             routePendingCanonicalJITLessSetup()
         }) {
@@ -773,26 +777,9 @@ struct V3RefreshAllButton: View {
                requestID: requestID, runID: runID, record: record) {
             diagnostics = currentRunDiagnostics
         } else {
-            diagnostics = [
-                "schema=1",
-                "request_id=\(requestID)",
-                "manual_refresh_request=\(requestID)",
-                "run_id=\(runID.isEmpty ? "not_started" : runID)",
-                "state=failed",
-                "operation=refresh",
-                "stage=refreshVerification",
-                "code=unknown",
-                "source_step=unknown",
-                "correlation=\(runID.isEmpty ? "unknown" : runID)",
-                "underlying_domain=redacted",
-                "underlying_code=unknown",
-                "retryable=unknown",
-                "safe_cause=unknown",
-                "origin=unknown",
-                "network_preflight=unknown",
-                "safe_message=\(message)",
-                "health=\(health)"
-            ].joined(separator: "\n")
+            diagnostics = V3RefreshAllFailureDiagnostics.withoutRunRecord(
+                requestID: requestID, runID: runID.isEmpty ? nil : runID,
+                message: message, health: health) ?? "schema=1\noperation=refresh\nstage=unknown\ncode=unknown"
         }
     }
 

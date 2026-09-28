@@ -73,12 +73,32 @@ struct RefreshFailureCorrelationHarness {
         precondition(mismatchedAttempt.observe(starting))
         precondition(mismatchedAttempt.observe(mismatchedFailure))
         precondition(mismatchedAttempt.terminalMessage ==
-            "Refresh failed during refreshVerification, but no safe underlying cause was available.")
+            "Refresh failed, but no matching safe cause was available.")
         let mismatchedDiagnostic = V3RefreshAllFailureDiagnostics.text(
             requestID: homeRequest, runID: homeRun, record: mismatchedFailure)!
-        precondition(mismatchedDiagnostic.contains("stage=refreshVerification") &&
+        precondition(mismatchedDiagnostic.contains("stage=unknown") &&
                      mismatchedDiagnostic.contains("code=staleResult") &&
                      !mismatchedDiagnostic.contains("stage=authentication"))
+
+        var didNotStartAttempt = V3RefreshAllAttemptState()
+        didNotStartAttempt.begin(requestID: homeRequest)
+        didNotStartAttempt.markDidNotStart()
+        precondition(didNotStartAttempt.phase == .failed &&
+                     didNotStartAttempt.terminalMessage == "Refresh did not start.")
+        let noStartDiagnostic = V3RefreshAllFailureDiagnostics.withoutRunRecord(
+            requestID: homeRequest, runID: nil, message: "Refresh did not start.", health: "REFRESH_FAILED")!
+        precondition(noStartDiagnostic.contains("stage=unknown") &&
+                     noStartDiagnostic.contains("run_id=not_started") &&
+                     noStartDiagnostic.contains("safe_message=Refresh did not start.") &&
+                     !noStartDiagnostic.contains("refreshVerification"),
+            "a refresh that never started must not claim it failed during verification")
+
+        let missingRecordDiagnostic = V3RefreshAllFailureDiagnostics.withoutRunRecord(
+            requestID: homeRequest, runID: homeRun, message: "Refresh did not reach a verified terminal result.",
+            health: "REFRESH_FAILED")!
+        precondition(missingRecordDiagnostic.contains("run_id=\(homeRun)") &&
+                     missingRecordDiagnostic.contains("stage=unknown") &&
+                     missingRecordDiagnostic.contains("correlation=\(homeRun)"))
 
         // Unknown causes say exactly what the service could safely establish.
         let unknownRun = UUID().uuidString

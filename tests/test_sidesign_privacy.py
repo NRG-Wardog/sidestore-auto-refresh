@@ -163,7 +163,7 @@ class SideSignPrivacyTests(unittest.TestCase):
                 shutil.copyfile(source / relative, destination)
             logging_path = root / patch.SIDESTORE_LOGGING
             logging_path.write_text(v3_service_patch.headless_safe_log_format(
-                logging_path.read_text(encoding="utf-8"), str(patch.SIDESTORE_LOGGING)), encoding="utf-8")
+                logging_path.read_text(encoding="utf-8")), encoding="utf-8")
             patch.patch_sidestore_tree(root)
             first = {path.relative_to(root): path.read_bytes() for path in root.rglob("*.swift")}
             patch.patch_sidestore_tree(root)
