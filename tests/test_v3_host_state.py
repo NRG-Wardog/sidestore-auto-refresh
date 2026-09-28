@@ -10,6 +10,29 @@ SWIFTC = shutil.which("swiftc")
 
 
 class V3HostStateTests(unittest.TestCase):
+    def test_successful_sign_in_invalidates_and_refreshes_readiness_in_place(self):
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        start = shell.index("struct V3SignInView: View")
+        end = shell.index("\nstruct V3CertificateRow", start)
+        sign_in = shell[start:end]
+        auth_change_start = sign_in.index(".onChange(of: auth.isSignedIn)")
+        auth_change_end = sign_in.index(".onChange(of: status.jitlessReadiness)", auth_change_start)
+        auth_change = sign_in[auth_change_start:auth_change_end]
+        self.assertIn("authenticationStateChanged(isSignedIn: isSignedIn)", auth_change)
+        self.assertIn("guard isSignedIn else { return }", auth_change)
+        refresh = auth_change.index("status.refreshSetupFactsAfterSignIn()")
+        reload = auth_change.index("status.reload()", refresh)
+        self.assertLess(refresh, reload)
+        refresh_method = shell[shell.index("func refreshSetupFactsAfterSignIn() {"):]
+        refresh_method = refresh_method[:refresh_method.index("\n    }")]
+        self.assertIn("invalidateSetupFacts()", refresh_method)
+        self.assertIn("setupFactObservation = .deferred", refresh_method)
+        self.assertIn("Task { await observeSetupFacts() }", refresh_method)
+        self.assertIn("jitlessReadinessObservation.observe(readiness)", sign_in)
+        self.assertIn("readinessForPresentation(\n                status.jitlessReadiness)", sign_in)
+        self.assertIn('URL(string: "livecontainer://jitless-setup")', sign_in,
+                      "canonical LiveContainer setup routing must remain in place")
+
     def test_all_sign_in_routes_invalidate_jitless_facts_before_reload(self):
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         start = shell.index("struct V3SignInView: View")

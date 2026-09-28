@@ -545,6 +545,37 @@ struct SetupAndSemanticUXHarness {
                      signInUnknown.presentation.title == "Validation unknown" &&
                      signInUnknown.action == .openSetup,
                      "unobserved readiness is shown as unknown, never as confirmed missing")
+        // V3_SIGNIN_JITLESS_REFRESH_STATE_V1: a successful authentication can
+        // replace SideStore's active certificate, so the old ready fact is
+        // hidden until a new observation arrives. Failures and cancellations
+        // do not invalidate readiness because they do not change auth state to
+        // signed in.
+        var signInReadinessObservation = V3SignInJITLessReadinessObservation()
+        precondition(signInReadinessObservation.readinessForPresentation(.ready) == .ready)
+        signInReadinessObservation.authenticationStateChanged(isSignedIn: false)
+        precondition(signInReadinessObservation.readinessForPresentation(.ready) == .ready,
+                     "failed or cancelled sign-in leaves the current readiness unchanged")
+        signInReadinessObservation.authenticationStateChanged(isSignedIn: true)
+        precondition(signInReadinessObservation.awaitingFreshFactAfterAuthentication)
+        precondition(signInReadinessObservation.readinessForPresentation(.ready) == nil,
+                     "a cached ready result is hidden immediately after successful authentication")
+        let pendingSignInGuidance = V3SignInJITLessGuidancePolicy.resolve(
+            osMajor: 26,
+            readiness: signInReadinessObservation.readinessForPresentation(.ready))!
+        precondition(pendingSignInGuidance.readiness == .unknown &&
+                     pendingSignInGuidance.action == .openSetup,
+                     "pending readiness remains honest and leaves setup available")
+        signInReadinessObservation.observe(nil)
+        precondition(signInReadinessObservation.awaitingFreshFactAfterAuthentication,
+                     "invalidation alone does not release the pending state")
+        signInReadinessObservation.observe(.certificateMismatch)
+        precondition(!signInReadinessObservation.awaitingFreshFactAfterAuthentication)
+        let refreshedSignInGuidance = V3SignInJITLessGuidancePolicy.resolve(
+            osMajor: 26,
+            readiness: signInReadinessObservation.readinessForPresentation(.certificateMismatch))!
+        precondition(refreshedSignInGuidance.readiness == .certificateMismatch &&
+                     refreshedSignInGuidance.action == .refreshCertificate,
+                     "the refreshed stale-copy fact restores the correct refresh action")
         let contradictoryNotRequired = V3SignInJITLessGuidancePolicy.resolve(
             osMajor: 26, readiness: .notRequired)!
         precondition(contradictoryNotRequired.readiness == .unknown,

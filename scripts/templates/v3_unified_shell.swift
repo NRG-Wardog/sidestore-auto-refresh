@@ -971,6 +971,16 @@ final class V3SideStoreStatusStore: ObservableObject {
         Task { await observeSetupFacts() }
     }
 
+    /// Re-observes readiness as soon as Sign In reports an authenticated
+    /// account. This explicit path also runs while Setup Assistant owns a
+    /// presentation, when the ordinary root observer correctly stays idle.
+    func refreshSetupFactsAfterSignIn() {
+        invalidateSetupFacts()
+        setupFactObservation = .deferred
+        setupFactLastAttemptAt = Date()
+        Task { await observeSetupFacts() }
+    }
+
     private func observeSetupFacts() async {
         let revision = beginSetupFactObservation()
         // Wi-Fi is a host-side fact, so it is probed here rather than asked of
@@ -5488,6 +5498,7 @@ struct V3SignInView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @EnvironmentObject private var sharedModel: SharedModel
     @StateObject private var auth = V3AuthStore()
+    @State private var jitlessReadinessObservation = V3SignInJITLessReadinessObservation()
     var body: some View {
         List {
             Section("Apple ID") {
@@ -5775,6 +5786,20 @@ struct V3SignInView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("Sign In")
         .task { await auth.reconcile() }
+        .onChange(of: auth.isSignedIn) { isSignedIn in
+            jitlessReadinessObservation.authenticationStateChanged(isSignedIn: isSignedIn)
+            guard isSignedIn else { return }
+            // Sign-in may replace SideStore's active certificate. Clear a prior
+            // JIT-Less comparison and request a fresh snapshot while this screen
+            // remains visible, so its guidance cannot reuse stale "Ready".
+            status.refreshSetupFactsAfterSignIn()
+            status.reload()
+        }
+        .onChange(of: status.jitlessReadiness) { readiness in
+            // nil is the invalidated/pending state. Release the UI guard only
+            // after an authoritative post-authentication fact is published.
+            jitlessReadinessObservation.observe(readiness)
+        }
         .onDisappear {
             auth.cancel()
             auth.clearPreviousFailure()
@@ -5793,7 +5818,8 @@ struct V3SignInView: View {
     private var jitlessGuidance: V3SignInJITLessGuidance? {
         V3SignInJITLessGuidancePolicy.resolve(
             osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
-            readiness: status.jitlessReadiness)
+            readiness: jitlessReadinessObservation.readinessForPresentation(
+                status.jitlessReadiness))
     }
 
     // V3_FINISH_LATER_PRESERVES_ACCOUNT_V1: closing the flow reloads the
@@ -6793,6 +6819,27 @@ private struct V3JITLessStatusResult {
     let detail: String
     let hasImportedCopy: Bool
     let certificateFacts: V3PKCS12CertificateFacts?
+}
+
+// V3_SIGNIN_JITLESS_REFRESH_STATE_V1: a previously observed ready fact cannot
+// describe the active certificate after authentication succeeds. Keep the
+// guidance unverified until a post-authentication observation arrives.
+private struct V3SignInJITLessReadinessObservation {
+    private(set) var awaitingFreshFactAfterAuthentication = false
+
+    mutating func authenticationStateChanged(isSignedIn: Bool) {
+        guard isSignedIn else { return }
+        awaitingFreshFactAfterAuthentication = true
+    }
+
+    mutating func observe(_ readiness: V3JITLessReadiness?) {
+        guard awaitingFreshFactAfterAuthentication, readiness != nil else { return }
+        awaitingFreshFactAfterAuthentication = false
+    }
+
+    func readinessForPresentation(_ readiness: V3JITLessReadiness?) -> V3JITLessReadiness? {
+        awaitingFreshFactAfterAuthentication ? nil : readiness
+    }
 }
 
 private enum V3JITLessStatusReader {
