@@ -80,8 +80,10 @@ public enum CombinedVerification {
                     userInfo: [NSLocalizedDescriptionKey: entry["error"] as? String ?? ""])
                 let preserved = (entry["failure"] as? [String: Any]).flatMap { CombinedFailure.decode($0, expectedID: runID) }
                 let failure = preserved ?? CombinedFailure.capture(native, operation: "refresh", stage: .refreshVerification, id: runID)
+                let safeUnderlying = CombinedFailure.safeWireUnderlying(domain: failure.underlyingDomain,
+                    code: failure.underlyingCode)
                 item["error"] = failure.localizedDescription
-                item["error_code"] = failure.underlyingCode; item["error_domain"] = failure.underlyingDomain
+                item["error_code"] = safeUnderlying.code; item["error_domain"] = safeUnderlying.domain
                 item["failure"] = failure.wire
             }
             return item
@@ -287,6 +289,25 @@ public struct CombinedFailure: Error, LocalizedError {
             return ("redacted", "unknown")
         }
         return (domain, String(code))
+    }
+
+    /// Safe technical fields for the provisioning retry prompt. Preserve the
+    /// area/correlation context, but never interpolate an untrusted NSError.
+    public static func provisioningRetryTechnicalDetails(for error: Error,
+                                                         correlationID: String) -> String {
+        let native = error as NSError
+        let underlying = safeDiagnosticUnderlying(domain: native.domain, code: native.code)
+        return "domain=\(underlying.domain) code=\(underlying.code) area=provisioning correlation=\(correlationID)"
+    }
+
+    /// The serialized wire keeps an integer field for compatibility. Zero is a
+    /// non-native sentinel when the domain is redacted; the numeric NSError code
+    /// is never copied alongside an unknown domain.
+    fileprivate static func safeWireUnderlying(domain: String, code: Int) -> (domain: String, code: Int) {
+        guard Self.domains.contains(domain), domain != "redacted" else {
+            return ("redacted", 0)
+        }
+        return (domain, code)
     }
 
     private var timeoutAction: String {
@@ -704,11 +725,10 @@ public struct CombinedFailure: Error, LocalizedError {
             retryable: retryable, safeCause: safeCause, sourceStep: sourceStep)
     }
     public var wire: [String: Any] {
+        let safeUnderlying = Self.safeWireUnderlying(domain: underlyingDomain, code: underlyingCode)
         var result: [String: Any] = ["version": 1, "operation": operation, "stage": stage.rawValue, "code": code.rawValue,
-            "correlationID": correlationID, "underlyingDomain": underlyingDomain,
-            // Unknown domains may encode user data. Do not serialize their native
-            // numeric code separately; the redacted domain has no safe code value.
-            "underlyingCode": underlyingDomain == "redacted" ? 0 : underlyingCode]
+            "correlationID": correlationID, "underlyingDomain": safeUnderlying.domain,
+            "underlyingCode": safeUnderlying.code]
         if let safeCause { result["safeCause"] = safeCause.rawValue }
         if let sourceStep { result["sourceStep"] = sourceStep.rawValue }
         if let retryable { result["retryable"] = retryable }

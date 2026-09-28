@@ -578,6 +578,13 @@ class SafeFailureCopyTests(unittest.TestCase):
         side_jit = side_jit[:side_jit.index("struct V3ReleaseTrackHostView")]
         self.assertIn("ping = V3SideJITReachabilityFeedback.unreachable", side_jit)
         self.assertNotIn("error.localizedDescription", side_jit)
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        retry_start = runtime.index("private func askProvisioningRetry(")
+        retry_end = runtime.index("\n    func resolvePostAuth()", retry_start)
+        retry_prompt = runtime[retry_start:retry_end]
+        self.assertIn("CombinedFailure.provisioningRetryTechnicalDetails(", retry_prompt)
+        self.assertNotIn("native.domain", retry_prompt)
+        self.assertNotIn("native.code", retry_prompt)
 
         compiler = shutil.which("swiftc")
         if not compiler:

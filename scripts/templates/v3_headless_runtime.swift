@@ -1108,8 +1108,8 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
     }
 
     private func askProvisioningRetry(message: String, hint: String, error: Error) async -> ProvisioningErrorDecision {
-        let native = error as NSError
-        let technical = "domain=\(native.domain) code=\(native.code) area=provisioning correlation=\(sessionID)"
+        let technical = CombinedFailure.provisioningRetryTechnicalDetails(
+            for: error, correlationID: sessionID)
         // V3_PROVISIONING_RECOVERY_LABELS_V1: authentication already succeeded.
         // "Cancel" would read as a failed sign-in, so the escape action is named
         // Finish Later and the retry is scoped to provisioning only.
