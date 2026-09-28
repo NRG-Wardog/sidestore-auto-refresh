@@ -68,6 +68,22 @@ enum V3SecretHandoffError: Error, LocalizedError {
     }
 }
 
+/// Serializes the full shared-Keychain admission transaction across the host
+/// and embedded service processes. The count/purge callback and SecItemAdd
+/// callback must remain within this one lock scope.
+enum V3SecretHandoffStoreAdmission {
+    static func add<T>(containerRoot: URL? = nil, maximumOutstandingItems: Int,
+                       liveItemCount: () throws -> Int,
+                       insert: () throws -> T) throws -> T {
+        try V3AppGroupProcessLock.withLock(containerRoot: containerRoot) {
+            guard try liveItemCount() < maximumOutstandingItems else {
+                throw V3SecretHandoffError.capacity
+            }
+            return try insert()
+        }
+    }
+}
+
 enum V3SecretHandoffRecord {
     static let lifetime: TimeInterval = 120
     static let maximumPayloadBytes = 64 * 1024
@@ -400,9 +416,11 @@ enum V3SecretHandoff {
     }
 
     static func cleanupExpiredItems() {
-        guard let group = try? sharedKeychainAccessGroup(),
-              let rows = try? listedItems(group: group) else { return }
-        _ = try? removeExpiredItems(group: group, rows: rows, now: Date())
+        guard let group = try? sharedKeychainAccessGroup() else { return }
+        _ = try? V3AppGroupProcessLock.withLock {
+            let rows = try listedItems(group: group)
+            _ = try removeExpiredItems(group: group, rows: rows, now: Date())
+        }
     }
 
     private static func store(_ payload: Data, kind: String) throws -> String {
@@ -410,21 +428,26 @@ enum V3SecretHandoff {
             throw V3SecretHandoffError.malformed
         }
         let group = try sharedKeychainAccessGroup()
-        let now = Date()
-        let rows = try listedItems(group: group)
-        guard try removeExpiredItems(group: group, rows: rows, now: now) < maximumOutstandingItems else {
-            throw V3SecretHandoffError.capacity
-        }
-        let token = UUID().uuidString
-        guard let record = V3SecretHandoffRecord.encode(kind: kind, payload: payload, createdAt: now) else {
-            throw V3SecretHandoffError.malformed
-        }
-        var query = itemQuery(token, group: group)
-        query[kSecValueData as String] = record
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else { throw V3SecretHandoffError.unavailable }
-        return token
+        return try V3SecretHandoffStoreAdmission.add(maximumOutstandingItems: maximumOutstandingItems,
+            liveItemCount: {
+                let rows = try listedItems(group: group)
+                return try removeExpiredItems(group: group, rows: rows, now: Date())
+            },
+            insert: {
+                // Start the lifetime only after this request owns the shared
+                // transaction lock and has passed the capacity check.
+                let now = Date()
+                let token = UUID().uuidString
+                guard let record = V3SecretHandoffRecord.encode(kind: kind, payload: payload, createdAt: now) else {
+                    throw V3SecretHandoffError.malformed
+                }
+                var query = itemQuery(token, group: group)
+                query[kSecValueData as String] = record
+                query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+                let status = SecItemAdd(query as CFDictionary, nil)
+                guard status == errSecSuccess else { throw V3SecretHandoffError.unavailable }
+                return token
+            })
     }
 
     private static func consume(_ token: String, kind: String) throws -> Data {
