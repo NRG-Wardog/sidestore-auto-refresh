@@ -24,6 +24,8 @@ final class FakeClient {
         switch operation {
         case "authBegin":
             operationResult = ["session": payload["session"] as? String ?? "", "state": "working"]
+        case "authPoll":
+            operationResult = ["session": target, "state": "completed", "authenticated": true]
         case "authCancel":
             operationResult = ["session": target, "state": "cancelled", "authenticated": false]
         case "opStart":
@@ -129,8 +131,21 @@ struct BridgeTests {
         let signInSession = UUID().uuidString
         _ = try await bridge.request(operation: "authBegin", target: signInSession,
             payload: ["session": signInSession, "sessionDeadline": Date().addingTimeInterval(600)])
+        let callsBeforeBlockedRefresh = client.operations.count
+        do {
+            _ = try await bridge.request(operation: "refreshApp", target: "fixture-app")
+            preconditionFailure("refresh bypassed active authentication ownership")
+        } catch let failure as CombinedFailure {
+            precondition(failure.operation == "refresh" && failure.stage == .command &&
+                failure.code == .busy && failure.safeCause == .operationInProgress,
+                "refresh during an active auth session returns the typed ownership conflict")
+        }
+        precondition(client.operations.count == callsBeforeBlockedRefresh,
+            "host admission rejects refresh before dispatch while auth is unresolved")
+        _ = try await bridge.request(operation: "authPoll", target: signInSession)
         _ = try await bridge.request(operation: "refreshApp", target: "fixture-app")
-        precondition(client.operations == ["snapshot", "authBegin", "refreshApp"], "explicit account/refresh integration order changed")
+        precondition(client.operations == ["snapshot", "authBegin", "authPoll", "refreshApp"],
+            "explicit account/refresh integration order changed")
         client.stale = true
         do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("stale reply accepted") } catch {}
         client.stale = false; client.oversized = true
