@@ -209,6 +209,33 @@ class ServicePatchTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("V3_LOG_PRIVACY_PASS", result.stdout)
 
+    def test_generated_log_formatter_redacts_quoted_privacy_aliases(self):
+        source = "public func formatLogMessage(_ message: String) -> String { return message }\n"
+        generated = service.headless_safe_log_format(source)
+        self.assertEqual(service.headless_safe_log_format(generated), generated)
+        self.assertIn("session(?:_id)?", generated)
+        self.assertIn("request_id", generated)
+        self.assertIn("correlationID", generated)
+        self.assertIn("authToken", generated)
+        self.assertIn("xcodeToken", generated)
+        self.assertIn("secret", generated)
+        self.assertIn("credential", generated)
+        self.assertIn("[redacted UUID]", generated)
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable; generated formatter execution is a macOS CI check")
+        harness = (ROOT / "tests/fixtures/v3_log_privacy_harness.swift").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as name:
+            program = Path(name) / "main.swift"
+            program.write_text(generated + "\n" + harness, encoding="utf-8")
+            executable = Path(name) / "log-alias-privacy-tests"
+            compiled = subprocess.run([compiler, "-parse-as-library", str(program), "-o", str(executable)],
+                capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_LOG_PRIVACY_PASS", result.stdout)
+
     def test_missing_auth_poll_session_is_typed_as_session_unavailable(self):
         source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         poll = source[source.index('case "authPoll":'):source.index('case "authRespond":')]
@@ -386,6 +413,8 @@ class ServicePatchTests(unittest.TestCase):
             self.assertNotIn("NSUserActivityTypes", info)
             project = (side / "AltStore.xcodeproj/project.pbxproj").read_text()
             self.assertNotIn("Starscream", project)
+            self.assertNotIn("MarkdownKit", project)
+            self.assertIn("Nuke", project, "Nuke remains required by retained cache management code")
             for widget_edge in ("BF989175250AABF4002ACF50", "BF989176250AABF4002ACF50",
                                 "BF989177250AABF4002ACF50", "BF98917B250AABF4002ACF50"):
                 self.assertIn(widget_edge, project,
@@ -596,6 +625,8 @@ class ServicePatchTests(unittest.TestCase):
             self.assertNotIn("debugLog(finished)", url_handler)
             resolved = json.loads((side / "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved").read_text())
             self.assertNotIn("starscream", [pin["identity"] for pin in resolved["pins"]])
+            self.assertNotIn("markdownkit", [pin["identity"] for pin in resolved["pins"]])
+            self.assertIn("nuke", [pin["identity"] for pin in resolved["pins"]])
             jit = (roots[0] / "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift").read_text(encoding="utf-8")
             self.assertNotIn('sidestore://enable-jit', jit)
             self.assertIn('V3ServiceBridge.shared.request(operation: "jit"', jit)

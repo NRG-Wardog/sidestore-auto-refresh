@@ -32,6 +32,30 @@ def pinned_sidestore_source():
 
 
 class SideSignPrivacyTests(unittest.TestCase):
+    def test_pinned_package_references_match_headless_retained_sources(self):
+        source = pinned_sidestore_source()
+        if not source or not source.exists():
+            self.skipTest("pinned embedded SideStore source is supplied by macOS CI")
+        excluded = set(v3_service_patch.HEADLESS_SIDESTORE_VIEW_FILES +
+                       v3_service_patch.HEADLESS_SIDESTORE_AUX_UI_FILES)
+        retained = []
+        for path in source.rglob("*.swift"):
+            relative = path.relative_to(source).as_posix()
+            source_relative = relative[len("SideStore/"):] if relative.startswith("SideStore/") else relative
+            if relative.startswith(".build/") or source_relative in excluded:
+                continue
+            if "MarkdownKit" in path.read_text(encoding="utf-8", errors="replace"):
+                retained.append(relative)
+        self.assertEqual(retained, [], "MarkdownKit is used only by excluded CollapsingMarkdownView")
+        self.assertIn("Views/Components/UIKit/CollapsingMarkdownView.swift", excluded)
+
+        cache_manager = (source / "SideStore/Core/Storage/CacheManager.swift").read_text(encoding="utf-8")
+        clear_cache = (source / "SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift").read_text(encoding="utf-8")
+        self.assertIn("io.sidestore.Nuke", cache_manager)
+        self.assertIn("import Nuke", clear_cache)
+        app_delegate = (source / "AltStore/AppDelegate.swift").read_text(encoding="utf-8")
+        self.assertIn("prepareImageCache()", app_delegate)
+
     def test_pinned_typed_2fa_patch_is_idempotent_and_omits_raw_retry_payloads(self):
         source = pinned_source()
         if not source or not source.exists():

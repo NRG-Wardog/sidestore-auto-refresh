@@ -246,16 +246,21 @@ def headless_project(text):
         '\t\t\t\t"Handlers/SignInFlowHandler.swift",\n',
         '\t\t\t\t"Handlers/SignInFlowHandler.swift",\n' + view_exclusions)
     text = replace(text, side_store_source_exception, headless_side_store_source_exception)
-    # Starscream is linked by the pinned project but has no source references
-    # in that checkout. Remove its product and package lock so it is not fetched
-    # or linked into the backend build.
+    # Starscream has no source references; MarkdownKit is used only by an
+    # excluded view. Remove both products so they are not fetched or linked.
     for marker in (
+        'A8C37029302DA7F30010213A /* MarkdownKit in Frameworks */ = {',
+        'A8C37027302DA7F30010213A /* XCRemoteSwiftPackageReference "MarkdownKit" */ = {',
+        'A8C37028302DA7F30010213A /* MarkdownKit */ = {',
         'A8C37035302DA84D0010213A /* Starscream in Frameworks */ = {',
         'A8C37033302DA84D0010213A /* XCRemoteSwiftPackageReference "Starscream" */ = {',
         'A8C37034302DA84D0010213A /* Starscream */ = {',
     ):
         text = remove_pbx_object(text, marker)
     references = (
+        r'(?m)^\s*A8C37029302DA7F30010213A /\* MarkdownKit in Frameworks \*/,\r?\n',
+        r'(?m)^\s*A8C37028302DA7F30010213A /\* MarkdownKit \*/,\r?\n',
+        r'(?m)^\s*A8C37027302DA7F30010213A /\* XCRemoteSwiftPackageReference "MarkdownKit" \*/,\r?\n',
         r"(?m)^\s*A8C37035302DA84D0010213A /\* Starscream in Frameworks \*/,\r?\n",
         r"(?m)^\s*A8C37034302DA84D0010213A /\* Starscream \*/,\r?\n",
         r"(?m)^\s*A8C37033302DA84D0010213A /\* XCRemoteSwiftPackageReference \"Starscream\" \*/,\r?\n",
@@ -263,7 +268,7 @@ def headless_project(text):
     for pattern in references:
         text, count = re.subn(pattern, "", text)
         if count != 1:
-            raise SystemExit(f"v3 service: expected one Starscream project reference, found {count}")
+            raise SystemExit(f"v3 service: expected one package project reference, found {count}")
     icon_setting = "ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;"
     if text.count(icon_setting) != 2:
         raise SystemExit("v3 service: expected Debug and Release alternate-icon settings")
@@ -453,8 +458,10 @@ def headless_safe_log_format(text):
             with: "[redacted path]", options: .regularExpression)
         safe = safe.replacingOccurrences(of: #"(?i)\b(?:proxy-authorization|authorization)\s*[:=]\s*(?:bearer|basic)\s+[^\s,;]+"#,
             with: "authorization=[redacted credential]", options: .regularExpression)
-        safe = safe.replacingOccurrences(of: #"(?i)\b(UDID|DSID|phone(?:ID|Number)|deviceEndpointIp|bundlePath|bundleIdentifier|bundleID|app(?:\s*ID|Identifier)|team(?:\s*ID|Identifier)|downloadURL|callbackURL|accessToken|refreshToken|sessionToken|authorization|cookie|password|verificationCode|securityCode|private[_ ]?key|certificateDER|provisioningProfile|token|path)\s*[:=]\s*[^\s,;]+"#,
-            with: "$1=[redacted]", options: .regularExpression)
+        safe = safe.replacingOccurrences(of: #"(?i)(["']?(?:UDID|DSID|phone(?:ID|Number)|deviceEndpointIp|bundlePath|bundleIdentifier|bundleID|app(?:\s*ID|Identifier)|team(?:\s*ID|Identifier)|downloadURL|callbackURL|accessToken|refreshToken|sessionToken|authorization|cookie|password|verificationCode|securityCode|private[_ ]?key|certificateDER|provisioningProfile|token|path|session(?:_id)?|request_id|correlationID|authToken|xcodeToken|secret|credential)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)"#,
+            with: "$1[redacted]", options: .regularExpression)
+        safe = safe.replacingOccurrences(of: #"(?i)\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b"#,
+            with: "[redacted UUID]", options: .regularExpression)
         safe = safe.replacingOccurrences(of: #"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#,
             with: "[redacted email]", options: .regularExpression)
         safe = safe.replacingOccurrences(of: #"(?i)\b(?:[a-z0-9-]{1,63}\.)+[a-z][a-z0-9-]{1,63}\b"#,
@@ -990,9 +997,12 @@ def patch(live, side):
         pins = resolved.get("pins")
         if not isinstance(pins, list):
             raise SystemExit("v3 service: SideStore package lock has no pin list")
-        filtered = [pin for pin in pins if pin.get("identity") != "starscream"]
-        if len(pins) - len(filtered) != 1:
-            raise SystemExit("v3 service: expected exactly one pinned Starscream package")
+        filtered = [pin for pin in pins if pin.get("identity") not in ("starscream", "markdownkit")]
+        removed = len(pins) - len(filtered)
+        if removed == 0 and not any(pin.get("identity") in ("starscream", "markdownkit") for pin in pins):
+            return text
+        if removed != 2:
+            raise SystemExit("v3 service: expected exactly one Starscream and one MarkdownKit pin")
         resolved["pins"] = filtered
         return json.dumps(resolved, indent=2) + "\n"
     edit(side, "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
