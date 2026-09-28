@@ -64,6 +64,12 @@ class ServicePatchTests(unittest.TestCase):
             self.assertIn("V3_HEADLESS_BACKEND_CONNECTION_CONFIG_V1", backend)
             for ui_symbol in ("SwiftUI", "Combine", "ObservableObject", "@Published", "ActiveState", "formattedTunnel"):
                 self.assertNotIn(ui_symbol, backend)
+            side_source = Path(os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.environ.get("SIDESTORE_TEST_SOURCE"))
+            pinned_model = (side_source / "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift").read_text(encoding="utf-8")
+            pinned_extensions = pinned_model[pinned_model.index("extension UserDefaults {"):].strip()
+            generated_extensions = backend[backend.index("extension UserDefaults {"):].strip()
+            self.assertEqual(generated_extensions, pinned_extensions,
+                             "move the pinned defaults key and port-validation semantics without alteration")
             self.assertIn("get { UserDefaults.standard.useLocalVPN }", backend)
             self.assertIn("getConnectionMode: { config.connectionMode }", wrapper)
 
@@ -129,6 +135,9 @@ enum V3BackendCommands {{
 @main struct LiveConnectionSettingsHarness {{
     static func main() throws {{
         let defaults = UserDefaults.standard
+        for key in ["TunnelOverridePeerIp", "RemoteServerIp", "WireGuardServerHost", "WireGuardServerPort"] {{
+            defaults.removeObject(forKey: key)
+        }}
         defaults.set(false, forKey: "useLocalVPN")
         let config = ConnectionConfig.shared
         precondition(config.overrideTunnelPeerIp.isEmpty)
@@ -837,6 +846,9 @@ import Foundation
             self.assertNotIn("Combine", backend_connection_config)
             self.assertNotIn("ObservableObject", backend_connection_config)
             self.assertNotIn("@Published", backend_connection_config)
+            for accessor in ("tunnelOverridePeerIp", "remoteServerIp", "wireGuardServerHost", "wireGuardServerPort",
+                             "@objc(wireGuardServerPort)", "val > 0 && val <= 65535"):
+                self.assertIn(accessor, backend_connection_config)
             self.assertIn("get { UserDefaults.standard.useLocalVPN }", backend_connection_config)
             self.assertIn("var connectionMode: DeviceConnectionMode", backend_connection_config)
             minimuxer_wrapper = (side / "SideStore/Core/DeviceApi/MinimuxerWrapper.swift").read_text(encoding="utf-8")

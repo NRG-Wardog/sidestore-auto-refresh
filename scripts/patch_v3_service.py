@@ -137,6 +137,43 @@ final class ConnectionConfig {
     var connectionMode: DeviceConnectionMode {
         useLocalVPN ? .localVPN : .remoteServer
     }
+}
+
+extension UserDefaults {
+    @objc var tunnelOverridePeerIp: String? {
+        get { self.string(forKey: "TunnelOverridePeerIp") }
+        set { self.set(newValue, forKey: "TunnelOverridePeerIp") }
+    }
+
+    @objc var remoteServerIp: String? {
+        get { self.string(forKey: "RemoteServerIp") }
+        set { self.set(newValue, forKey: "RemoteServerIp") }
+    }
+
+    @objc var wireGuardServerHost: String? {
+        get { self.string(forKey: "WireGuardServerHost") }
+        set { self.set(newValue, forKey: "WireGuardServerHost") }
+    }
+
+    var wireGuardServerPort: UInt16? {
+        get {
+            guard self.object(forKey: "WireGuardServerPort") != nil else { return nil }
+            let val = self._wireGuardServerPort
+            return (val > 0 && val <= 65535) ? UInt16(val) : nil
+        }
+        set {
+            if let newValue {
+                self._wireGuardServerPort = Int(newValue)
+            } else {
+                self.removeObject(forKey: "WireGuardServerPort")
+            }
+        }
+    }
+
+    @objc(wireGuardServerPort) private var _wireGuardServerPort: Int {
+        get { self.integer(forKey: "WireGuardServerPort") }
+        set { self.set(newValue, forKey: "WireGuardServerPort") }
+    }
 }'''
 
 
