@@ -12,7 +12,8 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from verify_candidate_ipa import (MACHO_MAGICS, is_java_class_file, macho_cpu_subtypes,
-                                 macho_uuids, require_arm64_all_image)
+                                 macho_uuids, require_arm64_all_image,
+                                 DEFAULT_ARCHIVE_LIMITS, validate_ipa_size)
 
 
 HOST_SOURCE_PATHS = [
@@ -44,6 +45,28 @@ def macho_uuid(data):
     return next(iter(uuids.values()), None)
 
 
+def hash_ipa_file(path, limits=None):
+    """Preflight package size, then hash the raw IPA with bounded memory."""
+    size = path.stat().st_size
+    validate_ipa_size(size, limits)
+    digest = hashlib.sha256()
+    bytes_read = 0
+    chunk_size = 1024 * 1024
+    max_size = dict(DEFAULT_ARCHIVE_LIMITS, **(limits or {}))["compressed_ipa_bytes"]
+    with path.open('rb') as source:
+        while True:
+            chunk = source.read(min(chunk_size, max_size - bytes_read + 1))
+            if not chunk:
+                break
+            bytes_read += len(chunk)
+            if bytes_read > max_size:
+                raise ValueError("compressed IPA exceeds the configured size limit")
+            digest.update(chunk)
+    if bytes_read != size:
+        raise ValueError("IPA size changed while hashing")
+    return size, digest.hexdigest()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('mode', choices=['identity', 'collect'])
@@ -66,6 +89,8 @@ def main():
             info = plistlib.loads(path.read_bytes()); info.update(identity)
             path.write_bytes(plistlib.dumps(info, fmt=plistlib.FMT_BINARY))
         return
+    # Reject an oversized package before archive inspection or evidence writes.
+    ipa_size, ipa_sha256 = hash_ipa_file(args.ipa)
     args.output.mkdir(parents=True, exist_ok=True)
     # Ensure repeated collection cannot retain stale files from an earlier run.
     for name in ('host', 'embedded', 'generated', 'embedded-generated'):
@@ -139,8 +164,6 @@ def main():
     expected_generated.update('embedded/' + name for name in EMBEDDED_SOURCE_PATHS)
     if set(generated) != expected_generated:
         raise ValueError('collected generated-source inventory is incomplete')
-    ipa_size = args.ipa.stat().st_size
-    ipa_sha256 = hashlib.sha256(args.ipa.read_bytes()).hexdigest()
     evidence = dict(identity, schema=1, candidate_product_version=args.product,
         physical_device_execution=False,
         verification_scope='Static package identity, error protocol, UUID and dSYM matching; not runtime validation',
