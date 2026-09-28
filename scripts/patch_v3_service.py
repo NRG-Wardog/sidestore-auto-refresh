@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 33
+PATCH_VERSION = 34
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -813,14 +813,21 @@ def headless_url_handler(text):
 
 def headless_app_manager_ui(text):
     marker = "V3_HEADLESS_APP_MANAGER_SIGNIN_REMOVED_V1"
+    deactivate_wrapper_marker = "V3_HEADLESS_APP_MANAGER_DEACTIVATE_APPLIMIT_WRAPPER_REMOVED_V1"
+    deactivate_wrapper_signature = (
+        "func deactivateApps(for appBundle: ALTApplication, presentingViewController: UIViewController?, "
+        "completion: @escaping (Result<Void, Error>) -> Void)")
     pairing_marker = "V3_TYPED_PAIRING_FAILURE_PROPAGATION_V1"
     if marker in text:
         if ("AuthManager.shared.signIn(\n                    presentingViewController:" in text
                 or "import Intents\n" in text
                 or "ResignAltStoreViewController" in text
+                or deactivate_wrapper_signature in text
+                or "self.deactivateApps(for: appBundle" in text
+                or deactivate_wrapper_marker not in text
                 or pairing_marker not in text
                 or "V3HeadlessPairingFailure.tagIfInvalidPairing(error)" not in text):
-            raise SystemExit("v3 service: legacy AppManager sign-in wrapper removal is partial")
+            raise SystemExit("v3 service: legacy AppManager UI wrapper removal is partial")
         return text
     start_marker = "    func signIn(presentingViewController: UIViewController?,\n"
     end_marker = "\n    func deactivateApps("
@@ -840,6 +847,35 @@ def headless_app_manager_ui(text):
     text = replace(text, "        let nsError = error as NSError",
         "        // " + pairing_marker + ": keep typed pairing failure context through AppManager mapping.\n"
         "        let nsError = V3HeadlessPairingFailure.tagIfInvalidPairing(error) as NSError")
+    if text.count(deactivate_wrapper_signature) != 1:
+        raise SystemExit("v3 service: AppManager deactivate app-limit wrapper changed")
+    wrapper_start = text.index(deactivate_wrapper_signature)
+    wrapper_brace = text.index("{", wrapper_start)
+    depth = 0
+    wrapper_end = None
+    for index in range(wrapper_brace, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                wrapper_end = index + 1
+                break
+    if wrapper_end is None:
+        raise SystemExit("v3 service: AppManager deactivate app-limit wrapper is unbalanced")
+    wrapper = text[wrapper_start:wrapper_end]
+    required_wrapper_calls = (
+        "self.deactivate(activeApp, presentingViewController: presentingViewController)",
+        "self.deactivateApps(for: appBundle, presentingViewController: presentingViewController, completion: completion)",
+        "presentingViewController.present(alertController, animated: true, completion: nil)",
+    )
+    if any(wrapper.count(anchor) != 1 for anchor in required_wrapper_calls):
+        raise SystemExit("v3 service: AppManager deactivate app-limit presenter body drifted")
+    text = (text[:wrapper_start] + "// " + deactivate_wrapper_marker +
+            ": app-limit chooser belongs to the excluded My Apps UI; v3 uses PipelineRunner.\n" +
+            text[wrapper_end:])
+    if deactivate_wrapper_signature in text or "self.deactivateApps(for: appBundle" in text:
+        raise SystemExit("v3 service: AppManager deactivate app-limit wrapper removal is partial")
     return replace(text, "import Intents\n", "")
 
 

@@ -225,6 +225,55 @@ enum V3BackendCommands {{
         self.assertNotIn("AppendTeamIDCheckboxView", patched_override)
         self.assertEqual(service.headless_pipeline_handler(patched), patched)
 
+    def test_app_manager_deactivate_app_limit_wrapper_is_ui_only_and_excluded(self):
+        side_source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        if not side_source:
+            self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the pinned source checkout")
+        app_manager_path = "AltStore/Managing Apps/AppManager.swift"
+        my_apps_path = "AltStore/My Apps/MyAppsViewController.swift"
+        caller_matches = subprocess.check_output(
+            ["git", "-C", side_source, "grep", "-n", "-F", "deactivateApps(",
+             service.PINS[1], "--", "*.swift"], text=True, encoding="utf-8").splitlines()
+        matching_paths = [line.split(":", 2)[1] for line in caller_matches]
+        self.assertEqual(matching_paths, [app_manager_path, app_manager_path, my_apps_path])
+
+        app_manager = subprocess.check_output(
+            ["git", "-C", side_source, "show", service.PINS[1] + ":" + app_manager_path],
+            text=True, encoding="utf-8")
+        generated_app_manager = service.headless_app_manager_ui(app_manager)
+        self.assertIn("V3_HEADLESS_APP_MANAGER_DEACTIVATE_APPLIMIT_WRAPPER_REMOVED_V1", generated_app_manager)
+        self.assertNotIn("func deactivateApps(for:", generated_app_manager)
+        self.assertNotIn("self.deactivateApps(for:", generated_app_manager)
+        self.assertIn("func deactivate(_ installedApp: InstalledApp", generated_app_manager)
+        self.assertIn("performSingleOperation(.deactivate(installedApp)", generated_app_manager)
+        self.assertIn("func activate(_ installedApp: InstalledApp", generated_app_manager)
+        self.assertIn("performSingleOperation(.activate(installedApp)", generated_app_manager)
+        self.assertEqual(service.headless_app_manager_ui(generated_app_manager), generated_app_manager)
+
+        project = subprocess.check_output(
+            ["git", "-C", side_source, "show", service.PINS[1] + ":AltStore.xcodeproj/project.pbxproj"],
+            text=True, encoding="utf-8")
+        altstore_group = project[project.index("A8EEC8412F4B146A00F2436D"):]
+        self.assertIn("path = AltStore;", altstore_group)
+        sidestore_target = project[project.index("BFD247692284B9A500981D42 /* SideStore */ = {"):]
+        self.assertIn("A8EEC8412F4B146A00F2436D /* AltStore */", sidestore_target)
+        source_exceptions = project[project.index("A8EEC8CB2F4B146B00F2436D"):]
+        source_members = source_exceptions[source_exceptions.index("membershipExceptions = ("):
+                                          source_exceptions.index(");")]
+        self.assertNotIn('"Managing Apps/AppManager.swift"', source_members)
+        self.assertNotIn('"My Apps/MyAppsViewController.swift"', source_members)
+
+        generated_project = service.headless_project(project)
+        generated_exception = generated_project[generated_project.index("A8EEC8CB2F4B146B00F2436D"):]
+        generated_members = generated_exception[generated_exception.index("membershipExceptions = ("):
+                                                generated_exception.index(");")]
+        self.assertIn('"My Apps/MyAppsViewController.swift"', generated_members)
+        self.assertNotIn('"Managing Apps/AppManager.swift"', generated_members)
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        self.assertIn('case "activate": operation = .activate(app)', runtime)
+        self.assertIn('case "deactivate": operation = .deactivate(app)', runtime)
+        self.assertIn("AppManager.shared.pipelineRunner.performSingleOperation(operation", runtime)
+
     def test_log_formatter_patch_replaces_the_complete_final_swift_function(self):
         source = "import Foundation\npublic func formatLogMessage(_ message: String) -> String { return message }\n"
         patched = service.headless_safe_log_format(source)
@@ -722,7 +771,7 @@ import Foundation
             prior["patchVersion"] = 31
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 31 cannot be migrated safely to v33"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 31 cannot be migrated safely to v34"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -736,7 +785,21 @@ import Foundation
             prior["patchVersion"] = 32
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 32 cannot be migrated safely to v33"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 32 cannot be migrated safely to v34"):
+                self.apply(roots)
+            self.assertEqual(before, self.snapshot(directory))
+
+    def test_v33_generated_tree_fails_closed_without_mutation(self):
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            roots = self.fixture(directory)
+            self.apply(roots)
+            manifest = roots[0] / ".v3-command-patch.json"
+            prior = json.loads(manifest.read_text(encoding="utf-8"))
+            prior["patchVersion"] = 33
+            manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
+            before = self.snapshot(directory)
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 33 cannot be migrated safely to v34"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -803,7 +866,7 @@ import Foundation
             manifest_path.write_text(json.dumps(v30_manifest, indent=2) + "\n", encoding="utf-8")
 
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 30 cannot be migrated safely to v33"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 30 cannot be migrated safely to v34"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory),
                              "the real v30 output shape must fail closed without partial migration")
@@ -820,7 +883,7 @@ import Foundation
             legacy["templates"].pop(service.HEADLESS_ANISETTE_MODELS_MANIFEST_KEY)
             manifest_path.write_text(json.dumps(legacy, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 29 cannot be migrated safely to v33.*discard generated work directories"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 29 cannot be migrated safely to v34.*discard generated work directories"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory), "unsupported v29 manifests must fail without mutation")
 
@@ -834,7 +897,7 @@ import Foundation
             unknown["patchVersion"] = 999
             manifest_path.write_text(json.dumps(unknown, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 999 cannot be migrated safely to v33"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 999 cannot be migrated safely to v34"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory), "unknown patch versions must fail without mutation")
 
@@ -1064,6 +1127,11 @@ import Foundation
             self.assertNotIn("import Intents", app_manager)
             self.assertNotIn("ResignAltStoreViewController", app_manager)
             self.assertIn("V3_HEADLESS_APP_MANAGER_SIGNIN_REMOVED_V1", app_manager)
+            self.assertIn("V3_HEADLESS_APP_MANAGER_DEACTIVATE_APPLIMIT_WRAPPER_REMOVED_V1", app_manager)
+            self.assertNotIn("func deactivateApps(for:", app_manager)
+            self.assertNotIn("self.deactivateApps(for:", app_manager)
+            self.assertIn("func deactivate(_ installedApp: InstalledApp", app_manager)
+            self.assertIn("performSingleOperation(.deactivate(installedApp)", app_manager)
             self.assertIn("V3_TYPED_PAIRING_FAILURE_PROPAGATION_V1", app_manager)
             self.assertIn("V3HeadlessPairingFailure.tagIfInvalidPairing(error)", app_manager)
             service_template = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
