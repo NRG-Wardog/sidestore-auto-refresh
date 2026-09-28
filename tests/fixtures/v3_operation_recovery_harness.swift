@@ -18,6 +18,16 @@ struct OperationRecoveryHarness {
         precondition(V3OperationSessionCorrelationPolicy.requestSessionID(
             operation: "opStart", target: "", payload: [:]) == nil)
 
+        let refreshRequest = ["version": 1, "id": UUID().uuidString,
+            "operation": "refreshAdmissionEnd", "target": UUID().uuidString,
+            "deadline": Date().addingTimeInterval(30), "payload": ["state": "failed"]] as [String: Any]
+        precondition(V3WireContract.decodeRequest(V3WireContract.encodeRequest(refreshRequest)!) != nil,
+            "terminal refresh release carries a typed state")
+        var invalidRefreshRequest = refreshRequest
+        invalidRefreshRequest["payload"] = ["state": "retry"]
+        precondition(V3WireContract.encodeRequest(invalidRefreshRequest) == nil,
+            "arbitrary text cannot clear refresh ownership")
+
         let deleteRecord = V3OperationRecoveryRecord(sessionID: session, kind: "delete",
             phase: .prepared)
         precondition(deleteRecord != nil)
@@ -38,6 +48,45 @@ struct OperationRecoveryHarness {
         precondition(V3OperationRecoveryRecord.decodePropertyList([
             "version": 1, "session": session, "kind": "delete", "phase": "prepared", "ipa": NSNull()
         ]) == nil, "NSNull is not accepted as a persisted IPA value")
+
+        let preparedOperation = V3OperationRecoveryRecord(sessionID: session, kind: "delete", phase: .prepared)!
+        let matchingStart = V3ServiceRecoveryAdmissionPolicy.decide(operation: "opStart", target: "",
+            payload: ["kind": "delete"], operationSessionID: session, recovery: preparedOperation,
+            recoveryReadFailed: false, refreshOwnerLost: false)
+        precondition(matchingStart.matchingPreparedStart && !matchingStart.blocksMutation)
+        let wrongKindStart = V3ServiceRecoveryAdmissionPolicy.decide(operation: "opStart", target: "",
+            payload: ["kind": "install"], operationSessionID: session, recovery: preparedOperation,
+            recoveryReadFailed: false, refreshOwnerLost: false)
+        precondition(wrongKindStart.blocksMutation,
+            "a new operation kind cannot claim an unrelated prepared recovery")
+        let matchingPoll = V3ServiceRecoveryAdmissionPolicy.decide(operation: "opPoll", target: session,
+            payload: [:], operationSessionID: session, recovery: preparedOperation,
+            recoveryReadFailed: false, refreshOwnerLost: false)
+        precondition(matchingPoll.recoveryControl && !matchingPoll.blocksMutation)
+
+        let refreshRecord = V3OperationRecoveryRecord(sessionID: session, kind: "refreshAll", phase: .prepared)!
+        let overlappingStart = V3ServiceRecoveryAdmissionPolicy.decide(operation: "opStart", target: "",
+            payload: ["kind": "delete"], operationSessionID: UUID().uuidString, recovery: refreshRecord,
+            recoveryReadFailed: false, refreshOwnerLost: true)
+        precondition(overlappingStart.blocksMutation,
+            "an unknown refresh run blocks all new backend mutations")
+        let refreshTerminal = V3ServiceRecoveryAdmissionPolicy.decide(operation: "refreshAdmissionEnd",
+            target: session, payload: ["state": "completed"], operationSessionID: nil,
+            recovery: refreshRecord, recoveryReadFailed: false, refreshOwnerLost: true)
+        precondition(refreshTerminal.recoveryControl && refreshTerminal.refreshRelease &&
+            !refreshTerminal.blocksMutation)
+        let wrongRefreshTerminal = V3ServiceRecoveryAdmissionPolicy.decide(operation: "refreshAdmissionEnd",
+            target: UUID().uuidString, payload: ["state": "completed"], operationSessionID: nil,
+            recovery: refreshRecord, recoveryReadFailed: false, refreshOwnerLost: true)
+        precondition(wrongRefreshTerminal.blocksMutation && !wrongRefreshTerminal.refreshRelease)
+        let refreshReconcile = V3ServiceRecoveryAdmissionPolicy.decide(operation: "refreshAdmissionReconcile",
+            target: session, payload: ["userConfirmed": true], operationSessionID: nil,
+            recovery: refreshRecord, recoveryReadFailed: false, refreshOwnerLost: true)
+        precondition(refreshReconcile.recoveryControl && refreshReconcile.refreshRelease)
+        let unconfirmedRefreshReconcile = V3ServiceRecoveryAdmissionPolicy.decide(operation: "refreshAdmissionReconcile",
+            target: session, payload: ["userConfirmed": true], operationSessionID: nil,
+            recovery: refreshRecord, recoveryReadFailed: false, refreshOwnerLost: false)
+        precondition(unconfirmedRefreshReconcile.recoveryControl && !unconfirmedRefreshReconcile.refreshRelease)
 
         let deadline = Date().addingTimeInterval(30)
         let prepareRequest: [String: Any] = ["version": 1, "id": UUID().uuidString,
@@ -156,6 +205,39 @@ struct OperationRecoveryHarness {
         precondition(!reconciledRefresh.reconcileAfterDeviceCheck(runID: reconcileRunID, userConfirmed: false))
         precondition(reconciledRefresh.reconcileAfterDeviceCheck(runID: reconcileRunID, userConfirmed: true))
         precondition(!reconciledRefresh.isActive)
+
+        var refreshRecoveryLease = V3OperationRecoveryLease()
+        let recoveredRefreshID = UUID().uuidString
+        precondition(refreshRecoveryLease.reserve(sessionID: recoveredRefreshID, kind: "refreshAll") == .reserved)
+        var restartedRefreshService = V3RefreshAdmissionLease()
+        precondition(restartedRefreshService.restoreLost(runID: recoveredRefreshID))
+        precondition(restartedRefreshService.isActive && restartedRefreshService.ownerLost)
+        precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+            anotherMutationActive: false, authenticationActive: false, isAuthContinuation: false,
+            responseCapacityAvailable: true, refreshActive: restartedRefreshService.isActive),
+            "a recreated service must keep conflicting mutations closed while refresh result is unknown")
+        precondition(!refreshRecoveryLease.reconcileRefreshAdmissionAfterDeviceCheck(
+            runID: recoveredRefreshID, userConfirmed: false))
+        precondition(refreshRecoveryLease.record != nil)
+        precondition(refreshRecoveryLease.settleRefreshAdmission(runID: recoveredRefreshID,
+            terminalState: "failed", terminalConfirmed: true))
+        precondition(refreshRecoveryLease.record == nil,
+            "only a matching terminal result releases a durable refresh hold")
+
+        var operationRecord = V3OperationRecoveryLease()
+        let operationRecoveryID = UUID().uuidString
+        precondition(operationRecord.reserve(sessionID: operationRecoveryID, kind: "delete") == .reserved)
+        precondition(!operationRecord.settleRefreshAdmission(runID: operationRecoveryID,
+            terminalState: "completed", terminalConfirmed: true))
+        precondition(operationRecord.record?.kind == "delete",
+            "refresh controls cannot clear an operation recovery lease")
+
+        var userCheckedRefresh = V3OperationRecoveryLease()
+        let checkedRefreshID = UUID().uuidString
+        precondition(userCheckedRefresh.reserve(sessionID: checkedRefreshID, kind: "refreshAll") == .reserved)
+        precondition(userCheckedRefresh.reconcileRefreshAdmissionAfterDeviceCheck(
+            runID: checkedRefreshID, userConfirmed: true))
+        precondition(userCheckedRefresh.record == nil)
         print("V3_OPERATION_RECOVERY_PASS")
     }
 }

@@ -159,7 +159,7 @@ enum V3WireContract {
 
     private static let requiredPayloadOperations: Set<String> = [
         "authBegin", "authRetryProvisioning", "authRespond", "opAnswer", "opStart", "opRecoveryPrepare",
-        "cancel", "accountExport", "accountImport", "settingsSet", "sidesignSet"
+        "cancel", "accountExport", "accountImport", "settingsSet", "sidesignSet", "refreshAdmissionEnd"
     ]
 
     private static func acceptsPayload(operation: String, target: String,
@@ -207,6 +207,9 @@ enum V3WireContract {
             return acceptsOperationTarget(kind: kind, target: operationTarget)
         case "opRecoveryReconcile", "refreshAdmissionReconcile":
             return Set(payload.keys) == Set(["userConfirmed"]) && strictBool(payload["userConfirmed"]) == true
+        case "refreshAdmissionEnd":
+            return Set(payload.keys) == Set(["state"]) &&
+                ["completed", "failed", "notDispatched"].contains(payload["state"] as? String ?? "")
         case "opCancel":
             return Set(payload.keys) == Set(["knownStarted"]) &&
                 strictBool(payload["knownStarted"]) != nil

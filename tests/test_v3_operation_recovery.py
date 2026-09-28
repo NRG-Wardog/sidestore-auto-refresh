@@ -78,6 +78,12 @@ class V3OperationRecoveryTests(unittest.TestCase):
         self.assertIn("response[\"operationRecovery\"] = safeRecovery", service)
         self.assertIn("refreshAdmission.ownerLost", service)
         self.assertIn("response[\"refreshRecovery\"]", service)
+        self.assertIn('kind: "refreshAll"', service)
+        self.assertIn("V3OperationRecoveryJournal.settleRefreshAdmission", service)
+        self.assertIn("V3OperationRecoveryJournal.reconcileRefreshAdmissionAfterDeviceCheck", service)
+        self.assertIn("V3ServiceRecoveryAdmissionPolicy.decide(", service)
+        self.assertIn('payload: ["state": terminalState]',
+                      (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8"))
         self.assertIn("reconcileDurableOperationAfterDeviceCheck", shell)
         self.assertIn("unresolvedOperationRecovery?.stagedIPAToken", shell)
         self.assertIn("reconcileLostRefreshAfterDeviceCheck", shell)

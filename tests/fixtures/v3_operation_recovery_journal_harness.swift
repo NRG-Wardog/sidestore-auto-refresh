@@ -16,6 +16,11 @@ struct OperationRecoveryJournalHarness {
                 sessionID: CommandLine.arguments[3], kind: CommandLine.arguments[4])
             return
         }
+        if CommandLine.arguments.count == 4, CommandLine.arguments[1] == "--verify-refresh" {
+            try verifyFreshRefreshProcess(root: URL(fileURLWithPath: CommandLine.arguments[2]),
+                runID: CommandLine.arguments[3])
+            return
+        }
         if CommandLine.arguments.count == 5, CommandLine.arguments[1] == "--lock-probe" {
             let root = URL(fileURLWithPath: CommandLine.arguments[2])
             let started = URL(fileURLWithPath: CommandLine.arguments[3])
@@ -33,6 +38,7 @@ struct OperationRecoveryJournalHarness {
         defer { try? FileManager.default.removeItem(at: root) }
 
         try testNonInstallSchemaAndTerminalRemoval(root: root)
+        try testRefreshAdmissionSurvivesServiceRecreation(root: root)
         try testPreparedCancellationAndDispatchedProtection(root: root)
         try testStagedIPATokenPersistsUntilSettledTerminal(root: root)
         try testProcessSharedLockWithTemporaryRoot(root: root)
@@ -133,6 +139,72 @@ struct OperationRecoveryJournalHarness {
         precondition(retained?.sessionID == dispatchedID && retained?.phase == .dispatched)
         _ = try V3OperationRecoveryJournal.reconcileAfterDeviceCheck(sessionID: dispatchedID,
             userConfirmed: true, containerRoot: root)
+    }
+
+    private static func testRefreshAdmissionSurvivesServiceRecreation(root: URL) throws {
+        let runID = UUID().uuidString
+        let reserved = try V3OperationRecoveryJournal.reserve(sessionID: runID, kind: "refreshAll",
+            containerRoot: root)
+        precondition(reserved)
+        let persisted = try V3OperationRecoveryJournal.current(containerRoot: root)
+        precondition(persisted?.sessionID == runID && persisted?.kind == "refreshAll" &&
+            persisted?.phase == .prepared)
+        try verifyRefreshInFreshProcess(root: root, runID: runID)
+
+        // A new service process has no in-memory owner. Reconstructing from the
+        // durable record marks the lease uncertain and keeps mutation admission
+        // closed until an exact terminal or explicit device check arrives.
+        var restartedLease = V3RefreshAdmissionLease()
+        precondition(restartedLease.restoreLost(runID: persisted!.sessionID))
+        precondition(restartedLease.ownerLost && restartedLease.isActive)
+        precondition(!V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+            anotherMutationActive: false, authenticationActive: false, isAuthContinuation: false,
+            responseCapacityAvailable: true, refreshActive: restartedLease.isActive))
+        let rejectedReconcile = try V3OperationRecoveryJournal.reconcileRefreshAdmissionAfterDeviceCheck(
+            runID: runID, userConfirmed: false, containerRoot: root)
+        precondition(!rejectedReconcile)
+        let stillOwned = try V3OperationRecoveryJournal.current(containerRoot: root)
+        precondition(stillOwned?.sessionID == runID)
+        let settled = try V3OperationRecoveryJournal.settleRefreshAdmission(runID: runID,
+            terminalState: "failed", terminalConfirmed: true, containerRoot: root)
+        precondition(settled)
+        let released = try V3OperationRecoveryJournal.current(containerRoot: root)
+        precondition(released == nil)
+
+        let checkedRunID = UUID().uuidString
+        let checkedReservation = try V3OperationRecoveryJournal.reserve(sessionID: checkedRunID,
+            kind: "refreshAll", containerRoot: root)
+        precondition(checkedReservation)
+        let reconciled = try V3OperationRecoveryJournal.reconcileRefreshAdmissionAfterDeviceCheck(
+            runID: checkedRunID, userConfirmed: true, containerRoot: root)
+        precondition(reconciled)
+        let checkedReleased = try V3OperationRecoveryJournal.current(containerRoot: root)
+        precondition(checkedReleased == nil)
+    }
+
+    private static func verifyRefreshInFreshProcess(root: URL, runID: String) throws {
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+        child.arguments = ["--verify-refresh", root.path, runID]
+        try child.run()
+        child.waitUntilExit()
+        precondition(child.terminationStatus == 0,
+            "a fresh service process must restore the active refresh reservation")
+    }
+
+    private static func verifyFreshRefreshProcess(root: URL, runID: String) throws {
+        guard let record = try V3OperationRecoveryJournal.current(containerRoot: root),
+              record.sessionID == runID, record.kind == "refreshAll", record.phase == .prepared else {
+            throw NSError(domain: "V3OperationRecoveryHarness", code: 5)
+        }
+        var lease = V3RefreshAdmissionLease()
+        guard lease.restoreLost(runID: record.sessionID), lease.ownerLost,
+              lease.isActive,
+              !V3ServiceMutationAdmissionPolicy.admits(isMutation: true,
+                anotherMutationActive: false, authenticationActive: false, isAuthContinuation: false,
+                responseCapacityAvailable: true, refreshActive: lease.isActive) else {
+            throw NSError(domain: "V3OperationRecoveryHarness", code: 6)
+        }
     }
 
     private static func testProcessSharedLockWithTemporaryRoot(root: URL) throws {

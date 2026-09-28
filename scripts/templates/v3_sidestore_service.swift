@@ -116,6 +116,42 @@ private enum V3OperationRecoveryJournal {
     }
 
     @discardableResult
+    static func settleRefreshAdmission(runID: String, terminalState: String?,
+                                       terminalConfirmed: Bool,
+                                       containerRoot: URL? = nil) throws -> Bool {
+        try withLease(containerRoot: containerRoot) { url in
+            var lease = try read(url)
+            guard lease.settleRefreshAdmission(runID: runID, terminalState: terminalState,
+                terminalConfirmed: terminalConfirmed) else { return false }
+            try write(lease, to: url)
+            return true
+        }
+    }
+
+    @discardableResult
+    static func clearPreparedRefreshAdmissionAfterRequestCancellation(runID: String,
+                                                                       containerRoot: URL? = nil) throws -> Bool {
+        try withLease(containerRoot: containerRoot) { url in
+            var lease = try read(url)
+            guard lease.clearPreparedRefreshAdmissionAfterRequestCancellation(runID: runID) else { return false }
+            try write(lease, to: url)
+            return true
+        }
+    }
+
+    @discardableResult
+    static func reconcileRefreshAdmissionAfterDeviceCheck(runID: String, userConfirmed: Bool,
+                                                          containerRoot: URL? = nil) throws -> Bool {
+        try withLease(containerRoot: containerRoot) { url in
+            var lease = try read(url)
+            guard lease.reconcileRefreshAdmissionAfterDeviceCheck(runID: runID,
+                userConfirmed: userConfirmed) else { return false }
+            try write(lease, to: url)
+            return true
+        }
+    }
+
+    @discardableResult
     static func reconcileAfterDeviceCheck(sessionID: String, userConfirmed: Bool,
                                           containerRoot: URL? = nil) throws -> Bool {
         try withLease(containerRoot: containerRoot) { url in
@@ -286,8 +322,12 @@ final class V3SideStoreService: NSObject {
             }
             var cancellationReply: [String: Any] = ["id": id, "version": 1, "ok": true]
             if isPendingRefreshAdmission {
-                _ = refreshAdmission.release(requestID: target)
-                cancellationReply["refreshAdmissionReleased"] = true
+                let refreshRunID = refreshAdmission.runID
+                if refreshAdmission.release(requestID: target), let refreshRunID,
+                   (try? V3OperationRecoveryJournal.clearPreparedRefreshAdmissionAfterRequestCancellation(
+                    runID: refreshRunID)) == true {
+                    cancellationReply["refreshAdmissionReleased"] = true
+                }
             }
             let encoded = encode(cancellationReply, operation: operation)
             _ = finishCancellationReplyReservation(id: id, requestFingerprint: requestFingerprint,
@@ -318,24 +358,21 @@ final class V3SideStoreService: NSObject {
         let recoveryReadFailed: Bool
         do { recoveryRecord = try V3OperationRecoveryJournal.current(); recoveryReadFailed = false }
         catch { recoveryRecord = nil; recoveryReadFailed = true }
-        let recoveryControl = (["opPoll", "opAnswer", "opCancel"].contains(operation) &&
-            operationSessionID == recoveryRecord?.sessionID) ||
-            (operation == "opRecoveryReconcile" && target == recoveryRecord?.sessionID &&
-             V3WireContract.strictBool(payload["userConfirmed"]) == true)
-        let matchingPreparedStart = operation == "opStart" &&
-            operationSessionID == recoveryRecord?.sessionID && recoveryRecord?.phase == .prepared
-        let matchingPreparedReservation = operation == "opRecoveryPrepare" &&
-            payload["session"] as? String == recoveryRecord?.sessionID && recoveryRecord?.phase == .prepared
+        if let recoveryRecord, recoveryRecord.kind == "refreshAll",
+           !refreshAdmission.owns(recoveryRecord.sessionID) {
+            _ = refreshAdmission.restoreLost(runID: recoveryRecord.sessionID)
+        }
+        let recoveryDecision = V3ServiceRecoveryAdmissionPolicy.decide(operation: operation,
+            target: target, payload: payload, operationSessionID: operationSessionID,
+            recovery: recoveryRecord, recoveryReadFailed: recoveryReadFailed,
+            refreshOwnerLost: refreshAdmission.ownerLost)
         let policyOperationMutationActive = V3ServiceMutationAdmissionPolicy.hasConflictingOperationMutation(
             operation: operation, target: target,
             activeOperationID: V3HeadlessRuntime.shared.operations.activeMutationID) ||
-            recoveryReadFailed || (recoveryRecord != nil && !recoveryControl && !matchingPreparedStart &&
-                !matchingPreparedReservation)
-        let operationMutationActive = operation == "opRecoveryReconcile" && recoveryControl
+            recoveryDecision.blocksMutation
+        let operationMutationActive = operation == "opRecoveryReconcile" && recoveryDecision.recoveryControl
             ? false : policyOperationMutationActive
-        let refreshRelease = (operation == "refreshAdmissionEnd" && refreshAdmission.owns(target)) ||
-            (operation == "refreshAdmissionReconcile" && refreshAdmission.owns(target) &&
-             refreshAdmission.ownerLost && V3WireContract.strictBool(payload["userConfirmed"]) == true)
+        let refreshRelease = recoveryDecision.refreshRelease
         let controlReply = V3MutationReplyCacheBudget.isControlReply(operation: operation)
         let cacheResponse = V3MutationReplyCacheBudget.shouldCacheResponse(operation: operation)
         let cancellationReplay = V3RequestReplayPolicy.requiresCompletedReply(operation: operation)
@@ -417,8 +454,9 @@ final class V3SideStoreService: NSObject {
             } catch {
                 if operation == "refreshAdmissionBegin", error is CancellationError,
                    let refreshRunID = request["target"] as? String,
-                   refreshAdmission.owns(refreshRunID) {
-                    _ = refreshAdmission.release(runID: refreshRunID)
+                   refreshAdmission.release(runID: refreshRunID) {
+                    _ = try? V3OperationRecoveryJournal.clearPreparedRefreshAdmissionAfterRequestCancellation(
+                        runID: refreshRunID)
                 }
                 // Raw framework errors can contain URLs, authentication data or server responses.
                 // Detailed errors remain inside the SideStore process.
@@ -718,24 +756,48 @@ final class V3SideStoreService: NSObject {
                     ) else {
                 throw ServiceError.busy
             }
+            do {
+                guard try V3OperationRecoveryJournal.reserve(sessionID: target, kind: "refreshAll") else {
+                    throw ServiceError.busy
+                }
+            } catch {
+                _ = refreshAdmission.release(runID: target)
+                throw ServiceError.busy
+            }
             return ["runID": target, "admitted": true]
         case "refreshAdmissionEnd":
             guard let parsed = UUID(uuidString: target), parsed.uuidString == target else {
                 throw ServiceError.invalidRequest
             }
-            if !refreshAdmission.isActive {
+            guard let terminalState = payload["state"] as? String,
+                  ["completed", "failed", "notDispatched"].contains(terminalState) else {
+                throw ServiceError.invalidRequest
+            }
+            let recovery: V3OperationRecoveryRecord?
+            do { recovery = try V3OperationRecoveryJournal.current() }
+            catch { throw ServiceError.busy }
+            guard let recovery else {
+                guard !refreshAdmission.isActive else { throw ServiceError.busy }
                 return ["runID": target, "released": true, "alreadyReleased": true]
             }
-            guard refreshAdmission.release(runID: target) else {
+            guard recovery.kind == "refreshAll", recovery.sessionID == target,
+                  try V3OperationRecoveryJournal.settleRefreshAdmission(runID: target,
+                    terminalState: terminalState, terminalConfirmed: true) else {
                 throw ServiceError.notFound
             }
+            _ = refreshAdmission.release(runID: target)
             return ["runID": target, "released": true]
         case "refreshAdmissionReconcile":
             guard let parsed = UUID(uuidString: target), parsed.uuidString == target,
                   V3WireContract.strictBool(payload["userConfirmed"]) == true,
-                  refreshAdmission.reconcileAfterDeviceCheck(runID: target, userConfirmed: true) else {
+                  refreshAdmission.ownerLost else {
                 throw ServiceError.invalidRequest
             }
+            do {
+                guard try V3OperationRecoveryJournal.reconcileRefreshAdmissionAfterDeviceCheck(
+                    runID: target, userConfirmed: true) else { throw ServiceError.invalidRequest }
+            } catch { throw ServiceError.busy }
+            _ = refreshAdmission.release(runID: target)
             return ["runID": target, "released": true, "reconciled": true]
         case "appIcon":
             let app: InstalledApp = try object(target)
@@ -1232,13 +1294,20 @@ final class V3SideStoreService: NSObject {
         if let activeSessionID = activeAuthenticationSessionID {
             response["authenticationSessionID"] = activeSessionID
         }
-        if let operationRecovery {
+        if let operationRecovery, operationRecovery.kind != "refreshAll" {
             var safeRecovery: [String: Any] = ["session": operationRecovery.sessionID,
                 "kind": operationRecovery.kind, "phase": operationRecovery.phase.rawValue]
             if let token = operationRecovery.stagedIPAToken { safeRecovery["stagedIPAToken"] = token }
             response["operationRecovery"] = safeRecovery
         }
-        if refreshAdmission.ownerLost, let runID = refreshAdmission.runID {
+        if let operationRecovery, operationRecovery.kind == "refreshAll",
+           !refreshAdmission.owns(operationRecovery.sessionID) {
+            _ = refreshAdmission.restoreLost(runID: operationRecovery.sessionID)
+        }
+        if let operationRecovery, operationRecovery.kind == "refreshAll",
+           refreshAdmission.ownerLost {
+            response["refreshRecovery"] = ["runID": operationRecovery.sessionID, "ownerLost": true]
+        } else if refreshAdmission.ownerLost, let runID = refreshAdmission.runID {
             response["refreshRecovery"] = ["runID": runID, "ownerLost": true]
         }
         return response

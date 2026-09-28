@@ -970,7 +970,7 @@ struct V3OperationRecoveryRecord: Equatable {
 
     static let allowedKinds: Set<String> = [
         "install", "installURL", "installSharedIPA", "update", "refreshApp",
-        "activate", "deactivate", "remove", "delete", "backup", "restore"
+        "activate", "deactivate", "remove", "delete", "backup", "restore", "refreshAll"
     ]
 
     init?(sessionID: String, kind: String, phase: Phase, stagedIPAToken: String? = nil) {
@@ -1081,6 +1081,32 @@ struct V3OperationRecoveryLease: Equatable {
               backendSettled, stopConfirmed else { return false }
         record = nil
         return true
+    }
+
+    @discardableResult
+    mutating func settleRefreshAdmission(runID: String, terminalState: String?,
+                                         terminalConfirmed: Bool) -> Bool {
+        guard terminalConfirmed, let current = record,
+              current.sessionID == runID, current.kind == "refreshAll",
+              (current.phase == .prepared ||
+                (current.phase == .dispatched && terminalState != "notDispatched")),
+              ["completed", "failed", "notDispatched"].contains(terminalState ?? "") else { return false }
+        record = nil
+        return true
+    }
+
+    @discardableResult
+    mutating func clearPreparedRefreshAdmissionAfterRequestCancellation(runID: String) -> Bool {
+        guard let current = record, current.sessionID == runID,
+              current.kind == "refreshAll", current.phase == .prepared else { return false }
+        record = nil
+        return true
+    }
+
+    @discardableResult
+    mutating func reconcileRefreshAdmissionAfterDeviceCheck(runID: String, userConfirmed: Bool) -> Bool {
+        guard record?.kind == "refreshAll" else { return false }
+        return reconcileAfterDeviceCheck(sessionID: runID, userConfirmed: userConfirmed)
     }
 
     var blocksMutation: Bool { record != nil }
@@ -2055,6 +2081,11 @@ struct V3UserFacingIssue: Equatable {
             if safeCause == CombinedFailure.SafeCause.keychainSignOutFailed.rawValue { return "signIn" }
             if safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue ||
                safeCause == CombinedFailure.SafeCause.sourceRemoveBusy.rawValue { return "sources" }
+            if [CombinedFailure.SafeCause.signingNetworkConnectionLost.rawValue,
+                CombinedFailure.SafeCause.signingNetworkTimedOut.rawValue,
+                CombinedFailure.SafeCause.signingNetworkUnavailable.rawValue].contains(safeCause ?? "") {
+                return "connection"
+            }
             if operation == "source" && stage == CombinedFailure.Stage.serviceReadiness.rawValue {
                 return "sources"
             }
@@ -4172,6 +4203,16 @@ struct V3RefreshAdmissionLease {
 
     func owns(_ candidate: String) -> Bool { runID == candidate }
 
+    mutating func restoreLost(runID: String) -> Bool {
+        guard self.runID == nil,
+              let parsed = UUID(uuidString: runID), parsed.uuidString == runID else { return false }
+        self.runID = runID
+        requestID = nil
+        expiresAt = nil
+        ownerLost = true
+        return true
+    }
+
     @discardableResult
     mutating func release(runID: String) -> Bool {
         guard self.runID == runID else { return false }
@@ -4228,5 +4269,52 @@ enum V3OperationSessionCorrelationPolicy {
         let expected = operation == "opStart" ? requestedStartSession : target
         guard let expected, !expected.isEmpty else { return false }
         return resultSession == expected
+    }
+}
+
+struct V3ServiceRecoveryAdmissionDecision: Equatable {
+    let recoveryControl: Bool
+    let matchingPreparedStart: Bool
+    let matchingPreparedReservation: Bool
+    let blocksMutation: Bool
+    let refreshRelease: Bool
+}
+
+enum V3ServiceRecoveryAdmissionPolicy {
+    private static func strictBoolean(_ value: Any?) -> Bool? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+        return number.boolValue
+    }
+
+    static func decide(operation: String, target: String, payload: [String: Any],
+                       operationSessionID: String?, recovery: V3OperationRecoveryRecord?,
+                       recoveryReadFailed: Bool, refreshOwnerLost: Bool) -> V3ServiceRecoveryAdmissionDecision {
+        let refreshRecordMatches = recovery?.kind == "refreshAll" && recovery?.sessionID == target
+        let refreshTerminalState = payload["state"] as? String
+        let hasRefreshTerminal = ["completed", "failed", "notDispatched"].contains(refreshTerminalState ?? "")
+        let userConfirmed = strictBoolean(payload["userConfirmed"]) == true
+        let operationControl = recovery?.kind != "refreshAll" &&
+            ((["opPoll", "opAnswer", "opCancel"].contains(operation) &&
+              operationSessionID == recovery?.sessionID) ||
+             (operation == "opRecoveryReconcile" && target == recovery?.sessionID && userConfirmed))
+        let refreshControl = refreshRecordMatches &&
+            ((operation == "refreshAdmissionEnd" && hasRefreshTerminal) ||
+             (operation == "refreshAdmissionReconcile" && userConfirmed))
+        let recoveryControl = operationControl || refreshControl
+        let matchingPreparedStart = operation == "opStart" && recovery?.kind != "refreshAll" &&
+            operationSessionID == recovery?.sessionID && payload["kind"] as? String == recovery?.kind &&
+            recovery?.phase == .prepared
+        let matchingPreparedReservation = operation == "opRecoveryPrepare" && recovery?.kind != "refreshAll" &&
+            payload["session"] as? String == recovery?.sessionID && payload["kind"] as? String == recovery?.kind &&
+            recovery?.phase == .prepared
+        let blocksMutation = recoveryReadFailed ||
+            (recovery != nil && !recoveryControl && !matchingPreparedStart && !matchingPreparedReservation)
+        let refreshRelease = refreshRecordMatches &&
+            ((operation == "refreshAdmissionEnd" && hasRefreshTerminal) ||
+             (operation == "refreshAdmissionReconcile" && refreshOwnerLost && userConfirmed))
+        return V3ServiceRecoveryAdmissionDecision(recoveryControl: recoveryControl,
+            matchingPreparedStart: matchingPreparedStart,
+            matchingPreparedReservation: matchingPreparedReservation,
+            blocksMutation: blocksMutation, refreshRelease: refreshRelease)
     }
 }

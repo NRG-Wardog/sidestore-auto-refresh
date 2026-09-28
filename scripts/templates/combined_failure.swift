@@ -263,6 +263,60 @@ public struct CombinedFailure: Error, LocalizedError {
     private static let operations: Set<String> = ["connect", "status", "command", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit", "pairingImportData"]
     private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError"]
     private static let verificationDomains: Set<String> = ["ALTServerErrorDomain", "ALTErrorDomain", "IdeviceGatewayError", "DeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy"]
+    private var timeoutAction: String {
+        switch operation {
+        case "connect": return "connect to SideStore"
+        case "status": return "load status"
+        case "refresh": return "refresh apps"
+        case "install": return "install the app"
+        case "update": return "update the app"
+        case "delete": return "delete the app"
+        case "signIn": return "sign in"
+        case "signOut": return "sign out"
+        case "source": return "load the source"
+        case "catalog": return "load the catalog"
+        default: return "complete the request"
+        }
+    }
+    private var timeoutContext: String {
+        switch stage {
+        case .hostContainer, .storagePreparation, .bookmarkCreation:
+            return "using the shared app container"
+        case .extensionDiscovery, .extensionLaunch:
+            return "starting the LiveProcess extension"
+        case .xpcConnection:
+            return "connecting to the SideStore service"
+        case .serviceReadiness:
+            return "waiting for SideStore to finish starting"
+        case .authentication:
+            return "checking the Apple account"
+        case .provisioning:
+            return "preparing provisioning data"
+        case .signing:
+            return "signing the app"
+        case .filePreparation:
+            return "preparing the selected IPA"
+        case .installation:
+            return "installing the app"
+        case .refreshVerification:
+            return "verifying the refresh result"
+        case .replyEncoding:
+            return "preparing the service response"
+        case .endpointSelection, .heartbeat, .coreDevice, .cdTunnel, .rsdDiscovery,
+             .rsdService, .lockdownConnection, .uniqueDeviceID:
+            return "connecting to the device"
+        case .pairing:
+            return "checking the pairing data"
+        case .network:
+            return "checking the network connection"
+        case .source:
+            return "loading the source"
+        case .catalog:
+            return "loading the source catalog"
+        case .command:
+            return "waiting for SideStore to finish the request"
+        }
+    }
     public var message: String {
         if operation == "delete", code == .timedOut {
             return "SideStore could not confirm that the deleted app disappeared from its installed library."
@@ -279,7 +333,7 @@ public struct CombinedFailure: Error, LocalizedError {
         if operation == "catalog", safeCause != .responseEncodingFailed,
            safeCause != .responseTooLarge, let catalog = catalogFailureMessage { return catalog }
         if code == .cancelled { return "The \(operation) request was cancelled. Its result may need reconciliation." }
-        if code == .timedOut { return "The \(operation) request timed out during \(stage.rawValue)." }
+        if code == .timedOut { return "SideStore could not \(timeoutAction) in time while \(timeoutContext)." }
         if let safeCause {            switch safeCause {
             case .networkConnectionLost: return "The network connection was lost during \(operation)."
             case .networkTimedOut: return "The network request timed out during \(operation)."

@@ -402,20 +402,22 @@ class RefreshHandler: NSObject {
             if v3RefreshDispatchedRunID != run ||
                (!Task.isCancelled && !(error is CancellationError) &&
                 (error as? CombinedFailure)?.code != .timedOut) {
-                await releaseRefreshAdmission(run)
+                await releaseRefreshAdmission(run,
+                    terminalState: v3RefreshDispatchedRunID == run ? "failed" : "notDispatched")
             }
             throw error
         }
         timeout.cancel()
-        await releaseRefreshAdmission(run)
+        await releaseRefreshAdmission(run, terminalState: "completed")
     }
-    private func releaseRefreshAdmission(_ runID: String) async {
+    private func releaseRefreshAdmission(_ runID: String, terminalState: String) async {
         // Run independently of a caller cancellation so a confirmed terminal
         // callback cannot strand the service's admission state.
         await Task { @MainActor in
             do {
                 let reply = try await V3ServiceBridge.shared.request(
-                    operation: "refreshAdmissionEnd", target: runID)
+                    operation: "refreshAdmissionEnd", target: runID,
+                    payload: ["state": terminalState])
                 guard reply["runID"] as? String == runID,
                       V3ServiceBridge.strictBool(reply["released"]) == true else {
                     NSLog("[V3_REFRESH_ADMISSION] RELEASE_UNCONFIRMED run_id=%@", runID)

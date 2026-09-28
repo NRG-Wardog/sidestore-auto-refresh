@@ -653,6 +653,29 @@ struct SetupAndSemanticUXHarness {
         precondition(networkIssue.recoveryDestination == "connection")
         precondition(networkIssue.primaryAction == .openConnectionCheck,
                      "a connection failure opens settings instead of claiming the mutation was retried")
+        let signingNetworkFailure = CombinedFailure(operation: "install", stage: .signing,
+            code: .failed, id: UUID().uuidString, retryable: true,
+            safeCause: .signingNetworkConnectionLost)
+        let signingNetworkIssue = V3UserFacingIssue.make(signingNetworkFailure)
+        precondition(signingNetworkIssue.recoveryDestination == "connection" &&
+                     signingNetworkIssue.primaryAction == .openConnectionCheck &&
+                     signingNetworkIssue.whatToDo.contains("current connection may still be healthy"),
+            "a typed provisioning network timeout directs to connection recovery, not Certificates")
+        precondition(V3OperationFailureDetails(signingNetworkFailure).recoveryDestination == "connection",
+            "the global issue router and operation sheet must agree on the typed network cause")
+        for stage: CombinedFailure.Stage in [.serviceReadiness, .xpcConnection, .rsdDiscovery,
+                                               .refreshVerification, .replyEncoding, .source, .catalog] {
+            let timeout = CombinedFailure(operation: "install", stage: stage,
+                code: .timedOut, id: UUID().uuidString)
+            precondition(!timeout.safeMessage.contains(stage.rawValue),
+                "user-facing timeout copy must not expose internal stage \(stage.rawValue)")
+        }
+        let signingTimeout = CombinedFailure(operation: "install", stage: .signing,
+            code: .timedOut, id: UUID().uuidString, retryable: true,
+            safeCause: .signingNetworkTimedOut)
+        precondition(signingTimeout.safeMessage.contains("install the app") &&
+                     signingTimeout.safeMessage.contains("signing the app"),
+            "timeout copy uses plain-language context rather than the stage token")
         let anisetteNetworkFailure = CombinedFailure(operation: "anisetteSync", stage: .network,
             code: .failed, id: UUID().uuidString, retryable: true, safeCause: .networkConnectionLost)
         let anisetteGuidance = V3AnisetteFailureGuidance.message(anisetteNetworkFailure)!
