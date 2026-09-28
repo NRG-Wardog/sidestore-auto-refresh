@@ -15,6 +15,10 @@ REQUIRED_SIDESTORE_INTENT_SYMBOLS = (
     b"9SideStore20RefreshAllAppsIntentV",
     b"9SideStore26RefreshAllAppsWidgetIntentV",
 )
+REQUIRED_HOST_INTENT_SYMBOLS = (
+    b"16SideStoreSupport20RefreshAllAppsIntentV",
+    b"16SideStoreSupport26RefreshAllAppsWidgetIntentV",
+)
 
 
 def verify_side_store_intent_runtime_symbols(executable):
@@ -22,6 +26,13 @@ def verify_side_store_intent_runtime_symbols(executable):
                if symbol not in executable]
     if missing:
         raise ValueError("headless backend is missing host App Intent runtime adapters: " + ", ".join(missing))
+
+
+def verify_host_intent_runtime_symbols(executable):
+    missing = [symbol.decode("ascii") for symbol in REQUIRED_HOST_INTENT_SYMBOLS
+               if symbol not in executable]
+    if missing:
+        raise ValueError("SideStoreSupport is missing metadata-targeted App Intent wrappers: " + ", ".join(missing))
 
 
 def replace_once(text, old, new):
@@ -112,6 +123,7 @@ def verify(path, side_product=None):
         assert b'virtual_window_chrome' in host_code, 'Multitasking Return input-layer fix missing'
         bootstrap_code = archive.read(base + '/Frameworks/LiveContainerShared.framework/LiveContainerShared')
         support_code = archive.read(base + '/Frameworks/SideStoreSupport.framework/SideStoreSupport')
+        verify_host_intent_runtime_symbols(support_code)
         assert b'v3Execute:reply:' in support_code, 'XPC command endpoint missing'
         assert b'execute:reply:' in executable, 'SideStore command dispatcher missing'
         assert b'Import Pairing File' in host_code, 'Unified pairing setup missing'

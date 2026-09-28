@@ -109,6 +109,13 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         self.compile_and_run(wire + "\n" + failure + "\n" + helper + "\n" + context + "\n" + pairing_classifier + "\n" + harness,
                              "V3_PAIRING_FAILURE_GUIDANCE_PASS")
 
+    def test_pairing_import_only_offers_file_retry_for_file_failures(self):
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_pairing_import_recovery_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run(failure + "\n" + helper + "\n" + harness,
+                             "V3_PAIRING_IMPORT_RECOVERY_PASS")
+
     def test_service_admission_retains_active_backend_operation_ownership(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")

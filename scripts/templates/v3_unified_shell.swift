@@ -5688,7 +5688,9 @@ struct V3PairingView: View {
                     Button("Copy Diagnostics", systemImage: "doc.on.doc") {
                         UIPasteboard.general.string = failure.technicalDetails
                     }
-                    Button("Choose Pairing File Again") { pickerPresented = true }
+                    if V3PairingImportFailurePolicy.shouldOfferFileRetry(failure) {
+                        Button("Choose Pairing File Again") { pickerPresented = true }
+                    }
                 }
             }
             // V3_PAIRING_PLACEMENT_FIRST_V1: the pairing mechanism works. The
@@ -5792,7 +5794,11 @@ struct V3PairingView: View {
             status.reload()
         } catch {
             if let failure = error as? CombinedFailure {
-                pairingFailure = failure
+                if V3PairingImportFailurePolicy.shouldOfferFileRetry(failure) {
+                    pairingFailure = failure
+                } else {
+                    status.present(failure)
+                }
             } else {
                 message = V3FailureGuidance.message(error)
             }

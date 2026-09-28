@@ -223,6 +223,10 @@ enum StoreApp { static let altstoreAppID = "fixture.host" }
         precondition(roundTripped.stage == .pairing && roundTripped.safeCause == .invalidPairingFile &&
                      roundTripped.correlationID == run && roundTripped.retryable == false,
                      "invalid-pairing semantics must survive encoding and decoding of the refresh manifest")
+        let callbackFailure = CombinedFailure.fromEncodedString(roundTripped.encodedString, expectedID: run)!
+        precondition(callbackFailure.stage == .pairing && callbackFailure.safeCause == .invalidPairingFile &&
+                     callbackFailure.correlationID == run && callbackFailure.retryable == false,
+                     "the XPC terminal callback must preserve pairing semantics and exact run identity")
         precondition(!String(decoding: pairingBytes, as: UTF8.self).contains(privatePairingReason) &&
                      !logs.joined().contains(privatePairingReason),
                      "private pairing parser details must not cross response or log boundaries")

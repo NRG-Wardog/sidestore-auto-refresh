@@ -454,13 +454,31 @@ def headless_widget_refresh_intent(text):
     marker = "V3_SHORTCUT_WIDGET_BACKEND_FORWARD_V1"
     if marker in text:
         if ("ProgressReportingIntent" not in text or
-                "RefreshAllAppsIntent(presentsNotifications: true)" not in text):
+                "RefreshAllAppsIntent(presentsNotifications: true)" not in text or
+                "throw error" not in text or
+                'debugLog("Failed to refresh apps via widget. \\(error)")' in text):
             raise SystemExit("v3 service: widget no longer forwards through the SideStore backend")
         return text
     if ("ProgressReportingIntent" not in text or
             "RefreshAllAppsIntent(presentsNotifications: true)" not in text):
         raise SystemExit("v3 service: widget backend adapter changed")
     text = replace(text, "import AppIntents\n", "import AppIntents\n// " + marker + ": retain the upstream guest-to-backend adapter.\n")
+    text = replace(text,
+        r'''        catch
+        {
+            debugLog("Failed to refresh apps via widget. \(error)")
+        }
+''',
+        '''        catch
+        {
+            // V3_WIDGET_REFRESH_FAILURE_PRIVACY_V1: never log a raw provider error.
+            debugLog("[V3_WIDGET_REFRESH] failed")
+            throw error
+        }
+''')
+    if ('debugLog("Failed to refresh apps via widget. \\(error)")' in text or
+            "throw error" not in text):
+        raise SystemExit("v3 service: widget refresh failure still logs raw error text or is swallowed")
     return text
 
 

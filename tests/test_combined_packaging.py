@@ -3,7 +3,11 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from package_livecontainer_combined import adapt, verify_side_store_intent_runtime_symbols
+from package_livecontainer_combined import (
+    adapt,
+    verify_host_intent_runtime_symbols,
+    verify_side_store_intent_runtime_symbols,
+)
 
 
 class CombinedPackagingTests(unittest.TestCase):
@@ -12,6 +16,12 @@ class CombinedPackagingTests(unittest.TestCase):
             b"9SideStore20RefreshAllAppsIntentV\x009SideStore26RefreshAllAppsWidgetIntentV")
         with self.assertRaisesRegex(ValueError, "RefreshAllAppsWidgetIntent"):
             verify_side_store_intent_runtime_symbols(b"9SideStore20RefreshAllAppsIntentV")
+
+    def test_packaged_support_contains_every_metadata_targeted_intent_wrapper(self):
+        verify_host_intent_runtime_symbols(
+            b"16SideStoreSupport20RefreshAllAppsIntentV\x0016SideStoreSupport26RefreshAllAppsWidgetIntentV")
+        with self.assertRaisesRegex(ValueError, "RefreshAllAppsWidgetIntent"):
+            verify_host_intent_runtime_symbols(b"16SideStoreSupport20RefreshAllAppsIntentV")
 
     def test_upstream_adapter_retains_transformations(self):
         script = '''brew install ldid
