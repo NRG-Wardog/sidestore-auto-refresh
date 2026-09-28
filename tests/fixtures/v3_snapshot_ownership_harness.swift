@@ -75,9 +75,13 @@ struct SnapshotOwnershipHarness {
         func cancelWaiter(_ id: UUID) -> Bool {
             guard snapshotWaiterRegistry.remove(id),
                   let index = waiterIDs.firstIndex(of: id) else { return false }
+            let manual = waiters[index]
             waiterIDs.remove(at: index)
             waiters.remove(at: index)
             if lastWaiterID == id { lastWaiterID = nil }
+            // Production cancelSnapshotWaiter resumes this exact caller with
+            // notObserved while leaving any shared snapshot request alive.
+            resumptions.append((manual, "notObserved"))
             return true
         }
 
@@ -481,13 +485,15 @@ struct SnapshotOwnershipHarness {
                          "mutation completion preserves the still-blocked waiter")
             precondition(s.cancelWaiter(waiterID), "cancel removes the sole waiter exactly once")
             precondition(!s.cancelWaiter(waiterID), "a canceled waiter cannot be removed twice")
+            precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "notObserved",
+                         "the canceled continuation settles once with notObserved")
             precondition(s.snapshotOwed && !s.manualSnapshotOwed,
                          "waiter cancellation removes manual intent without clearing the owed request")
             s.presentationEnded()
             precondition(s.activity == .idle && s.snapshotsStarted == 0,
                          "without any manual owner, the retry latch refuses the drain")
             precondition(s.requiresConnectionRetry && !s.snapshotOwed && s.waiters.isEmpty &&
-                         s.resumptions.isEmpty,
+                         s.resumptions.count == 1 && s.resumptions[0].1 == "notObserved",
                          "no snapshot or waiter survives the canceled request")
         }
 
@@ -514,7 +520,8 @@ struct SnapshotOwnershipHarness {
                          "the independent manual request starts exactly one snapshot")
             s.completeSnapshot()
             precondition(s.snapshotsPerformed == ["applied"] && s.snapshotsStarted == 1 &&
-                         s.waiters.isEmpty,
+                         s.waiters.isEmpty && s.resumptions.count == 1 &&
+                         s.resumptions[0].1 == "notObserved",
                          "the snapshot completes once after the only waiter canceled")
         }
 
