@@ -975,6 +975,17 @@ import Foundation
             self.assertIn("retryCredentials: (String, String)?", sign_in)
             self.assertIn("V3TwoFactorRetryPolicy.shouldReuseCredentialsForCodeRetry", sign_in)
             self.assertIn("v3ClassifyAuthError(error) == nil", sign_in)
+            failure_marker = "V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1"
+            self.assertIn(failure_marker, sign_in)
+            failure_catch_end = sign_in.index("throw error", sign_in.index(failure_marker)) + len("throw error")
+            failure_catch = sign_in[sign_in.index(failure_marker):failure_catch_end]
+            for destructive_side_effect in (
+                "AuthManager.shared.signOut()",
+                "Keychain.shared.clearSignInInfo",
+                "clearActiveCertificate",
+                "deactivateActiveAccountAndTeam",
+            ):
+                self.assertNotIn(destructive_side_effect, failure_catch)
             start_authentication = sign_in.index("private func startAuthentication")
             self.assertLess(sign_in.index("handleSignInResult(.success(silentResult))", start_authentication),
                             sign_in.index("self.provisioningLoop(", start_authentication))
