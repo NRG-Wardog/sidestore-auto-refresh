@@ -205,6 +205,15 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
 
 
 class CandidateArchiveSizeReportTests(unittest.TestCase):
+    def test_pinned_headless_ui_symbol_inventory_includes_replaced_bundle_checkbox(self):
+        source = Path(os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or
+                      os.environ.get("SIDESTORE_TEST_SOURCE", ""))
+        if not source.is_dir():
+            self.skipTest("pinned embedded SideStore source is supplied by macOS CI")
+        symbols = verify_module.excluded_side_store_view_type_names(
+            source, source_ref=verify_module.SOURCE_PINS[1])
+        self.assertIn("AppendTeamIDCheckboxView", symbols)
+
     def test_all_macho_members_including_standalone_dylibs_are_architecture_checked(self):
         arm64 = thin_arm64_macho()
         files = {

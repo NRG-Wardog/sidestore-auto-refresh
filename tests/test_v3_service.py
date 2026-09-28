@@ -191,6 +191,38 @@ enum V3BackendCommands {{
         self.assertIn("return (initialBundleID, true)", patched)
         self.assertNotIn("AppExtensionViewHostingController", patched)
         self.assertNotIn("ReviewPermissionsViewController", patched)
+        component_path = "SideStore/Views/Components/CustomAppIDAlertViewController.swift"
+        self.assertIn(component_path.split("/", 1)[1], service.HEADLESS_SIDESTORE_VIEW_FILES)
+        component_source = subprocess.check_output(
+            ["git", "-C", str(side_source), "show",
+             service.PINS[1] + ":" + component_path], text=True, encoding="utf-8")
+        self.assertIn("class AppendTeamIDCheckboxView", component_source)
+        references = subprocess.check_output(
+            ["git", "-C", str(side_source), "grep", "-n", "-F", "AppendTeamIDCheckboxView",
+             service.PINS[1], "--", "*.swift"], text=True, encoding="utf-8").splitlines()
+        self.assertEqual([line.split(":", 2)[1] for line in references], [
+            "SideStore/Handlers/PipelineHandler.swift",
+            component_path,
+        ])
+        pinned_project = subprocess.check_output(
+            ["git", "-C", str(side_source), "show",
+             service.PINS[1] + ":AltStore.xcodeproj/project.pbxproj"],
+            text=True, encoding="utf-8")
+        synced_group = pinned_project[pinned_project.index("A8EECF2A2F4B195000F2436D"):]
+        self.assertIn("path = SideStore;", synced_group)
+        sidestore_target = pinned_project[pinned_project.index("BFD247692284B9A500981D42 /* SideStore */ = {"):]
+        self.assertIn("A8EECF2A2F4B195000F2436D /* SideStore */", sidestore_target)
+        original_exceptions = pinned_project[pinned_project.index("A8EECF492F4B195000F2436D"):]
+        original_membership = original_exceptions[
+            original_exceptions.index("membershipExceptions = ("):
+            original_exceptions.index(");")]
+        self.assertNotIn('"Views/Components/CustomAppIDAlertViewController.swift"', original_membership)
+        original_override = self.swift_declaration(
+            source, "func resolveBundleIDOverride(initialBundleID: String)")
+        patched_override = self.swift_declaration(
+            patched, "func resolveBundleIDOverride(initialBundleID: String)")
+        self.assertIn("AppendTeamIDCheckboxView", original_override)
+        self.assertNotIn("AppendTeamIDCheckboxView", patched_override)
         self.assertEqual(service.headless_pipeline_handler(patched), patched)
 
     def test_log_formatter_patch_replaces_the_complete_final_swift_function(self):
@@ -592,7 +624,6 @@ import Foundation
              "SideStore/Core/Operations/PipelineRunner.swift",
              "SideStore/Core/Operations/OperationStepDefinition.swift",
              "SideStore/Core/Operations/PipelineOperations/VerifyAppOperation.swift",
-             "SideStore/Handlers/PipelineHandler.swift",
              "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
              "SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
              "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
@@ -691,7 +722,21 @@ import Foundation
             prior["patchVersion"] = 31
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 31 cannot be migrated safely to v32"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 31 cannot be migrated safely to v33"):
+                self.apply(roots)
+            self.assertEqual(before, self.snapshot(directory))
+
+    def test_v32_generated_tree_fails_closed_without_mutation(self):
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            roots = self.fixture(directory)
+            self.apply(roots)
+            manifest = roots[0] / ".v3-command-patch.json"
+            prior = json.loads(manifest.read_text(encoding="utf-8"))
+            prior["patchVersion"] = 32
+            manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
+            before = self.snapshot(directory)
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 32 cannot be migrated safely to v33"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -758,7 +803,7 @@ import Foundation
             manifest_path.write_text(json.dumps(v30_manifest, indent=2) + "\n", encoding="utf-8")
 
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 30 cannot be migrated safely to v32"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 30 cannot be migrated safely to v33"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory),
                              "the real v30 output shape must fail closed without partial migration")
@@ -775,7 +820,7 @@ import Foundation
             legacy["templates"].pop(service.HEADLESS_ANISETTE_MODELS_MANIFEST_KEY)
             manifest_path.write_text(json.dumps(legacy, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 29 cannot be migrated safely to v32.*discard generated work directories"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 29 cannot be migrated safely to v33.*discard generated work directories"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory), "unsupported v29 manifests must fail without mutation")
 
@@ -789,7 +834,7 @@ import Foundation
             unknown["patchVersion"] = 999
             manifest_path.write_text(json.dumps(unknown, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 999 cannot be migrated safely to v32"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 999 cannot be migrated safely to v33"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory), "unknown patch versions must fail without mutation")
 
@@ -978,7 +1023,7 @@ import Foundation
                 '"Views/Settings/Advanced/CacheMgmt/CacheViewModel.swift"',
             ):
                 self.assertIn(excluded_presentation, side_membership)
-            self.assertNotIn('"Views/Components/CustomAppIDAlertViewController.swift"', side_membership)
+            self.assertIn('"Views/Components/CustomAppIDAlertViewController.swift"', side_membership)
             pipeline_handler = (side / "SideStore/Handlers/PipelineHandler.swift").read_text(encoding="utf-8")
             self.assertIn("V3_HEADLESS_BUNDLE_ID_PROMPT_V1", pipeline_handler)
             self.assertNotIn("AppendTeamIDCheckboxView", pipeline_handler)
