@@ -274,6 +274,94 @@ enum V3BackendCommands {{
         self.assertIn('case "deactivate": operation = .deactivate(app)', runtime)
         self.assertIn("AppManager.shared.pipelineRunner.performSingleOperation(operation", runtime)
 
+    def test_pairing_and_sidejit_presenters_are_unreferenced_in_headless_target(self):
+        side_source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        if not side_source:
+            self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the pinned source checkout")
+        ref = service.PINS[1]
+
+        def pinned_matches(token):
+            output = subprocess.check_output(
+                ["git", "-C", side_source, "grep", "-n", "-F", token, ref, "--", "*.swift"],
+                text=True, encoding="utf-8")
+            return [line.split(":", 2)[1] for line in output.splitlines()]
+
+        launch = "AltStore/LaunchViewController.swift"
+        boot_path = "SideStore/AppBootManager.swift"
+        jit_path = "SideStore/Core/JIT/SideJITManager.swift"
+        pairing_path = "SideStore/Core/Pairing/PairingFileManager.swift"
+        self.assertEqual(set(pinned_matches("promptForPairing(")), {launch, boot_path})
+        self.assertEqual(set(pinned_matches("needsPairingPrompt")), {launch, boot_path})
+        self.assertEqual(set(pinned_matches("needsSideJITPrompt")), {launch, boot_path})
+        self.assertEqual(set(pinned_matches("presentJITPrompt(")), {launch, jit_path})
+        self.assertEqual(set(pinned_matches("isSideJITServerDetected(")), {boot_path, jit_path})
+        self.assertEqual(set(pinned_matches("presentPairingFileAlert(")), {boot_path, pairing_path})
+        self.assertEqual(set(pinned_matches("showPairingWarningAndProceed(")), {pairing_path})
+        self.assertEqual(set(pinned_matches("importPairingFile(presentingVC:")), {pairing_path})
+
+        def show(path):
+            return subprocess.check_output(["git", "-C", side_source, "show", f"{ref}:{path}"],
+                                           text=True, encoding="utf-8")
+
+        boot_original = show(boot_path)
+        boot_generated = service.headless_app_boot_manager(boot_original)
+        self.assertEqual(service.headless_app_boot_manager(boot_generated), boot_generated)
+        for removed in ("needsPairingPrompt", "needsSideJITPrompt", "promptForPairing(",
+                        "presentPairingFileAlert", "isSideJITServerDetected", "UIViewController", "import UIKit"):
+            self.assertNotIn(removed, boot_generated)
+        original_start = self.swift_declaration(boot_original, "public nonisolated func startMinimuxer(")
+        expected_start = "\n".join(
+            line for line in original_start.splitlines() if "self.needsPairingPrompt =" not in line)
+        actual_start = self.swift_declaration(boot_generated, "public nonisolated func startMinimuxer(")
+        self.assertEqual(actual_start, expected_start)
+        self.assertIn("public nonisolated func performBootSequence() async", boot_generated)
+        self.assertIn("SideJITManager.shared.askForNetwork()", boot_generated)
+        self.assertIn("PairingFileManager.shared.fetchPairingFile()", boot_generated)
+        self.assertIn("V3_HEADLESS_BOOT_SIDEJIT_DETECTION_REMOVED_V1", boot_generated)
+
+        jit_original = show(jit_path)
+        jit_generated = service.headless_sidejit_manager(jit_original)
+        self.assertEqual(service.headless_sidejit_manager(jit_generated), jit_generated)
+        for removed in ("presentJITPrompt", "isSideJITServerDetected", "UIAlertController", "UIViewController", "import UIKit"):
+            self.assertNotIn(removed, jit_generated)
+        for retained in ("public func resolveServerURL() async -> String", "public func askForNetwork() async",
+                         "resolveAddressIfNeeded", "inet_pton"):
+            self.assertIn(retained, jit_generated)
+        enable_jit = show("SideStore/Core/Operations/StandaloneOperations/EnableJITOperation.swift")
+        self.assertIn("SideJITManager.shared.resolveServerURL()", enable_jit)
+
+        pairing_original = show(pairing_path)
+        pairing_generated = service.headless_pairing_file_manager(pairing_original)
+        self.assertEqual(service.headless_pairing_file_manager(pairing_generated), pairing_generated)
+        for removed in ("UIViewController", "UIDocumentPicker", "UIAlertController", "UTType",
+                        "UniformTypeIdentifiers", "import UIKit", "importPairingFile(presentingVC:"):
+            self.assertNotIn(removed, pairing_generated)
+        for signature in ("nonisolated var pairingUDID:", "nonisolated func fetchPairingFile()",
+                          "func savePairingFile(contents: String)"):
+            self.assertEqual(self.swift_declaration(pairing_original, signature),
+                             self.swift_declaration(pairing_generated, signature))
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        self.assertIn("PairingFileManager.shared.savePairingFile(contents: contents)", runtime)
+        self.assertIn("PairingFileManager.shared.fetchPairingFile()", runtime)
+        minimuxer = show("SideStore/Core/DeviceApi/MinimuxerWrapper.swift")
+        self.assertIn("PairingFileManager.shared.pairingUDID", minimuxer)
+
+        project = show("AltStore.xcodeproj/project.pbxproj")
+        sidestore_group = project[project.index("A8EECF2A2F4B195000F2436D"):]
+        self.assertIn("path = SideStore;", sidestore_group)
+        side_target = project[project.index("BFD247692284B9A500981D42 /* SideStore */ = {"):]
+        self.assertIn("A8EECF2A2F4B195000F2436D /* SideStore */", side_target)
+        side_exceptions = project[project.index("A8EECF492F4B195000F2436D"):]
+        side_members = side_exceptions[side_exceptions.index("membershipExceptions = ("):
+                                      side_exceptions.index(");")]
+        for path in ("AppBootManager.swift", "Core/JIT/SideJITManager.swift", "Core/Pairing/PairingFileManager.swift"):
+            self.assertNotIn(f'"{path}"', side_members)
+        generated_project = service.headless_project(project)
+        altstore_exceptions = generated_project[generated_project.index("A8EEC8CB2F4B146B00F2436D"):]
+        altstore_members = altstore_exceptions[altstore_exceptions.index("membershipExceptions = ("):
+                                              altstore_exceptions.index(");")]
+        self.assertIn('"LaunchViewController.swift"', altstore_members)
+
     def test_log_formatter_patch_replaces_the_complete_final_swift_function(self):
         source = "import Foundation\npublic func formatLogMessage(_ message: String) -> String { return message }\n"
         patched = service.headless_safe_log_format(source)
@@ -659,6 +747,9 @@ import Foundation
             ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",
              "AltStore/Managing Apps/AppManager.swift",
              "AltStore/Core/Components/Keychain.swift",
+             "SideStore/AppBootManager.swift",
+             "SideStore/Core/JIT/SideJITManager.swift",
+             "SideStore/Core/Pairing/PairingFileManager.swift",
              "SideStore/Handlers/PipelineHandler.swift",
              "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
              "AltStore/Settings/AnisetteServerList.swift",
@@ -771,7 +862,7 @@ import Foundation
             prior["patchVersion"] = 31
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 31 cannot be migrated safely to v34"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 31 cannot be migrated safely to v35"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -785,7 +876,7 @@ import Foundation
             prior["patchVersion"] = 32
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 32 cannot be migrated safely to v34"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 32 cannot be migrated safely to v35"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -799,7 +890,21 @@ import Foundation
             prior["patchVersion"] = 33
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 33 cannot be migrated safely to v34"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 33 cannot be migrated safely to v35"):
+                self.apply(roots)
+            self.assertEqual(before, self.snapshot(directory))
+
+    def test_v34_generated_tree_fails_closed_without_mutation(self):
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            roots = self.fixture(directory)
+            self.apply(roots)
+            manifest = roots[0] / ".v3-command-patch.json"
+            prior = json.loads(manifest.read_text(encoding="utf-8"))
+            prior["patchVersion"] = 34
+            manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
+            before = self.snapshot(directory)
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 34 cannot be migrated safely to v35"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -866,7 +971,7 @@ import Foundation
             manifest_path.write_text(json.dumps(v30_manifest, indent=2) + "\n", encoding="utf-8")
 
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 30 cannot be migrated safely to v34"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 30 cannot be migrated safely to v35"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory),
                              "the real v30 output shape must fail closed without partial migration")
@@ -883,7 +988,7 @@ import Foundation
             legacy["templates"].pop(service.HEADLESS_ANISETTE_MODELS_MANIFEST_KEY)
             manifest_path.write_text(json.dumps(legacy, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 29 cannot be migrated safely to v34.*discard generated work directories"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 29 cannot be migrated safely to v35.*discard generated work directories"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory), "unsupported v29 manifests must fail without mutation")
 
@@ -897,7 +1002,7 @@ import Foundation
             unknown["patchVersion"] = 999
             manifest_path.write_text(json.dumps(unknown, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 999 cannot be migrated safely to v34"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 999 cannot be migrated safely to v35"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory), "unknown patch versions must fail without mutation")
 
@@ -1132,6 +1237,23 @@ import Foundation
             self.assertNotIn("self.deactivateApps(for:", app_manager)
             self.assertIn("func deactivate(_ installedApp: InstalledApp", app_manager)
             self.assertIn("performSingleOperation(.deactivate(installedApp)", app_manager)
+            app_boot = (side / "SideStore/AppBootManager.swift").read_text(encoding="utf-8")
+            self.assertIn("V3_HEADLESS_BOOT_UI_STATE_REMOVED_V1", app_boot)
+            self.assertNotIn("promptForPairing(", app_boot)
+            self.assertNotIn("needsPairingPrompt", app_boot)
+            self.assertNotIn("needsSideJITPrompt", app_boot)
+            self.assertIn("SideJITManager.shared.askForNetwork()", app_boot)
+            sidejit_manager = (side / "SideStore/Core/JIT/SideJITManager.swift").read_text(encoding="utf-8")
+            self.assertIn("V3_HEADLESS_SIDEJIT_PROMPT_REMOVED_V1", sidejit_manager)
+            self.assertIn("public func resolveServerURL() async -> String", sidejit_manager)
+            self.assertIn("public func askForNetwork() async", sidejit_manager)
+            self.assertNotIn("presentJITPrompt", sidejit_manager)
+            pairing_manager = (side / "SideStore/Core/Pairing/PairingFileManager.swift").read_text(encoding="utf-8")
+            self.assertIn("V3_HEADLESS_PAIRING_FILE_UI_REMOVED_V1", pairing_manager)
+            self.assertIn("nonisolated var pairingUDID:", pairing_manager)
+            self.assertIn("nonisolated func fetchPairingFile()", pairing_manager)
+            self.assertIn("func savePairingFile(contents: String)", pairing_manager)
+            self.assertNotIn("UIDocumentPicker", pairing_manager)
             self.assertIn("V3_TYPED_PAIRING_FAILURE_PROPAGATION_V1", app_manager)
             self.assertIn("V3HeadlessPairingFailure.tagIfInvalidPairing(error)", app_manager)
             service_template = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")

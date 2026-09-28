@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 34
+PATCH_VERSION = 35
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -534,6 +534,35 @@ def replace_swift_function(text, signature, replacement, label):
     return text[:start] + replacement + text[end:]
 
 
+def remove_swift_function_with_actor(text, signature, marker, label):
+    if text.count(signature) != 1:
+        raise SystemExit(f"v3 service: expected one {label} implementation")
+    start = text.index(signature)
+    brace = text.index("{", start)
+    depth = 0
+    end = None
+    for index in range(brace, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                end = index + 1
+                break
+    if end is None:
+        raise SystemExit(f"v3 service: unbalanced {label} implementation")
+    line_start = text.rfind("\n", 0, start) + 1
+    indent = text[line_start:start]
+    remove_start = line_start
+    actor_line_start = text.rfind("\n", 0, line_start - 1) + 1
+    actor_line = text[actor_line_start:line_start].strip()
+    if actor_line == "@MainActor" and not indent.strip():
+        remove_start = actor_line_start
+        indent = text[actor_line_start:line_start]
+    replacement = indent + "// " + marker + "\n"
+    return text[:remove_start] + replacement + text[end:]
+
+
 def headless_safe_log_format(text):
     marker = "V3_SAFE_LOG_FORMAT_V1"
     signature = "public func formatLogMessage(_ message: String) -> String"
@@ -877,6 +906,154 @@ def headless_app_manager_ui(text):
     if deactivate_wrapper_signature in text or "self.deactivateApps(for: appBundle" in text:
         raise SystemExit("v3 service: AppManager deactivate app-limit wrapper removal is partial")
     return replace(text, "import Intents\n", "")
+
+
+def headless_app_boot_manager(text):
+    state_marker = "V3_HEADLESS_BOOT_UI_STATE_REMOVED_V1"
+    pairing_marker = "V3_HEADLESS_BOOT_PAIRING_PROMPT_REMOVED_V1"
+    sidejit_marker = "V3_HEADLESS_BOOT_SIDEJIT_DETECTION_REMOVED_V1"
+    state_block = "\n".join((
+        "    private let lock = NSLock()",
+        "    ",
+        "    private var cachedNeedsPairingPrompt = false",
+        "    public var needsPairingPrompt: Bool {",
+        "        get { lock.withLock { cachedNeedsPairingPrompt } }",
+        "        set { lock.withLock { cachedNeedsPairingPrompt = newValue } }",
+        "    }",
+        "    ",
+        "    private var cachedNeedsSideJITPrompt = false",
+        "    public var needsSideJITPrompt: Bool {",
+        "        get { lock.withLock { cachedNeedsSideJITPrompt } }",
+        "        set { lock.withLock { cachedNeedsSideJITPrompt = newValue } }",
+        "    }",
+        "    ",
+    ))
+    detection_branch = '''            if #available(iOS 17, *), !UserDefaults.standard.isSideJITServerEnabled {
+                do {
+                    try await SideJITManager.shared.isSideJITServerDetected()
+                    self.needsSideJITPrompt = true
+                } catch {
+                    debugLog("[AppBootManager] Cannot find sideJITServer")
+                }
+            }
+            '''
+    prompt_signature = "public func promptForPairing(on vc: UIViewController) async"
+    if state_marker in text:
+        forbidden = ("needsPairingPrompt", "needsSideJITPrompt", "promptForPairing(",
+                     "isSideJITServerDetected", "presentPairingFileAlert", "import UIKit")
+        if (any(token in text for token in forbidden) or pairing_marker not in text or
+                sidejit_marker not in text or "startMinimuxer(pairingFile: String)" not in text or
+                "performBootSequence() async" not in text or
+                "SideJITManager.shared.askForNetwork()" not in text or
+                "PairingFileManager.shared.fetchPairingFile()" not in text):
+            raise SystemExit("v3 service: AppBootManager headless boot adapter is partial")
+        return text
+    if text.count(state_block) != 1:
+        raise SystemExit("v3 service: AppBootManager pairing/JIT UI state changed")
+    text = text.replace(state_block,
+        "    // " + state_marker + ": prompt state belongs to the excluded launch controller.\n", 1)
+    if text.count(prompt_signature) != 1:
+        raise SystemExit("v3 service: AppBootManager pairing presenter changed")
+    if "PairingFileManager.shared.presentPairingFileAlert" not in text:
+        raise SystemExit("v3 service: AppBootManager pairing presenter no longer uses the pairing picker")
+    text = remove_swift_function_with_actor(text, prompt_signature, pairing_marker,
+                                            "AppBootManager pairing presenter")
+    for assignment, expected_count in (("self.needsPairingPrompt = false", 1),
+                                       ("self.needsPairingPrompt = true", 2)):
+        pattern = r"(?m)^[ \t]*" + re.escape(assignment) + r"[ \t]*\r?\n"
+        text, count = re.subn(pattern, "", text)
+        if count != expected_count:
+            raise SystemExit("v3 service: AppBootManager pairing state writes changed")
+    if text.count(detection_branch) != 1:
+        raise SystemExit("v3 service: AppBootManager obsolete SideJIT detection prompt branch changed")
+    text = text.replace(detection_branch,
+        "            // " + sidejit_marker + ": configured SideJIT network requests remain below.\n", 1)
+    text = replace(text, "import UIKit\n", "")
+    forbidden = ("needsPairingPrompt", "needsSideJITPrompt", "promptForPairing(",
+                 "isSideJITServerDetected", "presentPairingFileAlert", "UIViewController", "import UIKit")
+    if any(token in text for token in forbidden):
+        raise SystemExit("v3 service: AppBootManager pairing/JIT presenter reference remains")
+    if ("startMinimuxer(pairingFile: String)" not in text or
+            "performBootSequence() async" not in text or
+            "SideJITManager.shared.askForNetwork()" not in text or
+            "PairingFileManager.shared.fetchPairingFile()" not in text):
+        raise SystemExit("v3 service: AppBootManager backend boot path was changed")
+    return text
+
+
+def headless_sidejit_manager(text):
+    prompt_marker = "V3_HEADLESS_SIDEJIT_PROMPT_REMOVED_V1"
+    detection_marker = "V3_HEADLESS_SIDEJIT_DETECTION_REMOVED_V1"
+    prompt_signature = "public func presentJITPrompt(presentingVC: UIViewController)"
+    detection_signature = "public func isSideJITServerDetected() async throws"
+    if prompt_marker in text or detection_marker in text:
+        if (prompt_marker not in text or detection_marker not in text or
+                prompt_signature in text or detection_signature in text or
+                "UIAlertController" in text or "UIViewController" in text or
+                "import UIKit" in text or
+                "public func resolveServerURL() async -> String" not in text or
+                "public func askForNetwork() async" not in text):
+            raise SystemExit("v3 service: SideJIT UI/detection removal is partial")
+        return text
+    if text.count("import UIKit\n") != 1:
+        raise SystemExit("v3 service: SideJITManager UIKit import changed")
+    if text.count(detection_signature) != 1 or text.count(prompt_signature) != 1:
+        raise SystemExit("v3 service: SideJITManager detection/prompt methods changed")
+    text = remove_swift_function_with_actor(text, prompt_signature, prompt_marker,
+                                            "SideJITManager UI prompt")
+    text = replace_swift_function(text, detection_signature,
+        "// " + detection_marker + ": automatic server detection only existed to show the removed prompt.",
+        "SideJITManager obsolete prompt detection")
+    text = replace(text, "import UIKit\n", "import Foundation\nimport Darwin\n")
+    if (prompt_signature in text or detection_signature in text or "UIAlertController" in text or
+            "UIViewController" in text or "import UIKit" in text or
+            "public func resolveServerURL() async -> String" not in text or
+            "public func askForNetwork() async" not in text):
+        raise SystemExit("v3 service: SideJITManager configured network adapter changed")
+    return text
+
+
+def headless_pairing_file_manager(text):
+    marker = "V3_HEADLESS_PAIRING_FILE_UI_REMOVED_V1"
+    ui_start = "#if !os(tvOS)\nextension PairingFileManager: UIDocumentPickerDelegate {"
+    if marker in text:
+        if ("UIViewController" in text or "UIDocumentPicker" in text or "UIAlertController" in text or
+                "UniformTypeIdentifiers" in text or "import UIKit" in text or
+                "private var completion:" in text or
+                "nonisolated var pairingUDID:" not in text or
+                "nonisolated func fetchPairingFile()" not in text or
+                "func savePairingFile(contents: String)" not in text):
+            raise SystemExit("v3 service: PairingFileManager headless API removal is partial")
+        return text
+    if text.count(ui_start) != 1 or text.count("#endif") != 1:
+        raise SystemExit("v3 service: PairingFileManager picker extension changed")
+    for signature, count in (
+        ("func presentPairingFileAlert(on vc: UIViewController", 2),
+        ("func showPairingWarningAndProceed(on vc: UIViewController", 2),
+        ("func importPairingFile(presentingVC: UIViewController", 2),
+        ("func documentPicker(", 1),
+    ):
+        if text.count(signature) != count:
+            raise SystemExit("v3 service: PairingFileManager UIKit picker methods changed")
+    if text.count("private var completion: ((URL?) -> Void)?\n\n") != 1:
+        raise SystemExit("v3 service: PairingFileManager picker completion state changed")
+    text = replace(text, "@preconcurrency import UIKit\nimport UniformTypeIdentifiers\n",
+                   "import Foundation\n")
+    text = replace(text, "    private var completion: ((URL?) -> Void)?\n\n", "")
+    start = text.index(ui_start)
+    end_marker = "#endif"
+    end = text.rfind(end_marker)
+    if end < start or text[end + len(end_marker):].strip():
+        raise SystemExit("v3 service: PairingFileManager picker extension boundary changed")
+    text = text[:start] + "// " + marker + ": pairing bytes and persistence remain backend-owned.\n" + text[end + len(end_marker):]
+    forbidden = ("UIViewController", "UIDocumentPicker", "UIAlertController", "UTType", "UniformTypeIdentifiers",
+                 "import UIKit", "private var completion:")
+    if (any(token in text for token in forbidden) or
+            "nonisolated var pairingUDID:" not in text or
+            "nonisolated func fetchPairingFile()" not in text or
+            "func savePairingFile(contents: String)" not in text):
+        raise SystemExit("v3 service: PairingFileManager backend API was removed with picker UI")
+    return text
 
 
 def headless_pipeline_handler(text):
@@ -1344,6 +1521,9 @@ def patch(live, side):
     edit(live, "SideStoreSupport/SideStore.swift", host)
     # The shared combined-startup adapter owns structured refresh error/result encoding.
     edit(side, "AltStore/AppDelegate.swift", headless_sidestore_app_delegate)
+    edit(side, "SideStore/AppBootManager.swift", headless_app_boot_manager)
+    edit(side, "SideStore/Core/JIT/SideJITManager.swift", headless_sidejit_manager)
+    edit(side, "SideStore/Core/Pairing/PairingFileManager.swift", headless_pairing_file_manager)
     edit(side, "SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
          headless_clear_cache_operation)
     edit(side, "SideStore/Core/Auth/AuthManager.swift", headless_auth_manager)
@@ -1616,6 +1796,9 @@ def verify_headless_ui_adapters(side, pinned_ref):
         ("AltStore/AppDelegate.swift", headless_sidestore_app_delegate),
         ("SideStore/Core/Auth/AuthManager.swift", headless_auth_manager),
         ("AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui),
+        ("SideStore/AppBootManager.swift", headless_app_boot_manager),
+        ("SideStore/Core/JIT/SideJITManager.swift", headless_sidejit_manager),
+        ("SideStore/Core/Pairing/PairingFileManager.swift", headless_pairing_file_manager),
         ("SideStore/Handlers/PipelineHandler.swift", headless_pipeline_handler),
         ("SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
          headless_clear_cache_operation),
