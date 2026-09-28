@@ -848,6 +848,21 @@ struct SetupAndSemanticUXHarness {
         precondition(anisetteCancelled.code == .cancelled && anisetteCancelled.safeCause == nil &&
                      V3AnisetteFailureGuidance.message(anisetteCancelled) == nil,
                      "cancellation is not mislabeled as Anisette networking failure")
+        let anisetteNSErrorCancelled = V3AnisetteSyncFailurePolicy.failure(
+            NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled), id: UUID().uuidString)
+        let cancelledRoundTrip = plistRoundTrip(anisetteNSErrorCancelled)
+        precondition(anisetteNSErrorCancelled.operation == "anisetteSync" &&
+                     anisetteNSErrorCancelled.stage == .command &&
+                     anisetteNSErrorCancelled.code == .cancelled &&
+                     anisetteNSErrorCancelled.retryable == false &&
+                     anisetteNSErrorCancelled.safeCause == nil &&
+                     cancelledRoundTrip?.operation == "anisetteSync" &&
+                     cancelledRoundTrip?.stage == .command &&
+                     cancelledRoundTrip?.code == .cancelled &&
+                     cancelledRoundTrip?.retryable == false &&
+                     cancelledRoundTrip?.safeCause == nil &&
+                     V3AnisetteFailureGuidance.message(anisetteNSErrorCancelled) == nil,
+                     "raw NSError URL cancellation remains cancellation through the real plist boundary")
         let ordinaryRefreshFailure = CombinedFailure(operation: "refresh", stage: .network,
             code: .failed, id: UUID().uuidString, retryable: true, safeCause: .networkConnectionLost)
         precondition(V3AnisetteFailureGuidance.message(ordinaryRefreshFailure) == nil,
