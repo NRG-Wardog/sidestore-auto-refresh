@@ -838,6 +838,20 @@ public struct CombinedFailure: Error, LocalizedError {
         }
         return CombinedFailure(operation: operation, stage: stage, code: code, id: id, underlying: error, retryable: retryable)
     }
+    private static func networkSafeCauseForURLCode(_ code: Int, signing: Bool) -> SafeCause? {
+        switch code {
+        case NSURLErrorNetworkConnectionLost:
+            return signing ? .signingNetworkConnectionLost : .networkConnectionLost
+        case NSURLErrorTimedOut:
+            return signing ? .signingNetworkTimedOut : .networkTimedOut
+        case NSURLErrorNotConnectedToInternet, NSURLErrorCannotConnectToHost,
+             NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed:
+            return signing ? .signingNetworkUnavailable : .networkUnavailable
+        default:
+            return nil
+        }
+    }
+
     public static func capture(_ error: Error, operation: String, stage: Stage, id: String,
                                retryable: Bool? = nil) -> CombinedFailure {
         if let known = error as? CombinedFailure { return known }
@@ -851,7 +865,8 @@ public struct CombinedFailure: Error, LocalizedError {
         }
         var cause = error as NSError
         var resolved = stage
-        let resolvedCode: Code = error is CancellationError ? .cancelled : .failed
+        var resolvedCode: Code = error is CancellationError ? .cancelled : .failed
+        var resolvedRetryable: Bool? = error is CancellationError ? false : retryable
         var nativeCode: Int?
         var nativeDomain: String?
         var safeCause: SafeCause?
@@ -875,6 +890,10 @@ public struct CombinedFailure: Error, LocalizedError {
                let found = SafeCause(rawValue: name) {
                 safeCause = found
             }
+            if cause.domain == NSURLErrorDomain && cause.code == NSURLErrorCancelled {
+                resolvedCode = .cancelled
+                resolvedRetryable = false
+            }
             if let name = cause.userInfo["LCStructuredFailureSourceV1"] as? String,
                let found = SourceStep(rawValue: name) {
                 sourceStep = found
@@ -890,11 +909,13 @@ public struct CombinedFailure: Error, LocalizedError {
                 case "com.SideStore.Authentication":
                     resolved = .authentication
                 case "NSURLErrorDomain":
-                    // URL-loading errors have typed network provenance. A
-                    // bare POSIX NSError does not reveal whether it came from
-                    // a socket or local file operation, so it keeps the
-                    // caller's stage unless the caller marked it explicitly.
-                    resolved = .network
+                    // Only transport-specific URL errors establish network
+                    // failure. URLSession also uses this domain for local
+                    // download-file and cancellation errors.
+                    if let urlCause = networkSafeCauseForURLCode(cause.code, signing: resolved == .signing) {
+                        if resolved != .signing { resolved = .network }
+                        if safeCause == nil { safeCause = urlCause }
+                    }
                 case "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError":
                     resolved = .command
                 default:
@@ -980,19 +1001,11 @@ public struct CombinedFailure: Error, LocalizedError {
             underlying = cause
         }
         if safeCause == nil && (resolved == .signing || resolved == .network) && cause.domain == NSURLErrorDomain {
-            switch cause.code {
-            case NSURLErrorNetworkConnectionLost:
-                safeCause = resolved == .signing ? .signingNetworkConnectionLost : .networkConnectionLost
-            case NSURLErrorTimedOut:
-                safeCause = resolved == .signing ? .signingNetworkTimedOut : .networkTimedOut
-            case NSURLErrorNotConnectedToInternet, NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost:
-                safeCause = resolved == .signing ? .signingNetworkUnavailable : .networkUnavailable
-            default: break
-            }
+            safeCause = networkSafeCauseForURLCode(cause.code, signing: resolved == .signing)
         }
         return CombinedFailure(operation: operation, stage: resolved,
             code: resolvedCode, id: id,
-            underlying: underlying, retryable: retryable, safeCause: safeCause, sourceStep: sourceStep)
+            underlying: underlying, retryable: resolvedRetryable, safeCause: safeCause, sourceStep: sourceStep)
     }
 }
 

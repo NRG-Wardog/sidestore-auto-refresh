@@ -77,11 +77,12 @@ class RefreshClassificationTests(unittest.TestCase):
         self.assertIn("typedVerificationSource = verificationDomains.contains(cause.domain)", capture)
         self.assertIn("&& fingerprint.contains(\"applicationverificationfailed\")", capture)
 
-    def test_network_domains_classified_by_domain(self):
+    def test_url_network_classification_uses_known_transport_codes(self):
         text = template()
         self.assertIn('"NSURLErrorDomain"', text)
         capture = text[text.index("static func capture"):]
         self.assertIn('case "NSURLErrorDomain":', capture)
+        self.assertIn("networkSafeCauseForURLCode(cause.code", capture)
         self.assertNotIn('case "NSPOSIXErrorDomain":', capture)
 
     def test_no_bare_numeric_code_guessing(self):

@@ -152,6 +152,25 @@ func debugLog(_ value: String) {}
    let failure = CombinedFailure.capture(error, operation: "install", stage: .installation, id: id)
    precondition(failure.stage == .network, "typed URL network failure")
    precondition(failure.safeCause == .networkConnectionLost, "typed network cause")
+   precondition(failure.recovery.contains("Reconnect"), "typed network error keeps network recovery")
+  }
+  // URLSession uses URL error domains for local temporary-file I/O too.
+  for localCode in [URLError.Code.cannotCreateFile, .cannotOpenFile, .cannotWriteToFile, .cannotMoveFile] {
+   let error = NSError(domain: NSURLErrorDomain, code: localCode.rawValue,
+       userInfo: [NSLocalizedDescriptionKey: "download temporary-file operation failed"])
+   let failure = CombinedFailure.capture(error, operation: "installURL", stage: .installation, id: id)
+   precondition(failure.stage == .installation, "local URL file error keeps installation stage: \\(localCode)")
+   precondition(failure.safeCause == nil, "local URL file error has no network cause: \\(localCode)")
+   precondition(!failure.message.contains("Network error"), "local URL file error is not presented as network")
+   precondition(!failure.recovery.contains("LocalDevVPN"), "local URL file error does not recommend LocalDevVPN")
+  }
+  // URL cancellation remains a terminal cancellation rather than a network retry.
+  do {
+   let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled,
+       userInfo: [NSLocalizedDescriptionKey: "cancelled"])
+   let failure = CombinedFailure.capture(error, operation: "installURL", stage: .installation, id: id)
+   precondition(failure.code == .cancelled, "typed URL cancellation")
+   precondition(failure.retryable == false, "URL cancellation is not retryable")
   }
   // Native CFNetwork domains survive the structured failure wire allowlist.
   do {
