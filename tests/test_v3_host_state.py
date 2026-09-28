@@ -33,6 +33,31 @@ class V3HostStateTests(unittest.TestCase):
         self.assertIn('URL(string: "livecontainer://jitless-setup")', sign_in,
                       "canonical LiveContainer setup routing must remain in place")
 
+    def test_successful_provisioning_retry_refreshes_readiness_without_signed_in_edge(self):
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        start = shell.index("struct V3SignInView: View")
+        end = shell.index("\nstruct V3CertificateRow", start)
+        sign_in = shell[start:end]
+        retry_change_start = sign_in.index(".onChange(of: auth.successfulProvisioningRetryRevision)")
+        retry_change_end = sign_in.index(".onDisappear", retry_change_start)
+        retry_change = sign_in[retry_change_start:retry_change_end]
+        self.assertIn("guard revision > 0 else { return }", retry_change)
+        self.assertIn("jitlessReadinessObservation.certificateMayHaveChanged()", retry_change)
+        self.assertIn("status.refreshSetupFactsAfterSignIn()", retry_change)
+        self.assertNotIn("status.reload()", retry_change,
+                         "the health refresh must not duplicate the account snapshot")
+
+        auth_store = shell[shell.index("final class V3AuthStore"):]
+        auth_store = auth_store[:auth_store.index("\nstruct V3SignInLink")]
+        self.assertIn("@Published private(set) var successfulProvisioningRetryRevision: UInt64 = 0", auth_store)
+        self.assertIn("provisioningRetryInProgress = true", auth_store)
+        self.assertIn("defer { provisioningRetryInProgress = false }", auth_store)
+        apply = auth_store[auth_store.index("private func apply(_ reply: [String: Any])"):
+                           auth_store.index("func clearPreviousFailure()")]
+        self.assertIn("V3ProvisioningRetryReadinessPolicy.shouldRefresh(", apply)
+        self.assertIn("successfulProvisioningRetryRevision &+= 1", apply)
+        self.assertIn('replyState == "completed"', shell)
+
     def test_all_sign_in_routes_invalidate_jitless_facts_before_reload(self):
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         start = shell.index("struct V3SignInView: View")

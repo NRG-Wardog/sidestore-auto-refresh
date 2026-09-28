@@ -4253,6 +4253,11 @@ final class V3AuthStore: ObservableObject {
     // provisioning retry so the screen keeps saying the sign-in succeeded while
     // provisioning is running again.
     @Published private(set) var signedIn = false
+    // A provisioning retry can create or activate SideStore's certificate
+    // without changing this store's sticky signed-in fact. Views observe this
+    // terminal-success revision to refresh certificate-derived readiness.
+    @Published private(set) var successfulProvisioningRetryRevision: UInt64 = 0
+    private var provisioningRetryInProgress = false
     private var session: String?
     private var authoritativeActiveAuthenticationSessionID: String?
     private var task: Task<Void, Never>?
@@ -4285,6 +4290,7 @@ final class V3AuthStore: ObservableObject {
     func begin() {
         guard canBegin else { return }
         task?.cancel()
+        provisioningRetryInProgress = false
         let requestedSession = UUID().uuidString
         reconciliationGate.invalidate()
         session = requestedSession
@@ -4346,6 +4352,7 @@ final class V3AuthStore: ObservableObject {
         promptResponseDiagnostics = ""
         promptResponseBlocked = false
         clearProvisioningOutcome()
+        provisioningRetryInProgress = true
         task = Task { await runProvisioningRetry(previouslyAvailable: previouslyAvailable) }
     }
     var canRetryProvisioning: Bool {
@@ -4357,6 +4364,7 @@ final class V3AuthStore: ObservableObject {
     }
 
     private func runProvisioningRetry(previouslyAvailable: Bool) async {
+        defer { provisioningRetryInProgress = false }
         guard let requestedSession = session else { return }
         let sessionDeadline = Date().addingTimeInterval(V3ServiceBridge.authSessionLifetime)
         do {
@@ -5188,7 +5196,20 @@ final class V3AuthStore: ObservableObject {
 
     private func apply(_ reply: [String: Any]) {
         let oldPromptID = prompt?["id"] as? String
-        state = reply["state"] as? String ?? state
+        let replyState = reply["state"] as? String ?? state
+        if provisioningRetryInProgress,
+           ["completed", "authenticatedProvisioningIncomplete", "failed", "timedOut", "promptExpired", "cancelled"].contains(replyState) {
+            if V3ProvisioningRetryReadinessPolicy.shouldRefresh(
+                retryInProgress: true, currentSessionID: session,
+                replySessionID: reply["session"] as? String,
+                replyState: replyState,
+                authenticated: V3ServiceBridge.strictBool(reply["authenticated"]) == true,
+                cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled) {
+                successfulProvisioningRetryRevision &+= 1
+            }
+            provisioningRetryInProgress = false
+        }
+        state = replyState
         if ["completed", "authenticatedProvisioningIncomplete", "failed", "timedOut", "promptExpired", "cancelled"].contains(state) {
             currentAttemptFailure.clear()
             provisioningRetryBlockedByActiveSession = false
@@ -5799,6 +5820,14 @@ struct V3SignInView: View {
             // nil is the invalidated/pending state. Release the UI guard only
             // after an authoritative post-authentication fact is published.
             jitlessReadinessObservation.observe(readiness)
+        }
+        .onChange(of: auth.successfulProvisioningRetryRevision) { revision in
+            guard revision > 0 else { return }
+            // Provisioning retry may create or activate a certificate while
+            // signedIn stays true, so it has its own success signal and only
+            // refreshes certificate-derived facts (no second account reload).
+            jitlessReadinessObservation.certificateMayHaveChanged()
+            status.refreshSetupFactsAfterSignIn()
         }
         .onDisappear {
             auth.cancel()
@@ -6829,6 +6858,10 @@ private struct V3SignInJITLessReadinessObservation {
 
     mutating func authenticationStateChanged(isSignedIn: Bool) {
         guard isSignedIn else { return }
+        certificateMayHaveChanged()
+    }
+
+    mutating func certificateMayHaveChanged() {
         awaitingFreshFactAfterAuthentication = true
     }
 
@@ -6839,6 +6872,17 @@ private struct V3SignInJITLessReadinessObservation {
 
     func readinessForPresentation(_ readiness: V3JITLessReadiness?) -> V3JITLessReadiness? {
         awaitingFreshFactAfterAuthentication ? nil : readiness
+    }
+}
+
+enum V3ProvisioningRetryReadinessPolicy {
+    static func shouldRefresh(retryInProgress: Bool, currentSessionID: String?,
+                              replySessionID: String?, replyState: String?,
+                              authenticated: Bool, cancellationInProgress: Bool,
+                              taskCancelled: Bool) -> Bool {
+        retryInProgress && currentSessionID != nil && currentSessionID == replySessionID &&
+            replyState == "completed" && authenticated &&
+            !cancellationInProgress && !taskCancelled
     }
 }
 

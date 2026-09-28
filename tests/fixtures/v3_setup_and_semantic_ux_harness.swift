@@ -576,6 +576,43 @@ struct SetupAndSemanticUXHarness {
         precondition(refreshedSignInGuidance.readiness == .certificateMismatch &&
                      refreshedSignInGuidance.action == .refreshCertificate,
                      "the refreshed stale-copy fact restores the correct refresh action")
+        signInReadinessObservation.certificateMayHaveChanged()
+        precondition(signInReadinessObservation.readinessForPresentation(.ready) == nil,
+                     "a certificate-changing provisioning retry also hides a cached Ready fact")
+        let provisioningRetrySession = UUID().uuidString
+        precondition(V3ProvisioningRetryReadinessPolicy.shouldRefresh(
+            retryInProgress: true, currentSessionID: provisioningRetrySession,
+            replySessionID: provisioningRetrySession, replyState: "completed",
+            authenticated: true, cancellationInProgress: false, taskCancelled: false),
+            "a correlated authenticated provisioning-retry terminal refreshes readiness")
+        for terminal in ["failed", "authenticatedProvisioningIncomplete", "timedOut", "cancelled"] {
+            precondition(!V3ProvisioningRetryReadinessPolicy.shouldRefresh(
+                retryInProgress: true, currentSessionID: provisioningRetrySession,
+                replySessionID: provisioningRetrySession, replyState: terminal,
+                authenticated: true, cancellationInProgress: false, taskCancelled: false),
+                "a \(terminal) provisioning retry does not refresh readiness")
+        }
+        precondition(!V3ProvisioningRetryReadinessPolicy.shouldRefresh(
+            retryInProgress: false, currentSessionID: provisioningRetrySession,
+            replySessionID: provisioningRetrySession, replyState: "completed",
+            authenticated: true, cancellationInProgress: false, taskCancelled: false) &&
+            !V3ProvisioningRetryReadinessPolicy.shouldRefresh(
+                retryInProgress: true, currentSessionID: provisioningRetrySession,
+                replySessionID: UUID().uuidString, replyState: "completed",
+                authenticated: true, cancellationInProgress: false, taskCancelled: false) &&
+            !V3ProvisioningRetryReadinessPolicy.shouldRefresh(
+                retryInProgress: true, currentSessionID: provisioningRetrySession,
+                replySessionID: provisioningRetrySession, replyState: "completed",
+                authenticated: false, cancellationInProgress: false, taskCancelled: false) &&
+            !V3ProvisioningRetryReadinessPolicy.shouldRefresh(
+                retryInProgress: true, currentSessionID: provisioningRetrySession,
+                replySessionID: provisioningRetrySession, replyState: "completed",
+                authenticated: true, cancellationInProgress: true, taskCancelled: false) &&
+            !V3ProvisioningRetryReadinessPolicy.shouldRefresh(
+                retryInProgress: true, currentSessionID: provisioningRetrySession,
+                replySessionID: provisioningRetrySession, replyState: "completed",
+                authenticated: true, cancellationInProgress: false, taskCancelled: true),
+            "only a live, correlated successful retry may refresh certificate readiness")
         let contradictoryNotRequired = V3SignInJITLessGuidancePolicy.resolve(
             osMajor: 26, readiness: .notRequired)!
         precondition(contradictoryNotRequired.readiness == .unknown,
