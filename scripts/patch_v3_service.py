@@ -945,7 +945,8 @@ def patch_sign_in_operation(text):
             "if self.v3ForceProvisioningRetry {",
             "!(error is V3ProvisioningResumeUnavailableError)",
             "V3_AUTH_FAILURE_CLEANUP_REQUIRES_CONFIRMED_EMPTY_SNAPSHOT_V1",
-            "LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: authSnapshotResult)",
+            "Keychain.shared.signInFailureCleanupSnapshot()",
+            "LCEmbeddedSignInCleanupPolicy.signOutAfterFailureIfConfirmedEmpty(",
             "V3_AUTH_CREDENTIAL_TRANSACTION_V1",
             "Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)",
         )
@@ -1029,12 +1030,17 @@ def patch_sign_in_operation(text):
         "                }\n")
     text = replace(text,
         "            if !AuthManager.shared.hasStoredPassword &&\n"
-        "               !AuthManager.shared.hasStoredXcodeToken\n",
+        "               !AuthManager.shared.hasStoredXcodeToken\n"
+        "            {\n"
+        "                AuthManager.shared.signOut()\n"
+        "            }\n",
         "            // V3_AUTH_FAILURE_CLEANUP_REQUIRES_CONFIRMED_EMPTY_SNAPSHOT_V1\n"
-        "            // A Keychain read error is unknown state and must never trigger sign-out.\n"
-        "            let authSnapshotResult = Result { try Keychain.shared.authenticationSnapshot() }\n"
-        "            if LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: authSnapshotResult) &&\n"
-        "               !(error is V3ProvisioningResumeUnavailableError)\n")
+        "            // Partial or inconsistent Keychain state remains unknown and must not sign out.\n"
+        "            if !(error is V3ProvisioningResumeUnavailableError) {\n"
+        "                let cleanupSnapshot = Result { try Keychain.shared.signInFailureCleanupSnapshot() }\n"
+        "                LCEmbeddedSignInCleanupPolicy.signOutAfterFailureIfConfirmedEmpty(\n"
+        "                    snapshot: cleanupSnapshot, signOut: { AuthManager.shared.signOut() })\n"
+        "            }\n")
     text = replace(text,
         "        AuthManager.shared.adsid = session.dsid\n"
         "        AuthManager.shared.xcodeToken = session.authToken\n"

@@ -176,12 +176,18 @@ struct LCEmbeddedAuthenticationSnapshot: Equatable {
 /// reusable credential route exists. A Keychain access error is unknown state,
 /// not evidence that the account is signed out.
 enum LCEmbeddedSignInCleanupPolicy {
-    static func shouldSignOutAfterFailure(
-        snapshot: Result<LCEmbeddedAuthenticationSnapshot?, Error>
-    ) -> Bool {
-        guard case .success(let credentials) = snapshot else { return false }
-        return credentials == nil
+    static func signOutAfterFailureIfConfirmedEmpty(
+        snapshot: Result<LCEmbeddedSignInCleanupSnapshot, Error>,
+        signOut: () -> Void
+    ) {
+        guard case .success(.confirmedEmpty) = snapshot else { return }
+        signOut()
     }
+}
+
+enum LCEmbeddedSignInCleanupSnapshot: Equatable {
+    case confirmedEmpty
+    case credentialsPresent
 }
 
 fileprivate enum LCEmbeddedSharedKeychain {
@@ -296,6 +302,65 @@ fileprivate enum LCEmbeddedSharedKeychain {
         } catch {
             recordAuthenticationSnapshotIssue((error as NSError).code)
             throw error
+        }
+    }
+
+    /// Cleanup after failed authentication requires stronger evidence than the
+    /// normal account snapshot: only an empty, valid epoch can authorize the
+    /// upstream SignInOperation sign-out cleanup. Partial, stale or malformed
+    /// credential epochs are deliberately returned as unknown errors.
+    static func signInFailureCleanupSnapshot(
+        _ client: KeychainAccess.Keychain
+    ) throws -> LCEmbeddedSignInCleanupSnapshot {
+        guard installedGroup != nil else {
+            throw NSError(domain: "com.SideStore.Keychain", code: -34018)
+        }
+        return try withSharedTransaction {
+            let markerKey = LCSharedKeychainMigration.marker
+            let marker = try client.getData(markerKey)
+            let values = try LCSharedKeychainMigration.readAuthenticationValues {
+                try client.getData($0)
+            }
+            let result: LCEmbeddedSignInCleanupSnapshot
+
+            if marker == LCSharedKeychainMigration.ready {
+                guard LCSharedKeychainMigration.complete(values) else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                }
+                result = .credentialsPresent
+            } else if marker == LCSharedKeychainMigration.signedOut {
+                guard values.isEmpty else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                }
+                result = .confirmedEmpty
+            } else if marker == nil {
+                guard values.isEmpty else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                }
+                let legacyAuthenticationItems = try legacyItems(service: service).filter {
+                    $0.group != installedGroup && LCSharedKeychainMigration.authKeys.contains($0.key)
+                }
+                guard legacyAuthenticationItems.isEmpty else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                }
+                result = .confirmedEmpty
+            } else {
+                throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+            }
+
+            // Detect an older/non-cooperating process changing state during the
+            // read. Current binaries share the flock; this recheck fails closed
+            // when a legacy writer does not honor that lock.
+            guard try client.getData(markerKey) == marker else {
+                throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+            }
+            let confirmedValues = try LCSharedKeychainMigration.readAuthenticationValues {
+                try client.getData($0)
+            }
+            guard confirmedValues == values else {
+                throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+            }
+            return result
         }
     }
 

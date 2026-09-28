@@ -56,6 +56,12 @@ final class SnapshotBox {
     func set(_ value: LCEmbeddedAuthenticationSnapshot?) { lock.lock(); storage = value; lock.unlock() }
     func get() -> LCEmbeddedAuthenticationSnapshot? { lock.lock(); defer { lock.unlock() }; return storage }
 }
+final class CleanupSnapshotResultBox {
+    private let lock = NSLock()
+    private var storage: Result<LCEmbeddedSignInCleanupSnapshot, Error>?
+    func set(_ value: Result<LCEmbeddedSignInCleanupSnapshot, Error>) { lock.lock(); storage = value; lock.unlock() }
+    func get() -> Result<LCEmbeddedSignInCleanupSnapshot, Error>? { lock.lock(); defer { lock.unlock() }; return storage }
+}
 func debugLog(_ message: String) { Store.logs.append(message) }
 enum V3AppGroupProcessLock {
     static func withLock<T>(containerRoot: URL? = nil, _ operation: () throws -> T) throws -> T {
@@ -511,37 +517,118 @@ HARNESS = r'''
         case "sign_in_cleanup_requires_confirmed_empty_snapshot":
             let client = LCEmbeddedSharedKeychain.makeClient()
             let authKeychain = Keychain(client)
-            let empty = Result { try authKeychain.authenticationSnapshot() }
-            let emptySnapshot = try empty.get()
-            precondition(emptySnapshot == nil,
-                "an empty Keychain returns a confirmed empty snapshot rather than an access error")
-            precondition(LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: empty),
-                "a confirmed empty credential snapshot preserves the existing stale-account cleanup")
-
-            try client.set(Data("unrecognized-marker".utf8), key: LCSharedKeychainMigration.marker)
-            let unknown = Result { try authKeychain.authenticationSnapshot() }
-            if case .success = unknown {
-                preconditionFailure("an unknown Keychain migration marker is not a confirmed empty snapshot")
+            var signOutCalls = 0
+            func applyCleanupPolicy(_ result: Result<LCEmbeddedSignInCleanupSnapshot, Error>) {
+                LCEmbeddedSignInCleanupPolicy.signOutAfterFailureIfConfirmedEmpty(snapshot: result) {
+                    signOutCalls += 1
+                }
             }
-            precondition(!LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: unknown),
-                "unknown marker state must not be mistaken for signed-out state")
+            func assertNoAdditionalSignOut(_ reason: String) {
+                precondition(signOutCalls == 2, reason)
+            }
+
+            let empty = Result { try authKeychain.signInFailureCleanupSnapshot() }
+            let emptyState = try empty.get()
+            precondition(emptyState == .confirmedEmpty,
+                "nil-marker plus four absent keys and no legacy auth item is positively empty")
+            applyCleanupPolicy(empty)
+            precondition(signOutCalls == 1, "only confirmed empty state invokes sign-out")
+
+            try client.set(LCSharedKeychainMigration.signedOut, key: LCSharedKeychainMigration.marker)
+            let signedOutEmpty = Result { try authKeychain.signInFailureCleanupSnapshot() }
+            let signedOutEmptyState = try signedOutEmpty.get()
+            precondition(signedOutEmptyState == .confirmedEmpty,
+                "signed-out marker plus four absent keys is a valid empty epoch")
+            applyCleanupPolicy(signedOutEmpty)
+            precondition(signOutCalls == 2, "valid signed-out epoch may invoke cleanup")
+
+            try client.set(Data("residual-password".utf8), key: "appleIDPassword")
+            let signedOutWithResidual = Result { try authKeychain.signInFailureCleanupSnapshot() }
+            if case .success = signedOutWithResidual {
+                preconditionFailure("signed-out marker with residual credentials must be unknown")
+            }
+            applyCleanupPolicy(signedOutWithResidual)
+            assertNoAdditionalSignOut("residual credentials block destructive cleanup")
+
+            try client.set(LCSharedKeychainMigration.ready, key: LCSharedKeychainMigration.marker)
+            let readyPartial = Result { try authKeychain.signInFailureCleanupSnapshot() }
+            if case .success = readyPartial {
+                preconditionFailure("ready marker with a partial route must be unknown")
+            }
+            applyCleanupPolicy(readyPartial)
+            assertNoAdditionalSignOut("ready-but-partial state blocks destructive cleanup")
+
             try client.remove(LCSharedKeychainMigration.marker)
+            let nilMarkerPartial = Result { try authKeychain.signInFailureCleanupSnapshot() }
+            if case .success = nilMarkerPartial {
+                preconditionFailure("markerless partial credentials must be unknown")
+            }
+            applyCleanupPolicy(nilMarkerPartial)
+            assertNoAdditionalSignOut("markerless partial state blocks destructive cleanup")
+
+            try client.remove("appleIDPassword")
+            try client.set(Data("unrecognized-marker".utf8), key: LCSharedKeychainMigration.marker)
+            let unknownMarker = Result { try authKeychain.signInFailureCleanupSnapshot() }
+            if case .success = unknownMarker {
+                preconditionFailure("an unknown migration marker must be an error")
+            }
+            applyCleanupPolicy(unknownMarker)
+            assertNoAdditionalSignOut("unknown marker state blocks destructive cleanup")
+            try client.remove(LCSharedKeychainMigration.marker)
+
+            Store.data[Store.processGroup] = ["appleIDAdsid": Data("legacy-partial-id".utf8)]
+            let legacyPartial = Result { try authKeychain.signInFailureCleanupSnapshot() }
+            if case .success = legacyPartial {
+                preconditionFailure("markerless legacy partial credentials must be unknown")
+            }
+            applyCleanupPolicy(legacyPartial)
+            assertNoAdditionalSignOut("legacy partial state blocks destructive cleanup")
+            Store.data[Store.processGroup] = nil
 
             try authKeychain.writeAuthenticationCredentials(appleID: "user@example.com", password: "password",
                 dsid: "dsid", authToken: "token")
-            let present = Result { try authKeychain.authenticationSnapshot() }
-            let presentSnapshot = try present.get()
-            precondition(presentSnapshot?.isAuthenticated == true,
-                "the committed credentials are authoritatively visible before cleanup is decided")
-            precondition(!LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: present),
-                "a saved credential snapshot must preserve account state after sign-in failure")
+            let present = Result { try authKeychain.signInFailureCleanupSnapshot() }
+            let presentState = try present.get()
+            precondition(presentState == .credentialsPresent,
+                "a ready complete credential epoch is classified as present")
+            applyCleanupPolicy(present)
+            assertNoAdditionalSignOut("valid credentials preserve account state after sign-in failure")
 
-            let keychain = Keychain(LCEmbeddedSharedKeychain.makeClient())
+            let keychain = authKeychain
             Store.failure = -25308
-            let locked = Result { try keychain.authenticationSnapshot() }
-            precondition(!LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: locked),
-                "an actual locked-Keychain snapshot error is unknown state, never confirmed signed-out state")
+            let locked = Result { try keychain.signInFailureCleanupSnapshot() }
+            applyCleanupPolicy(locked)
+            assertNoAdditionalSignOut("locked Keychain state never invokes sign-out")
             Store.failure = 0
+
+            // Simulate an older binary changing the marker without taking our
+            // flock while the cleanup helper is reading its epoch.
+            for key in LCSharedKeychainMigration.authKeys { try client.remove(key) }
+            try client.remove(LCSharedKeychainMigration.marker)
+            Store.pauseNextMigrationMarkerRead = true
+            let markerReadEntered = DispatchSemaphore(value: 0)
+            Store.migrationMarkerReadEntered = markerReadEntered
+            Store.allowMigrationMarkerRead = DispatchSemaphore(value: 0)
+            let resultBox = CleanupSnapshotResultBox()
+            let finished = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async {
+                Thread.current.threadDictionary["pauseAuthSnapshotMarker"] = true
+                resultBox.set(Result { try keychain.signInFailureCleanupSnapshot() })
+                Thread.current.threadDictionary.removeObject(forKey: "pauseAuthSnapshotMarker")
+                finished.signal()
+            }
+            precondition(markerReadEntered.wait(timeout: .now() + 2) == .success)
+            Store.data[group, default: [:]][LCSharedKeychainMigration.marker] = LCSharedKeychainMigration.signedOut
+            Store.allowMigrationMarkerRead.signal()
+            precondition(finished.wait(timeout: .now() + 2) == .success)
+            guard let changedMarker = resultBox.get() else {
+                preconditionFailure("marker-change test must observe a terminal helper result")
+            }
+            if case .success = changedMarker {
+                preconditionFailure("a marker changed during the read must throw an unknown-state error")
+            }
+            applyCleanupPolicy(changedMarker)
+            assertNoAdditionalSignOut("marker change during the read remains unknown and blocks cleanup")
         default: fatalError("unknown scenario")
         }
         print("PASSED: " + scenario)
@@ -584,6 +671,8 @@ class EmbeddedKeychainTests(unittest.TestCase):
         self.assertNotIn("\\(error)", text)
         self.assertIn(".afterFirstUnlock", text)
         self.assertIn("writeAuthenticationCredentials", text)
+        self.assertIn("signInFailureCleanupSnapshot()", text)
+        self.assertIn("LCEmbeddedSignInCleanupPolicy.signOutAfterFailureIfConfirmedEmpty", text)
         self.assertIn("LCSharedKeychainMigration.complete(written)", text)
         self.assertIn("LCSharedKeychainMigration.complete(committed)", text)
         self.assertIn("static func readAuthenticationSnapshot", text)
@@ -753,8 +842,9 @@ class KeychainPatchGenerationTests(unittest.TestCase):
             cleanup_start = sign_in.index("V3_AUTH_FAILURE_CLEANUP_REQUIRES_CONFIRMED_EMPTY_SNAPSHOT_V1")
             cleanup_end = sign_in.index("try? await self.finalizeAuthentication", cleanup_start)
             cleanup = sign_in[cleanup_start:cleanup_end]
-            self.assertIn("Result { try Keychain.shared.authenticationSnapshot() }", cleanup)
-            self.assertIn("LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: authSnapshotResult)", cleanup)
+            self.assertIn("Result { try Keychain.shared.signInFailureCleanupSnapshot() }", cleanup)
+            self.assertIn("LCEmbeddedSignInCleanupPolicy.signOutAfterFailureIfConfirmedEmpty(", cleanup)
+            self.assertIn("signOut: { AuthManager.shared.signOut() }", cleanup)
             self.assertNotIn("hasStoredPassword", cleanup)
             self.assertNotIn("hasStoredXcodeToken", cleanup)
             self.assertIn("!(error is V3ProvisioningResumeUnavailableError)", cleanup)

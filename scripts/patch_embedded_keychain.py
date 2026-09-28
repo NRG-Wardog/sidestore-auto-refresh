@@ -23,6 +23,9 @@ KEYCHAIN_ACCESS_ADAPTER = '''extension Keychain {
     func authenticationSnapshot() throws -> LCEmbeddedAuthenticationSnapshot? {
         try LCEmbeddedSharedKeychain.readAuthenticationSnapshot(self.keychain)
     }
+    func signInFailureCleanupSnapshot() throws -> LCEmbeddedSignInCleanupSnapshot {
+        try LCEmbeddedSharedKeychain.signInFailureCleanupSnapshot(self.keychain)
+    }
     func writeAuthenticationCredentials(appleID: String, password: String,
                                         dsid: String, authToken: String) throws {
         try LCEmbeddedSharedKeychain.writeAuthenticationCredentials(
@@ -142,12 +145,14 @@ def patch_sign_in_operation(text: str) -> str:
                     "credentials?.appleIDXcodeToken", "credentials?.appleIDEmailAddress",
                     "credentials?.appleIDPassword",
                     "V3_AUTH_FAILURE_CLEANUP_REQUIRES_CONFIRMED_EMPTY_SNAPSHOT_V1",
-                    "LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: authSnapshotResult)")
+                    "Keychain.shared.signInFailureCleanupSnapshot()",
+                    "LCEmbeddedSignInCleanupPolicy.signOutAfterFailureIfConfirmedEmpty(")
         if not all(token in text for token in required):
             raise ValueError("embedded keychain: SignInOperation credential or failure-cleanup snapshot is incomplete")
         return text
     if ("V3_AUTH_FAILURE_CLEANUP_REQUIRES_CONFIRMED_EMPTY_SNAPSHOT_V1" not in text or
-            "LCEmbeddedSignInCleanupPolicy.shouldSignOutAfterFailure(snapshot: authSnapshotResult)" not in text):
+            "Keychain.shared.signInFailureCleanupSnapshot()" not in text or
+            "LCEmbeddedSignInCleanupPolicy.signOutAfterFailureIfConfirmedEmpty(" not in text):
         raise ValueError("embedded keychain: SignInOperation lacks confirmed-empty failure cleanup")
 
     start = text.index("    private func silentSignIn() async throws -> (ALTAccount, ALTAppleAPISession)? {")
@@ -239,11 +244,13 @@ def patch(root: Path) -> None:
         text += "\n" + helper + "\n" + KEYCHAIN_ACCESS_ADAPTER + "\n"
     elif (helper not in text or "func writeAuthenticationCredentials(appleID: String, password: String," not in text or
           "func authenticationSnapshot() throws -> LCEmbeddedAuthenticationSnapshot?" not in text or
+          "func signInFailureCleanupSnapshot() throws -> LCEmbeddedSignInCleanupSnapshot" not in text or
           "func embeddedAuthenticationFailure(_ error: Error) -> NSError" not in text):
         missing = [name for name, present in (
             ("helper", helper in text),
             ("bulk auth writer", "func writeAuthenticationCredentials(appleID: String, password: String," in text),
             ("auth snapshot bridge", "func authenticationSnapshot() throws -> LCEmbeddedAuthenticationSnapshot?" in text),
+            ("sign-in cleanup snapshot bridge", "func signInFailureCleanupSnapshot() throws -> LCEmbeddedSignInCleanupSnapshot" in text),
             ("error-aware auth failure bridge", "func embeddedAuthenticationFailure(_ error: Error) -> NSError" in text),
         ) if not present]
         raise ValueError("outdated shared keychain patch: missing " + ", ".join(missing))
