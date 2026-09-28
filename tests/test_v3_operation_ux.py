@@ -536,7 +536,8 @@ class MiscBusyStateTests(unittest.TestCase):
         view = text[text.index("struct V3HealthView"):]
         view = view[:view.index("struct V3BackupsView")]
         self.assertIn("Checking...", view)
-        self.assertIn(".disabled(checking)", view)
+        self.assertIn('Button(reloadQueue.isChecking ? "Checking..." : "Re-check")', view)
+        self.assertIn(".disabled(reloadQueue.isChecking)", view)
 
     def test_anisette_remote_busy_and_notice(self):
         text = shell()
