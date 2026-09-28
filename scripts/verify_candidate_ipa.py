@@ -116,7 +116,7 @@ def _thin_macho_info(data) -> tuple[int, int, str | None]:
         if size < 8 or size % 4 != 0 or offset + size > command_end:
             raise ValueError("invalid Mach-O load-command size")
         if command == 0x1B:
-            if size < 24 or image_uuid is not None:
+            if size != 24 or image_uuid is not None:
                 raise ValueError("invalid Mach-O UUID command")
             image_uuid = str(uuid.UUID(bytes=bytes(data[offset + 8:offset + 24]))).upper()
         offset += size
@@ -148,15 +148,23 @@ def macho_uuids(data: bytes) -> dict[str, str]:
     for index in range(count):
         entry = 8 + index * entry_size
         if is_64:
-            cpu, subtype, offset, size, _align, _reserved = struct.unpack_from(endian + "IIQQII", view, entry)
+            cpu, subtype, offset, size, align, reserved = struct.unpack_from(endian + "IIQQII", view, entry)
+            if reserved != 0:
+                raise ValueError("fat Mach-O reserved field must be zero")
+            max_alignment = 63
         else:
-            cpu, subtype, offset, size, _align = struct.unpack_from(endian + "IIIII", view, entry)
+            cpu, subtype, offset, size, align = struct.unpack_from(endian + "IIIII", view, entry)
+            max_alignment = 31
+        if align > max_alignment:
+            raise ValueError("fat Mach-O alignment exponent is invalid")
         architecture = (cpu, subtype)
         if architecture in architectures_seen:
             raise ValueError("fat Mach-O contains a duplicate CPU subtype slice")
         architectures_seen.add(architecture)
         if size == 0 or offset < table_end or offset > len(view) or size > len(view) - offset:
             raise ValueError("fat Mach-O slice is outside the file")
+        if offset % (1 << align):
+            raise ValueError("fat Mach-O slice offset violates its alignment")
         end = offset + size
         if any(offset < other_end and other_start < end for other_start, other_end in slices):
             raise ValueError("fat Mach-O slices overlap")

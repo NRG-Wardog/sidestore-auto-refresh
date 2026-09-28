@@ -8,31 +8,111 @@ import zipfile
 from pathlib import Path
 
 
+FAT_MAGICS = {
+    b'\xca\xfe\xba\xbe': ('>', False),
+    b'\xbe\xba\xfe\xca': ('<', False),
+    b'\xca\xfe\xba\xbf': ('>', True),
+    b'\xbf\xba\xfe\xca': ('<', True),
+}
+THIN_MAGICS = {
+    b'\xce\xfa\xed\xfe': ('<', 28), b'\xfe\xed\xfa\xce': ('>', 28),
+    b'\xcf\xfa\xed\xfe': ('<', 32), b'\xfe\xed\xfa\xcf': ('>', 32),
+}
+
+
 def signing(data):
-    if data[:4] == b'\xca\xfe\xba\xbe':
-        count = struct.unpack_from('>I', data, 4)[0]
-        return [signing(data[offset:offset + size]) for _, _, offset, size, _ in
-                (struct.unpack_from('>5I', data, 8 + i * 20) for i in range(count))]
-    if data[:4] not in (b'\xcf\xfa\xed\xfe', b'\xce\xfa\xed\xfe'):
+    """Read embedded XML entitlements after validating Mach-O command bounds."""
+    magic = bytes(data[:4])
+    fat_layout = FAT_MAGICS.get(magic)
+    if fat_layout is not None:
+        endian, is_64 = fat_layout
+        if len(data) < 8:
+            raise ValueError('truncated fat Mach-O header')
+        count = struct.unpack_from(endian + 'I', data, 4)[0]
+        entry_size = 32 if is_64 else 20
+        if count == 0 or count > 64 or 8 + count * entry_size > len(data):
+            raise ValueError('invalid fat Mach-O architecture table')
+        table_end = 8 + count * entry_size
+        slices = []
+        result = []
+        for index in range(count):
+            entry = 8 + index * entry_size
+            if is_64:
+                _cpu, _subtype, offset, size, align, reserved = struct.unpack_from(
+                    endian + 'IIQQII', data, entry)
+                max_align = 63
+                if reserved != 0:
+                    raise ValueError('fat Mach-O reserved field must be zero')
+            else:
+                _cpu, _subtype, offset, size, align = struct.unpack_from(
+                    endian + 'IIIII', data, entry)
+                max_align = 31
+            if align > max_align:
+                raise ValueError('fat Mach-O alignment exponent is invalid')
+            if size == 0 or offset < table_end or offset > len(data) or size > len(data) - offset:
+                raise ValueError('fat Mach-O slice is outside the file')
+            if offset % (1 << align):
+                raise ValueError('fat Mach-O slice offset violates its alignment')
+            end = offset + size
+            if any(offset < other_end and other_start < end for other_start, other_end in slices):
+                raise ValueError('fat Mach-O slices overlap')
+            slices.append((offset, end))
+            image = data[offset:end]
+            if bytes(image[:4]) not in THIN_MAGICS:
+                raise ValueError('fat Mach-O slice is not a thin Mach-O image')
+            result.append(_thin_signing(image))
+        return result
+    return _thin_signing(data)
+
+
+def _thin_signing(data):
+    layout = THIN_MAGICS.get(bytes(data[:4]))
+    if layout is None:
         return {'format': 'not_supported'}
-    pos = 32 if data[0] == 0xcf else 28
-    count = struct.unpack_from('<I', data, 16)[0]
+    endian, header_size = layout
+    if len(data) < header_size:
+        raise ValueError('truncated Mach-O header')
+    count, command_bytes = struct.unpack_from(endian + 'II', data, 16)
+    if command_bytes > len(data) - header_size:
+        raise ValueError('Mach-O load-command bounds exceed the member')
+    if count > command_bytes // 8:
+        raise ValueError('Mach-O load-command count exceeds its declared bounds')
+    command_end = header_size + command_bytes
     result = {'signature_present': False, 'xml_entitlements': None}
+    pos = header_size
     for _ in range(count):
-        cmd, size = struct.unpack_from('<II', data, pos)
+        if pos + 8 > command_end:
+            raise ValueError('truncated Mach-O load command')
+        cmd, size = struct.unpack_from(endian + 'II', data, pos)
+        if size < 8 or size > command_end - pos:
+            raise ValueError('invalid Mach-O load-command size')
         if cmd == 0x1d:
-            offset, length = struct.unpack_from('<II', data, pos + 8)
+            if size < 16:
+                raise ValueError('truncated LC_CODE_SIGNATURE command')
+            offset, length = struct.unpack_from(endian + 'II', data, pos + 8)
+            if offset > len(data) or length > len(data) - offset:
+                raise ValueError('LC_CODE_SIGNATURE data is outside the member')
             blob = data[offset:offset + length]
             result['signature_present'] = True
             if len(blob) >= 12 and struct.unpack_from('>I', blob)[0] == 0xfade0cc0:
-                for i in range(struct.unpack_from('>I', blob, 8)[0]):
+                blob_length, blob_count = struct.unpack_from('>II', blob, 4)
+                if blob_length > len(blob) or blob_length < 12 or blob_count > (blob_length - 12) // 8:
+                    raise ValueError('invalid code-signature superblob bounds')
+                for i in range(blob_count):
                     slot, start = struct.unpack_from('>II', blob, 12 + i * 8)
+                    if start > blob_length - 8:
+                        raise ValueError('code-signature blob index is outside the superblob')
+                    child_length = struct.unpack_from('>I', blob, start + 4)[0]
+                    if child_length < 8 or child_length > blob_length - start:
+                        raise ValueError('invalid code-signature child blob bounds')
                     if slot == 5:
-                        end = start + struct.unpack_from('>I', blob, start + 4)[0]
+                        end = start + child_length
                         result['xml_entitlements'] = plistlib.loads(blob[start + 8:end])
                     if slot == 7:
                         result['der_entitlements_present'] = True
         pos += size
+    if pos != command_end:
+        raise ValueError('Mach-O load-command size does not match its header')
     return result
 
 

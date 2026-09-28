@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import subprocess
 import sys
 import tempfile
 import struct
@@ -12,6 +13,8 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+from audit_ipa_signing import signing as inspect_signing
+
 spec = importlib.util.spec_from_file_location(
     "verify_candidate_ipa", ROOT / "scripts/verify_candidate_ipa.py")
 verify_module = importlib.util.module_from_spec(spec)
@@ -35,6 +38,13 @@ def fat_macho(slice_bytes, offset=None, architecture=0x0100000C, subtype=0):
         offset = 28
     header = b"\xca\xfe\xba\xbe" + struct.pack(">I", 1)
     arch = struct.pack(">IIIII", architecture, subtype, offset, len(slice_bytes), 0)
+    prefix = header + arch
+    return prefix + bytes(max(0, offset - len(prefix))) + slice_bytes
+
+
+def fat64_macho(slice_bytes, offset=40, align=0, reserved=0):
+    header = b"\xca\xfe\xba\xbf" + struct.pack(">I", 1)
+    arch = struct.pack(">IIQQII", 0x0100000C, 0, offset, len(slice_bytes), align, reserved)
     prefix = header + arch
     return prefix + bytes(max(0, offset - len(prefix))) + slice_bytes
 
@@ -114,6 +124,75 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
         arm64e_fat = fat_macho(thin_arm64_macho(subtype=2), subtype=2)
         with self.assertRaisesRegex(ValueError, "expected ARM64_ALL"):
             verify_module.require_arm64_all_image(arm64e_fat)
+
+    def test_fat64_alignment_and_reserved_fields_are_validated(self):
+        image = thin_arm64_macho()
+        valid = fat64_macho(image, offset=40, align=3)
+        self.assertEqual(verify_module.require_arm64_all_image(valid), {"arm64": "30313233-3435-3637-3839-616263646566"})
+        with self.assertRaisesRegex(ValueError, "violates its alignment"):
+            verify_module.require_arm64_all_image(fat64_macho(image, offset=41, align=3))
+        with self.assertRaisesRegex(ValueError, "alignment exponent"):
+            verify_module.require_arm64_all_image(fat64_macho(image, offset=40, align=64))
+        with self.assertRaisesRegex(ValueError, "reserved field"):
+            verify_module.require_arm64_all_image(fat64_macho(image, offset=40, reserved=1))
+
+    def test_lc_uuid_command_must_have_exactly_24_bytes(self):
+        malformed = (b"\xcf\xfa\xed\xfe" + struct.pack(
+            "<7I", 0x0100000C, 0, 6, 1, 28, 0, 0) +
+            struct.pack("<II", 0x1B, 28) + b"0123456789abcdef" + b"JUNK")
+        with self.assertRaisesRegex(ValueError, "invalid Mach-O UUID command"):
+            verify_module.require_arm64_all_image(malformed)
+
+    def test_inventory_rejects_huge_macho_command_count_without_stalling(self):
+        malformed = (b"\xcf\xfa\xed\xfe" + struct.pack(
+            "<7I", 0x0100000C, 0, 6, 0xFFFFFFFF, 8, 0, 0) +
+            struct.pack("<II", 0, 0))
+        with tempfile.TemporaryDirectory() as directory:
+            ipa = Path(directory) / "huge-ncmds.ipa"
+            with zipfile.ZipFile(ipa, "w") as archive:
+                archive.writestr("Payload/Test.app/Info.plist", plistlib.dumps({"CFBundleExecutable": "Run"}))
+                archive.writestr("Payload/Test.app/Run", malformed)
+            child = (
+                "import sys\n"
+                "from pathlib import Path\n"
+                "sys.path.insert(0, str(Path.cwd() / 'scripts'))\n"
+                "from audit_ipa_signing import inventory\n"
+                "try:\n    inventory(Path(sys.argv[1]))\n"
+                "except ValueError as error:\n    print(error)\n"
+                "else:\n    raise SystemExit('malformed executable was accepted')\n"
+            )
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-c", child, str(ipa)], cwd=ROOT,
+                    capture_output=True, text=True, timeout=5, check=False)
+            except subprocess.TimeoutExpired:
+                self.fail("inventory stalled on an untrusted Mach-O command count")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("load-command count exceeds", result.stdout)
+
+    def test_signing_inventory_rejects_nonprogress_and_out_of_bounds_commands(self):
+        cases = (
+            (0, "invalid Mach-O load-command size"),
+            (16, "invalid Mach-O load-command size"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            ipa = Path(directory) / "bad-load-command.ipa"
+            for command_size, expected_error in cases:
+                malformed = (b"\xcf\xfa\xed\xfe" + struct.pack(
+                    "<7I", 0x0100000C, 0, 6, 1, 8, 0, 0) +
+                    struct.pack("<II", 0, command_size))
+                with zipfile.ZipFile(ipa, "w") as archive:
+                    archive.writestr("Payload/Test.app/Info.plist", plistlib.dumps({"CFBundleExecutable": "Run"}))
+                    archive.writestr("Payload/Test.app/Run", malformed)
+                with self.subTest(command_size=command_size), self.assertRaisesRegex(ValueError, expected_error):
+                    verify_module.inventory(ipa)
+
+    def test_signing_inventory_accepts_valid_thin_fat32_and_fat64_images(self):
+        thin = thin_arm64_macho()
+        expected = {"signature_present": False, "xml_entitlements": None}
+        self.assertEqual(inspect_signing(thin), expected)
+        self.assertEqual(inspect_signing(fat_macho(thin)), [expected])
+        self.assertEqual(inspect_signing(fat64_macho(thin)), [expected])
 
     def test_provenance_run_url_must_match_exact_github_actions_repo_and_shape(self):
         good = "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/36372125879"
