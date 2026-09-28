@@ -218,6 +218,110 @@ struct RefreshAllAttemptHarness {
             hostHandoffPending: true) == nil,
             "a pending host handoff is not prematurely marked terminal")
 
+        // The production sanitizer sits before the refresh verification plist
+        // crosses XPC. An integer NSNumber can bridge to Bool with `as? Bool`,
+        // so exercise the malformed bytes through that exact boundary and then
+        // through the production terminal verifier.
+        let numericRun = UUID().uuidString
+        let numericManifest: [String: Any] = [
+            "version": 2, "schema": "LiveContainerRefreshManifestV2", "run_id": numericRun,
+            "expected_ids": ["fixture.app"],
+            "results": [["bundle_id": "fixture.app", "success": NSNumber(value: 1)]]
+        ]
+        let numericInput = try! PropertyListSerialization.data(
+            fromPropertyList: ["liveContainerAutoRefreshVerification": numericManifest],
+            format: .binary, options: 0)
+        let numericDecoded = try! PropertyListSerialization.propertyList(from: numericInput, format: nil) as! [String: Any]
+        let numericDecodedManifest = numericDecoded["liveContainerAutoRefreshVerification"] as! [String: Any]
+        let numericDecodedRows = numericDecodedManifest["results"] as! [[String: Any]]
+        let numericDecodedSuccess = numericDecodedRows[0]["success"] as! NSNumber
+        precondition(CFGetTypeID(numericDecodedSuccess) != CFBooleanGetTypeID(),
+            "the serialized input fixture must remain an integer NSNumber")
+        let numericSanitized = CombinedVerification.sanitized(numericDecoded, runID: numericRun)
+        let numericOutput = try! PropertyListSerialization.data(fromPropertyList: numericSanitized,
+            format: .binary, options: 0)
+        let numericRoundTrip = try! PropertyListSerialization.propertyList(from: numericOutput, format: nil) as! [String: Any]
+        let numericRoundTripManifest = numericRoundTrip["liveContainerAutoRefreshVerification"] as? [String: Any]
+        precondition(!CombinedVerification.hasCompleteTerminalResults(numericRoundTripManifest ?? [:], runID: numericRun),
+            "plist integer 1 must not become a verified successful app result")
+        var numericAttempt = V3RefreshAllAttemptState()
+        let numericRequest = UUID().uuidString
+        numericAttempt.begin(requestID: numericRequest)
+        let numericTerminal = record(numericRequest, numericRun, "completed", numericRoundTripManifest)
+        precondition(numericAttempt.observe(numericTerminal) && numericAttempt.phase == .failed,
+            "the actual refresh terminal policy must reject a numeric-Boolean manifest")
+
+        // A malformed result also leaves uncertainty intact: completedRefresh
+        // returns at its terminal-manifest guard before clearing this run marker.
+        let defaultsSuite = "V3RefreshBoolRegression-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: defaultsSuite)!
+        defaults.set(numericRun, forKey: CombinedVerification.uncertainMutationKey)
+        if CombinedVerification.hasCompleteTerminalResults(numericRoundTripManifest ?? [:], runID: numericRun) {
+            CombinedVerification.clearUncertainty(defaults, runID: numericRun)
+        }
+        precondition(defaults.string(forKey: CombinedVerification.uncertainMutationKey) == numericRun,
+            "a malformed terminal result must not clear the uncertain-mutation lease")
+        defaults.removePersistentDomain(forName: defaultsSuite)
+
+        let stringManifest: [String: Any] = [
+            "version": 2, "schema": "LiveContainerRefreshManifestV2", "run_id": numericRun,
+            "expected_ids": ["fixture.app"],
+            "results": [["bundle_id": "fixture.app", "success": "true"]]
+        ]
+        precondition(CombinedVerification.sanitized(
+            ["liveContainerAutoRefreshVerification": stringManifest], runID: numericRun).isEmpty,
+            "the string \"true\" must be rejected as a malformed result flag")
+        var extraRowManifest = manifest(numericRun)
+        extraRowManifest["results"] = [
+            ["bundle_id": "fixture.app", "success": true],
+            ["bundle_id": "unexpected.app", "success": true]
+        ]
+        precondition(CombinedVerification.sanitized(
+            ["liveContainerAutoRefreshVerification": extraRowManifest], runID: numericRun).isEmpty,
+            "an unexpected row must be rejected instead of disappearing during sanitization")
+
+        // Both locations that can bypass host replacement verification require
+        // a real plist Boolean. Rejection removes the manifest, so the host
+        // callback cannot reach its host_handoff shortcut.
+        var badManifestHandoff = manifest(numericRun)
+        badManifestHandoff["host_handoff"] = NSNumber(value: 1)
+        let badManifestHandoffSafe = CombinedVerification.sanitized(
+            ["liveContainerAutoRefreshVerification": badManifestHandoff], runID: numericRun)
+        precondition(badManifestHandoffSafe.isEmpty,
+            "numeric manifest host_handoff must not bypass host verification")
+        precondition(!CombinedVerification.hasCompleteTerminalResults(badManifestHandoff, runID: numericRun),
+            "the receiving terminal verifier must reject a numeric manifest host_handoff")
+        var badOuterHandoff: [String: Any] = ["liveContainerAutoRefreshVerification": manifest(numericRun),
+            "liveContainerAutoRefreshHostHandoffRunID": numericRun,
+            "liveContainerAutoRefreshHostHandoff": NSNumber(value: 1)]
+        let badOuterHandoffSafe = CombinedVerification.sanitized(badOuterHandoff, runID: numericRun)
+        let badOuterBytes = try! PropertyListSerialization.data(fromPropertyList: badOuterHandoffSafe,
+            format: .binary, options: 0)
+        let badOuterRoundTrip = try! PropertyListSerialization.propertyList(from: badOuterBytes, format: nil) as! [String: Any]
+        precondition(badOuterRoundTrip["liveContainerAutoRefreshVerification"] == nil,
+            "numeric outer host handoff must fail before completedRefresh's bypass check")
+        badOuterHandoff["liveContainerAutoRefreshHostHandoff"] = "true"
+        precondition(CombinedVerification.sanitized(badOuterHandoff, runID: numericRun).isEmpty,
+            "a string outer host handoff marker must be rejected")
+
+        let validRun = UUID().uuidString
+        var validManifest = manifest(validRun)
+        validManifest["host_handoff"] = true
+        let validSanitized = CombinedVerification.sanitized(
+            ["liveContainerAutoRefreshVerification": validManifest,
+             "liveContainerAutoRefreshHostHandoffRunID": validRun,
+             "liveContainerAutoRefreshHostHandoff": true], runID: validRun)
+        let validBytes = try! PropertyListSerialization.data(fromPropertyList: validSanitized,
+            format: .binary, options: 0)
+        let validRoundTrip = try! PropertyListSerialization.propertyList(from: validBytes, format: nil) as! [String: Any]
+        let validRoundTripManifest = validRoundTrip["liveContainerAutoRefreshVerification"] as! [String: Any]
+        precondition(CombinedVerification.hasCompleteTerminalResults(validRoundTripManifest, runID: validRun),
+            "a real plist Boolean true must remain valid through sanitization and round-trip")
+        precondition(validRoundTripManifest["host_handoff"] as? Bool == true,
+            "a real manifest host handoff Boolean must remain valid")
+        precondition(validRoundTrip["liveContainerAutoRefreshHostHandoff"] as? Bool == true,
+            "a real outer host handoff Boolean must remain valid")
+
         print("V3_REFRESH_ALL_REQUEST_TERMINAL_PASS")
     }
 }

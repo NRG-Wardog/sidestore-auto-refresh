@@ -36,6 +36,7 @@ public enum CombinedVerification {
               manifest["version"] as? Int == 2, manifest["schema"] as? String == "LiveContainerRefreshManifestV2",
               let expected = manifest["expected_ids"] as? [String], !expected.isEmpty, expected.count <= 1024,
               expected.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 512 }), Set(expected).count == expected.count,
+              (manifest["host_handoff"] == nil || strictBoolean(manifest["host_handoff"]) != nil),
               targetCoverageIsValid(manifest, expected: expected),
               let entries = manifest["results"] as? [[String: Any]], entries.count == expected.count else { return false }
         var received = Set<String>()
@@ -45,6 +46,11 @@ public enum CombinedVerification {
                   let success = entry["success"] as? NSNumber, CFGetTypeID(success) == CFBooleanGetTypeID() else { return false }
         }
         return received == Set(expected)
+    }
+    private static func strictBoolean(_ value: Any?) -> Bool? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+        return number.boolValue
     }
     private static func targetCoverageIsValid(_ manifest: [String: Any], expected: [String]) -> Bool {
         guard manifest["requested_ids"] != nil || manifest["skipped_ids"] != nil else { return true }
@@ -64,15 +70,37 @@ public enum CombinedVerification {
               let expected = manifest["expected_ids"] as? [String], expected.count <= 1024,
               expected.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 512 }),
               targetCoverageIsValid(manifest, expected: expected),
-              let entries = manifest["results"] as? [[String: Any]], entries.count <= 1024 else { return [:] }
+              let entries = manifest["results"] as? [[String: Any]],
+              entries.count == expected.count,
+              entries.allSatisfy({ entry in
+                  guard let identifier = entry["bundle_id"] as? String,
+                        expected.contains(identifier), strictBoolean(entry["success"]) != nil else { return false }
+                  return true
+              }),
+              Set(entries.map { $0["bundle_id"] as? String ?? "" }) == Set(expected) else { return [:] }
+        let manifestHostHandoff: Bool?
+        if let rawHostHandoff = manifest["host_handoff"] {
+            guard let value = strictBoolean(rawHostHandoff) else { return [:] }
+            manifestHostHandoff = value
+        } else {
+            manifestHostHandoff = nil
+        }
+        let hasCurrentHostHandoff = payload["liveContainerAutoRefreshHostHandoffRunID"] as? String == runID
+        let currentHostHandoff: Bool?
+        if hasCurrentHostHandoff, let rawHostHandoff = payload["liveContainerAutoRefreshHostHandoff"] {
+            guard let value = strictBoolean(rawHostHandoff) else { return [:] }
+            currentHostHandoff = value
+        } else {
+            currentHostHandoff = nil
+        }
         var result: [String: Any] = ["version": 2, "schema": "LiveContainerRefreshManifestV2", "run_id": runID, "expected_ids": expected]
         if let requested = manifest["requested_ids"] as? [String] { result["requested_ids"] = requested }
         if let skipped = manifest["skipped_ids"] as? [String] { result["skipped_ids"] = skipped }
         if let date = manifest["date"] as? Date { result["date"] = date }
-        if let handoff = manifest["host_handoff"] as? Bool { result["host_handoff"] = handoff }
-        result["results"] = entries.compactMap { entry -> [String: Any]? in
+        if let manifestHostHandoff { result["host_handoff"] = manifestHostHandoff }
+        result["results"] = entries.map { entry -> [String: Any] in
             guard let identifier = entry["bundle_id"] as? String, expected.contains(identifier),
-                  let success = entry["success"] as? Bool else { return nil }
+                  let success = strictBoolean(entry["success"]) else { return [:] }
             var item: [String: Any] = ["bundle_id": identifier, "success": success]
             for key in ["refreshed_date", "expiration_date"] { if let value = entry[key] as? Date { item[key] = value } }
             if !success {
@@ -89,9 +117,9 @@ public enum CombinedVerification {
             return item
         }
         var safe: [String: Any] = ["liveContainerAutoRefreshVerification": result]
-        if payload["liveContainerAutoRefreshHostHandoffRunID"] as? String == runID {
+        if hasCurrentHostHandoff {
             safe["liveContainerAutoRefreshHostHandoffRunID"] = runID
-            safe["liveContainerAutoRefreshHostHandoff"] = payload["liveContainerAutoRefreshHostHandoff"] as? Bool ?? false
+            safe["liveContainerAutoRefreshHostHandoff"] = currentHostHandoff ?? false
             for key in ["liveContainerAutoRefreshHostHandoffStartedAt", "liveContainerAutoRefreshHostPreviousExpiration"] {
                 if let value = payload[key] as? Date { safe[key] = value }
             }
