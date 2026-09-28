@@ -508,7 +508,7 @@ HARNESS = r'''
             precondition(LCEmbeddedSharedKeychain.authenticationFailure(
                 for: NSError(domain: "OtherDomain", code: -25308)).code == 1009,
                 "an unrelated domain's numeric code cannot masquerade as a locked Keychain result")
-        case "new_credentials_survive_after_failed_signin_started_from_empty_state":
+        case "new_credentials_remain_readable_after_an_empty_snapshot_observation":
             let firstClient = Keychain(LCEmbeddedSharedKeychain.makeClient())
             let secondClient = Keychain(LCEmbeddedSharedKeychain.makeClient())
             let beforeAttempt = try firstClient.authenticationSnapshot()
@@ -547,7 +547,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
             raise AssertionError(result.stderr)
 
     def test_execution_scenarios(self):
-        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "stale_snapshot_signout", "checked_signout_failure", "checked_signout_rollback", "checked_signout_outcome_unknown", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "partial_single_auth_item_never_marks_ready", "stale_ready_partial_route_is_downgraded", "partial_signin_write_failure_no_ready", "partial_signin_failure_preserves_previous_credentials", "partial_signin_rollback_unverified_is_unknown", "credential_snapshot_serializes_bulk_replacement", "snapshot_access_error_preserves_actionable_keychain_failure", "new_credentials_survive_after_failed_signin_started_from_empty_state", "certificate_only", "invalid_utf8"):
+        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "stale_snapshot_signout", "checked_signout_failure", "checked_signout_rollback", "checked_signout_outcome_unknown", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "partial_single_auth_item_never_marks_ready", "stale_ready_partial_route_is_downgraded", "partial_signin_write_failure_no_ready", "partial_signin_failure_preserves_previous_credentials", "partial_signin_rollback_unverified_is_unknown", "credential_snapshot_serializes_bulk_replacement", "snapshot_access_error_preserves_actionable_keychain_failure", "new_credentials_remain_readable_after_an_empty_snapshot_observation", "certificate_only", "invalid_utf8"):
             with self.subTest(scenario=scenario):
                 result = subprocess.run([str(self.executable), scenario], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0,
