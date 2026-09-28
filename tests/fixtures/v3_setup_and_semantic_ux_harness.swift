@@ -15,6 +15,13 @@ import Foundation
 @main
 struct SetupAndSemanticUXHarness {
     static func main() {
+        func plistRoundTrip(_ failure: CombinedFailure) -> CombinedFailure? {
+            guard let data = try? PropertyListSerialization.data(
+                    fromPropertyList: failure.wire, format: .binary, options: 0),
+                  let object = try? PropertyListSerialization.propertyList(from: data, format: nil),
+                  let dictionary = object as? [String: Any] else { return nil }
+            return CombinedFailure.decode(dictionary, expectedID: failure.correlationID)
+        }
         precondition(V3SharedKeychainAccessGroupPolicy.sharedGroup(in: [
             "TEAMID.com.kdt.livecontainer", "TEAMID.com.kdt.livecontainer.shared"
         ]) == "TEAMID.com.kdt.livecontainer.shared",
@@ -703,16 +710,14 @@ struct SetupAndSemanticUXHarness {
                      anisetteNetworkFailure.stage == .network &&
                      anisetteNetworkFailure.safeCause == .networkConnectionLost,
                      "typed URL transport loss retains the Anisette operation and network cause")
-        let decodedAnisetteNetworkFailure = CombinedFailure.decode(
-            anisetteNetworkFailure.wire, expectedID: anisetteRequestID)
+        let decodedAnisetteNetworkFailure = plistRoundTrip(anisetteNetworkFailure)
         let anisetteGuidance = decodedAnisetteNetworkFailure.flatMap(V3AnisetteFailureGuidance.message)
         precondition(anisetteGuidance?.contains("configured Anisette server") == true &&
                      anisetteGuidance?.localizedCaseInsensitiveContains("LocalDevVPN") == false,
                      "the typed Anisette network failure survives the actual structured wire contract")
         let anisetteUnavailable = V3AnisetteSyncFailurePolicy.failure(
             NSError(domain: "AnisetteServersManager", code: 503), id: UUID().uuidString)
-        let unavailableRoundTrip = CombinedFailure.decode(
-            anisetteUnavailable.wire, expectedID: anisetteUnavailable.correlationID)
+        let unavailableRoundTrip = plistRoundTrip(anisetteUnavailable)
         precondition(anisetteUnavailable.operation == "anisetteSync" &&
                      anisetteUnavailable.stage == .command &&
                      anisetteUnavailable.code == .failed &&
@@ -738,12 +743,49 @@ struct SetupAndSemanticUXHarness {
                      anisetteRejected.recovery.contains("server address") &&
                      V3AnisetteFailureGuidance.message(anisetteRejected) == nil,
                      "an HTTP client response remains distinct from transport failure")
+        let anisetteRequestTimeout = V3AnisetteSyncFailurePolicy.failure(
+            NSError(domain: "AnisetteServersManager", code: 408), id: UUID().uuidString)
+        let timeoutRoundTrip = plistRoundTrip(anisetteRequestTimeout)
+        precondition(anisetteRequestTimeout.stage == .command &&
+                     anisetteRequestTimeout.code == .failed &&
+                     anisetteRequestTimeout.safeCause == .anisetteRequestTimedOut &&
+                     anisetteRequestTimeout.retryable == true &&
+                     timeoutRoundTrip?.operation == "anisetteSync" &&
+                     timeoutRoundTrip?.safeCause == .anisetteRequestTimedOut &&
+                     anisetteRequestTimeout.recovery.contains("Retry once") &&
+                     !anisetteRequestTimeout.recovery.localizedCaseInsensitiveContains("LocalDevVPN"),
+                     "HTTP 408 survives a real plist round-trip with bounded retry guidance")
+        let anisetteRateLimit = V3AnisetteSyncFailurePolicy.failure(
+            NSError(domain: "AnisetteServersManager", code: 429), id: UUID().uuidString)
+        let rateLimitRoundTrip = plistRoundTrip(anisetteRateLimit)
+        precondition(anisetteRateLimit.stage == .command &&
+                     anisetteRateLimit.code == .busy &&
+                     anisetteRateLimit.safeCause == .anisetteRateLimited &&
+                     anisetteRateLimit.retryable == true &&
+                     rateLimitRoundTrip?.operation == "anisetteSync" &&
+                     rateLimitRoundTrip?.safeCause == .anisetteRateLimited &&
+                     anisetteRateLimit.safeMessage.contains("rate-limiting") &&
+                     anisetteRateLimit.recovery.contains("Wait before retrying once") &&
+                     !anisetteRateLimit.recovery.localizedCaseInsensitiveContains("LocalDevVPN"),
+                     "HTTP 429 survives a real plist round-trip and asks the user to wait before one retry")
+        let timeoutIssue = V3UserFacingIssue.make(anisetteRequestTimeout)
+        let rateLimitIssue = V3UserFacingIssue.make(anisetteRateLimit)
+        precondition(timeoutIssue.recoveryDestination == nil &&
+                     timeoutIssue.retryDisposition == .allowed &&
+                     timeoutIssue.whatToDo.contains("Retry once") &&
+                     rateLimitIssue.recoveryDestination == nil &&
+                     rateLimitIssue.retryDisposition == .allowed &&
+                     rateLimitIssue.whatToDo.contains("Wait before retrying once"),
+                     "Anisette transient statuses offer user-directed, bounded retry without connection routing")
         let anisetteInvalidResponse = V3AnisetteSyncFailurePolicy.failure(
             NSError(domain: "AnisetteServersManager", code: -1), id: UUID().uuidString)
+        let invalidResponseRoundTrip = plistRoundTrip(anisetteInvalidResponse)
         precondition(anisetteInvalidResponse.stage == .command &&
                      anisetteInvalidResponse.code == .invalidResponse &&
                      anisetteInvalidResponse.safeCause == .anisetteInvalidResponse &&
                      anisetteInvalidResponse.retryable == nil &&
+                     invalidResponseRoundTrip?.operation == "anisetteSync" &&
+                     invalidResponseRoundTrip?.safeCause == .anisetteInvalidResponse &&
                      anisetteInvalidResponse.safeMessage.contains("could not read") &&
                      anisetteInvalidResponse.recovery.contains("could not be read") &&
                      V3AnisetteFailureGuidance.message(anisetteInvalidResponse) == nil,

@@ -107,6 +107,8 @@ public struct CombinedFailure: Error, LocalizedError {
         case networkUnavailable
         case anisetteServerUnavailable
         case anisetteServerRejected
+        case anisetteRequestTimedOut
+        case anisetteRateLimited
         case anisetteInvalidResponse
         case anisetteUnknownFailure
         case signingNetworkConnectionLost
@@ -158,6 +160,8 @@ public struct CombinedFailure: Error, LocalizedError {
                  .wifiUnavailable, .localDevVPNUnavailable:
                 return true
             case .anisetteServerUnavailable:
+                return true
+            case .anisetteRequestTimedOut, .anisetteRateLimited:
                 return true
             case .anisetteServerRejected:
                 return false
@@ -350,6 +354,8 @@ public struct CombinedFailure: Error, LocalizedError {
             case .networkUnavailable: return "A network connection was unavailable during \(operation)."
             case .anisetteServerUnavailable: return "The configured Anisette server is temporarily unavailable."
             case .anisetteServerRejected: return "The configured Anisette server returned an unsuccessful response."
+            case .anisetteRequestTimedOut: return "The configured Anisette server timed out while synchronizing."
+            case .anisetteRateLimited: return "The configured Anisette server is temporarily rate-limiting synchronization requests."
             case .anisetteInvalidResponse: return "The configured Anisette server returned data SideStore could not read."
             case .anisetteUnknownFailure: return "Anisette server synchronization failed for an unknown reason."
             case .signingNetworkConnectionLost: return "The connection to the provisioning service was interrupted during signing."
@@ -521,6 +527,10 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Try syncing again later or choose another configured Anisette server. This does not indicate a LocalDevVPN problem."
             case .anisetteServerRejected:
                 return "Check the configured Anisette server address, then sync again after correcting it."
+            case .anisetteRequestTimedOut:
+                return "Retry once. If the configured Anisette server times out again, choose another server. This does not indicate a LocalDevVPN problem."
+            case .anisetteRateLimited:
+                return "Wait before retrying once. If the server is still rate-limiting requests, choose another configured Anisette server."
             case .anisetteInvalidResponse:
                 return "Choose another configured Anisette server or report that its response could not be read."
             case .anisetteUnknownFailure:
@@ -1009,6 +1019,16 @@ enum V3AnisetteSyncFailurePolicy {
                 return CombinedFailure(operation: "anisetteSync", stage: .command,
                     code: .invalidResponse, id: id, underlying: native,
                     safeCause: .anisetteInvalidResponse)
+            }
+            if native.code == 408 {
+                return CombinedFailure(operation: "anisetteSync", stage: .command,
+                    code: .failed, id: id, underlying: native, retryable: true,
+                    safeCause: .anisetteRequestTimedOut)
+            }
+            if native.code == 429 {
+                return CombinedFailure(operation: "anisetteSync", stage: .command,
+                    code: .busy, id: id, underlying: native, retryable: true,
+                    safeCause: .anisetteRateLimited)
             }
             if (500..<600).contains(native.code) {
                 return CombinedFailure(operation: "anisetteSync", stage: .command,
