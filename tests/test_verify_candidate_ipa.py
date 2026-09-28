@@ -206,10 +206,12 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
 
 class CandidateArchiveSizeReportTests(unittest.TestCase):
     def test_pinned_headless_ui_symbol_inventory_includes_replaced_bundle_checkbox(self):
-        source = Path(os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or
-                      os.environ.get("SIDESTORE_TEST_SOURCE", ""))
-        if not source.is_dir():
+        source_value = (os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or
+                        os.environ.get("SIDESTORE_TEST_SOURCE"))
+        if not source_value:
             self.skipTest("pinned embedded SideStore source is supplied by macOS CI")
+        source = Path(source_value)
+        self.assertTrue(source.is_dir(), "configured pinned SideStore source checkout must exist")
         symbols = verify_module.excluded_side_store_view_type_names(
             source, source_ref=verify_module.SOURCE_PINS[1])
         self.assertIn("AppendTeamIDCheckboxView", symbols)
