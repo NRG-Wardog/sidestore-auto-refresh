@@ -14,6 +14,9 @@ sys.path.insert(0, str(ROOT / "scripts"))
 SPEC = importlib.util.spec_from_file_location("combined_contract", ROOT / "scripts/patch_combined_refresh_contract.py")
 patch = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(patch)
+SERVICE_SPEC = importlib.util.spec_from_file_location("v3_service_patch", ROOT / "scripts/patch_v3_service.py")
+service = importlib.util.module_from_spec(SERVICE_SPEC)
+SERVICE_SPEC.loader.exec_module(service)
 
 
 class CombinedRefreshContractTests(unittest.TestCase):
@@ -38,6 +41,9 @@ class CombinedRefreshContractTests(unittest.TestCase):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(Path(source) / relative, target)
             background.patch_background_operation(root)
+            sign_in = root / paths[3]
+            sign_in.write_text(service.patch_sign_in_operation(sign_in.read_text(encoding="utf-8")),
+                               encoding="utf-8")
             operation = root / paths[1]
             prepared = operation.read_bytes()
             def snapshot():
