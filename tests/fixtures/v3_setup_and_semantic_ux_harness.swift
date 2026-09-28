@@ -580,39 +580,118 @@ struct SetupAndSemanticUXHarness {
         precondition(signInReadinessObservation.readinessForPresentation(.ready) == nil,
                      "a certificate-changing provisioning retry also hides a cached Ready fact")
         let provisioningRetrySession = UUID().uuidString
-        precondition(V3ProvisioningRetryReadinessPolicy.shouldRefresh(
-            retryInProgress: true, currentSessionID: provisioningRetrySession,
-            replySessionID: provisioningRetrySession, replyState: "completed",
-            authenticated: true, cancellationInProgress: false, taskCancelled: false),
-            "a correlated authenticated provisioning-retry terminal refreshes readiness")
-        for terminal in ["failed", "authenticatedProvisioningIncomplete", "timedOut", "cancelled"] {
-            precondition(!V3ProvisioningRetryReadinessPolicy.shouldRefresh(
-                retryInProgress: true, currentSessionID: provisioningRetrySession,
-                replySessionID: provisioningRetrySession, replyState: terminal,
-                authenticated: true, cancellationInProgress: false, taskCancelled: false),
-                "a \(terminal) provisioning retry does not refresh readiness")
+        var retryOwner = V3ProvisioningRetryReadinessOwnership()
+        retryOwner.begin(sessionID: provisioningRetrySession)
+        precondition(retryOwner.owns(sessionID: provisioningRetrySession))
+        precondition(retryOwner.allowsPromptResponse(sessionID: provisioningRetrySession),
+                     "the retry owns its own verification prompt response")
+        precondition(retryOwner.owns(sessionID: provisioningRetrySession),
+                     "submitting a prompt response retains retry ownership")
+        let replacementMonitorAllowed = V3AuthPollMonitorRecoveryPolicy.shouldResume(
+            requestedSessionID: provisioningRetrySession,
+            currentSessionID: provisioningRetrySession,
+            failedPromptRevision: 1, currentPromptRevision: 2,
+            failedPromptResponseGeneration: 1, currentPromptResponseGeneration: 2,
+            state: "awaitingPrompt", promptSubmissionInProgress: true,
+            activeSessionID: provisioningRetrySession, pollFailureIsTransient: true,
+            cancellationInProgress: false, taskCancelled: false,
+            reconciliationWasSuperseded: true,
+            sessionDeadline: Date().addingTimeInterval(60))
+        precondition(replacementMonitorAllowed,
+                     "a transient poll failure after a prompt response transfers monitoring")
+        precondition(retryOwner.handoffAfterSupersededPollFailure(sessionID: provisioningRetrySession) &&
+                     retryOwner.owns(sessionID: provisioningRetrySession),
+                     "a transient poll failure hands the same retry to its monitor without dropping ownership")
+        var retryRefreshRevision = 0
+        let continuedTerminalRefresh = retryOwner.settle(
+            currentSessionID: provisioningRetrySession, replySessionID: provisioningRetrySession,
+            replyState: "completed", authenticated: true,
+            cancellationInProgress: false, taskCancelled: false)
+        if continuedTerminalRefresh { retryRefreshRevision += 1 }
+        precondition(retryRefreshRevision == 1 && !retryOwner.owns(sessionID: provisioningRetrySession),
+                     "the continuation's correlated successful terminal increments readiness once")
+        let duplicateTerminalRefresh = retryOwner.settle(
+            currentSessionID: provisioningRetrySession, replySessionID: provisioningRetrySession,
+            replyState: "completed", authenticated: true,
+            cancellationInProgress: false, taskCancelled: false)
+        if duplicateTerminalRefresh { retryRefreshRevision += 1 }
+        precondition(retryRefreshRevision == 1,
+                     "a duplicate terminal cannot increment the retry readiness revision twice")
+
+        // Cancel can race a commit already accepted by the backend. The
+        // authCancel reply carrying the correlated completed result wins.
+        let cancelRaceSession = UUID().uuidString
+        retryOwner.begin(sessionID: cancelRaceSession)
+        precondition(retryOwner.handoffAfterSupersededPollFailure(sessionID: cancelRaceSession))
+        let completedDuringCancel = retryOwner.settle(
+            currentSessionID: cancelRaceSession, replySessionID: cancelRaceSession,
+            replyState: "completed", authenticated: true,
+            cancellationInProgress: true, taskCancelled: false)
+        if completedDuringCancel { retryRefreshRevision += 1 }
+        precondition(completedDuringCancel && retryRefreshRevision == 2,
+                     "a committed successful retry returned by authCancel still refreshes readiness")
+
+        let trueCancelSession = UUID().uuidString
+        retryOwner.begin(sessionID: trueCancelSession)
+        let cancelledRetryRefresh = retryOwner.settle(
+            currentSessionID: trueCancelSession, replySessionID: trueCancelSession,
+            replyState: "cancelled", authenticated: false,
+            cancellationInProgress: true, taskCancelled: false)
+        if cancelledRetryRefresh { retryRefreshRevision += 1 }
+        precondition(!cancelledRetryRefresh && retryRefreshRevision == 2 &&
+                     !retryOwner.owns(sessionID: trueCancelSession),
+                     "a true cancelled terminal releases ownership without refreshing readiness")
+        let lateAfterCancelSuccess = retryOwner.settle(
+            currentSessionID: trueCancelSession, replySessionID: trueCancelSession,
+            replyState: "completed", authenticated: true,
+            cancellationInProgress: false, taskCancelled: false)
+        precondition(!lateAfterCancelSuccess,
+            "a late success cannot revive an already cancelled retry")
+
+        let cancelledTaskSession = UUID().uuidString
+        retryOwner.begin(sessionID: cancelledTaskSession)
+        let cancelledTaskRefresh = retryOwner.settle(
+            currentSessionID: cancelledTaskSession, replySessionID: cancelledTaskSession,
+            replyState: "completed", authenticated: true,
+            cancellationInProgress: false, taskCancelled: true)
+        if cancelledTaskRefresh { retryRefreshRevision += 1 }
+        precondition(!cancelledTaskRefresh && retryRefreshRevision == 2,
+                     "a task-cancelled terminal cannot publish a retry success")
+
+        let unauthenticatedSession = UUID().uuidString
+        retryOwner.begin(sessionID: unauthenticatedSession)
+        let unauthenticatedRefresh = retryOwner.settle(
+            currentSessionID: unauthenticatedSession, replySessionID: unauthenticatedSession,
+            replyState: "completed", authenticated: false,
+            cancellationInProgress: false, taskCancelled: false)
+        if unauthenticatedRefresh { retryRefreshRevision += 1 }
+        precondition(!unauthenticatedRefresh && retryRefreshRevision == 2,
+                     "a completed reply without authenticated=true is not retry success")
+
+        let replacedSession = UUID().uuidString
+        let replacementSession = UUID().uuidString
+        retryOwner.begin(sessionID: replacedSession)
+        retryOwner.begin(sessionID: replacementSession)
+        let staleCompletedRefresh = retryOwner.settle(
+            currentSessionID: replacementSession, replySessionID: replacedSession,
+            replyState: "completed", authenticated: true,
+            cancellationInProgress: false, taskCancelled: false)
+        if staleCompletedRefresh { retryRefreshRevision += 1 }
+        precondition(!staleCompletedRefresh && retryOwner.owns(sessionID: replacementSession) &&
+                     retryRefreshRevision == 2,
+                     "a replaced session's late terminal cannot consume or signal the new owner")
+        for terminal in ["failed", "authenticatedProvisioningIncomplete", "timedOut", "promptExpired"] {
+            let failedSession = UUID().uuidString
+            retryOwner.begin(sessionID: failedSession)
+            let failureRefresh = retryOwner.settle(
+                currentSessionID: failedSession, replySessionID: failedSession,
+                replyState: terminal, authenticated: true,
+                cancellationInProgress: false, taskCancelled: false)
+            if failureRefresh { retryRefreshRevision += 1 }
+            precondition(!failureRefresh && !retryOwner.owns(sessionID: failedSession) &&
+                         retryRefreshRevision == 2,
+                         "a \(terminal) terminal releases ownership without refreshing readiness")
         }
-        precondition(!V3ProvisioningRetryReadinessPolicy.shouldRefresh(
-            retryInProgress: false, currentSessionID: provisioningRetrySession,
-            replySessionID: provisioningRetrySession, replyState: "completed",
-            authenticated: true, cancellationInProgress: false, taskCancelled: false) &&
-            !V3ProvisioningRetryReadinessPolicy.shouldRefresh(
-                retryInProgress: true, currentSessionID: provisioningRetrySession,
-                replySessionID: UUID().uuidString, replyState: "completed",
-                authenticated: true, cancellationInProgress: false, taskCancelled: false) &&
-            !V3ProvisioningRetryReadinessPolicy.shouldRefresh(
-                retryInProgress: true, currentSessionID: provisioningRetrySession,
-                replySessionID: provisioningRetrySession, replyState: "completed",
-                authenticated: false, cancellationInProgress: false, taskCancelled: false) &&
-            !V3ProvisioningRetryReadinessPolicy.shouldRefresh(
-                retryInProgress: true, currentSessionID: provisioningRetrySession,
-                replySessionID: provisioningRetrySession, replyState: "completed",
-                authenticated: true, cancellationInProgress: true, taskCancelled: false) &&
-            !V3ProvisioningRetryReadinessPolicy.shouldRefresh(
-                retryInProgress: true, currentSessionID: provisioningRetrySession,
-                replySessionID: provisioningRetrySession, replyState: "completed",
-                authenticated: true, cancellationInProgress: false, taskCancelled: true),
-            "only a live, correlated successful retry may refresh certificate readiness")
         let contradictoryNotRequired = V3SignInJITLessGuidancePolicy.resolve(
             osMajor: 26, readiness: .notRequired)!
         precondition(contradictoryNotRequired.readiness == .unknown,

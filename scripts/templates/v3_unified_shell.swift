@@ -4257,7 +4257,7 @@ final class V3AuthStore: ObservableObject {
     // without changing this store's sticky signed-in fact. Views observe this
     // terminal-success revision to refresh certificate-derived readiness.
     @Published private(set) var successfulProvisioningRetryRevision: UInt64 = 0
-    private var provisioningRetryInProgress = false
+    private var provisioningRetryReadinessOwnership = V3ProvisioningRetryReadinessOwnership()
     private var session: String?
     private var authoritativeActiveAuthenticationSessionID: String?
     private var task: Task<Void, Never>?
@@ -4290,7 +4290,7 @@ final class V3AuthStore: ObservableObject {
     func begin() {
         guard canBegin else { return }
         task?.cancel()
-        provisioningRetryInProgress = false
+        provisioningRetryReadinessOwnership.clear()
         let requestedSession = UUID().uuidString
         reconciliationGate.invalidate()
         session = requestedSession
@@ -4352,7 +4352,7 @@ final class V3AuthStore: ObservableObject {
         promptResponseDiagnostics = ""
         promptResponseBlocked = false
         clearProvisioningOutcome()
-        provisioningRetryInProgress = true
+        provisioningRetryReadinessOwnership.begin(sessionID: requestedSession)
         task = Task { await runProvisioningRetry(previouslyAvailable: previouslyAvailable) }
     }
     var canRetryProvisioning: Bool {
@@ -4364,8 +4364,8 @@ final class V3AuthStore: ObservableObject {
     }
 
     private func runProvisioningRetry(previouslyAvailable: Bool) async {
-        defer { provisioningRetryInProgress = false }
         guard let requestedSession = session else { return }
+        guard provisioningRetryReadinessOwnership.owns(sessionID: requestedSession) else { return }
         let sessionDeadline = Date().addingTimeInterval(V3ServiceBridge.authSessionLifetime)
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "authRetryProvisioning",
@@ -4374,6 +4374,14 @@ final class V3AuthStore: ObservableObject {
             guard V3AuthSessionResponsePolicy.mayAcceptStartedSession(
                 expectedSessionID: requestedSession, replySessionID: reply["session"] as? String,
                 currentSessionID: session, cancellationInProgress: isCancelling) else {
+                // A local Cancel can race the begin reply after the backend
+                // accepted this exact session. Keep its ownership for the
+                // terminal authCancel reply; only retire mismatched/replaced
+                // starts here.
+                if session != requestedSession ||
+                   (reply["session"] as? String) != requestedSession {
+                    provisioningRetryReadinessOwnership.release(sessionID: requestedSession)
+                }
                 _ = try? await V3ServiceBridge.shared.request(operation: "authCancel", target: requestedSession)
                 guard !Task.isCancelled, session == requestedSession else { return }
                 await reconcile(force: true, expectedSession: requestedSession)
@@ -4381,6 +4389,7 @@ final class V3AuthStore: ObservableObject {
             }
             guard let id = reply["session"] as? String,
                   reply["state"] as? String != "failed" else {
+                provisioningRetryReadinessOwnership.release(sessionID: requestedSession)
                 // The saved session is gone. Fall back to a full, honest sign-in
                 // instead of silently claiming provisioning was retried.
                 await reconcile(force: true, expectedSession: requestedSession)
@@ -4411,6 +4420,7 @@ final class V3AuthStore: ObservableObject {
             let failureResponseGeneration = pollFailure?.promptResponseGeneration ?? promptResponseGeneration
             if let notDispatched = error as? CombinedFailure,
                V3AuthProvisioningRetryDispatchPolicy.isConfirmedNotDispatched(notDispatched) {
+                provisioningRetryReadinessOwnership.release(sessionID: requestedSession)
                 let reconciliationGenerationBefore = reconciliationGate.generation
                 let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)
                 guard V3AuthAttemptFailureCommitPolicy.mayCommit(
@@ -4466,6 +4476,7 @@ final class V3AuthStore: ObservableObject {
                 retireInactiveAuthSession: !sessionUnavailable)
             if let sessionFailure = (pollFailure?.underlying ?? error) as? CombinedFailure,
                sessionFailure.safeCause == .authSessionUnavailable {
+                provisioningRetryReadinessOwnership.release(sessionID: requestedSession)
                 resolveUnavailableAuthSession(sessionFailure, expectedSessionID: requestedSession,
                     snapshotConfirmed: snapshotConfirmed)
                 return
@@ -5069,6 +5080,10 @@ final class V3AuthStore: ObservableObject {
             taskCancelled: Task.isCancelled,
             reconciliationWasSuperseded: reconciliationWasSuperseded,
             sessionDeadline: sessionDeadline) else { return false }
+        if provisioningRetry &&
+           !provisioningRetryReadinessOwnership.handoffAfterSupersededPollFailure(sessionID: sessionID) {
+            return false
+        }
         task = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.continuePollingAfterSupersededFailure(sessionID: sessionID,
@@ -5080,7 +5095,8 @@ final class V3AuthStore: ObservableObject {
     private func continuePollingAfterSupersededFailure(sessionID: String,
         sessionDeadline: Date, provisioningRetry: Bool) async {
         var monitorFailureCount = 0
-        while !Task.isCancelled, !isCancelling, session == sessionID {
+        while !Task.isCancelled, !isCancelling, session == sessionID,
+              (!provisioningRetry || provisioningRetryReadinessOwnership.owns(sessionID: sessionID)) {
             do {
                 try await pollLoop(id: sessionID, sessionDeadline: sessionDeadline)
                 return
@@ -5197,17 +5213,12 @@ final class V3AuthStore: ObservableObject {
     private func apply(_ reply: [String: Any]) {
         let oldPromptID = prompt?["id"] as? String
         let replyState = reply["state"] as? String ?? state
-        if provisioningRetryInProgress,
-           ["completed", "authenticatedProvisioningIncomplete", "failed", "timedOut", "promptExpired", "cancelled"].contains(replyState) {
-            if V3ProvisioningRetryReadinessPolicy.shouldRefresh(
-                retryInProgress: true, currentSessionID: session,
-                replySessionID: reply["session"] as? String,
-                replyState: replyState,
-                authenticated: V3ServiceBridge.strictBool(reply["authenticated"]) == true,
-                cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled) {
-                successfulProvisioningRetryRevision &+= 1
-            }
-            provisioningRetryInProgress = false
+        if provisioningRetryReadinessOwnership.settle(
+            currentSessionID: session, replySessionID: reply["session"] as? String,
+            replyState: replyState,
+            authenticated: V3ServiceBridge.strictBool(reply["authenticated"]) == true,
+            cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled) {
+            successfulProvisioningRetryRevision &+= 1
         }
         state = replyState
         if ["completed", "authenticatedProvisioningIncomplete", "failed", "timedOut", "promptExpired", "cancelled"].contains(state) {
@@ -5331,7 +5342,8 @@ final class V3AuthStore: ObservableObject {
         guard !promptID.isEmpty, let session,
               V3AuthPromptResponsePolicy.maySubmit(state: state,
                 currentPromptID: prompt?["id"] as? String, submittedPromptID: promptID,
-                isSubmitting: promptSubmitting, cancellationInProgress: isCancelling) else { return }
+                isSubmitting: promptSubmitting, cancellationInProgress: isCancelling),
+              provisioningRetryReadinessOwnership.allowsPromptResponse(sessionID: session) else { return }
         if promptResponseBlocked && !["cancel", "changeMethod"].contains(answer["action"] ?? "") { return }
         promptResponseDiagnostics = ""
         promptResponseBlocked = false
@@ -6876,13 +6888,62 @@ private struct V3SignInJITLessReadinessObservation {
 }
 
 enum V3ProvisioningRetryReadinessPolicy {
-    static func shouldRefresh(retryInProgress: Bool, currentSessionID: String?,
-                              replySessionID: String?, replyState: String?,
-                              authenticated: Bool, cancellationInProgress: Bool,
-                              taskCancelled: Bool) -> Bool {
-        retryInProgress && currentSessionID != nil && currentSessionID == replySessionID &&
-            replyState == "completed" && authenticated &&
-            !cancellationInProgress && !taskCancelled
+    static func mayComplete(replyState: String?, authenticated: Bool,
+                            cancellationInProgress: Bool, taskCancelled: Bool) -> Bool {
+        guard replyState == "completed", authenticated, !taskCancelled else { return false }
+        // A cancel request can lose the race after provisioning already
+        // committed. Accept that exact completed terminal from the owner.
+        let normalCommit = !cancellationInProgress
+        let committedBeforeCancel = cancellationInProgress && replyState == "completed"
+        return normalCommit || committedBeforeCancel
+    }
+}
+
+struct V3ProvisioningRetryReadinessOwnership {
+    private(set) var sessionID: String?
+
+    mutating func begin(sessionID: String) {
+        self.sessionID = sessionID
+    }
+
+    mutating func clear() {
+        sessionID = nil
+    }
+
+    func owns(sessionID: String) -> Bool {
+        self.sessionID == sessionID
+    }
+
+    func allowsPromptResponse(sessionID: String?) -> Bool {
+        guard let owner = self.sessionID else { return true }
+        guard let sessionID else { return false }
+        return owner == sessionID
+    }
+
+    // A superseded poll monitor is a handoff of the same retry ownership, not
+    // completion of that retry. The continuation must still be able to settle
+    // the exact session that the original task started.
+    func handoffAfterSupersededPollFailure(sessionID: String) -> Bool {
+        owns(sessionID: sessionID)
+    }
+
+    mutating func release(sessionID: String) {
+        guard owns(sessionID: sessionID) else { return }
+        self.sessionID = nil
+    }
+
+    mutating func settle(currentSessionID: String?, replySessionID: String?,
+                         replyState: String?, authenticated: Bool,
+                         cancellationInProgress: Bool, taskCancelled: Bool) -> Bool {
+        guard let owner = sessionID, currentSessionID == owner,
+              replySessionID == owner,
+              ["completed", "authenticatedProvisioningIncomplete", "failed", "timedOut",
+               "promptExpired", "cancelled"].contains(replyState ?? "") else { return false }
+        sessionID = nil
+        return V3ProvisioningRetryReadinessPolicy.mayComplete(
+            replyState: replyState, authenticated: authenticated,
+            cancellationInProgress: cancellationInProgress,
+            taskCancelled: taskCancelled)
     }
 }
 

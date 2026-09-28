@@ -50,13 +50,28 @@ class V3HostStateTests(unittest.TestCase):
         auth_store = shell[shell.index("final class V3AuthStore"):]
         auth_store = auth_store[:auth_store.index("\nstruct V3SignInLink")]
         self.assertIn("@Published private(set) var successfulProvisioningRetryRevision: UInt64 = 0", auth_store)
-        self.assertIn("provisioningRetryInProgress = true", auth_store)
-        self.assertIn("defer { provisioningRetryInProgress = false }", auth_store)
+        self.assertIn("private var provisioningRetryReadinessOwnership = V3ProvisioningRetryReadinessOwnership()", auth_store)
+        self.assertIn("provisioningRetryReadinessOwnership.begin(sessionID: requestedSession)", auth_store)
+        self.assertNotIn("provisioningRetryInProgress", auth_store,
+                         "retry identity is session-owned, not a task-scoped shared flag")
         apply = auth_store[auth_store.index("private func apply(_ reply: [String: Any])"):
                            auth_store.index("func clearPreviousFailure()")]
-        self.assertIn("V3ProvisioningRetryReadinessPolicy.shouldRefresh(", apply)
+        self.assertIn("provisioningRetryReadinessOwnership.settle(", apply)
         self.assertIn("successfulProvisioningRetryRevision &+= 1", apply)
         self.assertIn('replyState == "completed"', shell)
+        self.assertIn("handoffAfterSupersededPollFailure(sessionID: sessionID)", auth_store)
+        self.assertIn("provisioningRetryReadinessOwnership.owns(sessionID: sessionID)", auth_store)
+        self.assertIn("provisioningRetryReadinessOwnership.allowsPromptResponse(sessionID: session)", auth_store)
+        self.assertIn("mutating func begin(sessionID: String)", shell)
+        self.assertIn("mutating func release(sessionID: String)", shell)
+        self.assertIn("mutating func settle(currentSessionID: String?, replySessionID: String?", shell)
+        self.assertIn('let committedBeforeCancel = cancellationInProgress && replyState == "completed"', shell)
+        cancel = auth_store[auth_store.index("    func cancel() {"):]
+        self.assertIn("if let terminalReply { apply(terminalReply) }", cancel)
+        retry_start = auth_store[auth_store.index("private func runProvisioningRetry("):
+                                 auth_store.index("private func run(sessionID requestedSession:")]
+        self.assertIn('if session != requestedSession ||', retry_start)
+        self.assertIn('(reply["session"] as? String) != requestedSession', retry_start)
 
     def test_all_sign_in_routes_invalidate_jitless_facts_before_reload(self):
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
