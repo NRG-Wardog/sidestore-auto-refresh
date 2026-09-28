@@ -674,41 +674,57 @@ def contains_side_store_swift_type(executable: bytes, name: str) -> bool:
 
 def excluded_side_store_view_type_names(side_source: Path,
                                         view_files=HEADLESS_SIDESTORE_VIEW_FILES,
-                                        source_ref: str | None = None) -> list[str]:
+                                        source_ref: str | None = None,
+                                        additional_source_roots: dict[str, tuple[str, ...]] | None = None) -> list[str]:
     if not source_ref:
         raise ValueError("pinned SideStore revision is required for headless source analysis")
+    files_by_root = {"SideStore": tuple(view_files)}
+    for root, files in (additional_source_roots or {}).items():
+        files_by_root[root] = tuple(files)
     try:
         tracked = subprocess.check_output(
-            ["git", "-C", str(side_source), "ls-tree", "-r", "--name-only", source_ref, "--", "SideStore"],
+            ["git", "-C", str(side_source), "ls-tree", "-r", "--name-only", source_ref,
+             "--", *files_by_root],
             text=True, stderr=subprocess.PIPE).splitlines()
     except subprocess.CalledProcessError as error:
         raise ValueError("pinned SideStore source inventory could not be read") from error
     swift_paths = [path for path in tracked if path.endswith(".swift")]
-    by_relative: dict[str, str] = {}
+    by_git_path: dict[str, str] = {}
     for path in swift_paths:
-        relative = path[len("SideStore/"):] if path.startswith("SideStore/") else path
         try:
-            by_relative[relative] = subprocess.check_output(
+            by_git_path[path] = subprocess.check_output(
                 ["git", "-C", str(side_source), "show", f"{source_ref}:{path}"],
                 text=True, encoding="utf-8", stderr=subprocess.PIPE)
         except subprocess.CalledProcessError as error:
-            raise ValueError(f"pinned SideStore source could not be read: {relative}") from error
+            raise ValueError(f"pinned SideStore source could not be read: {path}") from error
     removed_types: set[str] = set()
-    for relative in view_files:
-        source = by_relative.get(relative)
-        if source is None:
-            raise ValueError(f"headless SideStore UI source is missing from the pinned tree: {relative}")
-        removed_types.update(SWIFT_TYPE_DECLARATION.findall(source))
-    excluded_paths = set(view_files)
+    excluded_paths = set()
+    for root, files in files_by_root.items():
+        for relative in files:
+            git_path = f"{root}/{relative}"
+            source = by_git_path.get(git_path)
+            if source is None:
+                raise ValueError(f"headless SideStore UI source is missing from the pinned tree: {git_path}")
+            removed_types.update(SWIFT_TYPE_DECLARATION.findall(source))
+            excluded_paths.add(git_path)
     retained_types = set()
-    for relative, source in by_relative.items():
-        if relative not in excluded_paths:
+    for git_path, source in by_git_path.items():
+        if git_path not in excluded_paths:
             retained_types.update(SWIFT_TYPE_DECLARATION.findall(source))
     return sorted(removed_types - retained_types - {"Color"})
 
 
 def missing_excluded_ui_symbols(executable: bytes, expected_symbols: list[str]) -> list[str]:
     return sorted(name for name in expected_symbols if contains_side_store_swift_type(executable, name))
+
+
+def verify_no_excluded_side_store_ui(executable: bytes, expected_symbols: list[str]) -> None:
+    legacy_ui = find_legacy_side_store_ui_symbols(executable)
+    legacy_view_types = missing_excluded_ui_symbols(executable, expected_symbols)
+    legacy_ui = sorted(set(legacy_ui + legacy_view_types))
+    if legacy_ui:
+        raise ValueError("embedded SideStore still contains excluded presenter UI: "
+                         + ", ".join(legacy_ui))
 
 
 def missing_required_background_modes(info: dict) -> list[str]:
@@ -843,15 +859,11 @@ def verify(ipa: Path, provenance_path: Path, product: str,
         if legacy_intents:
             raise ValueError("embedded SideStore still contains legacy app intent code: "
                              + ", ".join(legacy_intents))
-        legacy_ui = find_legacy_side_store_ui_symbols(side_store_executable_data)
         headless_view_symbols = excluded_side_store_view_type_names(
-            side_source, (HEADLESS_SIDESTORE_VIEW_FILES + HEADLESS_SIDESTORE_AUX_UI_FILES +
-                          HEADLESS_SIDESTORE_PIPELINE_UI_FILES), source_ref=SOURCE_PINS[1])
-        legacy_view_types = missing_excluded_ui_symbols(side_store_executable_data, headless_view_symbols)
-        legacy_ui = sorted(set(legacy_ui + legacy_view_types))
-        if legacy_ui:
-            raise ValueError("embedded SideStore still contains excluded presenter UI: "
-                             + ", ".join(legacy_ui))
+            side_source, HEADLESS_SIDESTORE_VIEW_FILES + HEADLESS_SIDESTORE_AUX_UI_FILES,
+            source_ref=SOURCE_PINS[1],
+            additional_source_roots={"AltStore": HEADLESS_SIDESTORE_PIPELINE_UI_FILES})
+        verify_no_excluded_side_store_ui(side_store_executable_data, headless_view_symbols)
         shared_framework_path = BASE + "/Frameworks/LiveContainerShared.framework"
         shared_framework = package_bundles.get(shared_framework_path)
         if not shared_framework or not shared_framework.get("executable_present"):

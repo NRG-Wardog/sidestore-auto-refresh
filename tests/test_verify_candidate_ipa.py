@@ -60,18 +60,20 @@ def java_class_file():
 
 class ExcludedSideStorePipelineUITests(unittest.TestCase):
     def test_pipeline_ui_types_are_discovered_from_production_patch_file_list(self):
-        files = (patch_v3_service.HEADLESS_SIDESTORE_VIEW_FILES +
-                 patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES +
-                 patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES)
+        side_files = (patch_v3_service.HEADLESS_SIDESTORE_VIEW_FILES +
+                      patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES)
+        pipeline_files = patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES
         source_by_path = {
-            "SideStore/Managing Apps/AppExtensionView.swift": "struct AppExtensionView {}",
-            "SideStore/Permissions/ReviewPermissionsViewController.swift":
+            "AltStore/Managing Apps/AppExtensionView.swift": "struct AppExtensionView {}",
+            "AltStore/Permissions/ReviewPermissionsViewController.swift":
                 "final class ReviewPermissionsViewController {}",
         }
-        tracked = ["SideStore/" + relative for relative in files]
+        tracked = (["SideStore/" + relative for relative in side_files] +
+                   ["AltStore/" + relative for relative in pipeline_files])
 
         def git_output(command, **kwargs):
             if command[3:5] == ["ls-tree", "-r"]:
+                self.assertEqual(command[8:], ["SideStore", "AltStore"])
                 return "\n".join(tracked)
             if command[3] == "show":
                 path = command[4].split(":", 1)[1]
@@ -80,9 +82,29 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
 
         with mock.patch.object(verify_module.subprocess, "check_output", side_effect=git_output):
             found = verify_module.excluded_side_store_view_type_names(
-                Path("unused"), files, source_ref="pinned-revision")
+                Path("unused"), side_files, source_ref="pinned-revision",
+                additional_source_roots={"AltStore": pipeline_files})
 
         self.assertEqual(found, ["AppExtensionView", "ReviewPermissionsViewController"])
+
+    def test_exact_pinned_source_inventory_resolves_both_pipeline_ui_files(self):
+        side_source_value = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        if not side_source_value:
+            self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the exact pinned SideStore checkout")
+        side_source = Path(side_source_value)
+        pinned = verify_module.SOURCE_PINS[1]
+        actual = subprocess.check_output(
+            ["git", "-C", str(side_source), "rev-parse", "HEAD"], text=True).strip()
+        self.assertEqual(actual, pinned, "test checkout must match the exact embedded SideStore pin")
+        found = verify_module.excluded_side_store_view_type_names(
+            side_source,
+            patch_v3_service.HEADLESS_SIDESTORE_VIEW_FILES +
+            patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES,
+            source_ref=pinned,
+            additional_source_roots={
+                "AltStore": patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES})
+        self.assertIn("AppExtensionView", found)
+        self.assertIn("ReviewPermissionsViewController", found)
 
     def test_production_verifier_rejects_each_excluded_pipeline_ui_symbol_in_ipa(self):
         forbidden_symbols = ("AppExtensionView", "ReviewPermissionsViewController")
@@ -119,6 +141,21 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
         host_code_path = (verify_module.BASE +
                           "/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI")
 
+        with tempfile.TemporaryDirectory() as directory:
+            clean_ipa = Path(directory) / "candidate.ipa"
+            with zipfile.ZipFile(clean_ipa, "w") as archive:
+                archive.writestr(ipa_info_path, plistlib.dumps(host_info))
+                archive.writestr(side_store_path,
+                                 thin_arm64_macho() +
+                                 b"com.kdt.livecontainer.v3-secret-handoff")
+                archive.writestr(host_code_path,
+                                 thin_arm64_macho() +
+                                 b"com.kdt.livecontainer.v3-secret-handoff")
+            with zipfile.ZipFile(clean_ipa) as archive:
+                clean_framework_executable = archive.read(side_store_path)
+            verify_module.verify_no_excluded_side_store_ui(
+                clean_framework_executable, list(forbidden_symbols))
+
         for symbol in forbidden_symbols:
             with self.subTest(symbol=symbol), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -149,8 +186,9 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
                 passed_files = inventory_check.call_args.args[1]
                 self.assertEqual(passed_files,
                                  patch_v3_service.HEADLESS_SIDESTORE_VIEW_FILES +
-                                 patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES +
-                                 patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES)
+                                 patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES)
+                self.assertEqual(inventory_check.call_args.kwargs["additional_source_roots"], {
+                    "AltStore": patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES})
 
 
 class CandidateArchiveSizeReportTests(unittest.TestCase):
