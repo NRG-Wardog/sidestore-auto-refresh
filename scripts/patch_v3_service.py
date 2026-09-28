@@ -373,6 +373,7 @@ def headless_app_intents(text, relative):
                 "AppManager.shared.backgroundRefresh" not in text or
                 "try? AppManager.shared.backgroundRefresh" in text or
                 "throw V3HeadlessPairingFailure.tagIfInvalidPairing(error)" not in text or
+                "IntentError(V3HeadlessPairingFailure.tagIfInvalidPairing(error))" not in text or
                 "ProgressReportingIntent" not in text or "operationActor" not in text or
                 "openAppWhenRun = true" not in text or
                 "Notification.Name(\"LiveContainerAutoRefreshRunNow\")" in text):
@@ -411,6 +412,8 @@ def headless_app_intents(text, relative):
         text = replace(text,
             "                        guard case let .failure(error) = result else { continue }\n                        throw error",
             "                        guard case let .failure(error) = result else { continue }\n                        throw V3HeadlessPairingFailure.tagIfInvalidPairing(error)")
+        text = replace(text, "let intentError = IntentError(error)",
+            "let intentError = IntentError(V3HeadlessPairingFailure.tagIfInvalidPairing(error))")
         title = '    static var title: LocalizedStringResource = "Refresh All Apps"\n'
         if text.count(title) != 1:
             raise SystemExit("v3 service: Refresh All title anchor changed")
@@ -426,6 +429,7 @@ def headless_app_intents(text, relative):
                 "classify: V3HeadlessPairingFailure.tagIfInvalidPairing" not in text or
                 "try? AppManager.shared.backgroundRefresh" in text or
                 "throw V3HeadlessPairingFailure.tagIfInvalidPairing(error)" not in text or
+                "IntentError(V3HeadlessPairingFailure.tagIfInvalidPairing(error))" not in text or
                 "DatabaseManager.shared.start()" not in text or
                 "ProgressReportingIntent" not in text or "operationActor" not in text or
                 "Notification.Name(\"LiveContainerAutoRefreshRunNow\")" in text or

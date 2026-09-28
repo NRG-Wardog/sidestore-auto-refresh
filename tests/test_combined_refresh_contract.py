@@ -216,8 +216,8 @@ enum StoreApp { static let altstoreAppID = "fixture.host" }
         let pairingBytes = try V3ResponseEncoder.encode(["version": 1, "id": run, "ok": true,
             "result": safePairing], operation: "refresh", limit: V3WireContract.responseLimit)
         let pairingDecoded = try PropertyListSerialization.propertyList(from: pairingBytes, format: nil) as! [String: Any]
-        let manifest = (pairingDecoded["result"] as! [String: Any])
-            ["liveContainerAutoRefreshVerification"] as! [String: Any]
+        let pairingResult = pairingDecoded["result"] as! [String: Any]
+        let manifest = pairingResult["liveContainerAutoRefreshVerification"] as! [String: Any]
         let manifestRows = manifest["results"] as! [[String: Any]]
         let roundTripped = CombinedFailure.decode(manifestRows[0]["failure"] as! [String: Any], expectedID: run)!
         precondition(roundTripped.stage == .pairing && roundTripped.safeCause == .invalidPairingFile &&

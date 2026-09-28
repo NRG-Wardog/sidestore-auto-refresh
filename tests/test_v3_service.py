@@ -362,6 +362,7 @@ class ServicePatchTests(unittest.TestCase):
             self.assertIn("classify: V3HeadlessPairingFailure.tagIfInvalidPairing", refresh_intent_source)
             self.assertNotIn("try? AppManager.shared.backgroundRefresh", refresh_intent_source)
             self.assertIn("throw V3HeadlessPairingFailure.tagIfInvalidPairing(error)", refresh_intent_source)
+            self.assertIn("IntentError(V3HeadlessPairingFailure.tagIfInvalidPairing(error))", refresh_intent_source)
             self.assertIn("DatabaseManager.shared.start()", refresh_intent_source)
             self.assertIn("ProgressReportingIntent", refresh_intent_source)
             self.assertIn("operationActor", refresh_intent_source)
