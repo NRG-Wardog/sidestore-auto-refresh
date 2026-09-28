@@ -12,9 +12,12 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 30
-LEGACY_CONSTANT_MANIFEST_VERSION = 29
+PATCH_VERSION = 31
+ANISETTE_MANIFEST_MIGRATION_VERSION = 30
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
+HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
+HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
+HEADLESS_ANISETTE_MODELS_SOURCE = "AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_SIDESTORE_APP_UI_FILES = (
     "Components/AppBannerView.swift",
     "Components/AppBannerCollectionViewCell.swift",
@@ -270,6 +273,7 @@ def headless_project(text):
                                 "Settings/SettingsViewController.swift",
                                 "Settings/SettingsHeaderFooterView.swift",
                                 "Settings/InsetGroupTableViewCell.swift",
+				"Settings/AnisetteServerList.swift",
 				"Settings/PatreonViewController.swift",
 				"Settings/LicensesViewController.swift",
 				"Settings/RefreshAttemptsViewController.swift",
@@ -652,6 +656,47 @@ def headless_app_open(text):
             "importAppDeepLinkURLKey", "addSourceDeepLinkNotification", "addSourceDeepLinkURLKey")):
         raise SystemExit("v3 service: legacy app IPA-import state remains")
     return text
+
+
+def extract_swift_declaration(source, signature):
+    start = source.index(signature)
+    opening = source.index("{", start)
+    depth = 0
+    for index in range(opening, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start:index + 1]
+    raise SystemExit(f"v3 service: unterminated pinned Swift declaration: {signature}")
+
+
+def headless_anisette_models(source):
+    data_model = extract_swift_declaration(source, "struct AnisetteServerData: Codable {")
+    server_model = extract_swift_declaration(source, "struct Server: Codable, Identifiable, Hashable {")
+    return "import Foundation\nimport SideSign\n\n" + data_model + "\n\n" + server_model + "\n"
+
+
+def add_headless_anisette_view_exclusion(project):
+    anchor = "A8EEC8CB2F4B146B00F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {"
+    if project.count(anchor) != 1:
+        raise SystemExit("v3 service: AltStore synchronized source exclusion anchor changed")
+    block_start = project.index(anchor)
+    member_start = project.index("membershipExceptions = (", block_start)
+    member_end = project.index(");", member_start)
+    members = project[member_start:member_end]
+    view = '"Settings/AnisetteServerList.swift"'
+    if view in members:
+        return project
+    insertion_marker = '"Settings/PatreonViewController.swift",'
+    if members.count(insertion_marker) != 1:
+        raise SystemExit("v3 service: Anisette exclusion insertion anchor changed")
+    marker_position = project.index(insertion_marker, member_start, member_end)
+    line_start = project.rfind("\n", member_start, marker_position) + 1
+    indentation = project[line_start:marker_position]
+    insertion = indentation + view + ",\n"
+    return project[:line_start] + insertion + project[line_start:]
 
 
 def headless_nuke_app_delegate(text):
@@ -1158,39 +1203,69 @@ def patch(live, side):
     template_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in TEMPLATES.glob("v3_*.swift")}
     group_policy_template = TEMPLATES / "LCAppGroupSelectionPolicy.h"
     template_hashes[group_policy_template.name] = hashlib.sha256(group_policy_template.read_bytes()).hexdigest()
-    legacy_template_hashes = dict(template_hashes)
     template_hashes[BACKEND_CONNECTION_CONFIG_MANIFEST_KEY] = hashlib.sha256(
         (HEADLESS_BACKEND_CONNECTION_CONFIG + "\n").encode("utf-8")).hexdigest()
+    anisette_ui_source = (side / HEADLESS_ANISETTE_UI_SOURCE).read_text(encoding="utf-8")
+    headless_models = headless_anisette_models(anisette_ui_source)
+    template_hashes[HEADLESS_ANISETTE_MODELS_MANIFEST_KEY] = hashlib.sha256(
+        headless_models.encode("utf-8")).hexdigest()
+    v30_template_hashes = dict(template_hashes)
+    v30_template_hashes.pop(HEADLESS_ANISETTE_MODELS_MANIFEST_KEY)
     if manifest.exists():
         previous = json.loads(manifest.read_text())
+        if previous.get("patchVersion") == 29:
+            raise SystemExit(
+                "v3 service: v29 prepared trees cannot be migrated safely after the Anisette extraction; "
+                "discard generated work directories and rebuild from the exact pinned sources")
         for index, relative, digest in previous["files"]:
             if hashlib.sha256((roots[index] / relative).read_bytes()).hexdigest() != digest:
                 raise SystemExit(f"v3 service: previously patched file drifted: {relative}")
         if previous.get("patchVersion") == PATCH_VERSION and previous.get("templates") == template_hashes:
             return
 
-        # Version 29 manifests did not hash generated Python-string sources.
-        # Repair the one known generated constant in place after verifying that
-        # every previously patched file still matches its manifest. This keeps
-        # a stale-but-pristine v29 tree recoverable without rerunning all edits
-        # over already-patched source.
-        if (previous.get("patchVersion") == LEGACY_CONSTANT_MANIFEST_VERSION and
+        # Version 30 is the real prior generated format: it includes the
+        # backend connection model hash, but has neither the extracted
+        # Anisette model nor the corresponding target membership exclusion.
+        if (previous.get("patchVersion") == ANISETTE_MANIFEST_MIGRATION_VERSION and
                 previous.get("pins") == list(PINS) and
-                previous.get("templates") == legacy_template_hashes):
-            backend_relative = "SideStore/Core/DeviceApi/ConnectionConfig.swift"
-            records = [record for record in previous["files"]
-                       if record[0] == 1 and record[1] == backend_relative]
-            if len(records) != 1:
-                raise SystemExit("v3 service: v29 manifest lacks a unique generated backend ConnectionConfig")
-            backend_path = side / backend_relative
-            previous_backend = backend_path.read_text(encoding="utf-8")
-            if "V3_HEADLESS_BACKEND_CONNECTION_CONFIG_V1" not in previous_backend:
-                raise SystemExit("v3 service: v29 generated backend ConnectionConfig is not recognized")
-            repaired_backend = HEADLESS_BACKEND_CONNECTION_CONFIG + "\n"
-            backend_path.write_bytes(repaired_backend.encode("utf-8"))
-            records[0][2] = hashlib.sha256(repaired_backend.encode("utf-8")).hexdigest()
+                previous.get("templates") == v30_template_hashes):
+            model_relative = HEADLESS_ANISETTE_MODELS_SOURCE
+            project_relative = "AltStore.xcodeproj/project.pbxproj"
+            if any(record[0] == 1 and record[1] == model_relative for record in previous["files"]):
+                raise SystemExit("v3 service: v30 manifest unexpectedly records an Anisette model")
+            model_path = side / model_relative
+            if model_path.exists():
+                raise SystemExit("v3 service: v30 prepared tree already contains an unrecorded Anisette model")
+            project_path = side / project_relative
+            project_records = [record for record in previous["files"]
+                               if record[0] == 1 and record[1] == project_relative]
+            if len(project_records) != 1:
+                raise SystemExit("v3 service: v30 manifest lacks a unique generated SideStore project")
+            old_project = project_path.read_text(encoding="utf-8")
+            anchor = "A8EEC8CB2F4B146B00F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {"
+            if old_project.count(anchor) != 1:
+                raise SystemExit("v3 service: v30 AltStore synchronized source exclusion anchor changed")
+            block_start = old_project.index(anchor)
+            member_start = old_project.index("membershipExceptions = (", block_start)
+            member_end = old_project.index(");", member_start)
+            if '"Settings/AnisetteServerList.swift"' in old_project[member_start:member_end]:
+                raise SystemExit("v3 service: v30 project unexpectedly excludes the Anisette view")
+            migrated_project = add_headless_anisette_view_exclusion(old_project)
+            if migrated_project == old_project:
+                raise SystemExit("v3 service: failed to add the Anisette UI target exclusion")
+            generated_models = headless_models.encode("utf-8")
+            migrated_project_bytes = migrated_project.encode("utf-8")
+
+            project_records[0][2] = hashlib.sha256(migrated_project_bytes).hexdigest()
+            previous["files"].append([1, model_relative, hashlib.sha256(generated_models).hexdigest()])
             previous["patchVersion"] = PATCH_VERSION
             previous["templates"] = template_hashes
+
+            # Validate every v30-owned byte and all migration anchors before
+            # writing either owned output. Only the project, new model, and
+            # manifest change in this in-place migration.
+            project_path.write_bytes(migrated_project_bytes)
+            model_path.write_bytes(generated_models)
             manifest.write_text(json.dumps(previous, indent=2) + "\n", encoding="utf-8")
             return
 
@@ -1250,6 +1325,10 @@ def patch(live, side):
     if backend_connection_config.exists():
         raise SystemExit("v3 service: backend ConnectionConfig destination already exists")
     changes[backend_connection_config] = HEADLESS_BACKEND_CONNECTION_CONFIG + "\n"
+    anisette_models_path = side / HEADLESS_ANISETTE_MODELS_SOURCE
+    if anisette_models_path.exists():
+        raise SystemExit("v3 service: generated Anisette model destination already exists")
+    changes[anisette_models_path] = headless_models
     edit(side, "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
          lambda s: headless_app_intents(s, "RefreshAllAppsIntent.swift"))
     edit(side, "AltStore/Intents/App Intents/AppShortcuts.swift",
@@ -1530,6 +1609,56 @@ def verify_headless_ui_adapters(side, pinned_ref):
     backend_config = side / "SideStore/Core/DeviceApi/ConnectionConfig.swift"
     if not backend_config.is_file() or backend_config.read_text(encoding="utf-8") != HEADLESS_BACKEND_CONNECTION_CONFIG + "\n":
         raise SystemExit("v3 service: backend ConnectionConfig differs from the generated headless transport model")
+    verify_headless_anisette_models(side, pinned_ref)
+
+
+def verify_headless_anisette_models(side, pinned_ref):
+    source = subprocess.check_output(
+        ["git", "-C", str(side), "show", f"{pinned_ref}:{HEADLESS_ANISETTE_UI_SOURCE}"],
+        text=True, encoding="utf-8")
+    expected = headless_anisette_models(source)
+    generated = side / HEADLESS_ANISETTE_MODELS_SOURCE
+    if not generated.is_file() or generated.read_text(encoding="utf-8") != expected:
+        raise SystemExit("v3 service: Anisette backend models differ from their byte-faithful pinned declarations")
+
+    project = (side / "AltStore.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+    exception_anchor = 'A8EEC8CB2F4B146B00F2436D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {'
+    if project.count(exception_anchor) != 1:
+        raise SystemExit("v3 service: AltStore synchronized source exclusion anchor changed")
+    exception_start = project.index(exception_anchor)
+    member_start = project.index("membershipExceptions = (", exception_start)
+    member_end = project.index(");", member_start)
+    members = project[member_start:member_end]
+    excluded_view = '"Settings/AnisetteServerList.swift"' in members
+    if not excluded_view:
+        raise SystemExit("v3 service: Anisette SwiftUI view remains in the SideStore target")
+    if '"Settings/SettingsViewController.swift"' not in members:
+        raise SystemExit("v3 service: retained SettingsViewController still depends on the Anisette SwiftUI view")
+    if '"Settings/AnisetteServerModels.swift"' in members:
+        raise SystemExit("v3 service: generated Anisette backend models are excluded from the SideStore target")
+    side_target_sources = '''fileSystemSynchronizedGroups = (
+				A8EEC3482F4B0D8600F2436D /* Shared */,
+				A8EEC8412F4B146A00F2436D /* AltStore */,
+				A8EECF2A2F4B195000F2436D /* SideStore */,
+			);'''
+    if side_target_sources not in project:
+        raise SystemExit("v3 service: SideStore target no longer includes the AltStore synchronized source group")
+
+    callers = subprocess.check_output(
+        ["git", "-C", str(side), "grep", "-n", "-E", "AnisetteServersView|AnisetteViewModel",
+         pinned_ref, "--", "*.swift"], text=True, encoding="utf-8")
+    caller_paths = {line.split(":", 2)[1] for line in callers.splitlines()}
+    if caller_paths != {HEADLESS_ANISETTE_UI_SOURCE, "AltStore/Settings/SettingsViewController.swift"}:
+        raise SystemExit("v3 service: retained SideStore caller still references the Anisette SwiftUI view")
+
+    data_references = subprocess.check_output(
+        ["git", "-C", str(side), "grep", "-n", "-E", "AnisetteServerData",
+         pinned_ref, "--", "*.swift"], text=True, encoding="utf-8")
+    data_paths = {line.split(":", 2)[1] for line in data_references.splitlines()}
+    if data_paths != {HEADLESS_ANISETTE_UI_SOURCE, "SideStore/Core/Anisette/AnisetteServersManager.swift"}:
+        raise SystemExit("v3 service: pinned AnisetteServerData references changed")
+    if "import SideSign" not in expected or "let oda: ODAValue?" not in expected:
+        raise SystemExit("v3 service: generated Anisette models lost the pinned ODAValue dependency")
 
 
 if __name__ == "__main__":

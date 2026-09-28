@@ -652,50 +652,105 @@ import Foundation
             self.assertIn(".downloadAlert", (roots[0] / "LiveContainerSwiftUI/Views/LCTabView.swift").read_text())
             self.assertNotIn("LCUtils.openSideStore", (roots[0] / "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift").read_text(encoding="utf-8"))
 
-    def test_stale_v29_generated_connection_config_is_repaired_and_idempotent(self):
+    def test_v30_manifest_migrates_anisette_model_and_target_exclusion(self):
+        side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        if not side_source:
+            self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the pinned SideStore checkout")
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
             roots = self.fixture(directory)
             self.apply(roots)
-
-            backend_path = roots[1] / "SideStore/Core/DeviceApi/ConnectionConfig.swift"
-            current_backend = service.HEADLESS_BACKEND_CONNECTION_CONFIG + "\n"
-            user_defaults_extension = "\nextension UserDefaults {\n"
-            self.assertIn(user_defaults_extension, current_backend)
-            stale_backend = current_backend.split(user_defaults_extension, 1)[0] + "\n"
-            backend_path.write_bytes(stale_backend.encode("utf-8"))
+            side = roots[1]
+            model_relative = service.HEADLESS_ANISETTE_MODELS_SOURCE
+            model_path = side / model_relative
+            self.assertTrue(model_path.is_file())
+            model_path.unlink()
+            project_path = side / "AltStore.xcodeproj/project.pbxproj"
+            current_project = project_path.read_text(encoding="utf-8")
+            exclusion = '"Settings/AnisetteServerList.swift"'
+            exclusion_lines = [line for line in current_project.splitlines(keepends=True) if exclusion in line]
+            self.assertEqual(len(exclusion_lines), 1)
+            v30_project = current_project.replace(exclusion_lines[0], "", 1)
+            project_path.write_bytes(v30_project.encode("utf-8"))
 
             manifest_path = roots[0] / ".v3-command-patch.json"
-            stale_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.assertEqual(stale_manifest["patchVersion"], service.PATCH_VERSION)
-            generated_hash_key = service.BACKEND_CONNECTION_CONFIG_MANIFEST_KEY
-            stale_manifest["patchVersion"] = service.LEGACY_CONSTANT_MANIFEST_VERSION
-            stale_manifest["templates"].pop(generated_hash_key)
-            backend_records = [record for record in stale_manifest["files"]
-                               if record[0] == 1 and record[1] == "SideStore/Core/DeviceApi/ConnectionConfig.swift"]
-            self.assertEqual(len(backend_records), 1)
-            backend_records[0][2] = hashlib.sha256(stale_backend.encode("utf-8")).hexdigest()
-            manifest_path.write_text(json.dumps(stale_manifest, indent=2) + "\n", encoding="utf-8")
+            v30_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(v30_manifest["patchVersion"], service.PATCH_VERSION)
+            v30_manifest["patchVersion"] = service.ANISETTE_MANIFEST_MIGRATION_VERSION
+            v30_manifest["templates"].pop(service.HEADLESS_ANISETTE_MODELS_MANIFEST_KEY)
+            v30_manifest["files"] = [record for record in v30_manifest["files"] if record[1] != model_relative]
+            project_records = [record for record in v30_manifest["files"]
+                               if record[0] == 1 and record[1] == "AltStore.xcodeproj/project.pbxproj"]
+            self.assertEqual(len(project_records), 1)
+            project_records[0][2] = hashlib.sha256(v30_project.encode("utf-8")).hexdigest()
+            manifest_path.write_text(json.dumps(v30_manifest, indent=2) + "\n", encoding="utf-8")
 
-            before_repair = self.snapshot(directory)
+            before_migration = self.snapshot(directory)
             self.apply(roots)
-            self.assertEqual(backend_path.read_text(encoding="utf-8"), current_backend)
-            repaired_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.assertEqual(repaired_manifest["patchVersion"], service.PATCH_VERSION)
-            self.assertEqual(repaired_manifest["pins"], list(service.PINS))
-            self.assertEqual(repaired_manifest["templates"][generated_hash_key],
-                             hashlib.sha256(current_backend.encode("utf-8")).hexdigest())
-            repaired_snapshot = self.snapshot(directory)
-            changed = {path.replace("\\", "/") for path in repaired_snapshot
-                       if before_repair.get(path) != repaired_snapshot[path]}
+            pinned_view = subprocess.check_output([
+                "git", "-C", side_source, "show",
+                f"{service.PINS[1]}:{service.HEADLESS_ANISETTE_UI_SOURCE}"],
+                text=True, encoding="utf-8")
+            generated_model = service.headless_anisette_models(pinned_view)
+            self.assertEqual(model_path.read_text(encoding="utf-8"), generated_model)
+            migrated_project = project_path.read_text(encoding="utf-8")
+            self.assertIn(exclusion, migrated_project)
+            self.assertEqual(migrated_project,
+                             service.headless_project((Path(side_source) / "AltStore.xcodeproj/project.pbxproj").read_text(encoding="utf-8")))
+            migrated_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(migrated_manifest["patchVersion"], service.PATCH_VERSION)
+            self.assertEqual(migrated_manifest["pins"], list(service.PINS))
+            model_hash = hashlib.sha256(generated_model.encode("utf-8")).hexdigest()
+            self.assertEqual(migrated_manifest["templates"][service.HEADLESS_ANISETTE_MODELS_MANIFEST_KEY], model_hash)
+            migrated_records = [record for record in migrated_manifest["files"] if record[1] == model_relative]
+            self.assertEqual(migrated_records, [[1, model_relative, model_hash]])
+            migrated_project_records = [record for record in migrated_manifest["files"]
+                                        if record[0] == 1 and record[1] == "AltStore.xcodeproj/project.pbxproj"]
+            self.assertEqual(len(migrated_project_records), 1)
+            self.assertEqual(migrated_project_records[0][2], hashlib.sha256(migrated_project.encode("utf-8")).hexdigest())
+
+            migrated_snapshot = self.snapshot(directory)
+            changed = {path.replace("\\", "/") for path in migrated_snapshot
+                       if before_migration.get(path) != migrated_snapshot[path]}
             self.assertEqual(changed, {
                 "live/.v3-command-patch.json",
-                "side/SideStore/Core/DeviceApi/ConnectionConfig.swift",
+                "side/AltStore.xcodeproj/project.pbxproj",
+                "side/AltStore/Settings/AnisetteServerModels.swift",
             })
 
             self.apply(roots)
-            self.assertEqual(repaired_snapshot, self.snapshot(directory),
-                             "a repaired generated-constant manifest must replay idempotently")
+            self.assertEqual(migrated_snapshot, self.snapshot(directory),
+                             "a migrated v30 Anisette manifest must replay idempotently")
+
+    def test_v29_manifest_fails_closed_with_clean_checkout_recovery(self):
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            roots = self.fixture(directory)
+            self.apply(roots)
+            manifest_path = roots[0] / ".v3-command-patch.json"
+            legacy = json.loads(manifest_path.read_text(encoding="utf-8"))
+            legacy["patchVersion"] = 29
+            legacy["templates"].pop(service.BACKEND_CONNECTION_CONFIG_MANIFEST_KEY)
+            legacy["templates"].pop(service.HEADLESS_ANISETTE_MODELS_MANIFEST_KEY)
+            manifest_path.write_text(json.dumps(legacy, indent=2) + "\n", encoding="utf-8")
+            before = self.snapshot(directory)
+            with self.assertRaisesRegex(SystemExit, "v29 prepared trees cannot be migrated safely.*discard generated work directories"):
+                self.apply(roots)
+            self.assertEqual(before, self.snapshot(directory), "unsupported v29 manifests must fail without mutation")
+
+    def test_unknown_patch_manifest_version_fails_closed_without_mutation(self):
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            roots = self.fixture(directory)
+            self.apply(roots)
+            manifest_path = roots[0] / ".v3-command-patch.json"
+            unknown = json.loads(manifest_path.read_text(encoding="utf-8"))
+            unknown["patchVersion"] = 999
+            manifest_path.write_text(json.dumps(unknown, indent=2) + "\n", encoding="utf-8")
+            before = self.snapshot(directory)
+            with self.assertRaisesRegex(SystemExit, "template changed; apply to fresh pinned sources"):
+                self.apply(roots)
+            self.assertEqual(before, self.snapshot(directory), "unknown patch versions must fail without mutation")
 
     def test_pinned_headless_ui_adapter_verifier_rejects_drift(self):
         side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
