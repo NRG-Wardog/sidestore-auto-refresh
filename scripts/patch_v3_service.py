@@ -12,7 +12,9 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 29
+PATCH_VERSION = 30
+LEGACY_CONSTANT_MANIFEST_VERSION = 29
+BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_SIDESTORE_APP_UI_FILES = (
     "Components/AppBannerView.swift",
     "Components/AppBannerCollectionViewCell.swift",
@@ -1156,14 +1158,43 @@ def patch(live, side):
     template_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in TEMPLATES.glob("v3_*.swift")}
     group_policy_template = TEMPLATES / "LCAppGroupSelectionPolicy.h"
     template_hashes[group_policy_template.name] = hashlib.sha256(group_policy_template.read_bytes()).hexdigest()
+    legacy_template_hashes = dict(template_hashes)
+    template_hashes[BACKEND_CONNECTION_CONFIG_MANIFEST_KEY] = hashlib.sha256(
+        (HEADLESS_BACKEND_CONNECTION_CONFIG + "\n").encode("utf-8")).hexdigest()
     if manifest.exists():
         previous = json.loads(manifest.read_text())
-        if previous.get("patchVersion") != PATCH_VERSION or previous["templates"] != template_hashes:
-            raise SystemExit("v3 service: template changed; apply to fresh pinned sources")
         for index, relative, digest in previous["files"]:
             if hashlib.sha256((roots[index] / relative).read_bytes()).hexdigest() != digest:
                 raise SystemExit(f"v3 service: previously patched file drifted: {relative}")
-        return
+        if previous.get("patchVersion") == PATCH_VERSION and previous.get("templates") == template_hashes:
+            return
+
+        # Version 29 manifests did not hash generated Python-string sources.
+        # Repair the one known generated constant in place after verifying that
+        # every previously patched file still matches its manifest. This keeps
+        # a stale-but-pristine v29 tree recoverable without rerunning all edits
+        # over already-patched source.
+        if (previous.get("patchVersion") == LEGACY_CONSTANT_MANIFEST_VERSION and
+                previous.get("pins") == list(PINS) and
+                previous.get("templates") == legacy_template_hashes):
+            backend_relative = "SideStore/Core/DeviceApi/ConnectionConfig.swift"
+            records = [record for record in previous["files"]
+                       if record[0] == 1 and record[1] == backend_relative]
+            if len(records) != 1:
+                raise SystemExit("v3 service: v29 manifest lacks a unique generated backend ConnectionConfig")
+            backend_path = side / backend_relative
+            previous_backend = backend_path.read_text(encoding="utf-8")
+            if "V3_HEADLESS_BACKEND_CONNECTION_CONFIG_V1" not in previous_backend:
+                raise SystemExit("v3 service: v29 generated backend ConnectionConfig is not recognized")
+            repaired_backend = HEADLESS_BACKEND_CONNECTION_CONFIG + "\n"
+            backend_path.write_bytes(repaired_backend.encode("utf-8"))
+            records[0][2] = hashlib.sha256(repaired_backend.encode("utf-8")).hexdigest()
+            previous["patchVersion"] = PATCH_VERSION
+            previous["templates"] = template_hashes
+            manifest.write_text(json.dumps(previous, indent=2) + "\n", encoding="utf-8")
+            return
+
+        raise SystemExit("v3 service: template changed; apply to fresh pinned sources")
 
     changes = {}
     def edit(root, relative, transform):
