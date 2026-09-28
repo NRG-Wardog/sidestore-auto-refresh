@@ -391,6 +391,7 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
             with zipfile.ZipFile(ipa, "w", compression=zipfile.ZIP_DEFLATED) as archive:
                 archive.writestr("Payload/LiveContainer.app/Info.plist", plistlib.dumps({"CFBundleExecutable": "LiveContainer"}))
                 archive.writestr("Payload/LiveContainer.app/LiveContainer", thin_arm64_macho())
+                archive.writestr("Payload/LiveContainer.app/Frameworks/", b"")
                 symlink = zipfile.ZipInfo(
                     "Payload/LiveContainer.app/Frameworks/Example.framework/Versions/Current")
                 symlink.create_system = 3
@@ -398,10 +399,11 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
                 archive.writestr(symlink, "A")
             with zipfile.ZipFile(ipa) as archive:
                 infos = verify_module.preflight_archive(archive, ipa.stat().st_size)
-            self.assertEqual(len(infos), 3)
+            self.assertEqual(len(infos), 4)
+            self.assertTrue(any(info.is_dir() for info in infos), "ordinary directory entries remain valid")
             self.assertEqual(infos[-1].external_attr >> 16 & 0o170000, 0o120000)
             self.assertEqual(verify_module.sha256_file(ipa), hashlib.sha256(ipa.read_bytes()).hexdigest())
-            self.assertEqual(verify_module.preflight_zip_directory(ipa, ipa.stat().st_size), 3)
+            self.assertEqual(verify_module.preflight_zip_directory(ipa, ipa.stat().st_size), 4)
 
     def test_verify_rejects_high_count_eocd_before_zipfile_constructor(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -420,16 +422,77 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
                                          side_source=side_source)
                 constructor.assert_not_called()
 
-    def test_central_directory_scan_stops_at_configured_member_cap(self):
+    def test_verify_rejects_oversized_central_directory_before_zipfile_constructor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ipa = root / "oversized-central-directory.ipa"
+            write_zip_with_central_entries(ipa, 1)
+            data = bytearray(ipa.read_bytes())
+            directory_size_offset = len(data) - 22 + 12
+            struct.pack_into("<I", data, directory_size_offset,
+                verify_module.DEFAULT_ARCHIVE_LIMITS["central_directory_bytes"] + 1)
+            ipa.write_bytes(data)
+            self.assertLess(ipa.stat().st_size, verify_module.DEFAULT_ARCHIVE_LIMITS["compressed_ipa_bytes"])
+            side_source = root / "pinned-source"
+            side_source.mkdir()
+            with mock.patch.object(
+                    verify_module.subprocess, "check_output",
+                    return_value=verify_module.SOURCE_PINS[1]), \
+                    mock.patch.object(verify_module.zipfile, "ZipFile") as constructor:
+                with self.assertRaisesRegex(ValueError, "central directory exceeds the configured size limit"):
+                    verify_module.verify(ipa, root / "provenance.json", "v3",
+                                         side_source=side_source)
+                constructor.assert_not_called()
+
+    def test_underreported_eocd_count_reaches_final_directory_mismatch_check(self):
         with tempfile.TemporaryDirectory() as directory:
             ipa = Path(directory) / "count-mismatch.ipa"
             write_zip_with_central_entries(ipa, 3)
             data = bytearray(ipa.read_bytes())
             struct.pack_into("<HH", data, len(data) - 14, 2, 2)
             ipa.write_bytes(data)
-            limits = dict(verify_module.DEFAULT_ARCHIVE_LIMITS, member_count=2)
-            with self.assertRaisesRegex(ValueError, "member-count limit"):
+            limits = dict(verify_module.DEFAULT_ARCHIVE_LIMITS, member_count=4)
+            with self.assertRaisesRegex(ValueError, "central-directory count or size does not match"):
                 verify_module.preflight_zip_directory(ipa, ipa.stat().st_size, limits)
+
+    def test_sfx_prefix_keeps_a_normal_archive_valid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ordinary = root / "ordinary.ipa"
+            sfx = root / "self-extracting.ipa"
+            with zipfile.ZipFile(ordinary, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("Payload/LiveContainer.app/", b"")
+                archive.writestr("Payload/LiveContainer.app/Info.plist", plistlib.dumps({"CFBundleExecutable": "LiveContainer"}))
+                archive.writestr("Payload/LiveContainer.app/LiveContainer", thin_arm64_macho())
+            sfx.write_bytes(b"ordinary SFX stub\x00" + ordinary.read_bytes())
+            self.assertEqual(verify_module.preflight_zip_directory(sfx, sfx.stat().st_size), 3)
+            with zipfile.ZipFile(sfx) as archive:
+                self.assertIsNone(archive.testzip())
+                self.assertEqual(archive.read("Payload/LiveContainer.app/Info.plist"),
+                                 plistlib.dumps({"CFBundleExecutable": "LiveContainer"}))
+
+    def test_zip64_extra_field_is_rejected_by_central_directory_scan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ipa = Path(directory) / "zip64-extra.ipa"
+            info = zipfile.ZipInfo("entry")
+            info.extra = struct.pack("<HHQ", 0x0001, 8, 0)
+            with zipfile.ZipFile(ipa, "w") as archive:
+                archive.writestr(info, b"x")
+            with self.assertRaisesRegex(ValueError, "ZIP64 archives are unsupported"):
+                verify_module.preflight_zip_directory(ipa, ipa.stat().st_size)
+
+    def test_malformed_local_header_offset_is_rejected_before_payload_use(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ipa = Path(directory) / "bad-local-offset.ipa"
+            with zipfile.ZipFile(ipa, "w") as archive:
+                archive.writestr("entry", b"payload")
+            data = bytearray(ipa.read_bytes())
+            central_offset = data.index(b"PK\x01\x02")
+            struct.pack_into("<I", data, central_offset + 42, len(data) + 100)
+            ipa.write_bytes(data)
+            with zipfile.ZipFile(ipa) as archive:
+                with self.assertRaisesRegex(ValueError, "corrupt IPA member: entry"):
+                    verify_module.preflight_archive(archive, ipa.stat().st_size)
 
     def test_preflight_explicitly_rejects_zip64_eocd_sentinels(self):
         with tempfile.TemporaryDirectory() as directory:
