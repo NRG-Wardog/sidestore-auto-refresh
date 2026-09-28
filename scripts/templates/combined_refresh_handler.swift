@@ -51,6 +51,17 @@ struct V3ServiceReadinessBackoff {
     }
 }
 
+enum V3RefreshAdmissionFailureResolution: Equatable {
+    case releaseNotDispatched
+    case releaseTerminalFailure
+    case retainUnknownOutcome
+
+    static func resolve(runID: String, dispatchedRunID: String?, terminalCallbackRunID: String?) -> Self {
+        guard dispatchedRunID == runID else { return .releaseNotDispatched }
+        return terminalCallbackRunID == runID ? .releaseTerminalFailure : .retainUnknownOutcome
+    }
+}
+
 @MainActor
 class RefreshHandler: NSObject {
     static let shared = RefreshHandler()
@@ -60,6 +71,7 @@ class RefreshHandler: NSObject {
     var v3RefreshToken: UUID?
     var v3RefreshAdmissionRunID: String?
     var v3RefreshDispatchedRunID: String?
+    private var v3RefreshTerminalCallbackRunID: String?
     private var extensionProcess: NSExtension?
     private var listener: NSXPCListener?
     private var connection: NSXPCConnection?
@@ -348,6 +360,7 @@ class RefreshHandler: NSObject {
         v3RefreshAdmissionRunID = run
         defer { if v3RefreshAdmissionRunID == run { v3RefreshAdmissionRunID = nil } }
         defer { if v3RefreshDispatchedRunID == run { v3RefreshDispatchedRunID = nil } }
+        defer { if v3RefreshTerminalCallbackRunID == run { v3RefreshTerminalCallbackRunID = nil } }
         // Reserve mutation ownership through the SideStore command gate before
         // starting the legacy XPC refresh path. Authentication and refresh
         // admission are serialized there.
@@ -386,6 +399,7 @@ class RefreshHandler: NSObject {
                     if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
                     refreshContinuation = continuation
                     defaults?.set(run, forKey: "liveContainerAutoRefreshUncertainMutationRunID")
+                    v3RefreshTerminalCallbackRunID = nil
                     v3RefreshDispatchedRunID = run
                     client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName, refreshRunID: run)
                 }
@@ -396,14 +410,21 @@ class RefreshHandler: NSObject {
             } })
         } catch {
             timeout.cancel()
-            // Before native dispatch, cancellation only needs to release the
-            // admission lease. After dispatch, timeout/cancellation retires the
-            // SideStore process, so avoid reconnecting to release its old state.
-            if v3RefreshDispatchedRunID != run ||
-               (!Task.isCancelled && !(error is CancellationError) &&
-                (error as? CombinedFailure)?.code != .timedOut) {
+            let resolution = V3RefreshAdmissionFailureResolution.resolve(
+                runID: run, dispatchedRunID: v3RefreshDispatchedRunID,
+                terminalCallbackRunID: v3RefreshTerminalCallbackRunID)
+            switch resolution {
+            case .releaseNotDispatched:
                 await releaseRefreshAdmission(run,
-                    terminalState: v3RefreshDispatchedRunID == run ? "failed" : "notDispatched")
+                    terminalState: "notDispatched")
+            case .releaseTerminalFailure:
+                await releaseRefreshAdmission(run, terminalState: "failed")
+            case .retainUnknownOutcome:
+                // XPC loss, timeout, or cancellation after dispatch is not
+                // proof that the device-side pipeline settled. Keep the
+                // durable service lease until a matching callback or an
+                // explicit device-check reconciliation.
+                NSLog("[V3_REFRESH_ADMISSION] OUTCOME_UNKNOWN run_id=%@", run)
             }
             throw error
         }
@@ -440,6 +461,7 @@ class RefreshHandler: NSObject {
     }
     fileprivate func completedRefresh(_ error: String?, runID: String, verification: Data?, id: UUID) {
         guard launchID == id, refreshContinuation != nil, refreshRunID == runID else { return }
+        v3RefreshTerminalCallbackRunID = runID
         if let error {
             if let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") {
                 CombinedVerification.clearUncertainty(defaults, runID: runID)
@@ -474,7 +496,10 @@ class RefreshHandler: NSObject {
         finishRefreshContinuation(.success(()))
     }
     fileprivate func legacyCompletion(_ error: String?, id: UUID) {
-        guard launchID == id, let run = refreshRunID else { return }
+        guard launchID == id, refreshContinuation != nil, let run = refreshRunID else { return }
+        // The legacy callback carries no run ID or verification manifest, so it
+        // cannot prove which native run settled. Fail the caller conservatively;
+        // admission remains held for explicit reconciliation.
         finishRefreshContinuation(.failure(CombinedFailure.fromEncodedString(error ?? "", expectedID: run) ??
             CombinedFailure(operation: "refresh", stage: .refreshVerification, code: .missingResult, id: run)))
     }

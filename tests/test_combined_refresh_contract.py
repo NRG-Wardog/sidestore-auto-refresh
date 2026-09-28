@@ -118,6 +118,48 @@ class CombinedRefreshContractTests(unittest.TestCase):
                     else: self.apply(root)
                 self.assertEqual(before, {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()})
 
+    def test_post_dispatch_connection_loss_retains_refresh_lease_without_matching_callback(self):
+        handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        start = handler.index("enum V3RefreshAdmissionFailureResolution")
+        end = handler.index("\n}\n\n@MainActor\nclass RefreshHandler", start) + 2
+        production_policy = handler[start:end]
+        production_handler = handler[handler.index("private func performRefresh(identifier: String,", handler.index("class RefreshHandler")):]
+        self.assertIn("V3RefreshAdmissionFailureResolution.resolve(", production_handler)
+        self.assertIn("terminalCallbackRunID: v3RefreshTerminalCallbackRunID", production_handler)
+        self.assertIn("case .retainUnknownOutcome:", production_handler)
+        switch_start = production_handler.index("switch resolution {")
+        switch_end = production_handler.index("\n            }\n            throw error", switch_start)
+        release_switch = production_handler[switch_start:switch_end]
+        branches = release_switch.split("case .")
+        not_dispatched = next(branch for branch in branches if branch.startswith("releaseNotDispatched:"))
+        terminal_failure = next(branch for branch in branches if branch.startswith("releaseTerminalFailure:"))
+        unknown_outcome = next(branch for branch in branches if branch.startswith("retainUnknownOutcome:"))
+        self.assertIn('terminalState: "notDispatched"', not_dispatched)
+        self.assertIn('terminalState: "failed"', terminal_failure)
+        self.assertNotIn("releaseRefreshAdmission", unknown_outcome)
+        completed = handler[handler.index("fileprivate func completedRefresh("):
+                            handler.index("fileprivate func legacyCompletion(")]
+        self.assertIn("refreshRunID == runID", completed)
+        self.assertIn("v3RefreshTerminalCallbackRunID = runID", completed)
+        legacy = handler[handler.index("fileprivate func legacyCompletion("):
+                         handler.index("\n    }", handler.index("fileprivate func legacyCompletion("))]
+        self.assertNotIn("v3RefreshTerminalCallbackRunID =", legacy,
+            "a legacy callback without run correlation cannot settle the refresh lease")
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift unavailable; executable terminal-evidence policy runs in macOS CI")
+        fixture = (ROOT / "tests/fixtures/v3_refresh_admission_terminal_evidence_harness.swift").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "main.swift"
+            executable = Path(directory) / "refresh-admission-evidence"
+            source.write_text("import Foundation\n" + production_policy + "\n" + fixture, encoding="utf-8")
+            compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
+                                      capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_REFRESH_ADMISSION_TERMINAL_EVIDENCE_PASS", result.stdout)
+
     def test_actual_record_to_bridge_keeps_error_stage_and_sanitizes_logs(self):
         compiler = shutil.which("swiftc")
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
