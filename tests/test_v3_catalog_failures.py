@@ -96,7 +96,7 @@ class HostBridgePropagationTests(unittest.TestCase):
         # ...and both invalid-response boundaries report it in the classifier.
         replies = normalized(uncommented(classify_function()))
         self.assertIn("stage: hostStage(for: operation), code: .invalidResponse", replies)
-        self.assertEqual(replies.count("stage: hostStage(for: operation), code: .invalidResponse"), 3)
+        self.assertEqual(replies.count("stage: hostStage(for: operation), code: .invalidResponse"), 4)
         # The transport-size boundary is a reply-encoding defect rather than a
         # catalog query failure or malformed request reply.
         self.assertIn("stage: V3CatalogRequestContext.replyEncodingStage(for: operation), code: .invalidResponse, id: id, safeCause: .responseTooLarge", flat)

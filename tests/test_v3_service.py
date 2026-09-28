@@ -28,6 +28,187 @@ results = module("patch_refresh_result_bridge")
 
 
 class ServicePatchTests(unittest.TestCase):
+    def test_external_url_log_redaction_is_idempotent_and_omits_sensitive_values(self):
+        scene = '\n'.join((
+            'debugLog("[SceneDelegate] scene(_:openURLContexts:) called with URL: \\(context.url)")',
+            'debugLog("[SceneDelegate] open(_:) called with URL: \\(context.url)")',
+            'debugLog(finished)',
+        ))
+        url_handler = '\n'.join((
+            'debugLog("[URLHandler] handle(_:) called with URL: \\(url.absoluteString)")',
+            'debugLog("[URLHandler] Failed to parse URLComponents for \\(url)")',
+            'debugLog("[URLHandler] Matched host: \\(host), path: \\(url.path.lowercased())")',
+        ))
+        for relative, original in (("AltStore/SceneDelegate.swift", scene),
+                                   ("SideStore/DeepLinks/URLHandler.swift", url_handler)):
+            redacted = service.redact_external_url_logs(original, relative)
+            self.assertIn("V3_EXTERNAL_URL_LOG_REDACTION_V1", redacted)
+            self.assertEqual(service.redact_external_url_logs(redacted, relative), redacted)
+            self.assertNotIn("context.url)", redacted)
+            self.assertNotIn("url.absoluteString)", redacted)
+            self.assertNotIn("debugLog(finished)", redacted)
+
+    def test_readiness_failure_bridge_has_one_canonical_combined_failure_adapter(self):
+        helper = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        self.assertEqual(helper.count(
+            "func combinedFailure(id: String, operation overrideOperation: String? = nil) -> CombinedFailure"), 1)
+
+    def test_service_marks_only_database_readiness_not_ready_as_transient(self):
+        service_template = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        policy = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        self.assertEqual(service_template.count("V3ServiceReadinessRetryPolicy.retryable("), 2)
+        self.assertIn('guard typedNotReady, operation == "snapshot", stage == .serviceReadiness', policy)
+        self.assertIn("code == .notReady else { return nil }", policy)
+        self.assertIn('"payload": ["readinessOnly": true]',
+                      (ROOT / "scripts/patch_combined_service_startup.py").read_text(encoding="utf-8"))
+        self.assertIn('return ["ready": DatabaseManager.shared.isStarted]', service_template)
+
+    def test_source_remove_and_pairing_import_accept_the_authoritative_response_snapshot(self):
+        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        remove = host[host.index("private func confirmRemove(id: String) async"):
+                      host.index("struct V3CatalogApp", host.index("private func confirmRemove(id: String) async"))]
+        pairing = host[host.index("private func importFile(_ url: URL) async", host.index("struct V3PairingView")):
+                        host.index("final class V3SettingsStore", host.index("struct V3PairingView"))]
+        self.assertIn("status.accept(result)", remove)
+        self.assertIn("status.accept(result)", pairing)
+        self.assertNotIn("status.reload()", remove)
+        self.assertNotIn("status.reload()", pairing)
+
+    def test_credentials_codes_and_backup_passphrases_use_secure_handoff_tokens(self):
+        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        service_template = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
+        for operation in ("authRespond", "opAnswer"):
+            self.assertIn(f'operation: "{operation}"', host)
+            self.assertNotIn('"answer": answer', host)
+        self.assertIn("V3SecretHandoff.storeStringDictionary(answer)", host)
+        self.assertIn("V3SecretHandoff.storeString(exportPassword)", host)
+        self.assertIn("V3SecretHandoff.storeString(importPassword)", host)
+        self.assertNotIn('payload: ["password": exportPassword', host)
+        self.assertNotIn('payload: ["password": importPassword', host)
+        self.assertIn("V3SecretHandoff.consumeStringDictionary(secretToken)", service_template)
+        self.assertIn("V3SecretHandoff.consumeString(secretToken)", service_template)
+        self.assertNotIn('payload["password"]', service_template)
+        self.assertNotIn('payload["answer"]', service_template)
+        self.assertIn("kSecAttrAccessibleWhenUnlockedThisDeviceOnly", handoff)
+        self.assertIn("V3SecretHandoffRecord.lifetime", handoff)
+        self.assertIn("hasSuffix(\".com.kdt.livecontainer.shared\")", handoff)
+        shared_keychain = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text(encoding="utf-8")
+        self.assertIn("V3SecretHandoff.sharedKeychainAccessGroup()", shared_keychain)
+        self.assertNotIn("accessGroup: appGroup", shared_keychain)
+
+    def test_sidesign_headers_use_one_time_secret_tokens_not_raw_json(self):
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertIn('Set(payload.keys) == Set(["secretToken"])', wire)
+        self.assertIn("V3SecretHandoff.consumeString(secretToken)", service)
+        self.assertIn("V3BackendCommands.sidesignConfigToken()", service)
+        self.assertIn("V3BackendCommands.sidesignExportToken()", service)
+        self.assertIn('payload: ["secretToken": secretToken]', host)
+        self.assertIn("V3SecretHandoff.storeString(config)", host)
+        self.assertIn("let config = try await sidesignJSON()", runtime)
+        self.assertIn("return try V3SecretHandoff.storeString(config)", runtime)
+        self.assertNotIn('payload: ["config": config]', host)
+
+    def test_anisette_server_selection_reloads_authoritative_active_state(self):
+        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        start = host.index("struct V3AnisetteView")
+        end = host.index("struct V3SideSignView", start)
+        view = host[start:end]
+        selection = view[view.index('Button("Use This Server")'):]
+        selection = selection[:selection.index("\n                        }")]
+        self.assertIn('await store.setStringAndWait("menuAnisetteURL", server.address)', selection)
+        self.assertIn("await reload()", selection)
+        self.assertLess(selection.index("await store.setStringAndWait"),
+                        selection.index("await reload()"))
+        self.assertIn("if !store.message.isEmpty", selection)
+
+    def test_shared_file_staging_is_purpose_scoped_bounded_and_expiring(self):
+        handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
+        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        service_runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        for purpose in ("pairing", "sidesign", "accountImport"):
+            self.assertIn(f'purpose: "{purpose}"', host)
+            self.assertIn(f'purpose: "{purpose}"', service_runtime)
+        self.assertIn("static let lifetime: TimeInterval = 60 * 60", handoff)
+        self.assertIn("static let maximumPendingFiles = 16", handoff)
+        self.assertIn("static let maximumPendingStoredBytes = 16_777_216", handoff)
+        shared_files = handoff[handoff.index("enum V3SharedFileRecord {"):handoff.index("\nenum V3SecretHandoff {")]
+        self.assertIn("removeLegacyDefaultsRecords", shared_files)
+        self.assertNotIn("defaults.set(", shared_files)
+        self.assertNotIn("set(payload", shared_files)
+        self.assertNotIn("V3IPAStaging", shared_files)
+        self.assertIn("V3IPAStaging.sideStoreContainerRoot()", host)
+        self.assertIn("V3IPAStaging.sideStoreContainerRoot()", service_runtime)
+        self.assertNotIn("V3SharedFile.", host + service_runtime)
+
+    def test_transport_log_templates_keep_dynamic_errors_paths_and_endpoints_out_of_logs(self):
+        gateway = (ROOT / "scripts/patch_sidestore_integration.py").read_text(encoding="utf-8")
+        rust = (ROOT / "scripts/patch_coredevice_idevice.py").read_text(encoding="utf-8")
+        for unsafe_log in (
+            'TRANSPORT_CREATE_FAIL code=\\(code) subcode=\\(subCode) error=\\(message)',
+            'selected_transport=FAILED_NO_VALID_TRANSPORT reason=\\(error.localizedDescription)',
+            'FETCH_UDID_FAIL stage=transport reason=\\\\(error.localizedDescription)',
+            'FETCH_UDID_FAIL stage=rsd_service reason=\\\\(error.localizedDescription)',
+            'AFC_FILE_OPEN_START path=\\(path)',
+            'SIDESTORE_INSTALL_REQUEST_START path=\\(path)',
+            'HEARTBEAT_CONNECT_FAIL error={error}',
+            'HEARTBEAT_POLO_FAIL error={error}',
+            'HEARTBEAT_MARCO_FAIL error={error}',
+        ):
+            self.assertNotIn(unsafe_log, gateway + rust)
+        # Internal error messages remain available to the classifier; only the
+        # user-copyable logger is normalized.
+        self.assertIn('IPA install failed: \\(message)', gateway)
+
+    def test_headless_app_delegate_removes_unowned_ipa_and_source_deep_link_lifecycle(self):
+        side = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        source = (Path(side) if side else ROOT / ".audit/v3-side-upstream") / "AltStore/AppDelegate.swift"
+        if not source.is_file():
+            self.skipTest("Pinned SideStore AppDelegate source unavailable")
+        original = source.read_text(encoding="utf-8")
+        patched = service.headless_app_open(original)
+        self.assertNotIn("pendingImportIPAURL", patched)
+        self.assertNotIn("importAppDeepLinkNotification", patched)
+        self.assertNotIn("addSourceDeepLinkNotification", patched)
+        self.assertNotIn("    var window: UIWindow?", patched)
+        self.assertNotIn("self.window?.tintColor", patched)
+        self.assertIn("appBackupDidFinish", patched)
+        self.assertEqual(service.headless_app_open(patched), patched)
+        scene = (Path(side) if side else ROOT / ".audit/v3-side-upstream") / "AltStore/SceneDelegate.swift"
+        scene_patched = service.headless_scene_open(scene.read_text(encoding="utf-8"))
+        self.assertNotIn("pendingImportIPAURL", scene_patched)
+        self.assertNotIn("    var window: UIWindow?", scene_patched)
+        self.assertNotIn("exportPairingFile", scene_patched)
+        self.assertEqual(service.headless_scene_open(scene_patched), scene_patched)
+
+    def test_generated_log_formatter_redacts_urls_identifiers_and_provider_bodies(self):
+        side = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        source = (Path(side) if side else ROOT / ".audit/v3-side-upstream") / "SideStore/Core/Logging/SideStoreLogging.swift"
+        if not source.is_file():
+            self.skipTest("Pinned SideStore logging source unavailable")
+        patched = service.headless_safe_log_format(source.read_text(encoding="utf-8"))
+        self.assertEqual(service.headless_safe_log_format(patched), patched)
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        self.assertIn("return [\"tail\": formatLogMessage(rawTail)]", runtime)
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable; generated formatter execution is a macOS CI check")
+        with tempfile.TemporaryDirectory() as name:
+            program = Path(name) / "main.swift"
+            program.write_text(patched + "\n" +
+                (ROOT / "tests/fixtures/v3_log_privacy_harness.swift").read_text(encoding="utf-8"),
+                encoding="utf-8")
+            executable = Path(name) / "log-privacy-tests"
+            compiled = subprocess.run([compiler, "-parse-as-library", str(program), "-o", str(executable)],
+                capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_LOG_PRIVACY_PASS", result.stdout)
+
     def test_missing_auth_poll_session_is_typed_as_session_unavailable(self):
         source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         poll = source[source.index('case "authPoll":'):source.index('case "authRespond":')]
@@ -100,6 +281,7 @@ class ServicePatchTests(unittest.TestCase):
              "AltStore/Authentication/InstructionsViewController.swift",
              "AltStore/Authentication/ResignAltStoreViewController.swift",
              "AltStore/Authentication/SelectTeamViewController.swift",
+             "SideStore/DeepLinks/URLHandler.swift",
              "SideStore/Core/Auth/AuthManager.swift", "SideStore/Handlers/SignInFlowHandler.swift",
              "SideStore/Core/Operations/PipelineExecutor.swift",
              "SideStore/Core/Operations/PipelineRunner.swift",
@@ -280,6 +462,8 @@ class ServicePatchTests(unittest.TestCase):
                 '"Settings/SettingsHeaderFooterView.xib"', '"Sources/Components/SourceHeaderView.xib"',
                 '"Settings/PatreonViewController.swift"', '"Settings/LicensesViewController.swift"',
                 '"Settings/SettingsViewController.swift"',
+                '"Settings/SettingsHeaderFooterView.swift"',
+                '"Settings/InsetGroupTableViewCell.swift"',
                 '"Settings/RefreshAttemptsViewController.swift"',
                 '"Settings/Error Log/ErrorDetailsViewController.swift"',
                 '"Settings/Error Log/ErrorLogTableViewCell.swift"',
@@ -311,15 +495,15 @@ class ServicePatchTests(unittest.TestCase):
             side_member_start = project.index("membershipExceptions = (", side_exception_anchor)
             side_member_end = project.index(");", side_member_start)
             side_membership = project[side_member_start:side_member_end]
-            for path in service.HEADLESS_SIDESTORE_VIEW_FILES:
+            for path in service.HEADLESS_SIDESTORE_VIEW_FILES + service.HEADLESS_SIDESTORE_AUX_UI_FILES:
                 self.assertIn(f'"{path}"', side_membership)
-            for retained_backend_dependency in (
+            self.assertNotIn('"Views/Settings/Advanced/Connection/ConnectionConfig.swift"', side_membership)
+            for excluded_presentation in (
                 '"Views/Components/CustomAppIDAlertViewController.swift"',
-                '"Views/Settings/Advanced/Connection/ConnectionConfig.swift"',
                 '"Views/Settings/Advanced/CacheMgmt/CacheManagementView.swift"',
                 '"Views/Settings/Advanced/CacheMgmt/CacheViewModel.swift"',
             ):
-                self.assertNotIn(retained_backend_dependency, side_membership)
+                self.assertIn(excluded_presentation, side_membership)
             connection_config = (side / "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift").read_text(encoding="utf-8")
             self.assertIn("V3_HEADLESS_ACTIVE_STATE_MODEL_V1", connection_config)
             self.assertIn('enum ActiveState: String', connection_config)
@@ -399,6 +583,17 @@ class ServicePatchTests(unittest.TestCase):
             self.assertIn("status.present(failure)", pairing_view)
             self.assertNotIn("self.fetchSources", app_delegate)
             self.assertIn("completionHandler(.noData)", app_delegate)
+            scene_delegate = (side / "AltStore/SceneDelegate.swift").read_text(encoding="utf-8")
+            url_handler = (side / "SideStore/DeepLinks/URLHandler.swift").read_text(encoding="utf-8")
+            for generated in (app_delegate, scene_delegate, url_handler):
+                self.assertNotIn("url.absoluteString)", generated)
+                self.assertNotIn("context.url)", generated)
+                self.assertNotIn("debugLog(finished)", generated)
+            self.assertIn("V3_HEADLESS_EXTERNAL_CALLBACKS_V3", url_handler)
+            self.assertNotIn("PairingFileManager.shared.fetchPairingFile()", url_handler)
+            self.assertNotIn("V3PairingCallbackPolicy", url_handler)
+            self.assertNotIn("url.absoluteString", url_handler)
+            self.assertNotIn("debugLog(finished)", url_handler)
             resolved = json.loads((side / "AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved").read_text())
             self.assertNotIn("starscream", [pin["identity"] for pin in resolved["pins"]])
             jit = (roots[0] / "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift").read_text(encoding="utf-8")
@@ -583,11 +778,15 @@ class ServicePatchTests(unittest.TestCase):
     def test_headless_operation_inventory(self):
         contract = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        operations = contract[contract.index("static let operations"):
+                              contract.index("static let readOperations")]
         for removed in ("panel", "signIn", "install", "refreshApp", "addSource",
                         "removeSource", "importPairing", "update", "activate",
                         "deactivate", "remove", "delete", "backup", "restore",
-                        "installURL", "installSharedIPA", "setSetting"):
-            self.assertNotIn(f'"{removed}"', contract)
+                        "installURL", "setSetting"):
+            self.assertNotIn(f'"{removed}"', operations)
+        self.assertNotIn('"installSharedIPA"', operations,
+            "installSharedIPA is a payload kind behind opStart, not a wire operation")
         for op in ("authBegin", "authPoll", "authRespond", "authCancel", "opStart", "opPoll",
                    "opAnswer", "opCancel", "certList", "certSetActive", "certDelete",
                    "certPortalList", "certRevoke", "certCreate", "devTeams", "devDevices",
@@ -818,11 +1017,17 @@ for date in [now.addingTimeInterval(-1), now, now.addingTimeInterval(611)] {
     var request = valid; request["deadline"] = date
     precondition(V3WireContract.decodeRequest(encode(request), now: now) == nil)
 }
-var setting = valid; setting["operation"] = "settingsSet"; setting["target"] = "isBetaUpdatesEnabled"
+var setting = valid; setting["operation"] = "settingsSet"; setting["target"] = ""
 setting["payload"] = ["key": "isBetaUpdatesEnabled", "type": "bool", "bool": true]
 precondition(V3WireContract.decodeRequest(encode(setting), now: now) != nil)
 setting["payload"] = ["key": "isBetaUpdatesEnabled", "type": "bool", "bool": 1]
-precondition(V3WireContract.decodeRequest(encode(setting), now: now) != nil)
+precondition(V3WireContract.decodeRequest(encode(setting), now: now) == nil)
+var sideSignConfig = valid; sideSignConfig["operation"] = "sidesignSet"
+sideSignConfig["target"] = ""
+sideSignConfig["payload"] = ["secretToken": UUID().uuidString]
+precondition(V3WireContract.decodeRequest(encode(sideSignConfig), now: now) != nil)
+sideSignConfig["payload"] = ["config": "{\"Authorization\":\"Bearer SECRET\"}"]
+precondition(V3WireContract.decodeRequest(encode(sideSignConfig), now: now) == nil)
 var legacySetting = valid; legacySetting["operation"] = "setSetting"; legacySetting["target"] = "betaUpdates"
 legacySetting["value"] = true
 precondition(V3WireContract.decodeRequest(encode(legacySetting), now: now) == nil)
@@ -860,8 +1065,28 @@ for operation in ["authBegin", "authRetryProvisioning", "authPoll", "authRespond
         let session = UUID().uuidString
         request["target"] = session
         request["payload"] = ["session": session, "sessionDeadline": now.addingTimeInterval(600)]
+    } else if operation == "opStart" {
+        request["target"] = ""
+        request["payload"] = ["kind": "installSharedIPA", "target": UUID().uuidString.lowercased(),
+                              "session": UUID().uuidString]
+    } else if operation == "authRespond" || operation == "opAnswer" {
+        request["payload"] = ["prompt": "prompt-1", "secretToken": UUID().uuidString]
+    } else if operation == "accountExport" {
+        request["target"] = ""
+        request["payload"] = ["secretToken": UUID().uuidString, "includeApple": false]
+    } else if operation == "accountImport" {
+        request["payload"] = ["secretToken": UUID().uuidString]
+    } else if operation == "sourcePreview" || operation == "sourceAddConfirmed" {
+        request["target"] = "https://example.invalid/source.json"
+    } else if operation == "ipaActiveTokens" {
+        request["target"] = ""
+    } else if operation == "settingsSet" {
+        request["target"] = ""
+        request["payload"] = ["key": "isBackgroundRefreshEnabled", "type": "bool", "bool": false]
+    } else if ["certList", "devTeams", "settingsGet", "sidesignGet", "logTail", "healthSnapshot"].contains(operation) {
+        request["target"] = ""
     } else {
-        request["payload"] = ["kind": "install", "answer": ["choice": "proceed"]]
+        request.removeValue(forKey: "payload")
     }
     precondition(V3WireContract.decodeRequest(encode(request), now: now) != nil, operation)
     precondition(V3WireContract.readOperations.contains(operation) == ["authPoll", "opPoll", "certList", "devTeams", "sourcePreview", "settingsGet", "anisetteList", "ipaActiveTokens", "sidesignGet", "logTail", "healthSnapshot"].contains(operation), operation)
@@ -877,8 +1102,16 @@ for removed in ["panel", "signIn", "install", "refreshApp", "addSource", "remove
     precondition(V3WireContract.decodeRequest(encode(base(removed)), now: now) == nil, removed)
 }
 var badPayload = base("opStart")
+badPayload["target"] = ""
 badPayload["payload"] = "not-a-dict"
 precondition(V3WireContract.decodeRequest(encode(badPayload), now: now) == nil)
+var unknownAuthField = base("authBegin")
+let authSession = UUID().uuidString
+unknownAuthField["target"] = authSession
+unknownAuthField["payload"] = ["session": authSession, "sessionDeadline": now.addingTimeInterval(600),
+                                "client_secret": "must-not-cross-the-wire"]
+precondition(V3WireContract.decodeRequest(encode(unknownAuthField), now: now) == nil,
+    "authBegin must reject unknown secret-bearing fields")
 var validCancel = base("cancel")
 validCancel["payload"] = ["scope": "operation"]
 precondition(V3WireContract.decodeRequest(encode(validCancel), now: now) != nil)
@@ -888,9 +1121,32 @@ precondition(V3WireContract.decodeRequest(encode(missingCancelScope), now: now) 
 var invalidCancelScope = base("cancel")
 invalidCancelScope["payload"] = ["scope": "auth-or-operation"]
 precondition(V3WireContract.decodeRequest(encode(invalidCancelScope), now: now) == nil)
+var validOperationCancel = base("opCancel")
+validOperationCancel["payload"] = ["knownStarted": true]
+precondition(V3WireContract.decodeRequest(encode(validOperationCancel), now: now) != nil,
+    "the actual host cancellation request includes its knownStarted field")
+validOperationCancel["payload"] = ["knownStarted": NSNumber(value: 1)]
+precondition(V3WireContract.decodeRequest(encode(validOperationCancel), now: now) == nil,
+    "operation cancellation requires a plist Boolean")
 var legacyValue = base("snapshot")
+legacyValue["target"] = ""
 legacyValue["value"] = true
 precondition(V3WireContract.decodeRequest(encode(legacyValue), now: now) == nil)
+for operation in ["authRespond", "opAnswer"] {
+    var safe = base(operation); safe["payload"] = ["prompt": "p1", "secretToken": UUID().uuidString]
+    precondition(V3WireContract.decodeRequest(encode(safe), now: now) != nil, operation)
+    var raw = base(operation); raw["payload"] = ["prompt": "p1", "answer": ["verificationCode": "123456"]]
+    precondition(V3WireContract.decodeRequest(encode(raw), now: now) == nil, operation)
+}
+var export = base("accountExport"); export["target"] = ""
+export["payload"] = ["secretToken": UUID().uuidString, "includeApple": false]
+precondition(V3WireContract.decodeRequest(encode(export), now: now) != nil)
+export["payload"] = ["password": "backup passphrase", "includeApple": false]
+precondition(V3WireContract.decodeRequest(encode(export), now: now) == nil)
+var backupImport = base("accountImport"); backupImport["payload"] = ["secretToken": UUID().uuidString]
+precondition(V3WireContract.decodeRequest(encode(backupImport), now: now) != nil)
+backupImport["payload"] = ["password": "backup passphrase"]
+precondition(V3WireContract.decodeRequest(encode(backupImport), now: now) == nil)
 print("V3 headless wire contract PASS")
 ''')
             executable = directory / "headless-wire-tests"

@@ -178,6 +178,13 @@ struct SetupAndSemanticUXHarness {
             failedInput: "https://example.invalid/source.json",
             currentInput: "https://example.invalid/source.json"),
             "a network source failure may be retried explicitly")
+        for sourceCause in [CombinedFailure.SafeCause.sourceInvalidManifest.rawValue,
+                            CombinedFailure.SafeCause.sourcePersistenceUnverified.rawValue] {
+            precondition(V3SourceSubmissionPolicy.mayResubmit(retryable: false,
+                safeCause: sourceCause, failedInput: "https://example.invalid/source.json",
+                currentInput: "https://example.invalid/source.json"),
+                "correcting a source manifest or reconciling uncertain persistence can retry the same URL")
+        }
         let contention = issue("refresh", "command",
             CombinedFailure.SafeCause.operationInProgress.rawValue, retryable: true)
         precondition(contention.primaryAction == .dismiss && contention.recoveryDestination == nil,
@@ -544,6 +551,34 @@ struct SetupAndSemanticUXHarness {
         precondition(!V3JITLessCompletionPolicy.isRequired(osMajor: 18))
         precondition(V3JITLessCompletionPolicy.isComplete(.ready))
         precondition(V3JITLessCompletionPolicy.isComplete(.notRequired))
+        let factsTime = Date(timeIntervalSince1970: 100)
+        precondition(V3SetupFactRevisionPolicy.mayApply(captured: 4, current: 4))
+        precondition(!V3SetupFactRevisionPolicy.mayApply(captured: 4, current: 5),
+            "an older health response cannot overwrite facts after invalidation")
+        precondition(V3SetupFactObservationPolicy.shouldObserve(connected: true,
+            setupPresented: false, operationPresented: false, loading: false,
+            returnToSetupPending: false, lastAttemptAt: nil, now: factsTime))
+        precondition(!V3SetupFactObservationPolicy.shouldObserve(connected: false,
+            setupPresented: false, operationPresented: false, loading: false,
+            returnToSetupPending: false, lastAttemptAt: nil, now: factsTime))
+        precondition(!V3SetupFactObservationPolicy.shouldObserve(connected: true,
+            setupPresented: true, operationPresented: false, loading: false,
+            returnToSetupPending: false, lastAttemptAt: nil, now: factsTime),
+            "an open Setup Assistant owns its probes without a duplicate root probe")
+        precondition(!V3SetupFactObservationPolicy.shouldObserve(connected: true,
+            setupPresented: false, operationPresented: true, loading: false,
+            returnToSetupPending: false, lastAttemptAt: nil, now: factsTime))
+        precondition(!V3SetupFactObservationPolicy.shouldObserve(connected: true,
+            setupPresented: false, operationPresented: false, loading: true,
+            returnToSetupPending: false, lastAttemptAt: nil, now: factsTime))
+        precondition(!V3SetupFactObservationPolicy.shouldObserve(connected: true,
+            setupPresented: false, operationPresented: false, loading: false,
+            returnToSetupPending: false, lastAttemptAt: factsTime, now: factsTime.addingTimeInterval(30)))
+        precondition(V3SetupFactObservationPolicy.shouldObserve(connected: true,
+            setupPresented: false, operationPresented: false, loading: false,
+            returnToSetupPending: false, lastAttemptAt: factsTime,
+            now: factsTime.addingTimeInterval(V3SetupFactObservationPolicy.maximumAge)),
+            "setup facts refresh after the bounded cache age")
         precondition(!V3JITLessCompletionPolicy.isComplete(nil),
                      "an unobserved JIT-Less state must stay outstanding")
         precondition(!V3JITLessCompletionPolicy.isComplete(.unknown))
@@ -600,6 +635,22 @@ struct SetupAndSemanticUXHarness {
         precondition(networkIssue.recoveryDestination == "connection")
         precondition(networkIssue.primaryAction == .openConnectionCheck,
                      "a connection failure opens settings instead of claiming the mutation was retried")
+        let anisetteNetworkFailure = CombinedFailure(operation: "anisetteSync", stage: .network,
+            code: .failed, id: UUID().uuidString, retryable: true, safeCause: .networkConnectionLost)
+        let anisetteGuidance = V3AnisetteFailureGuidance.message(anisetteNetworkFailure)!
+        precondition(anisetteGuidance.contains("configured Anisette server") &&
+                     !anisetteGuidance.localizedCaseInsensitiveContains("LocalDevVPN"))
+        let ordinaryRefreshFailure = CombinedFailure(operation: "refresh", stage: .network,
+            code: .failed, id: UUID().uuidString, retryable: true, safeCause: .networkConnectionLost)
+        precondition(V3AnisetteFailureGuidance.message(ordinaryRefreshFailure) == nil,
+            "ordinary device refresh failures retain their separate connection guidance")
+        let anisetteNetworkIssue = V3UserFacingIssue.make(
+            CombinedFailure(operation: "anisetteSync", stage: .network, code: .failed,
+                id: UUID().uuidString, retryable: true, safeCause: .networkConnectionLost))
+        precondition(anisetteNetworkIssue.recoveryDestination == nil &&
+                     anisetteNetworkIssue.whatToDo.contains("Anisette server") &&
+                     !anisetteNetworkIssue.whatToDo.localizedCaseInsensitiveContains("LocalDevVPN"),
+            "remote Anisette failures do not blame the device tunnel")
         // A connection-stage failure that is provably not retryable is inspected
         // rather than blindly retried.
         let blockedNetworkIssue = V3UserFacingIssue.make(
@@ -635,6 +686,13 @@ struct SetupAndSemanticUXHarness {
                             id: UUID().uuidString, safeCause: .certificateUnavailable))
         precondition(certificateIssue.recoveryDestination == "certificates")
         precondition(certificateIssue.primaryAction == .openCertificates)
+        let keychainSignOutIssue = V3UserFacingIssue.make(
+            CombinedFailure(operation: "signOut", stage: .authentication, code: .failed,
+                id: UUID().uuidString, retryable: true, safeCause: .keychainSignOutFailed))
+        precondition(keychainSignOutIssue.recoveryDestination == "signIn" &&
+                     keychainSignOutIssue.whatHappened.contains("could not confirm removal") &&
+                     keychainSignOutIssue.whatToDo.contains("Unlock the iPhone"),
+            "a failed Keychain deletion cannot be reported as a successful sign-out")
 
         let untyped = NSError(domain: "LiveContainer.Service", code: 4865)
         precondition(!V3FailureGuidance.message(untyped).contains("4865"),

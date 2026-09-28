@@ -349,10 +349,14 @@ struct CatalogResponseEncodingHarness {
             try! PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
         }
         precondition(V3ServiceReadinessReply.decode(readinessReply([
-            "version": 1, "id": readinessID, "ok": true, "result": ["busy": false]
+            "version": 1, "id": readinessID, "ok": true, "result": ["ready": true]
         ]), requestID: readinessID) == .ready)
+        precondition(V3ServiceReadinessReply.decode(readinessReply([
+            "version": 1, "id": readinessID, "ok": true, "result": ["ready": false]
+        ]), requestID: readinessID) == .notReady,
+            "a valid readiness response must preserve the service's not-ready state")
         if case .invalid = V3ServiceReadinessReply.decode(readinessReply([
-            "version": 1, "id": readinessID, "ok": 1, "result": ["busy": false]
+            "version": 1, "id": readinessID, "ok": 1, "result": ["ready": true]
         ]), requestID: readinessID) {} else {
             preconditionFailure("NSNumber(1) is not a Boolean readiness acknowledgment")
         }
@@ -366,9 +370,27 @@ struct CatalogResponseEncodingHarness {
         ]), requestID: readinessID) {} else {
             preconditionFailure("readiness requires the typed snapshot result payload")
         }
-        precondition(V3ServiceReadinessReply.decode(readinessReply([
-            "version": 1, "id": readinessID, "error": "notReady"
-        ]), requestID: readinessID) == .failed("notReady"))
+        let notReadyFailure = CombinedFailure(operation: "command", stage: .serviceReadiness,
+            code: .notReady, id: readinessID, retryable: true)
+        let notReadyEnvelope = ["version": 1, "id": readinessID, "ok": false,
+            "error": "failed", "failure": notReadyFailure.wire] as [String: Any]
+        if case .notReady = V3ServiceReadinessReply.decode(readinessReply(notReadyEnvelope), requestID: readinessID) {
+        } else {
+            preconditionFailure("only typed transient notReady failures may continue polling")
+        }
+        let encodingFailure = CombinedFailure(operation: "command", stage: .replyEncoding,
+            code: .failed, id: readinessID, retryable: false, safeCause: .responseEncodingFailed)
+        let encodingEnvelope: [String: Any] = ["version": 1, "id": readinessID, "ok": false,
+            "error": "failed", "failure": encodingFailure.wire]
+        if case .failed(let terminal) = V3ServiceReadinessReply.decode(readinessReply(encodingEnvelope),
+                requestID: readinessID) {
+            precondition(terminal.stage == CombinedFailure.Stage.replyEncoding.rawValue &&
+                terminal.safeCause == CombinedFailure.SafeCause.responseEncodingFailed.rawValue &&
+                terminal.retryable == false,
+                "a deterministic reply-encoding error must not be converted into retryable timeout")
+        } else {
+            preconditionFailure("deterministic structured readiness failures must remain terminal")
+        }
 
         var replyBudget = V3MutationReplyCacheBudget()
         precondition(replyBudget.canReserve())

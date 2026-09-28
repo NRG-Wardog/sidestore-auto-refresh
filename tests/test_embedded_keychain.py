@@ -22,6 +22,7 @@ import Foundation
 // In-memory namespace isolation; each client pins its group at construction.
 enum Store {
     static var group: String? = "group.example.shared"
+    static var keychainGroup = "TEAM.com.kdt.livecontainer.shared"
     static var processGroup = "TEAM.host.default"
     static var data: [String: [String: Data]] = [:]
     static var failure = 0
@@ -29,6 +30,12 @@ enum Store {
     static var logs: [String] = []
 }
 func debugLog(_ message: String) { Store.logs.append(message) }
+enum V3SecretHandoff {
+    static func sharedKeychainAccessGroup() throws -> String {
+        guard !Store.keychainGroup.isEmpty else { throw NSError(domain: NSOSStatusErrorDomain, code: -34018) }
+        return Store.keychainGroup
+    }
+}
 extension Bundle {
     enum Info { static var appbundleIdentifier = "com.kdt.livecontainer" }
     var altstoreAppGroup: String? { Store.group }
@@ -68,8 +75,10 @@ func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<C
     precondition(query[kSecAttrService] as? String == "com.kdt.livecontainer")
     precondition(query[kSecClass] as? String == kSecClassGenericPassword)
     precondition(query[kSecUseAuthenticationUI] as? String == kSecUseAuthenticationUIFail)
+    precondition(query[kSecAttrAccessGroup] as? String == Store.keychainGroup,
+        "the app group container identifier is not a Keychain access group")
     if Store.failure != 0 { return Store.failure }
-    let visible = [Store.processGroup, Store.group ?? ""]
+    let visible = [Store.processGroup, Store.keychainGroup]
     var rows: [[String: Any]] = []
     for group in visible {
         for (key, value) in Store.data[group, default: [:]] {
@@ -86,7 +95,7 @@ HARNESS = r'''
 @main struct Tests {
     static func main() throws {
         let scenario = CommandLine.arguments[1]
-        let group = Store.group!
+        let group = Store.keychainGroup
         let login = ["appleIDAdsid": Data("test-account-id".utf8), "appleIDXcodeToken": Data("sensitive-test-token".utf8)]
         func seed() { Store.data[Store.processGroup] = login }
         switch scenario {
@@ -126,6 +135,14 @@ HARNESS = r'''
             let error = LCEmbeddedSharedKeychain.authenticationFailure()
             precondition(error.domain == "com.SideStore.Keychain" && error.code == 1005)
             precondition(Store.writes == 0)
+        case "migration_retry_after_unlock":
+            seed(); let client = LCEmbeddedSharedKeychain.makeClient(); Store.failure = -25308
+            LCEmbeddedSharedKeychain.prepare(client)
+            precondition(LCEmbeddedSharedKeychain.read("appleIDXcodeToken", client: client) == nil)
+            Store.failure = 0
+            precondition(LCEmbeddedSharedKeychain.read("appleIDXcodeToken", client: client) ==
+                         login["appleIDXcodeToken"],
+                "the same Keychain client retries a transiently blocked migration")
         case "missing_entitlement":
             let client = LCEmbeddedSharedKeychain.makeClient(); Store.failure = -34018
             LCEmbeddedSharedKeychain.prepare(client)
@@ -147,6 +164,18 @@ HARNESS = r'''
             LCEmbeddedSharedKeychain.prepare(client)
             precondition(LCEmbeddedSharedKeychain.read("appleIDXcodeToken", client: client) == nil)
             precondition(Store.data[Store.processGroup] == login)
+        case "checked_signout_failure":
+            seed(); let client = LCEmbeddedSharedKeychain.makeClient(); LCEmbeddedSharedKeychain.prepare(client)
+            Store.failure = -25291
+            do {
+                try LCEmbeddedSharedKeychain.removeChecked("appleIDXcodeToken", client: client)
+                preconditionFailure("a locked Keychain deletion must not be reported as confirmed")
+            } catch {}
+            precondition(Store.data[group]?["appleIDXcodeToken"] == login["appleIDXcodeToken"])
+            Store.failure = 0
+            try LCEmbeddedSharedKeychain.removeChecked("appleIDXcodeToken", client: client)
+            precondition(Store.data[group]?["appleIDXcodeToken"] == nil,
+                "a successful checked removal confirms the credential is absent")
         case "clear_all_no_resurrection":
             seed(); let client = LCEmbeddedSharedKeychain.makeClient(); LCEmbeddedSharedKeychain.prepare(client)
             LCEmbeddedSharedKeychain.clearAll(client); LCEmbeddedSharedKeychain.prepare(client)
@@ -229,7 +258,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
             raise AssertionError(result.stderr)
 
     def test_execution_scenarios(self):
-        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "certificate_only", "invalid_utf8"):
+        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "checked_signout_failure", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "certificate_only", "invalid_utf8"):
             with self.subTest(scenario=scenario):
                 result = subprocess.run([str(self.executable), scenario], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -239,11 +268,28 @@ class EmbeddedKeychainTests(unittest.TestCase):
         text = TEMPLATE.read_text()
         for forbidden in ("UserDefaults.", "write(to:", "NSLog(", "Timer(", "Task.sleep", "removePersistentDomain", "signOut("):
             self.assertNotIn(forbidden, text)
-        self.assertIn("accessGroup: group", text)
+        self.assertIn("accessGroup: keychainGroup", text)
+        self.assertIn("V3SecretHandoff.sharedKeychainAccessGroup()", text)
+        self.assertNotIn("accessGroup: appGroup", text)
         self.assertIn("kSecAttrService as String: service", text)
         self.assertIn("kSecUseAuthenticationUIFail", text)
         self.assertNotIn("\\(error)", text)
         self.assertIn(".afterFirstUnlock", text)
+
+    def test_signout_checks_all_auth_key_deletions_before_reporting_success(self):
+        patch = (ROOT / "scripts/patch_embedded_keychain.py").read_text(encoding="utf-8")
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        self.assertIn("func clearSignInInfoChecked() throws", patch)
+        self.assertIn("LCEmbeddedSharedKeychain.removeChecked(key, client: self.keychain)", patch)
+        self.assertIn("try Keychain.shared.clearSignInInfoChecked()", runtime)
+        self.assertLess(runtime.index("try Keychain.shared.clearSignInInfoChecked()"),
+                        runtime.index("AuthManager.shared.signOut(keepCertificate: true"))
+        self.assertIn("case .keychainSignOutFailed", failure)
+        self.assertIn("try V3BackendCommands.prepareSignOut()", service)
+        self.assertLess(service.index("try V3BackendCommands.prepareSignOut()"),
+                        service.index("AuthManager.shared.signOut(keepCertificate: true"))
 
     def test_pinned_patch_and_idempotence(self):
         source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")

@@ -47,6 +47,8 @@ final class V3SideStoreService: NSObject {
     private var deadlineTasks: [String: Task<Void, Never>] = [:]
     var cancellations: [String: () -> Void] = [:]
     var completed: [String: (data: Data, deadline: Date)] = [:]
+    private var completedRequestFingerprints: [String: Data] = [:]
+    private var inFlightRequestFingerprints: [String: Data] = [:]
     private var completedCacheBudget = V3MutationReplyCacheBudget()
     var mutationID: String?
     private var refreshAdmission = V3RefreshAdmissionLease()
@@ -76,15 +78,35 @@ final class V3SideStoreService: NSObject {
             reply(encode(invalidRequestReply(for: data)))
             return
         }
+        let requestFingerprint = V3RequestReplayPolicy.fingerprint(data)
         let expiredReplies = completed.compactMap { key, value in
             value.deadline <= Date() ? (key, value.data.count) : nil
         }
         for (key, byteCount) in expiredReplies {
             completed.removeValue(forKey: key)
+            completedRequestFingerprints.removeValue(forKey: key)
             completedCacheBudget.remove(byteCount)
         }
         _ = refreshAdmission.expire()
-        if let previous = completed[id] { reply(previous.data); return }
+        if let previous = completed[id] {
+            guard V3RequestReplayPolicy.matches(
+                cachedFingerprint: completedRequestFingerprints[id], incomingRequestData: data) else {
+                reply(encode(invalidRequestReply(for: data), operation: operation))
+                return
+            }
+            reply(previous.data)
+            return
+        }
+        // Bind IDs while work is still running as well as after completion.
+        // This check must precede the cancellation fast path: a different
+        // command reusing an active mutation ID must not cancel unrelated work.
+        if tasks[id] != nil {
+            guard V3RequestReplayPolicy.matchesInFlight(
+                cachedFingerprint: inFlightRequestFingerprints[id], incomingRequestData: data) else {
+                reply(encode(invalidRequestReply(for: data), operation: operation))
+                return
+            }
+        }
         if operation == "cancel" {
             let target = request["target"] as? String ?? ""
             guard let cancelScope = (request["payload"] as? [String: Any])?["scope"] as? String,
@@ -175,9 +197,11 @@ final class V3SideStoreService: NSObject {
            let session = (request["payload"] as? [String: Any])?["session"] as? String {
             pendingAuthStartSessions[id] = session
         }
+        inFlightRequestFingerprints[id] = requestFingerprint
         tasks[id] = Task { @MainActor in
             defer {
                 tasks[id] = nil
+                inFlightRequestFingerprints.removeValue(forKey: id)
                 deadlineTasks.removeValue(forKey: id)?.cancel()
                 cancellations[id] = nil
                 pendingRefreshAdmissionRequests.remove(id)
@@ -223,11 +247,14 @@ final class V3SideStoreService: NSObject {
                 case "sourcePreview", "sourceAddConfirmed", "sourceRemoveConfirmed", "refreshSources": stage = .source
                 default: stage = .command
                 }
+                var readinessNotReady = false
                 if let serviceError = error as? ServiceError, case .notReady = serviceError {
                     stage = .serviceReadiness
+                    readinessNotReady = true
                 }
                 if let serviceError = error as? V3SideStoreServiceError, case .notReady = serviceError {
                     stage = .serviceReadiness
+                    readinessNotReady = true
                 }
                 if operation.hasPrefix("refreshAdmission") { stage = .serviceReadiness }
                 if operation == "sourceRemoveConfirmed" {
@@ -268,7 +295,10 @@ final class V3SideStoreService: NSObject {
                             safeCause: code == .busy ? .operationInProgress : nil).wire
                     } else {
                         response["failure"] = CombinedFailure(operation: operation, stage: stage,
-                            code: code, id: id).wire
+                            code: code, id: id,
+                            retryable: V3ServiceReadinessRetryPolicy.retryable(
+                                operation: operation, stage: stage, code: code,
+                                typedNotReady: readinessNotReady)).wire
                     }
                 } else if let headlessError = error as? V3SideStoreServiceError {
                     let code: CombinedFailure.Code
@@ -295,7 +325,10 @@ final class V3SideStoreService: NSObject {
                         response["failure"] = CombinedFailure(operation: "source", stage: .source, code: code,
                             id: id, safeCause: .sourcePersistenceUnverified, sourceStep: .catalogRead).wire
                     } else {
-                        response["failure"] = CombinedFailure(operation: operation, stage: stage, code: code, id: id).wire
+                        response["failure"] = CombinedFailure(operation: operation, stage: stage, code: code, id: id,
+                            retryable: V3ServiceReadinessRetryPolicy.retryable(
+                                operation: operation, stage: stage, code: code,
+                                typedNotReady: readinessNotReady)).wire
                     }
                 } else if let policyError = error as? V3KnownSourcePolicyFailure {
                     let network = policyError.kind == .network
@@ -333,6 +366,7 @@ final class V3SideStoreService: NSObject {
             if mutation && cacheResponse {
                 if completedCacheBudget.record(encoded.count, controlResponse: controlReply) {
                     completed[id] = (encoded, deadline)
+                    completedRequestFingerprints[id] = requestFingerprint
                 } else {
                     // Admission reserves one full maximum-size response for
                     // this serialized mutation. Reaching this branch means an
@@ -405,7 +439,11 @@ final class V3SideStoreService: NSObject {
         let target = request["target"] as? String ?? ""
         let payload = request["payload"] as? [String: Any] ?? [:]
         switch operation {
-        case "snapshot": return try snapshot()
+        case "snapshot":
+            if V3WireContract.strictBool(payload["readinessOnly"]) == true {
+                return ["ready": DatabaseManager.shared.isStarted]
+            }
+            return try snapshot()
         case "refreshAdmissionBegin":
             guard refreshAdmission.acquire(runID: target,
                     requestID: id,
@@ -505,6 +543,7 @@ final class V3SideStoreService: NSObject {
                 ])
             }, "nextCursor": fetched.count > 50 ? offset + 50 : -1]
         case "signOut":
+            try V3BackendCommands.prepareSignOut()
             // Preserve reusable certificate and anisette state, matching upgrade preservation.
             AuthManager.shared.signOut(keepCertificate: true, keepAnisetteData: true)
             return try snapshot()
@@ -555,9 +594,12 @@ final class V3SideStoreService: NSObject {
             }
             return reply
         case "authRespond":
-            guard let answer = payload["answer"] as? [String: String],
-                  let promptID = payload["prompt"] as? String,
-                  let reply = V3HeadlessRuntime.shared.auth.respond(id: target, promptID: promptID, answer: answer) else {
+            guard let secretToken = payload["secretToken"] as? String,
+                  let promptID = payload["prompt"] as? String else {
+                throw ServiceError.invalidRequest
+            }
+            let answer = try V3SecretHandoff.consumeStringDictionary(secretToken)
+            guard let reply = V3HeadlessRuntime.shared.auth.respond(id: target, promptID: promptID, answer: answer) else {
                 throw ServiceError.invalidRequest
             }
             return reply
@@ -585,9 +627,12 @@ final class V3SideStoreService: NSObject {
             guard let reply = V3HeadlessRuntime.shared.operations.poll(id: target) else { throw ServiceError.invalidRequest }
             return reply
         case "opAnswer":
-            guard let answer = payload["answer"] as? [String: String],
-                  let promptID = payload["prompt"] as? String,
-                  let reply = V3HeadlessRuntime.shared.operations.answer(id: target, promptID: promptID, answer: answer) else {
+            guard let secretToken = payload["secretToken"] as? String,
+                  let promptID = payload["prompt"] as? String else {
+                throw ServiceError.invalidRequest
+            }
+            let answer = try V3SecretHandoff.consumeStringDictionary(secretToken)
+            guard let reply = V3HeadlessRuntime.shared.operations.answer(id: target, promptID: promptID, answer: answer) else {
                 throw ServiceError.invalidRequest
             }
             return reply
@@ -686,27 +731,29 @@ final class V3SideStoreService: NSObject {
             _ = try await AnisetteServersManager.shared.syncWithRemote()
             return ["servers": await V3BackendCommands.anisetteList()]
         case "sidesignGet":
-            return ["config": await V3BackendCommands.sidesignJSON()]
+            return ["secretToken": try await V3BackendCommands.sidesignConfigToken()]
         case "sidesignSet":
-            guard let json = payload["config"] as? String else { throw ServiceError.invalidRequest }
-            try await V3BackendCommands.sidesignSet(json: json)
-            return ["config": await V3BackendCommands.sidesignJSON()]
+            guard let secretToken = payload["secretToken"] as? String else { throw ServiceError.invalidRequest }
+            try await V3BackendCommands.sidesignSet(token: secretToken)
+            return ["secretToken": try await V3BackendCommands.sidesignConfigToken()]
         case "sidesignReset":
             _ = SideSignConfigManager.shared.resetToDefaults()
-            return ["config": await V3BackendCommands.sidesignJSON()]
+            return ["secretToken": try await V3BackendCommands.sidesignConfigToken()]
         case "sidesignImport":
             try await V3BackendCommands.sidesignImport(token: target)
-            return ["config": await V3BackendCommands.sidesignJSON()]
+            return ["secretToken": try await V3BackendCommands.sidesignConfigToken()]
         case "sidesignExport":
-            return ["config": await V3BackendCommands.sidesignExport()]
+            return ["secretToken": try await V3BackendCommands.sidesignExportToken()]
         case "logTail":
             return V3BackendCommands.logTail()
         case "healthSnapshot":
             return await V3BackendCommands.health()
         case "accountExport":
-            guard let password = payload["password"] as? String, !password.isEmpty else {
+            guard let secretToken = payload["secretToken"] as? String else {
                 throw ServiceError.invalidRequest
             }
+            let password = try V3SecretHandoff.consumeString(secretToken)
+            guard !password.isEmpty else { throw ServiceError.invalidRequest }
             let includeApple: Bool
             if let rawIncludeApple = payload["includeApple"] {
                 guard let parsedIncludeApple = V3WireContract.strictBool(rawIncludeApple) else {
@@ -718,7 +765,8 @@ final class V3SideStoreService: NSObject {
             }
             return ["backup": try V3BackendCommands.accountExport(password: password, includeApplePassword: includeApple)]
         case "accountImport":
-            guard let password = payload["password"] as? String else { throw ServiceError.invalidRequest }
+            guard let secretToken = payload["secretToken"] as? String else { throw ServiceError.invalidRequest }
+            let password = try V3SecretHandoff.consumeString(secretToken)
             return try V3BackendCommands.accountImport(token: target, password: password)
         default: throw ServiceError.invalidRequest
         }
@@ -836,7 +884,7 @@ final class V3SideStoreService: NSObject {
                 "signing": team == nil ? "Sign in required" : "Team selected",
                 "certificate": CertificateManager.shared.activeCertificate == nil ? "No active certificate" : "Active certificate available",
                 "certificateExpiration": certificate?.expiryDate ?? Date.distantPast,
-                "pairing": PairingFileManager.shared.fetchPairingFile() == nil ? "Pairing file required" : "Pairing file available",
+                "pairing": V3BackendCommands.pairingFileStatus(),
                 "installedApps": apps.map { app in
                     ["identifier": app.objectID.uriRepresentation().absoluteString,
                      "bundleID": app.bundleIdentifier, "name": app.name, "version": app.version,

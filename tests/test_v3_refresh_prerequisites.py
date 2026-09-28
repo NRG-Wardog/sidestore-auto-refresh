@@ -59,7 +59,7 @@ class SharedPolicyTests(unittest.TestCase):
         self.assertIn("V3_REFRESH_PREREQUISITE_POLICY_V1", text)
         self.assertIn("struct V3RefreshPrerequisite", text)
         self.assertIn('case "Pairing file available": return .satisfied', text)
-        self.assertIn('case "Pairing file required": return .pairingRequired', text)
+        self.assertIn('case "Pairing file required", "Pairing file invalid": return .pairingRequired', text)
         self.assertIn("default: return .unknown", text)
         # No call site may re-derive the rule.
         for view in (shell(), SETTINGS.read_text(encoding="utf-8")):
@@ -82,7 +82,7 @@ class SharedPolicyTests(unittest.TestCase):
         # permanently disable a correctly configured device.
         self.assertIn("case .unknown: return .unknown", text.replace(
             "        case \"Pairing file available\": return .satisfied\n"
-            "        case \"Pairing file required\": return .pairingRequired\n"
+            "        case \"Pairing file required\", \"Pairing file invalid\": return .pairingRequired\n"
             "        default: return .unknown", "        case .unknown: return .unknown"))
         # Nothing else is claimed to be a refresh prerequisite.
         self.assertNotIn("blocksOnWiFi", text)
@@ -172,7 +172,8 @@ class EveryEntryPointUsesThePolicyTests(unittest.TestCase):
         # both by disabling the control and by guarding the mutation.
         self.assertIn("private var manualRefreshBlocked: Bool {", view)
         start = view.index("private var manualRefreshBlocked: Bool {")
-        self.assertIn("V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).blocksRefresh", view[start:start + 400])
+        self.assertIn("V3PairingPresentationPolicy.state(", view[start:start + 400])
+        self.assertIn("statusConnected: status.connected", view[start:start + 400])
         body = manual_refresh()
         self.assertIn("guard !manualRefreshBlocked else { return }", body)
         self.assertLess(body.index("guard !manualRefreshBlocked"), body.index(RUN_NOW))
@@ -201,22 +202,23 @@ class EveryEntryPointUsesThePolicyTests(unittest.TestCase):
         text = shell()
         start = text.index("func recalculate(status: V3SideStoreStatusStore)")
         recalc = text[start:start + 2600]
-        self.assertIn("V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).state", recalc)
+        self.assertIn("V3PairingPresentationPolicy.state(statusConnected: status.connected,", recalc)
         self.assertIn("case .unsatisfied:", recalc)
         self.assertIn("V3RefreshPrerequisite.pairingRequiredDetail", recalc)
         # The copied diagnostics line keeps the human vocabulary a support log
         # needs, not the internal policy state names.
-        self.assertIn("V3SetupStore.describePairing(V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).state)", text)
+        self.assertIn("V3SetupStore.describePairing(V3PairingPresentationPolicy.state(", text)
         self.assertIn('case .satisfied: return "available"', text)
         self.assertIn('case .unsatisfied: return "missing"', text)
         self.assertIn('case .unknown: return "unknown"', text)
         home = text[text.index("private var setupIncomplete"):]
         home = home[:home.index("var body: some View")]
-        self.assertIn("V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).blocksRefresh", home)
+        self.assertIn("V3PairingPresentationPolicy.isConfirmed(", home)
+        self.assertIn("statusConnected: status.connected, pairingStatus: status.pairing", home)
 
 
 class PairingGuidanceTests(unittest.TestCase):
-    """Items 6, 7 and 8: pairing storage is untouched; guidance is fixed."""
+    """Pairing storage stays upstream-compatible and malformed records are rejected."""
 
     def test_placement_with_the_installation_tool_is_the_recommended_path(self):
         text = shell()
@@ -293,14 +295,17 @@ class PairingGuidanceTests(unittest.TestCase):
         self.assertIn(".onChange(of: showPairingSetup)", quick)
         self.assertEqual(quick.count("await status.reloadAndWait()") >= 3, True)
 
-    def test_pairing_storage_and_transport_are_untouched(self):
-        # The working pairing mechanism must not be redesigned: no new pairing
-        # request, no new store, no changed import operation.
+    def test_pairing_storage_contract_is_validated_without_a_new_store(self):
+        # The existing PairingFileManager remains authoritative; the v3 boundary
+        # validates only supported record shapes before persisting it.
         text = shell()
-        self.assertEqual(text.count('operation: "pairingImportData"'), 1)
+        self.assertEqual(text.count('request(operation: "pairingImportData"'), 1)
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
-        self.assertIn('PairingFileManager.shared.fetchPairingFile() == nil ? "Pairing file required" : "Pairing file available"',
-                      service)
+        self.assertIn("V3BackendCommands.pairingFileStatus()", service)
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        self.assertIn("PairingFileParser.parse(content: contents)", runtime)
+        self.assertIn("PairingFileManager.shared.savePairingFile(contents: contents)", runtime)
+        self.assertNotIn("V3PairingRecordPolicy", runtime)
         wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         self.assertIn('"pairingImportData"', wire)
 

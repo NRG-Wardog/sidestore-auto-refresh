@@ -72,6 +72,13 @@ HEADLESS_SIDESTORE_VIEW_FILES = (
     "Views/Settings/TechyThings/StorageExplorer/StorageExplorerViewModel.swift",
     "Views/SplashView.swift",
 )
+HEADLESS_SIDESTORE_AUX_UI_FILES = (
+    "DeepLinks/ExportCertificateDialog.swift",
+    "DeepLinks/InstallAppDialog.swift",
+    "Views/Settings/Advanced/CacheMgmt/CacheManagementView.swift",
+    "Views/Settings/Advanced/CacheMgmt/CacheViewModel.swift",
+    "Views/Components/CustomAppIDAlertViewController.swift",
+)
 
 
 def remove_pbx_object(text, object_marker):
@@ -162,7 +169,9 @@ def headless_project(text):
 				"Settings/AboutPatreonHeaderView.xib",
 				"Settings/tvOS/AboutPatreonHeaderView.xib",
 				"Settings/AltAppIconsViewController.swift",
-				"Settings/SettingsViewController.swift",
+                                "Settings/SettingsViewController.swift",
+                                "Settings/SettingsHeaderFooterView.swift",
+                                "Settings/InsetGroupTableViewCell.swift",
 				"Settings/PatreonViewController.swift",
 				"Settings/LicensesViewController.swift",
 				"Settings/RefreshAttemptsViewController.swift",
@@ -230,7 +239,8 @@ def headless_project(text):
 			);
 			target = BFD247692284B9A500981D42 /* SideStore */;
 		};'''
-    view_exclusions = "".join(f'\t\t\t\t"{path}",\n' for path in HEADLESS_SIDESTORE_VIEW_FILES)
+    view_exclusions = "".join(f'\t\t\t\t"{path}",\n'
+                               for path in HEADLESS_SIDESTORE_VIEW_FILES + HEADLESS_SIDESTORE_AUX_UI_FILES)
     headless_side_store_source_exception = replace(
         headless_side_store_source_exception,
         '\t\t\t\t"Handlers/SignInFlowHandler.swift",\n',
@@ -314,6 +324,251 @@ def headless_auth_manager(text):
     if "UIViewController" in text or "SignInFlowHandler" in text:
         raise SystemExit("v3 service: UIKit sign-in presentation remains in AuthManager")
     return text
+
+
+def redact_external_url_logs(text, relative):
+    marker = "V3_EXTERNAL_URL_LOG_REDACTION_V1"
+    if marker in text:
+        forbidden = ('debugLog("[SceneDelegate] scene(_:openURLContexts:) called with URL: \\(context.url)")',
+                     'debugLog("[SceneDelegate] open(_:) called with URL: \\(context.url)")',
+                     'debugLog("[URLHandler] handle(_:) called with URL: \\(url.absoluteString)")',
+                     'debugLog("[URLHandler] Failed to parse URLComponents for \\(url)")',
+                     'debugLog("[URLHandler] Host is nil for \\(url)")',
+                     'debugLog("[URLHandler] Matched host: \\(host), path: \\(url.path.lowercased())")',
+                     "debugLog(finished)",
+                     'debugLog("[ALTLog] Failed to create temp directory for imported IPA: \\(error)")',
+                     'debugLog("[ALTLog] Failed to copy imported IPA: \\(error)")',
+                     'debugLog("[AppDelegate] Failed to create temp directory for imported IPA: \\(error)")',
+                     'debugLog("[AppDelegate] Failed to copy imported IPA: \\(error)")')
+        if any(value in text for value in forbidden):
+            raise SystemExit(f"v3 service: raw URL or file error logging remains in {relative}")
+        return text
+    replacements = {
+        'debugLog("[SceneDelegate] scene(_:openURLContexts:) called with URL: \\(context.url)")':
+            'debugLog("[V3_URL] scene_request_received")',
+        'debugLog("[SceneDelegate] open(_:) called with URL: \\(context.url)")':
+            'debugLog("[V3_URL] scene_route_received")',
+        'debugLog("[URLHandler] handle(_:) called with URL: \\(url.absoluteString)")':
+            'debugLog("[V3_URL] handler_request_received")',
+        'debugLog("[URLHandler] Failed to parse URLComponents for \\(url)")':
+            'debugLog("[V3_URL] handler_rejected_invalid_url")',
+        'debugLog("[URLHandler] Host is nil for \\(url)")':
+            'debugLog("[V3_URL] handler_rejected_missing_host")',
+        'debugLog("[URLHandler] Matched host: \\(host), path: \\(url.path.lowercased())")':
+            'debugLog("[V3_URL] handler_route_matched")',
+        'debugLog(finished)':
+            'debugLog("[V3_URL] pairing_callback_submitted")',
+        'debugLog("[ALTLog] Failed to create temp directory for imported IPA: \\(error)")':
+            'debugLog("[ALTLog] Failed to create temp directory for imported IPA")',
+        'debugLog("[ALTLog] Failed to copy imported IPA: \\(error)")':
+            'debugLog("[ALTLog] Failed to copy imported IPA")',
+        'debugLog("[AppDelegate] Failed to create temp directory for imported IPA: \\(error)")':
+            'debugLog("[AppDelegate] Failed to create temp directory for imported IPA")',
+        'debugLog("[AppDelegate] Failed to copy imported IPA: \\(error)")':
+            'debugLog("[AppDelegate] Failed to copy imported IPA")',
+    }
+    for old, new in replacements.items():
+        if old in text:
+            text = replace(text, old, new)
+    if relative.endswith("URLHandler.swift"):
+        text += "\n// " + marker + ": secret-bearing external URLs are never logged.\n"
+    else:
+        text += "\n// " + marker + ": file URLs and pairing callback payloads are never logged.\n"
+    for forbidden in ('debugLog("[SceneDelegate] scene(_:openURLContexts:) called with URL: \\(context.url)")',
+                      'debugLog("[SceneDelegate] open(_:) called with URL: \\(context.url)")',
+                      'debugLog("[URLHandler] handle(_:) called with URL: \\(url.absoluteString)")',
+                      'debugLog("[URLHandler] Failed to parse URLComponents for \\(url)")',
+                      'debugLog("[URLHandler] Host is nil for \\(url)")',
+                      'debugLog("[URLHandler] Matched host: \\(host), path: \\(url.path.lowercased())")',
+                      "debugLog(finished)",
+                      'debugLog("[ALTLog] Failed to create temp directory for imported IPA: \\(error)")',
+                      'debugLog("[ALTLog] Failed to copy imported IPA: \\(error)")',
+                      'debugLog("[AppDelegate] Failed to create temp directory for imported IPA: \\(error)")',
+                      'debugLog("[AppDelegate] Failed to copy imported IPA: \\(error)")'):
+        if forbidden in text:
+            raise SystemExit(f"v3 service: failed to redact a raw URL/file log in {relative}: {forbidden}")
+    return text
+
+
+def replace_swift_function(text, signature, replacement, label):
+    if text.count(signature) != 1:
+        raise SystemExit(f"v3 service: expected one {label} implementation")
+    start = text.index(signature)
+    brace = text.index("{", start)
+    depth = 0
+    end = None
+    for index in range(brace, len(text)):
+        if text[index] == "{": depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                end = index + 1
+                break
+    if end is None:
+        raise SystemExit(f"v3 service: unbalanced {label} implementation")
+    return text[:start] + replacement + text[end:]
+
+
+def headless_safe_log_format(text):
+    marker = "V3_SAFE_LOG_FORMAT_V1"
+    signature = "public func formatLogMessage(_ message: String) -> String"
+    replacement = r'''public func formatLogMessage(_ message: String) -> String {
+    // V3_SAFE_LOG_FORMAT_V1: user-copyable logs never contain credentials,
+    // provider bodies, identifiers, URLs, or device/container paths.
+    let providerErrorMarkers = ["UserInfo=", "NSErrorFailingURL", "NSURLErrorDomain",
+        "Error Domain=", "ServerError.badServerResponse", "invalidResponseFormat"]
+    let codePattern = #"(?i)\bCode=(-?\d+)"#
+    var suppressProviderDetails = false
+    var suppressSideBackupDetails = false
+    var output: [String] = []
+    for line in message.components(separatedBy: .newlines) {
+        if suppressProviderDetails {
+            if line.contains("}") { suppressProviderDetails = false }
+            continue
+        }
+        if providerErrorMarkers.contains(where: { line.localizedCaseInsensitiveContains($0) }) {
+            if let range = line.range(of: codePattern, options: .regularExpression) {
+                let code = String(line[range]).replacingOccurrences(of: #"(?i)^Code="#, with: "",
+                    options: .regularExpression)
+                output.append("[V3_LOG_REDACTED] native_code=\(code)")
+            } else {
+                output.append("[V3_LOG_REDACTED]")
+            }
+            suppressProviderDetails = line.contains("UserInfo={") && !line.contains("}")
+            continue
+        }
+        if suppressSideBackupDetails {
+            if line.contains("[SideBackup Logs End]") { suppressSideBackupDetails = false }
+            continue
+        }
+        if line.localizedCaseInsensitiveContains("SideBackup") {
+            output.append("[V3_LOG_REDACTED] side_backup")
+            suppressSideBackupDetails = line.contains("[SideBackup Logs") && !line.contains("[SideBackup Logs End]")
+            continue
+        }
+        var safe = line
+        safe = safe.replacingOccurrences(of: #"(?i)\b(?:https?|file)://[^\s]+"#,
+            with: "[redacted URL]", options: .regularExpression)
+        safe = safe.replacingOccurrences(of: #"(?i)(?:/private)?/(?:var|Users|tmp|Library|System|Applications|Volumes)/[^\s,;]+"#,
+            with: "[redacted path]", options: .regularExpression)
+        safe = safe.replacingOccurrences(of: #"(?i)\b(?:proxy-authorization|authorization)\s*[:=]\s*(?:bearer|basic)\s+[^\s,;]+"#,
+            with: "authorization=[redacted credential]", options: .regularExpression)
+        safe = safe.replacingOccurrences(of: #"(?i)\b(UDID|DSID|phone(?:ID|Number)|deviceEndpointIp|bundlePath|bundleIdentifier|bundleID|app(?:\s*ID|Identifier)|team(?:\s*ID|Identifier)|downloadURL|callbackURL|accessToken|refreshToken|sessionToken|authorization|cookie|password|verificationCode|securityCode|private[_ ]?key|certificateDER|provisioningProfile|token|path)\s*[:=]\s*[^\s,;]+"#,
+            with: "$1=[redacted]", options: .regularExpression)
+        safe = safe.replacingOccurrences(of: #"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#,
+            with: "[redacted email]", options: .regularExpression)
+        safe = safe.replacingOccurrences(of: #"(?i)\b(?:[a-z0-9-]{1,63}\.)+[a-z][a-z0-9-]{1,63}\b"#,
+            with: "[redacted identifier]", options: .regularExpression)
+        output.append(safe)
+    }
+    return output.joined(separator: "\n")
+}'''
+    if marker in text:
+        start = text.index(signature)
+        end = text.index("\n}", start) + 2
+        if text[start:end] != replacement:
+            raise SystemExit("v3 service: safe SideStore log formatter drifted")
+        return text
+    return replace_swift_function(text, signature, replacement, "SideStore log formatter")
+
+
+def headless_app_open(text):
+    marker = "V3_HEADLESS_EXTERNAL_OPEN_V1"
+    signature = "    func open(_ url: URL) -> Bool"
+    replacement = '''    func open(_ url: URL) -> Bool
+    {
+        // ''' + marker + ''': host-owned install/source routes do not present in LiveProcess.
+        URLHandler.shared.handle(url)
+    }'''
+    if marker in text:
+        if any(token in text for token in ("pendingImportIPAURL", "importAppDeepLinkNotification",
+                "importAppDeepLinkURLKey", "addSourceDeepLinkNotification", "addSourceDeepLinkURLKey")):
+            raise SystemExit("v3 service: legacy app IPA-import state remains")
+        method_start = text.index(signature)
+        method_end = text.index("\n    }", method_start) + len("\n    }")
+        method = text[method_start:method_end]
+        if method != replacement:
+            raise SystemExit("v3 service: embedded open-url adapter drifted")
+        return text
+    text = replace_swift_function(text, signature, replacement, "embedded open-url adapter")
+    if text.count("    var window: UIWindow?\n") != 1:
+        raise SystemExit("v3 service: AppDelegate window property changed")
+    text = replace(text, "    var window: UIWindow?\n", "")
+    text = replace(text, "        self.window?.tintColor = .altPrimary\n", "")
+    obsolete_deep_link_constants = (
+        '    nonisolated static let importAppDeepLinkNotification = Notification.Name(Bundle.Info.appbundleIdentifier + ".ImportAppDeepLinkNotification")\n',
+        '    nonisolated static let addSourceDeepLinkNotification = Notification.Name(Bundle.Info.appbundleIdentifier + ".AddSourceDeepLinkNotification")\n',
+        '    nonisolated static let importAppDeepLinkURLKey = "fileURL"\n',
+        '    nonisolated static let addSourceDeepLinkURLKey = "sourceURL"\n',
+    )
+    for declaration in obsolete_deep_link_constants:
+        if text.count(declaration) != 1:
+            raise SystemExit("v3 service: obsolete install/source deep-link constants changed")
+        text = replace(text, declaration, "")
+    pending_property = '''    // Holds an imported .ipa URL when the app isn't active yet (cold launch),
+    // so the import notification can be posted once the app becomes active.
+    private var pendingImportIPAURL: URL?
+
+'''
+    if pending_property not in text:
+        raise SystemExit("v3 service: app pending-import property changed")
+    text = replace(text, pending_property, "")
+    text = replace_swift_function(text, "func applicationDidBecomeActive(", "",
+        "legacy IPA-import active callback")
+    if any(token in text for token in ("pendingImportIPAURL", "importAppDeepLinkNotification",
+            "importAppDeepLinkURLKey", "addSourceDeepLinkNotification", "addSourceDeepLinkURLKey")):
+        raise SystemExit("v3 service: legacy app IPA-import state remains")
+    return text
+
+
+def headless_scene_open(text):
+    marker = "V3_HEADLESS_SCENE_URLS_V1"
+    if marker in text:
+        if ("pendingImportIPAURL" in text or "uniqueTemporaryURL()" in text or
+                "importAppDeepLinkNotification" in text or "    var window: UIWindow?\n" in text):
+            raise SystemExit("v3 service: legacy scene file-import UI remains")
+        return text
+    if text.count("    var window: UIWindow?\n") != 1:
+        raise SystemExit("v3 service: SceneDelegate window property changed")
+    text = replace(text, "    var window: UIWindow?\n", "")
+    pending_property = '''    // Holds an imported .ipa URL when the scene isn't active yet (cold launch),
+    // so the import notification can be posted once the scene becomes active.
+    private var pendingImportIPAURL: URL?
+
+'''
+    if pending_property not in text:
+        raise SystemExit("v3 service: scene pending-import property changed")
+    text = replace(text, pending_property, "")
+    pending_flush = '''        // Flush any .ipa import that arrived before the scene was active (cold launch).
+        guard let url = self.pendingImportIPAURL else { return }
+        self.pendingImportIPAURL = nil
+        NotificationCenter.default.post(name: AppDelegate.importAppDeepLinkNotification, object: nil, userInfo: [AppDelegate.importAppDeepLinkURLKey: url])
+'''
+    if pending_flush not in text:
+        raise SystemExit("v3 service: scene pending-import flush changed")
+    text = replace(text, pending_flush, "")
+    signature = "    func open(_ context: UIOpenURLContext)"
+    replacement = '''    func open(_ context: UIOpenURLContext)
+    {
+        // ''' + marker + ''': only the backup-result callback remains service-owned.
+        guard !context.url.isFileURL else { return }
+        _ = URLHandler.shared.handle(context.url)
+    }'''
+    text = replace_swift_function(text, signature, replacement, "scene URL adapter")
+    text = replace_swift_function(text, "func exportPairingFile(", "", "legacy pairing export UI")
+    if "exportPairingFile" in text:
+        raise SystemExit("v3 service: legacy pairing export presenter remains")
+    return text
+
+
+def headless_url_handler(text):
+    marker = "V3_HEADLESS_EXTERNAL_CALLBACKS_V3"
+    expected = (TEMPLATES / "v3_headless_url_handler.swift").read_text(encoding="utf-8")
+    if marker in text:
+        if text != expected:
+            raise SystemExit("v3 service: backup-result URL handler drifted")
+        return text
+    return expected
 
 
 def headless_app_manager_ui(text):
@@ -622,7 +877,7 @@ def patch_sign_in_operation(text):
         "                if self.isCancelled || error is CancellationError || v3ClassifyAuthError(error) == nil {\n"
         "                    throw OperationError.cancelled\n"
         "                }\n"
-        "                self.debugLog(\"[SignInOperation] authenticationLoop: Attempt failed with error: \\(error)\")\n")
+        "                self.debugLog(\"[V3_AUTH] attempt_failed\")\n")
     text = replace(text,
         "                await handler.handleSignInResult(.failure(error))\n",
         "                await handler.handleSignInResult(.failure(error))\n"
@@ -701,8 +956,10 @@ def patch(live, side):
     def sidestore_app_delegate(s):
         s = headless_background_fetch(s)
         s = headless_app_intent_routing(s)
+        s = headless_app_open(s)
         return s + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + \
             (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8") + \
+            (TEMPLATES / "v3_secret_handoff.swift").read_text(encoding="utf-8") + \
             (TEMPLATES / "v3_ipa_staging.swift").read_text(encoding="utf-8") + \
             (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8") + \
             (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8")
@@ -721,6 +978,13 @@ def patch(live, side):
          patch_sign_in_operation)
     edit(side, "AltStore/Info.plist", headless_info)
     edit(side, "AltStore.xcodeproj/project.pbxproj", headless_project)
+    edit(side, "SideStore/Core/Logging/SideStoreLogging.swift", headless_safe_log_format)
+    edit(side, "AltStore/AppDelegate.swift",
+         lambda s: redact_external_url_logs(s, "AltStore/AppDelegate.swift"))
+    edit(side, "AltStore/SceneDelegate.swift",
+         lambda s: redact_external_url_logs(s, "AltStore/SceneDelegate.swift"))
+    edit(side, "SideStore/DeepLinks/URLHandler.swift",
+         lambda s: redact_external_url_logs(s, "SideStore/DeepLinks/URLHandler.swift"))
     def remove_starscream_pin(text):
         resolved = json.loads(text)
         pins = resolved.get("pins")
@@ -825,12 +1089,16 @@ def patch(live, side):
         // LC_REFRESH_HOST_V2'''))
     # A service-owned blank presenter replaces the legacy tab controller. Auth and
     # operation confirmation controllers render remotely within the host sheet.
-    edit(side, "AltStore/SceneDelegate.swift", lambda s: replace(s,
-        '        guard let _ = (scene as? UIWindowScene) else { return }',
-        '''        guard let windowScene = scene as? UIWindowScene else { return }
+    def scene_delegate(s):
+        s = replace(s,
+            '        guard let _ = (scene as? UIWindowScene) else { return }',
+            '''        guard let windowScene = scene as? UIWindowScene else { return }
         // V3_HEADLESS_SERVICE_V2: no window, tab bar, presenter, or visible UI
         // in a service scene. The process executes headless backend commands.
-        _ = windowScene'''))
+        _ = windowScene''')
+        return headless_scene_open(redact_external_url_logs(s, "AltStore/SceneDelegate.swift"))
+    edit(side, "AltStore/SceneDelegate.swift", scene_delegate)
+    edit(side, "SideStore/DeepLinks/URLHandler.swift", headless_url_handler)
 
     def delete_uninstall_evidence(s):
         marker = "V3_DELETE_NATIVE_SUCCESS_EVIDENCE_V1"

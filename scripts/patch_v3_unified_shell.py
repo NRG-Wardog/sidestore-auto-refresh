@@ -18,6 +18,7 @@ TEMPLATE = Path(__file__).with_name("templates") / "v3_unified_shell.swift"
 INTENT_TEMPLATE = Path(__file__).with_name("templates") / "v3_setup_intent.swift"
 BEHAVIOR_TEMPLATE = Path(__file__).with_name("templates") / "v3_behavioral_primitives.swift"
 IPA_STAGING_TEMPLATE = Path(__file__).with_name("templates") / "v3_ipa_staging.swift"
+SECRET_HANDOFF_TEMPLATE = Path(__file__).with_name("templates") / "v3_secret_handoff.swift"
 
 
 def die(message: str) -> None:
@@ -51,6 +52,7 @@ def patch_host(root: Path) -> None:
 
     shell = root / "LiveContainerSwiftUI/Views/V3UnifiedShell.swift"
     expected = (BEHAVIOR_TEMPLATE.read_text(encoding="utf-8") + "\n" +
+                SECRET_HANDOFF_TEMPLATE.read_text(encoding="utf-8") + "\n" +
                 IPA_STAGING_TEMPLATE.read_text(encoding="utf-8") + "\n" +
                 TEMPLATE.read_text(encoding="utf-8"))
     if shell.exists() and shell.read_text(encoding="utf-8") != expected:

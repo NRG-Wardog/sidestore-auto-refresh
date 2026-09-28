@@ -472,6 +472,20 @@ class V3AuthErrorTests(unittest.TestCase):
                           "jsonPayload", "pairing", "privateKey"):
             self.assertNotIn(forbidden, prompt_fn)
 
+    def test_account_repair_prompt_hands_off_only_a_safe_one_time_reference(self):
+        text = runtime()
+        start = text.index("func accountRepair(url: URL, message: String)")
+        end = text.index("func handleSignInResult", start)
+        repair = text[start:end]
+        self.assertIn("V3SecretHandoff.storeString(url.absoluteString)", repair)
+        self.assertIn("V3AuthRepairURLPolicy.promptField(urlToken: urlToken)", repair)
+        self.assertIn("message: V3AuthRepairURLPolicy.safeMessage", repair)
+        self.assertNotIn('"value": url.absoluteString', repair)
+        host = shell()
+        self.assertIn("V3SecretHandoff.consumeString(token)", host)
+        self.assertIn('field["key"] == "urlToken"', host)
+        self.assertIn("if let repairURL {", host)
+
     def test_no_automatic_retry(self):
         text = runtime()
         # The authentication loop belongs to upstream SignInOperation;

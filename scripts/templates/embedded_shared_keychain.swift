@@ -1,7 +1,8 @@
 // LC_EMBEDDED_SHARED_KEYCHAIN_V1. Only injected into the combined product.
 // Keep credentials in Keychain, never in UserDefaults, app-group files, or XPC.
 // Host and LiveProcess already share an App Group, but not necessarily their
-// DEFAULT keychain access group. Explicitly select the installed App Group.
+// DEFAULT keychain access group. Explicitly select an entitled common Keychain
+// group; the App Group container identifier is not a Keychain access group.
 
 // LC_SHARED_MIGRATION_POLICY_BEGIN
 struct LCLegacyKeychainItem {
@@ -80,13 +81,15 @@ fileprivate enum LCEmbeddedSharedKeychain {
     static func makeClient() -> KeychainAccess.Keychain {
         installedGroup = nil
         service = Bundle.Info.appbundleIdentifier
-        let group = Bundle.main.altstoreAppGroup
+        let appGroup = Bundle.main.altstoreAppGroup
+        let keychainGroup = try? V3SecretHandoff.sharedKeychainAccessGroup()
         // The normal identity hooks must already have run. Do not quietly
         // persist new credentials into an unshared, process-private namespace.
-        if service == "com.kdt.livecontainer", let group, !group.isEmpty {
-            installedGroup = group
-            debugLog("[LC_KEYCHAIN] SHARED_GROUP_SELECTED service=\(service) group=\(group)")
-            return KeychainAccess.Keychain(service: service, accessGroup: group)
+        if service == "com.kdt.livecontainer", let appGroup, !appGroup.isEmpty,
+           let keychainGroup, !keychainGroup.isEmpty {
+            installedGroup = keychainGroup
+            debugLog("[LC_KEYCHAIN] SHARED_GROUP_SELECTED service=\(service) keychain_group=livecontainer.shared")
+            return KeychainAccess.Keychain(service: service, accessGroup: keychainGroup)
                 .accessibility(.afterFirstUnlock).synchronizable(true)
         }
         note("configuration", status: -34018)
@@ -146,7 +149,15 @@ fileprivate enum LCEmbeddedSharedKeychain {
     static func read(_ key: String, client: KeychainAccess.Keychain) -> Data? {
         guard installedGroup != nil else { note(key, status: -34018); return nil }
         do {
-            let ready = try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.ready
+            var ready = try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.ready
+            if !ready && LCSharedKeychainMigration.authKeys.contains(key) {
+                // Initialization can happen while securityd is locked or the
+                // shared entitlement is temporarily unavailable. Retry migration
+                // on a later auth-key read instead of caching "not ready" for the
+                // lifetime of this Keychain client.
+                prepare(client)
+                ready = try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.ready
+            }
             if !ready && LCSharedKeychainMigration.authKeys.contains(key) {
                 note(key, status: -25300); return nil
             }
@@ -179,6 +190,27 @@ fileprivate enum LCEmbeddedSharedKeychain {
             }
             note(key, status: 0)
         } catch { note(key, status: (error as NSError).code) }
+    }
+
+    static func removeChecked(_ key: String, client: KeychainAccess.Keychain) throws {
+        guard installedGroup != nil else {
+            note(key, status: -34018)
+            throw NSError(domain: "com.SideStore.Keychain", code: -34018)
+        }
+        do {
+            if try client.getData(key) == nil {
+                note(key, status: 0)
+                return
+            }
+            try client.remove(key)
+            guard try client.getData(key) == nil else {
+                throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+            }
+            note(key, status: 0)
+        } catch {
+            note(key, status: (error as NSError).code)
+            throw error
+        }
     }
 
     static func clearAll(_ client: KeychainAccess.Keychain) {

@@ -47,7 +47,15 @@ def patch(root: Path) -> None:
                 try? self.keychain.remove("importedCert_" + serial)
             }''', '            LCEmbeddedSharedKeychain.write("importedCert_" + serial, data: newValue, client: self.keychain)')
         text = once(text, "        try? self.keychain.removeAll()", "        LCEmbeddedSharedKeychain.clearAll(self.keychain)")
-        text += "\n" + helper + "\nextension Keychain {\n    func embeddedAuthenticationFailure() -> NSError { LCEmbeddedSharedKeychain.authenticationFailure() }\n}\n"
+        text += "\n" + helper + """\nextension Keychain {
+    func clearSignInInfoChecked() throws {
+        for key in ["appleIDEmailAddress", "appleIDPassword", "appleIDAdsid", "appleIDXcodeToken"] {
+            try LCEmbeddedSharedKeychain.removeChecked(key, client: self.keychain)
+        }
+    }
+    func embeddedAuthenticationFailure() -> NSError { LCEmbeddedSharedKeychain.authenticationFailure() }
+}
+"""
     elif helper not in text:
         raise ValueError("outdated shared keychain patch: apply to clean pinned source")
     op = operation.read_text(encoding="utf-8")

@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from package_livecontainer_combined import (
     adapt,
     verify_host_intent_runtime_symbols,
+    verify_shared_secret_handoff_group,
     verify_side_store_intent_runtime_symbols,
 )
 
@@ -22,6 +23,12 @@ class CombinedPackagingTests(unittest.TestCase):
             b"16SideStoreSupport20RefreshAllAppsIntentV\x0016SideStoreSupport26RefreshAllAppsWidgetIntentV")
         with self.assertRaisesRegex(ValueError, "RefreshAllAppsWidgetIntent"):
             verify_host_intent_runtime_symbols(b"16SideStoreSupport20RefreshAllAppsIntentV")
+
+    def test_host_and_liveprocess_share_the_entitled_secret_handoff_keychain_group(self):
+        group = "AAAAA11111.com.kdt.livecontainer.shared"
+        self.assertEqual(verify_shared_secret_handoff_group([group], [group]), group)
+        with self.assertRaisesRegex(ValueError, "dedicated entitled Keychain group"):
+            verify_shared_secret_handoff_group(["group.com.SideStore.SideStore"], [group])
 
     def test_upstream_adapter_retains_transformations(self):
         script = '''brew install ldid

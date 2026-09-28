@@ -18,6 +18,14 @@ enum ServerError: Error {
     case underlyingError(Int, String)
 }
 
+enum SideSign {
+    enum AnisetteError: Error {
+        case noServersConfigured
+        case allServersFailed
+        case badServerResponse(statusCode: Int, payload: String)
+    }
+}
+
 @main
 struct AuthClassificationHarness {
     static func main() {
@@ -26,6 +34,10 @@ struct AuthClassificationHarness {
         precondition(v3ClassifyAuthError(DeveloperPortalError.incorrectVerificationCode) == .invalidCode)
         precondition(v3ClassifyAuthError(DeveloperPortalError.tooManyAttempts) == .rateLimited)
         precondition(v3ClassifyAuthError(DeveloperPortalError.invalidAnisetteData) == .anisette)
+        precondition(v3ClassifyAuthError(SideSign.AnisetteError.noServersConfigured) == .anisette)
+        precondition(v3ClassifyAuthError(SideSign.AnisetteError.allServersFailed) == .anisette)
+        precondition(v3ClassifyAuthError(SideSign.AnisetteError.badServerResponse(
+            statusCode: 503, payload: "PRIVATE_PROVIDER_BODY")) == .anisette)
         precondition(v3ClassifyAuthError(DeveloperPortalError.accountRepairRequired) == .accountRepairRequired)
         precondition(v3AuthFailureStage(.anisette) == .authentication,
             "Anisette failures retain the broad wire authentication stage")
@@ -40,6 +52,16 @@ struct AuthClassificationHarness {
             NSError(domain: "SideSignErrorDomain", code: 20),
             operation: "install", stage: .installation, id: id)
         precondition(provisioning.stage == .installation, "provisioning was mislabeled as authentication")
+
+        precondition(V3SignInFailureRoutingPolicy.shouldOpenSignIn(
+            stage: .authentication, safeCause: .invalidCredentials),
+            "an authentication failure should return the user to credentials")
+        precondition(!V3SignInFailureRoutingPolicy.shouldOpenSignIn(
+            stage: .authentication, safeCause: .keychainSignOutFailed),
+            "a failed sign-out must surface its error without reopening sign-in")
+        precondition(!V3SignInFailureRoutingPolicy.shouldOpenSignIn(
+            stage: .command, safeCause: nil),
+            "non-auth failures must not route to credentials")
 
         let validPPQ = CombinedFailure.capture(
             NSError(domain: "IdeviceGatewayError", code: 0,

@@ -1,5 +1,6 @@
 import Foundation
 import CoreFoundation
+import CryptoKit
 
 public struct V3AuthServiceSnapshot: Equatable {
     public let authenticated: Bool
@@ -114,28 +115,179 @@ enum V3WireContract {
               let deadline = request["deadline"] as? Date,
               deadline > now, deadline.timeIntervalSince(now) <= 610 else { return nil }
         if request["value"] != nil { return nil }
+        let emptyTargetOperations: Set<String> = [
+            "snapshot", "opStart", "accountExport", "ipaActiveTokens", "refreshSources", "signOut",
+            "syncAppIDs", "clearCache", "settingsGet", "settingsSet", "sidesignGet", "sidesignSet",
+            "sidesignReset", "sidesignExport", "anisetteList", "anisetteReset", "anisetteSync",
+            "healthSnapshot", "logTail", "certList", "certPortalList", "certCreate",
+            "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles"
+        ]
+        if emptyTargetOperations.contains(operation) && !target.isEmpty { return nil }
+        if ["authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning",
+            "opPoll", "opAnswer", "opCancel", "pairingImportData", "sidesignImport", "accountImport",
+            "refreshAdmissionBegin", "refreshAdmissionEnd", "cancel"].contains(operation),
+           !canonicalSecretToken(target) { return nil }
+        if operation == "ipaCleanup", !canonicalLowercaseFileToken(target) { return nil }
+        if ["sourcePreview", "sourceAddConfirmed"].contains(operation), !isHTTPURL(target) { return nil }
+        if operation == "backupResult", !["success", "failure"].contains(target) { return nil }
         if let cursor = request["cursor"] {
             guard operation == "catalog", let value = strictInt(cursor),
                   value >= 0, value <= 1_000_000 else { return nil }
         }
-        if let payload = request["payload"] {
-            guard payload as? [String: Any] != nil else { return nil }
-        }
-        if ["authBegin", "authRetryProvisioning"].contains(operation) {
-            guard let payload = request["payload"] as? [String: Any],
-                  let session = payload["session"] as? String,
-                  let parsedSession = UUID(uuidString: session), parsedSession.uuidString == session,
-                  session == target,
-                  let sessionDeadline = payload["sessionDeadline"] as? Date,
-                  sessionDeadline > now,
-                  sessionDeadline.timeIntervalSince(now) <= authSessionLifetime + 10 else { return nil }
-        }
-        if operation == "cancel" {
-            guard let payload = request["payload"] as? [String: Any],
-                  let scope = payload["scope"] as? String,
-                  cancellationScopes.contains(scope) else { return nil }
+        if let rawPayload = request["payload"] {
+            guard let payload = rawPayload as? [String: Any],
+                  acceptsPayload(operation: operation, target: target, payload: payload, now: now) else { return nil }
+        } else if requiredPayloadOperations.contains(operation) {
+            return nil
         }
         return request
+    }
+
+    // Apply the service's exact request schema before a host message can cross
+    // XPC. Decoding remains mandatory in the service; this outbound pass keeps
+    // raw secrets and unsupported fields from being transmitted at all.
+    static func encodeRequest(_ request: [String: Any], now: Date = Date()) -> Data? {
+        guard let data = try? PropertyListSerialization.data(
+                fromPropertyList: request, format: .binary, options: 0),
+              decodeRequest(data, now: now) != nil else { return nil }
+        return data
+    }
+
+    private static let requiredPayloadOperations: Set<String> = [
+        "authBegin", "authRetryProvisioning", "authRespond", "opAnswer", "opStart",
+        "cancel", "accountExport", "accountImport", "settingsSet", "sidesignSet"
+    ]
+
+    private static func acceptsPayload(operation: String, target: String,
+                                       payload: [String: Any], now: Date) -> Bool {
+        guard !containsRawSecretField(payload) else { return false }
+        switch operation {
+        case "snapshot":
+            return Set(payload.keys) == Set(["readinessOnly"]) &&
+                strictBool(payload["readinessOnly"]) == true
+        case "authBegin", "authRetryProvisioning":
+            guard Set(payload.keys) == Set(["session", "sessionDeadline"]),
+                  let session = payload["session"] as? String,
+                  canonicalSecretToken(session), session == target,
+                  let sessionDeadline = payload["sessionDeadline"] as? Date,
+                  sessionDeadline > now,
+                  sessionDeadline.timeIntervalSince(now) <= authSessionLifetime + 10 else { return false }
+            return true
+        case "cancel":
+            guard Set(payload.keys) == Set(["scope"]),
+                  let scope = payload["scope"] as? String else { return false }
+            return cancellationScopes.contains(scope)
+        case "authRespond", "opAnswer":
+            guard Set(payload.keys) == Set(["prompt", "secretToken"]),
+                  let prompt = payload["prompt"] as? String, !prompt.isEmpty, prompt.utf8.count <= 256,
+                  canonicalSecretToken(payload["secretToken"]) else { return false }
+            return true
+        case "accountExport":
+            guard Set(payload.keys) == Set(["secretToken", "includeApple"]),
+                  canonicalSecretToken(payload["secretToken"]),
+                  strictBool(payload["includeApple"]) != nil else { return false }
+            return true
+        case "accountImport":
+            return Set(payload.keys) == Set(["secretToken"]) && canonicalSecretToken(payload["secretToken"])
+        case "opStart":
+            guard Set(payload.keys) == Set(["kind", "target", "session"]),
+                  let kind = payload["kind"] as? String, !kind.isEmpty, kind.utf8.count <= 128,
+                  let operationTarget = payload["target"] as? String, operationTarget.utf8.count <= 4096,
+                  let session = payload["session"] as? String, canonicalSecretToken(session) else { return false }
+            return acceptsOperationTarget(kind: kind, target: operationTarget)
+        case "opCancel":
+            return Set(payload.keys) == Set(["knownStarted"]) &&
+                strictBool(payload["knownStarted"]) != nil
+        case "settingsSet":
+            guard let key = payload["key"] as? String, !key.isEmpty, key.utf8.count <= 256,
+                  let type = payload["type"] as? String else { return false }
+            switch type {
+            case "bool":
+                return Set(payload.keys) == Set(["key", "type", "bool"]) && strictBool(payload["bool"]) != nil
+            case "string":
+                guard Set(payload.keys) == Set(["key", "type", "string"]),
+                      let value = payload["string"] as? String else { return false }
+                return value.utf8.count <= 8192
+            case "int":
+                return Set(payload.keys) == Set(["key", "type", "int"]) && strictInt(payload["int"]) != nil
+            default: return false
+            }
+        case "sidesignSet":
+            return Set(payload.keys) == Set(["secretToken"]) &&
+                canonicalSecretToken(payload["secretToken"])
+        default:
+            // Every unlisted operation is payloadless. New payload-bearing
+            // commands must add an explicit schema before crossing XPC.
+            return false
+        }
+    }
+
+    private static func canonicalSecretToken(_ value: Any?) -> Bool {
+        guard let token = value as? String, let uuid = UUID(uuidString: token) else { return false }
+        return uuid.uuidString == token
+    }
+
+    private static func canonicalLowercaseFileToken(_ token: String) -> Bool {
+        guard token.utf8.count == 36, let uuid = UUID(uuidString: token) else { return false }
+        return uuid.uuidString.lowercased() == token
+    }
+
+    private static func acceptsOperationTarget(kind: String, target: String) -> Bool {
+        switch kind {
+        case "installSharedIPA":
+            return canonicalLowercaseFileToken(target)
+        case "installURL":
+            return isHTTPURL(target)
+        case "install", "update", "refreshApp", "activate", "deactivate",
+             "remove", "delete", "backup", "restore":
+            guard let components = URLComponents(string: target),
+                  components.scheme?.lowercased() == "x-coredata",
+                  let host = components.host, UUID(uuidString: host) != nil,
+                  components.user == nil, components.password == nil,
+                  components.port == nil, components.query == nil, components.fragment == nil else { return false }
+            let path = components.percentEncodedPath.split(separator: "/")
+            guard path.count == 2, ["InstalledApp", "StoreApp"].contains(String(path[0])),
+                  path[1].first == "p", Int(path[1].dropFirst()) != nil else { return false }
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isHTTPURL(_ value: String) -> Bool {
+        guard let components = URLComponents(string: value),
+              let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = components.host, !host.isEmpty,
+              components.user == nil, components.password == nil else { return false }
+        if let port = components.port, !(1...65535).contains(port) { return false }
+        return true
+    }
+
+    private static let sensitiveSecretFieldFragments: [String] = [
+        "appleid", "password", "passphrase", "answer", "verificationcode", "securitycode", "otp",
+        "privatekey", "p12", "credential", "auth", "accesstoken", "refreshtoken",
+        "authorization", "cookie", "dsid", "phoneid", "phonenumber", "secret", "token", "udid"
+    ]
+
+    private static func containsRawSecretField(_ value: Any) -> Bool {
+        var pending: [Any] = [value]
+        while let current = pending.popLast() {
+            if let dictionary = current as? [String: Any] {
+                for (key, nested) in dictionary {
+                    let normalized = key.lowercased().filter { $0.isLetter || $0.isNumber }
+                    // This UUID is a non-secret, one-time capability allowed
+                    // only by the exact schemas validated below.
+                    let opaqueHandoffToken = normalized == "secrettoken"
+                    if !opaqueHandoffToken && sensitiveSecretFieldFragments.contains(where: { normalized.contains($0) }) {
+                        return true
+                    }
+                    pending.append(nested)
+                }
+            } else if let array = current as? [Any] {
+                pending.append(contentsOf: array)
+            }
+        }
+        return false
     }
 
     // V3_PROPERTY_LIST_VALUE_V1
@@ -195,6 +347,21 @@ enum V3WireContract {
             }
             return false
         }
+    }
+}
+
+enum V3RequestReplayPolicy {
+    static func fingerprint(_ requestData: Data) -> Data {
+        Data(SHA256.hash(data: requestData))
+    }
+
+    static func matches(cachedFingerprint: Data?, incomingRequestData: Data) -> Bool {
+        guard let cachedFingerprint else { return false }
+        return cachedFingerprint == fingerprint(incomingRequestData)
+    }
+
+    static func matchesInFlight(cachedFingerprint: Data?, incomingRequestData: Data) -> Bool {
+        matches(cachedFingerprint: cachedFingerprint, incomingRequestData: incomingRequestData)
     }
 }
 
@@ -277,7 +444,8 @@ struct V3MutationReplyCacheBudget {
 
 enum V3ServiceReadinessReply: Equatable {
     case invalid
-    case failed(String)
+    case notReady
+    case failed(V3ServiceReadinessFailure)
     case ready
 
     static func decode(_ data: Data, requestID: String) -> V3ServiceReadinessReply {
@@ -285,9 +453,58 @@ enum V3ServiceReadinessReply: Equatable {
               let reply = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               V3WireContract.strictInt(reply["version"]) == 1,
               reply["id"] as? String == requestID else { return .invalid }
-        if let error = reply["error"] as? String { return .failed(error) }
+        // A structured failure is authoritative even when a malformed peer
+        // omits the legacy error token. Fail closed on success-shaped replies
+        // that also carry an invalid structured failure envelope.
+        if reply["error"] != nil || reply["failure"] != nil {
+            guard let envelope = reply["failure"] as? [String: Any],
+                  Set(envelope.keys).isSubset(of: Set(["version", "operation", "stage", "code", "correlationID",
+                      "underlyingDomain", "underlyingCode", "retryable", "safeCause", "sourceStep"])),
+                  V3WireContract.strictInt(envelope["version"]) == 1,
+                  envelope["correlationID"] as? String == requestID,
+                  let operation = envelope["operation"] as? String,
+                  let stage = envelope["stage"] as? String,
+                  let code = envelope["code"] as? String,
+                  let domain = envelope["underlyingDomain"] as? String,
+                  let underlyingCode = V3WireContract.strictInt(envelope["underlyingCode"]) else { return .invalid }
+            guard !operation.isEmpty, operation.utf8.count <= 64,
+                  !stage.isEmpty, stage.utf8.count <= 64,
+                  !code.isEmpty, code.utf8.count <= 64,
+                  domain.utf8.count <= 128 else { return .invalid }
+            let retryable: Bool?
+            if let raw = envelope["retryable"] {
+                guard let value = V3WireContract.strictBool(raw) else { return .invalid }
+                retryable = value
+            } else { retryable = nil }
+            guard envelope["safeCause"] == nil || envelope["safeCause"] as? String != nil,
+                  envelope["sourceStep"] == nil || envelope["sourceStep"] as? String != nil else { return .invalid }
+            guard ((envelope["safeCause"] as? String)?.utf8.count ?? 0) <= 128,
+                  ((envelope["sourceStep"] as? String)?.utf8.count ?? 0) <= 64 else { return .invalid }
+            let failure = V3ServiceReadinessFailure(operation: operation, stage: stage, code: code,
+                correlationID: requestID, underlyingDomain: domain, underlyingCode: underlyingCode,
+                safeCause: envelope["safeCause"] as? String, sourceStep: envelope["sourceStep"] as? String,
+                retryable: retryable)
+            if ["snapshot", "status"].contains(failure.operation) && failure.stage == "serviceReadiness" &&
+               failure.code == "notReady" && failure.retryable == true {
+                return .notReady
+            }
+            return .failed(failure)
+        }
         guard V3WireContract.strictBool(reply["ok"]) == true,
-              reply["result"] as? [String: Any] != nil else { return .invalid }
-        return .ready
+              let result = reply["result"] as? [String: Any],
+              let ready = V3WireContract.strictBool(result["ready"]) else { return .invalid }
+        return ready ? .ready : .notReady
     }
+}
+
+struct V3ServiceReadinessFailure: Equatable {
+    let operation: String
+    let stage: String
+    let code: String
+    let correlationID: String
+    let underlyingDomain: String
+    let underlyingCode: Int
+    let safeCause: String?
+    let sourceStep: String?
+    let retryable: Bool?
 }

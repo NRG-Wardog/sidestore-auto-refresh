@@ -15,6 +15,10 @@ TFA_SPEC = importlib.util.spec_from_file_location(
     "sidesign_typed_2fa_patch", ROOT / "scripts/patch_sidesign_2fa_state.py")
 tfa_patch = importlib.util.module_from_spec(TFA_SPEC)
 TFA_SPEC.loader.exec_module(tfa_patch)
+V3_SERVICE_SPEC = importlib.util.spec_from_file_location(
+    "v3_service_patch", ROOT / "scripts/patch_v3_service.py")
+v3_service_patch = importlib.util.module_from_spec(V3_SERVICE_SPEC)
+V3_SERVICE_SPEC.loader.exec_module(v3_service_patch)
 
 
 def pinned_source():
@@ -133,6 +137,9 @@ class SideSignPrivacyTests(unittest.TestCase):
                 destination = root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source / relative, destination)
+            logging_path = root / patch.SIDESTORE_LOGGING
+            logging_path.write_text(v3_service_patch.headless_safe_log_format(
+                logging_path.read_text(encoding="utf-8"), str(patch.SIDESTORE_LOGGING)), encoding="utf-8")
             patch.patch_sidestore_tree(root)
             first = {path.relative_to(root): path.read_bytes() for path in root.rglob("*.swift")}
             patch.patch_sidestore_tree(root)
@@ -174,6 +181,8 @@ struct OperationFixture: OperationLogging {}
         let operation = OperationFixture()
         operation.debugLog("[SignInOperation] authentication failed: SECRET_GRANDSlam_RESPONSE")
         operation.verboseLog("headers=SECRET_AUTHORIZATION_HEADER")
+        operation.debugLog("[PipelineRunner] started for: com.example.privateguest")
+        operation.verboseLog("bundleIdentifier=com.spotify.client")
         logOperationSummary(operation: "signIn", target: "fixture.app", status: "FAILED", elapsed: 0.1,
             error: NSError(domain: "SideSign", code: 20,
                 userInfo: [NSLocalizedDescriptionKey: "SECRET_RAW_ERROR_CAUSE_JSON_BODY"]))
@@ -192,6 +201,9 @@ struct OperationFixture: OperationLogging {}
             self.assertIn("SIDESTORE_LOG_PRIVACY_PASS", result.stdout)
             self.assertIn("SAFE_DIAGNOSTIC_MARKER", result.stdout)
             self.assertNotIn("SECRET_", result.stdout)
+            self.assertNotIn("com.example.privateguest", result.stdout)
+            self.assertNotIn("com.spotify.client", result.stdout)
+            self.assertNotIn("fixture.app", result.stdout)
 
     def test_actual_patched_logging_sink_never_evaluates_or_emits_values(self):
         source = pinned_source()

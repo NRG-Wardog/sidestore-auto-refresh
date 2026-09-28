@@ -171,26 +171,56 @@ def patch(live, side, product):
         var ready = false
         var pending = false
         var invalid = false
+        var terminalFailure: V3ServiceReadinessFailure?
         while true {
             try Task.checkCancellation()
             guard launchID == id else { throw CancellationError() }
             switch V3ServiceReadinessProbeState.resolve(
-                ready: ready, invalid: invalid, expired: Date() >= until) {
+                ready: ready, invalid: invalid, hasTerminalFailure: terminalFailure != nil,
+                expired: Date() >= until) {
             case .ready:
                 NSLog("[V3_SERVICE_START] SNAPSHOT_READY id=%@", id.uuidString)
                 return
             case .invalid:
                 NSLog("[V3_SERVICE_START] READINESS_INVALID_RESPONSE id=%@", id.uuidString)
                 throw CombinedFailure(operation: "connect", stage: .serviceReadiness, code: .invalidResponse, id: id.uuidString)
+            case .failed:
+                guard let failure = terminalFailure?.combinedFailure(
+                        id: refreshRunID ?? id.uuidString,
+                        operation: refreshRunID == nil ? nil : "refresh") else {
+                    throw CombinedFailure(operation: "connect", stage: .serviceReadiness,
+                        code: .invalidResponse, id: id.uuidString)
+                }
+                throw failure
             case .timedOut:
-                NSLog("[V3_SERVICE_START] READINESS_TIMEOUT id=%@", id.uuidString)
-                throw CombinedFailure(operation: "connect", stage: .serviceReadiness, code: .timedOut, id: id.uuidString, retryable: true)
+                switch await V3ServiceReadinessProbeState.recheckAfterYield(
+                    ready: { ready }, invalid: { invalid }, hasTerminalFailure: { terminalFailure != nil }) {
+                case .ready:
+                    NSLog("[V3_SERVICE_START] SNAPSHOT_READY id=%@", id.uuidString)
+                    return
+                case .invalid:
+                    NSLog("[V3_SERVICE_START] READINESS_INVALID_RESPONSE id=%@", id.uuidString)
+                    throw CombinedFailure(operation: "connect", stage: .serviceReadiness,
+                        code: .invalidResponse, id: id.uuidString)
+                case .failed:
+                    guard let failure = terminalFailure?.combinedFailure(
+                            id: refreshRunID ?? id.uuidString,
+                            operation: refreshRunID == nil ? nil : "refresh") else {
+                        throw CombinedFailure(operation: "connect", stage: .serviceReadiness,
+                            code: .invalidResponse, id: id.uuidString)
+                    }
+                    throw failure
+                case .pending, .timedOut:
+                    NSLog("[V3_SERVICE_START] READINESS_TIMEOUT id=%@", id.uuidString)
+                    throw CombinedFailure(operation: "connect", stage: .serviceReadiness,
+                        code: .timedOut, id: id.uuidString, retryable: true)
+                }
             case .pending:
                 break
             }
             if !pending, let client {
                 let requestID = UUID().uuidString
-                let message: [String: Any] = ["version": 1, "id": requestID, "operation": "snapshot", "target": "", "deadline": Date().addingTimeInterval(30)]
+                let message: [String: Any] = ["version": 1, "id": requestID, "operation": "snapshot", "target": "", "deadline": Date().addingTimeInterval(30), "payload": ["readinessOnly": true]]
                 let data = try PropertyListSerialization.data(fromPropertyList: message, format: .binary, options: 0)
                 pending = true
                 client.v3Execute(data) { response in
@@ -199,7 +229,8 @@ def patch(live, side, product):
                         pending = false
                         switch V3ServiceReadinessReply.decode(response, requestID: requestID) {
                         case .invalid: invalid = true
-                        case .failed(_): break
+                        case .notReady: break
+                        case .failed(let failure): terminalFailure = failure
                         case .ready: ready = true
                         }
                     }

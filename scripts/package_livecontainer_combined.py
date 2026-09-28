@@ -35,6 +35,17 @@ def verify_host_intent_runtime_symbols(executable):
         raise ValueError("SideStoreSupport is missing metadata-targeted App Intent wrappers: " + ", ".join(missing))
 
 
+def verify_shared_secret_handoff_group(host_groups, live_process_groups):
+    if not isinstance(host_groups, list) or not isinstance(live_process_groups, list):
+        raise ValueError("host and LiveProcess Keychain access groups are missing")
+    suffix = ".com.kdt.livecontainer.shared"
+    shared = [group for group in host_groups
+              if isinstance(group, str) and group.endswith(suffix) and group in live_process_groups]
+    if len(shared) != 1:
+        raise ValueError("host and LiveProcess must share the dedicated entitled Keychain group")
+    return shared[0]
+
+
 def replace_once(text, old, new):
     if text.count(old) != 1:
         raise ValueError(f'Upstream packaging anchor changed: {old}')
@@ -105,6 +116,10 @@ def verify(path, side_product=None):
     embedded = base + '/Frameworks/SideStoreApp.framework'
     assert bundles[embedded]['info']['CFBundleIdentifier'] == 'com.SideStore.SideStore', 'iLoader SideStoreLc recognition'
     assert bundles[embedded]['executable_present']
+    live_process_path = base + '/PlugIns/LiveProcess.appex'
+    shared_keychain_group = verify_shared_secret_handoff_group(
+        bundles[base]['signing']['xml_entitlements'].get('keychain-access-groups'),
+        bundles[live_process_path]['signing']['xml_entitlements'].get('keychain-access-groups'))
     import zipfile
     with zipfile.ZipFile(path) as archive:
         executable = archive.read(embedded + '/SideStore')
@@ -125,6 +140,8 @@ def verify(path, side_product=None):
         support_code = archive.read(base + '/Frameworks/SideStoreSupport.framework/SideStoreSupport')
         verify_host_intent_runtime_symbols(support_code)
         assert b'v3Execute:reply:' in support_code, 'XPC command endpoint missing'
+        assert b'com.kdt.livecontainer.v3-secret-handoff' in host_code, 'host secure secret handoff missing'
+        assert b'com.kdt.livecontainer.v3-secret-handoff' in executable, 'SideStore secure secret consumer missing'
         assert b'execute:reply:' in executable, 'SideStore command dispatcher missing'
         assert b'Import Pairing File' in host_code, 'Unified pairing setup missing'
         for code in (host_code, bootstrap_code):

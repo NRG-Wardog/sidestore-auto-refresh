@@ -155,7 +155,10 @@ enum V3SourceSubmissionPolicy {
     static func mayResubmit(retryable: Bool?, safeCause: String?,
                             failedInput: String?, currentInput: String) -> Bool {
         guard failedInput == currentInput else { return true }
-        if retryable == false { return false }
+        if retryable == false {
+            return [CombinedFailure.SafeCause.sourceInvalidManifest.rawValue,
+                    CombinedFailure.SafeCause.sourcePersistenceUnverified.rawValue].contains(safeCause ?? "")
+        }
         return ![CombinedFailure.SafeCause.responseEncodingFailed.rawValue,
                  CombinedFailure.SafeCause.responseTooLarge.rawValue].contains(safeCause ?? "")
     }
@@ -1873,6 +1876,17 @@ enum V3IssueAction: String, Equatable, CaseIterable {
     }
 }
 
+enum V3AnisetteFailureGuidance {
+    static func message(_ failure: CombinedFailure) -> String? {
+        guard failure.operation.lowercased().hasPrefix("anisette"),
+              failure.stage == .network ||
+                failure.safeCause == .networkConnectionLost ||
+                failure.safeCause == .networkTimedOut ||
+                failure.safeCause == .networkUnavailable else { return nil }
+        return "What happened: SideStore could not reach the configured Anisette server.\nWhat you can do: Check its address and your network, then try again. This does not show that LocalDevVPN is unavailable."
+    }
+}
+
 struct V3UserFacingIssue: Equatable {
     let title: String
     let severity: V3StatusSeverity
@@ -1890,10 +1904,16 @@ struct V3UserFacingIssue: Equatable {
     static func make(operation: String, stage: String, code: String,
                      safeCause: String?, sourceStep: String?, retryable: Bool?,
                      whatHappened: String, whatToDo: String, technicalDetails: String) -> V3UserFacingIssue {
+        let anisetteNetworkFailure = operation.lowercased().hasPrefix("anisette") &&
+            [CombinedFailure.SafeCause.networkConnectionLost.rawValue,
+             CombinedFailure.SafeCause.networkTimedOut.rawValue,
+             CombinedFailure.SafeCause.networkUnavailable.rawValue].contains(safeCause ?? "")
         let destination: String? = {
+            if anisetteNetworkFailure { return nil }
             if safeCause == CombinedFailure.SafeCause.pairingRequired.rawValue ||
                safeCause == CombinedFailure.SafeCause.invalidPairingFile.rawValue { return "pairing" }
             if safeCause == CombinedFailure.SafeCause.authResponseCapacityUnavailable.rawValue { return "signIn" }
+            if safeCause == CombinedFailure.SafeCause.keychainSignOutFailed.rawValue { return "signIn" }
             if safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue ||
                safeCause == CombinedFailure.SafeCause.sourceRemoveBusy.rawValue { return "sources" }
             if operation == "source" && stage == CombinedFailure.Stage.serviceReadiness.rawValue {
@@ -1981,7 +2001,9 @@ struct V3UserFacingIssue: Equatable {
             title: "SideStore",
             severity: .failed,
             whatHappened: whatHappened,
-            whatToDo: whatToDo,
+            whatToDo: anisetteNetworkFailure
+                ? "Check the configured Anisette server and your network, then try again."
+                : whatToDo,
             technicalDetails: technicalDetails,
             primaryAction: primary,
             secondaryAction: .dismiss,
@@ -2365,6 +2387,27 @@ enum V3JITLessCompletionPolicy {
     static func isRequired(osMajor: Int) -> Bool { osMajor >= 26 }
 }
 
+enum V3SetupFactObservationPolicy {
+    static let maximumAge: TimeInterval = 5 * 60
+
+    static func shouldObserve(connected: Bool, setupPresented: Bool,
+                              operationPresented: Bool, loading: Bool,
+                              returnToSetupPending: Bool, lastAttemptAt: Date?,
+                              now: Date = Date()) -> Bool {
+        guard connected, !setupPresented, !operationPresented, !loading,
+              !returnToSetupPending else { return false }
+        guard let lastAttemptAt else { return true }
+        guard lastAttemptAt <= now else { return false }
+        return now.timeIntervalSince(lastAttemptAt) >= maximumAge
+    }
+}
+
+enum V3SetupFactRevisionPolicy {
+    static func mayApply(captured: UInt64, current: UInt64) -> Bool {
+        captured == current
+    }
+}
+
 enum V3RetryDisposition: Equatable {
     case allowed
     case unknown
@@ -2423,7 +2466,7 @@ struct V3RefreshPrerequisite: Equatable {
     let kind: V3RefreshPrerequisiteKind?
     let detail: String
 
-    static let pairingRequiredDetail = "No pairing file yet"
+    static let pairingRequiredDetail = "A valid pairing file is required before device refresh."
 
     private init(state: V3RefreshPrerequisiteState, kind: V3RefreshPrerequisiteKind?, detail: String) {
         self.state = state
@@ -2439,9 +2482,17 @@ struct V3RefreshPrerequisite: Equatable {
     static func evaluate(pairingStatus: String?) -> V3RefreshPrerequisite {
         switch pairingStatus {
         case "Pairing file available": return .satisfied
-        case "Pairing file required": return .pairingRequired
+        case "Pairing file required", "Pairing file invalid": return .pairingRequired
         default: return .unknown
         }
+    }
+
+    /// A cached pairing string is authoritative only while its snapshot is
+    /// connected. After a failed snapshot, preserve the value for diagnostics
+    /// but treat it as unknown for admission so stale state cannot block a run.
+    static func evaluate(statusConnected: Bool, pairingStatus: String?) -> V3RefreshPrerequisite {
+        guard statusConnected else { return .unknown }
+        return evaluate(pairingStatus: pairingStatus)
     }
 
     var blocksRefresh: Bool { state == .unsatisfied }
@@ -2460,6 +2511,17 @@ struct V3RefreshPrerequisite: Equatable {
         guard kind == .pairing else { return nil }
         return CombinedFailure(operation: "refresh", stage: .pairing, code: .notReady,
                                id: correlationID, retryable: false, safeCause: .pairingRequired)
+    }
+}
+
+enum V3PairingPresentationPolicy {
+    static func state(statusConnected: Bool, pairingStatus: String?) -> V3RefreshPrerequisiteState {
+        V3RefreshPrerequisite.evaluate(statusConnected: statusConnected,
+            pairingStatus: pairingStatus).state
+    }
+
+    static func isConfirmed(statusConnected: Bool, pairingStatus: String?) -> Bool {
+        state(statusConnected: statusConnected, pairingStatus: pairingStatus) == .satisfied
     }
 }
 
@@ -2930,6 +2992,10 @@ struct V3AuthSessionOwnership {
             let oldest = deadlines.sorted { $0.value < $1.value }
             for (id, _) in oldest.prefix(deadlines.count - 256) { deadlines.removeValue(forKey: id) }
         }
+    }
+
+    static func isConfirmed(pairingStatus: String?) -> Bool {
+        evaluate(pairingStatus: pairingStatus).state == .satisfied
     }
 
     mutating func observe(operation: String, sessionID: String, replySessionID: String?,
@@ -3413,9 +3479,20 @@ enum V3RefreshIntentStartPolicy {
     }
 }
 
+enum V3ServiceReadinessRetryPolicy {
+    static func retryable(operation: String, stage: CombinedFailure.Stage,
+                          code: CombinedFailure.Code, typedNotReady: Bool) -> Bool? {
+        guard typedNotReady, operation == "snapshot", stage == .serviceReadiness,
+              code == .notReady else { return nil }
+        return true
+    }
+}
+
 enum V3PairingImportFailurePolicy {
     static func shouldOfferFileRetry(operation: String, stage: String, safeCause: String?) -> Bool {
-        operation == "pairingImportData" && stage == "pairing" && safeCause == "invalidPairingFile"
+        operation == "pairingImportData" &&
+            ((stage == "pairing" && safeCause == "invalidPairingFile") ||
+             (stage == "filePreparation" && safeCause == "pairingFilePreparationFailed"))
     }
 }
 
@@ -3621,6 +3698,13 @@ enum V3AuthFailureDiagnosticsPolicy {
     }
 }
 
+enum V3SignInFailureRoutingPolicy {
+    static func shouldOpenSignIn(stage: CombinedFailure.Stage,
+                                 safeCause: CombinedFailure.SafeCause?) -> Bool {
+        stage == .authentication && safeCause != .keychainSignOutFailed
+    }
+}
+
 enum V3AuthTerminalFailureAction: Equatable {
     case beginNewSignIn(title: String)
     case repairAppleAccount
@@ -3675,6 +3759,13 @@ enum V3AuthTerminalFailureActionPolicy {
 }
 
 enum V3AuthRepairURLPolicy {
+    static let safeMessage = "Apple needs account attention before sign-in can continue."
+
+    static func promptField(urlToken: String) -> [String: String] {
+        ["key": "urlToken", "label": "Open Apple Account Repair",
+         "secure": "false", "value": urlToken]
+    }
+
     static func openableURL(_ rawValue: String) -> URL? {
         guard rawValue.count <= 2_048,
               let components = URLComponents(string: rawValue),

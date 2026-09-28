@@ -268,7 +268,8 @@ struct LCEmbeddedSideStoreRefreshView: View {
     // inherited environment) is treated as unknown, which never blocks.
     private var manualRefreshBlocked: Bool {
         guard let status = v3Status else { return false }
-        return V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).blocksRefresh
+        return V3PairingPresentationPolicy.state(
+            statusConnected: status.connected, pairingStatus: status.pairing) == .unsatisfied
     }
 
     private func notifyManualRefresh() {

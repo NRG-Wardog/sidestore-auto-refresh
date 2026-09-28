@@ -116,12 +116,49 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         self.compile_and_run(failure + "\n" + helper + "\n" + harness,
                              "V3_PAIRING_IMPORT_RECOVERY_PASS")
 
+    def test_pinned_minimuxer_parser_rejects_unrelated_pairing_plists(self):
+        side = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        source = Path(side) if side else ROOT / ".audit/v3-side-upstream"
+        if not source.is_dir():
+            self.skipTest("pinned SideStore source is supplied by macOS CI")
+        revision = subprocess.check_output(
+            ["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+        self.assertEqual(revision, "ff25922e5c13ccfafd83bda5092910d848ebd409")
+        common = source / "Dependencies/minimuxer/Common"
+        compiler = SWIFTC
+        if not compiler:
+            self.skipTest("Swift compiler unavailable; pinned pairing parser runs in macOS CI")
+        harness = (ROOT / "tests/fixtures/v3_pinned_pairing_parser_harness.swift").read_text(encoding="utf-8")
+        program = ((common / "PairingProtocol.swift").read_text(encoding="utf-8") + "\n" +
+                   (common / "PairingFile.swift").read_text(encoding="utf-8") + "\n" + harness)
+        with tempfile.TemporaryDirectory() as temporary:
+            main = Path(temporary) / "main.swift"
+            executable = Path(temporary) / "pairing-parser"
+            main.write_text(program, encoding="utf-8")
+            compiled = subprocess.run([compiler, "-parse-as-library", str(main), "-o", str(executable)],
+                                      capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_PINNED_PAIRING_PARSER_PASS", result.stdout)
+
     def test_service_readiness_backoff_is_bounded_and_ready_wins_deadline(self):
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
         helper = handler[:handler.index("@MainActor\nclass RefreshHandler")]
         harness = (ROOT / "tests/fixtures/v3_service_readiness_policy_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run("import Foundation\n" + helper + "\n" + harness,
+        self.compile_and_run("import Foundation\n" + failure + "\n" + wire + "\n" + helper + "\n" + harness,
                              "V3_SERVICE_READINESS_POLICY_PASS")
+
+    def test_secret_handoff_keeps_credentials_codes_and_backup_passwords_out_of_plists(self):
+        template = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
+        record = template[template.index("enum V3SecretHandoffRecord {"):template.index("\nenum V3SecretHandoff {")]
+        shared_file = template[template.index("enum V3SharedFileRecord {"):template.index("\nenum V3SecretHandoff {")]
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_secret_handoff_wire_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run("import Foundation\n" + wire + "\n" + record + "\n" + shared_file + "\n" + harness,
+                             "V3_SECRET_HANDOFF_WIRE_PASS")
 
     def test_service_admission_retains_active_backend_operation_ownership(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
@@ -243,8 +280,9 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         end = runtime.index("// MARK: - Provisioning failure guidance", begin)
         classifier = runtime[begin:end]
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_auth_classification_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run("import Foundation\n" + failure + "\n" + classifier + "\n" + harness,
+        self.compile_and_run("import Foundation\n" + failure + "\n" + classifier + "\n" + helper + "\n" + harness,
                              "V3_AUTH_AND_PPQ_CLASSIFICATION_PASS")
 
     def test_catalog_response_plist_round_trip_and_encoding_classification_execute(self):
@@ -257,6 +295,17 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         harness = (ROOT / "tests/fixtures/v3_catalog_response_encoding_harness.swift").read_text(encoding="utf-8")
         self.compile_and_run("import Foundation\n" + wire + "\n" + failure + "\n" + helper + "\n" + harness,
                              "V3_CATALOG_RESPONSE_ENCODING_PASS")
+
+    def test_malformed_structured_failure_never_falls_back_to_legacy_error_token(self):
+        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        start = bridge.index("enum V3CatalogRequestContext {")
+        end = bridge.index("// V3_HOST_COMMAND_BRIDGE_V1", start)
+        context = bridge[start:end]
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        harness = (ROOT / "tests/fixtures/v3_malformed_structured_failure_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run(failure + "\n" + wire + "\n" + context + "\n" + harness,
+                             "V3_MALFORMED_STRUCTURED_FAILURE_PASS")
 
     def test_setup_completion_status_issue_routing_and_jitless_execute(self):
         # V3_SETUP_COMPLETION_POLICY_V1, V3_RELOAD_STATUS_VISIBILITY_V1,

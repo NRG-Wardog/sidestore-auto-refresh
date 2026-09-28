@@ -52,7 +52,7 @@ class RefreshClassificationTests(unittest.TestCase):
         self.assertLess(body.index("V3RefreshPrerequisite.evaluate"),
                         body.index("NotificationCenter.default.post"))
         # The pairing identity is minted once, in the shared policy.
-        self.assertIn('case "Pairing file required": return .pairingRequired', primitives)
+        self.assertIn('case "Pairing file required", "Pairing file invalid": return .pairingRequired', primitives)
         self.assertIn("safeCause: .pairingRequired", primitives)
         self.assertNotIn("safeCause: .pairingRequired", body)
         # The snapshot string is never re-interpreted at a call site.

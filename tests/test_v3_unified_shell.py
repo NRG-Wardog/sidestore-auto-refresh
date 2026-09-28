@@ -530,7 +530,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         self.assertIn("completionInputs(status: status, defaults: defaults).isComplete", home)
         for required in ("accountComplete: !status.needsSignIn",
                          "provisioningIncomplete: status.provisioningIncomplete",
-                         "pairingSatisfied: !V3RefreshPrerequisite.evaluate",
+                         "pairingSatisfied: V3PairingPresentationPolicy.isConfirmed",
                          "networkComplete: status.wifiAvailable == true",
                          "tunnelComplete: LiveContainerNetworkPreflight.hasTunnelInterface()",
                          "backgroundRefreshAvailable: UIApplication.shared.backgroundRefreshStatus == .available",

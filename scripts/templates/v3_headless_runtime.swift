@@ -274,6 +274,11 @@ func v3ClassifyAuthError(_ error: Error) -> V3AuthFailureKind? {
         default: return .unknown
         }
     }
+    // SideSign's own AnisetteProvider can throw AnisetteError directly before
+    // DeveloperPortalError exists (for example, when no servers are configured
+    // or every provider fails). Preserve that typed infrastructure category and
+    // never forward its associated response/path text.
+    if error is SideSign.AnisetteError { return .anisette }
     if let server = error as? ServerError {
         switch server {
         case .badServerResponse, .invalidResponseFormat, .missingKey:
@@ -1032,9 +1037,17 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
     }
 
     func accountRepair(url: URL, message: String) async -> AccountRepairDecision {
+        _ = message // Provider text may contain account-specific content; never send it to the host.
+        let fields: [[String: String]]
+        if let urlToken = try? V3SecretHandoff.storeString(url.absoluteString) {
+            fields = [V3AuthRepairURLPolicy.promptField(urlToken: urlToken)]
+        } else {
+            fields = []
+        }
         do {
-            let answer = try await ask(kind: "accountRepair", title: "Account Attention Needed", message: message,
-                                       fields: [["key": "url", "label": "Details", "secure": "false", "value": url.absoluteString]],
+            let answer = try await ask(kind: "accountRepair", title: "Account Attention Needed",
+                                       message: V3AuthRepairURLPolicy.safeMessage,
+                                       fields: fields,
                                        options: [["id": "proceed", "label": "Continue"], ["id": "cancel", "label": "Cancel"]])
             return answer["choice"] == "proceed" ? .proceed : .cancel
         } catch { return .cancel }
@@ -2342,18 +2355,32 @@ enum V3BackendCommands {
     }
 
     static func pairingImportData(token: String) throws {
-        guard UUID(uuidString: token) != nil, let group = Bundle.main.altstoreAppGroup,
-              let defaults = UserDefaults(suiteName: group),
-              let data = defaults.data(forKey: "V3SharedFile." + token) else {
-            throw V3SideStoreServiceError.invalidRequest
-        }
-        defaults.removeObject(forKey: "V3SharedFile." + token)
+        let data = try consumeSharedFile(token: token, purpose: "pairing")
         guard let contents = String(data: data, encoding: .utf8), !contents.isEmpty,
-              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
-              (plist as? [String: Any]) != nil || (plist as? [Any]) != nil else {
-            throw OperationError.invalidPairingFile(reason: "not a readable pairing property list")
+              (try? PairingFileParser.parse(content: contents)) != nil else {
+            throw OperationError.invalidPairingFile(reason: "the pairing file is missing required device-pairing fields")
         }
         try PairingFileManager.shared.savePairingFile(contents: contents)
+    }
+
+    static func pairingFileStatus() -> String {
+        guard let contents = PairingFileManager.shared.fetchPairingFile(), !contents.isEmpty else {
+            return "Pairing file required"
+        }
+        guard (try? PairingFileParser.parse(content: contents)) != nil else {
+            return "Pairing file invalid"
+        }
+        return "Pairing file available"
+    }
+
+    static func prepareSignOut() throws {
+        do {
+            try Keychain.shared.clearSignInInfoChecked()
+        } catch {
+            throw CombinedFailure(operation: "signOut", stage: .authentication,
+                code: .failed, id: UUID().uuidString, underlying: error, retryable: true,
+                safeCause: .keychainSignOutFailed)
+        }
     }
 
     static let boolSettings: Set<String> = ["isCellularRefreshEnabled", "isSideJITServerEnabled",
@@ -2412,14 +2439,22 @@ enum V3BackendCommands {
                             "hidden": $0.isHidden, "active": active.contains($0.address)] }
     }
 
-    static func sidesignJSON() async -> String {
+    static func sidesignJSON() async throws -> String {
         let config = await SideSignConfigManager.shared.loadConfig()
         guard let data = try? JSONEncoder().encode(config),
-              let text = String(data: data, encoding: .utf8) else { return "{}" }
+              let text = String(data: data, encoding: .utf8), text.utf8.count <= 8192 else {
+            throw V3SideStoreServiceError.invalidRequest
+        }
         return text
     }
 
-    static func sidesignSet(json: String) async throws {
+    static func sidesignConfigToken() async throws -> String {
+        let config = try await sidesignJSON()
+        return try V3SecretHandoff.storeString(config)
+    }
+
+    static func sidesignSet(token: String) async throws {
+        let json = try V3SecretHandoff.consumeString(token)
         guard let data = json.data(using: .utf8),
               let config = try? JSONDecoder().decode(SideSignHeaders.self, from: data) else {
             throw V3SideStoreServiceError.invalidRequest
@@ -2428,37 +2463,26 @@ enum V3BackendCommands {
     }
 
     static func sidesignImport(token: String) async throws {
-        guard UUID(uuidString: token) != nil, let group = Bundle.main.altstoreAppGroup,
-              let defaults = UserDefaults(suiteName: group),
-              let data = defaults.data(forKey: "V3SharedFile." + token) else {
-            throw V3SideStoreServiceError.invalidRequest
-        }
-        defaults.removeObject(forKey: "V3SharedFile." + token)
+        let data = try consumeSharedFile(token: token, purpose: "sidesign")
         guard let config = try? JSONDecoder().decode(SideSignHeaders.self, from: data) else {
             throw V3SideStoreServiceError.invalidRequest
         }
         await SideSignConfigManager.shared.saveConfig(config)
     }
 
-    static func sidesignExport() async -> String {
+    static func sidesignExportToken() async throws -> String {
         guard let data = await SideSignConfigManager.shared.exportConfigData(),
-              let text = String(data: data, encoding: .utf8) else { return "{}" }
-        return text
-    }
-
-    static func stagedFile(token: String) throws -> Data {
-        guard UUID(uuidString: token) != nil, let group = Bundle.main.altstoreAppGroup,
-              let defaults = UserDefaults(suiteName: group),
-              let data = defaults.data(forKey: "V3SharedFile." + token) else {
+              let text = String(data: data, encoding: .utf8), text.utf8.count <= 8192 else {
             throw V3SideStoreServiceError.invalidRequest
         }
-        return data
+        return try V3SecretHandoff.storeString(text)
     }
 
-    static func consumeStagedFile(token: String) throws -> Data {
-        let data = try stagedFile(token: token)
-        if let group = Bundle.main.altstoreAppGroup {
-            UserDefaults(suiteName: group)?.removeObject(forKey: "V3SharedFile." + token)
+    static func consumeSharedFile(token: String, purpose: String) throws -> Data {
+        guard let containerRoot = V3IPAStaging.sideStoreContainerRoot(),
+              let data = V3SharedFileRecord.consume(token, purpose: purpose,
+                containerRoot: containerRoot) else {
+            throw V3SideStoreServiceError.invalidRequest
         }
         return data
     }
@@ -2472,7 +2496,8 @@ enum V3BackendCommands {
         let start = size > UInt64(limit) ? size - UInt64(limit) : 0
         try? handle.seek(toOffset: start)
         let data = (try? handle.readToEnd()) ?? Data()
-        return ["tail": String(decoding: data, as: UTF8.self)]
+        let rawTail = String(decoding: data, as: UTF8.self)
+        return ["tail": formatLogMessage(rawTail)]
     }
 
     static func health() async -> [String: Any] {
@@ -2484,7 +2509,7 @@ enum V3BackendCommands {
         anisette["active"] = await AnisetteServersManager.shared.getActiveServerURLs()
         return ["account": account, "team": team?.name ?? "No active team",
                 "certificate": CertificateManager.shared.activeCertificate == nil ? "No active certificate" : "Active certificate available",
-                "pairing": PairingFileManager.shared.fetchPairingFile() == nil ? "Pairing file required" : "Pairing file available",
+                "pairing": pairingFileStatus(),
                 "anisette": anisette,
                 "sidesign": ["configured": SideSignConfigManager.shared.hasConfigFile()],
                 "service": ["ready": DatabaseManager.shared.isStarted],
@@ -2542,7 +2567,7 @@ enum V3BackendCommands {
     }
 
     static func accountImport(token: String, password: String) throws -> [String: Any] {
-        let data = try consumeStagedFile(token: token)
+        let data = try consumeSharedFile(token: token, purpose: "accountImport")
         let account = try ImportExport.importAccount(data, filePassword: password)
         return ["email": account.email]
     }

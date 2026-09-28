@@ -339,6 +339,8 @@ jobs:
             --provenance artifacts/debug-evidence/candidate-provenance.json \
             --product v3.0.3-rc \
             --side-source work/EmbeddedSideStore \
+            --builder-commit "$GITHUB_SHA" \
+            --build-run-url "https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --output artifacts/candidate-package-verification.json
 
       - name: Verify embedded CoreDevice transport executable

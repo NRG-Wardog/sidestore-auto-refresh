@@ -57,6 +57,7 @@ struct V3UnifiedTabs: View {
             await status.cleanupOrphanedStagedIPAs()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            if !status.setupPresented { status.invalidateSetupFacts() }
             status.reload(manual: false)
             routePendingSetup()
         }
@@ -66,6 +67,7 @@ struct V3UnifiedTabs: View {
             // reopened, so the assistant never recomputes JIT-Less from the
             // pre-import snapshot.
             Task {
+                status.invalidateSetupFacts()
                 await status.reloadAndWait()
                 if status.returnToSetupAfterJITLess {
                     status.returnToSetupAfterJITLess = false
@@ -585,7 +587,8 @@ struct V3RefreshAllButton: View {
         // V3_REFRESH_PREREQUISITE_POLICY_V1: shared policy, evaluated before the
         // mutation request is posted. A known-missing pairing file blocks here
         // instead of surfacing later as an unexplained refresh failure.
-        if let failure = V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing)
+        if let failure = V3RefreshPrerequisite.evaluate(statusConnected: status.connected,
+                pairingStatus: status.pairing)
             .failure(correlationID: newRequestID) {
             attempt.failBeforeStart(message: failure.safeMessage)
             terminalFailure = V3OperationFailureDetails(failure)
@@ -771,6 +774,18 @@ struct V3PromptAnswer {
 
 @MainActor
 final class V3SideStoreStatusStore: ObservableObject {
+    init() {
+        Task.detached(priority: .utility) {
+            V3SecretHandoff.cleanupExpiredItems()
+            V3SharedFileRecord.removeLegacyDefaultsRecords(LCUtils.appGroupUserDefault)
+        }
+        if let containerRoot = V3IPAStaging.sideStoreContainerRoot() {
+            Task.detached(priority: .utility) {
+                _ = V3SharedFileRecord.sweep(containerRoot: containerRoot)
+            }
+        }
+    }
+
     @Published private(set) var account = "Not available"
     @Published private(set) var signing = "Unknown"
     @Published private(set) var team = "Unknown"
@@ -789,8 +804,36 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var wifiAvailable: Bool?
 
     /// Records the authoritative Wi-Fi observation for the shared setup policy.
-    func recordWifiAvailability(_ available: Bool) {
+    private var setupFactRevision: UInt64 = 0
+
+    func beginSetupFactObservation() -> UInt64 {
+        setupFactRevision &+= 1
+        return setupFactRevision
+    }
+
+    var currentSetupFactRevision: UInt64 { setupFactRevision }
+
+    func isSetupFactRevisionCurrent(_ revision: UInt64) -> Bool {
+        V3SetupFactRevisionPolicy.mayApply(captured: revision, current: setupFactRevision)
+    }
+
+    func recordWifiAvailability(_ available: Bool, revision: UInt64? = nil) {
+        if let revision, !isSetupFactRevisionCurrent(revision) { return }
         wifiAvailable = available
+    }
+
+    func invalidateSetupFacts() {
+        setupFactRevision &+= 1
+        setupFactObservation = .pending
+        setupFactLastAttemptAt = nil
+        wifiAvailable = nil
+        jitlessReadiness = nil
+    }
+
+    func markSetupFactsObserved(revision: UInt64? = nil) {
+        if let revision, !isSetupFactRevisionCurrent(revision) { return }
+        setupFactObservation = .observed
+        setupFactLastAttemptAt = Date()
     }
 
     // V3_SHARED_JITLESS_FACT_V1: the last authoritative JIT-Less readiness.
@@ -801,7 +844,8 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var jitlessReadiness: V3JITLessReadiness?
 
     /// Publishes an observed JIT-Less readiness for every setup surface to share.
-    func recordJITLessReadiness(_ readiness: V3JITLessReadiness) {
+    func recordJITLessReadiness(_ readiness: V3JITLessReadiness, revision: UInt64? = nil) {
+        if let revision, !isSetupFactRevisionCurrent(revision) { return }
         jitlessReadiness = readiness
     }
 
@@ -809,8 +853,9 @@ final class V3SideStoreStatusStore: ObservableObject {
     // The two facts above were only ever observed by the Setup Assistant and by
     // Health. A user who opened neither left them nil, and nil is outstanding by
     // policy, so on a platform where JIT-Less is required the Home banner could
-    // never clear no matter how correct the underlying state was. The store now
-    // observes them itself, once, after its first authoritative snapshot.
+    // never clear no matter how correct the underlying state was. The store
+    // observes them after an authoritative snapshot and refreshes them on a
+    // bounded cadence or explicit lifecycle/certificate invalidation.
     //
     // The attempt is tri-state rather than a boolean so a failure cannot become
     // an unbounded retry loop against a service that is not answering, and so a
@@ -818,44 +863,62 @@ final class V3SideStoreStatusStore: ObservableObject {
     private enum SetupFactObservation: Equatable {
         /// Not attempted yet.
         case pending
-        /// Both facts are known.
+        /// Both facts have been observed for the current cache interval.
         case observed
-        /// Attempted and the service did not answer. Not retried automatically.
+        /// Attempted and the service did not answer. Retried only after the cache interval.
         case deferred
     }
     private var setupFactObservation: SetupFactObservation = .pending
+    private var setupFactLastAttemptAt: Date?
 
     /// Observes the shared setup facts once, when they are the only thing
     /// standing between the user and a cleared setup banner.
     private func observeSetupFactsIfNeeded() {
-        guard setupFactObservation == .pending, connected,
-              loadActivity == .idle, presentation == nil else { return }
-        // Where JIT-Less is not required and Wi-Fi is already known, there is
-        // nothing to learn.
-        guard jitlessReadiness == nil || wifiAvailable == nil else {
+        let osMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        guard V3SetupFactObservationPolicy.shouldObserve(
+            connected: connected, setupPresented: setupPresented,
+            operationPresented: presentation != nil, loading: loadActivity != .idle,
+            returnToSetupPending: returnToSetupAfterJITLess,
+            lastAttemptAt: setupFactLastAttemptAt) else { return }
+        // On legacy iOS, Wi-Fi is the only setup fact owned here. Do not call
+        // the certificate/OCSP health endpoint when JIT-Less is not required.
+        if !V3JITLessCompletionPolicy.isRequired(osMajor: osMajor), wifiAvailable != nil {
             setupFactObservation = .observed
+            setupFactLastAttemptAt = Date()
             return
         }
         setupFactObservation = .deferred
+        setupFactLastAttemptAt = Date()
         Task { await observeSetupFacts() }
     }
 
     private func observeSetupFacts() async {
+        let revision = beginSetupFactObservation()
         // Wi-Fi is a host-side fact, so it is probed here rather than asked of
         // the service. An unavailable answer is recorded as unavailable, not as
         // unknown, because the probe is the authority for it.
         let wifi = await LiveContainerNetworkPreflight.wifiAvailable()
-        recordWifiAvailability(wifi)
+        guard isSetupFactRevisionCurrent(revision) else { return }
+        recordWifiAvailability(wifi, revision: revision)
+        guard V3JITLessCompletionPolicy.isRequired(
+            osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion) else {
+            recordJITLessReadiness(.notRequired, revision: revision)
+            markSetupFactsObserved(revision: revision)
+            return
+        }
         do {
             let health = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
+            guard isSetupFactRevisionCurrent(revision) else { return }
             let certificate = health["certificateState"] as? [String: Any] ?? [:]
             let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificate)
-            recordJITLessReadiness(readiness.readiness)
-            setupFactObservation = .observed
+            guard isSetupFactRevisionCurrent(revision) else { return }
+            recordJITLessReadiness(readiness.readiness, revision: revision)
+            markSetupFactsObserved(revision: revision)
         } catch {
+            guard isSetupFactRevisionCurrent(revision) else { return }
             // Unobserved is published as unknown, so the item stays outstanding
             // rather than the banner claiming a certificate exists.
-            recordJITLessReadiness(.unknown)
+            recordJITLessReadiness(.unknown, revision: revision)
         }
     }
     @Published private(set) var updatedAt: Date?
@@ -1079,7 +1142,10 @@ final class V3SideStoreStatusStore: ObservableObject {
             // A deliberate reload is also a deliberate request to try the
             // shared setup facts again, so a previous service failure is not
             // permanent.
-            if setupFactObservation == .deferred { setupFactObservation = .pending }
+            if setupFactObservation == .deferred {
+                setupFactObservation = .pending
+                setupFactLastAttemptAt = nil
+            }
         }
         loadActivity = .snapshot
         loading = true
@@ -1115,8 +1181,8 @@ final class V3SideStoreStatusStore: ObservableObject {
                   installAttempt.attemptID?.uuidString ?? "none", installAttempt.phase.rawValue)
         }
         drainInstallPresentation(trigger: "snapshot_finished")
-        // V3_SETUP_FACT_OBSERVATION_V1: only once an authoritative snapshot has
-        // landed, so the observation is never made against a disconnected store.
+        // V3_SETUP_FACT_OBSERVATION_V1: only after an authoritative snapshot has
+        // landed, so observation never runs against a disconnected store.
         observeSetupFactsIfNeeded()
         return outcome
     }
@@ -1210,7 +1276,9 @@ final class V3SideStoreStatusStore: ObservableObject {
         }
     }
     private func needsSignIn(_ error: Error) -> Bool {
-        (error as? CombinedFailure)?.stage == .authentication
+        guard let failure = error as? CombinedFailure else { return false }
+        return V3SignInFailureRoutingPolicy.shouldOpenSignIn(
+            stage: failure.stage, safeCause: failure.safeCause)
     }
     private func failed(_ error: Error) {
         if needsSignIn(error) { signInPresented = true }
@@ -1257,14 +1325,27 @@ final class V3SideStoreStatusStore: ObservableObject {
     func syncAppIDs() { runMutation("syncAppIDs", successNotice: "App IDs synced.") }
     func clearCache() { runMutation("clearCache", successNotice: "Download cache cleared.") }
     func refreshSources() { runMutation("refreshSources", successNotice: "Sources updated.") }
-    func stageSharedFile(_ data: Data) -> String? {
+    func stageSharedFile(_ data: Data, purpose: String) async -> String? {
         guard !data.isEmpty, data.count <= 4_194_304 else {
             self.error = "The selected file is empty or too large to hand to the SideStore service."
             return nil
         }
-        let token = UUID().uuidString
-        LCUtils.appGroupUserDefault.set(data, forKey: "V3SharedFile." + token)
+        guard let containerRoot = V3IPAStaging.sideStoreContainerRoot() else {
+            self.error = "The SideStore shared file container is unavailable. Check Connection and try again."
+            return nil
+        }
+        let stagedToken = await Task.detached(priority: .utility) {
+            V3SharedFileRecord.stage(data, purpose: purpose, containerRoot: containerRoot)
+        }.value
+        guard let token = stagedToken else {
+            self.error = "Secure file staging is full or unavailable. Finish the pending import and try again."
+            return nil
+        }
         return token
+    }
+    func discardSharedFile(_ token: String) {
+        guard let containerRoot = V3IPAStaging.sideStoreContainerRoot() else { return }
+        V3SharedFileRecord.discard(token, containerRoot: containerRoot)
     }
     func beginInstallPicker() {
         NSLog("[V3_INSTALL_UI] tap")
@@ -2065,12 +2146,16 @@ struct V3SourcesView: View {
         removeCandidate = nil
         removeBusy = true
         notice = "Removing source..."
+        addSucceeded = false
         defer { removeBusy = false }
         do {
-            _ = try await V3ServiceBridge.shared.request(operation: "sourceRemoveConfirmed", target: id)
+            let result = try await V3ServiceBridge.shared.request(operation: "sourceRemoveConfirmed", target: id)
+            status.accept(result)
             notice = "Source removed."
-            status.reload()
-        } catch { status.present(error) }
+        } catch {
+            notice = ""
+            status.present(error)
+        }
     }
 }
 
@@ -2239,6 +2324,7 @@ struct V3CatalogView: View {
         loadInFlight = true
         defer { loadInFlight = false }
         loading = true
+        apps.removeAll(keepingCapacity: true)
         error = nil
         failure = nil
         defer { loading = false }
@@ -2586,7 +2672,8 @@ struct V3TargetedRefreshSection: View {
                 // same contract. A known-missing pairing file blocks the mutation
                 // and offers the same recovery action instead of starting a run
                 // that can only fail.
-                if V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).blocksTargetedRefresh {
+                if V3RefreshPrerequisite.evaluate(statusConnected: status.connected,
+                    pairingStatus: status.pairing).blocksTargetedRefresh {
                     Text("A pairing file is required before this device can be refreshed.")
                         .font(.footnote)
                     Text("Place or import a valid pairing file, then try again.")
@@ -2598,7 +2685,8 @@ struct V3TargetedRefreshSection: View {
                 } label: {
                     Label("Refresh " + app.name, systemImage: "arrow.clockwise")
                 }
-                .disabled(V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).blocksTargetedRefresh)
+                .disabled(V3RefreshPrerequisite.evaluate(statusConnected: status.connected,
+                    pairingStatus: status.pairing).blocksTargetedRefresh)
                 Button("Clear Selection") { status.refreshTarget = nil }
             }
         }
@@ -3227,8 +3315,10 @@ struct V3OperationSheet: View {
         guard !id.isEmpty, let session = attempt.sessionID else { return }
         let generation = attempt.generation
         do {
+            let secretToken = try V3SecretHandoff.storeStringDictionary(answer)
+            defer { V3SecretHandoff.discard(secretToken) }
             let reply = try await V3ServiceBridge.shared.request(operation: "opAnswer", target: session,
-                payload: ["prompt": id, "answer": answer])
+                payload: ["prompt": id, "secretToken": secretToken])
             guard attempt.matches(generation: generation, sessionID: session),
                   reply["session"] as? String == session else { return }
             if V3ServiceBridge.strictBool(reply["responsePending"]) == true {
@@ -3558,6 +3648,7 @@ struct V3PromptSection: View {
     @State private var fields: [String: String] = [:]
     @State private var selected: Set<String> = []
     @State private var copiedDetails = false
+    @State private var repairURL: URL?
     private var kind: String { prompt["kind"] as? String ?? "" }
     private var title: String { prompt["title"] as? String ?? "Input Needed" }
     private var message: String { prompt["message"] as? String ?? "" }
@@ -3644,8 +3735,17 @@ struct V3PromptSection: View {
             ForEach(fieldDefs, id: \.self) { field in
                 // The "technical" field is diagnostics-only output: it renders
                 // as selectable caption text below, never as an editable field.
-                if field["key"] == "step" || field["key"] == "mode" || field["key"] == "activeID" || field["key"] == "phoneID" || field["key"] == "url" || field["key"] == "serials" || field["key"] == "technical" {
-                    if let value = field["value"], !value.isEmpty, field["key"] == "url" {
+                if field["key"] == "step" || field["key"] == "mode" || field["key"] == "activeID" || field["key"] == "phoneID" || field["key"] == "url" || field["key"] == "urlToken" || field["key"] == "serials" || field["key"] == "technical" {
+                    if field["key"] == "urlToken" {
+                        if let repairURL {
+                            Link("Open Apple Account Repair", destination: repairURL)
+                                .font(.caption)
+                        } else {
+                            Text("Apple account repair link is unavailable.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    } else if let value = field["value"], !value.isEmpty, field["key"] == "url" {
                         if let repairURL = V3AuthRepairURLPolicy.openableURL(value) {
                             Link("Open Apple Account Repair", destination: repairURL)
                                 .font(.caption)
@@ -3734,8 +3834,12 @@ struct V3PromptSection: View {
         }
         .onAppear {
             loadFields()
+            Task { await loadRepairURL() }
         }
-        .onChange(of: prompt["id"] as? String ?? "") { _ in loadFields() }
+        .onChange(of: prompt["id"] as? String ?? "") { _ in
+            loadFields()
+            Task { await loadRepairURL() }
+        }
     }
     private func loadFields() {
         fields = [:]
@@ -3772,6 +3876,14 @@ struct V3PromptSection: View {
     }
     private func binding(_ key: String) -> Binding<String> {
         Binding(get: { fields[key] ?? "" }, set: { fields[key] = $0 })
+    }
+    private func loadRepairURL() async {
+        repairURL = nil
+        guard kind == "accountRepair",
+              let token = fieldDefs.first(where: { $0["key"] == "urlToken" })?["value"],
+              V3SecretHandoff.isValidToken(token),
+              let rawURL = try? V3SecretHandoff.consumeString(token) else { return }
+        repairURL = V3AuthRepairURLPolicy.openableURL(rawURL)
     }
     private func toggle(_ id: String) {
         if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
@@ -4924,8 +5036,10 @@ final class V3AuthStore: ObservableObject {
         }
         Task {
             do {
+                let secretToken = try V3SecretHandoff.storeStringDictionary(answer)
+                defer { V3SecretHandoff.discard(secretToken) }
                 let reply = try await V3ServiceBridge.shared.request(operation: "authRespond", target: session,
-                    payload: ["prompt": promptID, "answer": answer])
+                    payload: ["prompt": promptID, "secretToken": secretToken])
                 if V3ServiceBridge.strictBool(reply["responsePending"]) == true {
                     let replyRevision = V3ServiceBridge.strictInt(reply["revision"])
                     let replyPromptID = (reply["prompt"] as? [String: Any])?["id"] as? String
@@ -5500,6 +5614,7 @@ struct V3CertificatesView: View {
             defer { busy = "" }
             do {
                 _ = try await V3ServiceBridge.shared.request(operation: "certSetActive", target: serial)
+                status.invalidateSetupFacts()
                 status.reload()
                 await reload()
                 notice = "Active certificate updated."
@@ -5719,6 +5834,17 @@ struct V3PairingView: View {
                     }
                     .disabled(working)
                 }
+            } else if pairingState == .unknown {
+                Section("Pairing Status Unknown") {
+                    Text("LiveContainer could not confirm the pairing-file state. Reload status before treating setup as complete.")
+                        .font(.footnote).foregroundColor(.secondary)
+                    Button {
+                        recheck()
+                    } label: {
+                        Label("Re-check Pairing", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(working)
+                }
             } else {
                 Section("Pairing File Ready") {
                     Text("A valid pairing file is available. Re-check if you replace the file or reset the device.")
@@ -5773,10 +5899,16 @@ struct V3PairingView: View {
     // V3_REFRESH_PREREQUISITE_POLICY_V1: one interpretation, shared with every
     // refresh entry point.
     private var pairingMissing: Bool {
-        V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).blocksRefresh
+        pairingState == .unsatisfied
+    }
+
+    private var pairingState: V3RefreshPrerequisiteState {
+        V3PairingPresentationPolicy.state(statusConnected: status.connected, pairingStatus: status.pairing)
     }
 
     private func recheck() {
+        pairingFailure = nil
+        message = ""
         status.reload()
     }
 
@@ -5788,11 +5920,24 @@ struct V3PairingView: View {
         do {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            let data = try Data(contentsOf: url)
-            guard let token = status.stageSharedFile(data) else { return }
-            _ = try await V3ServiceBridge.shared.request(operation: "pairingImportData", target: token)
+            let data: Data
+            do {
+                data = try await V3SharedFileInput.readBoundedAsync(url)
+            } catch {
+                pairingFailure = CombinedFailure(operation: "pairingImportData", stage: .filePreparation,
+                    code: .fileAccess, id: UUID().uuidString, underlying: error,
+                    retryable: false, safeCause: .pairingFilePreparationFailed)
+                return
+            }
+            guard let token = await status.stageSharedFile(data, purpose: "pairing") else {
+                // stageSharedFile presents its own bounded capacity/preparation
+                // failure. Do not relabel that prerequisite as a bad pairing file.
+                return
+            }
+            defer { status.discardSharedFile(token) }
+            let result = try await V3ServiceBridge.shared.request(operation: "pairingImportData", target: token)
+            status.accept(result)
             message = ""
-            status.reload()
         } catch {
             if let failure = error as? CombinedFailure {
                 if V3PairingImportFailurePolicy.shouldOfferFileRetry(operation: failure.operation,
@@ -5860,26 +6005,28 @@ final class V3SettingsStore: ObservableObject {
         }
     }
     func setString(_ key: String, _ value: String) {
+        Task { await setStringAndWait(key, value) }
+    }
+    func setStringAndWait(_ key: String, _ value: String) async {
         let generation = writeGenerations.begin(key)
         strings[key] = value
-        Task {
-            do {
-                _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
-                    payload: ["key": key, "type": "string", "string": value])
-                if writeGenerations.isCurrent(generation, for: key) {
-                    confirmedStrings[key] = value
-                } else {
-                    _ = await reloadAuthoritative(key: key, type: "string", generation: writeGenerations.current(for: key))
-                }
-            } catch {
-                guard writeGenerations.isCurrent(generation, for: key) else { return }
-                let loaded = await reloadAuthoritative(key: key, type: "string", generation: generation)
-                if !loaded, writeGenerations.isCurrent(generation, for: key) {
-                    if let confirmed = confirmedStrings[key] { strings[key] = confirmed }
-                    else { strings.removeValue(forKey: key) }
-                }
-                message = V3FailureGuidance.message(error)
+        message = ""
+        do {
+            _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
+                payload: ["key": key, "type": "string", "string": value])
+            if writeGenerations.isCurrent(generation, for: key) {
+                confirmedStrings[key] = value
+            } else {
+                _ = await reloadAuthoritative(key: key, type: "string", generation: writeGenerations.current(for: key))
             }
+        } catch {
+            guard writeGenerations.isCurrent(generation, for: key) else { return }
+            let loaded = await reloadAuthoritative(key: key, type: "string", generation: generation)
+            if !loaded, writeGenerations.isCurrent(generation, for: key) {
+                if let confirmed = confirmedStrings[key] { strings[key] = confirmed }
+                else { strings.removeValue(forKey: key) }
+            }
+            message = V3FailureGuidance.message(error)
         }
     }
     func setInt(_ key: String, _ value: Int) {
@@ -6045,7 +6192,14 @@ struct V3AnisetteView: View {
                         Text(server.address).font(.caption).foregroundColor(.secondary).textSelection(.enabled)
                         if !server.active && !server.hidden {
                             Button("Use This Server") {
-                                store.setString("menuAnisetteURL", server.address)
+                                Task {
+                                    await store.setStringAndWait("menuAnisetteURL", server.address)
+                                    if !store.message.isEmpty {
+                                        message = store.message
+                                        return
+                                    }
+                                    await reload()
+                                }
                             }
                             .font(.caption)
                         }
@@ -6092,7 +6246,14 @@ struct V3AnisetteView: View {
             servers = (reply["servers"] as? [[String: Any]] ?? []).compactMap(V3AnisetteServerRow.init)
             message = ""
             notice = operation == "anisetteReset" ? "Anisette servers reset." : "Anisette servers synced."
-        } catch { message = V3FailureGuidance.message(error) }
+        } catch {
+            if let failure = error as? CombinedFailure,
+               let anisetteGuidance = V3AnisetteFailureGuidance.message(failure) {
+                message = anisetteGuidance
+            } else {
+                message = V3FailureGuidance.message(error)
+            }
+        }
     }
 }
 
@@ -6152,7 +6313,7 @@ struct V3SideSignView: View {
     private func reload() async {
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "sidesignGet")
-            config = reply["config"] as? String ?? "{}"
+            config = try consumeConfigToken(in: reply)
             message = ""
         } catch { message = V3FailureGuidance.message(error) }
     }
@@ -6161,8 +6322,11 @@ struct V3SideSignView: View {
         notice = ""
         defer { busy = false }
         do {
-            let reply = try await V3ServiceBridge.shared.request(operation: "sidesignSet", payload: ["config": config])
-            config = reply["config"] as? String ?? config
+            let secretToken = try V3SecretHandoff.storeString(config)
+            defer { V3SecretHandoff.discard(secretToken) }
+            let reply = try await V3ServiceBridge.shared.request(operation: "sidesignSet",
+                payload: ["secretToken": secretToken])
+            config = try consumeConfigToken(in: reply)
             message = ""
             notice = "Configuration saved."
         } catch { message = V3FailureGuidance.message(error) }
@@ -6173,7 +6337,7 @@ struct V3SideSignView: View {
         defer { busy = false }
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: operation)
-            config = reply["config"] as? String ?? config
+            config = try consumeConfigToken(in: reply)
             message = ""
             notice = "Configuration reset."
         } catch { message = V3FailureGuidance.message(error) }
@@ -6185,10 +6349,11 @@ struct V3SideSignView: View {
         do {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            let data = try Data(contentsOf: url)
-            guard let token = status.stageSharedFile(data) else { return }
+            let data = try await V3SharedFileInput.readBoundedAsync(url)
+            guard let token = await status.stageSharedFile(data, purpose: "sidesign") else { return }
+            defer { status.discardSharedFile(token) }
             let reply = try await V3ServiceBridge.shared.request(operation: "sidesignImport", target: token)
-            config = reply["config"] as? String ?? config
+            config = try consumeConfigToken(in: reply)
             message = ""
             notice = "Configuration imported."
         } catch { message = V3FailureGuidance.message(error) }
@@ -6199,11 +6364,17 @@ struct V3SideSignView: View {
         defer { exporting = false }
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "sidesignExport")
-            let text = reply["config"] as? String ?? "{}"
+            let text = try consumeConfigToken(in: reply)
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("sidesign-config.json")
             try text.write(to: url, atomically: true, encoding: .utf8)
             shareItems = [url]
         } catch { message = V3FailureGuidance.message(error) }
+    }
+
+    private func consumeConfigToken(in reply: [String: Any]) throws -> String {
+        guard let token = reply["secretToken"] as? String else { throw V3SecretHandoffError.malformed }
+        defer { V3SecretHandoff.discard(token) }
+        return try V3SecretHandoff.consumeString(token)
     }
 }
 
@@ -6443,10 +6614,15 @@ struct V3HealthView: View {
     private func reload() async {
         guard !checking else { return }
         checking = true
+        let factRevision = status.currentSetupFactRevision
         defer { checking = false }
+        rows.removeAll(keepingCapacity: true)
+        certRows.removeAll(keepingCapacity: true)
+        message = ""
         jitlessDetail = "Checking"
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
+            guard status.isSetupFactRevisionCurrent(factRevision) else { return }
             var result: [(String, String)] = []
             result.append(("Account", reply["account"] as? String ?? ""))
             result.append(("Team", reply["team"] as? String ?? ""))
@@ -6462,20 +6638,22 @@ struct V3HealthView: View {
             let certificateState = reply["certificateState"] as? [String: Any] ?? [:]
             activeCertificateAvailable = certificateState["active"] as? Bool == true
             let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificateState)
+            guard status.isSetupFactRevisionCurrent(factRevision) else { return }
             certRows = certComparison(service: certificateState,
                 hasImportedCopy: readiness.hasImportedCopy, localFacts: readiness.certificateFacts)
             jitlessReadiness = readiness.readiness
             jitlessDetail = readiness.detail
             // V3_SHARED_JITLESS_FACT_V1: Health is an observer of the same fact,
             // so visiting Health can also complete Home's outstanding item.
-            status.recordJITLessReadiness(readiness.readiness)
+            status.recordJITLessReadiness(readiness.readiness, revision: factRevision)
             message = ""
         } catch {
+            guard status.isSetupFactRevisionCurrent(factRevision) else { return }
             message = V3FailureGuidance.message(error)
             jitlessReadiness = .unknown
             jitlessDetail = "Could not check JIT-Less status"
             activeCertificateAvailable = false
-            status.recordJITLessReadiness(.unknown)
+            status.recordJITLessReadiness(.unknown, revision: factRevision)
         }
     }
 
@@ -6600,8 +6778,10 @@ struct V3BackupsView: View {
         exportBusy = true
         defer { exportBusy = false }
         do {
+            let secretToken = try V3SecretHandoff.storeString(exportPassword)
+            defer { V3SecretHandoff.discard(secretToken) }
             let reply = try await V3ServiceBridge.shared.request(operation: "accountExport",
-                payload: ["password": exportPassword, "includeApple": includeApple])
+                payload: ["secretToken": secretToken, "includeApple": includeApple])
             guard let encoded = reply["backup"] as? String,
                   let data = Data(base64Encoded: encoded) else {
                 throw NSError(domain: "V3Backups", code: 1,
@@ -6619,10 +6799,17 @@ struct V3BackupsView: View {
         do {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            let data = try Data(contentsOf: url)
-            guard let token = status.stageSharedFile(data) else { return }
+            let data = try await V3SharedFileInput.readBoundedAsync(url)
+            guard let token = await status.stageSharedFile(data, purpose: "accountImport") else { return }
+            defer { status.discardSharedFile(token) }
+            let secretToken: String
+            do { secretToken = try V3SecretHandoff.storeString(importPassword) }
+            catch {
+                throw error
+            }
+            defer { V3SecretHandoff.discard(secretToken) }
             let reply = try await V3ServiceBridge.shared.request(operation: "accountImport", target: token,
-                payload: ["password": importPassword])
+                payload: ["secretToken": secretToken])
             importedEmail = reply["email"] as? String ?? ""
             message = ""
             status.reload()
@@ -6766,6 +6953,8 @@ struct V3LogsView: View {
         guard !reloading else { return }
         reloading = true
         defer { reloading = false }
+        tail = ""
+        message = ""
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "logTail")
             tail = reply["tail"] as? String ?? ""
@@ -6919,6 +7108,7 @@ final class V3SetupStore: ObservableObject {
     @Published private(set) var statusProvisioningIncomplete = false
 
     func recalculate(status: V3SideStoreStatusStore) async {
+        let factRevision = status.beginSetupFactObservation()
         NSLog("[V3_SETUP] STATUS recalculating")
         // Recorded from the authoritative snapshot so the shared completion
         // policy sees the same provisioning fact Home sees.
@@ -6928,7 +7118,8 @@ final class V3SetupStore: ObservableObject {
         // Refresh, and targeted refresh. A known-missing pairing file is
         // "missing"; an unknown status stays unknown rather than being reported
         // as missing.
-        switch V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).state {
+        switch V3PairingPresentationPolicy.state(statusConnected: status.connected,
+            pairingStatus: status.pairing) {
         case .satisfied:
             pairing = V3SetupStepState(state: "complete", detail: "Pairing file available")
         case .unsatisfied:
@@ -6952,18 +7143,20 @@ final class V3SetupStore: ObservableObject {
         // disagree about whether JIT-Less applies on this iOS version.
         if !V3JITLessCompletionPolicy.isRequired(
             osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion) {
-            status.recordJITLessReadiness(.notRequired)
+            status.recordJITLessReadiness(.notRequired, revision: factRevision)
             jitless = V3SetupStepState(state: "complete", detail: "Not required on this iOS version")
         } else {
             do {
                 let health = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
+                guard status.isSetupFactRevisionCurrent(factRevision) else { return }
                 let certificate = health["certificateState"] as? [String: Any] ?? [:]
                 jitlessHasActiveCertificate = certificate["active"] as? Bool == true
                 let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificate)
+                guard status.isSetupFactRevisionCurrent(factRevision) else { return }
                 // V3_SHARED_JITLESS_FACT_V1: the published fact is the only
                 // authority. Nothing keeps a local copy, so no surface can hold
                 // a second answer to the same question.
-                status.recordJITLessReadiness(readiness.readiness)
+                status.recordJITLessReadiness(readiness.readiness, revision: factRevision)
                 // V3_JITLESS_PRESENTATION_V1: the step state is derived from the
                 // shared presentation, so a ready state is stored as complete
                 // rather than as a permanent "action required" row.
@@ -6979,18 +7172,21 @@ final class V3SetupStore: ObservableObject {
                     jitless = V3SetupStepState(state: "actionRequired", detail: presentation.title)
                 }
             } catch {
+                guard status.isSetupFactRevisionCurrent(factRevision) else { return }
                 jitlessHasActiveCertificate = false
                 // Not observed is published as unknown, so Home keeps the item
                 // outstanding instead of assuming a certificate exists.
-                status.recordJITLessReadiness(.unknown)
+                status.recordJITLessReadiness(.unknown, revision: factRevision)
                 jitless = V3SetupStepState(state: "warning", detail: "Could not verify JIT-Less certificate state")
             }
         }
         network = V3SetupStepState(state: "checking", detail: "Checking Wi-Fi…")
         let wifi = await LiveContainerNetworkPreflight.wifiAvailable()
+        guard status.isSetupFactRevisionCurrent(factRevision) else { return }
         // Published so the shared setup-completion policy and the Home banner
         // observe the same authoritative Wi-Fi fact instead of each deciding.
-        status.recordWifiAvailability(wifi)
+        status.recordWifiAvailability(wifi, revision: factRevision)
+        status.markSetupFactsObserved(revision: factRevision)
         if !wifi {
             network = V3SetupStepState(state: "failed", detail: "Wi-Fi unavailable")
             tunnel = V3SetupStepState(state: "unavailable", detail: "Needs Wi-Fi first")
@@ -7128,7 +7324,8 @@ final class V3SetupStore: ObservableObject {
         case .startNew:
             requestID = UUID().uuidString
             shouldPostRequest = true
-            if let failure = V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing)
+            if let failure = V3RefreshPrerequisite.evaluate(statusConnected: status.connected,
+                    pairingStatus: status.pairing)
                 .failure(correlationID: requestID) {
                 testRunning = false
                 testRequestID = nil
@@ -7371,7 +7568,8 @@ final class V3SetupStore: ObservableObject {
         var lines: [String] = ["Setup Assistant"]
         lines.append("Product: " + (Bundle.main.object(forInfoDictionaryKey: "LCProductLine") as? String ?? "unknown"))
         lines.append("iOS: " + UIDevice.current.systemVersion)
-        lines.append("Pairing: " + V3SetupStore.describePairing(V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).state))
+        lines.append("Pairing: " + V3SetupStore.describePairing(V3PairingPresentationPolicy.state(
+            statusConnected: status.connected, pairingStatus: status.pairing)))
         lines.append("Account: " + (status.needsSignIn ? "signed out" : "signed in"))
         lines.append("Team: " + status.team)
         lines.append("Wi-Fi: " + (network.state == "failed" ? "unavailable" : "available"))
@@ -7891,7 +8089,8 @@ private struct V3HomeView: View {
         return V3SetupCompletionInputs(
             accountComplete: !status.needsSignIn,
             provisioningIncomplete: status.provisioningIncomplete,
-            pairingSatisfied: !V3RefreshPrerequisite.evaluate(pairingStatus: status.pairing).blocksRefresh,
+            pairingSatisfied: V3PairingPresentationPolicy.isConfirmed(
+                statusConnected: status.connected, pairingStatus: status.pairing),
             // JIT-Less is only a prerequisite on the platforms that require it.
             jitlessRequired: V3JITLessCompletionPolicy.isRequired(
                 osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion),

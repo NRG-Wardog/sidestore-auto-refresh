@@ -3,12 +3,39 @@ enum V3ServiceReadinessProbeState: Equatable {
     case pending
     case ready
     case invalid
+    case failed
     case timedOut
 
-    static func resolve(ready: Bool, invalid: Bool, expired: Bool) -> V3ServiceReadinessProbeState {
+    static func resolve(ready: Bool, invalid: Bool, hasTerminalFailure: Bool,
+                        expired: Bool) -> V3ServiceReadinessProbeState {
         if ready { return .ready }
         if invalid { return .invalid }
+        if hasTerminalFailure { return .failed }
         return expired ? .timedOut : .pending
+    }
+
+    @MainActor
+    static func recheckAfterYield(ready: @MainActor () -> Bool,
+                                  invalid: @MainActor () -> Bool,
+                                  hasTerminalFailure: @MainActor () -> Bool) async -> V3ServiceReadinessProbeState {
+        await Task.yield()
+        return resolve(ready: ready(), invalid: invalid(),
+            hasTerminalFailure: hasTerminalFailure(), expired: true)
+    }
+}
+
+extension V3ServiceReadinessFailure {
+    func combinedFailure(id: String, operation overrideOperation: String? = nil) -> CombinedFailure {
+        guard let resolvedStage = CombinedFailure.Stage(rawValue: stage),
+              let resolvedCode = CombinedFailure.Code(rawValue: code) else {
+            return CombinedFailure(operation: "connect", stage: .serviceReadiness,
+                code: .invalidResponse, id: id)
+        }
+        let resolvedCause = safeCause.flatMap(CombinedFailure.SafeCause.init(rawValue:))
+        let resolvedStep = sourceStep.flatMap(CombinedFailure.SourceStep.init(rawValue:))
+        return CombinedFailure(operation: overrideOperation ?? operation, stage: resolvedStage, code: resolvedCode, id: id,
+            underlying: NSError(domain: underlyingDomain, code: underlyingCode), retryable: retryable,
+            safeCause: resolvedCause, sourceStep: resolvedStep)
     }
 }
 
@@ -228,6 +255,13 @@ class RefreshHandler: NSObject {
                                 schedulerRunID: String?) async throws {
         guard !identifier.isEmpty, !mangledName.isEmpty else {
             throw CombinedFailure(operation: "refresh", stage: .command, code: .invalidConfiguration, id: UUID().uuidString)
+        }
+        let previousRefreshRunID = refreshRunID
+        refreshRunID = schedulerRunID
+        defer {
+            if refreshContinuation == nil, refreshRunID == schedulerRunID {
+                refreshRunID = previousRefreshRunID
+            }
         }
         let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
         guard let sharedDefaults = defaults else {

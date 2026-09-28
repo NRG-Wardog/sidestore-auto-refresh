@@ -128,8 +128,9 @@ def patch_sidestore_tree(root: Path) -> None:
         "    func debugLog(_ text: @autoclosure () -> String) {",
         r'''    func debugLog(_ text: @autoclosure () -> String) {
         // SIDESTORE_TRANSITIVE_ERROR_LOG_PRIVACY_V1
-        let message = text()
-        guard !shouldOmitUserCopyableSideStoreLog(message) else { return }
+        let rawMessage = text()
+        guard !shouldOmitUserCopyableSideStoreLog(rawMessage) else { return }
+        let message = formatLogMessage(rawMessage)
         if !message.isEmpty && message.allSatisfy({ $0 == "\n" || $0 == "\r" }) {
             print(message, terminator: "")
         } else {
@@ -143,8 +144,9 @@ def patch_sidestore_tree(root: Path) -> None:
         "    func verboseLog(_ text: @autoclosure () -> String) {",
         r'''    func verboseLog(_ text: @autoclosure () -> String) {
         guard OperationsLoggingControl.isLoggingEnabled(for: type(of: self)) else { return }
-        let message = text()
-        guard !shouldOmitUserCopyableSideStoreLog(message) else { return }
+        let rawMessage = text()
+        guard !shouldOmitUserCopyableSideStoreLog(rawMessage) else { return }
+        let message = formatLogMessage(rawMessage)
         if !message.isEmpty && message.allSatisfy({ $0 == "\n" || $0 == "\r" }) {
             print(message, terminator: "")
         } else {
@@ -176,8 +178,10 @@ def verify_sidestore_tree(root: Path) -> None:
             raise SystemExit("SideStore privacy marker is missing")
     if "shouldOmitUserCopyableSideStoreLog(rawMessage)" not in side_text:
         raise SystemExit("SideStore debug/verbose log sink bypasses privacy filter")
-    if operation_text.count("shouldOmitUserCopyableSideStoreLog(message)") != 2:
+    if operation_text.count("shouldOmitUserCopyableSideStoreLog(rawMessage)") != 2:
         raise SystemExit("Operation log sinks bypass privacy filter")
+    if operation_text.count("formatLogMessage(rawMessage)") != 2:
+        raise SystemExit("Operation log sinks bypass source-level value redaction")
     if "error.localizedDescription" in operation_text:
         raise SystemExit("operation summary still copies raw error descriptions")
 

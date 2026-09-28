@@ -88,8 +88,14 @@ enum V3CatalogRequestContext {
             // defect it did not prove.
             throw CombinedFailure(operation: operation, stage: .command, code: .staleResult, id: id)
         }
-        if let envelope = decoded["failure"] as? [String: Any],
-           let failure = CombinedFailure.decode(envelope, expectedID: id) { throw failure }
+        if decoded["failure"] != nil {
+            guard let envelope = decoded["failure"] as? [String: Any],
+                  let failure = CombinedFailure.decode(envelope, expectedID: id) else {
+                throw CombinedFailure(operation: operation, stage: hostStage(for: operation),
+                    code: .invalidResponse, id: id, retryable: false)
+            }
+            throw failure
+        }
         if let code = decoded["error"] as? String {
             throw hostFailure(errorToken: code, operation: operation, id: id)
         }
@@ -287,13 +293,9 @@ public final class V3ServiceBridge {
             requestPayload["knownStarted"] = knownOperationSessions[target] != nil
         }
         if !requestPayload.isEmpty { message["payload"] = requestPayload }
-        let data: Data
-        do {
-            data = try PropertyListSerialization.data(fromPropertyList: message, format: .binary, options: 0)
-        } catch {
+        guard let data = V3WireContract.encodeRequest(message), data.count <= 16384 else {
             throw CombinedFailure(operation: operation, stage: .command, code: .invalidConfiguration, id: id)
         }
-        guard data.count <= 16384 else { throw CombinedFailure(operation: operation, stage: .command, code: .invalidConfiguration, id: id) }
         let response: Data
         do {
             response = try await withTaskCancellationHandler(operation: {

@@ -19,6 +19,20 @@ struct RefreshPrerequisiteHarness {
         precondition(!available.blocksRefresh)
         precondition(!available.blocksTargetedRefresh)
         precondition(available.failure(correlationID: id) == nil)
+        precondition(V3PairingPresentationPolicy.isConfirmed(statusConnected: true,
+            pairingStatus: "Pairing file available"))
+        let failedRecheck = V3PairingPresentationPolicy.state(statusConnected: false,
+            pairingStatus: "Pairing file available")
+        precondition(failedRecheck == .unknown &&
+                     !V3PairingPresentationPolicy.isConfirmed(statusConnected: false,
+                         pairingStatus: "Pairing file available"),
+            "a failed authoritative reload cannot leave cached pairing presented as ready")
+        let staleMissingAfterFailedSnapshot = V3RefreshPrerequisite.evaluate(
+            statusConnected: false, pairingStatus: "Pairing file required")
+        precondition(staleMissingAfterFailedSnapshot.state == .unknown &&
+                     !staleMissingAfterFailedSnapshot.blocksRefresh &&
+                     staleMissingAfterFailedSnapshot.failure(correlationID: id) == nil,
+            "a cached missing-pairing result cannot block refresh after its snapshot fails")
 
         // A pairing file is known to be missing: the refresh is blocked before
         // any mutation, with the canonical structured identity.
@@ -26,7 +40,7 @@ struct RefreshPrerequisiteHarness {
         precondition(required.state == .unsatisfied)
         precondition(required.blocksRefresh)
         precondition(required.blocksTargetedRefresh)
-        precondition(required.detail == "No pairing file yet")
+        precondition(required.detail == "A valid pairing file is required before device refresh.")
         precondition(required.recoveryDestination == "pairing")
         precondition(required.recoveryActionTitle == "Show Pairing Setup")
         precondition(required.recommendedAction == "Place or import a valid pairing file, then try again.")
@@ -57,12 +71,19 @@ struct RefreshPrerequisiteHarness {
         for unknown in [nil, "", "Unknown", "Pairing file pending"] as [String?] {
             let evaluated = V3RefreshPrerequisite.evaluate(pairingStatus: unknown)
             precondition(evaluated.state == .unknown, "an unreadable status must stay unknown")
+            precondition(!V3RefreshPrerequisite.isConfirmed(pairingStatus: unknown),
+                "an unknown pairing snapshot must never satisfy Setup Complete")
             precondition(!evaluated.blocksRefresh)
             precondition(evaluated.failure(correlationID: id) == nil)
         }
+        let invalidPairing = V3RefreshPrerequisite.evaluate(pairingStatus: "Pairing file invalid")
+        precondition(invalidPairing.state == .unsatisfied && invalidPairing.blocksRefresh &&
+                     !V3RefreshPrerequisite.isConfirmed(pairingStatus: "Pairing file invalid"),
+            "an unparseable pairing file is never presented as ready")
 
         // Nothing else is claimed to be a refresh prerequisite.
         precondition(V3RefreshPrerequisite.evaluate(pairingStatus: "Pairing file available").blocksRefresh == false)
+        precondition(V3RefreshPrerequisite.isConfirmed(pairingStatus: "Pairing file available"))
 
         print("V3_REFRESH_PREREQUISITE_PASS")
     }

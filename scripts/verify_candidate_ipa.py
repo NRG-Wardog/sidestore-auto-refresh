@@ -13,10 +13,14 @@ import shutil
 import struct
 import subprocess
 import tempfile
+from urllib.parse import urlsplit
+import uuid
 import zipfile
 
 from audit_ipa_signing import inventory
-from patch_v3_service import HEADLESS_SIDESTORE_VIEW_FILES
+from package_livecontainer_combined import verify_shared_secret_handoff_group
+from patch_v3_service import (HEADLESS_SIDESTORE_AUX_UI_FILES,
+                              HEADLESS_SIDESTORE_VIEW_FILES, PINS as SOURCE_PINS)
 
 
 BASE = "Payload/LiveContainer.app"
@@ -70,30 +74,204 @@ REMOVED_SIDESTORE_UI_SYMBOLS = (
     "InstructionsViewController", "SelectTeamViewController", "MyAppsViewController",
     "MyAppsComponents", "InstalledAppsCollectionHeaderView", "UpdateCollectionViewCell",
     "SettingsViewController", "LaunchViewController", "AltAppIconsViewController",
+    "SettingsHeaderFooterView", "InsetGroupTableViewCell",
     "PatreonViewController", "LicensesViewController", "RefreshAttemptsViewController",
     "ErrorDetailsViewController", "ErrorLogTableViewCell", "ErrorLogViewController",
 )
 
 
+CPU_TYPE_ARM64 = 0x0100000C
+THIN_MAGICS = {
+    b"\xce\xfa\xed\xfe": ("<", 28), b"\xfe\xed\xfa\xce": (">", 28),
+    b"\xcf\xfa\xed\xfe": ("<", 32), b"\xfe\xed\xfa\xcf": (">", 32),
+}
+FAT_MAGICS = {
+    b"\xca\xfe\xba\xbe": (">", False), b"\xbe\xba\xfe\xca": ("<", False),
+    b"\xca\xfe\xba\xbf": (">", True), b"\xbf\xba\xfe\xca": ("<", True),
+}
+
+
+def _architecture_name(cpu: int) -> str:
+    return "arm64" if cpu == CPU_TYPE_ARM64 else f"cpu:{cpu}"
+
+
+def _thin_macho_info(data) -> tuple[int, str | None]:
+    magic = bytes(data[:4])
+    layout = THIN_MAGICS.get(magic)
+    if layout is None:
+        raise ValueError("fat Mach-O slice is not a thin Mach-O image")
+    endian, header_size = layout
+    if len(data) < header_size:
+        raise ValueError("truncated Mach-O header")
+    cpu, _subtype, _filetype, command_count, command_bytes = struct.unpack_from(endian + "IIIII", data, 4)
+    if command_count > 65535 or command_bytes > len(data) - header_size:
+        raise ValueError("invalid Mach-O load-command bounds")
+    command_end = header_size + command_bytes
+    offset = header_size
+    image_uuid = None
+    for _ in range(command_count):
+        if offset + 8 > command_end:
+            raise ValueError("truncated Mach-O load command")
+        command, size = struct.unpack_from(endian + "II", data, offset)
+        if size < 8 or size % 4 != 0 or offset + size > command_end:
+            raise ValueError("invalid Mach-O load-command size")
+        if command == 0x1B:
+            if size < 24 or image_uuid is not None:
+                raise ValueError("invalid Mach-O UUID command")
+            image_uuid = str(uuid.UUID(bytes=bytes(data[offset + 8:offset + 24]))).upper()
+        offset += size
+    if offset != command_end:
+        raise ValueError("Mach-O load-command size does not match its header")
+    return cpu, image_uuid
+
+
+def macho_uuids(data: bytes) -> dict[str, str]:
+    view = memoryview(data)
+    magic = bytes(view[:4])
+    if magic in THIN_MAGICS:
+        cpu, image_uuid = _thin_macho_info(view)
+        return {_architecture_name(cpu): image_uuid} if image_uuid else {}
+    fat_layout = FAT_MAGICS.get(magic)
+    if fat_layout is None:
+        return {}
+    endian, is_64 = fat_layout
+    if len(view) < 8:
+        raise ValueError("truncated fat Mach-O header")
+    count = struct.unpack_from(endian + "I", view, 4)[0]
+    entry_size = 32 if is_64 else 20
+    if count == 0 or count > 64 or 8 + count * entry_size > len(view):
+        raise ValueError("invalid fat Mach-O architecture table")
+    table_end = 8 + count * entry_size
+    slices = []
+    result: dict[str, str] = {}
+    for index in range(count):
+        entry = 8 + index * entry_size
+        if is_64:
+            cpu, _subtype, offset, size, _align, _reserved = struct.unpack_from(endian + "IIQQII", view, entry)
+        else:
+            cpu, _subtype, offset, size, _align = struct.unpack_from(endian + "IIIII", view, entry)
+        if size == 0 or offset < table_end or offset > len(view) or size > len(view) - offset:
+            raise ValueError("fat Mach-O slice is outside the file")
+        end = offset + size
+        if any(offset < other_end and other_start < end for other_start, other_end in slices):
+            raise ValueError("fat Mach-O slices overlap")
+        slices.append((offset, end))
+        slice_cpu, image_uuid = _thin_macho_info(view[offset:end])
+        if slice_cpu != cpu:
+            raise ValueError("fat Mach-O architecture does not match its slice header")
+        if image_uuid:
+            result[_architecture_name(cpu)] = image_uuid
+    return result
+
+
 def architectures(data: bytes) -> set[str]:
-    magic = data[:4]
-    if magic in (b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"):
-        endian = ">" if magic == b"\xca\xfe\xba\xbe" else "<"
-        count = struct.unpack_from(endian + "I", data, 4)[0]
-        result = set()
-        for index in range(count):
-            cpu = struct.unpack_from(endian + "I", data, 8 + index * 20)[0]
-            result.add("arm64" if cpu == 0x0100000C else f"cpu:{cpu}")
-        return result
-    if magic == b"\xcf\xfa\xed\xfe":
-        cpu = struct.unpack_from("<I", data, 4)[0]
-    elif magic == b"\xce\xfa\xed\xfe":
-        cpu = struct.unpack_from("<I", data, 4)[0]
-    elif magic in (b"\xfe\xed\xfa\xcf", b"\xfe\xed\xfa\xce"):
-        cpu = struct.unpack_from(">I", data, 4)[0]
-    else:
-        return set()
-    return {"arm64" if cpu == 0x0100000C else f"cpu:{cpu}"}
+    view = memoryview(data)
+    magic = bytes(view[:4])
+    if magic in THIN_MAGICS:
+        cpu, _image_uuid = _thin_macho_info(view)
+        return {_architecture_name(cpu)}
+    if magic in FAT_MAGICS:
+        # Parse and validate every slice, including slices without an LC_UUID.
+        macho_uuids(data)
+        endian, is_64 = FAT_MAGICS[magic]
+        count = struct.unpack_from(endian + "I", view, 4)[0]
+        entry_size = 32 if is_64 else 20
+        return {
+            _architecture_name(struct.unpack_from(endian + "I", view, 8 + index * entry_size)[0])
+            for index in range(count)
+        }
+    return set()
+
+
+MACHO_MAGICS = {
+    b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca", b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca",
+    b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
+}
+
+
+def mach_o_paths(archive: zipfile.ZipFile, infos, root: str | None = None) -> set[str]:
+    prefix = root.rstrip("/") + "/" if root else None
+    paths = set()
+    for info in infos:
+        if info.is_dir() or (prefix is not None and not info.filename.startswith(prefix)):
+            continue
+        with archive.open(info) as member:
+            magic = member.read(4)
+            # CAFEBABE is also the Java class-file magic. A valid class resource
+            # is not an executable image and must not be sent to the fat parser.
+            if info.filename.lower().endswith(".class") and magic == b"\xca\xfe\xba\xbe":
+                continue
+            if magic in MACHO_MAGICS:
+                paths.add(info.filename)
+    return paths
+
+
+def require_unique_archive_member_names(infos) -> None:
+    seen = set()
+    duplicates = set()
+    for info in infos:
+        if info.filename in seen:
+            duplicates.add(info.filename)
+        seen.add(info.filename)
+    if duplicates:
+        raise ValueError("IPA contains duplicate ZIP member names: " + ", ".join(sorted(duplicates)[:8]))
+
+
+def verify_generated_source_evidence(evidence_root: Path, hashes: dict) -> None:
+    for name, expected in hashes.items():
+        if not isinstance(name, str) or not isinstance(expected, str) or \
+                not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise ValueError("generated source evidence hashes are malformed")
+        if name.startswith("embedded/"):
+            root = evidence_root / "embedded-generated"
+            relative = Path(name[len("embedded/"):])
+        else:
+            root = evidence_root / "generated"
+            relative = Path(name)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("generated source evidence path is unsafe")
+        root_resolved = root.resolve()
+        path = (root / relative).resolve()
+        try:
+            remains_under_root = Path(os.path.commonpath((str(root_resolved), str(path)))) == root_resolved
+        except ValueError:
+            remains_under_root = False
+        if not remains_under_root or not path.is_file():
+            raise ValueError(f"generated source evidence file is missing: {name}")
+        if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+            raise ValueError(f"generated source evidence hash mismatch: {name}")
+
+
+def preserved_dsym_uuids(evidence_root: Path, packaged_uuids: set[str]) -> dict[str, str]:
+    found = {}
+    for root_name in ("host", "embedded"):
+        root = evidence_root / root_name
+        if not root.is_dir():
+            continue
+        for dwarf in sorted(root.rglob("*")):
+            if not dwarf.is_file():
+                continue
+            try:
+                uuids = macho_uuids(dwarf.read_bytes())
+            except ValueError:
+                continue
+            for value in uuids.values():
+                if value not in packaged_uuids:
+                    continue
+                previous = found.get(dwarf.name)
+                if previous is not None and previous != value:
+                    raise ValueError(f"ambiguous dSYM UUID evidence for {dwarf.name}")
+                found[dwarf.name] = value
+    return found
+
+
+def is_github_actions_run_url(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    parsed = urlsplit(value)
+    return (parsed.scheme == "https" and parsed.netloc == "github.com" and
+            re.fullmatch(r"/NRG-Wardog/sidestore-auto-refresh/actions/runs/[0-9]+", parsed.path) is not None and
+            not parsed.query and not parsed.fragment)
 
 
 def has_required_livecontainer_groups(groups) -> bool:
@@ -132,12 +310,12 @@ def archive_size_report(infos, executable_paths: set[str]) -> dict:
             bundle_file_counts[bundle_path] = bundle_file_counts.get(bundle_path, 0) + 1
         suffix = Path(name).suffix.lower()
         basename = name.rsplit("/", 1)[-1]
-        if name in executable_paths:
+        if "/usr/lib/swift/" in name or (basename.startswith("libswift") and suffix == ".dylib"):
+            category = "swift_runtime_dylibs"
+        elif name in executable_paths:
             category = "executables"
         elif suffix in {".ipa", ".zip"}:
             category = "nested_archives"
-        elif "/usr/lib/swift/" in name or (basename.startswith("libswift") and suffix == ".dylib"):
-            category = "swift_runtime_dylibs"
         elif name.endswith("/Assets.car") or name == "Assets.car":
             category = "Assets.car"
         elif ".storyboardc/" in name or ".nib/" in name or name.endswith(".nib"):
@@ -203,30 +381,59 @@ def find_legacy_side_store_intent_info_keys(info: dict) -> list[str]:
 
 
 def find_legacy_side_store_ui_symbols(executable: bytes) -> list[str]:
-    return [name for name in REMOVED_SIDESTORE_UI_SYMBOLS if name.encode("utf-8") in executable]
+    return [name for name in REMOVED_SIDESTORE_UI_SYMBOLS
+            if contains_side_store_swift_type(executable, name)]
+
+
+def contains_side_store_swift_type(executable: bytes, name: str) -> bool:
+    # Do not substring-match UIKit/Nuke types such as UIDocumentPickerViewController,
+    # UITabBarController, UINavigationBarAppearance, UIActivityViewController, or
+    # Nuke.RoundedCorners. Require the SideStore/AltStore Swift module qualifier.
+    for module in ("SideStore", "AltStore"):
+        mangled = f"{len(module)}{module}{len(name)}{name}".encode("utf-8")
+        qualified = f"{module}.{name}".encode("utf-8")
+        if mangled in executable or qualified in executable:
+            return True
+    return False
 
 
 def excluded_side_store_view_type_names(side_source: Path,
-                                        view_files=HEADLESS_SIDESTORE_VIEW_FILES) -> list[str]:
-    synchronized_root = side_source / "SideStore"
-    excluded_paths = set(view_files)
+                                        view_files=HEADLESS_SIDESTORE_VIEW_FILES,
+                                        source_ref: str | None = None) -> list[str]:
+    if not source_ref:
+        raise ValueError("pinned SideStore revision is required for headless source analysis")
+    try:
+        tracked = subprocess.check_output(
+            ["git", "-C", str(side_source), "ls-tree", "-r", "--name-only", source_ref, "--", "SideStore"],
+            text=True, stderr=subprocess.PIPE).splitlines()
+    except subprocess.CalledProcessError as error:
+        raise ValueError("pinned SideStore source inventory could not be read") from error
+    swift_paths = [path for path in tracked if path.endswith(".swift")]
+    by_relative: dict[str, str] = {}
+    for path in swift_paths:
+        relative = path[len("SideStore/"):] if path.startswith("SideStore/") else path
+        try:
+            by_relative[relative] = subprocess.check_output(
+                ["git", "-C", str(side_source), "show", f"{source_ref}:{path}"],
+                text=True, encoding="utf-8", stderr=subprocess.PIPE)
+        except subprocess.CalledProcessError as error:
+            raise ValueError(f"pinned SideStore source could not be read: {relative}") from error
     removed_types: set[str] = set()
     for relative in view_files:
-        path = synchronized_root / relative
-        if not path.is_file():
-            raise ValueError(f"headless SideStore UI source is missing: {relative}")
-        removed_types.update(SWIFT_TYPE_DECLARATION.findall(path.read_text(encoding="utf-8")))
-
-    retained_types: set[str] = set()
-    for path in synchronized_root.rglob("*.swift"):
-        if path.relative_to(synchronized_root).as_posix() in excluded_paths:
-            continue
-        retained_types.update(SWIFT_TYPE_DECLARATION.findall(path.read_text(encoding="utf-8")))
+        source = by_relative.get(relative)
+        if source is None:
+            raise ValueError(f"headless SideStore UI source is missing from the pinned tree: {relative}")
+        removed_types.update(SWIFT_TYPE_DECLARATION.findall(source))
+    excluded_paths = set(view_files)
+    retained_types = set()
+    for relative, source in by_relative.items():
+        if relative not in excluded_paths:
+            retained_types.update(SWIFT_TYPE_DECLARATION.findall(source))
     return sorted(removed_types - retained_types - {"Color"})
 
 
 def missing_excluded_ui_symbols(executable: bytes, expected_symbols: list[str]) -> list[str]:
-    return sorted(name for name in expected_symbols if name.encode("utf-8") in executable)
+    return sorted(name for name in expected_symbols if contains_side_store_swift_type(executable, name))
 
 
 def missing_required_background_modes(info: dict) -> list[str]:
@@ -285,7 +492,22 @@ def inspect_side_store_asset_catalog(asset_data: bytes) -> dict:
 
 
 def verify(ipa: Path, provenance_path: Path, product: str,
-           side_source: Path | None = None) -> dict:
+           side_source: Path | None = None, expected_builder_commit: str | None = None,
+           expected_run_url: str | None = None) -> dict:
+    if expected_builder_commit is not None and not re.fullmatch(r"[0-9a-f]{40}", expected_builder_commit):
+        raise ValueError("expected builder commit must be a full lowercase Git SHA")
+    if expected_run_url is not None and not is_github_actions_run_url(expected_run_url):
+        raise ValueError("expected workflow run URL is invalid")
+    if side_source is None or not side_source.is_dir():
+        raise ValueError("the pinned SideStore source checkout is required for headless verification")
+    try:
+        side_source_sha = subprocess.check_output(
+            ["git", "-C", str(side_source), "rev-parse", "HEAD"],
+            text=True, stderr=subprocess.PIPE).strip()
+    except subprocess.CalledProcessError as error:
+        raise ValueError("the SideStore source checkout has no readable Git revision") from error
+    if side_source_sha != SOURCE_PINS[1]:
+        raise ValueError("SideStore source checkout does not match the pinned revision")
     raw = ipa.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
     size = len(raw)
@@ -296,6 +518,7 @@ def verify(ipa: Path, provenance_path: Path, product: str,
             raise ValueError(f"corrupt IPA member: {bad_member}")
         names = archive.namelist()
         archive_infos = archive.infolist()
+        require_unique_archive_member_names(archive_infos)
         lower_names = [name.lower() for name in names]
         if any(".audit" in name.split("/") or ".git" in name.split("/") for name in lower_names):
             raise ValueError("audit or repository implementation data is packaged")
@@ -341,12 +564,18 @@ def verify(ipa: Path, provenance_path: Path, product: str,
                              + ", ".join(legacy_resources[:8]))
         side_store_executable = side_store_path + "/" + side_store_info["CFBundleExecutable"]
         side_store_executable_data = archive.read(side_store_executable)
+        host_code = archive.read(BASE + "/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI")
+        if b"com.kdt.livecontainer.v3-secret-handoff" not in host_code or \
+                b"com.kdt.livecontainer.v3-secret-handoff" not in side_store_executable_data:
+            raise ValueError("host and embedded service secure secret-handoff code is missing")
         legacy_intents = find_legacy_side_store_intent_symbols(side_store_executable_data)
         if legacy_intents:
             raise ValueError("embedded SideStore still contains legacy app intent code: "
                              + ", ".join(legacy_intents))
         legacy_ui = find_legacy_side_store_ui_symbols(side_store_executable_data)
-        headless_view_symbols = excluded_side_store_view_type_names(side_source) if side_source else []
+        headless_view_symbols = excluded_side_store_view_type_names(
+            side_source, HEADLESS_SIDESTORE_VIEW_FILES + HEADLESS_SIDESTORE_AUX_UI_FILES,
+            source_ref=SOURCE_PINS[1])
         legacy_view_types = missing_excluded_ui_symbols(side_store_executable_data, headless_view_symbols)
         legacy_ui = sorted(set(legacy_ui + legacy_view_types))
         if legacy_ui:
@@ -393,6 +622,9 @@ def verify(ipa: Path, provenance_path: Path, product: str,
         if not has_required_livecontainer_groups(
                 live_process_groups.get("com.apple.security.application-groups", [])):
             raise ValueError("LiveProcess SideStore/AltStore App Group entitlements are incomplete")
+        shared_keychain_group = verify_shared_secret_handoff_group(
+            host_groups.get("keychain-access-groups"),
+            live_process_groups.get("keychain-access-groups"))
         for path, bundle in package_bundles.items():
             if path.startswith(BASE + "/PlugIns/") and path.endswith(".appex"):
                 extension_groups = (bundle.get("signing") or {}).get("xml_entitlements") or {}
@@ -408,19 +640,29 @@ def verify(ipa: Path, provenance_path: Path, product: str,
                 if not bundle.get("executable_present"):
                     raise ValueError(f"framework executable is missing: {path}")
 
-        executable_paths = []
+        bundle_executable_paths = []
         for path, bundle in package_bundles.items():
             if path == BASE or path.startswith(BASE + "/PlugIns/") or \
                     (path.startswith(BASE + "/Frameworks/") and path.endswith(".framework")):
                 if bundle.get("executable_present"):
-                    executable_paths.append(path + "/" + bundle["info"]["CFBundleExecutable"])
-        executable_paths.extend([live_process_path + "/LiveProcess", side_store_path + "/SideStore"])
+                    bundle_executable_paths.append(path + "/" + bundle["info"]["CFBundleExecutable"])
+        executable_paths = mach_o_paths(archive, archive_infos)
+        missing_bundle_executables = sorted(set(bundle_executable_paths) - executable_paths)
+        if missing_bundle_executables:
+            raise ValueError("bundle executable is not a recognized Mach-O image: "
+                             + ", ".join(missing_bundle_executables))
         arch_report = {}
+        binary_uuid_report = {}
         for path in sorted(set(executable_paths)):
-            archs = architectures(archive.read(path))
-            if "arm64" not in archs:
-                raise ValueError(f"arm64 architecture is missing: {path}")
+            image = archive.read(path)
+            archs = architectures(image)
+            if archs != {"arm64"}:
+                raise ValueError(f"unexpected architecture set {sorted(archs)}: {path}")
             arch_report[path] = sorted(archs)
+            image_uuids = macho_uuids(image)
+            if "arm64" not in image_uuids:
+                raise ValueError(f"arm64 Mach-O UUID is missing: {path}")
+            binary_uuid_report[path] = image_uuids["arm64"]
         size_report = archive_size_report(archive_infos, set(executable_paths))
 
         for name in names:
@@ -442,8 +684,41 @@ def verify(ipa: Path, provenance_path: Path, product: str,
         raise ValueError("provenance raw IPA SHA-256 mismatch")
     if provenance.get("LCBuilderCommit") != info.get("LCBuilderCommit"):
         raise ValueError("provenance builder SHA mismatch")
-    if not str(provenance.get("LCBuildRunURL", "")).startswith("https://github.com/"):
-        raise ValueError("provenance build run URL is missing")
+    if expected_builder_commit is not None and info.get("LCBuilderCommit") != expected_builder_commit:
+        raise ValueError("candidate builder SHA does not match the exact workflow commit")
+    build_run_url = provenance.get("LCBuildRunURL")
+    if (not is_github_actions_run_url(build_run_url) or
+            build_run_url != info.get("LCBuildRunURL")):
+        raise ValueError("provenance build run URL does not match the embedded GitHub Actions run")
+    if expected_run_url is not None and build_run_url != expected_run_url:
+        raise ValueError("candidate workflow run URL does not match this Actions run")
+    framework_uuids = provenance.get("framework_uuids")
+    if not isinstance(framework_uuids, dict) or framework_uuids != binary_uuid_report:
+        raise ValueError("provenance Mach-O UUID inventory does not match every packaged executable")
+    dsym_uuids = provenance.get("dsym_uuids")
+    if not isinstance(dsym_uuids, dict) or not dsym_uuids:
+        raise ValueError("matching dSYM UUID evidence is missing")
+    packaged_uuids = set(binary_uuid_report.values())
+    if any(not isinstance(value, str) or value not in packaged_uuids
+           for value in dsym_uuids.values()):
+        raise ValueError("dSYM UUID evidence does not match a packaged executable")
+    support_uuid = binary_uuid_report.get(
+        BASE + "/Frameworks/SideStoreSupport.framework/SideStoreSupport")
+    if not support_uuid or dsym_uuids.get("SideStoreSupport") != support_uuid:
+        raise ValueError("matching SideStoreSupport dSYM UUID is missing")
+    generated_hashes = provenance.get("generated_source_sha256")
+    if (not isinstance(generated_hashes, dict) or not generated_hashes or
+            any(not isinstance(name, str) or not isinstance(value, str) or
+                not re.fullmatch(r"[0-9a-f]{64}", value)
+                for name, value in generated_hashes.items())):
+        raise ValueError("generated source evidence hashes are missing or invalid")
+    if ("LiveContainerSwiftUI/Views/V3UnifiedShell.swift" not in generated_hashes or
+            "embedded/SideStore/Core/Operations/PipelineRunner.swift" not in generated_hashes):
+        raise ValueError("required generated host and SideStore source hashes are missing")
+    verify_generated_source_evidence(provenance_path.parent, generated_hashes)
+    actual_dsym_uuids = preserved_dsym_uuids(provenance_path.parent, packaged_uuids)
+    if actual_dsym_uuids != dsym_uuids:
+        raise ValueError("preserved dSYM contents do not match provenance UUID evidence")
     for key in ("LIVE_CONTAINER_REF", "EMBEDDED_SIDESTORE_REF", "MINIMUXER_REF",
                 "SIDESIGN_REF", "SIDESIGN_GSA_FIX", "IDEVICE_REF", "JKTCP_REF"):
         if not re.fullmatch(r"[0-9a-f]{40}", str(provenance.get("dependencies", {}).get(key, ""))):
@@ -460,6 +735,8 @@ def verify(ipa: Path, provenance_path: Path, product: str,
         **size_report,
         "builder_commit": info["LCBuilderCommit"],
         "architectures": arch_report,
+        "macho_uuid_count": len(binary_uuid_report),
+        "matching_dsym_count": len(dsym_uuids),
         "liveprocess_extension": live_process_path,
         "required_frameworks": sorted(REQUIRED_FRAMEWORKS),
         "dead10cc_lifecycle_fix": "verified in LiveContainerShared",
@@ -472,6 +749,7 @@ def verify(ipa: Path, provenance_path: Path, product: str,
         "sidestore_primary_icon": side_store_primary_icon_report(side_store_asset_report),
         "sidestore_legacy_background_modes": "absent",
         "app_group": REQUIRED_GROUP,
+        "secret_handoff_keychain_group": shared_keychain_group,
         "livecontainer_app_groups": sorted(REQUIRED_LIVECONTAINER_GROUPS),
         "url_schemes": sorted(REQUIRED_SCHEMES),
         "background_identifiers": sorted(REQUIRED_BACKGROUND_IDS),
@@ -486,10 +764,13 @@ def main() -> None:
     parser.add_argument("--ipa", required=True, type=Path)
     parser.add_argument("--provenance", required=True, type=Path)
     parser.add_argument("--product", required=True)
-    parser.add_argument("--side-source", type=Path)
+    parser.add_argument("--side-source", required=True, type=Path)
+    parser.add_argument("--builder-commit", required=True)
+    parser.add_argument("--build-run-url", required=True)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    result = verify(args.ipa, args.provenance, args.product, side_source=args.side_source)
+    result = verify(args.ipa, args.provenance, args.product, side_source=args.side_source,
+                    expected_builder_commit=args.builder_commit, expected_run_url=args.build_run_url)
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(rendered, encoding="utf-8")

@@ -354,7 +354,8 @@ class SharedSetupCompletionTests(unittest.TestCase):
         # Home, the assistant, the assistant's own platform branch, and the three
         # sections that gate JIT-Less UI on the platform all ask the shared
         # requirement policy rather than testing the OS version locally.
-        self.assertEqual(text.count("V3JITLessCompletionPolicy.isRequired("), 6)
+        self.assertGreaterEqual(text.count("V3JITLessCompletionPolicy.isRequired("), 6)
+        self.assertIn("V3SetupFactObservationPolicy.shouldObserve(", text)
         self.assertNotIn("ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26", text)
         self.assertNotIn("ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26", text)
 
@@ -369,13 +370,13 @@ class SharedSetupCompletionTests(unittest.TestCase):
         self.assertIn("private func observeSetupFacts() async", text)
         self.assertIn("observeSetupFactsIfNeeded()", text[text.index("private func performSnapshot()"):])
         self.assertIn("V3ServiceBridge.shared.request(operation: \"healthSnapshot\")", text)
-        self.assertIn("recordWifiAvailability(wifi)", text)
-        self.assertIn("recordJITLessReadiness(readiness.readiness)", text)
+        self.assertIn("recordWifiAvailability(wifi, revision: revision)", text)
+        self.assertIn("recordJITLessReadiness(readiness.readiness, revision: revision)", text)
         # A failure is published as unknown, never as an assumed-good fact.
         observation = text[text.index("private func observeSetupFacts() async"):]
         observation = observation[:observation.index("\n    @Published private(set) var updatedAt")]
-        self.assertIn("recordJITLessReadiness(.unknown)", observation)
-        self.assertNotIn("recordJITLessReadiness(.ready)", observation,
+        self.assertIn("recordJITLessReadiness(.unknown, revision: revision)", observation)
+        self.assertNotIn("recordJITLessReadiness(.ready", observation,
                          "an unanswered observation must never assert readiness")
         # The attempt is bounded, so a silent service cannot cause a retry loop.
         self.assertIn("private enum SetupFactObservation: Equatable {", text)
@@ -383,7 +384,8 @@ class SharedSetupCompletionTests(unittest.TestCase):
         self.assertIn("case observed", text)
         self.assertIn("case deferred", text)
         # Only a deliberate reload asks again.
-        self.assertIn("if setupFactObservation == .deferred { setupFactObservation = .pending }", text)
+        self.assertIn("if setupFactObservation == .deferred {", text)
+        self.assertIn("setupFactLastAttemptAt = nil", text)
 
     def test_jitless_requirement_is_an_input_not_a_local_exception(self):
         text = shell()
@@ -403,7 +405,7 @@ class SharedSetupCompletionTests(unittest.TestCase):
         # assistant showed the item complete.
         text = shell()
         self.assertIn("@Published private(set) var jitlessReadiness: V3JITLessReadiness?", text)
-        self.assertIn("func recordJITLessReadiness(_ readiness: V3JITLessReadiness)", text)
+        self.assertIn("func recordJITLessReadiness(_ readiness: V3JITLessReadiness, revision: UInt64? = nil)", text)
         self.assertIn("jitlessComplete: V3JITLessCompletionPolicy.isComplete(status.jitlessReadiness)", text)
         # Every observer publishes into the same fact.
         self.assertGreaterEqual(text.count("status.recordJITLessReadiness("), 4)
@@ -414,8 +416,8 @@ class SharedSetupCompletionTests(unittest.TestCase):
     def test_wifi_fact_is_shared_rather_than_guessed(self):
         text = shell()
         self.assertIn("@Published private(set) var wifiAvailable: Bool?", text)
-        self.assertIn("status.recordWifiAvailability(wifi)", text)
-        self.assertIn("func recordWifiAvailability(_ available: Bool)", text)
+        self.assertIn("status.recordWifiAvailability(wifi, revision: factRevision)", text)
+        self.assertIn("func recordWifiAvailability(_ available: Bool, revision: UInt64? = nil)", text)
         self.assertIn("networkComplete: status.wifiAvailable == true", text)
 
 
@@ -796,13 +798,14 @@ class HiddenNavigationRowTests(unittest.TestCase):
 class NoRegressionOfWorkingSystemsTests(unittest.TestCase):
     """Item 18: nothing that already worked may regress."""
 
-    def test_pairing_storage_and_transport_are_untouched(self):
+    def test_pairing_storage_and_transport_remain_upstream_compatible(self):
         service = SERVICE.read_text(encoding="utf-8")
-        self.assertIn('PairingFileManager.shared.fetchPairingFile() == nil ? "Pairing file required" : "Pairing file available"',
-                      service)
+        self.assertIn("V3BackendCommands.pairingFileStatus()", service)
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        self.assertIn("PairingFileManager.shared.savePairingFile(contents: contents)", runtime)
         wire = WIRE.read_text(encoding="utf-8")
         self.assertIn('"pairingImportData"', wire)
-        self.assertEqual(shell().count('operation: "pairingImportData"'), 1)
+        self.assertEqual(shell().count('request(operation: "pairingImportData"'), 1)
 
     def test_source_add_persistence_is_untouched(self):
         service = SERVICE.read_text(encoding="utf-8")

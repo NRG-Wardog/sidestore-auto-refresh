@@ -739,6 +739,13 @@ struct AuthOwnershipReconciliationHarness {
         precondition(V3AuthRepairURLPolicy.openableURL("http://iforgot.apple.com/") == nil)
         precondition(V3AuthRepairURLPolicy.openableURL("https://apple.com.attacker.invalid/") == nil)
         precondition(V3AuthRepairURLPolicy.openableURL("https://user:pass@apple.com/") == nil)
+        let repairToken = UUID().uuidString
+        let repairField = V3AuthRepairURLPolicy.promptField(urlToken: repairToken)
+        precondition(repairField["key"] as? String == "urlToken" &&
+                     repairField["value"] as? String == repairToken &&
+                     repairField["label"] as? String == "Open Apple Account Repair")
+        precondition(V3AuthRepairURLPolicy.safeMessage ==
+            "Apple needs account attention before sign-in can continue.")
 
         let lowercaseID = UUID().uuidString.lowercased()
         let lowercaseInvalidRequest = try PropertyListSerialization.data(fromPropertyList: [
