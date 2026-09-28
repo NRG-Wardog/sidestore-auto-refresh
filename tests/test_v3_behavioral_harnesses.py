@@ -309,6 +309,17 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_setup_and_semantic_ux_harness.swift").read_text(encoding="utf-8")
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        # The behavioral fixture executes the same classifier the service catch
+        # uses. This small wiring assertion prevents the real anisetteSync
+        # request from falling back to the generic command-stage capture.
+        anisette_branch = 'else if operation == "anisetteSync" {'
+        branch_start = service.index(anisette_branch)
+        branch_end = service.index('} else {', branch_start)
+        branch = service[branch_start:branch_end]
+        self.assertIn("V3AnisetteSyncFailurePolicy.failure(error, id: id).wire", branch)
+        self.assertGreater(branch_start, service.index("else if let structuredFailure = error as? CombinedFailure"))
+        self.assertLess(branch_start, service.index("CombinedFailure.capture(", branch_start))
         self.compile_and_run(failure + "\n" + helper + "\n" + harness,
                              "V3_SETUP_AND_SEMANTIC_UX_PASS")
 

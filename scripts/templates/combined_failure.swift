@@ -105,6 +105,10 @@ public struct CombinedFailure: Error, LocalizedError {
         case networkConnectionLost
         case networkTimedOut
         case networkUnavailable
+        case anisetteServerUnavailable
+        case anisetteServerRejected
+        case anisetteInvalidResponse
+        case anisetteUnknownFailure
         case signingNetworkConnectionLost
         case signingNetworkTimedOut
         case signingNetworkUnavailable
@@ -153,6 +157,12 @@ public struct CombinedFailure: Error, LocalizedError {
                  .signingNetworkConnectionLost, .signingNetworkTimedOut, .signingNetworkUnavailable,
                  .wifiUnavailable, .localDevVPNUnavailable:
                 return true
+            case .anisetteServerUnavailable:
+                return true
+            case .anisetteServerRejected:
+                return false
+            case .anisetteInvalidResponse, .anisetteUnknownFailure:
+                return nil
             case .provisioningProfileUnavailable, .certificateUnavailable:
                 return false
             case .developerPortalRejectedRequest, .developerPortalInvalidResponse:
@@ -260,7 +270,7 @@ public struct CombinedFailure: Error, LocalizedError {
         self.sourceStep = sourceStep
         self.retryable = retryable ?? self.safeCause?.inferredRetryable
     }
-    private static let operations: Set<String> = ["connect", "status", "command", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit", "pairingImportData"]
+    private static let operations: Set<String> = ["connect", "status", "command", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit", "pairingImportData", "anisetteSync"]
     private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError"]
     private static let verificationDomains: Set<String> = ["ALTServerErrorDomain", "ALTErrorDomain", "IdeviceGatewayError", "DeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy"]
     private var timeoutAction: String {
@@ -338,6 +348,10 @@ public struct CombinedFailure: Error, LocalizedError {
             case .networkConnectionLost: return "The network connection was lost during \(operation)."
             case .networkTimedOut: return "The network request timed out during \(operation)."
             case .networkUnavailable: return "A network connection was unavailable during \(operation)."
+            case .anisetteServerUnavailable: return "The configured Anisette server is temporarily unavailable."
+            case .anisetteServerRejected: return "The configured Anisette server returned an unsuccessful response."
+            case .anisetteInvalidResponse: return "The configured Anisette server returned data SideStore could not read."
+            case .anisetteUnknownFailure: return "Anisette server synchronization failed for an unknown reason."
             case .signingNetworkConnectionLost: return "The connection to the provisioning service was interrupted during signing."
             case .signingNetworkTimedOut: return "The provisioning service did not respond during signing."
             case .signingNetworkUnavailable: return "The signing flow could not reach the provisioning service."
@@ -503,6 +517,14 @@ public struct CombinedFailure: Error, LocalizedError {
             switch safeCause {
             case .networkConnectionLost, .networkTimedOut, .networkUnavailable:
                 return "Reconnect, check LocalDevVPN if enabled, and retry when the connection is stable."
+            case .anisetteServerUnavailable:
+                return "Try syncing again later or choose another configured Anisette server. This does not indicate a LocalDevVPN problem."
+            case .anisetteServerRejected:
+                return "Check the configured Anisette server address, then sync again after correcting it."
+            case .anisetteInvalidResponse:
+                return "Choose another configured Anisette server or report that its response could not be read."
+            case .anisetteUnknownFailure:
+                return "The exact Anisette synchronization cause could not be safely identified. Check the configured server and copy Diagnostics."
             case .signingNetworkConnectionLost, .signingNetworkTimedOut, .signingNetworkUnavailable:
                 return "Your current connection may still be healthy. Retry once. If this happens again, open Connection Settings."
             case .developerPortalRejectedRequest, .developerPortalInvalidResponse:
@@ -952,5 +974,64 @@ enum V3NotDispatchedReplyPolicy {
               let failure = reply["failure"] as? [String: Any],
               CombinedFailure.decode(failure, expectedID: requestID) != nil else { return false }
         return true
+    }
+}
+
+enum V3AnisetteSyncFailurePolicy {
+    /// Converts only evidence exposed by the pinned Anisette sync path into a
+    /// semantic failure. URL transport errors and AnisetteServersManager's
+    /// explicit HTTP/invalid-response errors are distinct; every other error
+    /// remains unknown rather than being called a network failure.
+    static func failure(_ error: Error, id: String) -> CombinedFailure {
+        if error is CancellationError {
+            return CombinedFailure(operation: "anisetteSync", stage: .command,
+                code: .cancelled, id: id, retryable: false)
+        }
+        if let urlError = error as? URLError {
+            if urlError.code == .cancelled {
+                return CombinedFailure(operation: "anisetteSync", stage: .command,
+                    code: .cancelled, id: id, retryable: false)
+            }
+            if let cause = networkCause(urlError.code) {
+                return CombinedFailure(operation: "anisetteSync", stage: .network,
+                    code: .failed, id: id, underlying: error, retryable: true, safeCause: cause)
+            }
+        }
+        let native = error as NSError
+        if native.domain == NSURLErrorDomain,
+           let code = URLError.Code(rawValue: native.code),
+           let cause = networkCause(code) {
+            return CombinedFailure(operation: "anisetteSync", stage: .network,
+                code: .failed, id: id, underlying: native, retryable: true, safeCause: cause)
+        }
+        if native.domain == "AnisetteServersManager" {
+            if native.code == -1 {
+                return CombinedFailure(operation: "anisetteSync", stage: .command,
+                    code: .invalidResponse, id: id, underlying: native,
+                    safeCause: .anisetteInvalidResponse)
+            }
+            if (500..<600).contains(native.code) {
+                return CombinedFailure(operation: "anisetteSync", stage: .command,
+                    code: .failed, id: id, underlying: native, retryable: true,
+                    safeCause: .anisetteServerUnavailable)
+            }
+            if (100..<500).contains(native.code), !(200..<300).contains(native.code) {
+                return CombinedFailure(operation: "anisetteSync", stage: .command,
+                    code: .failed, id: id, underlying: native,
+                    safeCause: .anisetteServerRejected)
+            }
+        }
+        return CombinedFailure(operation: "anisetteSync", stage: .command,
+            code: .failed, id: id, underlying: error, safeCause: .anisetteUnknownFailure)
+    }
+
+    private static func networkCause(_ code: URLError.Code) -> CombinedFailure.SafeCause? {
+        switch code {
+        case .networkConnectionLost: return .networkConnectionLost
+        case .timedOut: return .networkTimedOut
+        case .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+            return .networkUnavailable
+        default: return nil
+        }
     }
 }

@@ -696,18 +696,93 @@ struct SetupAndSemanticUXHarness {
         precondition(signingTimeout.safeMessage.contains("install the app") &&
                      signingTimeout.safeMessage.contains("signing the app"),
             "timeout copy uses plain-language context rather than the stage token")
-        let anisetteNetworkFailure = CombinedFailure(operation: "anisetteSync", stage: .network,
-            code: .failed, id: UUID().uuidString, retryable: true, safeCause: .networkConnectionLost)
-        let anisetteGuidance = V3AnisetteFailureGuidance.message(anisetteNetworkFailure)!
-        precondition(anisetteGuidance.contains("configured Anisette server") &&
-                     !anisetteGuidance.localizedCaseInsensitiveContains("LocalDevVPN"))
+        let anisetteRequestID = UUID().uuidString
+        let anisetteNetworkFailure = V3AnisetteSyncFailurePolicy.failure(
+            URLError(.networkConnectionLost), id: anisetteRequestID)
+        precondition(anisetteNetworkFailure.operation == "anisetteSync" &&
+                     anisetteNetworkFailure.stage == .network &&
+                     anisetteNetworkFailure.safeCause == .networkConnectionLost,
+                     "typed URL transport loss retains the Anisette operation and network cause")
+        let decodedAnisetteNetworkFailure = CombinedFailure.decode(
+            anisetteNetworkFailure.wire, expectedID: anisetteRequestID)
+        let anisetteGuidance = decodedAnisetteNetworkFailure.flatMap(V3AnisetteFailureGuidance.message)
+        precondition(anisetteGuidance?.contains("configured Anisette server") == true &&
+                     anisetteGuidance?.localizedCaseInsensitiveContains("LocalDevVPN") == false,
+                     "the typed Anisette network failure survives the actual structured wire contract")
+        let anisetteUnavailable = V3AnisetteSyncFailurePolicy.failure(
+            NSError(domain: "AnisetteServersManager", code: 503), id: UUID().uuidString)
+        let unavailableRoundTrip = CombinedFailure.decode(
+            anisetteUnavailable.wire, expectedID: anisetteUnavailable.correlationID)
+        precondition(anisetteUnavailable.operation == "anisetteSync" &&
+                     anisetteUnavailable.stage == .command &&
+                     anisetteUnavailable.code == .failed &&
+                     anisetteUnavailable.safeCause == .anisetteServerUnavailable &&
+                     anisetteUnavailable.retryable == true &&
+                     unavailableRoundTrip?.operation == "anisetteSync" &&
+                     unavailableRoundTrip?.safeCause == .anisetteServerUnavailable &&
+                     anisetteUnavailable.safeMessage.contains("temporarily unavailable") &&
+                     anisetteUnavailable.recovery.contains("choose another configured Anisette server") &&
+                     V3AnisetteFailureGuidance.message(anisetteUnavailable) == nil,
+                     "an explicit HTTP 5xx is a server outage, not a network-path or LocalDevVPN failure")
+        let anisetteUnavailableIssue = V3UserFacingIssue.make(anisetteUnavailable)
+        precondition(anisetteUnavailableIssue.recoveryDestination == nil &&
+                     anisetteUnavailableIssue.whatToDo.contains("Anisette server") &&
+                     !anisetteUnavailableIssue.whatToDo.localizedCaseInsensitiveContains("LocalDevVPN"),
+                     "a server outage does not route to or blame the device tunnel")
+        let anisetteRejected = V3AnisetteSyncFailurePolicy.failure(
+            NSError(domain: "AnisetteServersManager", code: 404), id: UUID().uuidString)
+        precondition(anisetteRejected.stage == .command &&
+                     anisetteRejected.safeCause == .anisetteServerRejected &&
+                     anisetteRejected.retryable == false &&
+                     anisetteRejected.safeMessage.contains("unsuccessful response") &&
+                     anisetteRejected.recovery.contains("server address") &&
+                     V3AnisetteFailureGuidance.message(anisetteRejected) == nil,
+                     "an HTTP client response remains distinct from transport failure")
+        let anisetteInvalidResponse = V3AnisetteSyncFailurePolicy.failure(
+            NSError(domain: "AnisetteServersManager", code: -1), id: UUID().uuidString)
+        precondition(anisetteInvalidResponse.stage == .command &&
+                     anisetteInvalidResponse.code == .invalidResponse &&
+                     anisetteInvalidResponse.safeCause == .anisetteInvalidResponse &&
+                     anisetteInvalidResponse.retryable == nil &&
+                     anisetteInvalidResponse.safeMessage.contains("could not read") &&
+                     anisetteInvalidResponse.recovery.contains("could not be read") &&
+                     V3AnisetteFailureGuidance.message(anisetteInvalidResponse) == nil,
+                     "the pinned Anisette invalid-response error stays separate from network failure")
+        let anisetteInvalidResponseIssue = V3UserFacingIssue.make(anisetteInvalidResponse)
+        precondition(anisetteInvalidResponseIssue.recoveryDestination == nil &&
+                     anisetteInvalidResponseIssue.whatHappened.contains("could not read") &&
+                     !anisetteInvalidResponseIssue.whatToDo.localizedCaseInsensitiveContains("LocalDevVPN"),
+                     "an invalid server response keeps its own guidance rather than device connection advice")
+        let anisetteUnknown = V3AnisetteSyncFailurePolicy.failure(
+            NSError(domain: "PrivateUnknownDomain", code: 77), id: UUID().uuidString)
+        precondition(anisetteUnknown.stage == .command &&
+                     anisetteUnknown.safeCause == .anisetteUnknownFailure &&
+                     anisetteUnknown.retryable == nil &&
+                     anisetteUnknown.safeMessage.contains("unknown reason") &&
+                     anisetteUnknown.recovery.contains("exact Anisette synchronization cause") &&
+                     V3AnisetteFailureGuidance.message(anisetteUnknown) == nil,
+                     "unclassified Anisette errors retain honest unknown wording")
+        let anisetteNonTransportURLError = V3AnisetteSyncFailurePolicy.failure(
+            URLError(.badURL), id: UUID().uuidString)
+        precondition(anisetteNonTransportURLError.stage == .command &&
+                     anisetteNonTransportURLError.safeCause == .anisetteUnknownFailure,
+                     "a URL error that is not transport evidence is not labeled a network outage")
+        let anisetteUnrelatedNumericCode = V3AnisetteSyncFailurePolicy.failure(
+            NSError(domain: "PrivateUnknownDomain", code: NSURLErrorNetworkConnectionLost),
+            id: UUID().uuidString)
+        precondition(anisetteUnrelatedNumericCode.safeCause == .anisetteUnknownFailure,
+                     "a familiar numeric code in an unrelated domain does not prove network loss")
+        let anisetteCancelled = V3AnisetteSyncFailurePolicy.failure(
+            CancellationError(), id: UUID().uuidString)
+        precondition(anisetteCancelled.code == .cancelled && anisetteCancelled.safeCause == nil &&
+                     V3AnisetteFailureGuidance.message(anisetteCancelled) == nil,
+                     "cancellation is not mislabeled as Anisette networking failure")
         let ordinaryRefreshFailure = CombinedFailure(operation: "refresh", stage: .network,
             code: .failed, id: UUID().uuidString, retryable: true, safeCause: .networkConnectionLost)
         precondition(V3AnisetteFailureGuidance.message(ordinaryRefreshFailure) == nil,
             "ordinary device refresh failures retain their separate connection guidance")
         let anisetteNetworkIssue = V3UserFacingIssue.make(
-            CombinedFailure(operation: "anisetteSync", stage: .network, code: .failed,
-                id: UUID().uuidString, retryable: true, safeCause: .networkConnectionLost))
+            anisetteNetworkFailure)
         precondition(anisetteNetworkIssue.recoveryDestination == nil &&
                      anisetteNetworkIssue.whatToDo.contains("Anisette server") &&
                      !anisetteNetworkIssue.whatToDo.localizedCaseInsensitiveContains("LocalDevVPN"),

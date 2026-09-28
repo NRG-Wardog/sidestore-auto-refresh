@@ -606,6 +606,10 @@ final class V3SideStoreService: NSObject {
                     // but correlate the reply to this XPC request, not to the
                     // auth/operation session that caused the failure.
                     response["failure"] = structuredFailure.correlating(to: id).wire
+                } else if operation == "anisetteSync" {
+                    // V3_ANISETTE_SYNC_FAILURE_V1: preserve Anisette operation
+                    // identity and classify only typed transport/HTTP evidence.
+                    response["failure"] = V3AnisetteSyncFailurePolicy.failure(error, id: id).wire
                 } else {
                     response["failure"] = CombinedFailure.capture(
                         V3HeadlessPairingFailure.tagIfInvalidPairing(error),
