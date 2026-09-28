@@ -997,20 +997,20 @@ enum V3AnisetteSyncFailurePolicy {
             return CombinedFailure(operation: "anisetteSync", stage: .command,
                 code: .cancelled, id: id, retryable: false)
         }
+        let native = error as NSError
+        if native.domain == NSURLErrorDomain && native.code == NSURLErrorCancelled {
+            return CombinedFailure(operation: "anisetteSync", stage: .command,
+                code: .cancelled, id: id, underlying: native, retryable: false)
+        }
         if let urlError = error as? URLError {
             if urlError.code == .cancelled {
                 return CombinedFailure(operation: "anisetteSync", stage: .command,
-                    code: .cancelled, id: id, retryable: false)
+                    code: .cancelled, id: id, underlying: native, retryable: false)
             }
             if let cause = networkCause(urlError.code) {
                 return CombinedFailure(operation: "anisetteSync", stage: .network,
                     code: .failed, id: id, underlying: error, retryable: true, safeCause: cause)
             }
-        }
-        let native = error as NSError
-        if native.domain == NSURLErrorDomain && native.code == NSURLErrorCancelled {
-            return CombinedFailure(operation: "anisetteSync", stage: .command,
-                code: .cancelled, id: id, underlying: native, retryable: false)
         }
         if native.domain == NSURLErrorDomain,
            let code = URLError.Code(rawValue: native.code),
