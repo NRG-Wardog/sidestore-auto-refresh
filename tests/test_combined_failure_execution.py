@@ -155,7 +155,8 @@ func debugLog(_ value: String) {}
    precondition(failure.recovery.contains("Reconnect"), "typed network error keeps network recovery")
   }
   // URLSession uses URL error domains for local temporary-file I/O too.
-  for localCode in [URLError.Code.cannotCreateFile, .cannotOpenFile, .cannotWriteToFile, .cannotMoveFile] {
+  for localCode in [URLError.Code.cannotCreateFile, .cannotOpenFile, .cannotWriteToFile,
+                    .cannotMoveFile, .cannotCloseFile, .cannotRemoveFile] {
    let error = NSError(domain: NSURLErrorDomain, code: localCode.rawValue,
        userInfo: [NSLocalizedDescriptionKey: "download temporary-file operation failed"])
    let failure = CombinedFailure.capture(error, operation: "installURL", stage: .installation, id: id)
@@ -171,6 +172,20 @@ func debugLog(_ value: String) {}
    let failure = CombinedFailure.capture(error, operation: "installURL", stage: .installation, id: id)
    precondition(failure.code == .cancelled, "typed URL cancellation")
    precondition(failure.retryable == false, "URL cancellation is not retryable")
+  }
+  // Provisioning transport keeps signing-specific guidance, while explicit
+  // pipeline stage markers remain authoritative over URL error domains.
+  do {
+   let timedOut = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut,
+       userInfo: [NSLocalizedDescriptionKey: "provisioning request timed out"])
+   let signing = CombinedFailure.capture(timedOut, operation: "install", stage: .signing, id: id)
+   precondition(signing.stage == .signing, "signing stage remains specific")
+   precondition(signing.safeCause == .signingNetworkTimedOut, "signing timeout keeps typed cause")
+   let marked = NSError(domain: NSURLErrorDomain, code: NSURLErrorNetworkConnectionLost,
+       userInfo: ["LCStructuredFailureStageV1": "installation"])
+   let installation = CombinedFailure.capture(marked, operation: "install", stage: .command, id: id)
+   precondition(installation.stage == .installation, "explicit stage marker remains authoritative")
+   precondition(installation.safeCause == nil, "explicit installation stage does not inherit network cause")
   }
   // Native CFNetwork domains survive the structured failure wire allowlist.
   do {
