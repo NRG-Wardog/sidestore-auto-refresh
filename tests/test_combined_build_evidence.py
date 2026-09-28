@@ -1,6 +1,7 @@
 """Validate candidate identity/UUID evidence without requiring an Apple device."""
 import importlib.util
 import hashlib
+import json
 import os
 from pathlib import Path
 import plistlib
@@ -218,6 +219,18 @@ class CandidateEvidenceTests(unittest.TestCase):
             self.assertGreater(ipa.stat().st_size, evidence.DEFAULT_ARCHIVE_LIMITS['compressed_ipa_bytes'])
             self.assertFalse((output / 'candidate-provenance.json').exists(),
                 'collection must not emit provenance for a replaced over-limit path')
+
+    def test_collect_success_provenance_sha_matches_raw_ipa_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ipa, output, _host_build, _side_build, argv, env_keys, env = self.prepare_collect_fixture(root)
+            expected_sha = hashlib.sha256(ipa.read_bytes()).hexdigest()
+            expected_size = ipa.stat().st_size
+            self.invoke_collect(argv, env_keys, env)
+            provenance = json.loads((output / 'candidate-provenance.json').read_text(encoding='utf-8'))
+            self.assertEqual(provenance['raw_ipa_sha256'], expected_sha)
+            self.assertEqual(provenance['sha256'], expected_sha)
+            self.assertEqual(provenance['ipa_size_bytes'], expected_size)
 
     def test_collect_rejects_same_size_comment_mutation_during_dsym_copy(self):
         with tempfile.TemporaryDirectory() as directory:
