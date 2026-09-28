@@ -3414,8 +3414,8 @@ enum V3RefreshIntentStartPolicy {
 }
 
 enum V3PairingImportFailurePolicy {
-    static func shouldOfferFileRetry(_ failure: CombinedFailure) -> Bool {
-        failure.operation == "pairingImportData" && failure.safeCause == .invalidPairingFile
+    static func shouldOfferFileRetry(operation: String, stage: String, safeCause: String?) -> Bool {
+        operation == "pairingImportData" && stage == "pairing" && safeCause == "invalidPairingFile"
     }
 }
 

@@ -311,6 +311,15 @@ class StartupPatchTests(unittest.TestCase):
 
 
 class ReadinessRegressionTests(unittest.TestCase):
+    def test_startup_probe_uses_bounded_backoff_and_terminal_policy(self):
+        patcher = (ROOT / "scripts/patch_combined_service_startup.py").read_text(encoding="utf-8")
+        probe = patcher[patcher.index('handler = handler.replace("/*SERVICE_PROBE*/",'):]
+        probe = probe[:probe.index("''' if product == \"v3\" else")]
+        self.assertIn("while true", probe)
+        self.assertIn("V3ServiceReadinessProbeState.resolve", probe)
+        self.assertIn("backoff.nextDelay(remaining:", probe)
+        self.assertNotIn("lastSnapshotError", probe)
+
     def test_direct_refresh_rechecks_after_connection_and_uses_service_admission(self):
         generator = (ROOT / "scripts/patch_combined_service_startup.py").read_text(encoding="utf-8")
         handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")

@@ -116,6 +116,13 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         self.compile_and_run(failure + "\n" + helper + "\n" + harness,
                              "V3_PAIRING_IMPORT_RECOVERY_PASS")
 
+    def test_service_readiness_backoff_is_bounded_and_ready_wins_deadline(self):
+        handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        helper = handler[:handler.index("@MainActor\nclass RefreshHandler")]
+        harness = (ROOT / "tests/fixtures/v3_service_readiness_policy_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run("import Foundation\n" + helper + "\n" + harness,
+                             "V3_SERVICE_READINESS_POLICY_PASS")
+
     def test_service_admission_retains_active_backend_operation_ownership(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")

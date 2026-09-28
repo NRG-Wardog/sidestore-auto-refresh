@@ -167,20 +167,26 @@ def patch(live, side, product):
         handler = handler.replace("/*REFRESH_READINESS*/", "")
         handler = handler.replace("/*SERVICE_PROBE*/", '''
         let until = Date().addingTimeInterval(30)
+        var backoff = V3ServiceReadinessBackoff()
         var ready = false
         var pending = false
         var invalid = false
-        var lastSnapshotError = ""
-        while Date() < until {
+        while true {
             try Task.checkCancellation()
             guard launchID == id else { throw CancellationError() }
-            if ready {
+            switch V3ServiceReadinessProbeState.resolve(
+                ready: ready, invalid: invalid, expired: Date() >= until) {
+            case .ready:
                 NSLog("[V3_SERVICE_START] SNAPSHOT_READY id=%@", id.uuidString)
                 return
-            }
-            if invalid {
-                NSLog("[V3_SERVICE_START] READINESS_INVALID_RESPONSE id=%@ error=%@", id.uuidString, lastSnapshotError)
+            case .invalid:
+                NSLog("[V3_SERVICE_START] READINESS_INVALID_RESPONSE id=%@", id.uuidString)
                 throw CombinedFailure(operation: "connect", stage: .serviceReadiness, code: .invalidResponse, id: id.uuidString)
+            case .timedOut:
+                NSLog("[V3_SERVICE_START] READINESS_TIMEOUT id=%@", id.uuidString)
+                throw CombinedFailure(operation: "connect", stage: .serviceReadiness, code: .timedOut, id: id.uuidString, retryable: true)
+            case .pending:
+                break
             }
             if !pending, let client {
                 let requestID = UUID().uuidString
@@ -193,16 +199,15 @@ def patch(live, side, product):
                         pending = false
                         switch V3ServiceReadinessReply.decode(response, requestID: requestID) {
                         case .invalid: invalid = true
-                        case .failed(let replyError): lastSnapshotError = replyError
+                        case .failed(_): break
                         case .ready: ready = true
                         }
                     }
                 }
             }
-            try await Task.sleep(nanoseconds: 200_000_000)
+            guard let delay = backoff.nextDelay(remaining: until.timeIntervalSinceNow) else { continue }
+            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
         }
-        NSLog("[V3_SERVICE_START] READINESS_TIMEOUT id=%@ lastError=%@", id.uuidString, lastSnapshotError)
-        throw CombinedFailure(operation: "connect", stage: .serviceReadiness, code: .timedOut, id: id.uuidString, retryable: true)
 ''' if product == "v3" else '''
         // v2 has no command catalog. App launch readiness is distinct from database readiness,
         // which remains owned by the subsequent explicit refresh intent.

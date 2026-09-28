@@ -5688,7 +5688,8 @@ struct V3PairingView: View {
                     Button("Copy Diagnostics", systemImage: "doc.on.doc") {
                         UIPasteboard.general.string = failure.technicalDetails
                     }
-                    if V3PairingImportFailurePolicy.shouldOfferFileRetry(failure) {
+                    if V3PairingImportFailurePolicy.shouldOfferFileRetry(operation: failure.operation,
+                            stage: failure.stage.rawValue, safeCause: failure.safeCause?.rawValue) {
                         Button("Choose Pairing File Again") { pickerPresented = true }
                     }
                 }
@@ -5794,7 +5795,8 @@ struct V3PairingView: View {
             status.reload()
         } catch {
             if let failure = error as? CombinedFailure {
-                if V3PairingImportFailurePolicy.shouldOfferFileRetry(failure) {
+                if V3PairingImportFailurePolicy.shouldOfferFileRetry(operation: failure.operation,
+                        stage: failure.stage.rawValue, safeCause: failure.safeCause?.rawValue) {
                     pairingFailure = failure
                 } else {
                     status.present(failure)

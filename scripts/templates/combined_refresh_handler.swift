@@ -1,4 +1,29 @@
 // LC_SERVICE_CONNECTION_V1: platform adapter, with explicit refresh compatibility entry points.
+enum V3ServiceReadinessProbeState: Equatable {
+    case pending
+    case ready
+    case invalid
+    case timedOut
+
+    static func resolve(ready: Bool, invalid: Bool, expired: Bool) -> V3ServiceReadinessProbeState {
+        if ready { return .ready }
+        if invalid { return .invalid }
+        return expired ? .timedOut : .pending
+    }
+}
+
+struct V3ServiceReadinessBackoff {
+    private(set) var delay: TimeInterval = 0.2
+    static let maximumDelay: TimeInterval = 1.0
+
+    mutating func nextDelay(remaining: TimeInterval) -> TimeInterval? {
+        guard remaining.isFinite, remaining > 0 else { return nil }
+        let result = min(delay, remaining)
+        delay = min(delay * 2, Self.maximumDelay)
+        return result
+    }
+}
+
 @MainActor
 class RefreshHandler: NSObject {
     static let shared = RefreshHandler()

@@ -34,6 +34,7 @@ let priorIntentResult = .result(dialog: "All apps have been refreshed.")
 
 public struct RefreshAllAppsWidgetIntent {
     public static var title: LocalizedStringResource { "Refresh Apps via Widget" }
+    public func perform() async throws -> some IntentResult { return .result() }
 }
 
 public struct RefreshAllAppsIntent {
@@ -83,6 +84,10 @@ class LiveContainerPatchTests(unittest.TestCase):
             self.assertNotIn("RefreshHandler.shared.startRefresh(identifier: identifier", helper)
             self.assertIn("Refresh All was requested in LiveContainer", support)
             self.assertNotIn("All apps have been refreshed.", support)
+            widget_start = support.index("public struct RefreshAllAppsWidgetIntent")
+            main_start = support.index("public struct RefreshAllAppsIntent", widget_start)
+            widget_intent = support[widget_start:main_start]
+            self.assertIn('return .result(dialog: "Refresh All was requested in LiveContainer. Check Refresh History for the run result.")', widget_intent)
             self.assertEqual(support.count("public static var openAppWhenRun = true"), 2)
             delegate = (root / "LiveContainerSwiftUI/App/AppDelegate.swift").read_text()
             self.assertIn("V3ShortcutRefreshRequest(userInfo: notification.userInfo)", delegate)

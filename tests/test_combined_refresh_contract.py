@@ -243,6 +243,24 @@ enum StoreApp { static let altstoreAppID = "fixture.host" }
         } catch {
             preconditionFailure("the pairing failure changed at the host response classifier: \(error)")
         }
+        let pairingImportFailure = CombinedFailure(operation: "pairingImportData", stage: .pairing,
+            code: .failed, id: run, retryable: false, safeCause: .invalidPairingFile)
+        let pairingImportReply = V3ResponseEncoder.encode(["version": 1, "id": run, "ok": false,
+            "error": "failed", "failure": pairingImportFailure.wire],
+            operation: "pairingImportData", limit: V3WireContract.responseLimit)
+        do {
+            _ = try V3CatalogRequestContext.classifyReply(pairingImportReply,
+                operation: "pairingImportData", id: run)
+            preconditionFailure("a typed pairing-import failure was accepted as success")
+        } catch let received as CombinedFailure {
+            precondition(received.operation == "pairingImportData" && received.stage == .pairing &&
+                         received.safeCause == .invalidPairingFile && received.correlationID == run &&
+                         V3PairingImportFailurePolicy.shouldOfferFileRetry(operation: received.operation,
+                             stage: received.stage.rawValue, safeCause: received.safeCause?.rawValue),
+                         "the exact XPC failure must retain its pairing-only file-retry eligibility")
+        } catch {
+            preconditionFailure("the pairing-import failure changed at the host response classifier: \(error)")
+        }
         let stale = CombinedFailure(operation: "refresh", stage: .signing, id: UUID().uuidString).wire
         let legacy: [String: Any] = ["run_id": run, "expected_ids": ["fixture.app"], "results": [
             ["bundle_id": "fixture.app", "success": false, "error_domain": "DeviceGatewayError", "error_code": 84,

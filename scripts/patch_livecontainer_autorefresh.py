@@ -102,6 +102,13 @@ func performIntentRefresh(identifier: String, mangledTypeName: String, intentPro
     handler_start = text.index("class RefreshHandler:", main_start)
     widget_intent = text[widget_start:main_start]
     main_intent = text[main_start:handler_start]
+    requested_dialog = 'return .result(dialog: "Refresh All was requested in LiveContainer. Check Refresh History for the run result.")'
+    if "return .result()" in widget_intent:
+        widget_intent = replace_once(widget_intent, "return .result()", requested_dialog,
+                                     "truthful widget AppIntent request completion copy")
+        text = text[:widget_start] + widget_intent + text[main_start:]
+    elif requested_dialog not in widget_intent:
+        die("widget AppIntent does not distinguish request submission from refresh completion")
     widget_title = '    public static var title: LocalizedStringResource { "Refresh Apps via Widget" }\n'
     main_title = '    public static var title: LocalizedStringResource = "Refresh All Apps"\n'
     if "public static var openAppWhenRun = true" not in widget_intent:
@@ -294,8 +301,11 @@ def verify(root: Path) -> None:
     widget_start = support.index("public struct RefreshAllAppsWidgetIntent")
     main_start = support.index("public struct RefreshAllAppsIntent", widget_start)
     handler_start = support.index("class RefreshHandler:", main_start)
-    if "public static var openAppWhenRun = true" not in support[widget_start:main_start]:
+    widget_intent = support[widget_start:main_start]
+    if "public static var openAppWhenRun = true" not in widget_intent:
         die("host widget AppIntent is not configured to execute in LiveContainer")
+    if 'return .result(dialog: "Refresh All was requested in LiveContainer. Check Refresh History for the run result.")' not in widget_intent:
+        die("host widget AppIntent reports success without directing the user to the scheduler result")
     if "public static var openAppWhenRun = true" not in support[main_start:handler_start]:
         die("host Refresh All AppIntent is not configured to execute in LiveContainer")
     if r'\\(' in HOST_SCHEDULER:

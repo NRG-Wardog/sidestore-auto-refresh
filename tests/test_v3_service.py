@@ -395,7 +395,7 @@ class ServicePatchTests(unittest.TestCase):
             self.assertIn("failure.recovery", pairing_view)
             self.assertIn("Text(failure.technicalDetails)", pairing_view)
             self.assertIn("Choose Pairing File Again", pairing_view)
-            self.assertIn("V3PairingImportFailurePolicy.shouldOfferFileRetry(failure)", pairing_view)
+            self.assertIn("V3PairingImportFailurePolicy.shouldOfferFileRetry(operation: failure.operation", pairing_view)
             self.assertIn("status.present(failure)", pairing_view)
             self.assertNotIn("self.fetchSources", app_delegate)
             self.assertIn("completionHandler(.noData)", app_delegate)
