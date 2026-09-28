@@ -59,7 +59,8 @@ def _patch_verified(root: Path) -> None:
     end = text.index("    private func startListeningForRunningApps()", start)
     section = text[start:end].replace(r"\\(", r"\(")
     section = replace_once(section, '                let nsError = error as NSError', '''                let runID = defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier
-                let failure = CombinedFailure.capture(error, operation: "refresh", stage: .refreshVerification, id: runID)''')
+                let failure = CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error),
+                    operation: "refresh", stage: .refreshVerification, id: runID)''')
     section = replace_once(section,
         r'debugLog("[AUTO_REFRESH] REFRESH_FAILED bundle_id=\(bundleIdentifier) stage=refresh error_code=\(nsError.code) error_domain=\(nsError.domain) error=\(error.localizedDescription)")',
         r'debugLog("[AUTO_REFRESH] REFRESH_FAILED \(failure.technicalDetails)")')
@@ -103,6 +104,7 @@ def patch_combined_cli(root: Path) -> None:
 def verify(text: str) -> None:
     for needle in (MARKER, '"expected_ids": expectedIDs, "requested_ids": requestedIDs, "skipped_ids": skippedIDs',
                    'defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier',
+                   'CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error)',
                    '"failure": failure.wire', 'REFRESH_FAILED \\(failure.technicalDetails)'):
         if needle not in text:
             raise SystemExit(f"combined refresh contract missing {needle}")

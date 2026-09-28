@@ -11,7 +11,7 @@ enum V3HeadlessPairingFailure {
         guard let typedError = invalidPairingSource(error, depth: 0) else { return error }
         let native = typedError as NSError
         return NSError(domain: native.domain, code: native.code, userInfo: [
-            NSLocalizedDescriptionKey: "The existing pairing file was rejected by the device.",
+            NSLocalizedDescriptionKey: "SideStore could not read or validate the pairing file.",
             "LCStructuredFailureStageV1": CombinedFailure.Stage.pairing.rawValue,
             "LCStructuredFailureCauseV1": CombinedFailure.SafeCause.invalidPairingFile.rawValue
         ])

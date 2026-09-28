@@ -129,7 +129,7 @@ struct V3UnifiedTabs: View {
             // It used to render a button labelled "OK" that then did nothing,
             // alongside a second "OK" that dismissed, so a refusal to work
             // looked like a choice.
-            if let action = status.issue?.primaryAction, action != .dismiss {
+                if let action = status.issue?.primaryAction, action != .dismiss {
                 Button(action.title) {
                     status.performPrimaryIssueAction()
                     status.clearIssue()
@@ -3646,6 +3646,10 @@ struct V3PromptSection: View {
                 // as selectable caption text below, never as an editable field.
                 if field["key"] == "step" || field["key"] == "mode" || field["key"] == "activeID" || field["key"] == "phoneID" || field["key"] == "url" || field["key"] == "serials" || field["key"] == "technical" {
                     if let value = field["value"], !value.isEmpty, field["key"] == "url" {
+                        if let repairURL = V3AuthRepairURLPolicy.openableURL(value) {
+                            Link("Open Apple Account Repair", destination: repairURL)
+                                .font(.caption)
+                        }
                         Text(value)
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -5667,7 +5671,7 @@ struct V3PairingView: View {
                 }
             }
             if let failure = pairingFailure {
-                Section("Pairing file was rejected") {
+                Section("Pairing file could not be read or validated") {
                     Text(failure.safeMessage)
                         .font(.footnote)
                         .foregroundColor(.red)

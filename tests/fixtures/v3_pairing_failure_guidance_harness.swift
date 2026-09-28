@@ -35,12 +35,28 @@ struct PairingFailureGuidanceHarness {
             precondition(failure.stage == .pairing && failure.safeCause == .invalidPairingFile &&
                          failure.retryable == false && failure.correlationID == id,
                          "typed operation, service, and NSError-wrapped pairing failures must retain their pairing semantics")
-            precondition(failure.message == "The existing pairing file was rejected by the device." &&
+            precondition(failure.message == "SideStore could not read or validate the pairing file." &&
                          failure.recovery.contains("Open Pairing File"),
                          "pairing guidance must direct users to replace the saved pairing file")
             precondition(!failure.message.contains(privateReason) &&
                          !failure.technicalDetails.contains(privateReason),
                          "pairing parse details must not enter user-copyable diagnostics")
+
+            let reply: [String: Any] = ["version": 1, "id": id, "ok": false,
+                "error": "failed", "failure": failure.wire]
+            let bytes = try! PropertyListSerialization.data(fromPropertyList: reply, format: .binary, options: 0)
+            do {
+                _ = try V3CatalogRequestContext.classifyReply(bytes, operation: "refresh", id: id)
+                preconditionFailure("the host classifier accepted a failed pairing response")
+            } catch let received as CombinedFailure {
+                precondition(received.stage == .pairing && received.safeCause == .invalidPairingFile &&
+                             received.retryable == false && received.correlationID == id,
+                             "the typed pairing cause survives the XPC property-list reply and host classification")
+                precondition(!received.technicalDetails.contains(privateReason),
+                             "the reply boundary must not expose private pairing parse details")
+            } catch {
+                preconditionFailure("the typed pairing failure changed at the host reply boundary: \(error)")
+            }
             let issue = V3OperationFailureDetails(failure)
             precondition(issue.recoveryDestination == "pairing" &&
                          issue.recoveryActionTitle == "Open Pairing File" &&

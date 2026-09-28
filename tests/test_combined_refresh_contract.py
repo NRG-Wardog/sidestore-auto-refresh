@@ -89,6 +89,7 @@ class CombinedRefreshContractTests(unittest.TestCase):
             self.assertIn('"schema": "LiveContainerRefreshManifestV2"', result)
             self.assertNotIn('"error": error.localizedDescription', result)
             self.assertIn('defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier', result)
+            self.assertIn('CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error)', result)
             self.assertNotIn(r"\\(refreshIdentifier)", result)
             self.apply(root)
             self.assertEqual(result, file.read_text())

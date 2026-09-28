@@ -92,8 +92,12 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         start = runtime.index("enum V3HeadlessPairingFailure {")
         end = runtime.index("\n// V3_HEADLESS_RUNTIME_V1", start)
         pairing_classifier = runtime[start:end]
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        context = bridge[bridge.index("enum V3CatalogRequestContext {"):]
+        context = context[:context.index("\n@MainActor")]
         harness = (ROOT / "tests/fixtures/v3_pairing_failure_guidance_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run(failure + "\n" + helper + "\n" + pairing_classifier + "\n" + harness,
+        self.compile_and_run(wire + "\n" + failure + "\n" + helper + "\n" + context + "\n" + pairing_classifier + "\n" + harness,
                              "V3_PAIRING_FAILURE_GUIDANCE_PASS")
 
     def test_service_admission_retains_active_backend_operation_ownership(self):
@@ -279,6 +283,9 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         harness = (ROOT / "tests/fixtures/v3_auth_jitless_error_behavior_harness.swift").read_text(encoding="utf-8")
         self.compile_and_run(failure + "\n" + helper + "\n" + harness,
                              "V3_AUTH_2FA_JITLESS_AND_ERROR_BEHAVIOR_PASS")
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertIn('V3AuthRepairURLPolicy.openableURL(value)', shell)
+        self.assertIn('Link("Open Apple Account Repair", destination: repairURL)', shell)
 
 
 if __name__ == "__main__":
