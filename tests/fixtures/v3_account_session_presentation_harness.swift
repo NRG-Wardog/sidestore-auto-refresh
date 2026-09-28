@@ -16,7 +16,8 @@ struct V3AccountSessionPresentationHarness {
             activeTeamPresent: false,
             activeCertificatePresent: false)
         precondition(noSavedState.showSignIn && !noSavedState.showSavedAppleID &&
-                     !noSavedState.showUnverifiedSavedState && !noSavedState.showSignOut,
+                     !noSavedState.showUnverifiedSavedState &&
+                     !noSavedState.showRetainedCertificateGuidance && !noSavedState.showSignOut,
                      "with no saved account state, show Sign In only")
 
         let teamOnly = V3AccountSessionPresentationPolicy.resolve(
@@ -32,9 +33,9 @@ struct V3AccountSessionPresentationHarness {
             activeAccountPresent: false,
             activeTeamPresent: false,
             activeCertificatePresent: true)
-        precondition(!certificateOnly.showSavedAppleID && certificateOnly.showUnverifiedSavedState &&
-                     certificateOnly.showSignOut,
-                     "certificate-only local state must preserve explicit sign-out recovery")
+        precondition(!certificateOnly.showSavedAppleID && !certificateOnly.showUnverifiedSavedState &&
+                     certificateOnly.showRetainedCertificateGuidance && !certificateOnly.showSignOut,
+                     "certificate-only local state must offer certificate recovery, not a Sign Out action that retains it")
 
         let authenticated = V3AccountSessionPresentationPolicy.resolve(
             authenticated: true,
@@ -42,6 +43,7 @@ struct V3AccountSessionPresentationHarness {
             activeTeamPresent: false,
             activeCertificatePresent: false)
         precondition(!authenticated.showSignIn && !authenticated.showUnverifiedSavedState &&
+                     !authenticated.showRetainedCertificateGuidance &&
                      authenticated.showSignOut,
                      "a verified signed-in state keeps the existing Sign Out action")
         print("V3_ACCOUNT_SESSION_PRESENTATION_PASS")

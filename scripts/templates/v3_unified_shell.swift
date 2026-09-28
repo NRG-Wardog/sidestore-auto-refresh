@@ -2667,9 +2667,19 @@ struct V3AccountSettings: View {
                         Label("Saved account state is not verified",
                               systemImage: "exclamationmark.triangle.fill")
                             .foregroundColor(.orange)
-                        Text("SideStore still has saved account, team, or certificate information, but cannot confirm an active Apple sign-in. Sign in again or explicitly sign out.")
+                        Text("SideStore still has a saved account or team, but cannot confirm an active Apple sign-in. Sign in again or explicitly sign out of the saved account state.")
                             .font(.footnote)
                             .foregroundColor(.secondary)
+                    }
+                }
+                if identityPresentation.showRetainedCertificateGuidance {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Saved certificate is retained separately",
+                              systemImage: "doc.text.magnifyingglass")
+                        Text("Sign Out does not remove signing certificates. Open Certificates to review or remove a saved certificate.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                        Button("Open Certificates") { status.certificatesPresented = true }
                     }
                 }
             } else {

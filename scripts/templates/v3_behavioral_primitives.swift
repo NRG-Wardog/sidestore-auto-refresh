@@ -3564,21 +3564,23 @@ struct V3AccountSessionPresentation: Equatable {
     let showSignIn: Bool
     let showSavedAppleID: Bool
     let showUnverifiedSavedState: Bool
+    let showRetainedCertificateGuidance: Bool
     let showSignOut: Bool
 }
 
 enum V3AccountSessionPresentationPolicy {
     static func resolve(authenticated: Bool, activeAccountPresent: Bool,
                         activeTeamPresent: Bool, activeCertificatePresent: Bool) -> V3AccountSessionPresentation {
-        let hasSavedState = activeAccountPresent || activeTeamPresent || activeCertificatePresent
+        let hasSavedAccountState = activeAccountPresent || activeTeamPresent
         return V3AccountSessionPresentation(
             showSignIn: !authenticated,
             showSavedAppleID: activeAccountPresent,
-            showUnverifiedSavedState: !authenticated && hasSavedState,
-            // Authentication can be unreadable while the active Core Data
-            // account/team/certificate still exists. Sign Out remains an
-            // explicit checked action so the user can reconcile that state.
-            showSignOut: authenticated || hasSavedState)
+            showUnverifiedSavedState: !authenticated && hasSavedAccountState,
+            showRetainedCertificateGuidance: !authenticated && activeCertificatePresent,
+            // Sign Out clears the saved account/team session, but deliberately
+            // retains signing certificates. A certificate alone cannot justify
+            // presenting Sign Out as a way to remove stale local state.
+            showSignOut: authenticated || hasSavedAccountState)
     }
 }
 
