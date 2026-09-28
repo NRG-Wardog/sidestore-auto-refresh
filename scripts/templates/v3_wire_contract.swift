@@ -490,9 +490,9 @@ enum V3ServiceReadinessReply: Equatable {
     case failed(V3ServiceReadinessFailure)
     case ready
 
-    // Keep this vocabulary aligned with CombinedFailure.SafeCause and
-    // CombinedFailure.SourceStep. The generated-source harness compares the
-    // sets so a new typed cause cannot silently disappear at this boundary.
+    // Keep the shared structured-failure vocabulary aligned. The generated
+    // source harness compares these sets so a new typed cause cannot silently
+    // disappear at this boundary.
     static let knownSafeCauseValues: Set<String> = [
         "networkConnectionLost", "networkTimedOut", "networkUnavailable",
         "signingNetworkConnectionLost", "signingNetworkTimedOut", "signingNetworkUnavailable",
