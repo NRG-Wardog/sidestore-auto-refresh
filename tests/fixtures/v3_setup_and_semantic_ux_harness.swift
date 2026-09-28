@@ -713,6 +713,10 @@ struct SetupAndSemanticUXHarness {
         let decodedAnisetteNetworkFailure = plistRoundTrip(anisetteNetworkFailure)
         let anisetteGuidance = decodedAnisetteNetworkFailure.flatMap(V3AnisetteFailureGuidance.message)
         precondition(anisetteGuidance?.contains("configured Anisette server") == true &&
+                     decodedAnisetteNetworkFailure?.stage == .network &&
+                     decodedAnisetteNetworkFailure?.code == .failed &&
+                     decodedAnisetteNetworkFailure?.retryable == true &&
+                     decodedAnisetteNetworkFailure?.safeCause == .networkConnectionLost &&
                      anisetteGuidance?.localizedCaseInsensitiveContains("LocalDevVPN") == false,
                      "the typed Anisette network failure survives the actual structured wire contract")
         let anisetteUnavailable = V3AnisetteSyncFailurePolicy.failure(
@@ -724,7 +728,10 @@ struct SetupAndSemanticUXHarness {
                      anisetteUnavailable.safeCause == .anisetteServerUnavailable &&
                      anisetteUnavailable.retryable == true &&
                      unavailableRoundTrip?.operation == "anisetteSync" &&
+                     unavailableRoundTrip?.stage == .command &&
+                     unavailableRoundTrip?.code == .failed &&
                      unavailableRoundTrip?.safeCause == .anisetteServerUnavailable &&
+                     unavailableRoundTrip?.retryable == true &&
                      anisetteUnavailable.safeMessage.contains("temporarily unavailable") &&
                      anisetteUnavailable.recovery.contains("choose another configured Anisette server") &&
                      V3AnisetteFailureGuidance.message(anisetteUnavailable) == nil,
@@ -736,9 +743,14 @@ struct SetupAndSemanticUXHarness {
                      "a server outage does not route to or blame the device tunnel")
         let anisetteRejected = V3AnisetteSyncFailurePolicy.failure(
             NSError(domain: "AnisetteServersManager", code: 404), id: UUID().uuidString)
+        let rejectedRoundTrip = plistRoundTrip(anisetteRejected)
         precondition(anisetteRejected.stage == .command &&
                      anisetteRejected.safeCause == .anisetteServerRejected &&
                      anisetteRejected.retryable == false &&
+                     rejectedRoundTrip?.operation == "anisetteSync" &&
+                     rejectedRoundTrip?.stage == .command &&
+                     rejectedRoundTrip?.safeCause == .anisetteServerRejected &&
+                     rejectedRoundTrip?.retryable == false &&
                      anisetteRejected.safeMessage.contains("unsuccessful response") &&
                      anisetteRejected.recovery.contains("server address") &&
                      V3AnisetteFailureGuidance.message(anisetteRejected) == nil,
@@ -751,7 +763,10 @@ struct SetupAndSemanticUXHarness {
                      anisetteRequestTimeout.safeCause == .anisetteRequestTimedOut &&
                      anisetteRequestTimeout.retryable == true &&
                      timeoutRoundTrip?.operation == "anisetteSync" &&
+                     timeoutRoundTrip?.stage == .command &&
+                     timeoutRoundTrip?.code == .failed &&
                      timeoutRoundTrip?.safeCause == .anisetteRequestTimedOut &&
+                     timeoutRoundTrip?.retryable == true &&
                      anisetteRequestTimeout.recovery.contains("Retry once") &&
                      !anisetteRequestTimeout.recovery.localizedCaseInsensitiveContains("LocalDevVPN"),
                      "HTTP 408 survives a real plist round-trip with bounded retry guidance")
@@ -763,7 +778,10 @@ struct SetupAndSemanticUXHarness {
                      anisetteRateLimit.safeCause == .anisetteRateLimited &&
                      anisetteRateLimit.retryable == true &&
                      rateLimitRoundTrip?.operation == "anisetteSync" &&
+                     rateLimitRoundTrip?.stage == .command &&
+                     rateLimitRoundTrip?.code == .busy &&
                      rateLimitRoundTrip?.safeCause == .anisetteRateLimited &&
+                     rateLimitRoundTrip?.retryable == true &&
                      anisetteRateLimit.safeMessage.contains("rate-limiting") &&
                      anisetteRateLimit.recovery.contains("Wait before retrying once") &&
                      !anisetteRateLimit.recovery.localizedCaseInsensitiveContains("LocalDevVPN"),
@@ -785,7 +803,10 @@ struct SetupAndSemanticUXHarness {
                      anisetteInvalidResponse.safeCause == .anisetteInvalidResponse &&
                      anisetteInvalidResponse.retryable == nil &&
                      invalidResponseRoundTrip?.operation == "anisetteSync" &&
+                     invalidResponseRoundTrip?.stage == .command &&
+                     invalidResponseRoundTrip?.code == .invalidResponse &&
                      invalidResponseRoundTrip?.safeCause == .anisetteInvalidResponse &&
+                     invalidResponseRoundTrip?.retryable == nil &&
                      anisetteInvalidResponse.safeMessage.contains("could not read") &&
                      anisetteInvalidResponse.recovery.contains("could not be read") &&
                      V3AnisetteFailureGuidance.message(anisetteInvalidResponse) == nil,
@@ -797,9 +818,13 @@ struct SetupAndSemanticUXHarness {
                      "an invalid server response keeps its own guidance rather than device connection advice")
         let anisetteUnknown = V3AnisetteSyncFailurePolicy.failure(
             NSError(domain: "PrivateUnknownDomain", code: 77), id: UUID().uuidString)
+        let unknownRoundTrip = plistRoundTrip(anisetteUnknown)
         precondition(anisetteUnknown.stage == .command &&
                      anisetteUnknown.safeCause == .anisetteUnknownFailure &&
                      anisetteUnknown.retryable == nil &&
+                     unknownRoundTrip?.stage == .command &&
+                     unknownRoundTrip?.safeCause == .anisetteUnknownFailure &&
+                     unknownRoundTrip?.retryable == nil &&
                      anisetteUnknown.safeMessage.contains("unknown reason") &&
                      anisetteUnknown.recovery.contains("exact Anisette synchronization cause") &&
                      V3AnisetteFailureGuidance.message(anisetteUnknown) == nil,
