@@ -183,6 +183,27 @@ let testSuite = "CombinedCompletionTest." + UUID().uuidString
             outerHandoff: true, includeOuterHandoff: true)
         guard case .failure = staleRunID.completions[0] else { preconditionFailure("handoff flags with stale run ID accepted") }
         precondition(defaults.string(forKey: key) == run, "stale handoff run ID cleared uncertainty")
+        let manifestTrueWithoutOuterRunID = try receive(handoff,
+            outerHandoff: true, includeOuterHandoff: true)
+        guard case .failure = manifestTrueWithoutOuterRunID.completions[0] else {
+            preconditionFailure("successful manifest handoff without outer run ID accepted")
+        }
+        precondition(defaults.string(forKey: key) == run,
+            "manifest handoff without outer run ID cleared uncertainty")
+        let outerTrueWithoutRunID = try receive(valid,
+            outerHandoff: true, includeOuterHandoff: true)
+        guard case .failure = outerTrueWithoutRunID.completions[0] else {
+            preconditionFailure("outer true handoff without run ID accepted")
+        }
+        precondition(defaults.string(forKey: key) == run,
+            "outer true handoff without run ID cleared uncertainty")
+        let outerTrueWithStaleRunID = try receive(valid, handoffRunID: newer,
+            outerHandoff: true, includeOuterHandoff: true)
+        guard case .failure = outerTrueWithStaleRunID.completions[0] else {
+            preconditionFailure("outer true handoff with stale run ID accepted")
+        }
+        precondition(defaults.string(forKey: key) == run,
+            "outer true handoff with stale run ID cleared uncertainty")
         var noRunRefresh = valid
         noRunRefresh["host_handoff"] = false
         let normalRefresh = try receive(noRunRefresh)
