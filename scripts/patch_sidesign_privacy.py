@@ -33,7 +33,17 @@ func shouldOmitUserCopyableSideStoreLog(_ message: String) -> Bool {
         of: #"\b[a-z0-9_]*serial(?:[_-]?(?:number|hex|dec))?\b"#,
         options: .regularExpression
     ) != nil
-    return certificateSerial || markers.contains { lowercased.contains($0) }
+    // The pinned OCSP implementation also emits the serial as an unlabelled
+    // value ("Certificate <serial> ..." / "OCSP status for <serial>").
+    let certificateValue = lowercased.range(
+        of: #"\bcertificate\s+(?:0x)?[0-9a-f]{2,}\b"#,
+        options: .regularExpression
+    ) != nil
+    let ocspValue = lowercased.range(
+        of: #"\bocsp\b[^\n]*\bfor\s+(?:0x)?[0-9a-f]{2,}\b"#,
+        options: .regularExpression
+    ) != nil
+    return certificateSerial || certificateValue || ocspValue || markers.contains { lowercased.contains($0) }
 }
 '''
 
@@ -193,7 +203,8 @@ def verify_sidestore_tree(root: Path) -> None:
         raise SystemExit("Operation log sinks bypass source-level value redaction")
     if "error.localizedDescription" in operation_text:
         raise SystemExit("operation summary still copies raw error descriptions")
-    if "certificateSerial" not in side_text or "serialHex" not in side_text:
+    if ("certificateSerial" not in side_text or "serialHex" not in side_text
+            or "certificateValue" not in side_text or "ocspValue" not in side_text):
         raise SystemExit("SideStore log sinks do not omit full certificate serial values")
 
 
