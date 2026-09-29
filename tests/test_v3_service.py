@@ -306,6 +306,7 @@ enum V3BackendCommands {{
         boot_original = show(boot_path)
         boot_generated = service.headless_app_boot_manager(boot_original)
         self.assertEqual(service.headless_app_boot_manager(boot_generated), boot_generated)
+        self.assertNotIn("@MainActor", boot_generated)
         for removed in ("needsPairingPrompt", "needsSideJITPrompt", "promptForPairing(",
                         "presentPairingFileAlert", "isSideJITServerDetected", "UIViewController", "import UIKit"):
             self.assertNotIn(removed, boot_generated)
@@ -322,6 +323,7 @@ enum V3BackendCommands {{
         jit_original = show(jit_path)
         jit_generated = service.headless_sidejit_manager(jit_original)
         self.assertEqual(service.headless_sidejit_manager(jit_generated), jit_generated)
+        self.assertNotIn("@MainActor", jit_generated)
         for removed in ("presentJITPrompt", "isSideJITServerDetected", "UIAlertController", "UIViewController", "import UIKit"):
             self.assertNotIn(removed, jit_generated)
         for retained in ("public func resolveServerURL() async -> String", "public func askForNetwork() async",
@@ -361,6 +363,19 @@ enum V3BackendCommands {{
         altstore_members = altstore_exceptions[altstore_exceptions.index("membershipExceptions = ("):
                                               altstore_exceptions.index(");")]
         self.assertIn('"LaunchViewController.swift"', altstore_members)
+
+    def test_function_removal_consumes_only_its_actor_attribute(self):
+        source = '''@MainActor
+func removePresenter() { }
+
+@MainActor
+func retainedActorMethod() { }
+'''
+        generated = service.remove_swift_function_with_actor(
+            source, "func removePresenter()", "V3_REMOVED_PRESENTER", "actor removal regression")
+        self.assertEqual(generated.count("@MainActor"), 1)
+        self.assertIn("// V3_REMOVED_PRESENTER", generated)
+        self.assertIn("@MainActor\nfunc retainedActorMethod()", generated)
 
     def test_log_formatter_patch_replaces_the_complete_final_swift_function(self):
         source = "import Foundation\npublic func formatLogMessage(_ message: String) -> String { return message }\n"

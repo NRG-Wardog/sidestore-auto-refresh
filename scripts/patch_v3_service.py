@@ -552,14 +552,20 @@ def remove_swift_function_with_actor(text, signature, marker, label):
     if end is None:
         raise SystemExit(f"v3 service: unbalanced {label} implementation")
     line_start = text.rfind("\n", 0, start) + 1
-    indent = text[line_start:start]
+    method_prefix = text[line_start:start]
+    method_indent = method_prefix[:len(method_prefix) - len(method_prefix.lstrip(" \t"))]
     remove_start = line_start
-    actor_line_start = text.rfind("\n", 0, line_start - 1) + 1
-    actor_line = text[actor_line_start:line_start].strip()
-    if actor_line == "@MainActor" and not indent.strip():
+    replacement_indent = method_indent
+    actor_line_end = line_start - 1
+    actor_line_start = text.rfind("\n", 0, actor_line_end) + 1
+    actor_source = text[actor_line_start:actor_line_end]
+    actor_indent = actor_source[:len(actor_source) - len(actor_source.lstrip(" \t"))]
+    if actor_source.strip() == "@MainActor" and actor_indent == method_indent:
+        # The actor attribute belongs to this declaration. Remove it with the
+        # method, while keeping the indentation for the replacement marker.
         remove_start = actor_line_start
-        indent = text[actor_line_start:line_start]
-    replacement = indent + "// " + marker + "\n"
+        replacement_indent = actor_indent
+    replacement = replacement_indent + "// " + marker + "\n"
     return text[:remove_start] + replacement + text[end:]
 
 
