@@ -318,7 +318,8 @@ class ReloadOrderingTests(unittest.TestCase):
         for action in ("private func presentBusy()", "private func drainOwedSnapshot()",
                        "private func beginSnapshot(manual: Bool,",
                        "private func dismissKeyboard()", "private func cancelSourceEditing()",
-                       "private func previewSource()"):
+                       "private func cancelSourceForm()", "private func startPreviewSource()",
+                       "private func previewSource(_ request:"):
             block = text[text.index(action):]
             block = block[:block.index("\n    }\n")]
             self.assertNotIn("Task.sleep", block)
@@ -527,9 +528,10 @@ class UserFacingIssueRoutingTests(unittest.TestCase):
         # And the capture must not also happen anywhere else, such as when a
         # preview is requested, which is what made Cancel restore the wrong value.
         self.assertEqual(text.count("sourceURLBeforeEditing = status.sourceURL"), 1)
-        preview = text[text.index("private func previewSource() async {"):]
-        preview = preview[:preview.index("\n    }")]
-        self.assertNotIn("sourceURLBeforeEditing", preview)
+        for marker in ("private func startPreviewSource()", "private func previewSource(_ request:"):
+            preview = text[text.index(marker):]
+            preview = preview[:preview.index("\n    }")]
+            self.assertNotIn("sourceURLBeforeEditing", preview)
 
     def test_return_dismisses_the_keyboard_and_submits_nothing(self):
         text = shell()
@@ -719,6 +721,7 @@ class SourceKeyboardTests(unittest.TestCase):
         self.assertIn(".submitLabel(.done)", sources)
         self.assertIn("ToolbarItemGroup(placement: .keyboard)", sources)
         self.assertIn('Button("Cancel") { cancelSourceEditing() }', sources)
+        self.assertIn(".disabled(!V3SourceEditingPolicy.canCancelForm(isAdding: addBusy))", sources)
         self.assertIn('Button("Done") { dismissKeyboard() }', sources)
 
     def test_add_source_has_visible_cancel_when_keyboard_is_hidden_or_shown(self):
@@ -728,8 +731,10 @@ class SourceKeyboardTests(unittest.TestCase):
         self.assertIn("if isAddSourcePresented {", sources)
         self.assertIn('ToolbarItem(placement: .cancellationAction)', sources)
         self.assertIn('Button("Cancel", action: cancelSourceForm)', sources)
-        self.assertIn('accessibilityHint("Closes Add Source without previewing or adding the URL.")', sources)
+        self.assertIn('accessibilityHint("Closes Add Source without starting an add request. An in-flight preview read may be cancelled.")', sources)
         self.assertIn("V3SourceEditingPolicy.closeForm(V3SourceFormState(", sources)
+        self.assertEqual(sources.count(".disabled(!V3SourceEditingPolicy.canCancelForm(isAdding: addBusy))"), 2,
+                         "both keyboard and navigation Cancel must be disabled once Add is dispatched")
 
     def test_prefilled_and_saved_guest_urls_open_the_source_form(self):
         text = shell()
@@ -775,10 +780,13 @@ class SourceKeyboardTests(unittest.TestCase):
                                  f"a keyboard action must not trigger {forbidden}")
         cancel_form = sources[sources.index("private func cancelSourceForm()"):]
         cancel_form = cancel_form[:cancel_form.index("\n    }")]
-        for forbidden in ("previewSource", "confirmAdd", "V3ServiceBridge", "sourceAddConfirmed",
-                          "sourcePreview", "status.reload"):
+        self.assertIn("invalidateSourcePreview()", cancel_form,
+                      "Cancel may invalidate/cancel an existing read-only preview request")
+        for forbidden in ("startPreviewSource(", "previewSource(", "confirmAdd(",
+                          "V3ServiceBridge.shared.request", "sourceAddConfirmed",
+                          'operation: "sourcePreview"', "status.reload"):
             self.assertNotIn(forbidden, cancel_form,
-                             f"Add Source Cancel must not trigger {forbidden}")
+                             f"Add Source Cancel must not start {forbidden}")
 
     def test_preview_and_add_remain_separate_explicit_actions(self):
         text = shell()

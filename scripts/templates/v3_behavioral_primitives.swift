@@ -2469,6 +2469,8 @@ struct V3SourceFormOpenRequestLedger {
 }
 
 enum V3SourceEditingPolicy {
+    static func canCancelForm(isAdding: Bool) -> Bool { !isAdding }
+
     /// Done: a pure UI dismissal. The typed value is kept.
     static func done(typed: String) -> V3SourceEditingOutcome { .dismissed }
 

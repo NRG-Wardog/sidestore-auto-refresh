@@ -2340,6 +2340,7 @@ struct V3SourcesView: View {
                                 .keyboardType(.URL)
                                 .autocapitalization(.none)
                                 .disableAutocorrection(true)
+                                .disabled(addBusy)
                                 .focused($sourceFieldFocused)
                                 // Return only dismisses the keyboard. It never
                                 // previews and never adds a source.
@@ -2376,6 +2377,7 @@ struct V3SourcesView: View {
                             ToolbarItemGroup(placement: .keyboard) {
                                 Spacer()
                                 Button("Cancel") { cancelSourceEditing() }
+                                    .disabled(!V3SourceEditingPolicy.canCancelForm(isAdding: addBusy))
                                 Button("Done") { dismissKeyboard() }
                             }
                         }
@@ -2469,7 +2471,8 @@ struct V3SourcesView: View {
                 if isAddSourcePresented {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel", action: cancelSourceForm)
-                            .accessibilityHint("Closes Add Source without previewing or adding the URL.")
+                            .disabled(!V3SourceEditingPolicy.canCancelForm(isAdding: addBusy))
+                            .accessibilityHint("Closes Add Source without starting an add request. An in-flight preview read may be cancelled.")
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
@@ -2540,8 +2543,9 @@ struct V3SourcesView: View {
     }
 
     /// The visible navigation Cancel works with the keyboard shown or hidden.
-    /// The production transition has no service effects; it only closes this
-    /// form, restores its opening value and discards its uncommitted preview.
+    /// The production transition starts no backend work. It closes the form,
+    /// restores its opening value, discards the local preview, and invalidates
+    /// any in-flight read-only preview request so its late reply cannot apply.
     private func cancelSourceForm() {
         invalidateSourcePreview()
         let transition = V3SourceEditingPolicy.closeForm(V3SourceFormState(

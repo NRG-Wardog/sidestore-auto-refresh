@@ -901,6 +901,9 @@ struct SetupAndSemanticUXHarness {
             "a response from the previous form generation cannot populate the reopened form")
         precondition(previewSession.mayApply(reopenedRequest,
             currentURL: "https://example.invalid/A.json", formPresented: true))
+        precondition(V3SourceEditingPolicy.canCancelForm(isAdding: false))
+        precondition(!V3SourceEditingPolicy.canCancelForm(isAdding: true),
+            "once add/persistence is dispatched, Cancel must be disabled")
 
         // A mounted view observes new route request IDs, while duplicate
         // onAppear/onChange delivery of one request opens the form only once.
