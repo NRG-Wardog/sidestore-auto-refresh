@@ -734,7 +734,15 @@ struct AuthOwnershipReconciliationHarness {
         precondition(V3AuthTerminalFailureActionPolicy.guidance(
             kind: "anisetteFailure", retryable: true)?.contains("Anisette Servers in Settings") == true)
         precondition(V3AuthTerminalFailureActionPolicy.guidance(
-            kind: "networkFailure", retryable: true)?.contains("Check Connection or LocalDevVPN") == true)
+            kind: "networkFailure", retryable: true)?.contains("internet connection") == true &&
+            V3AuthTerminalFailureActionPolicy.guidance(
+                kind: "networkFailure", retryable: true)?.contains("LocalDevVPN") == false,
+            "Apple authentication URL failures advise checking internet, not the device tunnel")
+        precondition(V3AuthTerminalFailureActionPolicy.guidance(
+            kind: "network", retryable: true)?.contains("internet connection") == true &&
+            V3AuthTerminalFailureActionPolicy.guidance(
+                kind: "network", retryable: true)?.contains("LocalDevVPN") == false,
+            "both network spellings keep auth recovery neutral")
         precondition(V3AuthRepairURLPolicy.openableURL("https://iforgot.apple.com/password/verify/appleid") != nil)
         precondition(V3AuthRepairURLPolicy.openableURL("http://iforgot.apple.com/") == nil)
         precondition(V3AuthRepairURLPolicy.openableURL("https://apple.com.attacker.invalid/") == nil)

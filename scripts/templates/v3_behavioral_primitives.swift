@@ -4080,7 +4080,7 @@ enum V3AuthTerminalFailureActionPolicy {
         case .beginNewSignIn(_) where kind == "anisette" || kind == "anisetteFailure":
             return "SideStore could not obtain Anisette data. Check Anisette Servers in Settings, then start a new sign-in."
         case .beginNewSignIn(_) where kind == "network" || kind == "networkFailure":
-            return "The connection to Apple's authentication service failed. Check Connection or LocalDevVPN, then start a new sign-in."
+            return "The connection to Apple's authentication service failed. Check your internet connection, then start a new sign-in."
         case .beginNewSignIn(_) where kind == "unknown" || (kind == nil && retryable == nil):
             return "The exact cause or retry safety could not be confirmed. Starting again creates a new attempt and may not resolve the previous failure."
         case .beginNewSignIn(_):
