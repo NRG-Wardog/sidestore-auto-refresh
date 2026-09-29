@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 42
+PATCH_VERSION = 43
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -1430,6 +1430,44 @@ def headless_pipeline_handler(text):
     return patched
 
 
+def headless_pipeline_persistence_contract(text):
+    """Require durable installed-app persistence after a successful mutation."""
+    marker = "V3_POST_MUTATION_PERSISTENCE_CONTRACT_V1"
+    if marker in text:
+        if (text.count(marker) != 1 or
+                "V3MutationPersistencePolicy.persistResult" not in text or
+                "Failed to save InstalledApp to database. \\(error.localizedDescription)" in text):
+            raise SystemExit("v3 service: pipeline persistence contract is partial")
+        return text
+
+    old = '''            do {
+                try await dbContext.perform {
+                    let hasChanges = dbContext.hasChanges
+                    if hasChanges {
+                        try dbContext.save()
+                    }
+                    debugLog("[AppManager] performOperation: Context changes were saved for installedApp: \\(bundleID)")
+                }
+            } catch {
+                debugLog("[AppManager] perform(): Failed to save InstalledApp to database. \\(error.localizedDescription)")
+            }
+'''
+    new = '''            // V3_POST_MUTATION_PERSISTENCE_CONTRACT_V1: the device mutation may
+            // already have happened. A failed durable commit is a non-retryable
+            // persistence outcome, never operation success. Do not log native error text.
+            try await dbContext.perform {
+                let hasChanges = dbContext.hasChanges
+                try V3MutationPersistencePolicy.persistResult(hasChanges: hasChanges) {
+                    try dbContext.save()
+                }
+                debugLog("[AppManager] performOperation: InstalledApp result persistence confirmed for \\(bundleID)")
+            }
+'''
+    if text.count(old) != 1:
+        raise SystemExit("v3 service: PipelineRunner persistence callsite changed")
+    return text.replace(old, new, 1)
+
+
 def headless_connection_config(text):
     marker = "V3_HEADLESS_CONNECTION_CONFIG_MOVED_V1"
     replacement = "// " + marker + ": transport settings now live in Core/DeviceApi/ConnectionConfig.swift.\n"
@@ -1831,6 +1869,8 @@ def patch(live, side):
          headless_clear_cache_operation)
     edit(side, "SideStore/Core/Auth/AuthManager.swift", headless_auth_manager)
     edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager)
+    edit(side, "SideStore/Core/Operations/PipelineRunner.swift",
+         headless_pipeline_persistence_contract)
     edit(side, "AltStore/Core/Model/RefreshAttempt.swift", headless_refresh_attempt_error_privacy)
     edit(side, "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift",
          headless_featured_sort_startup)
