@@ -618,13 +618,17 @@ final class V3AuthCenter {
 
     func canResumeProvisioning() -> Bool {
         let credentials = AuthManager.shared.authenticationSnapshot
+        let teamOwner = AuthManager.shared.team?.account.appleID
         return V3AuthSessionAdmissionPolicy.mayStartNewSession(hasActiveSession: hasActiveSession) &&
             V3ProvisioningResumeAvailabilityPolicy.canResume(
-            authenticated: credentials?.isAuthenticated == true,
+            authenticated: V3AuthIdentityBindingPolicy.hasTokenBackedRoute(
+                credentialRoutePresent: credentials?.isAuthenticated == true,
+                dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken),
             currentAppleID: credentials?.appleIDEmailAddress,
             resumableAppleID: resumableProvisioning?.appleID,
             hasSession: AuthManager.shared.session != nil,
-            hasTeamAccount: AuthManager.shared.team?.account != nil)
+            hasTeamAccount: teamOwner != nil,
+            teamAccountAppleID: teamOwner)
     }
 
     var sessions: [String: Session] = [:]
@@ -672,8 +676,14 @@ final class V3AuthCenter {
             // account whose provisioning actually failed.
             let sessionAppleID = authCredentials?.appleIDEmailAddress?.lowercased()
             let resumable = resumableProvisioning
-            guard authCredentials?.isAuthenticated == true, let resumable, !resumable.appleID.isEmpty,
-                  resumable.appleID == sessionAppleID else {
+            let teamAppleID = AuthManager.shared.team?.account.appleID
+            guard V3AuthIdentityBindingPolicy.hasTokenBackedRoute(
+                    credentialRoutePresent: authCredentials?.isAuthenticated == true,
+                    dsid: authCredentials?.appleIDAdsid, xcodeToken: authCredentials?.appleIDXcodeToken),
+                  let resumable, !resumable.appleID.isEmpty,
+                  resumable.appleID == sessionAppleID,
+                  V3AuthIdentityBindingPolicy.mayUseTeam(sessionOwner: sessionAppleID,
+                    teamOwner: teamAppleID) else {
                 let failure = CombinedFailure(operation: "signIn", stage: .authentication, code: .notReady,
                     id: id, retryable: false)
                 let response: [String: Any] = ["session": id, "state": "failed", "authenticated": false,
@@ -742,6 +752,15 @@ final class V3AuthCenter {
                 anisetteServerHandler: handler, v3ForceProvisioningRetry: forceProvisioningRetry)
             let result = try await operation.execute()
             let account = result.team.account ?? ALTAccount(appleID: "", identifier: result.team.identifier)
+            let identityGeneration = AuthManager.shared.v3IdentityGeneration
+            let credentials = AuthManager.shared.authenticationSnapshot
+            guard V3AuthIdentityBindingPolicy.hasUsableSession(
+                    credentialRoutePresent: credentials?.isAuthenticated == true,
+                    dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken,
+                    sessionDSID: result.session.dsid, generationBefore: identityGeneration,
+                    generationAfter: AuthManager.shared.v3IdentityGeneration) else {
+                throw OperationError.notAuthenticated
+            }
             await handler.handleSignInResult(.success((account, result.session)))
             sessions[id]?.prompt = nil
             resumableProvisioning = nil
@@ -753,7 +772,14 @@ final class V3AuthCenter {
             let session = sessions[id]
             let activeAppleID = DatabaseManager.shared.activeAccount()?.appleID
             let submitted = session?.submittedAppleID?.lowercased()
-            let authenticationSucceeded = V3AuthAttemptAuthenticationPolicy.confirms(
+            let credentials = AuthManager.shared.authenticationSnapshot
+            let tokenBackedRoute = V3AuthIdentityBindingPolicy.hasTokenBackedRoute(
+                credentialRoutePresent: credentials?.isAuthenticated == true,
+                dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken)
+            let authenticationSucceeded = tokenBackedRoute &&
+                V3AuthIdentityBindingPolicy.mayUseTeam(
+                    sessionOwner: session?.authenticatedAppleID ?? submitted,
+                    teamOwner: credentials?.appleIDEmailAddress) && V3AuthAttemptAuthenticationPolicy.confirms(
                 authenticationCallbackSeen: session?.authenticatedAppleID != nil,
                 submittedAppleID: submitted, activeAppleID: activeAppleID,
                 accountAppleIDAtStart: session?.accountAppleIDAtStart)
@@ -796,7 +822,7 @@ final class V3AuthCenter {
                     "state": authenticatedOutcome,
                     "authenticated": true,
                     "outcome": cancelled ? "provisioningCancelled" : "provisioningFailed",
-                    "resumable": AuthManager.shared.isAuthenticated && !resumeUnavailable,
+                    "resumable": tokenBackedRoute && !resumeUnavailable,
                     "message": message,
                     "stage": failure.stage.rawValue,
                     "code": failure.code.rawValue,
@@ -890,18 +916,24 @@ final class V3AuthCenter {
     func expire(id: String) {
         guard var session = sessions[id], session.terminal.isEmpty else { return }
         let activeAppleID = DatabaseManager.shared.activeAccount()?.appleID
-        let authenticated = V3AuthAttemptAuthenticationPolicy.confirms(
+        let authenticationConfirmed = V3AuthAttemptAuthenticationPolicy.confirms(
             authenticationCallbackSeen: session.authenticatedAppleID != nil,
             submittedAppleID: session.submittedAppleID, activeAppleID: activeAppleID,
             accountAppleIDAtStart: session.accountAppleIDAtStart)
         let authCredentials = AuthManager.shared.authenticationSnapshot
         let authenticatedAppleID = (session.authenticatedAppleID ?? authCredentials?.appleIDEmailAddress)?.lowercased()
-        if authenticated, authCredentials?.isAuthenticated == true,
+        let tokenBackedRoute = V3AuthIdentityBindingPolicy.hasTokenBackedRoute(
+            credentialRoutePresent: authCredentials?.isAuthenticated == true,
+            dsid: authCredentials?.appleIDAdsid, xcodeToken: authCredentials?.appleIDXcodeToken)
+        let routeMatchesAttempt = V3AuthIdentityBindingPolicy.mayUseTeam(
+            sessionOwner: authenticatedAppleID, teamOwner: authCredentials?.appleIDEmailAddress)
+        let authenticated = authenticationConfirmed && tokenBackedRoute && routeMatchesAttempt
+        if authenticated, tokenBackedRoute,
            let authenticatedAppleID, !authenticatedAppleID.isEmpty,
            resumableProvisioning?.appleID != authenticatedAppleID {
             resumableProvisioning = (authenticatedAppleID, "sessionTimeout")
         }
-        let resumable = authCredentials?.isAuthenticated == true &&
+        let resumable = authenticated && tokenBackedRoute &&
             authenticatedAppleID.map { resumableProvisioning?.appleID == $0 } == true
         session.cancellationRequested = true
         session.task?.cancel()
@@ -1477,7 +1509,10 @@ final class V3OperationCenter {
             break
         }
         if kind == "installSharedIPA" { sessions[id]?.ipaToken = target }
-        guard AuthManager.shared.isAuthenticated else {
+        let credentials = AuthManager.shared.authenticationSnapshot
+        guard V3AuthIdentityBindingPolicy.hasTokenBackedRoute(
+            credentialRoutePresent: credentials?.isAuthenticated == true,
+            dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken) else {
             sessions[id]?.preparation.finish()
             finish(id: id, response: ["state": "waitingForAuthentication"])
             mutationRegistry.finish(id)

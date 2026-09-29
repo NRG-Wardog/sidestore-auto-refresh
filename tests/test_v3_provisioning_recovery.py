@@ -266,8 +266,12 @@ class RecoveryActionLabelTests(unittest.TestCase):
         # provisioning failed must hold, otherwise credentials would be skipped
         # for a session that cannot actually resume.
         self.assertIn("let sessionAppleID = authCredentials?.appleIDEmailAddress?.lowercased()", guard)
-        self.assertIn("guard authCredentials?.isAuthenticated == true, let resumable, !resumable.appleID.isEmpty,", guard)
-        self.assertIn("resumable.appleID == sessionAppleID else {", guard)
+        self.assertIn("guard V3AuthIdentityBindingPolicy.hasTokenBackedRoute(", guard)
+        self.assertIn("credentialRoutePresent: authCredentials?.isAuthenticated == true", guard)
+        self.assertIn("dsid: authCredentials?.appleIDAdsid", guard)
+        self.assertIn("xcodeToken: authCredentials?.appleIDXcodeToken", guard)
+        self.assertIn("resumable.appleID == sessionAppleID,", guard)
+        self.assertIn("teamOwner: teamAppleID", guard)
         self.assertIn("Sign in again with this Apple ID", guard)
         # The refusal is explicit rather than a silent interactive fallback.
         self.assertIn('"state": "failed"', guard)

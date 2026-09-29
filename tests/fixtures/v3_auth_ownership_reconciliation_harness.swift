@@ -458,7 +458,8 @@ struct AuthOwnershipReconciliationHarness {
             "a later poll failure cannot downgrade an account state confirmed by reconciliation")
 
         precondition(V3ProvisioningResumeAvailabilityPolicy.canResume(
-            authenticated: true, currentAppleID: "Dev@Example.com", resumableAppleID: "dev@example.com"))
+            authenticated: true, currentAppleID: "Dev@Example.com", resumableAppleID: "dev@example.com",
+            teamAccountAppleID: "DEV@example.com"))
         precondition(!V3ProvisioningResumeAvailabilityPolicy.canResume(
             authenticated: true, currentAppleID: "dev@example.com", resumableAppleID: nil),
             "authentication alone does not prove process-local provisioning state survived")

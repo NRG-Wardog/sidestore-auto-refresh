@@ -945,7 +945,10 @@ final class V3SideStoreService: NSObject {
             AuthManager.shared.signOut(keepCertificate: true, keepAnisetteData: true)
             return try snapshot()
         case "syncAppIDs":
-            if !AuthManager.shared.isAuthenticated {
+            let credentials = AuthManager.shared.authenticationSnapshot
+            if !V3AuthIdentityBindingPolicy.hasTokenBackedRoute(
+                credentialRoutePresent: credentials?.isAuthenticated == true,
+                dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken) {
                 throw V3SideStoreServiceError.authRequired
             }
             try await callback { done in AppManager.shared.syncAppIDs(completionHandler: done) }
@@ -1344,10 +1347,11 @@ final class V3SideStoreService: NSObject {
     }
 
     private func snapshot() throws -> [String: Any] {
+        let identityGenerationAtStart = AuthManager.shared.v3IdentityGeneration
         let context = DatabaseManager.shared.viewContext
         let apps = InstalledApp.all(in: context)
         let sources = try context.fetch(NSFetchRequest<Source>(entityName: "Source"))
-        let team = DatabaseManager.shared.activeTeam()
+        let storedTeam = DatabaseManager.shared.activeTeam()
         let activeCertificate = CertificateManager.shared.activeCertificate
         let certificate = activeCertificate?.certificate.x509
         // V3_AUTH_SESSION_SNAPSHOT_V1: Apple authentication can succeed before
@@ -1357,12 +1361,28 @@ final class V3SideStoreService: NSObject {
         // hid the authenticated session from Retry Provisioning. The session
         // itself is authoritative; the active row is reported separately as
         // provisioningIncomplete so no active team is ever implied.
-        let activeAccount = DatabaseManager.shared.activeAccount()
+        let storedAccount = DatabaseManager.shared.activeAccount()
         let authCredentials = AuthManager.shared.authenticationSnapshot
-        let authenticated = authCredentials?.isAuthenticated == true
-        let account = activeAccount?.appleID
-            ?? (authenticated ? authCredentials?.appleIDEmailAddress : nil)
-            ?? "Not signed in"
+        let identityReadStable = V3AuthIdentityBindingPolicy.mayProjectIdentity(
+            generationBefore: identityGenerationAtStart,
+            generationAfter: AuthManager.shared.v3IdentityGeneration)
+        let credentialRoutePresent = identityReadStable && authCredentials?.isAuthenticated == true
+        let credentialAppleID = V3AuthIdentityBindingPolicy.normalizedOwner(authCredentials?.appleIDEmailAddress)
+        let authenticated = credentialRoutePresent &&
+            authCredentials?.appleIDAdsid?.isEmpty == false && authCredentials?.appleIDXcodeToken?.isEmpty == false
+        let activeAccount = identityReadStable ? storedAccount.flatMap { candidate in
+            V3AuthIdentityBindingPolicy.mayUseTeam(sessionOwner: credentialAppleID,
+                teamOwner: candidate.appleID) ? candidate : nil
+        } : nil
+        let team = identityReadStable ? storedTeam.flatMap { candidate in
+            let owner = V3AuthIdentityBindingPolicy.resolveColdTeamOwner(
+                storedTeamOwner: candidate.account?.appleID, activeTeamMatches: true,
+                activeAccountOwner: activeAccount?.appleID, sessionOwner: credentialAppleID)
+            return V3AuthIdentityBindingPolicy.mayUseTeam(sessionOwner: credentialAppleID,
+                teamOwner: owner) ? candidate : nil
+        } : nil
+        let account = activeAccount?.appleID ?? (identityReadStable && credentialRoutePresent
+            ? authCredentials?.appleIDEmailAddress : nil) ?? "Not signed in"
         let activeAuthenticationSessionID = V3HeadlessRuntime.shared.auth.activeSessionIDForSnapshot
         _ = refreshAdmission.expire()
         let operationRecovery: V3OperationRecoveryRecord?
@@ -1381,6 +1401,7 @@ final class V3SideStoreService: NSObject {
                  "recoveryJournalUnreadable": recoveryJournalUnreadable,
                  "account": account,
                  "authenticated": authenticated,
+                 "credentialRoutePresent": credentialRoutePresent,
                  "activeAccountPresent": activeAccount != nil,
                  "activeTeamPresent": team != nil,
                  "activeCertificatePresent": activeCertificate != nil,

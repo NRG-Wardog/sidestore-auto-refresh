@@ -496,6 +496,15 @@ struct V3ReadinessAndDiagnosticsContractHarness {
         self.assertIn('V3AuthRepairURLPolicy.openableURL(value)', shell)
         self.assertIn('Link("Open Apple Account Repair", destination: repairURL)', shell)
 
+    def test_auth_identity_binding_policy_executes_account_interleavings(self):
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        start = primitives.index("enum V3ProvisioningResumeAvailabilityPolicy {")
+        end = primitives.index("enum V3ProvisioningResumeIdentityPolicy {", start)
+        production_policy = primitives[start:end]
+        harness = (ROOT / "tests/fixtures/v3_auth_identity_binding_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run("import Foundation\n" + production_policy + "\n" + harness,
+                             "V3_AUTH_IDENTITY_BINDING_PASS")
+
 
 if __name__ == "__main__":
     unittest.main()

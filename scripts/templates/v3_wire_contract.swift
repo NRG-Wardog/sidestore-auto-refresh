@@ -4,6 +4,7 @@ import CryptoKit
 
 public struct V3AuthServiceSnapshot: Equatable {
     public let authenticated: Bool
+    public let credentialRoutePresent: Bool
     public let provisioningIncomplete: Bool
     public let provisioningRetryAvailable: Bool
     public let authenticationActive: Bool
@@ -11,8 +12,9 @@ public struct V3AuthServiceSnapshot: Equatable {
 
     public init(authenticated: Bool, provisioningIncomplete: Bool,
                 provisioningRetryAvailable: Bool, authenticationActive: Bool,
-                authenticationSessionID: String?) {
+                authenticationSessionID: String?, credentialRoutePresent: Bool = false) {
         self.authenticated = authenticated
+        self.credentialRoutePresent = credentialRoutePresent
         self.provisioningIncomplete = provisioningIncomplete
         self.provisioningRetryAvailable = provisioningRetryAvailable
         self.authenticationActive = authenticationActive
@@ -72,7 +74,8 @@ enum V3WireContract {
             provisioningIncomplete: provisioningIncomplete,
             provisioningRetryAvailable: provisioningRetryAvailable,
             authenticationActive: authenticationActive,
-            authenticationSessionID: authenticationSessionID)
+            authenticationSessionID: authenticationSessionID,
+            credentialRoutePresent: strictBool(reply["credentialRoutePresent"]) ?? false)
     }
 
     static func invalidRequestIdentity(from data: Data) -> (id: String?, operation: String?) {

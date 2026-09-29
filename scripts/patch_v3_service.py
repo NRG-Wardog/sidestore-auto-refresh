@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 45
+PATCH_VERSION = 46
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -1825,6 +1825,8 @@ def patch_sign_in_operation(text):
             "V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1",
             "V3_AUTH_CREDENTIAL_TRANSACTION_V1",
             "Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)",
+            "AuthManager.shared.v3AdvanceIdentityGeneration()",
+            "currentAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()",
         )
         if text.count(marker) != 1 or any(value not in text for value in required):
             raise SystemExit("v3 service: provisioning retry SignInOperation patch is partial")
@@ -1855,7 +1857,10 @@ def patch_sign_in_operation(text):
         "            if self.v3ForceProvisioningRetry {\n"
         "                guard var session = AuthManager.shared.session,\n"
         "                      let team = AuthManager.shared.team,\n"
-        "                      let account = team.account else {\n"
+        "                      let account = team.account,\n"
+        "                      let currentAppleID = AuthManager.shared.authenticationSnapshot?.appleIDEmailAddress,\n"
+        "                      currentAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ==\n"
+        "                        account.appleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {\n"
         "                    throw V3ProvisioningResumeUnavailableError()\n"
         "                }\n"
         "                session.anisetteData = try await self.getAnisetteData()\n"
@@ -1926,7 +1931,179 @@ def patch_sign_in_operation(text):
         "        AuthManager.shared.password = password\n",
         "        // V3_AUTH_CREDENTIAL_TRANSACTION_V1: commit the complete credential route\n"
         "        // and readiness marker together after exact read-back verification.\n"
-        "        try Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)\n")
+        "        try Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)\n"
+        "        AuthManager.shared.v3AdvanceIdentityGeneration()\n")
+    return text
+
+
+def patch_auth_identity_generation(text):
+    marker = "V3_AUTH_IDENTITY_GENERATION_V1"
+    if marker in text:
+        if ("v3IdentityGeneration" not in text or
+                "v3AdvanceIdentityGeneration()" not in text):
+            raise SystemExit("v3 service: auth identity generation patch is partial")
+        return text
+    text = replace(text, "    private init() {}\n", "    private init() {}\n\n"
+        "    // " + marker + ": changes only after a complete credential commit or sign-out.\n"
+        "    private(set) var v3IdentityGeneration: UInt64 = 0\n"
+        "    func v3AdvanceIdentityGeneration() { v3IdentityGeneration &+= 1 }\n")
+    text = replace(text, "    ) {\n        self.session = nil\n", "    ) {\n"
+        "        self.v3AdvanceIdentityGeneration()\n"
+        "        self.session = nil\n")
+    for old, new in (
+        ("set { Keychain.shared.appleIDEmailAddress = newValue }",
+         "set { Keychain.shared.appleIDEmailAddress = newValue; self.v3AdvanceIdentityGeneration() }"),
+        ("set { Keychain.shared.appleIDPassword = newValue }",
+         "set { Keychain.shared.appleIDPassword = newValue; self.v3AdvanceIdentityGeneration() }"),
+        ("set { Keychain.shared.appleIDAdsid = newValue }",
+         "set { Keychain.shared.appleIDAdsid = newValue; self.v3AdvanceIdentityGeneration() }"),
+        ("set { Keychain.shared.appleIDXcodeToken = newValue }",
+         "set { Keychain.shared.appleIDXcodeToken = newValue; self.v3AdvanceIdentityGeneration() }"),
+    ):
+        if old not in text and new not in text:
+            raise SystemExit("v3 service: credential setter generation anchor changed")
+        if old in text:
+            text = replace(text, old, new)
+    return text
+
+
+def patch_developer_portal_proxy(text):
+    marker = "V3_AUTH_IDENTITY_BOUND_DEVELOPER_PORTAL_V1"
+    if marker in text:
+        required = ("getBoundSession()", "getBoundTeam(_:context:)",
+                    "mayFetchTeams(sessionOwner:", "mayUseTeam(sessionOwner:",
+                    "fetchTeams(for account: ALTAccount)", "team.account?.appleID",
+                    "databaseOwner(for: team.identifier)", "import CoreData")
+        if any(value not in text for value in required):
+            raise SystemExit("v3 service: DeveloperPortalProxy identity binding patch is partial")
+        return text
+    old = '''    private func getSession() async throws -> ALTAppleAPISession {
+        try await AuthManager.shared.getAuthenticatedSession()
+    }
+
+    private func getTeam(_ team: ALTTeam? = nil) async throws -> ALTTeam {
+        if let team { return team }
+        return try await AuthManager.shared.getAuthenticatedTeam()
+    }'''
+    new = '''    // V3_AUTH_IDENTITY_BOUND_DEVELOPER_PORTAL_V1
+    private struct BoundSession {
+        let session: ALTAppleAPISession
+        let appleID: String
+        let generation: UInt64
+    }
+
+    private func getBoundSession() async throws -> BoundSession {
+        let auth = AuthManager.shared
+        let generation = auth.v3IdentityGeneration
+        let credentialsBefore = auth.authenticationSnapshot
+        let session = try await auth.getAuthenticatedSession()
+        let credentials = auth.authenticationSnapshot
+        guard V3AuthIdentityBindingPolicy.hasUsableSession(
+            credentialRoutePresent: credentials?.isAuthenticated == true,
+            dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken,
+            sessionDSID: session.dsid, generationBefore: generation,
+            generationAfter: auth.v3IdentityGeneration),
+              V3AuthIdentityBindingPolicy.sameCredentialRoute(
+                appleIDBefore: credentialsBefore?.appleIDEmailAddress,
+                appleIDAfter: credentials?.appleIDEmailAddress,
+                dsidBefore: credentialsBefore?.appleIDAdsid, dsidAfter: credentials?.appleIDAdsid,
+                tokenBefore: credentialsBefore?.appleIDXcodeToken, tokenAfter: credentials?.appleIDXcodeToken),
+              V3AuthIdentityBindingPolicy.mayDispatch(generationBefore: generation,
+                generationAfter: auth.v3IdentityGeneration, cancelled: Task.isCancelled),
+              let appleID = credentials?.appleIDEmailAddress else {
+            throw OperationError.notAuthenticated
+        }
+        return BoundSession(session: session, appleID: appleID, generation: generation)
+    }
+
+    private func verifyCurrent(_ context: BoundSession) throws {
+        let auth = AuthManager.shared
+        let credentials = auth.authenticationSnapshot
+        guard context.generation == auth.v3IdentityGeneration,
+              V3AuthIdentityBindingPolicy.mayDispatch(generationBefore: context.generation,
+                generationAfter: auth.v3IdentityGeneration, cancelled: Task.isCancelled),
+              V3AuthIdentityBindingPolicy.hasUsableSession(
+                credentialRoutePresent: credentials?.isAuthenticated == true,
+                dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken,
+                sessionDSID: context.session.dsid, generationBefore: context.generation,
+                generationAfter: auth.v3IdentityGeneration),
+              V3AuthIdentityBindingPolicy.mayUseTeam(
+                sessionOwner: context.appleID, teamOwner: credentials?.appleIDEmailAddress) else {
+            throw OperationError.notAuthenticated
+        }
+    }
+
+    private func databaseOwner(for identifier: String) async throws -> String? {
+        try await DatabaseManager.shared.persistentContainer.performBackgroundTask { context in
+            let request = NSFetchRequest<Team>(entityName: "Team")
+            request.predicate = NSPredicate(format: "%K == %@", #keyPath(Team.identifier), identifier)
+            let matches = try context.fetch(request)
+            let owners = Set(matches.compactMap { $0.account?.appleID }
+                .compactMap(V3AuthIdentityBindingPolicy.normalizedOwner))
+            return owners.count == 1 ? owners.first : nil
+        }
+    }
+
+    private func owner(for team: ALTTeam, context: BoundSession) async throws -> String? {
+        let directOwner = V3AuthIdentityBindingPolicy.normalizedOwner(team.account?.appleID)
+        // SideSign's fetchTeams(for:session:) binds each returned ALTTeam to
+        // the requested ALTAccount. Trust that explicit owner; a prior DB row
+        // with the same team identifier may belong to a different account.
+        if let directOwner { return directOwner }
+        let databaseOwner = try await databaseOwner(for: team.identifier)
+        let activeTeamMatches = DatabaseManager.shared.activeTeam()?.identifier == team.identifier
+        let activeAccountOwner = DatabaseManager.shared.activeAccount()?.appleID
+        return V3AuthIdentityBindingPolicy.resolveColdTeamOwner(
+            storedTeamOwner: databaseOwner, activeTeamMatches: activeTeamMatches,
+            activeAccountOwner: activeAccountOwner, sessionOwner: context.appleID)
+    }
+
+    private func getBoundTeam(_ team: ALTTeam? = nil, context: BoundSession) async throws -> ALTTeam {
+        let resolved: ALTTeam
+        if let team { resolved = team }
+        else { resolved = try await AuthManager.shared.getAuthenticatedTeam() }
+        let owner = try await owner(for: resolved, context: context)
+        try verifyCurrent(context)
+        guard V3AuthIdentityBindingPolicy.mayDispatchTeamRequest(
+            sessionOwner: context.appleID, teamOwner: owner,
+            generationBefore: context.generation,
+            generationAfter: AuthManager.shared.v3IdentityGeneration,
+            cancelled: Task.isCancelled) else {
+            throw OperationError.notAuthenticated
+        }
+        return resolved
+    }
+'''
+    if text.count(old) != 1:
+        raise SystemExit("v3 service: DeveloperPortalProxy session/team helper anchors changed")
+    text = text.replace(old, new, 1)
+    old_fetch = '''    public func fetchTeams(for account: ALTAccount) async throws -> [ALTTeam] {
+        let session = try await self.getSession()
+        return try await ALTAppleAPI.shared.fetchTeams(for: account, session: session)
+    }'''
+    new_fetch = '''    public func fetchTeams(for account: ALTAccount) async throws -> [ALTTeam] {
+        let context = try await self.getBoundSession()
+        try self.verifyCurrent(context)
+        guard V3AuthIdentityBindingPolicy.mayFetchTeams(sessionOwner: context.appleID,
+            requestedOwner: account.appleID, generationBefore: context.generation,
+            generationAfter: AuthManager.shared.v3IdentityGeneration,
+            cancelled: Task.isCancelled) else {
+            throw OperationError.notAuthenticated
+        }
+        let teams = try await ALTAppleAPI.shared.fetchTeams(for: account, session: context.session)
+        try self.verifyCurrent(context)
+        return teams
+    }'''
+    if text.count(old_fetch) != 1:
+        raise SystemExit("v3 service: DeveloperPortalProxy fetchTeams anchor changed")
+    text = text.replace(old_fetch, new_fetch, 1)
+    # All team-scoped entry points now resolve the team against the same
+    # captured token/owner epoch and recheck immediately before network use.
+    text = text.replace("let session = try await self.getSession()\n        let team = try await self.getTeam(team)",
+        "let context = try await self.getBoundSession()\n        let session = context.session\n        let team = try await self.getBoundTeam(team, context: context)")
+    if "getSession()" in text or "getTeam(team)" in text:
+        raise SystemExit("v3 service: unbound DeveloperPortalProxy call path remains")
+    text = replace(text, "@preconcurrency import UIKit\n", "@preconcurrency import UIKit\nimport CoreData\n")
     return text
 
 
@@ -2007,6 +2184,10 @@ def patch(live, side):
     edit(side, "SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
          headless_clear_cache_operation)
     edit(side, "SideStore/Core/Auth/AuthManager.swift", headless_auth_manager)
+    edit(side, "SideStore/Core/Auth/AuthManager.swift",
+         lambda source: patch_auth_identity_generation(
+             apply_embedded_credential_snapshot_patch(source, "patch_auth_manager")))
+    edit(side, "SideStore/Core/Auth/DeveloperPortalProxy.swift", patch_developer_portal_proxy)
     edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager)
     edit(side, "SideStore/Core/Operations/PipelineRunner.swift",
          headless_pipeline_persistence_contract)
@@ -2291,7 +2472,10 @@ def verify_sign_in_operation(side, pinned_ref):
 def verify_headless_ui_adapters(side, pinned_ref):
     adapters = (
         ("AltStore/AppDelegate.swift", headless_sidestore_app_delegate),
-        ("SideStore/Core/Auth/AuthManager.swift", headless_auth_manager),
+        ("SideStore/Core/Auth/AuthManager.swift",
+         lambda source: patch_auth_identity_generation(
+             apply_embedded_credential_snapshot_patch(headless_auth_manager(source), "patch_auth_manager"))),
+        ("SideStore/Core/Auth/DeveloperPortalProxy.swift", patch_developer_portal_proxy),
         ("AltStore/Managing Apps/AppManager.swift", headless_app_manager),
         ("AltStore/Core/Model/RefreshAttempt.swift", headless_refresh_attempt_error_privacy),
         ("AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
@@ -2316,8 +2500,6 @@ def verify_headless_ui_adapters(side, pinned_ref):
                 '                debugLog("Started DatabaseManager.")\n'
                 '                // V3_SIDESTORE_STATUS_SNAPSHOT_V1: retired in favor of live XPC reads.\n')
             expected = redact_external_url_logs(expected, relative)
-        if relative == "SideStore/Core/Auth/AuthManager.swift":
-            expected = apply_embedded_credential_snapshot_patch(expected, "patch_auth_manager")
         actual = (side / relative).read_text(encoding="utf-8")
         if actual != expected:
             raise SystemExit(f"v3 service: {relative} differs from its exact pinned headless UI patch")

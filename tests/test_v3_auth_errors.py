@@ -384,7 +384,12 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("V3ProvisioningResumeIdentityPolicy.select", runtime_text)
         self.assertIn("authenticatedSessionAppleID: session?.authenticatedAppleID", runtime_text)
         self.assertIn("hasSession: AuthManager.shared.session != nil", runtime_text)
-        self.assertIn("hasTeamAccount: AuthManager.shared.team?.account != nil", runtime_text)
+        self.assertIn("teamAccountAppleID: teamOwner", runtime_text)
+        self.assertIn("hasTokenBackedRoute(", runtime_text)
+        self.assertIn("dsid: credentials?.appleIDAdsid", runtime_text)
+        self.assertIn("xcodeToken: credentials?.appleIDXcodeToken", runtime_text)
+        self.assertIn("dsid: authCredentials?.appleIDAdsid", runtime_text)
+        self.assertIn("xcodeToken: authCredentials?.appleIDXcodeToken", runtime_text)
 
     def test_prompt_expiry_and_session_timeout_have_distinct_recovery_states(self):
         host = shell()

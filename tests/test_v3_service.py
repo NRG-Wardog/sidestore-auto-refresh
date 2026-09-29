@@ -575,7 +575,8 @@ import Foundation
         availability = runtime[runtime.index("func canResumeProvisioning()"):
             runtime.index("    var sessions: [String: Session]", runtime.index("func canResumeProvisioning()"))]
         self.assertIn("let credentials = AuthManager.shared.authenticationSnapshot", availability)
-        self.assertIn("authenticated: credentials?.isAuthenticated == true", availability)
+        self.assertIn("hasTokenBackedRoute(", availability)
+        self.assertIn("credentialRoutePresent: credentials?.isAuthenticated == true", availability)
         self.assertIn("currentAppleID: credentials?.appleIDEmailAddress", availability)
         begin = runtime[runtime.index("func begin(deadline: Date,"):
             runtime.index("    func poll(id: String)", runtime.index("func begin(deadline: Date,"))]
@@ -1615,6 +1616,103 @@ import Foundation
         self.assertIn('"--verify-headless-ui-adapters"', patcher)
         self.assertIn('git", "-C", str(side), "show", f"{pinned_ref}:{relative}"', patcher)
         self.assertIn("actual != expected", patcher)
+
+    def test_generated_developer_portal_proxy_binds_session_and_team_owner(self):
+        source_tree = Path(os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE", ""))
+        if not source_tree.is_dir():
+            source_tree = ROOT.parents[2] / "v3-side-upstream"
+        if source_tree.is_dir():
+            revision = subprocess.check_output(["git", "-C", str(source_tree), "rev-parse", "HEAD"],
+                                               text=True).strip()
+            self.assertEqual(revision, service.PINS[1])
+            source = subprocess.check_output(["git", "-C", str(source_tree), "show",
+                f"{revision}:SideStore/Core/Auth/DeveloperPortalProxy.swift"], text=True, encoding="utf-8")
+        else:
+            source = (ROOT / "tests/fixtures/v3_developer_portal_proxy_source.swift").read_text(encoding="utf-8")
+        generated = service.patch_developer_portal_proxy(source)
+        self.assertEqual(generated.count("{"), generated.count("}"),
+                         "generated pinned DeveloperPortalProxy must remain brace balanced")
+        self.assertEqual(generated.count("V3_AUTH_IDENTITY_BOUND_DEVELOPER_PORTAL_V1"), 1)
+        self.assertIn("import CoreData", generated)
+        self.assertIn("sessionDSID: session.dsid", generated)
+        self.assertIn("generationBefore: generation", generated)
+        self.assertIn("cancelled: Task.isCancelled", generated)
+        self.assertIn("requestedOwner: account.appleID", generated)
+        self.assertIn("team.account?.appleID", generated)
+        self.assertIn("$0.account?.appleID", generated)
+        self.assertIn("#keyPath(Team.identifier)", generated)
+        self.assertIn("resolveColdTeamOwner(", generated)
+        self.assertIn("DatabaseManager.shared.activeTeam()?.identifier == team.identifier", generated)
+        self.assertIn("DatabaseManager.shared.activeAccount()?.appleID", generated)
+        self.assertLess(generated.index("if let directOwner { return directOwner }"),
+                        generated.index("databaseOwner(for: team.identifier)"))
+        self.assertIn("mayDispatchTeamRequest(", generated)
+        self.assertNotIn("teamOwners", generated,
+                         "account-bound ALTTeam ownership and CoreData relation avoid a stale global team-ID map")
+
+        fetch_teams = generated[generated.index("public func fetchTeams(for account:"):]
+        fetch_teams = fetch_teams[:fetch_teams.index("\n    }")]
+        self.assertLess(fetch_teams.index("mayFetchTeams("), fetch_teams.index("ALTAppleAPI.shared.fetchTeams"))
+        self.assertLess(fetch_teams.index("verifyCurrent(context)"), fetch_teams.index("ALTAppleAPI.shared.fetchTeams"))
+        self.assertLess(fetch_teams.index("ALTAppleAPI.shared.fetchTeams"), fetch_teams.rindex("verifyCurrent(context)"))
+
+        base_proxy = generated[generated.index("public class DeveloperPortalProxy {"):
+                               generated.index("class DeveloperPortalProxyWithAuth")]
+        self.assertNotIn("getSession()", base_proxy)
+        self.assertNotIn("getTeam(team)", base_proxy)
+        method_starts = [i for i in range(len(base_proxy))
+                         if base_proxy.startswith("    public func ", i)]
+        method_starts.append(len(base_proxy))
+        bound_calls = 0
+        for start, end in zip(method_starts, method_starts[1:]):
+            method = base_proxy[start:end]
+            if "ALTAppleAPI.shared." not in method:
+                continue
+            if "fetchTeams(for account:" in method:
+                self.assertLess(method.index("mayFetchTeams("), method.index("ALTAppleAPI.shared."))
+                self.assertIn("session: context.session", method)
+            else:
+                self.assertLess(method.index("getBoundTeam(team, context: context)"),
+                                method.index("ALTAppleAPI.shared."), method[:100])
+                self.assertIn("let session = context.session", method)
+            bound_calls += method.count("ALTAppleAPI.shared.")
+        self.assertGreaterEqual(bound_calls, 20, "every pinned team-scoped portal call must use a bound context")
+        self.assertNotIn("debugLog", generated)
+        self.assertNotIn("technicalDetails", generated)
+        self.assertNotIn("appleIDEmailAddress)\n            debugLog", generated)
+
+        auth_path = source_tree / "SideStore/Core/Auth/AuthManager.swift"
+        if source_tree.is_dir():
+            auth_source = subprocess.check_output(["git", "-C", str(source_tree), "show",
+                f"{service.PINS[1]}:SideStore/Core/Auth/AuthManager.swift"], text=True, encoding="utf-8")
+            updated_auth = service.patch_auth_identity_generation(
+                service.apply_embedded_credential_snapshot_patch(
+                    service.headless_auth_manager(auth_source), "patch_auth_manager"))
+        else:
+            updated_auth = service.patch_auth_identity_generation(
+                "    private init() {}\n    public func signOut() {\n        self.session = nil\n    }\n")
+        self.assertGreaterEqual(updated_auth.count("v3IdentityGeneration"), 2)
+        self.assertIn("self.v3AdvanceIdentityGeneration()", updated_auth)
+        for setter in ("appleIDEmailAddress", "appleIDPassword", "appleIDAdsid", "appleIDXcodeToken"):
+            self.assertIn(f"Keychain.shared.{setter} = newValue; self.v3AdvanceIdentityGeneration()", updated_auth)
+
+    def test_snapshot_separates_stored_credentials_from_bound_authenticated_state(self):
+        source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        start = source.index("    private func snapshot() throws -> [String: Any] {")
+        end = source.index("\n    }", source.index('"settings": [', start))
+        snapshot = source[start:end]
+        self.assertIn('"credentialRoutePresent": credentialRoutePresent', snapshot)
+        self.assertIn("let authenticated = credentialRoutePresent &&", snapshot)
+        self.assertIn("authCredentials?.appleIDAdsid?.isEmpty == false", snapshot)
+        self.assertIn("authCredentials?.appleIDXcodeToken?.isEmpty == false", snapshot)
+        self.assertIn("candidate.appleID", snapshot)
+        self.assertIn("candidate.account?.appleID", snapshot)
+        self.assertIn("resolveColdTeamOwner(", snapshot)
+        self.assertIn("V3AuthIdentityBindingPolicy.mayUseTeam", snapshot)
+        self.assertIn('"provisioningIncomplete": authenticated && activeAccount == nil', snapshot)
+        self.assertIn("identityGenerationAtStart", snapshot)
+        self.assertIn("identityReadStable", snapshot)
+        self.assertIn("mayProjectIdentity", snapshot)
 
     def test_standalone_refresh_run_does_not_reuse_stale_scheduler_identity(self):
         refresh = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")

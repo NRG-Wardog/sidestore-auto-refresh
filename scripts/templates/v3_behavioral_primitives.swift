@@ -3565,12 +3565,86 @@ struct V3AuthSessionOwnership {
 
 enum V3ProvisioningResumeAvailabilityPolicy {
     static func canResume(authenticated: Bool, currentAppleID: String?, resumableAppleID: String?,
-                          hasSession: Bool = true, hasTeamAccount: Bool = true) -> Bool {
+                          hasSession: Bool = true, hasTeamAccount: Bool = true,
+                          teamAccountAppleID: String? = nil) -> Bool {
         guard authenticated, hasSession, hasTeamAccount,
               let currentAppleID, let resumableAppleID else { return false }
-        let current = currentAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let resumable = resumableAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return !current.isEmpty && current == resumable
+        guard let current = V3AuthIdentityBindingPolicy.normalizedOwner(currentAppleID),
+              let resumable = V3AuthIdentityBindingPolicy.normalizedOwner(resumableAppleID),
+              let teamOwner = V3AuthIdentityBindingPolicy.normalizedOwner(teamAccountAppleID) else { return false }
+        return current == resumable && current == teamOwner
+    }
+}
+
+// V3_AUTH_IDENTITY_BINDING_V1: the stored route remains an upstream fact;
+// developer-portal readiness requires a coherent DSID/token session and the
+// exact account owner associated with the team being sent to Apple.
+enum V3AuthIdentityBindingPolicy {
+    static func normalizedOwner(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    static func hasTokenBackedRoute(credentialRoutePresent: Bool,
+                                    dsid: String?, xcodeToken: String?) -> Bool {
+        credentialRoutePresent && dsid?.isEmpty == false && xcodeToken?.isEmpty == false
+    }
+
+    static func hasUsableSession(credentialRoutePresent: Bool, dsid: String?,
+                                 xcodeToken: String?, sessionDSID: String?,
+                                 generationBefore: UInt64, generationAfter: UInt64) -> Bool {
+        guard hasTokenBackedRoute(credentialRoutePresent: credentialRoutePresent,
+                dsid: dsid, xcodeToken: xcodeToken), generationBefore == generationAfter,
+              let dsid,
+              let sessionDSID, !sessionDSID.isEmpty else { return false }
+        return dsid == sessionDSID
+    }
+
+    static func sameCredentialRoute(appleIDBefore: String?, appleIDAfter: String?,
+                                    dsidBefore: String?, dsidAfter: String?,
+                                    tokenBefore: String?, tokenAfter: String?) -> Bool {
+        normalizedOwner(appleIDBefore) == normalizedOwner(appleIDAfter) &&
+            dsidBefore == dsidAfter && tokenBefore == tokenAfter
+    }
+
+    static func mayUseTeam(sessionOwner: String?, teamOwner: String?) -> Bool {
+        guard let sessionOwner = normalizedOwner(sessionOwner),
+              let teamOwner = normalizedOwner(teamOwner) else { return false }
+        return sessionOwner == teamOwner
+    }
+
+    static func resolveColdTeamOwner(storedTeamOwner: String?, activeTeamMatches: Bool,
+                                     activeAccountOwner: String?, sessionOwner: String?) -> String? {
+        if activeTeamMatches, mayUseTeam(sessionOwner: sessionOwner, teamOwner: activeAccountOwner) {
+            return normalizedOwner(sessionOwner)
+        }
+        return normalizedOwner(storedTeamOwner)
+    }
+
+    static func mayFetchTeams(sessionOwner: String?, requestedOwner: String?,
+                              generationBefore: UInt64, generationAfter: UInt64,
+                              cancelled: Bool = false) -> Bool {
+        mayDispatchTeamRequest(sessionOwner: sessionOwner, teamOwner: requestedOwner,
+            generationBefore: generationBefore, generationAfter: generationAfter,
+            cancelled: cancelled)
+    }
+
+    static func mayDispatchTeamRequest(sessionOwner: String?, teamOwner: String?,
+                                       generationBefore: UInt64, generationAfter: UInt64,
+                                       cancelled: Bool = false) -> Bool {
+        mayDispatch(generationBefore: generationBefore, generationAfter: generationAfter,
+                    cancelled: cancelled) &&
+            mayUseTeam(sessionOwner: sessionOwner, teamOwner: teamOwner)
+    }
+
+    static func mayDispatch(generationBefore: UInt64, generationAfter: UInt64,
+                            cancelled: Bool = false) -> Bool {
+        !cancelled && generationBefore == generationAfter
+    }
+
+    static func mayProjectIdentity(generationBefore: UInt64, generationAfter: UInt64) -> Bool {
+        generationBefore == generationAfter
     }
 }
 
@@ -3762,6 +3836,7 @@ enum V3AuthSessionCorrelationPolicy {
 enum V3AuthSnapshotAuthorityPolicy {
     struct Facts: Equatable {
         let authenticated: Bool
+        let credentialRoutePresent: Bool
         let provisioningIncomplete: Bool
         let provisioningRetryAvailable: Bool
         let authenticationActive: Bool
@@ -3770,6 +3845,7 @@ enum V3AuthSnapshotAuthorityPolicy {
 
     static func facts(_ snapshot: V3AuthServiceSnapshot) -> Facts {
         Facts(authenticated: snapshot.authenticated,
+              credentialRoutePresent: snapshot.credentialRoutePresent,
               provisioningIncomplete: snapshot.provisioningIncomplete,
               provisioningRetryAvailable: snapshot.provisioningRetryAvailable,
               authenticationActive: snapshot.authenticationActive,
