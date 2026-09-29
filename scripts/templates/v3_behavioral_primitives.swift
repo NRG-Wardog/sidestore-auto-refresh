@@ -2423,6 +2423,51 @@ struct V3SourceFormTransition: Equatable {
     var effects: [V3SourceFormEffect]
 }
 
+struct V3SourcePreviewRequest: Equatable {
+    let generation: UInt64
+    let targetURL: String
+}
+
+struct V3SourcePreviewSession {
+    private(set) var generation: UInt64 = 0
+    private(set) var activeRequest: V3SourcePreviewRequest?
+
+    mutating func begin(targetURL: String) -> V3SourcePreviewRequest? {
+        guard !targetURL.isEmpty else { return nil }
+        generation &+= 1
+        let request = V3SourcePreviewRequest(generation: generation, targetURL: targetURL)
+        activeRequest = request
+        return request
+    }
+
+    mutating func invalidate() {
+        generation &+= 1
+        activeRequest = nil
+    }
+
+    func mayApply(_ request: V3SourcePreviewRequest, currentURL: String,
+                  formPresented: Bool) -> Bool {
+        formPresented && activeRequest == request && generation == request.generation &&
+            currentURL == request.targetURL
+    }
+
+    static func responseRow(_ payload: [String: Any], for request: V3SourcePreviewRequest) -> [String: Any] {
+        var row = payload
+        row["url"] = request.targetURL
+        return row
+    }
+}
+
+struct V3SourceFormOpenRequestLedger {
+    private(set) var lastClaimedRequestID: UUID?
+
+    mutating func claim(_ requestID: UUID?) -> Bool {
+        guard let requestID, requestID != lastClaimedRequestID else { return false }
+        lastClaimedRequestID = requestID
+        return true
+    }
+}
+
 enum V3SourceEditingPolicy {
     /// Done: a pure UI dismissal. The typed value is kept.
     static func done(typed: String) -> V3SourceEditingOutcome { .dismissed }

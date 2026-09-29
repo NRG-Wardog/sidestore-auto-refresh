@@ -883,6 +883,35 @@ struct SetupAndSemanticUXHarness {
                 "Cancel must not preview, validate, or persist a source")
         }
 
+        // V3_SOURCE_PREVIEW_GENERATION_V1: a response belongs to the exact
+        // captured target and generation. Cancel invalidates it; reopening on
+        // URL A cannot accept the late response fetched for URL B.
+        var previewSession = V3SourcePreviewSession()
+        let lateRequest = previewSession.begin(targetURL: "https://example.invalid/B.json")!
+        previewSession.invalidate()
+        let latePayload: [String: Any] = ["name": "Fetched B"]
+        let lateRow = V3SourcePreviewSession.responseRow(latePayload, for: lateRequest)
+        precondition(lateRow["url"] as? String == lateRequest.targetURL,
+            "a late B response must never be relabeled with the restored A URL")
+        precondition(!previewSession.mayApply(lateRequest,
+            currentURL: "https://example.invalid/A.json", formPresented: false))
+        let reopenedRequest = previewSession.begin(targetURL: "https://example.invalid/A.json")!
+        precondition(!previewSession.mayApply(lateRequest,
+            currentURL: "https://example.invalid/A.json", formPresented: true),
+            "a response from the previous form generation cannot populate the reopened form")
+        precondition(previewSession.mayApply(reopenedRequest,
+            currentURL: "https://example.invalid/A.json", formPresented: true))
+
+        // A mounted view observes new route request IDs, while duplicate
+        // onAppear/onChange delivery of one request opens the form only once.
+        var sourceOpenLedger = V3SourceFormOpenRequestLedger()
+        let firstDeepLink = UUID()
+        precondition(sourceOpenLedger.claim(nil) == false)
+        precondition(sourceOpenLedger.claim(firstDeepLink))
+        precondition(!sourceOpenLedger.claim(firstDeepLink))
+        precondition(sourceOpenLedger.claim(UUID()),
+            "a later deep link must reopen the form even while Sources stays mounted")
+
         // V3_SHARED_JITLESS_FACT_V1: Home and the Setup Assistant must be able to
         // reach the same completion answer from the same observed readiness.
         // A verified copy completes the item on a platform that requires it; an

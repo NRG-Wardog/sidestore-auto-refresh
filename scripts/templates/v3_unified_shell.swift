@@ -415,7 +415,8 @@ struct V3UnifiedTabs: View {
         }
         if url.host?.lowercased() == "source" {
             sharedModel.selectedTab = .sources
-            if let source = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "url" })?.value { status.sourceURL = source }
+            let source = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "url" })?.value
+            status.requestSourceForm(prefilledURL: source)
             return
         }
         if url.isFileURL || url.scheme?.lowercased() == "sidestore" { sharedModel.selectedTab = .apps }
@@ -1304,6 +1305,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         }
     }
     @Published var sourceURL = ""
+    @Published private(set) var sourceFormOpenRequestID: UUID?
     @Published var refreshTarget: String?
     @Published var refreshPresented = false
     @Published var signInPresented = false
@@ -1351,6 +1353,10 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
     var isStale: Bool { !connected || (updatedAt.map { Date().timeIntervalSince($0) > 120 } ?? true) }
     var needsSignIn: Bool { V3AuthSnapshotAuthorityPolicy.needsSignIn(authenticated: authenticated) }
+    func requestSourceForm(prefilledURL: String?) {
+        if let prefilledURL { sourceURL = prefilledURL }
+        sourceFormOpenRequestID = UUID()
+    }
     // V3_AWAITABLE_RELOAD_V1 / V3_LOAD_ACTIVITY_OWNERSHIP_V1
     // reload() is fire-and-forget: it starts the snapshot and continues
     // immediately, so any code that reads status right after it sees the
@@ -2278,7 +2284,9 @@ struct V3SourcesView: View {
     @State private var sourceURLBeforeEditing: String = ""
     @State private var sourceURLBeforeOpening: String = ""
     @State private var isAddSourcePresented = false
-    @State private var didResolveInitialSourcePrefill = false
+    @State private var sourceOpenRequestLedger = V3SourceFormOpenRequestLedger()
+    @State private var sourcePreviewSession = V3SourcePreviewSession()
+    @State private var sourcePreviewTask: Task<Void, Never>?
     private var savedGuestSources: [String] {
         (UserDefaults.standard.stringArray(forKey: "LCAltStoreSourceURLs") ?? [])
             .filter { saved in !status.sources.contains(where: { $0.url == saved }) }
@@ -2349,6 +2357,10 @@ struct V3SourcesView: View {
                             if focused { sourceURLBeforeEditing = status.sourceURL }
                         }
                         .onChange(of: status.sourceURL) { newURL in
+                            if let activeRequest = sourcePreviewSession.activeRequest,
+                               activeRequest.targetURL != newURL {
+                                invalidateSourcePreview()
+                            }
                             if failedSourceInput != newURL {
                                 sourceFailure = nil
                                 failedSourceInput = nil
@@ -2368,7 +2380,7 @@ struct V3SourcesView: View {
                             }
                         }
                         Button {
-                            Task { await previewSource() }
+                            startPreviewSource()
                         } label: {
                             Label(previewBusy ? "Checking Source..." : "Preview and Add Source", systemImage: "plus.circle.fill")
                         }
@@ -2482,20 +2494,26 @@ struct V3SourcesView: View {
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .onAppear {
-            // Deep links prefill status.sourceURL before the Sources screen is
-            // shown. Preserve that behavior and reveal the form once.
-            guard !didResolveInitialSourcePrefill else { return }
-            didResolveInitialSourcePrefill = true
-            if !status.sourceURL.isEmpty { openSourceForm() }
+            receiveSourceOpenRequest(status.sourceFormOpenRequestID)
+        }
+        .onChange(of: status.sourceFormOpenRequestID) { requestID in
+            // Handles source routes delivered while this tab is already mounted.
+            receiveSourceOpenRequest(requestID)
         }
     }
     private func openSourceForm() {
+        invalidateSourcePreview()
         sourceURLBeforeOpening = status.sourceURL
         isAddSourcePresented = true
+        preview = nil
         sourceFailure = nil
         failedSourceInput = nil
         notice = ""
         addSucceeded = false
+    }
+    private func receiveSourceOpenRequest(_ requestID: UUID?) {
+        guard sourceOpenRequestLedger.claim(requestID) else { return }
+        openSourceForm()
     }
     // V3_SOURCE_KEYBOARD_DISMISS_V1: dismissing the keyboard is a pure UI action.
     // It previews nothing, requests nothing and persists nothing.
@@ -2525,6 +2543,7 @@ struct V3SourcesView: View {
     /// The production transition has no service effects; it only closes this
     /// form, restores its opening value and discards its uncommitted preview.
     private func cancelSourceForm() {
+        invalidateSourcePreview()
         let transition = V3SourceEditingPolicy.closeForm(V3SourceFormState(
             isPresented: isAddSourcePresented,
             url: status.sourceURL,
@@ -2537,23 +2556,46 @@ struct V3SourcesView: View {
         isAddSourcePresented = transition.state.isPresented
     }
 
-    private func previewSource() async {
+    private func invalidateSourcePreview() {
+        sourcePreviewSession.invalidate()
+        sourcePreviewTask?.cancel()
+        sourcePreviewTask = nil
+        previewBusy = false
+    }
+
+    private func startPreviewSource() {
+        guard isAddSourcePresented else { return }
+        invalidateSourcePreview()
+        guard let request = sourcePreviewSession.begin(targetURL: status.sourceURL) else { return }
         previewBusy = true
-        defer { previewBusy = false }
         sourceFailure = nil
         failedSourceInput = nil
         notice = ""
         addSucceeded = false
+        sourcePreviewTask = Task { await previewSource(request) }
+    }
+
+    private func previewSource(_ request: V3SourcePreviewRequest) async {
+        defer {
+            if sourcePreviewSession.activeRequest == request {
+                previewBusy = false
+                sourcePreviewTask = nil
+            }
+        }
         do {
-            var row = try await V3ServiceBridge.shared.request(operation: "sourcePreview", target: status.sourceURL)
-            row["url"] = status.sourceURL
+            let payload = try await V3ServiceBridge.shared.request(operation: "sourcePreview", target: request.targetURL)
+            guard sourcePreviewSession.mayApply(request, currentURL: status.sourceURL,
+                                                formPresented: isAddSourcePresented) else { return }
+            let row = V3SourcePreviewSession.responseRow(payload, for: request)
             preview = row
             // Previewing is an explicit action, so the keyboard has served its
             // purpose once the preview is on screen.
             dismissKeyboard()
         } catch {
+            guard sourcePreviewSession.mayApply(request, currentURL: status.sourceURL,
+                                                formPresented: isAddSourcePresented) else { return }
             sourceFailure = V3SourceAddFailure(error)
-            failedSourceInput = status.sourceURL
+            failedSourceInput = request.targetURL
         }
     }
     private func confirmAdd(url: String) async {

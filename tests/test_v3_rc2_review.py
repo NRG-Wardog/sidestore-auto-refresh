@@ -735,8 +735,23 @@ class SourceKeyboardTests(unittest.TestCase):
         text = shell()
         sources = text[text.index("struct V3SourcesView"):]
         sources = sources[:sources.index("struct V3CatalogApp")]
-        self.assertIn('if !status.sourceURL.isEmpty { openSourceForm() }', sources)
+        self.assertIn(".onChange(of: status.sourceFormOpenRequestID)", sources)
+        self.assertIn("receiveSourceOpenRequest(status.sourceFormOpenRequestID)", sources)
         self.assertIn("status.sourceURL = url\n                                openSourceForm()", sources)
+        dispatch = text[text.index("private func dispatchURL"):text.index("@MainActor\nfinal class V3InstallPickerAnchorController")]
+        self.assertIn("status.requestSourceForm(prefilledURL: source)", dispatch)
+        self.assertIn("@Published private(set) var sourceFormOpenRequestID: UUID?",
+                      text[:text.index("struct V3SourcesView")])
+
+    def test_preview_response_is_bound_to_captured_request_and_cancel_generation(self):
+        text = shell()
+        sources = text[text.index("struct V3SourcesView"):]
+        sources = sources[:sources.index("struct V3CatalogApp")]
+        self.assertIn('target: request.targetURL', sources)
+        self.assertIn("V3SourcePreviewSession.responseRow(payload, for: request)", sources)
+        self.assertIn("sourcePreviewSession.mayApply(request, currentURL: status.sourceURL", sources)
+        self.assertIn("sourcePreviewSession.invalidate()", sources)
+        self.assertIn("sourcePreviewTask?.cancel()", sources)
 
     def test_return_only_dismisses_the_keyboard(self):
         text = shell()
@@ -769,7 +784,7 @@ class SourceKeyboardTests(unittest.TestCase):
         text = shell()
         sources = text[text.index("struct V3SourcesView"):]
         sources = sources[:sources.index("struct V3CatalogApp")]
-        self.assertIn("Task { await previewSource() }", sources)
+        self.assertIn("startPreviewSource()", sources)
         self.assertIn('Label(previewBusy ? "Checking Source..." : "Preview and Add Source"', sources)
 
     def test_cancel_semantics_are_explicit_and_documented(self):
