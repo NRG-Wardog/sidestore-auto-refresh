@@ -605,10 +605,19 @@ final class V3SideStoreService: NSObject {
                     case .network:
                         response["failure"] = CombinedFailure(operation: "source", stage: .source, code: .failed,
                             id: id, underlying: NSError(domain: sourceError.domain, code: sourceError.code),
-                            safeCause: .sourceNetworkFailure, sourceStep: .sourceDownload).wire
+                            retryable: true, safeCause: sourceError.safeCause,
+                            sourceStep: sourceError.sourceStep).wire
                     case .invalidManifest:
                         response["failure"] = CombinedFailure(operation: "source", stage: .source, code: .invalidResponse,
-                            id: id, safeCause: .sourceInvalidManifest, sourceStep: .manifestParsing).wire
+                            id: id, underlying: NSError(domain: sourceError.domain, code: sourceError.code),
+                            retryable: false, safeCause: sourceError.safeCause,
+                            sourceStep: sourceError.sourceStep).wire
+                    case .validation:
+                        response["failure"] = CombinedFailure(operation: "source", stage: .source,
+                            code: .invalidResponse, id: id,
+                            underlying: NSError(domain: sourceError.domain, code: sourceError.code),
+                            retryable: false, safeCause: sourceError.safeCause,
+                            sourceStep: sourceError.sourceStep).wire
                     }
                 } else if operation == "catalog" {
                     response["failure"] = CombinedFailure(operation: "catalog", stage: .catalog, code: .failed,

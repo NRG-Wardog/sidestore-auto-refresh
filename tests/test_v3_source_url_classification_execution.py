@@ -39,15 +39,22 @@ class SourceURLClassificationExecutionTests(unittest.TestCase):
             "private struct V3KnownSourcePolicyFailure: Error {",
             "\n@MainActor\n@objc(V3SideStoreService)",
         )
+        primitives = read(ROOT / "scripts/templates/v3_behavioral_primitives.swift")
         harness = r'''
 import Foundation
 
-enum SourceError: Error {
-    enum Code: Equatable { case unsupported }
+struct SourceError: Error, LocalizedError {
+    enum Code {
+        case unsupported, duplicateBundleID, duplicateVersion, blocked, changedID, duplicate
+        case missingPermissionUsageDescription, missingScreenshotSize
+        case marketplaceNotSupported, marketplaceRequired, futureUnreviewed
+    }
     let code: Code
+    let privateDetails: String
+    var errorDescription: String? { privateDetails }
 }
 
-''' + failure + "\n" + source_classifier + "\n" + policy_classifier + r'''
+''' + failure + "\n" + primitives + "\n" + source_classifier + "\n" + policy_classifier + r'''
 
 @main struct Tests {
     static func main() {
@@ -108,6 +115,51 @@ enum SourceError: Error {
                 precondition(policy.underlyingDomain == domain && policy.underlyingCode == code.rawValue)
             }
         }
+
+        let sourceErrors: [(SourceError.Code, CombinedFailure.SafeCause)] = [
+            (.blocked, .sourceBlocked), (.changedID, .sourceChangedID),
+            (.duplicate, .sourceDuplicate), (.unsupported, .sourceUnsupported),
+            (.duplicateBundleID, .sourceValidationFailed),
+            (.duplicateVersion, .sourceValidationFailed),
+            (.missingPermissionUsageDescription, .sourceValidationFailed),
+            (.missingScreenshotSize, .sourceValidationFailed),
+            (.marketplaceNotSupported, .sourceValidationFailed),
+            (.marketplaceRequired, .sourceValidationFailed)
+        ]
+        for (code, safeCause) in sourceErrors {
+            let sourceError = SourceError(code: code, privateDetails: "PRIVATE_SOURCE_APP_URL")
+            guard let classified = V3SourceCommandError.classify(sourceError),
+                  case .validation = classified.kind else {
+                preconditionFailure("a pinned typed SourceError must map to source validation")
+            }
+            precondition(classified.safeCause == safeCause)
+            precondition(classified.sourceStep == .sourceValidation)
+            precondition(classified.domain != NSURLErrorDomain)
+
+            let failure = CombinedFailure(operation: "source", stage: .source,
+                code: .invalidResponse, id: UUID().uuidString,
+                underlying: NSError(domain: classified.domain, code: classified.code),
+                retryable: false, safeCause: classified.safeCause, sourceStep: classified.sourceStep)
+            precondition(!failure.message.contains("PRIVATE_SOURCE_APP_URL"))
+            precondition(!failure.recovery.contains("PRIVATE_SOURCE_APP_URL"))
+            precondition(!failure.technicalDetails.contains("PRIVATE_SOURCE_APP_URL"))
+            precondition(!String(describing: failure.wire).contains("PRIVATE_SOURCE_APP_URL"))
+            let details = V3OperationFailureDetails(failure)
+            precondition(details.recoveryDestination == "sources")
+            precondition(details.retryDisposition == .blocked)
+            precondition(!details.recommendedAction.contains("PRIVATE_SOURCE_APP_URL"))
+            let decoded = CombinedFailure.decode(failure.wire, expectedID: failure.correlationID)
+            precondition(decoded?.safeCause == safeCause && decoded?.sourceStep == .sourceValidation)
+        }
+        let unreviewedSourceError = SourceError(code: .futureUnreviewed,
+            privateDetails: "PRIVATE_FUTURE_SOURCE_DETAIL")
+        precondition(V3SourceCommandError.classify(unreviewedSourceError) == nil,
+            "unreviewed SourceError codes stay unknown instead of inheriting a nearby mapping")
+        let unknownSourceFailure = CombinedFailure.capture(unreviewedSourceError,
+            operation: "sourcePreview", stage: .source, id: UUID().uuidString)
+        precondition(unknownSourceFailure.stage == .source && unknownSourceFailure.safeCause == nil)
+        precondition(!unknownSourceFailure.message.contains("PRIVATE_FUTURE_SOURCE_DETAIL"))
+        precondition(!unknownSourceFailure.recovery.contains("LocalDevVPN"))
 
         // The known-source preflight uses this production wrapping policy at
         // both its shared-task and direct-task catch sites. Cancellation must
@@ -188,6 +240,9 @@ enum SourceError: Error {
         )
         self.assertIn("case .network:", command)
         self.assertIn("case .invalidManifest:", command)
+        self.assertIn("case .validation:", command)
+        self.assertIn("safeCause: sourceError.safeCause", command)
+        self.assertIn("sourceStep: sourceError.sourceStep", command)
         headless = read(HEADLESS)
         classifier = extracted(
             headless,

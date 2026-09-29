@@ -173,6 +173,11 @@ public struct CombinedFailure: Error, LocalizedError {
         case sourceInvalidManifest
         case sourcePersistenceUnverified
         case sourceInvalidURL
+        case sourceBlocked
+        case sourceChangedID
+        case sourceDuplicate
+        case sourceUnsupported
+        case sourceValidationFailed
         case sourceRemoveFailed
         case sourceRemoveBusy
         case sourceAddBusy
@@ -224,6 +229,8 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceNetworkFailure:
                 return true
             case .sourceInvalidManifest, .sourcePersistenceUnverified, .sourceInvalidURL,
+                 .sourceBlocked, .sourceChangedID, .sourceDuplicate, .sourceUnsupported,
+                 .sourceValidationFailed,
                  .sourceRemoveFailed, .catalogUnavailable:
                 return false
             case .sourceRemoveBusy, .sourceAddBusy:
@@ -270,7 +277,8 @@ public struct CombinedFailure: Error, LocalizedError {
 
     public enum SourceStep: String, CaseIterable {
         case provisioningProfileFetch, certificateValidation, localCodeSigning
-        case sourceDownload, manifestParsing, knownSourcePolicyFetch, knownSourcePolicyParsing, catalogRead
+        case sourceDownload, manifestParsing, sourceValidation, knownSourcePolicyFetch,
+             knownSourcePolicyParsing, catalogRead
     }
 
     public enum Stage: String, CaseIterable {
@@ -453,6 +461,11 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceInvalidManifest: return "The source returned data SideStore could not read as a valid source."
             case .sourcePersistenceUnverified: return "SideStore could not confirm that the source was saved."
             case .sourceInvalidURL: return "The source URL is invalid."
+            case .sourceBlocked: return "SideStore blocked this source for security reasons."
+            case .sourceChangedID: return "SideStore stopped updating this source because its identifier changed."
+            case .sourceDuplicate: return "A source with the same identifier is already saved."
+            case .sourceUnsupported: return "This source format is not supported by this version of SideStore."
+            case .sourceValidationFailed: return "SideStore rejected metadata in this source."
             case .sourceRemoveFailed: return "SideStore could not confirm that the source was removed from its saved list."
             case .sourceRemoveBusy: return "SideStore was busy with another request, so it did not start removing this source."
             case .sourceAddBusy: return "SideStore was busy with another request, so it did not confirm adding this source."
@@ -497,6 +510,7 @@ public struct CombinedFailure: Error, LocalizedError {
             switch sourceStep {
             case .sourceDownload: return "The source could not be downloaded."
             case .manifestParsing: return "The source returned data SideStore could not read as a valid source."
+            case .sourceValidation: return "SideStore rejected the source during validation."
             case .catalogRead: return "SideStore could not confirm that the source was saved or read from its catalog."
             default: return "SideStore could not complete the source request."
             }
@@ -632,6 +646,16 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Check the network connection and retry the source request."
             case .sourceInvalidManifest:
                 return "Check the source provider's manifest format, then preview it again."
+            case .sourceBlocked:
+                return "Do not add this source. Verify with the provider that it is safe before trying again."
+            case .sourceChangedID:
+                return "Contact the source provider before removing the saved source or adding it again."
+            case .sourceDuplicate:
+                return "Return to Sources and use the existing source. Remove it only after confirming which entry is correct."
+            case .sourceUnsupported:
+                return "Update SideStore or use a source format supported by this version."
+            case .sourceValidationFailed:
+                return "Ask the source provider to correct its metadata, then preview it again."
             case .sourcePersistenceUnverified:
                 return "Return to Sources and reload the list. Confirm whether the source is present before submitting another add; copy Diagnostics if its status remains unclear."
             case .sourceInvalidURL:

@@ -2195,21 +2195,47 @@ enum V3SideStoreServiceError: String, Error {
 }
 
 struct V3SourceCommandError: Error {
-    enum Kind { case network, invalidManifest }
+    enum Kind { case network, invalidManifest, validation }
     let kind: Kind
     let domain: String
     let code: Int
+    let safeCause: CombinedFailure.SafeCause
+    let sourceStep: CombinedFailure.SourceStep
 
     static func classify(_ error: Error) -> V3SourceCommandError? {
         let native = error as NSError
+        if error is CancellationError ||
+            CombinedFailure.isURLCancellation(domain: native.domain, code: native.code) {
+            return nil
+        }
+        // Prefer the typed SideStore source code over NSError domain/code.
+        if let sourceError = error as? SourceError {
+            let safeCause: CombinedFailure.SafeCause
+            switch sourceError.code {
+            case .blocked: safeCause = .sourceBlocked
+            case .changedID: safeCause = .sourceChangedID
+            case .duplicate: safeCause = .sourceDuplicate
+            case .unsupported: safeCause = .sourceUnsupported
+            case .duplicateBundleID, .duplicateVersion, .missingPermissionUsageDescription,
+                 .missingScreenshotSize, .marketplaceNotSupported, .marketplaceRequired:
+                safeCause = .sourceValidationFailed
+            default:
+                // Future pinned SourceError codes remain unknown until their
+                // meaning is reviewed; never forward associated values.
+                return nil
+            }
+            return V3SourceCommandError(kind: .validation, domain: native.domain, code: native.code,
+                safeCause: safeCause, sourceStep: .sourceValidation)
+        }
         // URLSession also uses URL error domains for local download-file I/O.
         // Only SideStore's shared typed transport-code policy proves network loss.
         if CombinedFailure.knownURLTransportCause(domain: native.domain, code: native.code) != nil {
-            return V3SourceCommandError(kind: .network, domain: native.domain, code: native.code)
+            return V3SourceCommandError(kind: .network, domain: native.domain, code: native.code,
+                safeCause: .sourceNetworkFailure, sourceStep: .sourceDownload)
         }
-        if error is DecodingError || native.domain == "io.sidestore.SideStore.DecodingError" ||
-            ((error as? SourceError)?.code == .unsupported) {
-            return V3SourceCommandError(kind: .invalidManifest, domain: native.domain, code: native.code)
+        if error is DecodingError || native.domain == "io.sidestore.SideStore.DecodingError" {
+            return V3SourceCommandError(kind: .invalidManifest, domain: native.domain, code: native.code,
+                safeCause: .sourceInvalidManifest, sourceStep: .manifestParsing)
         }
         return nil
     }
