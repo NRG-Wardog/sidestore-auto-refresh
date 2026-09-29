@@ -167,8 +167,6 @@ struct SourceViewContextCoreDataHarness {
             require(source.objectID.isTemporaryID, "test source should begin with a temporary object ID")
             return source
         }
-        let originalObjectID = await background.performAsync { inserted.objectID }
-
         let capture = NotificationCapture()
         let token = NotificationCenter.default.addObserver(forName: AppManager.didAddSourceNotification,
                                                             object: nil, queue: nil) { capture.record($0) }
@@ -177,6 +175,10 @@ struct SourceViewContextCoreDataHarness {
         let outcome = try await manager.persistForTest(inserted, in: background)
         require(outcome.identifier == identifier && !outcome.alreadyAdded,
                 "production persistence helper did not report a new source")
+        let savedObjectFacts = await background.performAsync {
+            (inserted.objectID, inserted.objectID.isTemporaryID)
+        }
+        require(!savedObjectFacts.1, "background source did not receive a permanent object ID after save")
 
         let (notifiedSource, notificationCount) = capture.result
         guard let notifiedSource else { fatalError("production helper posted no Source object") }
@@ -184,7 +186,7 @@ struct SourceViewContextCoreDataHarness {
         let notificationFacts = database.viewContext.performAndWait {
             (notifiedSource.managedObjectContext === database.viewContext,
              notifiedSource.objectID.isTemporaryID,
-             notifiedSource.objectID == originalObjectID)
+             notifiedSource.objectID == savedObjectFacts.0)
         }
         require(notificationFacts.0, "notification Source is not owned by viewContext")
         require(!notificationFacts.1, "notification Source still has a temporary object ID")
