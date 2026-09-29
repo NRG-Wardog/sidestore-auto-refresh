@@ -178,7 +178,7 @@ class StoreFeedbackTests(unittest.TestCase):
         # Two activities, two enders. The previous single finishLoading() could
         # not tell them apart, which is how a mutation released a caller that was
         # waiting for a snapshot.
-        self.assertIn("private func finishSnapshot(outcome: V3ReloadOutcome) {", store)
+        self.assertIn("private func finishSnapshot(outcome: V3ReloadOutcome, generation: UInt64) {", store)
         self.assertIn("private func finishMutation() {", store)
         self.assertIn("private func beginMutation() {", store)
         snapshot_end = store[store.index("private func finishSnapshot("):]
