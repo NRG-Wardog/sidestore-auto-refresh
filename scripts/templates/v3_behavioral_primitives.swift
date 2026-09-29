@@ -319,6 +319,20 @@ struct V3StatusWriteAuthority: Sendable {
         return true
     }
 
+    /// Exact authoritative session evidence can also settle a matching active
+    /// lease. This is separate from generic unknown-owner reconciliation so a
+    /// caller cannot clear an unrelated active mutation.
+    @discardableResult
+    mutating func resolveOwnerAfterAuthoritativeReconciliation(_ ownerID: String) -> Bool {
+        if activeLease?.ownerID == ownerID {
+            activeLease = nil
+            unresolvedOwnerIDs.remove(ownerID)
+            revision &+= 1
+            return true
+        }
+        return resolveOwnerAfterReconciliation(ownerID)
+    }
+
     var hasActiveWrite: Bool { activeLease?.kind == .mutation }
     var hasActiveLease: Bool { activeLease != nil }
     var hasUnresolvedMutation: Bool { !unresolvedOwnerIDs.isEmpty }
@@ -4046,28 +4060,6 @@ struct V3AuthSessionOwnership {
 
     func owns(_ sessionID: String, now: Date = Date()) -> Bool {
         deadlines[sessionID].map { $0 > now } == true
-    }
-}
-
-enum V3AuthSessionUnavailableReplyPolicy {
-    /// Only a current, correlated authPoll failure from SideStore proves that
-    /// the exact target session no longer exists. Transport, malformed, or
-    /// unrelated session replies cannot retire an auth status owner.
-    static func confirmsUnavailable(operation: String, target: String,
-                                    requestID: String,
-                                    envelope: [String: Any]) -> Bool {
-        guard operation == "authPoll",
-              UUID(uuidString: target)?.uuidString == target,
-              V3WireContract.strictInt(envelope["version"]) == 1,
-              CombinedFailure.uuidCorrelationMatches(envelope["id"] as? String,
-                  expectedID: requestID),
-              V3WireContract.strictBool(envelope["ok"]) == false,
-              let rawFailure = envelope["failure"] as? [String: Any],
-              let failure = CombinedFailure.decode(rawFailure, expectedID: requestID) else {
-            return false
-        }
-        return failure.operation == "signIn" && failure.stage == .authentication &&
-            failure.code == .invalidResponse && failure.safeCause == .authSessionUnavailable
     }
 }
 

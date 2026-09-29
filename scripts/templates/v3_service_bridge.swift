@@ -7,6 +7,28 @@
 // it as host-rendered request context. This keeps service startup, XPC, busy,
 // and invalid-response failures distinguishable instead of collapsing into
 // "SideStore could not start or complete the requested action."
+private enum V3AuthSessionUnavailableReplyPolicy {
+    /// Only a current, correlated authPoll failure from SideStore proves that
+    /// the exact target session no longer exists. Transport, malformed, or
+    /// unrelated session replies cannot retire an auth status owner.
+    static func confirmsUnavailable(operation: String, target: String,
+                                    requestID: String,
+                                    envelope: [String: Any]) -> Bool {
+        guard operation == "authPoll",
+              UUID(uuidString: target)?.uuidString == target,
+              V3WireContract.strictInt(envelope["version"]) == 1,
+              CombinedFailure.uuidCorrelationMatches(envelope["id"] as? String,
+                  expectedID: requestID),
+              V3WireContract.strictBool(envelope["ok"]) == false,
+              let rawFailure = envelope["failure"] as? [String: Any],
+              let failure = CombinedFailure.decode(rawFailure, expectedID: requestID) else {
+            return false
+        }
+        return failure.operation == "signIn" && failure.stage == .authentication &&
+            failure.code == .invalidResponse && failure.safeCause == .authSessionUnavailable
+    }
+}
+
 enum V3CatalogRequestContext {
     /// The stage a host-side catalog boundary failure belongs to. A catalog read
     /// is reported against the catalog stage; every other operation keeps the
@@ -305,6 +327,21 @@ public final class V3ServiceBridge {
         }
     }
 
+    /// Authoritative auth-session reconciliation may settle this exact active
+    /// lease or its retired unresolved form. It never releases another owner.
+    private func reconcileAuthStatusOwner(sessionID: String) {
+        let ownerID = "auth:\(sessionID)"
+        let resolved = statusWriteAuthority.resolveOwnerAfterAuthoritativeReconciliation(ownerID)
+        for requestID in Array(statusLeaseByRequestID.keys) where
+            statusLeaseByRequestID[requestID]?.ownerID == ownerID {
+            statusLeaseByRequestID.removeValue(forKey: requestID)
+        }
+        if resolved {
+            drainStatusLeaseWaiters()
+            NotificationCenter.default.post(name: Notification.Name("V3StatusAuthorityChanged"), object: nil)
+        }
+    }
+
     private func statusResponse(_ data: Data, requestID: String) -> [String: Any]? {
         guard data.count <= V3WireContract.responseLimit,
               let envelope = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
@@ -505,7 +542,7 @@ public final class V3ServiceBridge {
     public func confirmAuthSessionUnavailable(sessionID: String) {
         guard UUID(uuidString: sessionID)?.uuidString == sessionID else { return }
         authSessionOwnership.clear(sessionID: sessionID)
-        resolveUnknownStatusOwner("auth:\(sessionID)")
+        reconcileAuthStatusOwner(sessionID: sessionID)
     }
     /// A validated service snapshot can retire a host owner when it proves
     /// there is no active authentication task, even if the terminal poll was lost.
@@ -513,7 +550,7 @@ public final class V3ServiceBridge {
         authSessionOwnership.reconcile(sessionID: sessionID, authenticationActive: authenticationActive)
         guard !authenticationActive,
               UUID(uuidString: sessionID)?.uuidString == sessionID else { return }
-        resolveUnknownStatusOwner("auth:\(sessionID)")
+        reconcileAuthStatusOwner(sessionID: sessionID)
     }
     public var processID: Int32 { RefreshHandler.shared.sideStorePid }
 

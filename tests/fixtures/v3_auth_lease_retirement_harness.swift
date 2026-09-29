@@ -51,6 +51,10 @@ final class AuthLeaseFakeClient {
                 response = ["version": 1, "id": requestID, "ok": true,
                     "result": ["session": target, "state": "completed", "authenticated": true]]
             }
+        case "snapshot":
+            response = ["version": 1, "id": requestID, "ok": true,
+                "result": ["busy": false, "activeMutation": false,
+                           "recoveryHold": false, "authenticationActive": false]]
         default:
             response = ["version": 1, "id": requestID, "ok": true, "result": [:]]
         }
@@ -155,15 +159,33 @@ struct AuthLeaseRetirementTests {
                               "refresh:\(UUID().uuidString)"]
         let exactAuthOwner = "auth:\(UUID().uuidString)"
         var authority = V3StatusWriteAuthority()
-        for ownerID in [exactAuthOwner] + retainedOwners {
+        for ownerID in retainedOwners {
             let revision = authority.reserveMutationRevision()
             let ticket = authority.begin(ownerID: ownerID, revision: revision,
                 serviceInstanceID: "321", kind: .mutation, allowUnresolvedMutation: true)!
             precondition(authority.complete(ticket, outcome: .outcomeUnknown))
         }
-        precondition(authority.resolveOwnerAfterReconciliation(exactAuthOwner) &&
+        let activeRevision = authority.reserveMutationRevision()
+        _ = authority.begin(ownerID: exactAuthOwner, revision: activeRevision,
+            serviceInstanceID: "321", kind: .mutation, allowUnresolvedMutation: true)!
+        precondition(authority.resolveOwnerAfterAuthoritativeReconciliation(exactAuthOwner) &&
+                     authority.activeLease == nil &&
                      authority.unresolvedOwnerIDs == Set(retainedOwners),
-            "auth reconciliation must preserve direct, operation, and refresh owners")
+            "auth reconciliation must settle only its exact active owner")
+
+        // A typed unavailable reply also settles a live active auth lease,
+        // then a fresh snapshot can reconcile account state independently.
+        let activeUnavailableBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
+        let activeUnavailableSession = UUID().uuidString
+        try await startAuth(activeUnavailableBridge, sessionID: activeUnavailableSession)
+        client.authPollReply = .unavailable
+        await pollUnavailable(activeUnavailableBridge, sessionID: activeUnavailableSession)
+        precondition(!activeUnavailableBridge.isMutating,
+            "an exact unavailable reply must settle a matching active auth lease")
+        let freshSnapshot = try await activeUnavailableBridge.request(operation: "snapshot")
+        precondition(freshSnapshot["authenticationActive"] as? Bool == false,
+            "account state remains separately reconcilable from auth-session ownership")
+        try await startAuth(activeUnavailableBridge, sessionID: UUID().uuidString)
 
         // A valid correlated unavailable reply from authPoll releases only the
         // retired session's shared status owner and allows a fresh authBegin.
@@ -180,6 +202,7 @@ struct AuthLeaseRetirementTests {
             "the exact typed unavailable reply must resolve auth and status ownership")
         let replacementSession = UUID().uuidString
         try await startAuth(unavailableBridge, sessionID: replacementSession)
+        client.authPollReply = .success
         let replacementPoll = try await unavailableBridge.request(operation: "authPoll", target: replacementSession)
         precondition(replacementPoll["authenticated"] as? Bool == true,
             "a new session must remain usable after exact unavailable reconciliation")
@@ -189,7 +212,6 @@ struct AuthLeaseRetirementTests {
         let snapshotBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
         let snapshotSession = UUID().uuidString
         try await startAuth(snapshotBridge, sessionID: snapshotSession)
-        snapshotBridge.disconnected()
         let wrongSession = UUID().uuidString
         client.authPollReply = .unavailable
         await pollUnavailable(snapshotBridge, sessionID: wrongSession)
@@ -208,7 +230,6 @@ struct AuthLeaseRetirementTests {
         let malformedBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
         let malformedSession = UUID().uuidString
         try await startAuth(malformedBridge, sessionID: malformedSession)
-        malformedBridge.disconnected()
         client.authPollReply = .malformedUnavailable
         do {
             _ = try await malformedBridge.request(operation: "authPoll", target: malformedSession)
