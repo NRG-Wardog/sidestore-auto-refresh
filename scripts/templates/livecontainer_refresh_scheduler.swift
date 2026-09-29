@@ -706,7 +706,9 @@ enum LiveContainerAutoRefreshScheduler {
         }
         do {
             print("[LIVE_CONTAINER_REFRESH] NETWORK_PREFLIGHT_START run_id=\(runID.uuidString) request_id=\(correlatedRequestID ?? "none") origin=\(correlatedOrigin ?? "unknown") source=\(source)")
-            try await LiveContainerNetworkPreflight.check(allowForegroundActivation: manual && source != "vpn_return" && task == nil)
+            try await LiveContainerNetworkPreflight.check(
+                allowForegroundActivation: manual && source != "vpn_return" && task == nil,
+                runID: runID.uuidString)
             recordNetworkPreflight("passed", runID: runID.uuidString)
             print("[LIVE_CONTAINER_REFRESH] NETWORK_PREFLIGHT_PASS run_id=\(runID.uuidString) request_id=\(correlatedRequestID ?? "none") origin=\(correlatedOrigin ?? "unknown")")
             try await performRefresh(runID: runID)

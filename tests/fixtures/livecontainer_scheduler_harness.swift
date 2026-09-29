@@ -12,6 +12,7 @@ extension LiveContainerAutoRefreshScheduler {
         LiveContainerRefreshBridge.malformedFailure = false
         LiveContainerNetworkPreflight.error = nil
         LiveContainerNetworkPreflight.checks = 0
+        LiveContainerNetworkPreflight.runIDs = []
         BGTaskScheduler.shared.requests = []
         UNUserNotificationCenter.shared.requests = []
         UNUserNotificationCenter.shared.onAdd = nil
@@ -71,6 +72,11 @@ extension LiveContainerAutoRefreshScheduler {
         }
         await execute(source: "manual", task: successful)
         precondition(LiveContainerRefreshBridge.calls == 1 && successful.completions == [true])
+        guard let successfulRunID = defaults.dictionary(forKey: verificationKey)?["run_id"] as? String else {
+            preconditionFailure("successful refresh must persist its run identity")
+        }
+        precondition(LiveContainerNetworkPreflight.runIDs == [successfulRunID],
+                     "preflight must be owned by the same run that reaches the refresh bridge")
         precondition(defaults.string(forKey: lastResultKey) == "verified")
         precondition(defaults.string(forKey: activeRunKey) == nil)
         precondition(defaults.string(forKey: expectedRunKey) == nil)
