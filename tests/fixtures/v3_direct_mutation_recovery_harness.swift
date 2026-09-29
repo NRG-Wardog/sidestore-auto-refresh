@@ -195,8 +195,31 @@ struct DirectMutationRecoveryHarness {
         } catch FixtureRunError.failedAfterDispatch { }
         try expect(!V3DirectMutationRecoveryLifecycle.clearPreparedAfterFailure(
             requestID: requestID, containerRoot: root),
-            "post-dispatch failure retains the ambiguous record for relaunch reconciliation")
-        try expect(try V3OperationRecoveryJournal.direct(containerRoot: root)?.phase == .dispatched)
+            "post-dispatch failure retains the ambiguous record")
+        try expect(try V3OperationRecoveryJournal.direct(containerRoot: root)?.phase == .unknown,
+            "run failure becomes reconcilable in the same live service")
+        try expect(try V3OperationRecoveryJournal.reconcileDirect(requestID: requestID,
+            allowUnknownDeviceCheck: true, containerRoot: root),
+            "explicit user check clears only the matching same-process unknown")
+
+        let nextRequest = ["operation": "settingsSet", "target": "", "payload": [
+            "key": "isCellularRefreshEnabled", "type": "bool", "bool": false
+        ]] as [String: Any]
+        let nextID = "c0000000-0000-4000-8000-00000000000c"
+        try expect(try V3DirectMutationRecoveryLifecycle.reserve(request: nextRequest,
+            requestID: nextID, serviceInstanceID: oldInstance,
+            teamIdentifier: nil, identityStamp: nil, containerRoot: root),
+            "a write is admitted after explicit same-process reconciliation")
+        try expect(V3DirectMutationRecoveryLifecycle.clearPreparedAfterFailure(
+            requestID: nextID, containerRoot: root))
+
+        // Leave a dispatched record for the second process invocation, which
+        // verifies cold-service relaunch behavior independently of run failure.
+        try expect(try V3DirectMutationRecoveryLifecycle.reserve(request: request,
+            requestID: requestID, serviceInstanceID: oldInstance,
+            teamIdentifier: nil, identityStamp: nil, containerRoot: root))
+        try expect(try V3OperationRecoveryJournal.beginDirectDispatch(requestID: requestID,
+            serviceInstanceID: oldInstance, containerRoot: root))
     }
 
     @MainActor

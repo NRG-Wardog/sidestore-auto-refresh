@@ -432,6 +432,18 @@ private enum V3OperationRecoveryJournal {
         }
     }
 
+    static func markDirectUnknownAfterRunFailure(requestID: String, serviceInstanceID: String,
+                                                 containerRoot: URL? = nil) throws -> Bool {
+        try withLease(containerRoot: containerRoot) { url in
+            guard case .directMutation(let current)? = try readState(url),
+                  current.requestID == requestID, current.phase == .dispatched,
+                  current.serviceInstanceID == serviceInstanceID,
+                  let unknown = current.replacing(phase: .unknown) else { return false }
+            try writeDirect(unknown, to: url)
+            return true
+        }
+    }
+
     static func reconcileDirect(requestID: String, allowUnknownDeviceCheck: Bool,
                                 containerRoot: URL? = nil) throws -> Bool {
         try withLease(containerRoot: containerRoot) { url in
@@ -580,12 +592,21 @@ private enum V3DirectMutationRecoveryLifecycle {
                                   run: @MainActor () async throws -> [String: Any]) async throws -> [String: Any]? {
         guard try V3OperationRecoveryJournal.beginDirectDispatch(requestID: requestID,
             serviceInstanceID: serviceInstanceID, containerRoot: containerRoot) else { return nil }
-        let result = try await run()
-        let terminalOutcome = operation == "certCreate"
-            ? (result["outcome"] as? String ?? "") : "completed"
-        guard try V3OperationRecoveryJournal.settleDirect(requestID: requestID,
-            terminalOutcome: terminalOutcome, containerRoot: containerRoot) else { return nil }
-        return result
+        do {
+            let result = try await run()
+            let terminalOutcome = operation == "certCreate"
+                ? (result["outcome"] as? String ?? "") : "completed"
+            guard try V3OperationRecoveryJournal.settleDirect(requestID: requestID,
+                terminalOutcome: terminalOutcome, containerRoot: containerRoot) else { return nil }
+            return result
+        } catch {
+            // The operation task is no longer running. Keep the ambiguity, but
+            // make it explicitly reconcilable in this still-live service.
+            _ = try? V3OperationRecoveryJournal.markDirectUnknownAfterRunFailure(
+                requestID: requestID, serviceInstanceID: serviceInstanceID,
+                containerRoot: containerRoot)
+            throw error
+        }
     }
 
     static func clearPreparedAfterFailure(requestID: String, containerRoot: URL? = nil) -> Bool {
