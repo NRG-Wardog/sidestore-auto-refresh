@@ -218,7 +218,8 @@ def patch_auth_storage(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     if "private var portalProxy: DeveloperPortalProxyWithAuth" in text:
         # ff25922 owns token/session/configuration behavior. Leave it byte-identical.
-        if 'coalesce(key: "apple_auth_session")' not in text:
+        if ('coalesce(key: "apple_auth_session")' not in text and
+                "V3AuthSessionCoalescerKey.value(for: identityAtStart.stamp)" not in text):
             raise ValueError("Unexpected upstream AuthManager implementation")
         return
     if "AUTH_STORAGE_READBACK_V1" in text:

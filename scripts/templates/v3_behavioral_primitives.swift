@@ -1,5 +1,84 @@
 import Foundation
+
+enum V3AuthReadStampPolicy {
+    static func ownsTicket(captured: UInt64, current: UInt64) -> Bool {
+        captured == current
+    }
+
+    static func mayReturn(capturedStamp: String, currentStamp: String, stable: Bool) -> Bool {
+        stable && capturedStamp == currentStamp
+    }
+
+    static func mayCommit(capturedTicket: UInt64, currentTicket: UInt64,
+                          capturedStamp: String, currentStamp: String?, stable: Bool,
+                          resultStamps: [String?], authenticationActive: Bool = false) -> Bool {
+        stable && !authenticationActive && capturedTicket == currentTicket &&
+            currentStamp == capturedStamp && !resultStamps.isEmpty &&
+            resultStamps.allSatisfy { $0 == capturedStamp }
+    }
+}
+
+enum V3AuthSessionCoalescerKey {
+    static func value(for identityStamp: String) -> String {
+        "apple_auth_session:" + identityStamp
+    }
+}
+
 import CoreFoundation
+
+/// The lock protects only this small in-memory stamp state. Callers hold no
+/// lock while network requests, authentication prompts, or provisioning run.
+final class V3AuthIdentityStampState: @unchecked Sendable {
+    struct Snapshot: Equatable, Sendable {
+        let stamp: String
+        let generation: UInt64
+        let stable: Bool
+    }
+
+    private let lock = NSLock()
+    private let processNonce = UUID().uuidString
+    private var revision: UInt64 = 0
+    private var transitionDepth = 0
+
+    var snapshot: Snapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return Snapshot(stamp: processNonce + ":\(revision)",
+            generation: revision, stable: transitionDepth == 0)
+    }
+
+    func beginTransition() {
+        lock.lock()
+        revision &+= 1
+        transitionDepth += 1
+        lock.unlock()
+    }
+
+    func completeTransition() {
+        lock.lock()
+        revision &+= 1
+        if transitionDepth > 0 { transitionDepth -= 1 }
+        lock.unlock()
+    }
+
+    func advanceGeneration() {
+        lock.lock()
+        revision &+= 1
+        lock.unlock()
+    }
+
+    /// Performs a short in-memory commit only while the captured identity is
+    /// still current. The closure must not suspend or perform I/O.
+    func runIfCurrent(_ capturedStamp: String, commit: () -> Void) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard transitionDepth == 0, processNonce + ":\(revision)" == capturedStamp else {
+            return false
+        }
+        commit()
+        return true
+    }
+}
 
 // V3_CRASH_REASON_LOG_PRIVACY_V1: exception reasons and call stacks may contain
 // credentials, URLs, user data, or local paths. Callers may only log this marker.
@@ -3565,12 +3644,91 @@ struct V3AuthSessionOwnership {
 
 enum V3ProvisioningResumeAvailabilityPolicy {
     static func canResume(authenticated: Bool, currentAppleID: String?, resumableAppleID: String?,
-                          hasSession: Bool = true, hasTeamAccount: Bool = true) -> Bool {
+                          hasSession: Bool = true, hasTeamAccount: Bool = true,
+                          teamAccountAppleID: String? = nil) -> Bool {
         guard authenticated, hasSession, hasTeamAccount,
               let currentAppleID, let resumableAppleID else { return false }
-        let current = currentAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let resumable = resumableAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return !current.isEmpty && current == resumable
+        guard let current = V3AuthIdentityBindingPolicy.normalizedOwner(currentAppleID),
+              let resumable = V3AuthIdentityBindingPolicy.normalizedOwner(resumableAppleID),
+              let teamOwner = V3AuthIdentityBindingPolicy.normalizedOwner(teamAccountAppleID) else { return false }
+        return current == resumable && current == teamOwner
+    }
+}
+
+// V3_AUTH_IDENTITY_BINDING_V1: the stored route remains an upstream fact;
+// developer-portal readiness requires a coherent DSID/token session and the
+// exact account owner associated with the team being sent to Apple.
+enum V3AuthIdentityBindingPolicy {
+    static func normalizedOwner(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    static func hasTokenBackedRoute(credentialRoutePresent: Bool,
+                                    dsid: String?, xcodeToken: String?) -> Bool {
+        credentialRoutePresent && dsid?.isEmpty == false && xcodeToken?.isEmpty == false
+    }
+
+    static func hasUsableSession(credentialRoutePresent: Bool, dsid: String?,
+                                 xcodeToken: String?, sessionDSID: String?,
+                                 sessionXcodeToken: String?,
+                                 generationBefore: UInt64, generationAfter: UInt64) -> Bool {
+        guard hasTokenBackedRoute(credentialRoutePresent: credentialRoutePresent,
+                dsid: dsid, xcodeToken: xcodeToken), generationBefore == generationAfter,
+              let dsid, let xcodeToken,
+              let sessionDSID, !sessionDSID.isEmpty,
+              let sessionXcodeToken, !sessionXcodeToken.isEmpty else { return false }
+        return dsid == sessionDSID && xcodeToken == sessionXcodeToken
+    }
+
+    static func sameCredentialRoute(appleIDBefore: String?, appleIDAfter: String?,
+                                    dsidBefore: String?, dsidAfter: String?,
+                                    tokenBefore: String?, tokenAfter: String?) -> Bool {
+        normalizedOwner(appleIDBefore) == normalizedOwner(appleIDAfter) &&
+            dsidBefore == dsidAfter && tokenBefore == tokenAfter
+    }
+
+    static func mayUseTeam(sessionOwner: String?, teamOwner: String?) -> Bool {
+        guard let sessionOwner = normalizedOwner(sessionOwner),
+              let teamOwner = normalizedOwner(teamOwner) else { return false }
+        return sessionOwner == teamOwner
+    }
+
+    static func resolveColdTeamOwner(storedTeamOwners: [String],
+                                     activeTeamIdentifier: String?, requestedTeamIdentifier: String,
+                                     activeAccountOwner: String?, sessionOwner: String?) -> String? {
+        let activeTeamMatches = activeTeamIdentifier == requestedTeamIdentifier
+        if activeTeamMatches, mayUseTeam(sessionOwner: sessionOwner, teamOwner: activeAccountOwner) {
+            return normalizedOwner(sessionOwner)
+        }
+        let owners = Set(storedTeamOwners.compactMap(normalizedOwner))
+        return owners.count == 1 ? owners.first : nil
+    }
+
+    static func mayFetchTeams(sessionOwner: String?, requestedOwner: String?,
+                              generationBefore: UInt64, generationAfter: UInt64,
+                              cancelled: Bool = false) -> Bool {
+        mayDispatchTeamRequest(sessionOwner: sessionOwner, teamOwner: requestedOwner,
+            generationBefore: generationBefore, generationAfter: generationAfter,
+            cancelled: cancelled)
+    }
+
+    static func mayDispatchTeamRequest(sessionOwner: String?, teamOwner: String?,
+                                       generationBefore: UInt64, generationAfter: UInt64,
+                                       cancelled: Bool = false) -> Bool {
+        mayDispatch(generationBefore: generationBefore, generationAfter: generationAfter,
+                    cancelled: cancelled) &&
+            mayUseTeam(sessionOwner: sessionOwner, teamOwner: teamOwner)
+    }
+
+    static func mayDispatch(generationBefore: UInt64, generationAfter: UInt64,
+                            cancelled: Bool = false) -> Bool {
+        !cancelled && generationBefore == generationAfter
+    }
+
+    static func mayProjectIdentity(generationBefore: UInt64, generationAfter: UInt64) -> Bool {
+        generationBefore == generationAfter
     }
 }
 
@@ -3762,6 +3920,7 @@ enum V3AuthSessionCorrelationPolicy {
 enum V3AuthSnapshotAuthorityPolicy {
     struct Facts: Equatable {
         let authenticated: Bool
+        let credentialRoutePresent: Bool
         let provisioningIncomplete: Bool
         let provisioningRetryAvailable: Bool
         let authenticationActive: Bool
@@ -3769,9 +3928,10 @@ enum V3AuthSnapshotAuthorityPolicy {
     }
 
     static func facts(_ snapshot: V3AuthServiceSnapshot) -> Facts {
-        Facts(authenticated: snapshot.authenticated,
-              provisioningIncomplete: snapshot.provisioningIncomplete,
-              provisioningRetryAvailable: snapshot.provisioningRetryAvailable,
+        Facts(authenticated: snapshot.identityStable && snapshot.authenticated,
+              credentialRoutePresent: snapshot.identityStable && snapshot.credentialRoutePresent,
+              provisioningIncomplete: snapshot.identityStable && snapshot.provisioningIncomplete,
+              provisioningRetryAvailable: snapshot.identityStable && snapshot.provisioningRetryAvailable,
               authenticationActive: snapshot.authenticationActive,
               authenticationSessionID: snapshot.authenticationSessionID)
     }

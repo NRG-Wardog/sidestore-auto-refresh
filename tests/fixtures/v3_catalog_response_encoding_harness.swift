@@ -320,18 +320,22 @@ struct CatalogResponseEncodingHarness {
             "a real serialized Boolean remains accepted")
         let validAuthBooleans = try! PropertyListSerialization.data(fromPropertyList: [
             "authenticated": true, "provisioningIncomplete": false,
-            "provisioningRetryAvailable": false, "authenticationActive": false
+            "provisioningRetryAvailable": false, "authenticationActive": false,
+            "identityStamp": "process:1", "identityStable": true
         ] as [String: Any], format: .binary, options: 0)
         let decodedValidAuthBooleans = try! PropertyListSerialization.propertyList(
             from: validAuthBooleans, format: nil) as! [String: Any]
         precondition(V3WireContract.authSnapshot(decodedValidAuthBooleans) == V3AuthServiceSnapshot(
             authenticated: true, provisioningIncomplete: false,
             provisioningRetryAvailable: false, authenticationActive: false,
-            authenticationSessionID: nil),
+            authenticationSessionID: nil, identityStamp: "process:1", identityStable: true),
             "a valid structured auth snapshot decodes all booleans strictly")
 
         func roundTripAuthSnapshot(_ value: [String: Any]) -> V3AuthServiceSnapshot? {
-            let bytes = try! PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
+            var stamped = value
+            stamped["identityStamp"] = "process:1"
+            if stamped["identityStable"] == nil { stamped["identityStable"] = true }
+            let bytes = try! PropertyListSerialization.data(fromPropertyList: stamped, format: .binary, options: 0)
             let decoded = try! PropertyListSerialization.propertyList(from: bytes, format: nil) as! [String: Any]
             return V3WireContract.authSnapshot(decoded)
         }
@@ -369,6 +373,13 @@ struct CatalogResponseEncodingHarness {
         precondition(validInactiveAuth?.authenticationActive == false &&
                      validInactiveAuth?.authenticationSessionID == nil,
             "an inactive snapshot with no session field remains valid")
+        let transitionalAuth = roundTripAuthSnapshot([
+            "authenticated": false, "provisioningIncomplete": false,
+            "provisioningRetryAvailable": false, "authenticationActive": false,
+            "identityStable": false
+        ])
+        precondition(transitionalAuth?.identityStable == false,
+            "a valid transitional identity snapshot remains decodable")
         precondition(roundTripAuthSnapshot([
             "authenticated": false, "provisioningIncomplete": false,
             "provisioningRetryAvailable": false, "authenticationActive": false,

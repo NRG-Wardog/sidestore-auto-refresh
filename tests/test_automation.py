@@ -203,6 +203,8 @@ GENERATED_STARTUP
                 "CertificateManager.shared.activeCertificate")
         def accepted(*present):
             for expression in expressions.values():
+                expression = expression.replace(
+                    "auth.v3CachedSessionMatchesCurrentRoute(auth.session)", "auth.session")
                 expression = expression.replace(" != nil", "")
                 for key in keys:
                     expression = expression.replace(key, str(key in present))

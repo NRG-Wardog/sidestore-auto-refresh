@@ -161,6 +161,13 @@ struct AuthOwnershipReconciliationHarness {
                         reportedState: "awaitingPrompt", hasPrompt: true,
                         activeSessionMatches: true, cancellationInProgress: false),
                      "an incomplete account row cannot replace the still-owned Team prompt")
+        let transitionalFacts = V3AuthSnapshotAuthorityPolicy.facts(V3AuthServiceSnapshot(
+            authenticated: true, provisioningIncomplete: true,
+            provisioningRetryAvailable: true, authenticationActive: true,
+            authenticationSessionID: current, identityStamp: "process:2", identityStable: false))
+        precondition(!transitionalFacts.authenticated && !transitionalFacts.credentialRoutePresent &&
+                     !transitionalFacts.provisioningIncomplete && transitionalFacts.authenticationActive,
+            "transitional snapshots preserve auth-session correlation but grant no account authority")
         precondition(!V3AuthReconciliationPresentationPolicy.shouldPreserveActivePrompt(
             reportedState: "awaitingPrompt", hasPrompt: true,
             activeSessionMatches: false, cancellationInProgress: false),
@@ -458,7 +465,8 @@ struct AuthOwnershipReconciliationHarness {
             "a later poll failure cannot downgrade an account state confirmed by reconciliation")
 
         precondition(V3ProvisioningResumeAvailabilityPolicy.canResume(
-            authenticated: true, currentAppleID: "Dev@Example.com", resumableAppleID: "dev@example.com"))
+            authenticated: true, currentAppleID: "Dev@Example.com", resumableAppleID: "dev@example.com",
+            teamAccountAppleID: "DEV@example.com"))
         precondition(!V3ProvisioningResumeAvailabilityPolicy.canResume(
             authenticated: true, currentAppleID: "dev@example.com", resumableAppleID: nil),
             "authentication alone does not prove process-local provisioning state survived")
