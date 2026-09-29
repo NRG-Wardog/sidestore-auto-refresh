@@ -33,15 +33,22 @@ class V3OperationRecoveryTests(unittest.TestCase):
             self.skipTest("Swift compiler unavailable; executable journal harness runs in macOS CI")
         handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
         lock_start = handoff.index("enum V3AppGroupProcessLock {")
         lock_end = handoff.index("\nenum V3SecretHandoffError", lock_start)
         error_start = lock_end + 1
         error_end = handoff.index("\nenum V3SecretHandoffRecord", error_start)
-        journal_start = service.index("private enum V3OperationRecoveryJournal {")
+        # The journal decodes both v1 operation records and v2 direct records.
+        # Compile the complete production recovery declaration block so these
+        # references resolve to the same implementations used by the service.
+        journal_start = service.index("private enum V3DirectMutationRecoveryPhase:")
         journal_end = service.index("\n// V3_NATIVE_CALLBACK_GATE_V1", journal_start)
         lock = handoff[lock_start:lock_end]
         error = handoff[error_start:error_end]
         journal = service[journal_start:journal_end]
+        settings_start = runtime.index("    static let boolSettings:")
+        settings_end = runtime.index("\n\n    static func settingsGet()", settings_start)
+        settings_metadata = "enum V3BackendCommands {\n" + runtime[settings_start:settings_end] + "\n}"
         fixture = (ROOT / "tests/fixtures/v3_operation_recovery_journal_harness.swift").read_text(encoding="utf-8")
         wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
@@ -52,13 +59,28 @@ class V3OperationRecoveryTests(unittest.TestCase):
             executable = Path(temporary) / "journal-harness"
             main.write_text(injected_imports + wire + "\n" + failure + "\n" + primitives +
                 "\nenum V3IPAStaging { static let sideStoreAppGroupIdentifier = \"group.com.SideStore.SideStore\" }\n" +
-                lock + "\n" + error + "\n" + journal + "\n" + fixture, encoding="utf-8")
+                settings_metadata + "\n" + lock + "\n" + error + "\n" + journal + "\n" + fixture,
+                encoding="utf-8")
             compiled = subprocess.run([SWIFTC, "-parse-as-library", str(main), "-o", str(executable)],
                 capture_output=True, text=True)
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("V3_OPERATION_RECOVERY_JOURNAL_PASS", result.stdout)
+
+    def test_executable_journal_slice_keeps_v1_and_v2_production_declarations(self):
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        start = service.index("private enum V3DirectMutationRecoveryPhase:")
+        end = service.index("V3_NATIVE_CALLBACK_GATE_V1", start)
+        journal = service[start:end]
+        for declaration in (
+            "private enum V3DirectMutationRecoveryHash",
+            "private struct V3DirectMutationRecoveryRecord",
+            "private enum V3ServiceRecoveryFileRecord",
+            "private enum V3OperationRecoveryJournal",
+        ):
+            with self.subTest(declaration=declaration):
+                self.assertIn(declaration, journal)
 
     def test_host_and_service_use_journal_before_dispatch_and_preserve_ipa(self):
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
