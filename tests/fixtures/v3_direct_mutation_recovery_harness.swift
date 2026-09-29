@@ -321,7 +321,10 @@ struct DirectMutationRecoveryHarness {
             "serviceInstanceID": oldInstance]
         record["unrecognizedPayload"] = "must be rejected"
         let data = try PropertyListSerialization.data(fromPropertyList: record, format: .binary, options: 0)
-        try data.write(to: recordURL(root), options: .atomic)
+        let journalURL = recordURL(root)
+        try FileManager.default.createDirectory(at: journalURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try data.write(to: journalURL, options: .atomic)
         do {
             _ = try V3OperationRecoveryJournal.currentState(containerRoot: root)
             fatalError("unknown v2 keys must be treated as unreadable")

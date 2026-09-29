@@ -29,6 +29,17 @@ class V3DirectMutationRecoveryTests(unittest.TestCase):
             encoding="utf-8")
         self.assertIn("V3DirectMutationRecoveryRecord.isEligible(request: request)", fixture)
 
+    def test_corrupt_journal_fixture_creates_parent_before_atomic_write(self):
+        fixture = (ROOT / "tests/fixtures/v3_direct_mutation_recovery_harness.swift").read_text(
+            encoding="utf-8")
+        start = fixture.index("private static func testUnknownV2FailsClosed")
+        end = fixture.index("\n    private static func testWireContract", start)
+        corrupt_fixture = fixture[start:end]
+        create_parent = corrupt_fixture.index("journalURL.deletingLastPathComponent()")
+        write_record = corrupt_fixture.index("try data.write(to: journalURL, options: .atomic)")
+        self.assertLess(create_parent, write_record)
+        self.assertIn(".posixPermissions: 0o700", corrupt_fixture)
+
     def test_receive_routes_direct_mutations_through_ordered_lifecycle(self):
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         start = service.index("private func receive(_ data: Data")
