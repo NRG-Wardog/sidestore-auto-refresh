@@ -27,6 +27,8 @@ final class FakeClient {
         let target = request["target"] as? String ?? ""
         let operationResult: [String: Any]
         switch operation {
+        case "snapshot":
+            operationResult = snapshotResult(busy: false)
         case "authBegin":
             operationResult = ["session": payload["session"] as? String ?? "", "state": "working"]
         case "authPoll":
@@ -63,7 +65,7 @@ final class FakeClient {
                 preconditionFailure("fixture settings mutation is outside the production SideStore allowlist")
             }
             boolSettings["isCellularRefreshEnabled"] = value
-            operationResult = ["account": "fixture"]
+            operationResult = snapshotResult(busy: true)
         default:
             operationResult = ["account": "fixture"]
         }
@@ -72,6 +74,18 @@ final class FakeClient {
         let encoded = oversized ? Data(repeating: 0, count: 4_194_305) :
             try! PropertyListSerialization.data(fromPropertyList: result, format: .binary, options: 0)
         if hold { replies.append { reply(encoded) } } else { reply(encoded) }
+    }
+    private func snapshotResult(busy: Bool) -> [String: Any] {
+        ["updatedAt": Date(), "busy": busy, "recoveryJournalUnreadable": false,
+         "account": "fixture", "authenticated": false, "activeAccountPresent": false,
+         "activeTeamPresent": false, "activeCertificatePresent": false,
+         "authenticationActive": false, "provisioningIncomplete": false,
+         "provisioningRetryAvailable": false, "team": "No active team", "teamID": "",
+         "signing": "Sign in required", "certificate": "No active certificate",
+         "certificateExpiration": Date.distantPast, "pairing": "missing",
+         "installedApps": [], "sources": [],
+         "settings": ["betaUpdates": false, "idleTimeoutDisabled": false,
+                      "responseCachingDisabled": false, "verboseOperations": false]]
     }
     func flush() { let old = replies; replies = []; old.forEach { $0() } }
 }
@@ -179,6 +193,14 @@ struct BridgeTests {
         let value = try await bridge.request(operation: "snapshot")
         precondition(value["account"] as? String == "fixture")
         precondition(client.operations == ["snapshot"], "cold launch/status triggered a mutation")
+        let settingsSnapshot = try await bridge.request(operation: "settingsSet",
+            payload: ["key": "isCellularRefreshEnabled", "type": "bool", "bool": true])
+        precondition(settingsSnapshot["account"] as? String == "fixture" &&
+                     settingsSnapshot["busy"] as? Bool == true &&
+                     settingsSnapshot["settings"] is [String: Any],
+                     "settingsSet must return the service's snapshot-shaped success reply")
+        precondition(client.boolSettings["isCellularRefreshEnabled"] == true,
+                     "the fake service must apply an allowlisted setting before reporting success")
         let signInSession = UUID().uuidString
         _ = try await bridge.request(operation: "authBegin", target: signInSession,
             payload: ["session": signInSession, "sessionDeadline": Date().addingTimeInterval(600)])
@@ -212,7 +234,7 @@ struct BridgeTests {
             "the refresh session must reach an authoritative terminal reply")
         precondition(!bridge.isMutating,
             "a settled opPoll releases the refresh session's host mutation ownership")
-        precondition(client.operations == ["snapshot", "authBegin", "authPoll", "opStart", "opPoll"],
+        precondition(client.operations == ["snapshot", "settingsSet", "authBegin", "authPoll", "opStart", "opPoll"],
             "explicit account/opStart/opPoll integration order changed")
         client.stale = true
         do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("stale reply accepted") } catch {}
