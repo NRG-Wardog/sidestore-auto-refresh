@@ -381,7 +381,7 @@ class SharedSetupCompletionTests(unittest.TestCase):
         self.assertIn("V3ServiceBridge.shared.request(operation: \"healthSnapshot\")", text)
         self.assertIn("recordWifiAvailability(wifi, revision: revision)", text)
         self.assertIn("recordJITLessReadiness(readiness.readiness,", text)
-        self.assertIn('activeCertificateAvailable: V3WireContract.strictBool(certificate["active"]),', text)
+        self.assertIn('activeCertificateAvailable: V3ServiceBridge.strictBool(certificate["active"]),', text)
         self.assertIn("revision: revision)", text)
         # A failure is published as unknown, never as an assumed-good fact.
         observation = text[text.index("private func observeSetupFacts() async"):]
