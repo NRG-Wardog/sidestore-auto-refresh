@@ -172,7 +172,10 @@ class ServiceSidePropagationTests(unittest.TestCase):
         self.assertIn("code: .invalidConfiguration, id: id", builder)
         self.assertIn("isIdentifierCollision(", builder)
         self.assertIn("inFlightRequestFingerprints[$0] ?? completedRequestFingerprints[$0]", builder)
-        self.assertIn("mayClaimNotDispatched(", builder)
+        self.assertIn("mayClaimInvalidRequestNotDispatched(", builder)
+        self.assertIn("identifierCollision: identifierCollision", builder)
+        self.assertIn("heldRequestID: heldDirectRequestID", builder)
+        self.assertIn("journalReadable: directJournalReadable", builder)
         # Only trusted envelope fields are echoed back, never the payload.
         wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         self.assertIn('operations.contains($0) ? $0 : nil', wire)
