@@ -2054,6 +2054,7 @@ struct V3StatusPresentation: Equatable {
 enum V3IssueAction: String, Equatable, CaseIterable {
     case retrySource
     case reloadSources
+    case reloadStatus
     case openCertificates
     case openAccount
     case showPairingSetup
@@ -2067,6 +2068,7 @@ enum V3IssueAction: String, Equatable, CaseIterable {
         switch self {
         case .retrySource: return "Retry Source"
         case .reloadSources: return "Reload Sources"
+        case .reloadStatus: return "Reload Status"
         case .openCertificates: return "Open Certificates"
         case .openAccount: return "Open Account & Signing"
         case .showPairingSetup: return "Show Pairing Setup"
@@ -2088,7 +2090,62 @@ enum V3IssueAction: String, Equatable, CaseIterable {
         case .chooseIPA: return "ipa"
         case .openSetup: return "setup"
         case .retrySource, .reloadSources, .openSources: return "sources"
+        case .reloadStatus: return nil
         case .dismiss: return nil
+        }
+    }
+}
+
+// V3_SIGNOUT_AUTHORITATIVE_POSTCONDITION_V1: upstream signOut can return after
+// swallowing a Core Data deactivation save failure. The host therefore reports
+// success only when the returned authoritative snapshot explicitly confirms all
+// three sign-out facts. Missing facts remain unknown; they are never coerced to
+// false for the success decision.
+enum V3SignOutOutcome: Equatable {
+    case confirmed
+    case accountStateRemains
+    case authenticationRemains
+    case snapshotIncomplete
+}
+
+enum V3SignOutOutcomePolicy {
+    static func resolve(snapshot: [String: Any]) -> V3SignOutOutcome {
+        guard let authenticated = V3WireContract.strictBool(snapshot["authenticated"]),
+              let activeAccount = V3WireContract.strictBool(snapshot["activeAccountPresent"]),
+              let activeTeam = V3WireContract.strictBool(snapshot["activeTeamPresent"]) else {
+            return .snapshotIncomplete
+        }
+        if authenticated { return .authenticationRemains }
+        if activeAccount || activeTeam { return .accountStateRemains }
+        return .confirmed
+    }
+
+    static func successNotice(for snapshot: [String: Any]) -> String? {
+        resolve(snapshot: snapshot) == .confirmed ? "Signed out successfully." : nil
+    }
+
+    static func whatHappened(for outcome: V3SignOutOutcome) -> String? {
+        switch outcome {
+        case .confirmed: return nil
+        case .accountStateRemains:
+            return "Sign-in credentials were cleared, but SideStore still reports an active account or team."
+        case .authenticationRemains:
+            return "SideStore still reports an active sign-in. Sign-out is not confirmed."
+        case .snapshotIncomplete:
+            return "SideStore did not return enough account state to confirm sign-out."
+        }
+    }
+
+    static func whatToDo(for outcome: V3SignOutOutcome) -> String? {
+        guard outcome != .confirmed else { return nil }
+        switch outcome {
+        case .confirmed: return nil
+        case .accountStateRemains:
+            return "Reload status. If the account or team remains active, try Sign Out again."
+        case .authenticationRemains:
+            return "Reload status to check the current account state, then try Sign Out again if it remains signed in."
+        case .snapshotIncomplete:
+            return "Reload status before continuing. If SideStore still reports a signed-in account, try Sign Out again."
         }
     }
 }

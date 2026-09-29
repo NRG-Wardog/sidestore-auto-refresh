@@ -1346,10 +1346,31 @@ final class V3SideStoreStatusStore: ObservableObject {
         case .reloadSources:
             reload()
             return V3IssueActionOutcomePolicy.shouldDismiss(action: action, didStart: true)
+        case .reloadStatus:
+            reload()
+            return V3IssueActionOutcomePolicy.shouldDismiss(action: action, didStart: true)
         default:
             openIssueRecovery()
             return V3IssueActionOutcomePolicy.shouldDismiss(action: action, didStart: true)
         }
+    }
+
+    private func presentUnconfirmedSignOut(_ outcome: V3SignOutOutcome) {
+        guard let whatHappened = V3SignOutOutcomePolicy.whatHappened(for: outcome),
+              let whatToDo = V3SignOutOutcomePolicy.whatToDo(for: outcome) else { return }
+        let issue = V3UserFacingIssue(
+            title: "Sign Out",
+            severity: .failed,
+            whatHappened: whatHappened,
+            whatToDo: whatToDo,
+            technicalDetails: "schema=1\noperation=signOut\nresult=notConfirmed\noutcome=\(outcome)",
+            primaryAction: .reloadStatus,
+            secondaryAction: .dismiss,
+            recoveryDestination: nil,
+            retryDisposition: .unknown)
+        self.issue = issue
+        error = issue.summary
+        notice = nil
     }
 
     @Published var presentation: V3OperationRequest? {
@@ -1757,9 +1778,21 @@ final class V3SideStoreStatusStore: ObservableObject {
         beginMutation()
         Task {
             do {
-                accept(try await V3ServiceBridge.shared.request(operation: operation, target: target))
+                let snapshot = try await V3ServiceBridge.shared.request(operation: operation, target: target)
+                accept(snapshot)
+                let signOutOutcome = operation == "signOut"
+                    ? V3SignOutOutcomePolicy.resolve(snapshot: snapshot)
+                    : nil
                 finishMutation()
-                notice = successNotice
+                if let signOutOutcome {
+                    if let verifiedNotice = V3SignOutOutcomePolicy.successNotice(for: snapshot) {
+                        notice = verifiedNotice
+                    } else {
+                        presentUnconfirmedSignOut(signOutOutcome)
+                    }
+                } else {
+                    notice = successNotice
+                }
                 reload()
             } catch {
                 finishMutation()
