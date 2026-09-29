@@ -93,14 +93,14 @@ struct DirectMutationRecoveryHarness {
         guard case nil = try V3OperationRecoveryJournal.currentState(containerRoot: root) else {
             fatalError("terminal acknowledgement must remove the single-slot record")
         }
-        let nextRequest = "a0000000-0000-4000-8000-00000000000a"
+        let nextRequestAfterAcknowledgement = "a0000000-0000-4000-8000-00000000000a"
         let next = ["operation": "settingsSet", "target": "", "payload": [
             "key": "isCellularRefreshEnabled", "type": "bool", "bool": false
         ]] as [String: Any]
         try expect(V3OperationRecoveryJournal.reserveDirect(request: next,
-            requestID: nextRequest, serviceInstanceID: newInstance, containerRoot: root))
+            requestID: nextRequestAfterAcknowledgement, serviceInstanceID: newInstance, containerRoot: root))
         try expect(V3OperationRecoveryJournal.clearPreparedDirectAfterNotDispatched(
-            requestID: nextRequest, containerRoot: root))
+            requestID: nextRequestAfterAcknowledgement, containerRoot: root))
         let cancelledRoot = root.appendingPathComponent("cancel-after-terminal")
         let cancelledTerminal = try V3OperationRecoveryJournal.direct(containerRoot: cancelledRoot)
         precondition(cancelledTerminal?.requestID == nextRequestID &&
@@ -145,7 +145,7 @@ struct DirectMutationRecoveryHarness {
         let request = ["operation": "settingsSet", "target": "", "payload": [
             "key": "isCellularRefreshEnabled", "type": "bool", "bool": true
         ]] as [String: Any]
-        precondition(V3DirectMutationRecoveryRecord.isEligible(request))
+        precondition(V3DirectMutationRecoveryRecord.isEligible(request: request))
         try expect(try V3DirectMutationRecoveryLifecycle.reserve(request: request,
             requestID: requestID, serviceInstanceID: oldInstance,
             teamIdentifier: nil, identityStamp: nil, containerRoot: root))
@@ -260,7 +260,7 @@ struct DirectMutationRecoveryHarness {
         let secret = "80000000-0000-4000-8000-000000000008"
         let request = ["operation": "accountImport", "target": token,
             "payload": ["secretToken": secret]] as [String: Any]
-        precondition(V3DirectMutationRecoveryRecord.isEligible(request))
+        precondition(V3DirectMutationRecoveryRecord.isEligible(request: request))
         try expect(try V3OperationRecoveryJournal.reserveDirect(request: request,
             requestID: requestID, serviceInstanceID: oldInstance, containerRoot: root))
         let persisted = try PropertyListSerialization.propertyList(

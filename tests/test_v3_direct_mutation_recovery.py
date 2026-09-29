@@ -10,6 +10,25 @@ SWIFTC = shutil.which("swiftc")
 
 
 class V3DirectMutationRecoveryTests(unittest.TestCase):
+    def test_executable_slice_contains_direct_recovery_declarations(self):
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        journal_start = service.index("private enum V3DirectMutationRecoveryPhase:")
+        journal_end = service.index("V3_NATIVE_CALLBACK_GATE_V1", journal_start)
+        journal = service[journal_start:journal_end]
+
+        for declaration in (
+            "private enum V3DirectMutationRecoveryHash",
+            "private struct V3DirectMutationRecoveryRecord",
+            "private enum V3ServiceRecoveryFileRecord",
+            "private enum V3OperationRecoveryJournal",
+        ):
+            with self.subTest(declaration=declaration):
+                self.assertIn(declaration, journal)
+
+        fixture = (ROOT / "tests/fixtures/v3_direct_mutation_recovery_harness.swift").read_text(
+            encoding="utf-8")
+        self.assertIn("V3DirectMutationRecoveryRecord.isEligible(request: request)", fixture)
+
     def test_receive_routes_direct_mutations_through_ordered_lifecycle(self):
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         start = service.index("private func receive(_ data: Data")

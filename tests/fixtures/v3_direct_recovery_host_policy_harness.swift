@@ -11,7 +11,7 @@ struct V3DirectRecoveryHostPolicyHarness {
         print("V3_DIRECT_RECOVERY_HOST_POLICY_PASS")
     }
 
-    private static func raw(_ operation: Any = "sourceAddConfirmed",
+    private static func raw(operation: Any = "sourceAddConfirmed",
                             requestID: Any = V3DirectRecoveryHostPolicyHarness.requestID,
                             phase: Any = "prepared",
                             resultState: Any? = nil,
