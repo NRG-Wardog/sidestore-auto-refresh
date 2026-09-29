@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch as mock
 
 ROOT = Path(__file__).resolve().parents[1]
 PIN = "ff25922e5c13ccfafd83bda5092910d848ebd409"
@@ -50,15 +51,15 @@ class CertificateSerialLogPrivacyTests(unittest.TestCase):
             self.assertGreaterEqual(len(calls_after), len(calls_before))
             unsafe_before = [
                 call for _, _, call in calls_before
-                if any(token in call for token in service.V3_CERTIFICATE_SERIAL_LOG_IDENTIFIERS)
+                if service.contains_certificate_serial_log_identifier(call)
             ]
             safe_before = [
                 call for _, _, call in calls_before
-                if not any(token in call for token in service.V3_CERTIFICATE_SERIAL_LOG_IDENTIFIERS)
+                if not service.contains_certificate_serial_log_identifier(call)
             ]
             unsafe_after = [
                 call for _, _, call in calls_after
-                if any(token in call for token in service.V3_CERTIFICATE_SERIAL_LOG_IDENTIFIERS)
+                if service.contains_certificate_serial_log_identifier(call)
             ]
             self.assertTrue(unsafe_before, f"expected pinned serial-bearing logs in {relative}")
             self.assertEqual(unsafe_after, [], f"generated logs expose a serial/password value in {relative}")
@@ -84,11 +85,28 @@ func example() {
 '''
         generated = service.headless_certificate_serial_log_redaction(source, "Fixture")
         self.assertEqual(service.headless_certificate_serial_log_redaction(generated, "Fixture"), generated)
+        self.assertIn('self.debugLog("[Fixture] Certificate identity details omitted.")', generated)
         calls = service._swift_log_call_ranges(generated)
         self.assertEqual(len(calls), 2)
         self.assertTrue(all("serial" not in call.lower() for _, _, call in calls))
         self.assertTrue(all("details.serialHex" not in call and "certificate.serialNumber" not in call
                             for _, _, call in calls))
+
+    def test_redaction_matches_serial_identifiers_case_insensitively(self):
+        service = module("patch_v3_service")
+        source = r'''
+func example(installedApp: InstalledApp, info: CertificateInfo) {
+    debugLog("installed serial: \(installedApp.certificateSerialNumber)")
+    verboseLog("serial bytes: \(info.SerialHex)")
+}
+'''
+        generated = service.headless_certificate_serial_log_redaction(source, "Fixture")
+        self.assertEqual(service.headless_certificate_serial_log_redaction(generated, "Fixture"), generated)
+        calls = [call for _, _, call in service._swift_log_call_ranges(generated)]
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(not service.contains_certificate_serial_log_identifier(call) for call in calls))
+        self.assertNotIn("certificateSerialNumber", generated)
+        self.assertNotIn("SerialHex", generated)
 
     def test_backend_certificate_files_remain_in_side_store_target_not_ui_exclusions(self):
         service = module("patch_v3_service")
@@ -102,6 +120,9 @@ func example() {
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(pinned_source(self, relative), encoding="utf-8")
             fixture.apply(roots)
+            background = module("patch_background_automation")
+            background.patch_background_operation(side)
+            test_service.embedded_keychain.patch(side)
             project = (roots[1] / "AltStore.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
             group_start = project.index("A8EECF2A2F4B195000F2436D /* SideStore */")
             group_end = project.index("\n\t\t};", group_start) + len("\n\t\t};")
@@ -120,6 +141,12 @@ func example() {
                 self.assertIn(service.V3_CERTIFICATE_SERIAL_LOG_MARKER, generated)
                 self.assertEqual(
                     service.headless_certificate_serial_log_redaction(generated, owner), generated)
+
+            pinned_sign_in = pinned_source(
+                self, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift")
+            with mock.object(service.subprocess, "check_output", return_value=pinned_sign_in):
+                # This is the exact verifier used by --verify-sign-in-operation.
+                service.verify_sign_in_operation(side, PIN)
 
 
 if __name__ == "__main__":

@@ -1476,9 +1476,15 @@ V3_CERTIFICATE_SERIAL_LOG_IDENTIFIERS = (
 )
 
 
+def contains_certificate_serial_log_identifier(call):
+    folded = call.casefold()
+    return any(identifier.casefold() in folded
+               for identifier in V3_CERTIFICATE_SERIAL_LOG_IDENTIFIERS)
+
+
 def _swift_log_call_ranges(text):
     """Return complete debugLog/verboseLog calls, including interpolated strings."""
-    pattern = re.compile(r"(?:(?<=\.)|(?<![A-Za-z0-9_]))(?:self\.)?(?:debugLog|verboseLog)\s*\(")
+    pattern = re.compile(r"(?<![A-Za-z0-9_.])(?:self\.)?(?:debugLog|verboseLog)\s*\(")
     ranges = []
     for match in pattern.finditer(text):
         # The match includes the first string quote so Swift triple strings and
@@ -1560,16 +1566,15 @@ def headless_certificate_serial_log_redaction(text, owner):
     """Replace certificate-serial-bearing backend log calls with safe summaries."""
     if V3_CERTIFICATE_SERIAL_LOG_MARKER in text:
         calls = [value for _, _, value in _swift_log_call_ranges(text)]
-        if any(identifier in call for identifier in V3_CERTIFICATE_SERIAL_LOG_IDENTIFIERS
-               for call in calls):
+        if any(contains_certificate_serial_log_identifier(call) for call in calls):
             raise SystemExit(f"v3 service: certificate serial logging remains in {owner}")
         return text
 
     replacements = []
     for start, end, call in _swift_log_call_ranges(text):
-        if not any(identifier in call for identifier in V3_CERTIFICATE_SERIAL_LOG_IDENTIFIERS):
+        if not contains_certificate_serial_log_identifier(call):
             continue
-        prefix = "self." if text[max(0, start - 5):start] == "self." else ""
+        prefix = "self." if call.startswith("self.") else ""
         logger = "verboseLog" if "verboseLog" in call[:call.index("(")] else "debugLog"
         replacements.append((start, end,
             f'{prefix}{logger}("[{owner}] Certificate identity details omitted.")'))
@@ -1579,8 +1584,7 @@ def headless_certificate_serial_log_redaction(text, owner):
         text = text[:start] + replacement + text[end:]
     text = "// " + V3_CERTIFICATE_SERIAL_LOG_MARKER + ": certificate serials are password-equivalent and never logged.\n" + text
     calls = [value for _, _, value in _swift_log_call_ranges(text)]
-    if any(identifier in call for identifier in V3_CERTIFICATE_SERIAL_LOG_IDENTIFIERS
-           for call in calls):
+    if any(contains_certificate_serial_log_identifier(call) for call in calls):
         raise SystemExit(f"v3 service: certificate serial redaction was incomplete in {owner}")
     return text
 
@@ -1991,7 +1995,6 @@ def patch(live, side):
     certificate_serial_log_files = (
         ("SideStore/Core/Certificates/CertificateManager.swift", "CertificateManager"),
         ("SideStore/Core/Certificates/OCSPValidator.swift", "OCSPValidator"),
-        ("SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift", "SignInOperation"),
         ("SideStore/Core/Operations/PipelineOperations/VerifyCertificateOperation.swift", "VerifyCertificateOperation"),
         ("SideStore/Core/Operations/PipelineOperations/UpdateAppCertificateOperation.swift", "UpdateAppCertificateOperation"),
     )
@@ -2022,6 +2025,8 @@ def patch(live, side):
          headless_widget_refresh_intent)
     edit(side, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
          patch_sign_in_operation)
+    edit(side, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+         lambda source: headless_certificate_serial_log_redaction(source, "SignInOperation"))
     edit(side, "AltStore/Info.plist", headless_info)
     edit(side, "AltStore.xcodeproj/project.pbxproj", headless_project)
     edit(side, "SideStore/Core/Logging/SideStoreLogging.swift", headless_safe_log_format)
@@ -2259,6 +2264,7 @@ def verify_sign_in_operation(side, pinned_ref):
         text=True, encoding="utf-8")
     expected = patch_sign_in_operation(source)
     expected = apply_embedded_credential_snapshot_patch(expected, "patch_sign_in_operation")
+    expected = headless_certificate_serial_log_redaction(expected, "SignInOperation")
     actual = (side / relative).read_text(encoding="utf-8")
     if actual != expected:
         raise SystemExit("v3 service: SignInOperation differs from the exact generated pinned patch")
