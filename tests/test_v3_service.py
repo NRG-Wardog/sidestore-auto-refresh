@@ -275,7 +275,10 @@ enum V3BackendCommands {{
         self.assertIn("AppManager.shared.pipelineRunner.performSingleOperation(operation", runtime)
 
     def test_persisted_side_sign_errors_drop_provider_text_from_core_data_history(self):
-        side_source = Path(os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE") or ROOT / ".audit/v3-side-upstream")
+        side_source_value = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        if not side_source_value:
+            self.skipTest("pinned embedded SideStore source is supplied by macOS CI")
+        side_source = Path(side_source_value)
         manager_path = "AltStore/Managing Apps/AppManager.swift"
         manager = subprocess.check_output(
             ["git", "-C", str(side_source), "show", service.PINS[1] + ":" + manager_path],

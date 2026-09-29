@@ -20,8 +20,8 @@ class KnownSourcePolicyExecutionTests(unittest.TestCase):
         end = source.index("\n}\n\n@MainActor", start)
         classifier = source[start:end]
         kind_rule = classifier[classifier.index("kind = "):classifier.index("underlyingDomain = ")]
-        self.assertIn("NSURLErrorDomain", kind_rule)
-        self.assertIn('"kCFErrorDomainCFNetwork"', kind_rule)
+        self.assertIn("CombinedFailure.knownURLTransportCause(domain: cause.domain, code: cause.code)", kind_rule)
+        self.assertIn("? .network : .invalidResponse", kind_rule)
         self.assertNotIn("NSPOSIXErrorDomain", kind_rule)
         self.assertIn("NSPOSIXErrorDomain", classifier[classifier.index("underlyingDomain = "):])
 
