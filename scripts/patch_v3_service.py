@@ -2307,6 +2307,33 @@ def patch_developer_portal_proxy(text):
     return text
 
 
+def verify_canonical_jitless_certificate_importer(live):
+    settings_path = live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"
+    settings = settings_path.read_text(encoding="utf-8")
+    if "V3_CANONICAL_JITLESS_ROUTE_V1" not in settings:
+        raise SystemExit(
+            "v3 service: patch the unified shell before the headless service; "
+            "the canonical JIT-Less certificate importer is missing")
+    signature = "    func importCertificateFromSideStore() async {"
+    end_signature = "    private func v3CompleteSideStoreCertificateImport"
+    if settings.count(signature) != 1 or settings.count(end_signature) != 1:
+        raise SystemExit("v3 service: canonical JIT-Less certificate importer anchor changed")
+    start = settings.index(signature)
+    end = settings.index(end_signature, start)
+    importer = settings[start:end]
+    required = (
+        "V3CertificateImportOwnership.begin()",
+        "V3CertificateImportOwnership.isActive(requestID)",
+        "V3CertificateImportOwnership.cancel(requestID)",
+        "v3SharedSideStoreKeychainAccessGroup()",
+        "Embedded SideStore is unavailable in this LiveContainer build.",
+    )
+    if any(token not in importer for token in required):
+        raise SystemExit("v3 service: canonical JIT-Less certificate importer is incomplete")
+    if "storeScheme" in importer or "UIApplication.shared.open(url)" in importer:
+        raise SystemExit("v3 service: canonical JIT-Less importer still launches a second app")
+
+
 def patch(live, side):
     roots = (live, side)
     for root, pin in zip(roots, PINS):
@@ -2336,6 +2363,12 @@ def patch(live, side):
         if previous.get("templates") != template_hashes:
             raise SystemExit("v3 service: template changed; apply to fresh pinned sources")
         return
+
+    # The unified-shell patch owns the JIT-Less certificate import route and
+    # removes its legacy storeScheme deep-link fallback. Require that composed
+    # route here instead of editing an anchor that the shell intentionally
+    # removed.
+    verify_canonical_jitless_certificate_importer(live)
 
     changes = {}
     def edit(root, relative, transform):
@@ -2476,10 +2509,6 @@ def patch(live, side):
           .replace('ForEach(filteredHiddenApps, id: \\.self)', 'ForEach(filteredHiddenApps, id: \\.v3Identity)'))
     edit(live, "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", lambda s: replace(s,
         "            Form {", "            Form {\n                V3AccountSettings()"))
-    edit(live, "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", lambda s: replace(s,
-        "        let storeScheme : String", '''        // Combined certificate import never falls through to a legacy app URL.
-        if UserDefaults.sideStoreExist() { return }
-        let storeScheme : String'''))
     def multi_lc(s):
         s = replace(s, "struct LCMultiLCManagementView : View, InstallAnotherLCButtonDelegate {",
             "struct LCMultiLCManagementView : View, InstallAnotherLCButtonDelegate {\n    @EnvironmentObject private var v3Status: V3SideStoreStatusStore")
