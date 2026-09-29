@@ -677,6 +677,10 @@ class KeychainPatchGenerationTests(unittest.TestCase):
             self.assertIn("authSnapshot?.appleIDAdsid", patched)
             self.assertIn("authSnapshot?.appleIDXcodeToken", patched)
             self.assertIn("Keychain.shared.embeddedAuthenticationFailure(error)", patched)
+            self.assertIn("auth.v3CachedSessionMatchesCurrentRoute(auth.session)", patched)
+            self.assertEqual(patched.count("Keychain.shared.authenticationSnapshot()"), 1)
+            self.assertLess(patched.index("let hasReusableSession ="),
+                            patched.index("let authSnapshot:"))
             self.assertNotIn("auth.currentAppleID", patched)
             self.assertNotIn("auth.adsid", patched)
 

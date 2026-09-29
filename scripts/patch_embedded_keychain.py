@@ -101,40 +101,61 @@ def patch_background_auth_snapshot(text: str) -> str:
     marker = "// " + BACKGROUND_AUTH_SNAPSHOT_MARKER
     if marker in text:
         required = ("authSnapshot?.appleIDPassword", "authSnapshot?.appleIDXcodeToken",
+                    "authSnapshot?.appleIDEmailAddress", "authSnapshot?.appleIDAdsid",
                     "Keychain.shared.authenticationSnapshot()",
                     "Keychain.shared.embeddedAuthenticationFailure(error)")
-        if not all(value in text for value in required) or "auth.currentAppleID" in text or "auth.adsid" in text:
+        if (not all(value in text for value in required)
+                or text.count("Keychain.shared.authenticationSnapshot()") != 1
+                or "auth.currentAppleID" in text or "auth.adsid" in text):
             raise ValueError("embedded keychain: background auth preflight snapshot is incomplete")
         return text
-    old = '''        let auth = AuthManager.shared
-        let credentials = auth.authenticationSnapshot
-        let hasPasswordCredentials = credentials?.appleIDEmailAddress != nil && credentials?.appleIDPassword != nil
-        let hasTokenCredentials = credentials?.appleIDAdsid != nil && credentials?.appleIDXcodeToken != nil
-        let hasReusableSession = auth.session != nil && auth.team != nil && CertificateManager.shared.activeCertificate != nil
-        debugLog("[AUTO_REFRESH] AUTH_CREDENTIAL_VISIBILITY password_path=\\(hasPasswordCredentials) token_path=\\(hasTokenCredentials) session_path=\\(hasReusableSession)")
-'''
-    new = '''        // ''' + BACKGROUND_AUTH_SNAPSHOT_MARKER + ''': each credential route uses one locked Keychain epoch.
-        let auth = AuthManager.shared
-        let hasReusableSession = auth.v3CachedSessionMatchesCurrentRoute(auth.session) &&
-            auth.team != nil && CertificateManager.shared.activeCertificate != nil
-        let authSnapshot: LCEmbeddedAuthenticationSnapshot?
-        if hasReusableSession {
-            authSnapshot = nil
-        } else {
-            do {
-                authSnapshot = try Keychain.shared.authenticationSnapshot()
-            } catch {
-                let error = Keychain.shared.embeddedAuthenticationFailure(error)
-                debugLog("[AUTO_REFRESH] AUTH_PREFLIGHT_FAIL reason=keychain_access")
-                self.scheduleFinishedRefreshingNotification(for: .failure(error), delay: 0)
-                throw error
-            }
-        }
-        let hasPasswordCredentials = authSnapshot?.appleIDEmailAddress != nil && authSnapshot?.appleIDPassword != nil
-        let hasTokenCredentials = authSnapshot?.appleIDAdsid != nil && authSnapshot?.appleIDXcodeToken != nil
-        debugLog("[AUTO_REFRESH] AUTH_CREDENTIAL_VISIBILITY password_path=\\(hasPasswordCredentials) token_path=\\(hasTokenCredentials) session_path=\\(hasReusableSession)")
-'''
-    return once(text, old, new)
+    lines = text.splitlines(keepends=True)
+    starts = [index for index, line in enumerate(lines)
+              if line == "        let auth = AuthManager.shared\n"]
+    if len(starts) != 1:
+        raise ValueError("embedded keychain: expected one generated background auth preflight")
+    start = starts[0]
+    expected = (
+        "        let credentials = auth.authenticationSnapshot\n",
+        "        let hasPasswordCredentials = ",
+        "        let hasTokenCredentials = ",
+        "        let hasReusableSession = ",
+    )
+    if (start + len(expected) >= len(lines)
+            or lines[start + 1] != expected[0]
+            or not lines[start + 2].startswith(expected[1])
+            or not lines[start + 3].startswith(expected[2])
+            or not lines[start + 4].startswith(expected[3])):
+        raise ValueError("embedded keychain: changed generated background auth preflight anchor")
+    debug_index = next((index for index in range(start + 5, len(lines))
+                        if lines[index].startswith('        debugLog("[AUTO_REFRESH] AUTH_CREDENTIAL_VISIBILITY ')), None)
+    if debug_index is None:
+        raise ValueError("embedded keychain: generated background auth visibility log is missing")
+    session_lines = lines[start + 4:debug_index]
+    debug_line = lines[debug_index]
+    replacement = [
+        lines[start],
+        *session_lines,
+        "        // " + BACKGROUND_AUTH_SNAPSHOT_MARKER + ": each credential route uses one locked Keychain epoch.\n",
+        "        let authSnapshot: LCEmbeddedAuthenticationSnapshot?\n",
+        "        if hasReusableSession {\n",
+        "            authSnapshot = nil\n",
+        "        } else {\n",
+        "            do {\n",
+        "                authSnapshot = try Keychain.shared.authenticationSnapshot()\n",
+        "            } catch {\n",
+        "                let error = Keychain.shared.embeddedAuthenticationFailure(error)\n",
+        '                debugLog("[AUTO_REFRESH] AUTH_PREFLIGHT_FAIL reason=keychain_access")\n',
+        "                self.scheduleFinishedRefreshingNotification(for: .failure(error), delay: 0)\n",
+        "                throw error\n",
+        "            }\n",
+        "        }\n",
+        "        let hasPasswordCredentials = authSnapshot?.appleIDEmailAddress != nil && authSnapshot?.appleIDPassword != nil\n",
+        "        let hasTokenCredentials = authSnapshot?.appleIDAdsid != nil && authSnapshot?.appleIDXcodeToken != nil\n",
+        debug_line,
+    ]
+    lines[start:debug_index + 1] = replacement
+    return "".join(lines)
 
 
 def patch_sign_in_operation(text: str) -> str:
