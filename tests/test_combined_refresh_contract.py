@@ -157,7 +157,12 @@ print("standalone manifest privacy PASS")
             for relative in paths:
                 target = root / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(Path(source) / relative, target)
+                # Read the pinned commit blob rather than the checkout file: the
+                # test source may be dirty after another patch-generation test.
+                pristine = subprocess.check_output(
+                    ["git", "-C", source, "show", f"{patch.PIN}:{relative}"]
+                )
+                target.write_bytes(pristine)
             background.patch_background_operation(root)
             sign_in = root / paths[3]
             sign_in.write_text(service.patch_sign_in_operation(sign_in.read_text(encoding="utf-8")),
