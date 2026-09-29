@@ -139,22 +139,29 @@ struct BridgeTests {
         let bridge = V3ServiceBridge(readTimeout: 0.25, commandTimeout: 1)
         let handler = RefreshHandler.shared
         let client = handler.client!
+        let storeAppTarget = "x-coredata://A1B2C3D4-E5F6-47A8-9123-456789ABCDEF/StoreApp/p42"
+        let installedAppTarget = "x-coredata://A1B2C3D4-E5F6-47A8-9123-456789ABCDEF/InstalledApp/p42"
         async let a: Void = bridge.connect()
         async let b: Void = bridge.connect()
         _ = try await (a, b)
         precondition(handler.connects == 1, "launch must be coalesced")
         let invalidStartSession = UUID().uuidString
+        // Deliberate local property-list serialization failure. The operation
+        // fields are valid so NSNull is the only reason this never dispatches.
         do {
             _ = try await bridge.request(operation: "opStart",
-                payload: ["kind": "install", "session": invalidStartSession, "unplistable": NSNull()])
+                payload: ["kind": "install", "target": storeAppTarget,
+                          "session": invalidStartSession, "unplistable": NSNull()])
             preconditionFailure("unplistable opStart payload was accepted")
         } catch {}
         precondition(!bridge.isMutating,
                      "local plist encoding failure must not retain a synthetic operation session")
         let oversizedStartSession = UUID().uuidString
+        // Deliberate local request-size rejection with a valid operation target.
         do {
             _ = try await bridge.request(operation: "opStart",
-                payload: ["kind": "install", "session": oversizedStartSession,
+                payload: ["kind": "install", "target": storeAppTarget,
+                          "session": oversizedStartSession,
                           "extra": String(repeating: "x", count: 20_000)])
             preconditionFailure("oversized opStart request was accepted")
         } catch {}
@@ -166,9 +173,8 @@ struct BridgeTests {
         let signInSession = UUID().uuidString
         _ = try await bridge.request(operation: "authBegin", target: signInSession,
             payload: ["session": signInSession, "sessionDeadline": Date().addingTimeInterval(600)])
-        let refreshTarget = "x-coredata://A1B2C3D4-E5F6-47A8-9123-456789ABCDEF/InstalledApp/p42"
         let refreshSession = UUID().uuidString
-        let refreshPayload: [String: Any] = ["kind": "refreshApp", "target": refreshTarget,
+        let refreshPayload: [String: Any] = ["kind": "refreshApp", "target": installedAppTarget,
                                              "session": refreshSession]
         let callsBeforeBlockedOpStart = client.operations.count
         do {
@@ -187,7 +193,7 @@ struct BridgeTests {
         let dispatchedPayload = dispatchedStart["payload"] as! [String: Any]
         precondition(dispatchedStart["target"] as? String == "" &&
                      dispatchedPayload["kind"] as? String == "refreshApp" &&
-                     dispatchedPayload["target"] as? String == refreshTarget &&
+                     dispatchedPayload["target"] as? String == installedAppTarget &&
                      dispatchedPayload["session"] as? String == refreshSession,
             "opStart must use the payload schema, InstalledApp URI, and canonical session ID")
         client.operationState = "completed"
@@ -304,7 +310,7 @@ struct BridgeTests {
 
         let operationSession = UUID().uuidString
         _ = try await bridge.request(operation: "opStart",
-            payload: ["kind": "install", "session": operationSession])
+            payload: ["kind": "install", "target": storeAppTarget, "session": operationSession])
         precondition(bridge.isMutating, "a returned opStart must retain service mutation ownership")
         client.hold = true
         requestBaseline = client.requests.count
@@ -346,7 +352,7 @@ struct BridgeTests {
         client.operationState = "working"
         client.backendSettled = false
         _ = try await bridge.request(operation: "opStart",
-            payload: ["kind": "delete", "session": unresolvedSession])
+            payload: ["kind": "delete", "target": installedAppTarget, "session": unresolvedSession])
         client.operationState = "failed"
         let unresolved = try await bridge.request(operation: "opPoll", target: unresolvedSession)
         precondition(unresolved["outcomeUnknown"] as? Bool == true && bridge.isMutating)
@@ -391,11 +397,16 @@ struct BridgeTests {
         // is authoritative proof that the mutation was never dispatched.
         client.rejectOperationStart = true
         let rejectedSession = UUID().uuidString
+        let requestsBeforeRejectedStart = client.requests.count
         do {
             _ = try await bridge.request(operation: "opStart",
-                payload: ["kind": "install", "session": rejectedSession])
+                payload: ["kind": "install", "target": storeAppTarget, "session": rejectedSession])
             preconditionFailure("the fake service start rejection was accepted")
         } catch {}
+        precondition(client.requests.dropFirst(requestsBeforeRejectedStart).contains {
+            $0["operation"] as? String == "opStart" &&
+            (($0["payload"] as? [String: Any])?["session"] as? String) == rejectedSession
+        }, "a schema-valid service rejection must reach the fake service")
         precondition(!bridge.isMutating && !bridge.hasUncertainOperationSession(rejectedSession),
             "a structured pre-dispatch rejection must release session ownership")
         client.rejectOperationStart = false
@@ -405,11 +416,17 @@ struct BridgeTests {
         client.rejectOperationStart = true
         client.badVersionOperationStart = true
         let malformedRejectedSession = UUID().uuidString
+        let requestsBeforeMalformedRejection = client.requests.count
         do {
             _ = try await bridge.request(operation: "opStart",
-                payload: ["kind": "install", "session": malformedRejectedSession])
+                payload: ["kind": "install", "target": storeAppTarget,
+                          "session": malformedRejectedSession])
             preconditionFailure("an invalid-version start rejection was accepted")
         } catch {}
+        precondition(client.requests.dropFirst(requestsBeforeMalformedRejection).contains {
+            $0["operation"] as? String == "opStart" &&
+            (($0["payload"] as? [String: Any])?["session"] as? String) == malformedRejectedSession
+        }, "a schema-valid malformed service reply must be exercised after dispatch")
         precondition(bridge.isMutating && bridge.hasUncertainOperationSession(malformedRejectedSession),
             "a malformed rejection must preserve unknown operation ownership")
         precondition(bridge.confirmUncertainOperationAfterDeviceCheck(sessionID: malformedRejectedSession))
@@ -422,7 +439,7 @@ struct BridgeTests {
         client.operationState = "working"
         client.backendSettled = false
         _ = try await bridge.request(operation: "opStart",
-            payload: ["kind": "install", "session": lostPollSession])
+            payload: ["kind": "install", "target": storeAppTarget, "session": lostPollSession])
         client.hold = true
         let startCountBeforeLostPoll = client.operations.filter { $0 == "opStart" }.count
         requestBaseline = client.requests.count
@@ -456,7 +473,7 @@ struct BridgeTests {
         client.operationState = "working"
         client.backendSettled = false
         _ = try await bridge.request(operation: "opStart",
-            payload: ["kind": "install", "session": standardTerminalSession])
+            payload: ["kind": "install", "target": storeAppTarget, "session": standardTerminalSession])
         client.omitOutcomeUnknown = true
         client.operationState = "completed"
         client.backendSettled = true
@@ -471,7 +488,8 @@ struct BridgeTests {
         client.operationState = "working"
         client.backendSettled = false
         _ = try await bridge.request(operation: "opStart",
-            payload: ["kind": "delete", "session": disconnectedSession])
+            payload: ["kind": "delete", "target": installedAppTarget,
+                      "session": disconnectedSession])
         bridge.disconnected()
         precondition(bridge.isMutating && bridge.hasUncertainOperationSession(disconnectedSession),
             "XPC loss cannot be treated as native operation cancellation")
