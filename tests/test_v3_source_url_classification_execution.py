@@ -12,6 +12,20 @@ FAILURE = ROOT / "scripts/templates/combined_failure.swift"
 HEADLESS = ROOT / "scripts/templates/v3_headless_runtime.swift"
 SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
 SIDESTORE_SOURCE_SHA = "ff25922e5c13ccfafd83bda5092910d848ebd409"
+STANDALONE_SIDESTORE_SHA = "c6f28864dc99ed03ad35f2ca58967247036b7b53"
+R6_FIXTURE_SIDESTORE_SHA = "10ffa01ecdfe4203a7ad5d7f41c0d5de03bd8abb"
+PINNED_SOURCE_ERROR_CAUSES = {
+    "unsupported": "sourceUnsupported",
+    "duplicateBundleID": "sourceValidationFailed",
+    "duplicateVersion": "sourceValidationFailed",
+    "blocked": "sourceBlocked",
+    "changedID": "sourceChangedID",
+    "duplicate": "sourceDuplicate",
+    "missingPermissionUsageDescription": "sourceValidationFailed",
+    "missingScreenshotSize": "sourceValidationFailed",
+    "marketplaceNotSupported": "sourceUnsupported",
+    "marketplaceRequired": "sourceValidationFailed",
+}
 
 
 def read(path):
@@ -49,16 +63,16 @@ class SourceURLClassificationExecutionTests(unittest.TestCase):
             revision=SIDESTORE_SOURCE_SHA), Path("C:/standalone/SideStore"))
         self.assertIsNone(pinned_source_root(
             embedded_source=None, standalone_source="C:/standalone/SideStore",
-            revision="c6f0000000000000000000000000000000000000"))
+            revision=STANDALONE_SIDESTORE_SHA))
         self.assertIsNone(pinned_source_root(
             embedded_source="C:/fixture/EmbeddedSideStore", standalone_source=None,
-            revision="10ffa00000000000000000000000000000000000"))
+            revision=R6_FIXTURE_SIDESTORE_SHA))
         with self.assertRaisesRegex(ValueError, "embedded SideStore source"):
             pinned_source_root("C:/candidate/EmbeddedSideStore", None,
-                revision="10ffa00000000000000000000000000000000000", require_pinned=True)
+                revision=R6_FIXTURE_SIDESTORE_SHA, require_pinned=True)
         with self.assertRaisesRegex(ValueError, "requires an embedded"):
             pinned_source_root(None, "C:/standalone/SideStore",
-                revision=SIDESTORE_SOURCE_SHA, require_pinned=True)
+                revision=STANDALONE_SIDESTORE_SHA, require_pinned=True)
         with self.assertRaisesRegex(ValueError, "SourceError.swift is missing"):
             pinned_source_root("C:/candidate/EmbeddedSideStore", None,
                 revision=SIDESTORE_SOURCE_SHA, source_error_exists=False, require_pinned=True)
@@ -102,7 +116,11 @@ class SourceURLClassificationExecutionTests(unittest.TestCase):
         pinned_code_declaration = source_error_text[code_start:code_end].rstrip()
         pinned_case_names = re.findall(r"^\s*case\s+([A-Za-z_]\w*)", pinned_code_declaration, re.MULTILINE)
         self.assertTrue(pinned_case_names, "the pinned SourceError.Code enum must expose cases")
+        self.assertEqual(set(pinned_case_names), set(PINNED_SOURCE_ERROR_CAUSES),
+                         "review the cause contract when the pinned SourceError.Code cases change")
         pinned_case_literals = ", ".join(f".{name}" for name in pinned_case_names)
+        expected_source_causes = ",\n            ".join(
+            f".{name}: .{PINNED_SOURCE_ERROR_CAUSES[name]}" for name in pinned_case_names)
 
         failure = read(FAILURE)
         headless = read(HEADLESS)
@@ -195,12 +213,20 @@ struct SourceError: Error, LocalizedError {
         }
 
         let pinnedSourceCodes: [SourceError.Code] = [PINNED_CASES]
+        let expectedSourceCauses: [SourceError.Code: CombinedFailure.SafeCause] = [
+            EXPECTED_SOURCE_CAUSES
+        ]
         for code in pinnedSourceCodes {
             let sourceError = SourceError(code: code, privateDetails: "PRIVATE_SOURCE_APP_URL")
             guard let classified = V3SourceCommandError.classify(sourceError),
                   case .validation = classified.kind else {
                 preconditionFailure("pinned SourceError.Code case is unclassified: \(code)")
             }
+            guard let expectedSafeCause = expectedSourceCauses[code] else {
+                preconditionFailure("pinned SourceError.Code case lacks an expected safe cause: \(code)")
+            }
+            precondition(classified.safeCause == expectedSafeCause,
+                "pinned SourceError.Code case has the wrong safe cause: \(code)")
             precondition(classified.sourceStep == .sourceValidation)
             precondition(classified.domain != NSURLErrorDomain)
             precondition(classified.safeCause != .sourceNetworkFailure)
@@ -251,10 +277,12 @@ struct SourceError: Error, LocalizedError {
         precondition(!metadataFailure.recovery.contains("Update SideStore"))
         precondition(!metadataFailure.recovery.contains("PRIVATE_MARKETPLACE_SOURCE"))
 
-        let unknownSourceError = NSError(domain: "UnreviewedSourceFailure", code: 123456)
-        precondition(V3SourceCommandError.classify(unknownSourceError) == nil,
-            "unreviewed source errors stay unknown instead of inheriting a nearby mapping")
-        let unknownSourceFailure = CombinedFailure.capture(unknownSourceError,
+        // A future, unreviewed source error domain remains unknown. Newly added
+        // pinned SourceError.Code cases also fail the mapping-set check above.
+        let futureUnreviewedSourceError = NSError(domain: "UnreviewedSourceFailure", code: 123456)
+        precondition(V3SourceCommandError.classify(futureUnreviewedSourceError) == nil,
+            "futureUnreviewed source errors stay unknown instead of inheriting a nearby mapping")
+        let unknownSourceFailure = CombinedFailure.capture(futureUnreviewedSourceError,
             operation: "sourcePreview", stage: .source, id: UUID().uuidString)
         precondition(unknownSourceFailure.stage == .source && unknownSourceFailure.safeCause == nil)
         precondition(!unknownSourceFailure.recovery.contains("LocalDevVPN"))
@@ -303,6 +331,7 @@ struct SourceError: Error, LocalizedError {
 }
 '''
         harness = harness.replace("[PINNED_CASES]", "[" + pinned_case_literals + "]")
+        harness = harness.replace("EXPECTED_SOURCE_CAUSES", expected_source_causes)
         with tempfile.TemporaryDirectory() as directory:
             swift = Path(directory) / "source_url_classification.swift"
             executable = Path(directory) / "source_url_classification"
