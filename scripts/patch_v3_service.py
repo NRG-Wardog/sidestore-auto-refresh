@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 41
+PATCH_VERSION = 42
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -1039,6 +1039,7 @@ def headless_app_manager_source_mutations(text):
             "notificationSource ?? savedSource",
             "notificationSource ?? eventSource",
             "guard sourceID != Source.altStoreIdentifier else",
+            "guard identifier != Source.altStoreIdentifier else",
         )
         if any(value not in text for value in required):
             raise SystemExit("v3 service: shared AppManager source mutation extraction is partial")
@@ -1126,6 +1127,9 @@ def headless_app_manager_source_mutations(text):
     // Presenter-free entry point used after the LiveContainer host has confirmed.
     func removeConfirmed(identifier: String, notificationSource: Source? = nil) async throws
     {
+        guard identifier != Source.altStoreIdentifier else {
+            throw OperationError.forbidden(failureReason: NSLocalizedString("The default SideStore source cannot be removed.", comment: ""))
+        }
         let viewContext = DatabaseManager.shared.viewContext
         let eventSource: Source?
         if let notificationSource {

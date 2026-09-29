@@ -231,6 +231,14 @@ struct SourceBackendMigrationHarness {
                 sources.removed?.managedObjectContext === DatabaseManager.shared.viewContext,
                 "missing-source notification used an unsafe object")
 
+        store.identifiers = []
+        DatabaseManager.shared.viewContext.merge(identifiers: [])
+        do {
+            try await manager.removeConfirmed(identifier: Source.altStoreIdentifier)
+            fatalError("backend allowed removal of an absent default-source identifier")
+        } catch {}
+        require(removes.value == 2, "absent default-source removal emitted a notification")
+
         store.identifiers = [Source.altStoreIdentifier]
         DatabaseManager.shared.viewContext.merge(identifiers: store.identifiers)
         let confirmationController = UIViewController()

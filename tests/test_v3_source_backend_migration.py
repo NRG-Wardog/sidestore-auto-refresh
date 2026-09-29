@@ -139,8 +139,9 @@ class V3SourceBackendMigrationTests(unittest.TestCase):
         self.assertIn("V3SideStoreServiceError.catalogSourceUnavailable", catalog)
         self.assertIn('response["failure"] = CombinedFailure(operation: "catalog"', service)
 
-    def test_prepared_v40_tree_fails_closed_and_requires_regeneration(self):
-        self.assertEqual(patch_v3_service.PATCH_VERSION, 41)
+    def test_previous_prepared_tree_fails_closed_and_requires_regeneration(self):
+        prepared_version = patch_v3_service.PATCH_VERSION - 1
+        self.assertEqual(patch_v3_service.PATCH_VERSION, 42)
         with tempfile.TemporaryDirectory(prefix="v3-source-patch-version-") as temporary:
             root = Path(temporary)
             live = root / "live"
@@ -151,7 +152,7 @@ class V3SourceBackendMigrationTests(unittest.TestCase):
             anisette.parent.mkdir(parents=True)
             anisette.write_text("prepared fixture", encoding="utf-8")
             manifest = live / ".v3-command-patch.json"
-            manifest.write_text(json.dumps({"patchVersion": 40}) + "\n", encoding="utf-8")
+            manifest.write_text(json.dumps({"patchVersion": prepared_version}) + "\n", encoding="utf-8")
             before = {path: path.read_bytes() for path in (anisette, manifest)}
 
             def pinned_revision(args, text=False):
@@ -163,7 +164,8 @@ class V3SourceBackendMigrationTests(unittest.TestCase):
                                       return_value="fixture model"):
                 with self.assertRaisesRegex(
                         SystemExit,
-                        "prepared patch version 40 cannot be migrated safely to v41"):
+                        f"prepared patch version {prepared_version} cannot be migrated safely "
+                        f"to v{patch_v3_service.PATCH_VERSION}"):
                     patch_v3_service.patch(live, side)
 
             self.assertEqual(before, {path: path.read_bytes() for path in before},
