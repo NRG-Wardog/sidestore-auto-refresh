@@ -71,8 +71,12 @@ struct Adapter { let gateway = Gateway()
                       'native Lockdown query codes must reach CombinedFailure classification')
         common = (ROOT / 'scripts/templates/combined_failure.swift').read_text(encoding='utf-8')
         native = self.read('DeviceGateway/DeviceGatewayError.swift')
-        self.execute(common + native + '''
-typealias IdeviceGatewayError = DeviceGatewayError
+        idevice_source = self.read('DeviceGateway/idevice/IdeviceGateway.swift')
+        subclass_start = idevice_source.index('internal final class IdeviceGatewayError:')
+        subclass_end = idevice_source.index('\n}', subclass_start) + len('\n}')
+        idevice_error = idevice_source[subclass_start:subclass_end]
+        self.assertIn('IdeviceGatewayError: DeviceGatewayError', idevice_error)
+        self.execute(common + native + '\n' + idevice_error + '''
 typealias plist_t = OpaquePointer
 struct NativeError { var code: Int32; var sub_code: Int32 }
 var mode = 0, frees = 0, plistFrees = 0
@@ -97,17 +101,19 @@ func query() throws -> String {
    mode = value
    do { _ = try query(); preconditionFailure("failed query succeeded") }
    catch {
+    precondition(error is IdeviceGatewayError,
+                 "the transformed query must throw the pinned concrete gateway error type")
     let failure = CombinedFailure.capture(error, operation: "refresh", stage: .command, id: id)
     precondition(failure.stage == .uniqueDeviceID)
     if value == 0 {
       precondition(frees == 1 && failure.stage == .uniqueDeviceID,
                    "native Lockdown failure must survive the gateway adapter")
-      precondition(failure.underlyingDomain == "DeviceGatewayError" && failure.underlyingCode == 77,
-                   "the gateway test double preserves its allowlisted native domain and code")
     }
     precondition(!failure.localizedDescription.contains("SECRET"))
     let decoded = CombinedFailure.fromEncodedString(failure.encodedString, expectedID: id)!
     precondition(decoded.stage == .uniqueDeviceID)
+    precondition(!decoded.localizedDescription.contains("SECRET"),
+                 "wire diagnostics must not expose the raw native error reason")
    }
   }
    mode = 3; let result = try query(); precondition(result == "live-response")
