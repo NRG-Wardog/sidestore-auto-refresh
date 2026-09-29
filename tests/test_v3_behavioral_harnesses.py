@@ -32,6 +32,28 @@ class V3BehavioralHarnessTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(marker, result.stdout)
 
+    def test_setup_reload_outcome_allows_recompute_only_after_applied(self):
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        start = primitives.index("enum V3SetupSnapshotOutcome:")
+        end = primitives.index("\nenum V3AuthReadStampPolicy", start)
+        production_policy = primitives[start:end]
+        harness = """
+@main
+enum V3SetupReloadOutcomeHarness {
+    static func main() {
+        precondition(V3SetupReloadRecomputePolicy.mayRecompute(outcome: .applied),
+            "only an applied snapshot allows setup rows to be recomputed")
+        precondition(!V3SetupReloadRecomputePolicy.mayRecompute(outcome: .snapshotFailed),
+            "a failed snapshot leaves setup facts deferred")
+        precondition(!V3SetupReloadRecomputePolicy.mayRecompute(outcome: .notObserved),
+            "a missing snapshot cannot be treated as fresh")
+        print("V3_SETUP_RELOAD_OUTCOME_PASS")
+    }
+}
+"""
+        self.compile_and_run("import Foundation\n" + production_policy + "\n" + harness,
+                             "V3_SETUP_RELOAD_OUTCOME_PASS")
+
     def test_host_selected_app_group_is_validated_by_production_policy(self):
         if sys.platform != "darwin" or not CLANG:
             self.skipTest("Objective-C Foundation behavioral harness runs in macOS CI")

@@ -203,7 +203,13 @@ struct V3UnifiedTabs: View {
             // pre-import snapshot.
             Task {
                 status.invalidateSetupFacts()
-                await status.reloadAndWait()
+                let outcome = await status.reloadAndWait()
+                guard V3SetupReloadRecomputePolicy.mayRecompute(
+                    outcome: outcome.setupSnapshotOutcome) else {
+                    status.invalidateSetupFacts()
+                    status.notice = "Setup status was not refreshed. Reload Status before continuing."
+                    return
+                }
                 if status.returnToSetupAfterJITLess {
                     status.returnToSetupAfterJITLess = false
                     status.setupPresented = true
@@ -1480,6 +1486,14 @@ final class V3SideStoreStatusStore: ObservableObject {
         /// No snapshot was performed. A caller that recomputes derived state
         /// must treat this as "unknown", never as "up to date".
         case notObserved
+
+        var setupSnapshotOutcome: V3SetupSnapshotOutcome {
+            switch self {
+            case .applied: return .applied
+            case .snapshotFailed: return .snapshotFailed
+            case .notObserved: return .notObserved
+            }
+        }
     }
 
     /// Performs one authoritative snapshot and returns only once the resulting
@@ -8325,6 +8339,25 @@ final class V3SetupStore: ObservableObject {
         }
     }
 
+    @discardableResult
+    func reloadAndRecalculate(status: V3SideStoreStatusStore) async -> Bool {
+        let outcome = await status.reloadAndWait()
+        guard V3SetupReloadRecomputePolicy.mayRecompute(outcome: outcome.setupSnapshotOutcome) else {
+            preserveUnknownStatusFacts(status: status)
+            return false
+        }
+        await recalculate(status: status)
+        return true
+    }
+
+    private func preserveUnknownStatusFacts(status: V3SideStoreStatusStore) {
+        status.invalidateSetupFacts()
+        statusProvisioningIncomplete = true
+        account = V3SetupStepState(state: "checking", detail: "Sign-in status was not refreshed. Retry to check.")
+        pairing = V3SetupStepState(state: "checking", detail: "Pairing status was not refreshed. Retry to check.")
+        jitless = V3SetupStepState(state: "checking", detail: "Certificate status was not refreshed. Retry to check.")
+    }
+
     func recalculate(status: V3SideStoreStatusStore) async {
         // If the root auth observer already started a fresh readiness read,
         // join it before taking a new fact revision or opening another health
@@ -8870,8 +8903,7 @@ struct V3SetupAssistantView: View {
                             // The pairing file is placed by an external installation tool, so
                             // the authoritative snapshot is the only way to observe it.
                             // It is awaited before the setup steps are recomputed.
-                            await status.reloadAndWait()
-                            await setup.recalculate(status: status)
+                            await setup.reloadAndRecalculate(status: status)
                         }
                     } label: {
                         Label("Re-check Pairing", systemImage: "arrow.clockwise")
@@ -9004,8 +9036,7 @@ struct V3SetupAssistantView: View {
                             // The pairing file is placed by an external installation tool, so
                             // the authoritative snapshot is the only way to observe it.
                             // It is awaited before the setup steps are recomputed.
-                            await status.reloadAndWait()
-                            await setup.recalculate(status: status)
+                            await setup.reloadAndRecalculate(status: status)
                         }
                     } label: {
                         Label("Re-check Pairing", systemImage: "arrow.clockwise")
@@ -9070,12 +9101,12 @@ struct V3SetupAssistantView: View {
             // V3_AWAITABLE_RELOAD_V1: the first view of the assistant must be
             // built from an authoritative snapshot, not from whatever was left
             // over from a previous session.
-            await status.reloadAndWait()
-            await setup.recalculate(status: status)
+            await setup.reloadAndRecalculate(status: status)
         }
-        .onChange(of: status.jitlessReadiness) { _ in
+        .onChange(of: status.jitlessReadiness) { readiness in
             // A host-owned auth event may invalidate or refresh this fact while
             // Sign In is being dismissed. Recompute from the shared observation.
+            guard readiness != nil else { return }
             Task { await setup.recalculate(status: status) }
         }
         .onChange(of: scenePhase) { phase in
@@ -9085,16 +9116,14 @@ struct V3SetupAssistantView: View {
                     // was backgrounded is detected here. The reload must complete
                     // before recalculate reads status, otherwise the setup rows
                     // are computed from the previous snapshot.
-                    await status.reloadAndWait()
-                    await setup.recalculate(status: status)
+                    await setup.reloadAndRecalculate(status: status)
                 }
             }
         }
         .onChange(of: showPairingSetup) { presented in
             if !presented {
                 Task {
-                    await status.reloadAndWait()
-                    await setup.recalculate(status: status)
+                    await setup.reloadAndRecalculate(status: status)
                 }
             }
         }
@@ -9116,8 +9145,7 @@ struct V3SetupAssistantView: View {
                 // follow an action that changed authoritative state, so the
                 // snapshot is awaited before the steps are recomputed.
                 Task {
-                    await status.reloadAndWait()
-                    await setup.recalculate(status: status)
+                    await setup.reloadAndRecalculate(status: status)
                 }
             }) {
                 rowContent(icon: icon, title: title, state: state, linked: true)

@@ -281,19 +281,16 @@ class PairingGuidanceTests(unittest.TestCase):
         quick = text[start:]
         change = quick[quick.index(".onChange(of: scenePhase)"):]
         change = change[:change.index("\n        .onChange(of: showPairingSetup)")]
-        # V3_AWAITABLE_RELOAD_V1: the reload is awaited, so recalculate can never
-        # read the previous snapshot. A fire-and-forget reload followed by an
-        # immediate recalculate was the race.
-        self.assertIn("await status.reloadAndWait()", change)
-        self.assertIn("await setup.recalculate(status: status)", change)
-        self.assertLess(change.index("await status.reloadAndWait()"),
-                        change.index("await setup.recalculate(status: status)"))
+        # Recalculation is owned by the helper that requires `.applied`; a failed
+        # or unobserved snapshot leaves these facts unknown/deferred.
+        self.assertIn("await setup.reloadAndRecalculate(status: status)", change)
         self.assertNotIn("status.reload()\n", change)
         # First appearance, the sheet dismissal, and returning from a setup
         # destination all use the ordered path.
-        self.assertIn("await status.reloadAndWait()", quick[:quick.index(".onChange(of: scenePhase)")])
+        self.assertIn("await setup.reloadAndRecalculate(status: status)",
+                      quick[:quick.index(".onChange(of: scenePhase)")])
         self.assertIn(".onChange(of: showPairingSetup)", quick)
-        self.assertEqual(quick.count("await status.reloadAndWait()") >= 3, True)
+        self.assertGreaterEqual(quick.count("await setup.reloadAndRecalculate(status: status)"), 5)
 
     def test_pairing_storage_contract_is_validated_without_a_new_store(self):
         # The existing PairingFileManager remains authoritative; the v3 boundary

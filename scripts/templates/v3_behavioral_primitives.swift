@@ -1,5 +1,17 @@
 import Foundation
 
+enum V3SetupSnapshotOutcome: String, Equatable {
+    case applied
+    case snapshotFailed
+    case notObserved
+}
+
+enum V3SetupReloadRecomputePolicy {
+    static func mayRecompute(outcome: V3SetupSnapshotOutcome) -> Bool {
+        outcome == .applied
+    }
+}
+
 enum V3AuthReadStampPolicy {
     static func ownsTicket(captured: UInt64, current: UInt64) -> Bool {
         captured == current

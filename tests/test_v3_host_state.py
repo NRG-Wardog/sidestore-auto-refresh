@@ -55,7 +55,14 @@ class V3HostStateTests(unittest.TestCase):
 
         setup_view = shell[setup_store_end:shell.index("// V3_UNIFIED_SHELL_V1_END")]
         self.assertIn(".onChange(of: status.jitlessReadiness)", setup_view)
+        self.assertIn("guard readiness != nil else { return }", setup_view)
         self.assertIn("Task { await setup.recalculate(status: status) }", setup_view)
+        reload_gate_start = setup_store.index("func reloadAndRecalculate(status:")
+        reload_gate_end = setup_store.index("private func preserveUnknownStatusFacts", reload_gate_start)
+        reload_gate = setup_store[reload_gate_start:reload_gate_end]
+        self.assertLess(reload_gate.index("V3SetupReloadRecomputePolicy.mayRecompute"),
+                        reload_gate.index("await recalculate(status: status)"))
+        self.assertIn("preserveUnknownStatusFacts(status: status)", reload_gate)
 
         health_start = shell.index("struct V3HealthView: View")
         health_end = shell.index("\nstruct V3BackupsView", health_start)

@@ -293,14 +293,16 @@ class ReloadOrderingTests(unittest.TestCase):
         text = shell()
         # Setup Assistant: first appearance, becoming active, sheet dismissal,
         # returning from a setup destination, and both Re-check Pairing actions.
-        self.assertGreaterEqual(text.count("await status.reloadAndWait()"), 6)
+        self.assertGreaterEqual(text.count("await setup.reloadAndRecalculate(status: status)"), 6)
         # No fire-and-forget reload immediately followed by a recalculate.
         self.assertNotIn("status.reload()\n                Task { await setup.recalculate", text)
         self.assertNotIn("status.reload()\n                        Task { await setup.recalculate", text)
         # The certificate import path is ordered too.
-        marker = text.index('V3CanonicalJITLessCertificateUpdated"')
-        block = text[marker:marker + 900]
+        marker = text.index('.onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3CanonicalJITLessCertificateUpdated"))')
+        block_end = text.index("\n        .onReceive(", marker + 16)
+        block = text[marker:block_end]
         self.assertIn("await status.reloadAndWait()", block)
+        self.assertIn("V3SetupReloadRecomputePolicy.mayRecompute", block)
         self.assertLess(block.index("await status.reloadAndWait()"),
                         block.index("status.setupPresented = true"))
 
