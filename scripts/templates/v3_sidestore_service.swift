@@ -57,7 +57,6 @@ private struct V3DirectMutationRecoveryRecord {
     let settingsType: String?
     let settingsBool: Bool?
     let settingsInt: Int?
-    let settingsValueDigest: String?
     let terminalOutcome: String?
 
     // Scope classification: certSetActive/certDelete are local desired-state
@@ -99,7 +98,7 @@ private struct V3DirectMutationRecoveryRecord {
           identityStampDigest: String? = nil,
           settingsKey: String? = nil,
           settingsType: String? = nil, settingsBool: Bool? = nil, settingsInt: Int? = nil,
-          settingsValueDigest: String? = nil, terminalOutcome: String? = nil) {
+          terminalOutcome: String? = nil) {
         guard UUID(uuidString: requestID)?.uuidString == requestID,
               Self.allowedOperations.contains(operation),
               UUID(uuidString: serviceInstanceID)?.uuidString == serviceInstanceID,
@@ -108,20 +107,19 @@ private struct V3DirectMutationRecoveryRecord {
               identityStampDigest.map({ $0.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil }) ?? true,
               settingsKey.map({ !$0.isEmpty && $0.utf8.count <= 256 }) ?? true,
               settingsType.map({ ["bool", "int", "string"].contains($0) }) ?? true,
-              settingsValueDigest.map({ $0.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil }) ?? true,
               terminalOutcome.map({ ["completed", "createdAndStored", "remoteCreatedLocalStorageUnverified"].contains($0) }) ?? true else {
             return nil
         }
         if operation == "settingsSet" {
             guard settingsKey != nil, settingsType != nil else { return nil }
             switch settingsType {
-            case "bool": guard settingsBool != nil, settingsInt == nil, settingsValueDigest == nil else { return nil }
-            case "int": guard settingsInt != nil, settingsBool == nil, settingsValueDigest == nil else { return nil }
+            case "bool": guard settingsBool != nil, settingsInt == nil else { return nil }
+            case "int": guard settingsInt != nil, settingsBool == nil else { return nil }
             case "string": guard settingsBool == nil, settingsInt == nil else { return nil }
             default: return nil
             }
         } else if settingsKey != nil || settingsType != nil || settingsBool != nil ||
-                    settingsInt != nil || settingsValueDigest != nil {
+                    settingsInt != nil {
             return nil
         }
         if operation != "certRevoke", (teamDigest != nil || identityStampDigest != nil) { return nil }
@@ -141,7 +139,6 @@ private struct V3DirectMutationRecoveryRecord {
         self.settingsType = settingsType
         self.settingsBool = settingsBool
         self.settingsInt = settingsInt
-        self.settingsValueDigest = settingsValueDigest
         self.terminalOutcome = terminalOutcome
     }
 
@@ -156,7 +153,6 @@ private struct V3DirectMutationRecoveryRecord {
         if let settingsType { value["settingsType"] = settingsType }
         if let settingsBool { value["settingsBool"] = settingsBool }
         if let settingsInt { value["settingsInt"] = settingsInt }
-        if let settingsValueDigest { value["settingsValueDigest"] = settingsValueDigest }
         if let terminalOutcome { value["terminalOutcome"] = terminalOutcome }
         return value
     }
@@ -173,7 +169,7 @@ private struct V3DirectMutationRecoveryRecord {
               let serviceInstanceID = plist["serviceInstanceID"] as? String else { return nil }
         let allowed: Set<String> = ["version", "recordType", "requestID", "operation", "phase",
             "serviceInstanceID", "targetDigest", "settingsKey", "settingsType", "settingsBool",
-            "settingsInt", "settingsValueDigest", "terminalOutcome", "teamDigest", "identityStampDigest"]
+            "settingsInt", "terminalOutcome", "teamDigest", "identityStampDigest"]
         guard Set(plist.keys).isSubset(of: allowed),
               (plist["targetDigest"] == nil || plist["targetDigest"] is String),
               (plist["teamDigest"] == nil || plist["teamDigest"] is String),
@@ -182,7 +178,6 @@ private struct V3DirectMutationRecoveryRecord {
               (plist["settingsType"] == nil || plist["settingsType"] is String),
               (plist["settingsBool"] == nil || V3WireContract.strictBool(plist["settingsBool"]) != nil),
               (plist["settingsInt"] == nil || V3WireContract.strictInt(plist["settingsInt"]) != nil),
-              (plist["settingsValueDigest"] == nil || plist["settingsValueDigest"] is String),
               (plist["terminalOutcome"] == nil || plist["terminalOutcome"] is String) else { return nil }
         return V3DirectMutationRecoveryRecord(requestID: requestID, operation: operation,
             phase: phase, serviceInstanceID: serviceInstanceID,
@@ -193,7 +188,6 @@ private struct V3DirectMutationRecoveryRecord {
             settingsType: plist["settingsType"] as? String,
             settingsBool: V3WireContract.strictBool(plist["settingsBool"]),
             settingsInt: V3WireContract.strictInt(plist["settingsInt"]),
-            settingsValueDigest: plist["settingsValueDigest"] as? String,
             terminalOutcome: plist["terminalOutcome"] as? String)
     }
 
@@ -204,8 +198,7 @@ private struct V3DirectMutationRecoveryRecord {
             targetDigest: targetDigest, teamDigest: teamDigest,
             identityStampDigest: identityStampDigest,
             settingsKey: settingsKey, settingsType: settingsType,
-            settingsBool: settingsBool, settingsInt: settingsInt,
-            settingsValueDigest: settingsValueDigest, terminalOutcome: terminalOutcome)
+            settingsBool: settingsBool, settingsInt: settingsInt, terminalOutcome: terminalOutcome)
     }
 }
 
@@ -1189,17 +1182,23 @@ final class V3SideStoreService: NSObject {
         case "directRecoveryInspect":
             return try await directRecoveryInspection(requestID: target)
         case "directRecoveryReconcile":
-            guard V3WireContract.strictBool(payload["userConfirmed"]) == true,
+            let acknowledgesTerminal = V3WireContract.strictBool(payload["ackTerminal"]) == true
+            let userConfirmed = V3WireContract.strictBool(payload["userConfirmed"]) == true
+            guard acknowledgesTerminal != userConfirmed,
                   let record = try V3OperationRecoveryJournal.direct(), record.requestID == target else {
                 throw ServiceError.invalidRequest
             }
             let current = try V3OperationRecoveryJournal.markDirectUnknownIfOwnerLost(
                 requestID: target, currentServiceInstanceID: recoveryServiceInstanceID) ?? record
             guard current.phase != .dispatched else { throw ServiceError.busy }
+            guard (current.phase == .terminal && acknowledgesTerminal) ||
+                  ((current.phase == .prepared || current.phase == .unknown) && userConfirmed) else {
+                throw ServiceError.invalidRequest
+            }
             let postcondition = current.phase == .prepared
                 ? "notDispatched" : await directRecoveryPostcondition(current)
             guard try V3OperationRecoveryJournal.reconcileDirect(requestID: target,
-                allowUnknownDeviceCheck: current.phase == .unknown) else { throw ServiceError.busy }
+                allowUnknownDeviceCheck: current.phase == .unknown && userConfirmed) else { throw ServiceError.busy }
             return ["requestID": target, "reconciled": true, "postcondition": postcondition]
         case "refreshAdmissionBegin":
             guard refreshAdmission.acquire(runID: target,

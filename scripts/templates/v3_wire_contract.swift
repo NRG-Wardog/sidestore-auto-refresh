@@ -227,6 +227,9 @@ enum V3WireContract {
         case "opRecoveryReconcile", "refreshAdmissionReconcile":
             return Set(payload.keys) == Set(["userConfirmed"]) && strictBool(payload["userConfirmed"]) == true
         case "directRecoveryReconcile":
+            if Set(payload.keys) == Set(["ackTerminal"]) {
+                return strictBool(payload["ackTerminal"]) == true
+            }
             return Set(payload.keys) == Set(["userConfirmed"]) && strictBool(payload["userConfirmed"]) == true
         case "recoveryDiscardUnreadable":
             return Set(payload.keys) == Set(["userConfirmed"]) && strictBool(payload["userConfirmed"]) == true
