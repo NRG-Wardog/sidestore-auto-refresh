@@ -98,7 +98,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m unittest discover -s builder/tests -v 2>&1 | tee artifacts/logs/repository-tests.log
+          python3 builder/scripts/run_required_tests.py \
+            --start-directory builder/tests \
+            --allowlist builder/scripts/required_test_skip_allowlist.json \
+            --verbosity 2 2>&1 | tee artifacts/logs/repository-tests.log
 
       # Fail on generated Swift/configuration errors BEFORE compiling Rust/iOS.
       - name: Apply and verify host integration

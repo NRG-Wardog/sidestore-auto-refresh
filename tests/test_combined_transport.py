@@ -485,7 +485,9 @@ class CombinedWorkflowTests(unittest.TestCase):
         checks = workflow[workflow.index("- name: Run repository checks before patches"):]
         checks = checks.split("\n      - name:", 1)[0]
         self.assertIn("EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore", checks)
-        self.assertIn("python3 -m unittest discover -s builder/tests -v", checks)
+        self.assertIn("builder/scripts/run_required_tests.py", checks)
+        self.assertIn("builder/scripts/required_test_skip_allowlist.json", checks)
+        self.assertIn('REQUIRE_SWIFT_070_CHECKS: "1"', checks)
         self.assertIn("MUX=work/EmbeddedSideStore/Dependencies/minimuxer", workflow)
         copy = workflow.index('cp -R idevice/swift/IDevice.xcframework "$MUX/DeviceGateway/LocalBinary/IDevice.xcframework"')
         adapter = workflow.index('python3 builder/scripts/patch_combined_transport.py "$MUX"')
