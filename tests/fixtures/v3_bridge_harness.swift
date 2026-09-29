@@ -133,7 +133,7 @@ struct BridgeTests {
             payload: ["session": signInSession, "sessionDeadline": Date().addingTimeInterval(600)])
         let callsBeforeBlockedRefresh = client.operations.count
         do {
-            _ = try await bridge.request(operation: "refreshApp", target: "fixture-app")
+            _ = try await bridge.request(operation: "refreshApp", target: "x-coredata://A1B2C3D4-E5F6-47A8-9123-456789ABCDEF/InstalledApp/p42")
             preconditionFailure("refresh bypassed active authentication ownership")
         } catch let failure as CombinedFailure {
             precondition(failure.operation == "refresh" && failure.stage == .command &&
@@ -143,7 +143,7 @@ struct BridgeTests {
         precondition(client.operations.count == callsBeforeBlockedRefresh,
             "host admission rejects refresh before dispatch while auth is unresolved")
         _ = try await bridge.request(operation: "authPoll", target: signInSession)
-        _ = try await bridge.request(operation: "refreshApp", target: "fixture-app")
+        _ = try await bridge.request(operation: "refreshApp", target: "x-coredata://A1B2C3D4-E5F6-47A8-9123-456789ABCDEF/InstalledApp/p42")
         precondition(client.operations == ["snapshot", "authBegin", "authPoll", "refreshApp"],
             "explicit account/refresh integration order changed")
         client.stale = true

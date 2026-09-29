@@ -646,7 +646,7 @@ func sideStoreTransportLog(_ message: UnsafePointer<CChar>?) {
                 let msg = getErrorMessage(from: valErr)
                 safeFreeError(valErr)
                 debugLog("[SIDESTORE_COREDEVICE] UNIQUE_DEVICE_ID_QUERY_FAIL code=\\(code) subcode=\\(subCode)")
-                throw IdeviceGatewayError(.serviceError, reason: "Querying UniqueDeviceID failed (code \\(code)): \\(msg)")
+                throw IdeviceGatewayError(.serviceError, reason: "Querying UniqueDeviceID failed (lc_native_code=\\(code)): \\(msg)")
             }}
             guard let plistVal = plistVal else {{
                 debugLog("[SIDESTORE_COREDEVICE] UNIQUE_DEVICE_ID_QUERY_FAIL reason=nil_plist")

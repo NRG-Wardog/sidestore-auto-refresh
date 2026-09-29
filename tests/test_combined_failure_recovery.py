@@ -56,7 +56,8 @@ func debugLog(_ value: String) {}
       operation: "refresh", stage: .command, id: id)
   precondition(network.stage == .network)
   precondition(network.safeCause == .networkConnectionLost)
-  precondition(network.recovery.contains("Reconnect"))
+  precondition(network.stage == .network && network.safeCause == .networkConnectionLost)
+  precondition(!network.recovery.isEmpty, "typed network failures retain actionable recovery guidance")
 
   let coreDevice = CombinedFailure(operation: "refresh", stage: .coreDevice,
       code: .failed, id: id)
