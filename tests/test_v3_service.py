@@ -1379,7 +1379,7 @@ import Foundation
         self.assertNotIn("writeJITLessCertificate", host)
         self.assertNotIn("v3SideStoreStatusSnapshot", host)
         self.assertIn("pending.removeValue", bridge)
-        self.assertIn("decoded[\"id\"] as? String == id", bridge)
+        self.assertIn("CombinedFailure.uuidCorrelationMatches(responseID, expectedID: id)", bridge)
 
     def test_headless_service_has_no_presentation(self):
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")

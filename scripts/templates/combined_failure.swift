@@ -796,7 +796,8 @@ public struct CombinedFailure: Error, LocalizedError {
     }
     public static func decode(_ value: [String: Any], expectedID: String) -> CombinedFailure? {
         guard Set(value.keys).isSubset(of: ["version", "operation", "stage", "code", "correlationID", "underlyingDomain", "underlyingCode", "retryable", "safeCause", "sourceStep"]),
-              Self.strictInteger(value["version"]) == 1, value["correlationID"] as? String == expectedID,
+              Self.strictInteger(value["version"]) == 1,
+              Self.uuidCorrelationMatches(value["correlationID"] as? String, expectedID: expectedID),
               let operation = value["operation"] as? String, operations.contains(operation),
               let stageName = value["stage"] as? String, let stage = Stage(rawValue: stageName),
               let codeName = value["code"] as? String, let code = Code(rawValue: codeName),
@@ -867,6 +868,15 @@ public struct CombinedFailure: Error, LocalizedError {
     public static func isURLCancellation(domain: String, code: Int) -> Bool {
         (domain == NSURLErrorDomain || domain == "kCFErrorDomainCFNetwork") &&
             code == NSURLErrorCancelled
+    }
+
+    /// Correlation IDs are UUIDs. Compare their parsed identity so equivalent
+    /// uppercase and lowercase UUID spellings stay bound to the same request.
+    public static func uuidCorrelationMatches(_ receivedID: String?, expectedID: String) -> Bool {
+        guard let receivedID,
+              let received = UUID(uuidString: receivedID),
+              let expected = UUID(uuidString: expectedID) else { return false }
+        return received == expected
     }
 
     public static func capture(_ error: Error, operation: String, stage: Stage, id: String,
@@ -1092,7 +1102,7 @@ enum V3NotDispatchedReplyPolicy {
         guard maximumBytes > 0, !data.isEmpty, data.count <= maximumBytes,
               let reply = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               v3StrictPlistInteger(reply["version"]) == 1,
-              reply["id"] as? String == requestID,
+              CombinedFailure.uuidCorrelationMatches(reply["id"] as? String, expectedID: requestID),
               reply["error"] as? String != nil,
               reply["result"] == nil,
               reply["ok"] == nil,

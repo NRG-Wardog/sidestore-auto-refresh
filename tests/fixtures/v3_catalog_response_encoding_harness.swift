@@ -250,6 +250,20 @@ struct CatalogResponseEncodingHarness {
         precondition(V3NotDispatchedReplyPolicy.confirms(rejectedStart, requestID: rejectedStartID,
             maximumBytes: V3WireContract.responseLimit),
                      "a correlated typed service rejection may release a phantom host owner")
+        let lowerEquivalentID = rejectedStartID.lowercased()
+        let lowerEquivalentFailure = CombinedFailure(operation: "signIn", stage: .serviceReadiness,
+            code: .busy, id: lowerEquivalentID, retryable: true)
+        let lowerEquivalentStart = try! PropertyListSerialization.data(fromPropertyList: [
+            "version": 1, "id": lowerEquivalentID, "error": "busy",
+            "failure": lowerEquivalentFailure.wire, "operationNotDispatched": true
+        ] as [String: Any], format: .binary, options: 0)
+        precondition(V3NotDispatchedReplyPolicy.confirms(lowerEquivalentStart,
+            requestID: rejectedStartID, maximumBytes: V3WireContract.responseLimit),
+            "case-equivalent UUIDs in the outer reply and nested failure must release the owner")
+        precondition(CombinedFailure.decode(rejectedStartFailure.wire,
+            expectedID: lowerEquivalentID) != nil,
+            "the nested decoder compares parsed UUID identity too")
+
         let ambiguousStart = try! PropertyListSerialization.data(fromPropertyList: [
             "version": 1, "id": rejectedStartID, "error": "busy",
             "failure": rejectedStartFailure.wire
@@ -257,6 +271,13 @@ struct CatalogResponseEncodingHarness {
         precondition(!V3NotDispatchedReplyPolicy.confirms(ambiguousStart, requestID: rejectedStartID,
             maximumBytes: V3WireContract.responseLimit),
                      "an unmarked error cannot prove the auth operation never started")
+        let ambiguousLowerStart = try! PropertyListSerialization.data(fromPropertyList: [
+            "version": 1, "id": lowerEquivalentID, "error": "busy",
+            "failure": lowerEquivalentFailure.wire
+        ] as [String: Any], format: .binary, options: 0)
+        precondition(!V3NotDispatchedReplyPolicy.confirms(ambiguousLowerStart,
+            requestID: rejectedStartID, maximumBytes: V3WireContract.responseLimit),
+            "a case-equivalent UUID without the full not-dispatched marker cannot release ownership")
         let contradictoryStart = try! PropertyListSerialization.data(fromPropertyList: [
             "version": 1, "id": rejectedStartID, "error": "busy",
             "failure": rejectedStartFailure.wire, "operationNotDispatched": true,
@@ -265,6 +286,23 @@ struct CatalogResponseEncodingHarness {
         precondition(!V3NotDispatchedReplyPolicy.confirms(contradictoryStart,
             requestID: rejectedStartID, maximumBytes: V3WireContract.responseLimit),
             "a reply cannot both reject dispatch and contain a result")
+        let malformedIDStart = try! PropertyListSerialization.data(fromPropertyList: [
+            "version": 1, "id": "not-a-uuid", "error": "busy",
+            "failure": rejectedStartFailure.wire, "operationNotDispatched": true
+        ] as [String: Any], format: .binary, options: 0)
+        precondition(!V3NotDispatchedReplyPolicy.confirms(malformedIDStart,
+            requestID: rejectedStartID, maximumBytes: V3WireContract.responseLimit),
+            "a malformed response UUID cannot release request ownership")
+        let foreignID = UUID().uuidString
+        let foreignFailure = CombinedFailure(operation: "signIn", stage: .serviceReadiness,
+            code: .busy, id: foreignID, retryable: true)
+        let foreignIDStart = try! PropertyListSerialization.data(fromPropertyList: [
+            "version": 1, "id": foreignID, "error": "busy",
+            "failure": foreignFailure.wire, "operationNotDispatched": true
+        ] as [String: Any], format: .binary, options: 0)
+        precondition(!V3NotDispatchedReplyPolicy.confirms(foreignIDStart,
+            requestID: rejectedStartID, maximumBytes: V3WireContract.responseLimit),
+            "a valid but foreign response UUID cannot release request ownership")
         precondition(V3WireContract.strictInt(NSNumber(value: true)) == nil,
             "Boolean auth revisions must not pass as integer revisions")
         precondition(V3WireContract.strictInt(NSNumber(value: 7)) == 7,

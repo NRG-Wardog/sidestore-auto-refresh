@@ -82,7 +82,12 @@ enum V3CatalogRequestContext {
             throw CombinedFailure(operation: operation, stage: hostStage(for: operation),
                                   code: .invalidResponse, id: id)
         }
-        guard decoded["id"] as? String == id else {
+        guard let responseID = decoded["id"] as? String,
+              UUID(uuidString: responseID) != nil else {
+            throw CombinedFailure(operation: operation, stage: hostStage(for: operation),
+                                  code: .invalidResponse, id: id)
+        }
+        guard CombinedFailure.uuidCorrelationMatches(responseID, expectedID: id) else {
             // Genuine cross-request protocol evidence. It is never resolved to
             // the waiting caller, and it is never reported as a serialization
             // defect it did not prove.

@@ -93,17 +93,20 @@ class HostBridgePropagationTests(unittest.TestCase):
         # Timeout reports the catalog stage in request()...
         flat = normalized(request_function())
         self.assertIn("stage: V3CatalogRequestContext.hostStage(for: operation), code: .timedOut", flat)
-        # ...and both invalid-response boundaries report it in the classifier.
+        # ...and malformed reply fields report it in the classifier.
         replies = normalized(uncommented(classify_function()))
         self.assertIn("stage: hostStage(for: operation), code: .invalidResponse", replies)
-        self.assertEqual(replies.count("stage: hostStage(for: operation), code: .invalidResponse"), 4)
+        self.assertEqual(replies.count("stage: hostStage(for: operation), code: .invalidResponse"), 5)
         # The transport-size boundary is a reply-encoding defect rather than a
         # catalog query failure or malformed request reply.
         self.assertIn("stage: V3CatalogRequestContext.replyEncodingStage(for: operation), code: .invalidResponse, id: id, safeCause: .responseTooLarge", flat)
 
     def test_a_well_formed_reply_with_a_foreign_id_stays_stale_result(self):
         body = normalized(uncommented(classify_function()))
-        self.assertIn('guard decoded["id"] as? String == id else { throw CombinedFailure(operation: operation, stage: .command, code: .staleResult, id: id) }', body)
+        self.assertIn('let responseID = decoded["id"] as? String', body)
+        self.assertIn('UUID(uuidString: responseID) != nil', body)
+        self.assertIn('CombinedFailure.uuidCorrelationMatches(responseID, expectedID: id)', body)
+        self.assertIn('code: .staleResult, id: id', body)
         # Malformed and mismatched replies are no longer conflated.
         self.assertNotIn('as? [String: Any], decoded["id"]', body)
         self.assertIn('as? [String: Any] else { throw CombinedFailure(operation: operation, stage: hostStage(for: operation), code: .invalidResponse', body)
