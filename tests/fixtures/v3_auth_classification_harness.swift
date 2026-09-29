@@ -41,7 +41,8 @@ struct AuthClassificationHarness {
             .missingKey(key: "Status", jsonPayload: "PRIVATE_SERVER_BODY")
         ]
         for invalidResponse in invalidResponses {
-            precondition(v3ClassifyAuthError(invalidResponse) == .serviceUnavailable)
+            precondition(v3ClassifyAuthError(invalidResponse) == .unknown,
+                         "a malformed or incomplete response does not prove service outage")
         }
         precondition(v3ClassifyAuthError(DeveloperPortalError.invalidAnisetteData) == .anisette)
         precondition(v3ClassifyAuthError(SideSign.AnisetteError.noServersConfigured) == .anisette)
@@ -75,8 +76,8 @@ struct AuthClassificationHarness {
             operation: "signIn", stage: .authentication, id: UUID().uuidString).wire
         badResponseWire["kind"] = badServerKind.rawValue
         let badResponseHostMessage = v3HostAuthFailureMessage(from: badResponseWire)
-        precondition(badServerKind == .serviceUnavailable)
-        precondition(badResponseHostMessage.contains("did not return a valid response"))
+        precondition(badServerKind == .unknown)
+        precondition(badResponseHostMessage.contains("could not be safely classified"))
         precondition(!badResponseHostMessage.contains("PRIVATE_BAD_RESPONSE"))
 
         // Cancellation is lifecycle evidence and URLSession uses this domain
