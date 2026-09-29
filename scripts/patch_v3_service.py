@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 39
+PATCH_VERSION = 42
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -1025,6 +1025,148 @@ def headless_app_manager_persisted_error_privacy(text):
     return text
 
 
+def headless_app_manager_source_mutations(text):
+    """Keep confirmed source persistence in AppManager for both UI and v3."""
+    marker = "V3_SHARED_CONFIRMED_SOURCE_MUTATIONS_V1"
+    if marker in text:
+        required = (
+            "func addConfirmed(sourceURL: URL)",
+            "private func persistConfirmedSource(",
+            "func removeConfirmed(identifier: String",
+            "self.persistConfirmedSource(fetched, in: context, notificationSource: source)",
+            "self.removeConfirmed(identifier: sourceID, notificationSource: source)",
+            "let savedSource = try await viewContext.performAsync",
+            "notificationSource ?? savedSource",
+            "notificationSource ?? eventSource",
+            "guard sourceID != Source.altStoreIdentifier else",
+            "guard identifier != Source.altStoreIdentifier else",
+        )
+        if any(value not in text for value in required):
+            raise SystemExit("v3 service: shared AppManager source mutation extraction is partial")
+        return text
+
+    add_start = "    func add(@AsyncManaged _ source: Source,\n"
+    remove_start = "    func remove(@AsyncManaged _ source: Source, presentingViewController: UIViewController) async throws\n"
+    fetch_start = "    @discardableResult\n    func fetchSource(sourceURL: URL,\n"
+    if text.count(add_start) != 1 or text.count(remove_start) != 1 or text.count(fetch_start) != 1:
+        raise SystemExit("v3 service: AppManager source mutation anchors changed")
+    add_at = text.index(add_start)
+    remove_at = text.index(remove_start)
+    fetch_at = text.index(fetch_start)
+    if not add_at < remove_at < fetch_at:
+        raise SystemExit("v3 service: AppManager source mutation order changed")
+
+    replacement = '''    // V3_SHARED_CONFIRMED_SOURCE_MUTATIONS_V1: UI confirmation stays at the caller;
+    // persistence and notifications are shared by the UI and headless command paths.
+    func add(@AsyncManaged _ source: Source,
+             message: String? = NSLocalizedString("Make sure to only add sources that you trust.", comment: ""),
+             presentingViewController: UIViewController) async throws
+    {
+        let (sourceName, sourceURL) = await $source.perform { ($0.name, $0.sourceURL) }
+        let context = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+        async let fetchedSource = try await self.fetchSource(sourceURL: sourceURL, managedObjectContext: context)
+
+        let title = String(format: NSLocalizedString("Would you like to add the source “%@”?", comment: ""), sourceName)
+        let action = await UIAlertAction(title: NSLocalizedString("Add Source", comment: ""), style: .default)
+        try await presentingViewController.presentConfirmationAlert(title: title, message: message ?? "", primaryAction: action)
+
+        let fetched = try await fetchedSource
+        let result = try await self.persistConfirmedSource(fetched, in: context, notificationSource: source)
+        guard !result.alreadyAdded else {
+            throw SourceError.duplicate(source, existingSource: nil)
+        }
+    }
+
+    // Presenter-free entry point used after the LiveContainer host has confirmed.
+    func addConfirmed(sourceURL: URL) async throws -> (identifier: String, alreadyAdded: Bool)
+    {
+        let context = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+        let fetched = try await self.fetchSource(sourceURL: sourceURL, managedObjectContext: context)
+        return try await self.persistConfirmedSource(fetched, in: context, notificationSource: nil)
+    }
+
+    private func persistConfirmedSource(_ fetchedSource: Source,
+                                        in context: NSManagedObjectContext,
+                                        notificationSource: Source?) async throws -> (identifier: String, alreadyAdded: Bool)
+    {
+        let identifier = await AsyncManaged(wrappedValue: fetchedSource).identifier
+        // Source.isAdded opens an independent persistent-store context. The fetch operation
+        // has already inserted its candidate into `context`, so checking that same context
+        // would incorrectly report every new candidate as a duplicate.
+        guard try await !fetchedSource.isAdded() else { return (identifier, true) }
+
+        try await context.performAsync { try context.save() }
+        let viewContext = DatabaseManager.shared.viewContext
+        let savedSource = try await viewContext.performAsync {
+            Source.first(satisfying: NSPredicate(format: "%K == %@", #keyPath(Source.identifier), identifier), in: viewContext)
+        }
+        guard let eventSource = notificationSource ?? savedSource else {
+            throw OperationError.noSources
+        }
+        await MainActor.run {
+            NotificationCenter.default.post(name: AppManager.didAddSourceNotification,
+                                            object: eventSource)
+        }
+        return (identifier, false)
+    }
+
+    func remove(@AsyncManaged _ source: Source, presentingViewController: UIViewController) async throws
+    {
+        let (sourceName, sourceID) = await $source.perform { ($0.name, $0.identifier) }
+        guard sourceID != Source.altStoreIdentifier else {
+            throw OperationError.forbidden(failureReason: NSLocalizedString("The default SideStore source cannot be removed.", comment: ""))
+        }
+        let title = String(format: NSLocalizedString("Are you sure you want to remove the source “%@”?", comment: ""), sourceName)
+        let message = NSLocalizedString("Any apps you've installed from this source will remain, but they'll no longer receive any app updates.", comment: "")
+        let action = await UIAlertAction(title: NSLocalizedString("Remove Source", comment: ""), style: .destructive)
+        try await presentingViewController.presentConfirmationAlert(title: title, message: message, primaryAction: action)
+
+        try await self.removeConfirmed(identifier: sourceID, notificationSource: source)
+    }
+
+    // Presenter-free entry point used after the LiveContainer host has confirmed.
+    func removeConfirmed(identifier: String, notificationSource: Source? = nil) async throws
+    {
+        guard identifier != Source.altStoreIdentifier else {
+            throw OperationError.forbidden(failureReason: NSLocalizedString("The default SideStore source cannot be removed.", comment: ""))
+        }
+        let viewContext = DatabaseManager.shared.viewContext
+        let eventSource: Source?
+        if let notificationSource {
+            eventSource = notificationSource
+        } else {
+            eventSource = try await viewContext.performAsync {
+                Source.first(satisfying: NSPredicate(format: "%K == %@", #keyPath(Source.identifier), identifier), in: viewContext)
+            }
+        }
+
+        let context = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+        try await context.performAsync {
+            let predicate = NSPredicate(format: "%K == %@", #keyPath(Source.identifier), identifier)
+            guard let source = Source.first(satisfying: predicate, in: context) else { return }
+            guard source.identifier != Source.altStoreIdentifier else {
+                throw OperationError.forbidden(failureReason: NSLocalizedString("The default SideStore source cannot be removed.", comment: ""))
+            }
+            context.delete(source)
+            try context.save()
+        }
+
+        if let eventSource = notificationSource ?? eventSource {
+            await MainActor.run {
+                NotificationCenter.default.post(name: AppManager.didRemoveSourceNotification,
+                                                object: eventSource)
+            }
+        }
+    }
+
+'''
+    return text[:add_at] + replacement + text[fetch_at:]
+
+
+def headless_app_manager(text):
+    return headless_app_manager_ui(headless_app_manager_source_mutations(text))
+
+
 def headless_refresh_attempt_error_privacy(text):
     marker = "V3_REFRESH_HISTORY_ERROR_PRIVACY_V1"
     old = "            self.errorDescription = error.localizedDescription"
@@ -1688,7 +1830,7 @@ def patch(live, side):
     edit(side, "SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
          headless_clear_cache_operation)
     edit(side, "SideStore/Core/Auth/AuthManager.swift", headless_auth_manager)
-    edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui)
+    edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager)
     edit(side, "AltStore/Core/Model/RefreshAttempt.swift", headless_refresh_attempt_error_privacy)
     edit(side, "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift",
          headless_featured_sort_startup)
@@ -1959,7 +2101,7 @@ def verify_headless_ui_adapters(side, pinned_ref):
     adapters = (
         ("AltStore/AppDelegate.swift", headless_sidestore_app_delegate),
         ("SideStore/Core/Auth/AuthManager.swift", headless_auth_manager),
-        ("AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui),
+        ("AltStore/Managing Apps/AppManager.swift", headless_app_manager),
         ("AltStore/Core/Model/RefreshAttempt.swift", headless_refresh_attempt_error_privacy),
         ("AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
          lambda source: headless_app_intents(source, "RefreshAllAppsIntent.swift")),

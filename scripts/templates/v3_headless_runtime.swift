@@ -2440,22 +2440,14 @@ enum V3BackendCommands {
         guard let url = V3SourceAddPersistencePolicy.validatedURL(urlString) else {
             throw V3SideStoreServiceError.invalidRequest
         }
-        let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
-        let source: Source
+        let addResult: (identifier: String, alreadyAdded: Bool)
         do {
-            source = try await AppManager.shared.fetchSource(sourceURL: url, managedObjectContext: background)
+            addResult = try await AppManager.shared.addConfirmed(sourceURL: url)
         } catch {
             if let classified = V3SourceCommandError.classify(error) { throw classified }
             throw error
         }
-        let identifier = try await background.performAsync { source.identifier }
-        let wasPersisted = try await source.isAdded()
-        let decision = V3SourceAddPersistencePolicy.decision(sourceIsPersisted: wasPersisted)
-        if decision == .save {
-            // `fetchSource` inserts into this context. Do not use a fetch from
-            // the same context as a duplicate check: it sees that unsaved row.
-            try await background.performAsync { try background.save() }
-        }
+        let identifier = addResult.identifier
         let verificationContext = DatabaseManager.shared.persistentContainer.newBackgroundContext()
         let query = NSFetchRequest<Source>(entityName: "Source")
         query.predicate = NSPredicate(format: "%K == %@", #keyPath(Source.identifier), identifier)
@@ -2463,18 +2455,9 @@ enum V3BackendCommands {
             try verificationContext.count(for: query)
         }
         guard let result = V3SourceAddPersistencePolicy.verifiedResult(
-            identifier: identifier, alreadyAdded: decision == .alreadyAdded,
+            identifier: identifier, alreadyAdded: addResult.alreadyAdded,
             authoritativeCount: authoritativeCount) else {
             throw V3SideStoreServiceError.persistenceUnverified
-        }
-        if decision == .save {
-            let viewContext = DatabaseManager.shared.viewContext
-            let query = NSFetchRequest<Source>(entityName: "Source")
-            query.predicate = NSPredicate(format: "%K == %@", #keyPath(Source.identifier), identifier)
-            guard let persistedSource = try viewContext.performAndWait({ try viewContext.fetch(query).first }) else {
-                throw V3SideStoreServiceError.persistenceUnverified
-            }
-            NotificationCenter.default.post(name: AppManager.didAddSourceNotification, object: persistedSource)
         }
         return result
     }
@@ -2492,18 +2475,7 @@ enum V3BackendCommands {
     }
 
     static func sourceRemoveConfirmed(identifier: String) async throws {
-        let background = DatabaseManager.shared.persistentContainer.newBackgroundContext()
-        try await background.performAsync {
-            let query = NSFetchRequest<Source>(entityName: "Source")
-            query.predicate = NSPredicate(format: "%K == %@", #keyPath(Source.identifier), identifier)
-            guard let source = try background.fetch(query).first else { return }
-            guard source.identifier != Source.altStoreIdentifier else { return }
-            background.delete(source)
-            try background.save()
-        }
-        await MainActor.run {
-            NotificationCenter.default.post(name: AppManager.didRemoveSourceNotification, object: nil)
-        }
+        try await AppManager.shared.removeConfirmed(identifier: identifier)
     }
 
     static func pairingImportData(token: String) throws {
