@@ -113,10 +113,15 @@ final class State {
     var attempts = 0
     var began = 0
     var failure = ""
-    func finish(success: Bool, detail: String) {
+    var receivedTypedFailure = false
+    var terminalEvent: AutomaticRefreshEvent?
+    func finish(success: Bool, event: AutomaticRefreshEvent? = nil, detail: String = "",
+                failure: Error? = nil, cancelOperation: Bool = false) {
         guard !isFinished else { return }
         precondition(!success)
-        failure = detail
+        terminalEvent = event ?? (success ? .completed : .failed)
+        receivedTypedFailure = failure != nil
+        self.failure = detail
         isFinished = true
     }
 }
@@ -156,7 +161,9 @@ GENERATED_STARTUP
         let failed = State()
         delegate.start(state: failed)
         await waitFor { failed.isFinished }
-        precondition(failed.began == 0 && !failed.failure.isEmpty)
+        precondition(failed.began == 0 && failed.receivedTypedFailure &&
+                     failed.terminalEvent == .failed,
+                     "startup failure must reach the typed failure terminal path")
 
         DatabaseManager.shared = DatabaseManager()
         DatabaseManager.shared.suspend = true
@@ -474,7 +481,7 @@ class Manager {
         body_assignment = next(line.strip() for line in generated.splitlines()
                                if "content.body = AutomaticRefreshFailureCategory.safeMessage" in line)
         source = "import Foundation\n" + automation.SCHEDULE_MODEL + r'''
-struct NotificationContent { var body = "" }
+final class NotificationContent { var body = "" }
 func notificationBody(_ error: Error) -> String {
     let content = NotificationContent()
     BODY_ASSIGNMENT
