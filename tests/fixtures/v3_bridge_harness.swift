@@ -15,7 +15,9 @@ final class FakeClient {
     var operations: [String] = []
     var requests: [[String: Any]] = []
     func v3Execute(_ data: Data, reply: @escaping (Data) -> Void) {
-        let request = try! PropertyListSerialization.propertyList(from: data, format: nil) as! [String: Any]
+        guard let request = V3WireContract.decodeRequest(data) else {
+            preconditionFailure("bridge dispatched a request rejected by the production wire schema")
+        }
         operations.append(request["operation"] as! String)
         requests.append(request)
         if request["operation"] as? String == "cancel" { cancellations += 1; reply(Data()); return }
@@ -203,9 +205,12 @@ struct BridgeTests {
         do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("oversized reply accepted") } catch {}
         client.oversized = false; client.hold = true
         var requestBaseline = client.requests.count
-        let cancelled = Task { try await bridge.request(operation: "install") }
+        let cancelled = Task {
+            try await bridge.request(operation: "settingsSet",
+                payload: ["key": "fixtureMutation", "type": "bool", "bool": true])
+        }
         await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
-                             operation: "install", context: "cancelled read/mutation late reply")
+                             operation: "settingsSet", context: "cancelled valid mutation late reply")
         cancelled.cancel()
         do { _ = try await cancelled.value; preconditionFailure("cancel ignored") } catch is CancellationError {} catch { preconditionFailure("wrong cancellation") }
         precondition(client.cancellations == 1)
@@ -227,10 +232,16 @@ struct BridgeTests {
         precondition(handler.stops == 1, "idle read timeout must reconnect the service")
         client.flush()
         requestBaseline = client.requests.count
-        let mutation = Task { try await bridge.request(operation: "install") }
+        let mutation = Task {
+            try await bridge.request(operation: "settingsSet",
+                payload: ["key": "fixtureMutation", "type": "bool", "bool": true])
+        }
         await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
-                             operation: "install", context: "cancellable mutation")
-        do { _ = try await bridge.request(operation: "signOut"); preconditionFailure("concurrent mutation accepted") } catch {}
+                             operation: "settingsSet", context: "cancellable valid mutation")
+        do {
+            _ = try await bridge.request(operation: "signOut")
+            preconditionFailure("concurrent mutation accepted")
+        } catch {}
         mutation.cancel()
         _ = try? await mutation.value
         client.flush()
@@ -247,9 +258,12 @@ struct BridgeTests {
         // Every boundary must retain the operation, including concurrent reads and a mutation.
         client.hold = true
         requestBaseline = client.requests.count
-        let installDisconnect = Task { try await bridge.request(operation: "install") }
+        let mutationDisconnect = Task {
+            try await bridge.request(operation: "settingsSet",
+                payload: ["key": "fixtureMutation", "type": "bool", "bool": true])
+        }
         await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
-                             operation: "install", context: "disconnect mutation")
+                             operation: "settingsSet", context: "disconnect mutation")
         requestBaseline = client.requests.count
         let catalogDisconnect = Task { try await bridge.request(operation: "catalog") }
         await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
@@ -257,7 +271,7 @@ struct BridgeTests {
         precondition(client.replies.count >= 2,
                      "both held requests must be awaiting their service replies before disconnect")
         bridge.disconnected()
-        for (task, operation) in [(installDisconnect, "install"), (catalogDisconnect, "catalog")] {
+        for (task, operation) in [(mutationDisconnect, "settingsSet"), (catalogDisconnect, "catalog")] {
             do { _ = try await task.value; preconditionFailure("disconnect ignored") }
             catch let error as CombinedFailure {
                 precondition(error.operation == operation && error.stage == .xpcConnection)
