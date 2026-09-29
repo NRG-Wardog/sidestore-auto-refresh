@@ -95,6 +95,8 @@ class V3AuthErrorTests(unittest.TestCase):
     def test_cancellation_does_not_store_failure(self):
         text = runtime()
         self.assertIn("v3ClassifyAuthError", text)
+        self.assertIn("v3IsAuthCancellation", text)
+        self.assertIn("let cancelled = v3IsAuthCancellation(error)", text)
         # Cancellation-class results clear state instead of displaying it.
         self.assertIn("error is CancellationError", text)
         self.assertIn("userCancelled", text)
@@ -108,7 +110,7 @@ class V3AuthErrorTests(unittest.TestCase):
         # Classification is type-based, not string guessing on server text.
         self.assertIn("as? DeveloperPortalError", text)
         self.assertIn("as? ServerError", text)
-        self.assertIn("NSURLErrorDomain", text)
+        self.assertIn("CombinedFailure.knownURLTransportCause", text)
 
     def test_grandslam_rate_limit_codes_classified(self):
         text = runtime()

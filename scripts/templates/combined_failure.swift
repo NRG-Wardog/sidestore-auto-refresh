@@ -863,6 +863,12 @@ public struct CombinedFailure: Error, LocalizedError {
         return networkSafeCauseForURLCode(code, signing: signing)
     }
 
+    /// URL cancellation is terminal lifecycle evidence, not network failure.
+    public static func isURLCancellation(domain: String, code: Int) -> Bool {
+        (domain == NSURLErrorDomain || domain == "kCFErrorDomainCFNetwork") &&
+            code == NSURLErrorCancelled
+    }
+
     public static func capture(_ error: Error, operation: String, stage: Stage, id: String,
                                retryable: Bool? = nil) -> CombinedFailure {
         if let known = error as? CombinedFailure { return known }
@@ -901,7 +907,7 @@ public struct CombinedFailure: Error, LocalizedError {
                let found = SafeCause(rawValue: name) {
                 safeCause = found
             }
-            if cause.domain == NSURLErrorDomain && cause.code == NSURLErrorCancelled {
+            if isURLCancellation(domain: cause.domain, code: cause.code) {
                 resolvedCode = .cancelled
                 resolvedRetryable = false
             }

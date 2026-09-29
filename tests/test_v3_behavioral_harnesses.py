@@ -273,10 +273,16 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         begin = runtime.index("enum V3AuthFailureKind:")
         end = runtime.index("// MARK: - Provisioning failure guidance", begin)
         classifier = runtime[begin:end]
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        host_message_start = shell.index("    static func failureMessage(from failure: [String: Any]) -> String {")
+        host_message_end = shell.index("\n    static func failureDetails(", host_message_start)
+        host_message = shell[host_message_start:host_message_end]
+        host_message = host_message.replace("static func failureMessage", "func v3HostAuthFailureMessage")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_auth_classification_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run("import Foundation\n" + failure + "\n" + classifier + "\n" + helper + "\n" + harness,
+        self.compile_and_run("import Foundation\n" + failure + "\n" + classifier + "\n" +
+                             host_message + "\n" + helper + "\n" + harness,
                              "V3_AUTH_AND_PPQ_CLASSIFICATION_PASS")
 
     def test_catalog_response_plist_round_trip_and_encoding_classification_execute(self):
