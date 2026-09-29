@@ -48,12 +48,18 @@ struct AuthIdentityBindingHarness {
 
         // Password-only is a stored credential route, but cannot construct a usable session.
         precondition(!V3AuthIdentityBindingPolicy.hasUsableSession(credentialRoutePresent: true,
-            dsid: nil, xcodeToken: nil, sessionDSID: nil, generationBefore: 1, generationAfter: 1))
+            dsid: nil, xcodeToken: nil, sessionDSID: nil, sessionXcodeToken: nil,
+            generationBefore: 1, generationAfter: 1))
         precondition(V3AuthIdentityBindingPolicy.mayUseTeam(sessionOwner: "b@example.com",
             teamOwner: "B@example.com"), "matching account remains distinct from provisioning state")
         precondition(V3AuthIdentityBindingPolicy.hasUsableSession(credentialRoutePresent: true,
             dsid: "dsid-b", xcodeToken: "token-b", sessionDSID: "dsid-b",
+            sessionXcodeToken: "token-b",
             generationBefore: 8, generationAfter: 8))
+        precondition(!V3AuthIdentityBindingPolicy.hasUsableSession(credentialRoutePresent: true,
+            dsid: "dsid-b", xcodeToken: "token-b2", sessionDSID: "dsid-b",
+            sessionXcodeToken: "token-b1", generationBefore: 8, generationAfter: 8),
+            "a coalesced stale session with the same DSID but rotated token is rejected")
         precondition(V3AuthIdentityBindingPolicy.sameCredentialRoute(
             appleIDBefore: "b@example.com", appleIDAfter: "B@EXAMPLE.COM",
             dsidBefore: "dsid-b", dsidAfter: "dsid-b", tokenBefore: "token-b", tokenAfter: "token-b"))
@@ -65,21 +71,36 @@ struct AuthIdentityBindingHarness {
         precondition(!V3AuthIdentityBindingPolicy.mayUseTeam(sessionOwner: "b@example.com",
             teamOwner: "a@example.com"))
         let staleActiveOwner = V3AuthIdentityBindingPolicy.resolveColdTeamOwner(
-            storedTeamOwner: "a@example.com", activeTeamMatches: true,
+            storedTeamOwners: ["a@example.com"], activeTeamIdentifier: "team-shared",
+            requestedTeamIdentifier: "team-shared",
             activeAccountOwner: "a@example.com", sessionOwner: "b@example.com")
         precondition(!V3AuthIdentityBindingPolicy.mayUseTeam(sessionOwner: "b@example.com",
             teamOwner: staleActiveOwner), "B cannot adopt A's active account/team after B team fetch failed")
         let sharedOrganizationOwner = V3AuthIdentityBindingPolicy.resolveColdTeamOwner(
-            storedTeamOwner: "a@example.com", activeTeamMatches: true,
+            storedTeamOwners: ["a@example.com"], activeTeamIdentifier: "team-shared",
+            requestedTeamIdentifier: "team-shared",
             activeAccountOwner: "b@example.com", sessionOwner: "b@example.com")
         precondition(V3AuthIdentityBindingPolicy.mayUseTeam(sessionOwner: "b@example.com",
             teamOwner: sharedOrganizationOwner),
             "the active B account may bind a shared organization team whose DB relationship stayed A")
         let inactiveStaleOwner = V3AuthIdentityBindingPolicy.resolveColdTeamOwner(
-            storedTeamOwner: "a@example.com", activeTeamMatches: false,
+            storedTeamOwners: ["a@example.com"], activeTeamIdentifier: "team-other",
+            requestedTeamIdentifier: "team-shared",
             activeAccountOwner: "b@example.com", sessionOwner: "b@example.com")
         precondition(!V3AuthIdentityBindingPolicy.mayUseTeam(sessionOwner: "b@example.com",
             teamOwner: inactiveStaleOwner), "a nonactive A team never inherits B ownership")
+        let mixedSnapshotOwner = V3AuthIdentityBindingPolicy.resolveColdTeamOwner(
+            storedTeamOwners: ["a@example.com", "b@example.com"],
+            activeTeamIdentifier: "team-a", requestedTeamIdentifier: "team-b",
+            activeAccountOwner: "b@example.com", sessionOwner: "b@example.com")
+        precondition(mixedSnapshotOwner == nil,
+            "a conflicting/mixed owner snapshot cannot borrow the active B account")
+        let coldMatchingOwner = V3AuthIdentityBindingPolicy.resolveColdTeamOwner(
+            storedTeamOwners: ["b@example.com"], activeTeamIdentifier: nil,
+            requestedTeamIdentifier: "team-b", activeAccountOwner: nil,
+            sessionOwner: "b@example.com")
+        precondition(V3AuthIdentityBindingPolicy.mayUseTeam(sessionOwner: "b@example.com",
+            teamOwner: coldMatchingOwner), "a unique cold Team.account owner matching B remains usable")
         precondition(!V3AuthIdentityBindingPolicy.mayUseTeam(sessionOwner: "b@example.com",
             teamOwner: nil), "an account-less cold DB team with no unique owner fails closed")
         precondition(V3AuthIdentityBindingPolicy.mayUseTeam(sessionOwner: "b@example.com",

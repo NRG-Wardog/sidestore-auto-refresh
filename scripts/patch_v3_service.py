@@ -1940,13 +1940,25 @@ def patch_auth_identity_generation(text):
     marker = "V3_AUTH_IDENTITY_GENERATION_V1"
     if marker in text:
         if ("v3IdentityGeneration" not in text or
-                "v3AdvanceIdentityGeneration()" not in text):
+                "v3AdvanceIdentityGeneration()" not in text or
+                "v3IdentityLock.lock()" not in text or
+                "v3IdentityLock.unlock()" not in text):
             raise SystemExit("v3 service: auth identity generation patch is partial")
         return text
     text = replace(text, "    private init() {}\n", "    private init() {}\n\n"
         "    // " + marker + ": changes only after a complete credential commit or sign-out.\n"
-        "    private(set) var v3IdentityGeneration: UInt64 = 0\n"
-        "    func v3AdvanceIdentityGeneration() { v3IdentityGeneration &+= 1 }\n")
+        "    private let v3IdentityLock = NSLock()\n"
+        "    private var v3IdentityGenerationStorage: UInt64 = 0\n"
+        "    var v3IdentityGeneration: UInt64 {\n"
+        "        v3IdentityLock.lock()\n"
+        "        defer { v3IdentityLock.unlock() }\n"
+        "        return v3IdentityGenerationStorage\n"
+        "    }\n"
+        "    func v3AdvanceIdentityGeneration() {\n"
+        "        v3IdentityLock.lock()\n"
+        "        v3IdentityGenerationStorage &+= 1\n"
+        "        v3IdentityLock.unlock()\n"
+        "    }\n")
     text = replace(text, "    ) {\n        self.session = nil\n", "    ) {\n"
         "        self.v3AdvanceIdentityGeneration()\n"
         "        self.session = nil\n")
@@ -1973,7 +1985,9 @@ def patch_developer_portal_proxy(text):
         required = ("getBoundSession()", "getBoundTeam(_:context:)",
                     "mayFetchTeams(sessionOwner:", "mayUseTeam(sessionOwner:",
                     "fetchTeams(for account: ALTAccount)", "team.account?.appleID",
-                    "databaseOwner(for: team.identifier)", "import CoreData")
+                    "databaseOwnershipSnapshot(for: team.identifier)",
+                    "activeTeam(in: context)", "activeAccount(in: context)",
+                    "setQueryGenerationFrom(.current)", "import CoreData")
         if any(value not in text for value in required):
             raise SystemExit("v3 service: DeveloperPortalProxy identity binding patch is partial")
         return text
@@ -2001,7 +2015,8 @@ def patch_developer_portal_proxy(text):
         guard V3AuthIdentityBindingPolicy.hasUsableSession(
             credentialRoutePresent: credentials?.isAuthenticated == true,
             dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken,
-            sessionDSID: session.dsid, generationBefore: generation,
+            sessionDSID: session.dsid, sessionXcodeToken: session.authToken,
+            generationBefore: generation,
             generationAfter: auth.v3IdentityGeneration),
               V3AuthIdentityBindingPolicy.sameCredentialRoute(
                 appleIDBefore: credentialsBefore?.appleIDEmailAddress,
@@ -2025,7 +2040,8 @@ def patch_developer_portal_proxy(text):
               V3AuthIdentityBindingPolicy.hasUsableSession(
                 credentialRoutePresent: credentials?.isAuthenticated == true,
                 dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken,
-                sessionDSID: context.session.dsid, generationBefore: context.generation,
+                sessionDSID: context.session.dsid, sessionXcodeToken: context.session.authToken,
+                generationBefore: context.generation,
                 generationAfter: auth.v3IdentityGeneration),
               V3AuthIdentityBindingPolicy.mayUseTeam(
                 sessionOwner: context.appleID, teamOwner: credentials?.appleIDEmailAddress) else {
@@ -2033,14 +2049,30 @@ def patch_developer_portal_proxy(text):
         }
     }
 
-    private func databaseOwner(for identifier: String) async throws -> String? {
+    private struct DatabaseTeamOwnershipSnapshot: Sendable {
+        let teamOwners: [String]
+        let activeTeamIdentifier: String?
+        let activeAccountOwner: String?
+    }
+
+    private func databaseOwnershipSnapshot(for identifier: String) async throws -> DatabaseTeamOwnershipSnapshot {
         try await DatabaseManager.shared.persistentContainer.performBackgroundTask { context in
+            // Pin SQLite reads to one generation. In-memory Core Data stores
+            // do not support query generations, but this closure still reads
+            // every ownership fact on the same private context queue.
+            if context.persistentStoreCoordinator?.persistentStores.contains(
+                where: { $0.type == NSSQLiteStoreType }) == true {
+                try context.setQueryGenerationFrom(.current)
+            }
             let request = NSFetchRequest<Team>(entityName: "Team")
             request.predicate = NSPredicate(format: "%K == %@", #keyPath(Team.identifier), identifier)
             let matches = try context.fetch(request)
             let owners = Set(matches.compactMap { $0.account?.appleID }
-                .compactMap(V3AuthIdentityBindingPolicy.normalizedOwner))
-            return owners.count == 1 ? owners.first : nil
+                .compactMap(V3AuthIdentityBindingPolicy.normalizedOwner)).sorted()
+            let activeTeamIdentifier = DatabaseManager.shared.activeTeam(in: context)?.identifier
+            let activeAccountOwner = DatabaseManager.shared.activeAccount(in: context)?.appleID
+            return DatabaseTeamOwnershipSnapshot(teamOwners: owners,
+                activeTeamIdentifier: activeTeamIdentifier, activeAccountOwner: activeAccountOwner)
         }
     }
 
@@ -2050,12 +2082,13 @@ def patch_developer_portal_proxy(text):
         // the requested ALTAccount. Trust that explicit owner; a prior DB row
         // with the same team identifier may belong to a different account.
         if let directOwner { return directOwner }
-        let databaseOwner = try await databaseOwner(for: team.identifier)
-        let activeTeamMatches = DatabaseManager.shared.activeTeam()?.identifier == team.identifier
-        let activeAccountOwner = DatabaseManager.shared.activeAccount()?.appleID
+        let databaseSnapshot = try await databaseOwnershipSnapshot(for: team.identifier)
         return V3AuthIdentityBindingPolicy.resolveColdTeamOwner(
-            storedTeamOwner: databaseOwner, activeTeamMatches: activeTeamMatches,
-            activeAccountOwner: activeAccountOwner, sessionOwner: context.appleID)
+            storedTeamOwners: databaseSnapshot.teamOwners,
+            activeTeamIdentifier: databaseSnapshot.activeTeamIdentifier,
+            requestedTeamIdentifier: team.identifier,
+            activeAccountOwner: databaseSnapshot.activeAccountOwner,
+            sessionOwner: context.appleID)
     }
 
     private func getBoundTeam(_ team: ALTTeam? = nil, context: BoundSession) async throws -> ALTTeam {

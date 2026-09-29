@@ -1635,6 +1635,8 @@ import Foundation
         self.assertEqual(generated.count("V3_AUTH_IDENTITY_BOUND_DEVELOPER_PORTAL_V1"), 1)
         self.assertIn("import CoreData", generated)
         self.assertIn("sessionDSID: session.dsid", generated)
+        self.assertIn("sessionXcodeToken: session.authToken", generated)
+        self.assertIn("sessionXcodeToken: context.session.authToken", generated)
         self.assertIn("generationBefore: generation", generated)
         self.assertIn("cancelled: Task.isCancelled", generated)
         self.assertIn("requestedOwner: account.appleID", generated)
@@ -1642,12 +1644,27 @@ import Foundation
         self.assertIn("$0.account?.appleID", generated)
         self.assertIn("#keyPath(Team.identifier)", generated)
         self.assertIn("resolveColdTeamOwner(", generated)
-        self.assertIn("DatabaseManager.shared.activeTeam()?.identifier == team.identifier", generated)
-        self.assertIn("DatabaseManager.shared.activeAccount()?.appleID", generated)
+        self.assertIn("DatabaseManager.shared.activeTeam(in: context)?.identifier", generated)
+        self.assertIn("DatabaseManager.shared.activeAccount(in: context)?.appleID", generated)
+        self.assertIn("try context.setQueryGenerationFrom(.current)", generated)
+        self.assertIn("private struct DatabaseTeamOwnershipSnapshot: Sendable", generated)
+        self.assertNotIn("DatabaseManager.shared.activeTeam()", generated)
+        self.assertNotIn("DatabaseManager.shared.activeAccount()", generated)
         self.assertLess(generated.index("if let directOwner { return directOwner }"),
-                        generated.index("databaseOwner(for: team.identifier)"))
+                        generated.index("databaseOwnershipSnapshot(for: team.identifier)"))
+        read_start = generated.index("private func databaseOwnershipSnapshot(for identifier:")
+        read_end = generated.index("private func owner(for team:", read_start)
+        ownership_read = generated[read_start:read_end]
+        self.assertEqual(ownership_read.count("performBackgroundTask"), 1)
+        self.assertLess(ownership_read.index("setQueryGenerationFrom(.current)"),
+                        ownership_read.index("context.fetch(request)"))
+        self.assertLess(ownership_read.index("context.fetch(request)"),
+                        ownership_read.index("activeTeam(in: context)"))
+        self.assertLess(ownership_read.index("activeTeam(in: context)"),
+                        ownership_read.index("activeAccount(in: context)"))
+        self.assertIn("DatabaseTeamOwnershipSnapshot(teamOwners: owners", ownership_read)
         self.assertIn("mayDispatchTeamRequest(", generated)
-        self.assertNotIn("teamOwners", generated,
+        self.assertNotIn("private static var teamOwners", generated,
                          "account-bound ALTTeam ownership and CoreData relation avoid a stale global team-ID map")
 
         fetch_teams = generated[generated.index("public func fetchTeams(for account:"):]
@@ -1693,6 +1710,9 @@ import Foundation
                 "    private init() {}\n    public func signOut() {\n        self.session = nil\n    }\n")
         self.assertGreaterEqual(updated_auth.count("v3IdentityGeneration"), 2)
         self.assertIn("self.v3AdvanceIdentityGeneration()", updated_auth)
+        self.assertIn("private let v3IdentityLock = NSLock()", updated_auth)
+        self.assertIn("v3IdentityLock.lock()", updated_auth)
+        self.assertIn("v3IdentityLock.unlock()", updated_auth)
         for setter in ("appleIDEmailAddress", "appleIDPassword", "appleIDAdsid", "appleIDXcodeToken"):
             self.assertIn(f"Keychain.shared.{setter} = newValue; self.v3AdvanceIdentityGeneration()", updated_auth)
 

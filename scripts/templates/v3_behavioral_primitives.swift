@@ -3593,12 +3593,14 @@ enum V3AuthIdentityBindingPolicy {
 
     static func hasUsableSession(credentialRoutePresent: Bool, dsid: String?,
                                  xcodeToken: String?, sessionDSID: String?,
+                                 sessionXcodeToken: String?,
                                  generationBefore: UInt64, generationAfter: UInt64) -> Bool {
         guard hasTokenBackedRoute(credentialRoutePresent: credentialRoutePresent,
                 dsid: dsid, xcodeToken: xcodeToken), generationBefore == generationAfter,
-              let dsid,
-              let sessionDSID, !sessionDSID.isEmpty else { return false }
-        return dsid == sessionDSID
+              let dsid, let xcodeToken,
+              let sessionDSID, !sessionDSID.isEmpty,
+              let sessionXcodeToken, !sessionXcodeToken.isEmpty else { return false }
+        return dsid == sessionDSID && xcodeToken == sessionXcodeToken
     }
 
     static func sameCredentialRoute(appleIDBefore: String?, appleIDAfter: String?,
@@ -3614,12 +3616,15 @@ enum V3AuthIdentityBindingPolicy {
         return sessionOwner == teamOwner
     }
 
-    static func resolveColdTeamOwner(storedTeamOwner: String?, activeTeamMatches: Bool,
+    static func resolveColdTeamOwner(storedTeamOwners: [String],
+                                     activeTeamIdentifier: String?, requestedTeamIdentifier: String,
                                      activeAccountOwner: String?, sessionOwner: String?) -> String? {
+        let activeTeamMatches = activeTeamIdentifier == requestedTeamIdentifier
         if activeTeamMatches, mayUseTeam(sessionOwner: sessionOwner, teamOwner: activeAccountOwner) {
             return normalizedOwner(sessionOwner)
         }
-        return normalizedOwner(storedTeamOwner)
+        let owners = Set(storedTeamOwners.compactMap(normalizedOwner))
+        return owners.count == 1 ? owners.first : nil
     }
 
     static func mayFetchTeams(sessionOwner: String?, requestedOwner: String?,

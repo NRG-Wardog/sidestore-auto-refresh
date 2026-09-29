@@ -1,5 +1,6 @@
 """Compile production state helpers and execute race/file-lifecycle scenarios."""
 import os
+import importlib.util
 from pathlib import Path
 import shutil
 import subprocess
@@ -504,6 +505,36 @@ struct V3ReadinessAndDiagnosticsContractHarness {
         harness = (ROOT / "tests/fixtures/v3_auth_identity_binding_harness.swift").read_text(encoding="utf-8")
         self.compile_and_run("import Foundation\n" + production_policy + "\n" + harness,
                              "V3_AUTH_IDENTITY_BINDING_PASS")
+
+    def test_generated_coredata_owner_snapshot_executes_in_memory(self):
+        if sys.platform != "darwin":
+            self.skipTest("Core Data behavioral harness requires macOS")
+        self.assertTrue(SWIFTC, "macOS CI must provide swiftc for the Core Data ownership harness")
+        side = Path(os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE", ""))
+        if not side.is_dir():
+            side = ROOT.parents[2] / "v3-side-upstream"
+        self.assertTrue(side.is_dir(), "macOS CI must provide the pinned SideStore source")
+        patch_script = ROOT / "scripts/patch_v3_service.py"
+        spec = importlib.util.spec_from_file_location("patch_v3_service_coredata_test", patch_script)
+        patcher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(patcher)
+        revision = subprocess.check_output(["git", "-C", str(side), "rev-parse", "HEAD"], text=True).strip()
+        self.assertEqual(revision, patcher.PINS[1])
+        pinned = subprocess.check_output(["git", "-C", str(side), "show",
+            f"{revision}:SideStore/Core/Auth/DeveloperPortalProxy.swift"], text=True, encoding="utf-8")
+        generated = patcher.patch_developer_portal_proxy(pinned)
+        start = generated.index("    private struct DatabaseTeamOwnershipSnapshot")
+        end = generated.index("    private func owner(for team:", start)
+        generated_reader = generated[start:end]
+        fixture = (ROOT / "tests/fixtures/v3_auth_identity_coredata_harness.swift").read_text(encoding="utf-8")
+        self.assertEqual(fixture.count("/*GENERATED_OWNER_SNAPSHOT*/"), 1)
+        fixture = fixture.replace("    /*GENERATED_OWNER_SNAPSHOT*/", generated_reader.rstrip())
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        policy_start = primitives.index("enum V3ProvisioningResumeAvailabilityPolicy {")
+        policy_end = primitives.index("enum V3ProvisioningResumeIdentityPolicy {", policy_start)
+        production_policy = primitives[policy_start:policy_end]
+        self.compile_and_run("enum V3WireContract {}\n" + production_policy + "\n" + fixture,
+                             "V3_AUTH_IDENTITY_COREDATA_PASS")
 
 
 if __name__ == "__main__":

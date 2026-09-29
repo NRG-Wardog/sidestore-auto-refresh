@@ -757,7 +757,8 @@ final class V3AuthCenter {
             guard V3AuthIdentityBindingPolicy.hasUsableSession(
                     credentialRoutePresent: credentials?.isAuthenticated == true,
                     dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken,
-                    sessionDSID: result.session.dsid, generationBefore: identityGeneration,
+                    sessionDSID: result.session.dsid, sessionXcodeToken: result.session.authToken,
+                    generationBefore: identityGeneration,
                     generationAfter: AuthManager.shared.v3IdentityGeneration) else {
                 throw OperationError.notAuthenticated
             }
