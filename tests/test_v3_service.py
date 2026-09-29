@@ -285,6 +285,10 @@ enum V3BackendCommands {{
         log_method = self.swift_declaration(generated_manager, "func log(_ error: Error")
         self.assertIn("V3PersistedErrorSanitizer.sanitize(error as NSError)", log_method)
         self.assertNotIn("sanitizedForSerialization()", log_method)
+        self.assertIn("source.error = V3PersistedErrorSanitizer.sanitize(error as NSError)", generated_manager)
+        self.assertIn("V3PersistedErrorSanitizer.sanitize(mergeError as NSError)", generated_manager)
+        self.assertNotIn("source.error = error.sanitizedForSerialization()", generated_manager)
+        self.assertNotIn("(mergeError as NSError).sanitizedForSerialization()", generated_manager)
 
         history_path = "AltStore/Core/Model/RefreshAttempt.swift"
         history = subprocess.check_output(
@@ -295,13 +299,33 @@ enum V3BackendCommands {{
         self.assertIn("V3PersistedErrorSanitizer.refreshHistoryDescription(for: error)", generated_history)
         self.assertNotIn("error.localizedDescription", generated_history)
 
+        intent_path = "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift"
+        intent_source = subprocess.check_output(
+            ["git", "-C", str(side_source), "show", service.PINS[1] + ":" + intent_path],
+            text=True, encoding="utf-8")
+        generated_intent = service.headless_app_intents(intent_source, "RefreshAllAppsIntent.swift")
+        self.assertEqual(service.headless_app_intents(generated_intent, "RefreshAllAppsIntent.swift"), generated_intent)
+        intent_error = self.swift_declaration(generated_intent, "class IntentError:")
+        self.assertIn("V3PersistedErrorSanitizer.sanitize(error as NSError)", intent_error)
+        self.assertIn('return "\\(self.localizedDescription)"', intent_error)
+
+        merge_path = "AltStore/Core/Model/MergePolicies/MergePolicy.swift"
+        merge_policy = subprocess.check_output(
+            ["git", "-C", str(side_source), "show", service.PINS[1] + ":" + merge_path],
+            text=True, encoding="utf-8")
+        merge_serializer = self.swift_declaration(merge_policy, "func serialized(withFailure failure: String)")
+        self.assertIn("self as NSError).withLocalizedFailure(failure).sanitizedForSerialization()", merge_serializer)
+        self.assertIn("throw nsError", merge_policy)
+
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift compiler unavailable; generated sanitizer execution runs in macOS CI")
 
         helper = self.swift_declaration(generated_manager, "enum V3PersistedErrorSanitizer")
         harness = '''import Foundation
+import AppIntents
 ''' + helper + '''
+''' + intent_error + '''
 
 let secret = "SECRET_RAW_2FA_OR_PROVIDER_RESPONSE"
 let nested = NSError(domain: "SideSignErrorDomain", code: 7, userInfo: [NSLocalizedDescriptionKey: secret])
@@ -313,6 +337,7 @@ let original = NSError(domain: "SideSignErrorDomain", code: -1005, userInfo: [
     NSUnderlyingErrorKey: nested
 ])
 let stored = V3PersistedErrorSanitizer.sanitize(original)
+let shortcutError = IntentError(original)
 let unknownDomain = V3PersistedErrorSanitizer.sanitize(
     NSError(domain: "private-" + secret, code: 901, userInfo: [NSLocalizedDescriptionKey: secret])
 )
@@ -333,6 +358,8 @@ precondition((decoded["code"] as? Int) == -1005)
 precondition(Set(decodedInfo.keys) == Set([NSLocalizedDescriptionKey]))
 precondition(decodedInfo[NSLocalizedDescriptionKey] as? String == V3PersistedErrorSanitizer.safeDescription)
 precondition((decoded["refreshHistory"] as? String) == V3PersistedErrorSanitizer.safeDescription)
+precondition(shortcutError.localizedDescription == V3PersistedErrorSanitizer.safeDescription)
+precondition(String(localized: shortcutError.localizedStringResource) == V3PersistedErrorSanitizer.safeDescription)
 precondition(decoded["unknownDomain"] as? String == "V3RedactedErrorDomain")
 precondition((decoded["unknownCode"] as? Int) == 0)
 precondition(Set((decoded["unknownUserInfo"] as! [String: Any]).keys) == Set([NSLocalizedDescriptionKey]))
@@ -1171,6 +1198,22 @@ import Foundation
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory),
                              "v35 generated trees must be discarded without partial migration")
+
+    def test_v37_manifest_fails_closed_without_mutation(self):
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            roots = self.fixture(directory)
+            self.apply(roots)
+            manifest_path = roots[0] / ".v3-command-patch.json"
+            prior = json.loads(manifest_path.read_text(encoding="utf-8"))
+            prior["patchVersion"] = 37
+            manifest_path.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
+            before = self.snapshot(directory)
+            with self.assertRaisesRegex(SystemExit,
+                                        f"prepared patch version 37 cannot be migrated safely to v{service.PATCH_VERSION}"):
+                self.apply(roots)
+            self.assertEqual(before, self.snapshot(directory),
+                             "v37 generated trees must be discarded without partial migration")
 
     def test_pinned_headless_ui_adapter_verifier_rejects_drift(self):
         side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")

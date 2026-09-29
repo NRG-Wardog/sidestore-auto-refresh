@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 37
+PATCH_VERSION = 38
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -964,7 +964,21 @@ def headless_app_manager_persisted_error_privacy(text):
         text = replace(text, old, new)
     elif new not in text:
         raise SystemExit("v3 service: AppManager error persistence callsite changed")
-    if marker not in text or "sanitizedForSerialization()" in text[text.index("    func log(_ error:"):text.index("\n    }", text.index("    func log(_ error:"))]:
+    persistence_sites = (
+        ("source.error = error.sanitizedForSerialization()",
+         "source.error = V3PersistedErrorSanitizer.sanitize(error as NSError)"),
+        ("let sanitizedError = (mergeError as NSError).sanitizedForSerialization()",
+         "let sanitizedError = V3PersistedErrorSanitizer.sanitize(mergeError as NSError)"),
+    )
+    for original, safe in persistence_sites:
+        if original in text:
+            text = replace(text, original, safe)
+        elif safe not in text:
+            raise SystemExit("v3 service: Source.error persistence callsite changed")
+    log_start = text.index("    func log(_ error:")
+    log_end = text.index("\n    }", log_start)
+    if (marker not in text or "sanitizedForSerialization()" in text[log_start:log_end]
+            or any(original in text for original, _ in persistence_sites)):
         raise SystemExit("v3 service: AppManager persistence privacy transformation is partial")
     return text
 
@@ -980,6 +994,20 @@ def headless_refresh_attempt_error_privacy(text):
         return text
     if text.count(old) != 1:
         raise SystemExit("v3 service: RefreshAttempt errorDescription assignment changed")
+    return replace(text, old, new)
+
+
+def headless_intent_error_privacy(text):
+    marker = "V3_INTENT_ERROR_PRIVACY_V1"
+    old = "        let serializedError = (error as NSError).sanitizedForSerialization()"
+    new = ("        // " + marker + ": Shortcuts/Siri receive only safe structured identity and fixed copy.\n"
+           "        let serializedError = V3PersistedErrorSanitizer.sanitize(error as NSError)")
+    if marker in text:
+        if text.count(marker) != 1 or old in text or new not in text:
+            raise SystemExit("v3 service: App Intent error privacy transformation is partial")
+        return text
+    if text.count(old) != 1:
+        raise SystemExit("v3 service: IntentError initializer changed")
     return replace(text, old, new)
 
 
@@ -1235,6 +1263,8 @@ def headless_minimuxer_connection_binding(text):
 
 
 def headless_app_intents(text, relative):
+    if relative.endswith("RefreshAllAppsIntent.swift"):
+        text = headless_intent_error_privacy(text)
     marker = "V3_HEADLESS_INSTALL_IPA_INTENT_REMOVED_V1"
     if marker in text:
         if "InstallIPAIntent" in text:
@@ -1889,6 +1919,8 @@ def verify_headless_ui_adapters(side, pinned_ref):
         ("SideStore/Core/Auth/AuthManager.swift", headless_auth_manager),
         ("AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui),
         ("AltStore/Core/Model/RefreshAttempt.swift", headless_refresh_attempt_error_privacy),
+        ("AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+         lambda source: headless_app_intents(source, "RefreshAllAppsIntent.swift")),
         ("SideStore/AppBootManager.swift", headless_app_boot_manager),
         ("SideStore/Core/JIT/SideJITManager.swift", headless_sidejit_manager),
         ("SideStore/Core/Pairing/PairingFileManager.swift", headless_pairing_file_manager),
