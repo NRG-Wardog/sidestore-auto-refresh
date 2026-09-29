@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 43
+PATCH_VERSION = 44
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -1468,6 +1468,127 @@ def headless_pipeline_persistence_contract(text):
     return text.replace(old, new, 1)
 
 
+V3_CERTIFICATE_SERIAL_LOG_MARKER = "V3_CERTIFICATE_SERIAL_LOG_REDACTION_V1"
+V3_CERTIFICATE_SERIAL_LOG_IDENTIFIERS = (
+    "serialNumber", "serialHex", "serialNumDecimal", "installedAppSerial",
+    "overrideCertSerial", "activeCertSerial", "targetSigningCertSerial",
+    "portalCertificateSerials", "mainBundleCertSerial",
+)
+
+
+def contains_certificate_serial_log_identifier(call):
+    folded = call.casefold()
+    return any(identifier.casefold() in folded
+               for identifier in V3_CERTIFICATE_SERIAL_LOG_IDENTIFIERS)
+
+
+def _swift_log_call_ranges(text):
+    """Return complete debugLog/verboseLog calls, including interpolated strings."""
+    pattern = re.compile(r"(?<![A-Za-z0-9_.])(?:self\.)?(?:debugLog|verboseLog)\s*\(")
+    ranges = []
+    for match in pattern.finditer(text):
+        # The match includes the first string quote so Swift triple strings and
+        # nested quoted values inside string interpolation are lexed correctly.
+        opening = text.find("(", match.start(), match.end())
+        if opening < 0:
+            continue
+        stack = [("code", 1, False)]  # mode, delimiter depth, triple-string flag
+        index = opening + 1
+        while index < len(text) and stack:
+            mode, depth, triple = stack[-1]
+            if mode == "string":
+                if triple and text.startswith('"""', index):
+                    stack.pop()
+                    index += 3
+                    continue
+                if not triple and text[index] == '"':
+                    stack.pop()
+                    index += 1
+                    continue
+                if text[index] == "\\":
+                    if index + 1 < len(text) and text[index + 1] == "(":
+                        stack.append(("interpolation", 1, False))
+                        index += 2
+                    else:
+                        index += min(2, len(text) - index)
+                    continue
+                index += 1
+                continue
+
+            # Code context: either the call argument or Swift string interpolation.
+            if text.startswith("//", index):
+                newline = text.find("\n", index + 2)
+                index = len(text) if newline < 0 else newline + 1
+                continue
+            if text.startswith("/*", index):
+                comment_depth = 1
+                index += 2
+                while index < len(text) and comment_depth:
+                    if text.startswith("/*", index):
+                        comment_depth += 1
+                        index += 2
+                    elif text.startswith("*/", index):
+                        comment_depth -= 1
+                        index += 2
+                    else:
+                        index += 1
+                continue
+            if text.startswith('"""', index):
+                stack.append(("string", 0, True))
+                index += 3
+                continue
+            if text[index] == '"':
+                stack.append(("string", 0, False))
+                index += 1
+                continue
+            if mode == "interpolation":
+                if text[index] == "(":
+                    stack[-1] = (mode, depth + 1, False)
+                elif text[index] == ")":
+                    if depth == 1:
+                        stack.pop()
+                    else:
+                        stack[-1] = (mode, depth - 1, False)
+                index += 1
+                continue
+            if text[index] == "(":
+                stack[-1] = (mode, depth + 1, False)
+            elif text[index] == ")":
+                if depth == 1:
+                    ranges.append((match.start(), index + 1, text[match.start():index + 1]))
+                    break
+                stack[-1] = (mode, depth - 1, False)
+            index += 1
+    return ranges
+
+
+def headless_certificate_serial_log_redaction(text, owner):
+    """Replace certificate-serial-bearing backend log calls with safe summaries."""
+    if V3_CERTIFICATE_SERIAL_LOG_MARKER in text:
+        calls = [value for _, _, value in _swift_log_call_ranges(text)]
+        if any(contains_certificate_serial_log_identifier(call) for call in calls):
+            raise SystemExit(f"v3 service: certificate serial logging remains in {owner}")
+        return text
+
+    replacements = []
+    for start, end, call in _swift_log_call_ranges(text):
+        if not contains_certificate_serial_log_identifier(call):
+            continue
+        prefix = "self." if call.startswith("self.") else ""
+        logger = "verboseLog" if "verboseLog" in call[:call.index("(")] else "debugLog"
+        replacements.append((start, end,
+            f'{prefix}{logger}("[{owner}] Certificate identity details omitted.")'))
+    if not replacements:
+        raise SystemExit(f"v3 service: no certificate serial log anchors found in {owner}")
+    for start, end, replacement in reversed(replacements):
+        text = text[:start] + replacement + text[end:]
+    text = "// " + V3_CERTIFICATE_SERIAL_LOG_MARKER + ": certificate serials are password-equivalent and never logged.\n" + text
+    calls = [value for _, _, value in _swift_log_call_ranges(text)]
+    if any(contains_certificate_serial_log_identifier(call) for call in calls):
+        raise SystemExit(f"v3 service: certificate serial redaction was incomplete in {owner}")
+    return text
+
+
 def headless_connection_config(text):
     marker = "V3_HEADLESS_CONNECTION_CONFIG_MOVED_V1"
     replacement = "// " + marker + ": transport settings now live in Core/DeviceApi/ConnectionConfig.swift.\n"
@@ -1871,6 +1992,15 @@ def patch(live, side):
     edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager)
     edit(side, "SideStore/Core/Operations/PipelineRunner.swift",
          headless_pipeline_persistence_contract)
+    certificate_serial_log_files = (
+        ("SideStore/Core/Certificates/CertificateManager.swift", "CertificateManager"),
+        ("SideStore/Core/Certificates/OCSPValidator.swift", "OCSPValidator"),
+        ("SideStore/Core/Operations/PipelineOperations/VerifyCertificateOperation.swift", "VerifyCertificateOperation"),
+        ("SideStore/Core/Operations/PipelineOperations/UpdateAppCertificateOperation.swift", "UpdateAppCertificateOperation"),
+    )
+    for relative, owner in certificate_serial_log_files:
+        edit(side, relative, lambda source, owner=owner:
+             headless_certificate_serial_log_redaction(source, owner))
     edit(side, "AltStore/Core/Model/RefreshAttempt.swift", headless_refresh_attempt_error_privacy)
     edit(side, "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift",
          headless_featured_sort_startup)
@@ -1895,6 +2025,8 @@ def patch(live, side):
          headless_widget_refresh_intent)
     edit(side, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
          patch_sign_in_operation)
+    edit(side, "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+         lambda source: headless_certificate_serial_log_redaction(source, "SignInOperation"))
     edit(side, "AltStore/Info.plist", headless_info)
     edit(side, "AltStore.xcodeproj/project.pbxproj", headless_project)
     edit(side, "SideStore/Core/Logging/SideStoreLogging.swift", headless_safe_log_format)
@@ -2132,6 +2264,7 @@ def verify_sign_in_operation(side, pinned_ref):
         text=True, encoding="utf-8")
     expected = patch_sign_in_operation(source)
     expected = apply_embedded_credential_snapshot_patch(expected, "patch_sign_in_operation")
+    expected = headless_certificate_serial_log_redaction(expected, "SignInOperation")
     actual = (side / relative).read_text(encoding="utf-8")
     if actual != expected:
         raise SystemExit("v3 service: SignInOperation differs from the exact generated pinned patch")
