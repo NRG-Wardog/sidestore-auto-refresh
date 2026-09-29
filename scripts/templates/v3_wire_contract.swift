@@ -106,7 +106,8 @@ enum V3WireContract {
         "signOut", "syncAppIDs", "clearCache", "jit", "backupResult",
         "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning",
         "opStart", "opPoll", "opAnswer", "opCancel", "opRecoveryPrepare", "opRecoveryReconcile",
-        "refreshAdmissionReconcile", "recoveryDiscardUnreadable", "ipaCleanup", "ipaActiveTokens",
+        "refreshAdmissionReconcile", "recoveryDiscardUnreadable", "directRecoveryInspect",
+        "directRecoveryReconcile", "ipaCleanup", "ipaActiveTokens",
         "certList", "certSetActive", "certDelete", "certPortalList", "certRevoke", "certCreate",
         "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles",
         "sourcePreview", "sourceAddConfirmed", "sourceRemoveConfirmed",
@@ -118,7 +119,8 @@ enum V3WireContract {
         "authPoll", "opPoll", "opCancel", "ipaCleanup", "ipaActiveTokens", "authCancel", "certList", "certPortalList",
         "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles",
         "sourcePreview", "settingsGet",
-        "anisetteList", "sidesignGet", "sidesignExport", "logTail", "healthSnapshot"]
+        "anisetteList", "sidesignGet", "sidesignExport", "logTail", "healthSnapshot",
+        "directRecoveryInspect"]
 
     static func decodeRequest(_ data: Data, now: Date = Date()) -> [String: Any]? {
         guard data.count <= requestLimit,
@@ -143,7 +145,7 @@ enum V3WireContract {
         if ["authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning",
             "opPoll", "opAnswer", "opCancel", "pairingImportData", "sidesignImport", "accountImport",
             "refreshAdmissionBegin", "refreshAdmissionEnd", "refreshAdmissionReconcile",
-            "opRecoveryReconcile", "cancel"].contains(operation),
+            "opRecoveryReconcile", "directRecoveryInspect", "directRecoveryReconcile", "cancel"].contains(operation),
            !canonicalSecretToken(target) { return nil }
         if operation == "ipaCleanup", !canonicalLowercaseFileToken(target) { return nil }
         if ["appIcon", "jit"].contains(operation),
@@ -176,7 +178,7 @@ enum V3WireContract {
     private static let requiredPayloadOperations: Set<String> = [
         "authBegin", "authRetryProvisioning", "authRespond", "opAnswer", "opStart", "opRecoveryPrepare",
         "cancel", "accountExport", "accountImport", "settingsSet", "sidesignSet", "refreshAdmissionEnd",
-        "recoveryDiscardUnreadable"
+        "recoveryDiscardUnreadable", "directRecoveryReconcile"
     ]
 
     private static func acceptsPayload(operation: String, target: String,
@@ -223,6 +225,8 @@ enum V3WireContract {
                   let session = payload["session"] as? String, canonicalSecretToken(session) else { return false }
             return acceptsOperationTarget(kind: kind, target: operationTarget)
         case "opRecoveryReconcile", "refreshAdmissionReconcile":
+            return Set(payload.keys) == Set(["userConfirmed"]) && strictBool(payload["userConfirmed"]) == true
+        case "directRecoveryReconcile":
             return Set(payload.keys) == Set(["userConfirmed"]) && strictBool(payload["userConfirmed"]) == true
         case "recoveryDiscardUnreadable":
             return Set(payload.keys) == Set(["userConfirmed"]) && strictBool(payload["userConfirmed"]) == true
@@ -444,7 +448,7 @@ struct V3MutationReplyCacheBudget {
     private(set) var storedBytes = 0
 
     static func isControlReply(operation: String) -> Bool {
-        ["refreshAdmissionEnd", "refreshAdmissionReconcile", "opRecoveryReconcile", "recoveryDiscardUnreadable",
+        ["refreshAdmissionEnd", "refreshAdmissionReconcile", "opRecoveryReconcile", "directRecoveryReconcile", "recoveryDiscardUnreadable",
          "authBegin", "authRetryProvisioning", "opStart"]
             .contains(operation) || V3RequestReplayPolicy.requiresCompletedReply(operation: operation)
     }

@@ -35,6 +35,185 @@ enum V3CertificateCreateAdapter {
 // Shared by LiveContainer's App Group and this service process. Serialization
 // uses the existing process-shared App Group lock; the record stores only IDs
 // and fixed allow-listed markers.
+private enum V3DirectMutationRecoveryPhase: String {
+    case prepared, dispatched, terminal, unknown
+}
+
+private enum V3DirectMutationRecoveryHash {
+    static func digest(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+private struct V3DirectMutationRecoveryRecord {
+    let requestID: String
+    let operation: String
+    let phase: V3DirectMutationRecoveryPhase
+    let serviceInstanceID: String
+    let targetDigest: String?
+    let teamDigest: String?
+    let identityStampDigest: String?
+    let settingsKey: String?
+    let settingsType: String?
+    let settingsBool: Bool?
+    let settingsInt: Int?
+    let settingsValueDigest: String?
+    let terminalOutcome: String?
+
+    // Scope classification: certSetActive/certDelete are local desired-state
+    // writes with certList/snapshot readback; signOut has checked keychain and
+    // identity-snapshot postconditions; syncAppIDs/refreshSources have callback
+    // completion plus developer/source-list readback; clearCache is repeatable;
+    // JIT is repeatable enable but still needs device-side verification. SideSign
+    // and Anisette replace/reset operations expose getters for readback. These
+    // are not covered by this lease and must not be added without their own
+    // reconciliation rule. accountImport has an identity-transition wrapper
+    // but no idempotency key or durable postcondition, so it is included as a
+    // manual-check-only operation. Long auth/op/refresh flows retain their
+    // session-owned recovery paths.
+    static let allowedOperations: Set<String> = [
+        "certCreate", "certRevoke", "sourceAddConfirmed", "sourceRemoveConfirmed",
+        "pairingImportData", "settingsSet", "accountImport"
+    ]
+
+    static func isEligible(request: [String: Any]) -> Bool {
+        guard let operation = request["operation"] as? String,
+              allowedOperations.contains(operation) else { return false }
+        guard operation == "settingsSet" else { return true }
+        let payload = request["payload"] as? [String: Any] ?? [:]
+        guard let key = payload["key"] as? String, let type = payload["type"] as? String else { return false }
+        switch type {
+        case "bool":
+            return (V3BackendCommands.boolSettings.contains(key) || key == "widgetVerboseLogging") &&
+                V3WireContract.strictBool(payload["bool"]) != nil
+        case "int":
+            return V3BackendCommands.intSettings.contains(key) && V3WireContract.strictInt(payload["int"]) != nil
+        case "string":
+            return V3BackendCommands.stringSettings.contains(key) && payload["string"] is String
+        default: return false
+        }
+    }
+
+    init?(requestID: String, operation: String, phase: V3DirectMutationRecoveryPhase,
+          serviceInstanceID: String, targetDigest: String? = nil, teamDigest: String? = nil,
+          identityStampDigest: String? = nil,
+          settingsKey: String? = nil,
+          settingsType: String? = nil, settingsBool: Bool? = nil, settingsInt: Int? = nil,
+          settingsValueDigest: String? = nil, terminalOutcome: String? = nil) {
+        guard UUID(uuidString: requestID)?.uuidString == requestID,
+              Self.allowedOperations.contains(operation),
+              UUID(uuidString: serviceInstanceID)?.uuidString == serviceInstanceID,
+              targetDigest.map({ $0.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil }) ?? true,
+              teamDigest.map({ $0.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil }) ?? true,
+              identityStampDigest.map({ $0.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil }) ?? true,
+              settingsKey.map({ !$0.isEmpty && $0.utf8.count <= 256 }) ?? true,
+              settingsType.map({ ["bool", "int", "string"].contains($0) }) ?? true,
+              settingsValueDigest.map({ $0.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil }) ?? true,
+              terminalOutcome.map({ ["completed", "createdAndStored", "remoteCreatedLocalStorageUnverified"].contains($0) }) ?? true else {
+            return nil
+        }
+        if operation == "settingsSet" {
+            guard settingsKey != nil, settingsType != nil else { return nil }
+            switch settingsType {
+            case "bool": guard settingsBool != nil, settingsInt == nil, settingsValueDigest == nil else { return nil }
+            case "int": guard settingsInt != nil, settingsBool == nil, settingsValueDigest == nil else { return nil }
+            case "string": guard settingsBool == nil, settingsInt == nil else { return nil }
+            default: return nil
+            }
+        } else if settingsKey != nil || settingsType != nil || settingsBool != nil ||
+                    settingsInt != nil || settingsValueDigest != nil {
+            return nil
+        }
+        if operation != "certRevoke", (teamDigest != nil || identityStampDigest != nil) { return nil }
+        if phase == .terminal {
+            guard terminalOutcome != nil else { return nil }
+        } else if terminalOutcome != nil {
+            return nil
+        }
+        self.requestID = requestID
+        self.operation = operation
+        self.phase = phase
+        self.serviceInstanceID = serviceInstanceID
+        self.targetDigest = targetDigest
+        self.teamDigest = teamDigest
+        self.identityStampDigest = identityStampDigest
+        self.settingsKey = settingsKey
+        self.settingsType = settingsType
+        self.settingsBool = settingsBool
+        self.settingsInt = settingsInt
+        self.settingsValueDigest = settingsValueDigest
+        self.terminalOutcome = terminalOutcome
+    }
+
+    var propertyListRepresentation: [String: Any] {
+        var value: [String: Any] = ["version": 2, "recordType": "directMutation",
+            "requestID": requestID, "operation": operation, "phase": phase.rawValue,
+            "serviceInstanceID": serviceInstanceID]
+        if let targetDigest { value["targetDigest"] = targetDigest }
+        if let teamDigest { value["teamDigest"] = teamDigest }
+        if let identityStampDigest { value["identityStampDigest"] = identityStampDigest }
+        if let settingsKey { value["settingsKey"] = settingsKey }
+        if let settingsType { value["settingsType"] = settingsType }
+        if let settingsBool { value["settingsBool"] = settingsBool }
+        if let settingsInt { value["settingsInt"] = settingsInt }
+        if let settingsValueDigest { value["settingsValueDigest"] = settingsValueDigest }
+        if let terminalOutcome { value["terminalOutcome"] = terminalOutcome }
+        return value
+    }
+
+    static func decode(_ value: Any) -> V3DirectMutationRecoveryRecord? {
+        guard let plist = value as? [String: Any],
+              let version = plist["version"] as? NSNumber,
+              CFGetTypeID(version) != CFBooleanGetTypeID(), version.intValue == 2,
+              plist["recordType"] as? String == "directMutation",
+              let requestID = plist["requestID"] as? String,
+              let operation = plist["operation"] as? String,
+              let phaseRaw = plist["phase"] as? String,
+              let phase = V3DirectMutationRecoveryPhase(rawValue: phaseRaw),
+              let serviceInstanceID = plist["serviceInstanceID"] as? String else { return nil }
+        let allowed: Set<String> = ["version", "recordType", "requestID", "operation", "phase",
+            "serviceInstanceID", "targetDigest", "settingsKey", "settingsType", "settingsBool",
+            "settingsInt", "settingsValueDigest", "terminalOutcome", "teamDigest", "identityStampDigest"]
+        guard Set(plist.keys).isSubset(of: allowed),
+              (plist["targetDigest"] == nil || plist["targetDigest"] is String),
+              (plist["teamDigest"] == nil || plist["teamDigest"] is String),
+              (plist["identityStampDigest"] == nil || plist["identityStampDigest"] is String),
+              (plist["settingsKey"] == nil || plist["settingsKey"] is String),
+              (plist["settingsType"] == nil || plist["settingsType"] is String),
+              (plist["settingsBool"] == nil || V3WireContract.strictBool(plist["settingsBool"]) != nil),
+              (plist["settingsInt"] == nil || V3WireContract.strictInt(plist["settingsInt"]) != nil),
+              (plist["settingsValueDigest"] == nil || plist["settingsValueDigest"] is String),
+              (plist["terminalOutcome"] == nil || plist["terminalOutcome"] is String) else { return nil }
+        return V3DirectMutationRecoveryRecord(requestID: requestID, operation: operation,
+            phase: phase, serviceInstanceID: serviceInstanceID,
+            targetDigest: plist["targetDigest"] as? String,
+            teamDigest: plist["teamDigest"] as? String,
+            identityStampDigest: plist["identityStampDigest"] as? String,
+            settingsKey: plist["settingsKey"] as? String,
+            settingsType: plist["settingsType"] as? String,
+            settingsBool: V3WireContract.strictBool(plist["settingsBool"]),
+            settingsInt: V3WireContract.strictInt(plist["settingsInt"]),
+            settingsValueDigest: plist["settingsValueDigest"] as? String,
+            terminalOutcome: plist["terminalOutcome"] as? String)
+    }
+
+    func replacing(phase: V3DirectMutationRecoveryPhase, serviceInstanceID: String? = nil,
+                   terminalOutcome: String? = nil) -> V3DirectMutationRecoveryRecord? {
+        V3DirectMutationRecoveryRecord(requestID: requestID, operation: operation, phase: phase,
+            serviceInstanceID: serviceInstanceID ?? self.serviceInstanceID,
+            targetDigest: targetDigest, teamDigest: teamDigest,
+            identityStampDigest: identityStampDigest,
+            settingsKey: settingsKey, settingsType: settingsType,
+            settingsBool: settingsBool, settingsInt: settingsInt,
+            settingsValueDigest: settingsValueDigest, terminalOutcome: terminalOutcome)
+    }
+}
+
+private enum V3ServiceRecoveryFileRecord {
+    case operation(V3OperationRecoveryRecord)
+    case directMutation(V3DirectMutationRecoveryRecord)
+}
+
 private enum V3OperationRecoveryJournal {
     private static let components = ["Library", "Application Support", "LiveContainer"]
     private static let fileName = "operation-recovery.plist"
@@ -70,8 +249,8 @@ private enum V3OperationRecoveryJournal {
         }
     }
 
-    private static func read(_ url: URL) throws -> V3OperationRecoveryLease {
-        guard FileManager.default.fileExists(atPath: url.path) else { return V3OperationRecoveryLease() }
+    private static func readState(_ url: URL) throws -> V3ServiceRecoveryFileRecord? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         do {
             let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
             guard values.isRegularFile == true, values.isSymbolicLink != true,
@@ -80,12 +259,25 @@ private enum V3OperationRecoveryJournal {
             }
             let data = try Data(contentsOf: url)
             guard data.count <= 4096,
-                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
-                  let record = V3OperationRecoveryRecord.decodePropertyList(plist) else {
+                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) else {
                 throw V3SecretHandoffError.malformed
             }
-            return V3OperationRecoveryLease(record: record)
+            if let direct = V3DirectMutationRecoveryRecord.decode(plist) {
+                return .directMutation(direct)
+            }
+            if let operation = V3OperationRecoveryRecord.decodePropertyList(plist) {
+                return .operation(operation)
+            }
+            throw V3SecretHandoffError.malformed
         } catch { throw V3SecretHandoffError.malformed }
+    }
+
+    private static func read(_ url: URL) throws -> V3OperationRecoveryLease {
+        switch try readState(url) {
+        case nil: return V3OperationRecoveryLease()
+        case .operation(let record): return V3OperationRecoveryLease(record: record)
+        case .directMutation: throw V3SecretHandoffError.malformed
+        }
     }
 
     private static func write(_ lease: V3OperationRecoveryLease, to url: URL) throws {
@@ -97,15 +289,16 @@ private enum V3OperationRecoveryJournal {
             return
         }
         do {
-            let data = try PropertyListSerialization.data(fromPropertyList: record.propertyListRepresentation,
-                format: .binary, options: 0)
-            try data.write(to: url, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            try writePropertyList(record.propertyListRepresentation, to: url)
         } catch { throw V3SecretHandoffError.unavailable }
     }
 
     static func current(containerRoot: URL? = nil) throws -> V3OperationRecoveryRecord? {
         try withLease(containerRoot: containerRoot) { try read($0).record }
+    }
+
+    static func currentState(containerRoot: URL? = nil) throws -> V3ServiceRecoveryFileRecord? {
+        try withLease(containerRoot: containerRoot) { try readState($0) }
     }
 
     @discardableResult
@@ -114,7 +307,7 @@ private enum V3OperationRecoveryJournal {
         guard userConfirmed else { return false }
         return try withLease(containerRoot: containerRoot) { url in
             do {
-                _ = try read(url)
+                _ = try readState(url)
                 return false
             } catch {
                 try FileManager.default.removeItem(at: url)
@@ -131,6 +324,124 @@ private enum V3OperationRecoveryJournal {
             if result == .reserved { try write(lease, to: url) }
             return result != .blocked
         }
+    }
+
+    static func reserveDirect(request: [String: Any], requestID: String,
+                              serviceInstanceID: String, teamIdentifier: String? = nil,
+                              identityStamp: String? = nil,
+                              containerRoot: URL? = nil) throws -> Bool {
+        guard let operation = request["operation"] as? String,
+              V3DirectMutationRecoveryRecord.allowedOperations.contains(operation) else { return false }
+        let target = request["target"] as? String ?? ""
+        let payload = request["payload"] as? [String: Any] ?? [:]
+        let targetDigest = target.isEmpty || ["pairingImportData", "accountImport"].contains(operation)
+            ? nil : V3DirectMutationRecoveryHash.digest(target)
+        let teamDigest = operation == "certRevoke"
+            ? teamIdentifier.map(V3DirectMutationRecoveryHash.digest) : nil
+        let identityStampDigest = operation == "certRevoke"
+            ? identityStamp.map(V3DirectMutationRecoveryHash.digest) : nil
+        let key = payload["key"] as? String
+        let type = payload["type"] as? String
+        let record = V3DirectMutationRecoveryRecord(requestID: requestID, operation: operation,
+            phase: .prepared, serviceInstanceID: serviceInstanceID,
+            targetDigest: targetDigest, teamDigest: teamDigest,
+            identityStampDigest: identityStampDigest,
+            settingsKey: key, settingsType: type,
+            settingsBool: V3WireContract.strictBool(payload["bool"]),
+            settingsInt: V3WireContract.strictInt(payload["int"]))
+        guard let record else { return false }
+        return try withLease(containerRoot: containerRoot) { url in
+            guard case nil = try readState(url) else { return false }
+            try writeDirect(record, to: url)
+            return true
+        }
+    }
+
+    static func beginDirectDispatch(requestID: String, serviceInstanceID: String,
+                                   containerRoot: URL? = nil) throws -> Bool {
+        try withLease(containerRoot: containerRoot) { url in
+            guard case .directMutation(let current)? = try readState(url),
+                  current.requestID == requestID, current.phase == .prepared,
+                  let dispatched = current.replacing(phase: .dispatched, serviceInstanceID: serviceInstanceID) else { return false }
+            try writeDirect(dispatched, to: url)
+            return true
+        }
+    }
+
+    static func clearPreparedDirectAfterNotDispatched(requestID: String,
+                                                       containerRoot: URL? = nil) throws -> Bool {
+        try withLease(containerRoot: containerRoot) { url in
+            guard case .directMutation(let current)? = try readState(url),
+                  current.requestID == requestID, current.phase == .prepared else { return false }
+            try writeEmpty(to: url)
+            return true
+        }
+    }
+
+    static func settleDirect(requestID: String, terminalOutcome: String,
+                             containerRoot: URL? = nil) throws -> Bool {
+        guard ["completed", "createdAndStored", "remoteCreatedLocalStorageUnverified"].contains(terminalOutcome) else {
+            return false
+        }
+        return try withLease(containerRoot: containerRoot) { url in
+            guard case .directMutation(let current)? = try readState(url),
+                  current.requestID == requestID,
+                  (current.phase == .dispatched || current.phase == .unknown),
+                  let terminal = current.replacing(phase: .terminal, terminalOutcome: terminalOutcome) else { return false }
+            try writeDirect(terminal, to: url)
+            return true
+        }
+    }
+
+    static func direct(containerRoot: URL? = nil) throws -> V3DirectMutationRecoveryRecord? {
+        try withLease(containerRoot: containerRoot) { url in
+            guard case .directMutation(let record)? = try readState(url) else { return nil }
+            return record
+        }
+    }
+
+    static func markDirectUnknownIfOwnerLost(requestID: String, currentServiceInstanceID: String,
+                                             containerRoot: URL? = nil) throws -> V3DirectMutationRecoveryRecord? {
+        try withLease(containerRoot: containerRoot) { url in
+            guard case .directMutation(let current)? = try readState(url), current.requestID == requestID else { return nil }
+            guard current.phase == .dispatched, current.serviceInstanceID != currentServiceInstanceID,
+                  let unknown = current.replacing(phase: .unknown, serviceInstanceID: currentServiceInstanceID) else {
+                return current
+            }
+            try writeDirect(unknown, to: url)
+            return unknown
+        }
+    }
+
+    static func reconcileDirect(requestID: String, allowUnknownDeviceCheck: Bool,
+                                containerRoot: URL? = nil) throws -> Bool {
+        try withLease(containerRoot: containerRoot) { url in
+            guard case .directMutation(let current)? = try readState(url), current.requestID == requestID else { return false }
+            guard current.phase == .terminal || current.phase == .prepared ||
+                  (current.phase == .unknown && allowUnknownDeviceCheck) else { return false }
+            try writeEmpty(to: url)
+            return true
+        }
+    }
+
+    private static func writeDirect(_ record: V3DirectMutationRecoveryRecord, to url: URL) throws {
+        try writePropertyList(record.propertyListRepresentation, to: url)
+    }
+
+    private static func writeEmpty(to url: URL) throws {
+        if FileManager.default.fileExists(atPath: url.path) {
+            do { try FileManager.default.removeItem(at: url) }
+            catch { throw V3SecretHandoffError.unavailable }
+        }
+    }
+
+    private static func writePropertyList(_ value: [String: Any], to url: URL) throws {
+        do {
+            let data = try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
+            guard data.count <= 4096 else { throw V3SecretHandoffError.unavailable }
+            try data.write(to: url, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        } catch { throw V3SecretHandoffError.unavailable }
     }
 
     static func beginDispatch(sessionID: String, kind: String, stagedIPAToken: String? = nil,
@@ -293,6 +604,7 @@ final class V3SideStoreService: NSObject {
     private var pendingRefreshAdmissionRequests: Set<String> = []
     private var pendingAuthStartSessions: [String: String] = [:]
     private var knownSourcesUpdateTask: Task<Void, Error>?
+    private let recoveryServiceInstanceID = UUID().uuidString
 
     @objc(execute:reply:)
     nonisolated static func execute(_ data: Data, reply: @escaping (Data) -> Void) {
@@ -407,9 +719,35 @@ final class V3SideStoreService: NSObject {
             ownsActiveSession: V3HeadlessRuntime.shared.auth.ownsActiveSession(target),
             authenticationActive: authenticationActive)
         let recoveryRecord: V3OperationRecoveryRecord?
+        var directRecoveryRecord: V3DirectMutationRecoveryRecord?
         let recoveryReadFailed: Bool
-        do { recoveryRecord = try V3OperationRecoveryJournal.current(); recoveryReadFailed = false }
-        catch { recoveryRecord = nil; recoveryReadFailed = true }
+        do {
+            switch try V3OperationRecoveryJournal.currentState() {
+            case .operation(let value): recoveryRecord = value
+            case .directMutation(let value):
+                directRecoveryRecord = try V3OperationRecoveryJournal.markDirectUnknownIfOwnerLost(
+                    requestID: value.requestID, currentServiceInstanceID: recoveryServiceInstanceID) ?? value
+                recoveryRecord = nil
+            case nil: recoveryRecord = nil
+            }
+            recoveryReadFailed = false
+        } catch { recoveryRecord = nil; directRecoveryRecord = nil; recoveryReadFailed = true }
+        let directRecoveryControl = directRecoveryRecord?.requestID == target &&
+            ["directRecoveryInspect", "directRecoveryReconcile"].contains(operation)
+        if ["directRecoveryInspect", "directRecoveryReconcile"].contains(operation),
+           !directRecoveryControl {
+            reply(encode(["version": 1, "id": id, "error": "invalidRequest",
+                "failure": CombinedFailure(operation: operation, stage: .command,
+                    code: .invalidConfiguration, id: id).wire], operation: operation))
+            return
+        }
+        if operation == "directRecoveryReconcile", let directRecoveryRecord,
+           directRecoveryRecord.phase == .dispatched {
+            reply(encode(["version": 1, "id": id, "error": "busy",
+                "failure": CombinedFailure(operation: operation, stage: .command,
+                    code: .busy, id: id, retryable: false, safeCause: .operationInProgress).wire], operation: operation))
+            return
+        }
         if let recoveryRecord, recoveryRecord.kind == "refreshAll",
            !refreshAdmission.owns(recoveryRecord.sessionID) {
             _ = refreshAdmission.restoreLost(runID: recoveryRecord.sessionID)
@@ -422,8 +760,15 @@ final class V3SideStoreService: NSObject {
             operation: operation, target: target,
             activeOperationID: V3HeadlessRuntime.shared.operations.activeMutationID) ||
             recoveryDecision.blocksMutation
-        let operationMutationActive = operation == "opRecoveryReconcile" && recoveryDecision.recoveryControl
-            ? false : policyOperationMutationActive
+        let operationMutationActive = (operation == "opRecoveryReconcile" && recoveryDecision.recoveryControl) ||
+            directRecoveryControl ? false : policyOperationMutationActive
+        if mutation, directRecoveryRecord != nil, !directRecoveryControl {
+            let failure = CombinedFailure(operation: operation, stage: .command, code: .busy,
+                id: id, retryable: false, safeCause: .operationInProgress)
+            reply(encode(["version": 1, "id": id, "error": "busy", "failure": failure.wire],
+                operation: operation))
+            return
+        }
         let refreshRelease = recoveryDecision.refreshRelease
         let controlReply = V3MutationReplyCacheBudget.isControlReply(operation: operation)
         let cacheResponse = V3MutationReplyCacheBudget.shouldCacheResponse(operation: operation)
@@ -479,6 +824,23 @@ final class V3SideStoreService: NSObject {
                 operation: operation))
             return
         }
+        if V3DirectMutationRecoveryRecord.isEligible(request) {
+            do {
+                guard try V3OperationRecoveryJournal.reserveDirect(request: request, requestID: id,
+                    serviceInstanceID: recoveryServiceInstanceID,
+                    teamIdentifier: DatabaseManager.shared.activeTeam()?.identifier,
+                    identityStamp: AuthManager.shared.v3IdentityIsStable
+                        ? AuthManager.shared.v3IdentityStamp : nil) else {
+                    throw ServiceError.busy
+                }
+            } catch {
+                let failure = CombinedFailure(operation: operation, stage: .command, code: .busy,
+                    id: id, retryable: false, safeCause: .operationInProgress)
+                reply(encode(["version": 1, "id": id, "error": "busy", "failure": failure.wire],
+                    operation: operation))
+                return
+            }
+        }
         if mutation { mutationID = id }
         if operation == "refreshAdmissionBegin" { pendingRefreshAdmissionRequests.insert(id) }
         if ["authBegin", "authRetryProvisioning"].contains(operation),
@@ -500,10 +862,23 @@ final class V3SideStoreService: NSObject {
             do {
                 guard DatabaseManager.shared.isStarted else { throw ServiceError.notReady }
                 try Task.checkCancellation()
+                if V3DirectMutationRecoveryRecord.isEligible(request) {
+                    guard try V3OperationRecoveryJournal.beginDirectDispatch(requestID: id,
+                        serviceInstanceID: recoveryServiceInstanceID) else { throw ServiceError.busy }
+                }
                 response["result"] = try await run(operation, request: request, id: id)
+                if V3DirectMutationRecoveryRecord.isEligible(request) {
+                    let result = response["result"] as? [String: Any] ?? [:]
+                    let outcome = operation == "certCreate"
+                        ? (result["outcome"] as? String ?? "") : "completed"
+                    guard try V3OperationRecoveryJournal.settleDirect(requestID: id,
+                        terminalOutcome: outcome) else { throw ServiceError.busy }
+                }
                 try Task.checkCancellation()
                 response["ok"] = true
             } catch {
+                let directNotDispatched = V3DirectMutationRecoveryRecord.isEligible(request) &&
+                    (try? V3OperationRecoveryJournal.clearPreparedDirectAfterNotDispatched(requestID: id)) == true
                 if operation == "refreshAdmissionBegin", error is CancellationError,
                    let refreshRunID = request["target"] as? String,
                    refreshAdmission.release(runID: refreshRunID) {
@@ -525,6 +900,7 @@ final class V3SideStoreService: NSObject {
                           (error is ServiceError || error is V3SideStoreServiceError) {
                     response["operationNotDispatched"] = true
                 }
+                if directNotDispatched { response["operationNotDispatched"] = true }
                 var stage: CombinedFailure.Stage
                 switch operation {
                 case "snapshot": stage = .serviceReadiness
@@ -810,6 +1186,21 @@ final class V3SideStoreService: NSObject {
                 return ["ready": DatabaseManager.shared.isStarted]
             }
             return try snapshot()
+        case "directRecoveryInspect":
+            return try await directRecoveryInspection(requestID: target)
+        case "directRecoveryReconcile":
+            guard V3WireContract.strictBool(payload["userConfirmed"]) == true,
+                  let record = try V3OperationRecoveryJournal.direct(), record.requestID == target else {
+                throw ServiceError.invalidRequest
+            }
+            let current = try V3OperationRecoveryJournal.markDirectUnknownIfOwnerLost(
+                requestID: target, currentServiceInstanceID: recoveryServiceInstanceID) ?? record
+            guard current.phase != .dispatched else { throw ServiceError.busy }
+            let postcondition = current.phase == .prepared
+                ? "notDispatched" : await directRecoveryPostcondition(current)
+            guard try V3OperationRecoveryJournal.reconcileDirect(requestID: target,
+                allowUnknownDeviceCheck: current.phase == .unknown) else { throw ServiceError.busy }
+            return ["requestID": target, "reconciled": true, "postcondition": postcondition]
         case "refreshAdmissionBegin":
             guard refreshAdmission.acquire(runID: target,
                     requestID: id,
@@ -1277,6 +1668,79 @@ final class V3SideStoreService: NSObject {
         return object
     }
 
+    private func directRecoveryInspection(requestID: String) async throws -> [String: Any] {
+        guard let stored = try V3OperationRecoveryJournal.direct(), stored.requestID == requestID else {
+            throw ServiceError.notFound
+        }
+        let record = try V3OperationRecoveryJournal.markDirectUnknownIfOwnerLost(
+            requestID: requestID, currentServiceInstanceID: recoveryServiceInstanceID) ?? stored
+        var response = safeDirectRecovery(record)
+        response["postcondition"] = record.phase == .prepared
+            ? "notDispatched" : await directRecoveryPostcondition(record)
+        return response
+    }
+
+    private func safeDirectRecovery(_ record: V3DirectMutationRecoveryRecord) -> [String: Any] {
+        var value: [String: Any] = ["requestID": record.requestID,
+            "operation": record.operation, "phase": record.phase.rawValue]
+        if let terminalOutcome = record.terminalOutcome { value["resultState"] = terminalOutcome }
+        return value
+    }
+
+    private func directRecoveryPostcondition(_ record: V3DirectMutationRecoveryRecord) async -> String {
+        if record.operation == "certCreate" {
+            if record.terminalOutcome == "createdAndStored" { return "achieved" }
+            return "manualCheckRequired"
+        }
+        if ["pairingImportData", "accountImport"].contains(record.operation) { return "manualCheckRequired" }
+        if record.operation == "sourceAddConfirmed" || record.operation == "sourceRemoveConfirmed" {
+            guard let targetDigest = record.targetDigest,
+                  let rows = try? await V3BackendCommands.authoritativeSourceRows() else { return "indeterminate" }
+            let matched = rows.contains { row in
+                let value = record.operation == "sourceAddConfirmed" ? row["url"] : row["identifier"]
+                guard let value = value as? String else { return false }
+                return V3DirectMutationRecoveryHash.digest(value) == targetDigest
+            }
+            if record.operation == "sourceAddConfirmed" { return matched ? "achieved" : "indeterminate" }
+            return matched ? "notAchieved" : "achieved"
+        }
+        if record.operation == "certRevoke" {
+            guard let targetDigest = record.targetDigest, let teamDigest = record.teamDigest,
+                  let identityStampDigest = record.identityStampDigest,
+                  AuthManager.shared.v3IdentityIsStable,
+                  V3DirectMutationRecoveryHash.digest(AuthManager.shared.v3IdentityStamp) == identityStampDigest,
+                  let activeTeamID = DatabaseManager.shared.activeTeam()?.identifier,
+                  V3DirectMutationRecoveryHash.digest(activeTeamID) == teamDigest,
+                  let authenticatedTeam = try? await AuthManager.shared.getAuthenticatedTeam(),
+                  V3DirectMutationRecoveryHash.digest(authenticatedTeam.identifier) == teamDigest,
+                  let rows = try? await V3BackendCommands.portalCertificates() else { return "indeterminate" }
+            return rows.contains { row in
+                guard let serial = row["serial"] as? String else { return false }
+                return V3DirectMutationRecoveryHash.digest(serial) == targetDigest
+            } ? "notAchieved" : "achieved"
+        }
+        if record.operation == "settingsSet" {
+            let current = V3BackendCommands.settingsGet()
+            switch record.settingsType {
+            case "bool":
+                guard let key = record.settingsKey,
+                      let expected = record.settingsBool,
+                      let values = current["bools"] as? [String: Bool],
+                      let actual = values[key] else { return "indeterminate" }
+                return actual == expected ? "achieved" : "notAchieved"
+            case "int":
+                guard let key = record.settingsKey,
+                      let expected = record.settingsInt,
+                      let values = current["ints"] as? [String: Int],
+                      let actual = values[key] else { return "indeterminate" }
+                return actual == expected ? "achieved" : "notAchieved"
+            case "string": return "manualCheckRequired"
+            default: return "indeterminate"
+            }
+        }
+        return "manualCheckRequired"
+    }
+
     // Native callbacks may fire more than once or race on arbitrary queues.
     // The first terminal result wins; late callbacks are ignored. Cancellation
     // never releases the continuation early: the task keeps awaiting the
@@ -1409,18 +1873,27 @@ final class V3SideStoreService: NSObject {
         let activeAuthenticationSessionID = V3HeadlessRuntime.shared.auth.activeSessionIDForSnapshot
         _ = refreshAdmission.expire()
         let operationRecovery: V3OperationRecoveryRecord?
+        var directRecoveryRecord: V3DirectMutationRecoveryRecord?
         let recoveryJournalUnreadable: Bool
         do {
-            operationRecovery = try V3OperationRecoveryJournal.current()
+            switch try V3OperationRecoveryJournal.currentState() {
+            case .operation(let value): operationRecovery = value
+            case .directMutation(let value):
+                directRecoveryRecord = try V3OperationRecoveryJournal.markDirectUnknownIfOwnerLost(
+                    requestID: value.requestID, currentServiceInstanceID: recoveryServiceInstanceID) ?? value
+                operationRecovery = nil
+            case nil: operationRecovery = nil
+            }
             recoveryJournalUnreadable = false
-        } catch {
-            operationRecovery = nil
-            recoveryJournalUnreadable = true
-        }
+        } catch { operationRecovery = nil; recoveryJournalUnreadable = true }
+        let activeMutation = mutationID != nil || activeAuthenticationSessionID != nil ||
+            V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive
         var response: [String: Any] = ["updatedAt": Date(), "busy": mutationID != nil ||
                     activeAuthenticationSessionID != nil ||
                     V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive ||
-                    operationRecovery != nil || recoveryJournalUnreadable,
+                    operationRecovery != nil || directRecoveryRecord != nil || recoveryJournalUnreadable,
+                 "activeMutation": activeMutation,
+                 "recoveryHold": operationRecovery != nil || directRecoveryRecord != nil || recoveryJournalUnreadable,
                  "recoveryJournalUnreadable": recoveryJournalUnreadable,
                  "account": account,
                  "authenticated": authenticated,
@@ -1464,6 +1937,9 @@ final class V3SideStoreService: NSObject {
                 "kind": operationRecovery.kind, "phase": operationRecovery.phase.rawValue]
             if let token = operationRecovery.stagedIPAToken { safeRecovery["stagedIPAToken"] = token }
             response["operationRecovery"] = safeRecovery
+        }
+        if let directRecoveryRecord {
+            response["directRecovery"] = safeDirectRecovery(directRecoveryRecord)
         }
         if let operationRecovery, operationRecovery.kind == "refreshAll",
            !refreshAdmission.owns(operationRecovery.sessionID) {
