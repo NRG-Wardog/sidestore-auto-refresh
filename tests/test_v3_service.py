@@ -274,6 +274,79 @@ enum V3BackendCommands {{
         self.assertIn('case "deactivate": operation = .deactivate(app)', runtime)
         self.assertIn("AppManager.shared.pipelineRunner.performSingleOperation(operation", runtime)
 
+    def test_persisted_side_sign_errors_drop_provider_text_from_core_data_history(self):
+        side_source = Path(os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE") or ROOT / ".audit/v3-side-upstream")
+        manager_path = "AltStore/Managing Apps/AppManager.swift"
+        manager = subprocess.check_output(
+            ["git", "-C", str(side_source), "show", service.PINS[1] + ":" + manager_path],
+            text=True, encoding="utf-8")
+        generated_manager = service.headless_app_manager_ui(manager)
+        self.assertEqual(service.headless_app_manager_ui(generated_manager), generated_manager)
+        log_method = self.swift_declaration(generated_manager, "func log(_ error: Error")
+        self.assertIn("V3PersistedErrorSanitizer.sanitize(error as NSError)", log_method)
+        self.assertNotIn("sanitizedForSerialization()", log_method)
+
+        history_path = "AltStore/Core/Model/RefreshAttempt.swift"
+        history = subprocess.check_output(
+            ["git", "-C", str(side_source), "show", service.PINS[1] + ":" + history_path],
+            text=True, encoding="utf-8")
+        generated_history = service.headless_refresh_attempt_error_privacy(history)
+        self.assertEqual(service.headless_refresh_attempt_error_privacy(generated_history), generated_history)
+        self.assertIn("V3PersistedErrorSanitizer.refreshHistoryDescription(for: error)", generated_history)
+        self.assertNotIn("error.localizedDescription", generated_history)
+
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable; generated sanitizer execution runs in macOS CI")
+
+        helper = self.swift_declaration(generated_manager, "enum V3PersistedErrorSanitizer")
+        harness = '''import Foundation
+''' + helper + '''
+
+let secret = "SECRET_RAW_2FA_OR_PROVIDER_RESPONSE"
+let nested = NSError(domain: "SideSignErrorDomain", code: 7, userInfo: [NSLocalizedDescriptionKey: secret])
+let original = NSError(domain: "SideSignErrorDomain", code: -1005, userInfo: [
+    NSLocalizedDescriptionKey: secret,
+    NSLocalizedFailureReasonErrorKey: secret,
+    NSDebugDescriptionErrorKey: secret,
+    "rawProviderBody": secret,
+    NSUnderlyingErrorKey: nested
+])
+let stored = V3PersistedErrorSanitizer.sanitize(original)
+let unknownDomain = V3PersistedErrorSanitizer.sanitize(
+    NSError(domain: "private-" + secret, code: 901, userInfo: [NSLocalizedDescriptionKey: secret])
+)
+let persisted: [String: Any] = [
+    "domain": stored.domain,
+    "code": stored.code,
+    "userInfo": stored.userInfo,
+    "refreshHistory": V3PersistedErrorSanitizer.refreshHistoryDescription(for: original),
+    "unknownDomain": unknownDomain.domain,
+    "unknownCode": unknownDomain.code,
+    "unknownUserInfo": unknownDomain.userInfo
+]
+let data = try PropertyListSerialization.data(fromPropertyList: persisted, format: .xml, options: 0)
+let decoded = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as! [String: Any]
+let decodedInfo = decoded["userInfo"] as! [String: Any]
+precondition(decoded["domain"] as? String == "SideSignErrorDomain")
+precondition((decoded["code"] as? Int) == -1005)
+precondition(Set(decodedInfo.keys) == Set([NSLocalizedDescriptionKey]))
+precondition(decodedInfo[NSLocalizedDescriptionKey] as? String == V3PersistedErrorSanitizer.safeDescription)
+precondition((decoded["refreshHistory"] as? String) == V3PersistedErrorSanitizer.safeDescription)
+precondition(decoded["unknownDomain"] as? String == "V3RedactedErrorDomain")
+precondition((decoded["unknownCode"] as? Int) == 0)
+precondition(Set((decoded["unknownUserInfo"] as! [String: Any]).keys) == Set([NSLocalizedDescriptionKey]))
+precondition(!String(data: data, encoding: .utf8)!.contains(secret))
+print("persisted provider error text redacted")
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "PersistedErrorPrivacyHarness.swift"
+            executable = Path(directory) / "persisted-error-privacy-harness"
+            source.write_text(harness, encoding="utf-8")
+            subprocess.run([compiler, str(source), "-o", str(executable)], check=True, capture_output=True, text=True)
+            completed = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
+            self.assertIn("persisted provider error text redacted", completed.stdout)
+
     def test_pairing_and_sidejit_presenters_are_unreferenced_in_headless_target(self):
         side_source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
         if not side_source:
@@ -781,6 +854,7 @@ import Foundation
              "SideStore/Core/Operations/OperationStepDefinition.swift",
              "SideStore/Core/Operations/PipelineOperations/VerifyAppOperation.swift",
              "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
+             "AltStore/Core/Model/RefreshAttempt.swift",
              "SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
              "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
              "SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift",
@@ -939,7 +1013,7 @@ import Foundation
             prior["patchVersion"] = 31
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 31 cannot be migrated safely to v36"):
+            with self.assertRaisesRegex(SystemExit, f"prepared patch version 31 cannot be migrated safely to v{service.PATCH_VERSION}"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -953,7 +1027,7 @@ import Foundation
             prior["patchVersion"] = 32
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 32 cannot be migrated safely to v36"):
+            with self.assertRaisesRegex(SystemExit, f"prepared patch version 32 cannot be migrated safely to v{service.PATCH_VERSION}"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -967,7 +1041,7 @@ import Foundation
             prior["patchVersion"] = 33
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 33 cannot be migrated safely to v36"):
+            with self.assertRaisesRegex(SystemExit, f"prepared patch version 33 cannot be migrated safely to v{service.PATCH_VERSION}"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -981,7 +1055,7 @@ import Foundation
             prior["patchVersion"] = 34
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 34 cannot be migrated safely to v36"):
+            with self.assertRaisesRegex(SystemExit, f"prepared patch version 34 cannot be migrated safely to v{service.PATCH_VERSION}"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -1048,7 +1122,7 @@ import Foundation
             manifest_path.write_text(json.dumps(v30_manifest, indent=2) + "\n", encoding="utf-8")
 
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 30 cannot be migrated safely to v36"):
+            with self.assertRaisesRegex(SystemExit, f"prepared patch version 30 cannot be migrated safely to v{service.PATCH_VERSION}"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory),
                              "the real v30 output shape must fail closed without partial migration")
@@ -1065,7 +1139,7 @@ import Foundation
             legacy["templates"].pop(service.HEADLESS_ANISETTE_MODELS_MANIFEST_KEY)
             manifest_path.write_text(json.dumps(legacy, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 29 cannot be migrated safely to v36.*discard generated work directories"):
+            with self.assertRaisesRegex(SystemExit, f"prepared patch version 29 cannot be migrated safely to v{service.PATCH_VERSION}.*discard generated work directories"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory), "unsupported v29 manifests must fail without mutation")
 
@@ -1079,7 +1153,7 @@ import Foundation
             unknown["patchVersion"] = 999
             manifest_path.write_text(json.dumps(unknown, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 999 cannot be migrated safely to v36"):
+            with self.assertRaisesRegex(SystemExit, f"prepared patch version 999 cannot be migrated safely to v{service.PATCH_VERSION}"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory), "unknown patch versions must fail without mutation")
 
@@ -1093,7 +1167,7 @@ import Foundation
             prior["patchVersion"] = 35
             manifest_path.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 35 cannot be migrated safely to v36"):
+            with self.assertRaisesRegex(SystemExit, f"prepared patch version 35 cannot be migrated safely to v{service.PATCH_VERSION}"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory),
                              "v35 generated trees must be discarded without partial migration")

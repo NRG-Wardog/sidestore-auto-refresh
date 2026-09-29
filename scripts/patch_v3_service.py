@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 36
+PATCH_VERSION = 37
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -847,6 +847,7 @@ def headless_url_handler(text):
 
 
 def headless_app_manager_ui(text):
+    text = headless_app_manager_persisted_error_privacy(text)
     marker = "V3_HEADLESS_APP_MANAGER_SIGNIN_REMOVED_V1"
     deactivate_wrapper_marker = "V3_HEADLESS_APP_MANAGER_DEACTIVATE_APPLIMIT_WRAPPER_REMOVED_V1"
     deactivate_wrapper_signature = (
@@ -912,6 +913,74 @@ def headless_app_manager_ui(text):
     if deactivate_wrapper_signature in text or "self.deactivateApps(for: appBundle" in text:
         raise SystemExit("v3 service: AppManager deactivate app-limit wrapper removal is partial")
     return replace(text, "import Intents\n", "")
+
+
+V3_PERSISTED_ERROR_PRIVACY_HELPER = '''// V3_PERSISTED_ERROR_PRIVACY_V1: persistent diagnostics never retain provider text or NSError userInfo.
+enum V3PersistedErrorSanitizer {
+    static let safeDescription = "The operation failed. Detailed error information was omitted to protect privacy."
+
+    private static let safeDomains: Set<String> = [
+        "ALTServerErrorDomain",
+        "SideSignErrorDomain",
+        "NSCocoaErrorDomain",
+        "NSPOSIXErrorDomain",
+        "NSURLErrorDomain",
+        "NSOSStatusErrorDomain",
+        "NSMachErrorDomain",
+        "kCFErrorDomainCFNetwork"
+    ]
+
+    static func sanitize(_ error: NSError) -> NSError {
+        let domainIsSafe = safeDomains.contains(error.domain)
+        return NSError(
+            domain: domainIsSafe ? error.domain : "V3RedactedErrorDomain",
+            code: domainIsSafe ? error.code : 0,
+            userInfo: [NSLocalizedDescriptionKey: safeDescription]
+        )
+    }
+
+    static func refreshHistoryDescription(for error: Error) -> String {
+        _ = error
+        return safeDescription
+    }
+}'''
+
+
+def headless_app_manager_persisted_error_privacy(text):
+    marker = "V3_PERSISTED_ERROR_PRIVACY_V1"
+    anchor = "import UniformTypeIdentifiers\n"
+    if marker not in text:
+        if text.count(anchor) != 1:
+            raise SystemExit("v3 service: AppManager import insertion point changed")
+        text = replace(text, anchor, anchor + "\n" + V3_PERSISTED_ERROR_PRIVACY_HELPER + "\n")
+    elif V3_PERSISTED_ERROR_PRIVACY_HELPER not in text:
+        raise SystemExit("v3 service: persisted error privacy helper drifted")
+
+    old = ("        // Sanitize NSError on same thread before performing background task.\n"
+           "        let sanitizedError = (error as NSError).sanitizedForSerialization()")
+    new = ("        // V3_PERSISTED_ERROR_PRIVACY_V1: retain only known-safe domain/code and a fixed message.\n"
+           "        let sanitizedError = V3PersistedErrorSanitizer.sanitize(error as NSError)")
+    if old in text:
+        text = replace(text, old, new)
+    elif new not in text:
+        raise SystemExit("v3 service: AppManager error persistence callsite changed")
+    if marker not in text or "sanitizedForSerialization()" in text[text.index("    func log(_ error:"):text.index("\n    }", text.index("    func log(_ error:"))]:
+        raise SystemExit("v3 service: AppManager persistence privacy transformation is partial")
+    return text
+
+
+def headless_refresh_attempt_error_privacy(text):
+    marker = "V3_REFRESH_HISTORY_ERROR_PRIVACY_V1"
+    old = "            self.errorDescription = error.localizedDescription"
+    new = ("            // " + marker + ": provider-controlled error text is not persisted in refresh history.\n"
+           "            self.errorDescription = V3PersistedErrorSanitizer.refreshHistoryDescription(for: error)")
+    if marker in text:
+        if text.count(marker) != 1 or old in text or new not in text:
+            raise SystemExit("v3 service: refresh history privacy transformation is partial")
+        return text
+    if text.count(old) != 1:
+        raise SystemExit("v3 service: RefreshAttempt errorDescription assignment changed")
+    return replace(text, old, new)
 
 
 def headless_featured_sort_startup(text):
@@ -1548,6 +1617,7 @@ def patch(live, side):
          headless_clear_cache_operation)
     edit(side, "SideStore/Core/Auth/AuthManager.swift", headless_auth_manager)
     edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui)
+    edit(side, "AltStore/Core/Model/RefreshAttempt.swift", headless_refresh_attempt_error_privacy)
     edit(side, "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift",
          headless_featured_sort_startup)
     edit(side, "SideStore/Handlers/PipelineHandler.swift", headless_pipeline_handler)
@@ -1818,6 +1888,7 @@ def verify_headless_ui_adapters(side, pinned_ref):
         ("AltStore/AppDelegate.swift", headless_sidestore_app_delegate),
         ("SideStore/Core/Auth/AuthManager.swift", headless_auth_manager),
         ("AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui),
+        ("AltStore/Core/Model/RefreshAttempt.swift", headless_refresh_attempt_error_privacy),
         ("SideStore/AppBootManager.swift", headless_app_boot_manager),
         ("SideStore/Core/JIT/SideJITManager.swift", headless_sidejit_manager),
         ("SideStore/Core/Pairing/PairingFileManager.swift", headless_pairing_file_manager),
