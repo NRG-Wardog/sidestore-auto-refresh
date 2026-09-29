@@ -1603,8 +1603,10 @@ import Foundation
             self.assertIn("handleSignInResult(.success(silentResult))", sign_in)
             self.assertIn("V3ProvisioningResumeUnavailableError()", sign_in)
             self.assertIn("if self.v3ForceProvisioningRetry {", sign_in)
-            self.assertIn("let account = team.account else", sign_in)
             retry = sign_in[sign_in.index("if self.v3ForceProvisioningRetry {"):sign_in.index("} else if V3ProvisioningResumeExecutionPolicy")]
+            self.assertIn("let account = team.account,", retry)
+            self.assertIn("AuthManager.shared.v3IdentityIsStable", retry)
+            self.assertIn("V3AuthIdentityBindingPolicy.hasUsableSession(", retry)
             self.assertIn("self.provisioningLoop(account: account, session: session", retry)
             self.assertIn("session.anisetteData = try await self.getAnisetteData()", retry)
             self.assertIn("AuthManager.shared.v3ReplaceSession(session)", retry)
