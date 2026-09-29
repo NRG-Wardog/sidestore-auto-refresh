@@ -2215,9 +2215,9 @@ struct V3SourceCommandError: Error {
             case .blocked: safeCause = .sourceBlocked
             case .changedID: safeCause = .sourceChangedID
             case .duplicate: safeCause = .sourceDuplicate
-            case .unsupported: safeCause = .sourceUnsupported
+            case .unsupported, .marketplaceNotSupported: safeCause = .sourceUnsupported
             case .duplicateBundleID, .duplicateVersion, .missingPermissionUsageDescription,
-                 .missingScreenshotSize, .marketplaceNotSupported, .marketplaceRequired:
+                 .missingScreenshotSize, .marketplaceRequired:
                 safeCause = .sourceValidationFailed
             default:
                 // Future pinned SourceError codes remain unknown until their

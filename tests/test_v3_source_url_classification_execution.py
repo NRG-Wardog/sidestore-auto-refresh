@@ -1,3 +1,5 @@
+import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -9,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FAILURE = ROOT / "scripts/templates/combined_failure.swift"
 HEADLESS = ROOT / "scripts/templates/v3_headless_runtime.swift"
 SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
+SIDESTORE_SOURCE_SHA = "ff25922e5c13ccfafd83bda5092910d848ebd409"
 
 
 def read(path):
@@ -25,6 +28,28 @@ class SourceURLClassificationExecutionTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("Swift execution runs in macOS CI")
+
+        side_store_root = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.environ.get("SIDESTORE_TEST_SOURCE")
+        if not side_store_root:
+            self.skipTest("Pinned SideStore source is supplied by macOS CI")
+        side_store_root = Path(side_store_root)
+        source_error_path = side_store_root / "SideStore/Core/Operations/Errors/SourceError.swift"
+        if not source_error_path.is_file():
+            self.skipTest("Pinned SideStore SourceError.swift is unavailable")
+        revision = subprocess.run(
+            ["git", "-C", str(side_store_root), "rev-parse", "HEAD"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(revision.returncode, 0, revision.stderr)
+        self.assertEqual(revision.stdout.strip(), SIDESTORE_SOURCE_SHA,
+                         "SourceError.Code must come from the pinned SideStore revision")
+        source_error_text = read(source_error_path)
+        code_start = source_error_text.index("    enum Code: Int, ALTErrorCode")
+        code_end = source_error_text.index("    static func unsupported", code_start)
+        pinned_code_declaration = source_error_text[code_start:code_end].rstrip()
+        pinned_case_names = re.findall(r"^\s*case\s+([A-Za-z_]\w*)", pinned_code_declaration, re.MULTILINE)
+        self.assertTrue(pinned_case_names, "the pinned SourceError.Code enum must expose cases")
+        pinned_case_literals = ", ".join(f".{name}" for name in pinned_case_names)
 
         failure = read(FAILURE)
         headless = read(HEADLESS)
@@ -43,12 +68,12 @@ class SourceURLClassificationExecutionTests(unittest.TestCase):
         harness = r'''
 import Foundation
 
+protocol ALTErrorCode: RawRepresentable where RawValue == Int {
+    associatedtype Error
+}
+
 struct SourceError: Error, LocalizedError {
-    enum Code {
-        case unsupported, duplicateBundleID, duplicateVersion, blocked, changedID, duplicate
-        case missingPermissionUsageDescription, missingScreenshotSize
-        case marketplaceNotSupported, marketplaceRequired, futureUnreviewed
-    }
+''' + pinned_code_declaration + r'''
     let code: Code
     let privateDetails: String
     var errorDescription: String? { privateDetails }
@@ -116,25 +141,16 @@ struct SourceError: Error, LocalizedError {
             }
         }
 
-        let sourceErrors: [(SourceError.Code, CombinedFailure.SafeCause)] = [
-            (.blocked, .sourceBlocked), (.changedID, .sourceChangedID),
-            (.duplicate, .sourceDuplicate), (.unsupported, .sourceUnsupported),
-            (.duplicateBundleID, .sourceValidationFailed),
-            (.duplicateVersion, .sourceValidationFailed),
-            (.missingPermissionUsageDescription, .sourceValidationFailed),
-            (.missingScreenshotSize, .sourceValidationFailed),
-            (.marketplaceNotSupported, .sourceValidationFailed),
-            (.marketplaceRequired, .sourceValidationFailed)
-        ]
-        for (code, safeCause) in sourceErrors {
+        let pinnedSourceCodes: [SourceError.Code] = [PINNED_CASES]
+        for code in pinnedSourceCodes {
             let sourceError = SourceError(code: code, privateDetails: "PRIVATE_SOURCE_APP_URL")
             guard let classified = V3SourceCommandError.classify(sourceError),
                   case .validation = classified.kind else {
-                preconditionFailure("a pinned typed SourceError must map to source validation")
+                preconditionFailure("pinned SourceError.Code case is unclassified: \(code)")
             }
-            precondition(classified.safeCause == safeCause)
             precondition(classified.sourceStep == .sourceValidation)
             precondition(classified.domain != NSURLErrorDomain)
+            precondition(classified.safeCause != .sourceNetworkFailure)
 
             let failure = CombinedFailure(operation: "source", stage: .source,
                 code: .invalidResponse, id: UUID().uuidString,
@@ -149,16 +165,45 @@ struct SourceError: Error, LocalizedError {
             precondition(details.retryDisposition == .blocked)
             precondition(!details.recommendedAction.contains("PRIVATE_SOURCE_APP_URL"))
             let decoded = CombinedFailure.decode(failure.wire, expectedID: failure.correlationID)
-            precondition(decoded?.safeCause == safeCause && decoded?.sourceStep == .sourceValidation)
+            precondition(decoded?.safeCause == classified.safeCause &&
+                         decoded?.sourceStep == .sourceValidation)
         }
-        let unreviewedSourceError = SourceError(code: .futureUnreviewed,
-            privateDetails: "PRIVATE_FUTURE_SOURCE_DETAIL")
-        precondition(V3SourceCommandError.classify(unreviewedSourceError) == nil,
-            "unreviewed SourceError codes stay unknown instead of inheriting a nearby mapping")
-        let unknownSourceFailure = CombinedFailure.capture(unreviewedSourceError,
+        precondition(V3SourceCommandError.classify(SourceError(
+            code: .blocked, privateDetails: "PRIVATE_SOURCE"))?.safeCause == .sourceBlocked)
+        precondition(V3SourceCommandError.classify(SourceError(
+            code: .changedID, privateDetails: "PRIVATE_SOURCE"))?.safeCause == .sourceChangedID)
+        precondition(V3SourceCommandError.classify(SourceError(
+            code: .duplicate, privateDetails: "PRIVATE_SOURCE"))?.safeCause == .sourceDuplicate)
+        precondition(V3SourceCommandError.classify(SourceError(
+            code: .unsupported, privateDetails: "PRIVATE_SOURCE"))?.safeCause == .sourceUnsupported)
+        // The marketplace cases are close in name but have different pinned
+        // meanings: unsupported notarized apps require a SideStore update, while
+        // a missing marketplaceID is source metadata the provider must fix.
+        let marketplaceUnsupported = V3SourceCommandError.classify(SourceError(
+            code: .marketplaceNotSupported, privateDetails: "PRIVATE_MARKETPLACE_SOURCE"))!
+        precondition(marketplaceUnsupported.safeCause == .sourceUnsupported)
+        let unsupportedFailure = CombinedFailure(operation: "source", stage: .source,
+            code: .invalidResponse, id: UUID().uuidString, retryable: false,
+            safeCause: marketplaceUnsupported.safeCause, sourceStep: marketplaceUnsupported.sourceStep)
+        precondition(unsupportedFailure.recovery.contains("Update SideStore"))
+        precondition(!unsupportedFailure.recovery.contains("source provider"))
+        precondition(!unsupportedFailure.recovery.contains("PRIVATE_MARKETPLACE_SOURCE"))
+        let marketplaceRequired = V3SourceCommandError.classify(SourceError(
+            code: .marketplaceRequired, privateDetails: "PRIVATE_MARKETPLACE_SOURCE"))!
+        precondition(marketplaceRequired.safeCause == .sourceValidationFailed)
+        let metadataFailure = CombinedFailure(operation: "source", stage: .source,
+            code: .invalidResponse, id: UUID().uuidString, retryable: false,
+            safeCause: marketplaceRequired.safeCause, sourceStep: marketplaceRequired.sourceStep)
+        precondition(metadataFailure.recovery.contains("source provider"))
+        precondition(!metadataFailure.recovery.contains("Update SideStore"))
+        precondition(!metadataFailure.recovery.contains("PRIVATE_MARKETPLACE_SOURCE"))
+
+        let unknownSourceError = NSError(domain: "UnreviewedSourceFailure", code: 123456)
+        precondition(V3SourceCommandError.classify(unknownSourceError) == nil,
+            "unreviewed source errors stay unknown instead of inheriting a nearby mapping")
+        let unknownSourceFailure = CombinedFailure.capture(unknownSourceError,
             operation: "sourcePreview", stage: .source, id: UUID().uuidString)
         precondition(unknownSourceFailure.stage == .source && unknownSourceFailure.safeCause == nil)
-        precondition(!unknownSourceFailure.message.contains("PRIVATE_FUTURE_SOURCE_DETAIL"))
         precondition(!unknownSourceFailure.recovery.contains("LocalDevVPN"))
 
         // The known-source preflight uses this production wrapping policy at
@@ -204,6 +249,7 @@ struct SourceError: Error, LocalizedError {
     }
 }
 '''
+        harness = harness.replace("[PINNED_CASES]", "[" + pinned_case_literals + "]")
         with tempfile.TemporaryDirectory() as directory:
             swift = Path(directory) / "source_url_classification.swift"
             executable = Path(directory) / "source_url_classification"
