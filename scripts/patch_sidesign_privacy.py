@@ -24,7 +24,16 @@ func shouldOmitUserCopyableSideStoreLog(_ message: String) -> Bool {
                    "verification-code", "security code", "security-code", "password", "apple id",
                    "appleid", "token", "anisette", "private key", "certificate der",
                    "mobileprovision", "provisioning profile", "grandslam", "grand slam"]
-    return markers.contains { lowercased.contains($0) }
+    // Certificate serials are sensitive identifiers even on successful paths.
+    // SideStore emits them from CertificateManager, SignInOperation, and its
+    // OCSP verifier without an error/payload marker, so omit the whole line.
+    // Match compound labels such as certSerial, targetSerial, serialNumber,
+    // serialHex, and serial_number without matching words such as "serialize".
+    let certificateSerial = lowercased.range(
+        of: #"\b[a-z0-9_]*serial(?:[_-]?(?:number|hex|dec))?\b"#,
+        options: .regularExpression
+    ) != nil
+    return certificateSerial || markers.contains { lowercased.contains($0) }
 }
 '''
 
@@ -184,6 +193,8 @@ def verify_sidestore_tree(root: Path) -> None:
         raise SystemExit("Operation log sinks bypass source-level value redaction")
     if "error.localizedDescription" in operation_text:
         raise SystemExit("operation summary still copies raw error descriptions")
+    if "certificateSerial" not in side_text or "serialHex" not in side_text:
+        raise SystemExit("SideStore log sinks do not omit full certificate serial values")
 
 
 def patch(root: Path, sidestore_root: Path | None = None) -> None:

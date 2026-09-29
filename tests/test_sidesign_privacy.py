@@ -202,6 +202,12 @@ struct OperationFixture: OperationLogging {}
 @main struct Tests {
     static func main() {
         SideStoreLogging.setLogging(true)
+        // Successful certificate and OCSP messages can contain no generic
+        // error marker, so the generated production sink must still omit the
+        // full serial from every user-copyable log path.
+        debugLog("[CertificateManager] Successfully loaded certificate (serial: 0123456789ABCDEF0123456789ABCDEF).")
+        debugLog("[OCSPValidator] Certificate 0123456789ABCDEF0123456789ABCDEF confirmed REVOKED by OCSP.")
+        operation.debugLog("[SignInOperation] Successfully requested certificate (Serial: 0123456789ABCDEF0123456789ABCDEF).")
         debugLog("SAFE_DIAGNOSTIC_MARKER")
         debugLog("[SignInOperation] error=SECRET_DSID_PHONE_RAW_2FA_BODY")
         verboseLog("authorization header SECRET_SECURITY_CODE_COOKIE")
@@ -227,6 +233,7 @@ struct OperationFixture: OperationLogging {}
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("SIDESTORE_LOG_PRIVACY_PASS", result.stdout)
             self.assertIn("SAFE_DIAGNOSTIC_MARKER", result.stdout)
+            self.assertNotIn("0123456789ABCDEF0123456789ABCDEF", result.stdout)
             self.assertNotIn("SECRET_", result.stdout)
             self.assertNotIn("com.example.privateguest", result.stdout)
             self.assertNotIn("com.spotify.client", result.stdout)
