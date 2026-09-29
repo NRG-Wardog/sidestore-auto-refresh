@@ -16,6 +16,7 @@ import patch_v3_service
 RUNTIME = ROOT / "scripts/templates/v3_headless_runtime.swift"
 SERVICE = ROOT / "scripts/templates/v3_sidestore_service.swift"
 HARNESS = ROOT / "tests/fixtures/v3_source_backend_migration_harness.swift"
+COREDATA_HARNESS = ROOT / "tests/fixtures/v3_source_view_context_coredata_harness.swift"
 SWIFTC = shutil.which("swiftc")
 
 
@@ -69,7 +70,38 @@ def production_core_methods():
     return "\n\n".join(extract_swift_function(generated, signature) for signature in signatures)
 
 
+def production_persist_helper():
+    source_root = pinned_source_root()
+    original = subprocess.check_output([
+        "git", "-C", str(source_root), "show",
+        f"{patch_v3_service.PINS[1]}:AltStore/Managing Apps/AppManager.swift"],
+        text=True, encoding="utf-8")
+    generated = patch_v3_service.headless_app_manager_source_mutations(original)
+    return extract_swift_function(generated, "private func persistConfirmedSource(")
+
+
 class V3SourceBackendMigrationTests(unittest.TestCase):
+    def test_coredata_persist_helper_resolves_view_context_source_after_background_save(self):
+        if sys.platform != "darwin":
+            self.skipTest("Core Data behavioral harness requires macOS")
+        if not SWIFTC:
+            self.skipTest("Swift compiler unavailable; Core Data harness runs in macOS CI")
+        helper = production_persist_helper()
+        fixture = COREDATA_HARNESS.read_text(encoding="utf-8")
+        self.assertEqual(fixture.count("__PRODUCTION_PERSIST_HELPER__"), 1)
+        fixture = fixture.replace("__PRODUCTION_PERSIST_HELPER__", helper)
+        with tempfile.TemporaryDirectory(prefix="v3-source-coredata-") as temporary:
+            main = Path(temporary) / "main.swift"
+            executable = Path(temporary) / "source-coredata"
+            main.write_text(fixture, encoding="utf-8")
+            compiled = subprocess.run(
+                [SWIFTC, "-parse-as-library", "-framework", "CoreData", str(main), "-o", str(executable)],
+                capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_SOURCE_VIEW_CONTEXT_COREDATA_PASS", result.stdout)
+
     def test_production_appmanager_core_executes_persistence_matrix(self):
         if not SWIFTC:
             self.skipTest("Swift compiler unavailable; executable harness runs in macOS CI")
