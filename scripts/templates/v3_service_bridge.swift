@@ -226,6 +226,9 @@ public final class V3ServiceBridge {
     public func request(operation: String, target: String = "", cursor: Int? = nil,
                         payload: [String: Any]? = nil, requestDeadline: Date? = nil) async throws -> [String: Any] {
         try Task.checkCancellation()
+        if ["authBegin", "authRetryProvisioning", "signOut", "accountImport"].contains(operation) {
+            NotificationCenter.default.post(name: Notification.Name("V3AuthIdentityTransition"), object: nil)
+        }
         // V3_CATALOG_OPERATION_CONTEXT_V1: the request correlation is minted
         // before connecting, so a failure that happens before the service
         // receives the request can still be attributed to the caller's actual
@@ -254,6 +257,9 @@ public final class V3ServiceBridge {
         do {
             try await connect()
         } catch {
+            if ["authBegin", "authRetryProvisioning"].contains(operation) {
+                NotificationCenter.default.post(name: Notification.Name("V3AuthIdentityTransitionFinished"), object: nil)
+            }
             if error is CancellationError { throw CancellationError() }
             monitorOperationSessionIfNeeded(operation: operation, sessionID: operationSessionID)
             let annotated = V3CatalogRequestContext.annotating(error, requestedOperation: operation, requestID: id)
@@ -460,6 +466,11 @@ public final class V3ServiceBridge {
         updateOperationSessionOwnership(operation: operation, target: target,
                                         payload: payload, result: result)
         updateAuthSessionOwnership(operation: operation, sessionID: operationSessionID, result: result)
+        if ["accountImport"].contains(operation) ||
+           (["authBegin", "authRetryProvisioning", "authPoll"].contains(operation) &&
+            (result["state"] as? String).map { !["working", "awaitingPrompt"].contains($0) } == true) {
+            NotificationCenter.default.post(name: Notification.Name("V3AuthIdentityTransitionFinished"), object: nil)
+        }
         return result
     }
 

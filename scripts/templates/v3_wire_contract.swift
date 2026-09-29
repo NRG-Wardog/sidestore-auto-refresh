@@ -9,16 +9,21 @@ public struct V3AuthServiceSnapshot: Equatable {
     public let provisioningRetryAvailable: Bool
     public let authenticationActive: Bool
     public let authenticationSessionID: String?
+    public let identityStamp: String?
+    public let identityStable: Bool
 
     public init(authenticated: Bool, provisioningIncomplete: Bool,
                 provisioningRetryAvailable: Bool, authenticationActive: Bool,
-                authenticationSessionID: String?, credentialRoutePresent: Bool = false) {
+                authenticationSessionID: String?, credentialRoutePresent: Bool = false,
+                identityStamp: String? = nil, identityStable: Bool = true) {
         self.authenticated = authenticated
         self.credentialRoutePresent = credentialRoutePresent
         self.provisioningIncomplete = provisioningIncomplete
         self.provisioningRetryAvailable = provisioningRetryAvailable
         self.authenticationActive = authenticationActive
         self.authenticationSessionID = authenticationSessionID
+        self.identityStamp = identityStamp
+        self.identityStable = identityStable
     }
 }
 
@@ -70,12 +75,16 @@ enum V3WireContract {
         } else if authenticationSessionID != nil {
             return nil
         }
+        guard let identityStamp = reply["identityStamp"] as? String,
+              !identityStamp.isEmpty, identityStamp.utf8.count <= 128,
+              let identityStable = strictBool(reply["identityStable"]) else { return nil }
         return V3AuthServiceSnapshot(authenticated: authenticated,
             provisioningIncomplete: provisioningIncomplete,
             provisioningRetryAvailable: provisioningRetryAvailable,
             authenticationActive: authenticationActive,
             authenticationSessionID: authenticationSessionID,
-            credentialRoutePresent: strictBool(reply["credentialRoutePresent"]) ?? false)
+            credentialRoutePresent: strictBool(reply["credentialRoutePresent"]) ?? false,
+            identityStamp: identityStamp, identityStable: identityStable)
     }
 
     static func invalidRequestIdentity(from data: Data) -> (id: String?, operation: String?) {

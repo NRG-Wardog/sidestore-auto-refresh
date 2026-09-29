@@ -506,12 +506,29 @@ struct V3ReadinessAndDiagnosticsContractHarness {
         self.compile_and_run("import Foundation\n" + production_policy + "\n" + harness,
                              "V3_AUTH_IDENTITY_BINDING_PASS")
 
+    def test_auth_read_stamps_execute_transition_and_batch_interleavings(self):
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        start = primitives.index("enum V3AuthReadStampPolicy {")
+        end = primitives.index("\nimport CoreFoundation", start)
+        production_policy = primitives[start:end]
+        harness = (ROOT / "tests/fixtures/v3_auth_read_stamp_harness.swift").read_text(encoding="utf-8")
+        self.compile_and_run("import Foundation\n" + production_policy + "\n" + harness,
+                             "V3_AUTH_READ_STAMP_PASS")
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        for operation in ("devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles", "certPortalList"):
+            self.assertIn(f'case "{operation}":', service)
+        self.assertIn("identityStampAtStart", service)
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        self.assertIn("V3AuthReadStampPolicy.mayCommit", shell)
+        self.assertIn("invalidateScopedRows()", shell)
+
     def test_generated_coredata_owner_snapshot_executes_in_memory(self):
         if sys.platform != "darwin":
             self.skipTest("Core Data behavioral harness requires macOS")
         self.assertTrue(SWIFTC, "macOS CI must provide swiftc for the Core Data ownership harness")
-        side = Path(os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE", ""))
-        if not side.is_dir():
+        side_value = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        side = Path(side_value) if side_value else Path()
+        if not side_value or not side.is_dir():
             side = ROOT.parents[2] / "v3-side-upstream"
         self.assertTrue(side.is_dir(), "macOS CI must provide the pinned SideStore source")
         patch_script = ROOT / "scripts/patch_v3_service.py"

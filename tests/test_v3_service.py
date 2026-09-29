@@ -1618,8 +1618,9 @@ import Foundation
         self.assertIn("actual != expected", patcher)
 
     def test_generated_developer_portal_proxy_binds_session_and_team_owner(self):
-        source_tree = Path(os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE", ""))
-        if not source_tree.is_dir():
+        source_value = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        source_tree = Path(source_value) if source_value else Path()
+        if not source_value or not source_tree.is_dir():
             source_tree = ROOT.parents[2] / "v3-side-upstream"
         if source_tree.is_dir():
             revision = subprocess.check_output(["git", "-C", str(source_tree), "rev-parse", "HEAD"],
@@ -1709,12 +1710,16 @@ import Foundation
             updated_auth = service.patch_auth_identity_generation(
                 "    private init() {}\n    public func signOut() {\n        self.session = nil\n    }\n")
         self.assertGreaterEqual(updated_auth.count("v3IdentityGeneration"), 2)
-        self.assertIn("self.v3AdvanceIdentityGeneration()", updated_auth)
+        self.assertIn("func v3BeginIdentityTransition()", updated_auth)
+        self.assertIn("func v3CompleteIdentityTransition()", updated_auth)
         self.assertIn("private let v3IdentityLock = NSLock()", updated_auth)
         self.assertIn("v3IdentityLock.lock()", updated_auth)
         self.assertIn("v3IdentityLock.unlock()", updated_auth)
         for setter in ("appleIDEmailAddress", "appleIDPassword", "appleIDAdsid", "appleIDXcodeToken"):
-            self.assertIn(f"Keychain.shared.{setter} = newValue; self.v3AdvanceIdentityGeneration()", updated_auth)
+            self.assertIn(f"defer {{ self.v3CompleteIdentityTransition() }}; Keychain.shared.{setter} = newValue",
+                          updated_auth)
+        self.assertIn("private var v3IdentityTransitionDepthStorage = 0", updated_auth)
+        self.assertIn("defer { self.v3CompleteIdentityTransition() }", updated_auth)
 
     def test_snapshot_separates_stored_credentials_from_bound_authenticated_state(self):
         source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")

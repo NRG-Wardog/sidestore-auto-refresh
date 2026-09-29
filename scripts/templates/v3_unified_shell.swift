@@ -1003,6 +1003,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     // session separately from the active account row, because authentication
     // completes before provisioning activates that row.
     @Published private(set) var authenticated = false
+    @Published private(set) var identityStamp: String?
     // V3_AUTH_LOCAL_STATE_SNAPSHOT_V1: persisted account/team/certificate
     // presence is separate from credential readability and display strings.
     @Published private(set) var activeAccountPresent = false
@@ -1666,6 +1667,10 @@ final class V3SideStoreStatusStore: ObservableObject {
         }
     }
     func accept(_ snapshot: [String: Any]) {
+        guard let incomingIdentityStamp = snapshot["identityStamp"] as? String,
+              !incomingIdentityStamp.isEmpty,
+              V3ServiceBridge.strictBool(snapshot["identityStable"]) != nil else { return }
+        identityStamp = incomingIdentityStamp
         account = snapshot["account"] as? String ?? "Not signed in"
         team = snapshot["team"] as? String ?? "No active team"
         signing = snapshot["signing"] as? String ?? "Unknown"
@@ -6335,6 +6340,7 @@ struct V3CertificatesView: View {
     @State private var notice = ""
     @State private var busy = ""
     @State private var loadingRequest = false
+    @State private var portalTicket: UInt64 = 0
     @State private var confirm: (String, String)?
     var body: some View {
         List {
@@ -6411,6 +6417,30 @@ struct V3CertificatesView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("Certificates")
         .task { await reload() }
+        .onChange(of: status.identityStamp) { _ in
+            portalTicket &+= 1
+            portal = []
+            portalLoaded = false
+        }
+        .onChange(of: status.authenticated) { authenticated in
+            portalTicket &+= 1
+            portal = []
+            portalLoaded = false
+            if !authenticated { busy = "" }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3AuthIdentityTransition"))
+            .receive(on: RunLoop.main)) { _ in
+                portalTicket &+= 1
+                portal = []
+                portalLoaded = false
+            }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3AuthIdentityTransitionFinished"))
+            .receive(on: RunLoop.main)) { _ in
+                if status.authenticated { Task { await reload() } }
+            }
+        .onDisappear {
+            portalTicket &+= 1
+        }
         .confirmationDialog("Are you sure?", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }), titleVisibility: .visible) {
             Button("Confirm", role: .destructive) {
                 if let action = confirm { Task { await runConfirmed(action: action.0, serial: action.1) } }
@@ -6432,15 +6462,32 @@ struct V3CertificatesView: View {
         } catch { message = V3FailureGuidance.message(error) }
     }
     private func loadPortal() async {
+        portalTicket &+= 1
+        let ticket = portalTicket
+        let stamp = status.identityStamp
+        guard status.authenticated, let stamp else { return }
         busy = "portal"
         notice = ""
-        defer { busy = "" }
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "certPortalList")
+            let currentIdentity = try await V3ServiceBridge.shared.request(operation: "snapshot")
+            guard V3ServiceBridge.strictBool(currentIdentity["authenticated"]) == true,
+                  V3ServiceBridge.strictBool(currentIdentity["identityStable"]) == true,
+                  currentIdentity["identityStamp"] as? String == stamp else { return }
+            guard V3AuthReadStampPolicy.mayCommit(capturedTicket: ticket,
+                  currentTicket: portalTicket, capturedStamp: stamp,
+                  currentStamp: status.identityStamp,
+                  stable: V3ServiceBridge.strictBool(reply["identityStable"]) == true,
+                  resultStamps: [reply["identityStamp"] as? String]) else { return }
             portal = (reply["certificates"] as? [[String: Any]] ?? []).compactMap(V3CertificateRow.init)
             portalLoaded = true
             message = ""
-        } catch { message = V3FailureGuidance.message(error) }
+            busy = ""
+        } catch {
+            guard ticket == portalTicket else { return }
+            busy = ""
+            message = V3FailureGuidance.message(error)
+        }
     }
     private func setActive(serial: String) {
         busy = serial
@@ -6497,7 +6544,7 @@ struct V3DeveloperServicesView: View {
     @State private var profiles: [[String: Any]] = []
     @State private var message = ""
     @State private var loading = true
-    @State private var loadingRequest = false
+    @State private var reloadTicket: UInt64 = 0
     var body: some View {
         List {
             if !message.isEmpty {
@@ -6542,8 +6589,24 @@ struct V3DeveloperServicesView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("Developer Services")
         .task { await reload() }
+        .onChange(of: status.identityStamp) { _ in
+            invalidateScopedRows()
+            if status.authenticated { Task { await reload() } }
+        }
         .onChange(of: status.authenticated) { authenticated in
+            invalidateScopedRows()
             if authenticated { Task { await reload() } }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3AuthIdentityTransition"))
+            .receive(on: RunLoop.main)) { _ in
+                invalidateScopedRows()
+            }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3AuthIdentityTransitionFinished"))
+            .receive(on: RunLoop.main)) { _ in
+                if status.authenticated { Task { await reload() } }
+            }
+        .onDisappear {
+            reloadTicket &+= 1
         }
     }
     private func simpleSection(_ title: String, rows: [String]) -> some View {
@@ -6563,14 +6626,15 @@ struct V3DeveloperServicesView: View {
         }
     }
     private func reload() async {
-        guard !loadingRequest else { return }
+        reloadTicket &+= 1
+        let ticket = reloadTicket
+        let capturedStamp = status.identityStamp
         guard status.authenticated else {
             loading = false
             return
         }
-        loadingRequest = true
+        guard let capturedStamp else { loading = false; return }
         loading = true
-        defer { loading = false; loadingRequest = false }
         do {
             async let teamsReply = V3ServiceBridge.shared.request(operation: "devTeams")
             async let devicesReply = V3ServiceBridge.shared.request(operation: "devDevices")
@@ -6579,13 +6643,39 @@ struct V3DeveloperServicesView: View {
             async let profilesReply = V3ServiceBridge.shared.request(operation: "devProfiles")
             let (teamsResult, devicesResult, appIDsResult, groupsResult, profilesResult) =
                 try await (teamsReply, devicesReply, appIDsReply, groupsReply, profilesReply)
+            let currentIdentity = try await V3ServiceBridge.shared.request(operation: "snapshot")
+            let replies = [teamsResult, devicesResult, appIDsResult, groupsResult, profilesResult]
+            guard status.authenticated,
+                  V3ServiceBridge.strictBool(currentIdentity["authenticated"]) == true,
+                  V3ServiceBridge.strictBool(currentIdentity["identityStable"]) == true,
+                  currentIdentity["identityStamp"] as? String == capturedStamp,
+                  V3AuthReadStampPolicy.mayCommit(
+                  capturedTicket: ticket, currentTicket: reloadTicket,
+                  capturedStamp: capturedStamp, currentStamp: status.identityStamp,
+                  stable: replies.allSatisfy({ V3ServiceBridge.strictBool($0["identityStable"]) == true }),
+                  resultStamps: replies.map { $0["identityStamp"] as? String }) else { return }
             teams = strings(teamsResult, key: "teams")
             devices = strings(devicesResult, key: "devices")
             appIDs = strings(appIDsResult, key: "appIDs")
             groups = strings(groupsResult, key: "groups")
             profiles = profilesResult["profiles"] as? [[String: Any]] ?? []
             message = ""
-        } catch { message = V3FailureGuidance.message(error) }
+            loading = false
+        } catch {
+            guard ticket == reloadTicket else { return }
+            message = V3FailureGuidance.message(error)
+            loading = false
+        }
+    }
+    private func invalidateScopedRows() {
+        reloadTicket &+= 1
+        teams = []
+        devices = []
+        appIDs = []
+        groups = []
+        profiles = []
+        message = ""
+        loading = false
     }
 }
 

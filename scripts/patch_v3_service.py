@@ -1931,8 +1931,10 @@ def patch_sign_in_operation(text):
         "        AuthManager.shared.password = password\n",
         "        // V3_AUTH_CREDENTIAL_TRANSACTION_V1: commit the complete credential route\n"
         "        // and readiness marker together after exact read-back verification.\n"
+        "        AuthManager.shared.v3BeginIdentityTransition()\n"
+        "        defer { AuthManager.shared.v3CompleteIdentityTransition() }\n"
         "        try Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)\n"
-        "        AuthManager.shared.v3AdvanceIdentityGeneration()\n")
+        )
     return text
 
 
@@ -1940,19 +1942,45 @@ def patch_auth_identity_generation(text):
     marker = "V3_AUTH_IDENTITY_GENERATION_V1"
     if marker in text:
         if ("v3IdentityGeneration" not in text or
-                "v3AdvanceIdentityGeneration()" not in text or
+                "v3BeginIdentityTransition()" not in text or
+                "v3CompleteIdentityTransition()" not in text or
+                "v3IdentityStamp" not in text or
                 "v3IdentityLock.lock()" not in text or
                 "v3IdentityLock.unlock()" not in text):
             raise SystemExit("v3 service: auth identity generation patch is partial")
         return text
     text = replace(text, "    private init() {}\n", "    private init() {}\n\n"
-        "    // " + marker + ": changes only after a complete credential commit or sign-out.\n"
+        "    // " + marker + ": one AuthManager-owned process stamp and transition gate.\n"
         "    private let v3IdentityLock = NSLock()\n"
         "    private var v3IdentityGenerationStorage: UInt64 = 0\n"
+        "    private let v3IdentityProcessNonce = UUID().uuidString\n"
+        "    private var v3IdentityTransitionDepthStorage = 0\n"
         "    var v3IdentityGeneration: UInt64 {\n"
         "        v3IdentityLock.lock()\n"
         "        defer { v3IdentityLock.unlock() }\n"
         "        return v3IdentityGenerationStorage\n"
+        "    }\n"
+        "    var v3IdentityStamp: String {\n"
+        "        v3IdentityLock.lock()\n"
+        "        defer { v3IdentityLock.unlock() }\n"
+        "        return v3IdentityProcessNonce + \":\(v3IdentityGenerationStorage)\"\n"
+        "    }\n"
+        "    var v3IdentityIsStable: Bool {\n"
+        "        v3IdentityLock.lock()\n"
+        "        defer { v3IdentityLock.unlock() }\n"
+        "        return v3IdentityTransitionDepthStorage == 0\n"
+        "    }\n"
+        "    func v3BeginIdentityTransition() {\n"
+        "        v3IdentityLock.lock()\n"
+        "        v3IdentityGenerationStorage &+= 1\n"
+        "        v3IdentityTransitionDepthStorage += 1\n"
+        "        v3IdentityLock.unlock()\n"
+        "    }\n"
+        "    func v3CompleteIdentityTransition() {\n"
+        "        v3IdentityLock.lock()\n"
+        "        v3IdentityGenerationStorage &+= 1\n"
+        "        if v3IdentityTransitionDepthStorage > 0 { v3IdentityTransitionDepthStorage -= 1 }\n"
+        "        v3IdentityLock.unlock()\n"
         "    }\n"
         "    func v3AdvanceIdentityGeneration() {\n"
         "        v3IdentityLock.lock()\n"
@@ -1960,17 +1988,18 @@ def patch_auth_identity_generation(text):
         "        v3IdentityLock.unlock()\n"
         "    }\n")
     text = replace(text, "    ) {\n        self.session = nil\n", "    ) {\n"
-        "        self.v3AdvanceIdentityGeneration()\n"
+        "        self.v3BeginIdentityTransition()\n"
+        "        defer { self.v3CompleteIdentityTransition() }\n"
         "        self.session = nil\n")
     for old, new in (
         ("set { Keychain.shared.appleIDEmailAddress = newValue }",
-         "set { Keychain.shared.appleIDEmailAddress = newValue; self.v3AdvanceIdentityGeneration() }"),
+         "set { self.v3BeginIdentityTransition(); defer { self.v3CompleteIdentityTransition() }; Keychain.shared.appleIDEmailAddress = newValue }"),
         ("set { Keychain.shared.appleIDPassword = newValue }",
-         "set { Keychain.shared.appleIDPassword = newValue; self.v3AdvanceIdentityGeneration() }"),
+         "set { self.v3BeginIdentityTransition(); defer { self.v3CompleteIdentityTransition() }; Keychain.shared.appleIDPassword = newValue }"),
         ("set { Keychain.shared.appleIDAdsid = newValue }",
-         "set { Keychain.shared.appleIDAdsid = newValue; self.v3AdvanceIdentityGeneration() }"),
+         "set { self.v3BeginIdentityTransition(); defer { self.v3CompleteIdentityTransition() }; Keychain.shared.appleIDAdsid = newValue }"),
         ("set { Keychain.shared.appleIDXcodeToken = newValue }",
-         "set { Keychain.shared.appleIDXcodeToken = newValue; self.v3AdvanceIdentityGeneration() }"),
+         "set { self.v3BeginIdentityTransition(); defer { self.v3CompleteIdentityTransition() }; Keychain.shared.appleIDXcodeToken = newValue }"),
     ):
         if old not in text and new not in text:
             raise SystemExit("v3 service: credential setter generation anchor changed")
@@ -2004,11 +2033,14 @@ def patch_developer_portal_proxy(text):
         let session: ALTAppleAPISession
         let appleID: String
         let generation: UInt64
+        let identityStamp: String
     }
 
     private func getBoundSession() async throws -> BoundSession {
         let auth = AuthManager.shared
+        guard auth.v3IdentityIsStable else { throw OperationError.notAuthenticated }
         let generation = auth.v3IdentityGeneration
+        let identityStamp = auth.v3IdentityStamp
         let credentialsBefore = auth.authenticationSnapshot
         let session = try await auth.getAuthenticatedSession()
         let credentials = auth.authenticationSnapshot
@@ -2025,16 +2057,20 @@ def patch_developer_portal_proxy(text):
                 tokenBefore: credentialsBefore?.appleIDXcodeToken, tokenAfter: credentials?.appleIDXcodeToken),
               V3AuthIdentityBindingPolicy.mayDispatch(generationBefore: generation,
                 generationAfter: auth.v3IdentityGeneration, cancelled: Task.isCancelled),
+              auth.v3IdentityIsStable, identityStamp == auth.v3IdentityStamp,
               let appleID = credentials?.appleIDEmailAddress else {
             throw OperationError.notAuthenticated
         }
-        return BoundSession(session: session, appleID: appleID, generation: generation)
+        return BoundSession(session: session, appleID: appleID, generation: generation,
+            identityStamp: identityStamp)
     }
 
     private func verifyCurrent(_ context: BoundSession) throws {
         let auth = AuthManager.shared
         let credentials = auth.authenticationSnapshot
-        guard context.generation == auth.v3IdentityGeneration,
+        guard V3AuthReadStampPolicy.mayReturn(capturedStamp: context.identityStamp,
+              currentStamp: auth.v3IdentityStamp, stable: auth.v3IdentityIsStable),
+              context.generation == auth.v3IdentityGeneration,
               V3AuthIdentityBindingPolicy.mayDispatch(generationBefore: context.generation,
                 generationAfter: auth.v3IdentityGeneration, cancelled: Task.isCancelled),
               V3AuthIdentityBindingPolicy.hasUsableSession(
@@ -2047,6 +2083,13 @@ def patch_developer_portal_proxy(text):
                 sessionOwner: context.appleID, teamOwner: credentials?.appleIDEmailAddress) else {
             throw OperationError.notAuthenticated
         }
+    }
+
+    private func awaitBound<T>(_ context: BoundSession,
+                               operation: () async throws -> T) async throws -> T {
+        let value = try await operation()
+        try verifyCurrent(context)
+        return value
     }
 
     private struct DatabaseTeamOwnershipSnapshot: Sendable {
@@ -2123,7 +2166,9 @@ def patch_developer_portal_proxy(text):
             cancelled: Task.isCancelled) else {
             throw OperationError.notAuthenticated
         }
-        let teams = try await ALTAppleAPI.shared.fetchTeams(for: account, session: context.session)
+        let teams = try await self.awaitBound(context) {
+            try await ALTAppleAPI.shared.fetchTeams(for: account, session: context.session)
+        }
         try self.verifyCurrent(context)
         return teams
     }'''
@@ -2136,6 +2181,36 @@ def patch_developer_portal_proxy(text):
         "let context = try await self.getBoundSession()\n        let session = context.session\n        let team = try await self.getBoundTeam(team, context: context)")
     if "getSession()" in text or "getTeam(team)" in text:
         raise SystemExit("v3 service: unbound DeveloperPortalProxy call path remains")
+    # Every portal response is checked again after its await. This is a syntax-
+    # balanced call wrapper so multiline argument lists remain intact.
+    needle = "try await ALTAppleAPI.shared."
+    offset = 0
+    wrapped = []
+    while True:
+        start = text.find(needle, offset)
+        if start < 0:
+            wrapped.append(text[offset:])
+            break
+        wrapped.append(text[offset:start])
+        open_paren = text.find("(", start + len(needle))
+        if open_paren < 0:
+            raise SystemExit("v3 service: unmatched portal API call")
+        depth = 0
+        end = open_paren
+        while end < len(text):
+            if text[end] == "(": depth += 1
+            elif text[end] == ")":
+                depth -= 1
+                if depth == 0:
+                    end += 1
+                    break
+            end += 1
+        if depth != 0:
+            raise SystemExit("v3 service: unmatched portal API call")
+        call = text[start:end]
+        wrapped.append("try await self.awaitBound(context) { " + call + " }")
+        offset = end
+    text = "".join(wrapped)
     text = replace(text, "@preconcurrency import UIKit\n", "@preconcurrency import UIKit\nimport CoreData\n")
     return text
 

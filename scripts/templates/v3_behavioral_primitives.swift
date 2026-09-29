@@ -1,4 +1,18 @@
 import Foundation
+
+enum V3AuthReadStampPolicy {
+    static func mayReturn(capturedStamp: String, currentStamp: String, stable: Bool) -> Bool {
+        stable && capturedStamp == currentStamp
+    }
+
+    static func mayCommit(capturedTicket: UInt64, currentTicket: UInt64,
+                          capturedStamp: String, currentStamp: String?, stable: Bool,
+                          resultStamps: [String?]) -> Bool {
+        stable && capturedTicket == currentTicket &&
+            currentStamp == capturedStamp && !resultStamps.isEmpty &&
+            resultStamps.allSatisfy { $0 == capturedStamp }
+    }
+}
 import CoreFoundation
 
 // V3_CRASH_REASON_LOG_PRIVACY_V1: exception reasons and call stacks may contain
@@ -3849,10 +3863,10 @@ enum V3AuthSnapshotAuthorityPolicy {
     }
 
     static func facts(_ snapshot: V3AuthServiceSnapshot) -> Facts {
-        Facts(authenticated: snapshot.authenticated,
-              credentialRoutePresent: snapshot.credentialRoutePresent,
-              provisioningIncomplete: snapshot.provisioningIncomplete,
-              provisioningRetryAvailable: snapshot.provisioningRetryAvailable,
+        Facts(authenticated: snapshot.identityStable && snapshot.authenticated,
+              credentialRoutePresent: snapshot.identityStable && snapshot.credentialRoutePresent,
+              provisioningIncomplete: snapshot.identityStable && snapshot.provisioningIncomplete,
+              provisioningRetryAvailable: snapshot.identityStable && snapshot.provisioningRetryAvailable,
               authenticationActive: snapshot.authenticationActive,
               authenticationSessionID: snapshot.authenticationSessionID)
     }

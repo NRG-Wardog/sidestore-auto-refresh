@@ -1130,7 +1130,9 @@ final class V3SideStoreService: NSObject {
             CertificateManager.shared.deleteCertificate(serialNumber: target)
             return try snapshot()
         case "certPortalList":
-            return ["certificates": try await V3BackendCommands.portalCertificates()]
+            return try await accountScopedRead("certificates") {
+                try await V3BackendCommands.portalCertificates()
+            }
         case "certRevoke":
             _ = try await AuthManager.shared.getAuthenticatedSession()
             let team = try await AuthManager.shared.getAuthenticatedTeam()
@@ -1176,15 +1178,15 @@ final class V3SideStoreService: NSObject {
             // remote-success outcome and directs the user to inspect/reload.
             return ["outcome": outcome.rawValue]
         case "devTeams":
-            return ["teams": try await V3BackendCommands.developerTeams()]
+            return try await accountScopedRead("teams") { try await V3BackendCommands.developerTeams() }
         case "devDevices":
-            return ["devices": try await V3BackendCommands.developerDevices()]
+            return try await accountScopedRead("devices") { try await V3BackendCommands.developerDevices() }
         case "devAppIDs":
-            return ["appIDs": try await V3BackendCommands.developerAppIDs()]
+            return try await accountScopedRead("appIDs") { try await V3BackendCommands.developerAppIDs() }
         case "devGroups":
-            return ["groups": try await V3BackendCommands.developerGroups()]
+            return try await accountScopedRead("groups") { try await V3BackendCommands.developerGroups() }
         case "devProfiles":
-            return ["profiles": try await V3BackendCommands.developerProfiles()]
+            return try await accountScopedRead("profiles") { try await V3BackendCommands.developerProfiles() }
         case "sourcePreview":
             guard V3SourceAddPersistencePolicy.validatedURL(target) != nil else {
                 throw V3SideStoreServiceError.invalidRequest
@@ -1261,6 +1263,8 @@ final class V3SideStoreService: NSObject {
         case "accountImport":
             guard let secretToken = payload["secretToken"] as? String else { throw ServiceError.invalidRequest }
             let password = try V3SecretHandoff.consumeString(secretToken)
+            AuthManager.shared.v3BeginIdentityTransition()
+            defer { AuthManager.shared.v3CompleteIdentityTransition() }
             return try V3BackendCommands.accountImport(token: target, password: password)
         default: throw ServiceError.invalidRequest
         }
@@ -1346,8 +1350,21 @@ final class V3SideStoreService: NSObject {
         defaults.set(Date(), forKey: "v3KnownSourcesUpdatedAt")
     }
 
+    private func accountScopedRead(_ key: String,
+                                   fetch: () async throws -> Any) async throws -> [String: Any] {
+        let auth = AuthManager.shared
+        guard auth.v3IdentityIsStable else { throw V3SideStoreServiceError.authRequired }
+        let capturedStamp = auth.v3IdentityStamp
+        let value = try await fetch()
+        guard auth.v3IdentityIsStable, auth.v3IdentityStamp == capturedStamp else {
+            throw V3SideStoreServiceError.authRequired
+        }
+        return [key: value, "identityStamp": capturedStamp, "identityStable": true]
+    }
+
     private func snapshot() throws -> [String: Any] {
         let identityGenerationAtStart = AuthManager.shared.v3IdentityGeneration
+        let identityStampAtStart = AuthManager.shared.v3IdentityStamp
         let context = DatabaseManager.shared.viewContext
         let apps = InstalledApp.all(in: context)
         let sources = try context.fetch(NSFetchRequest<Source>(entityName: "Source"))
@@ -1363,9 +1380,11 @@ final class V3SideStoreService: NSObject {
         // provisioningIncomplete so no active team is ever implied.
         let storedAccount = DatabaseManager.shared.activeAccount()
         let authCredentials = AuthManager.shared.authenticationSnapshot
-        let identityReadStable = V3AuthIdentityBindingPolicy.mayProjectIdentity(
+        let identityReadStable = AuthManager.shared.v3IdentityIsStable &&
+            V3AuthIdentityBindingPolicy.mayProjectIdentity(
             generationBefore: identityGenerationAtStart,
-            generationAfter: AuthManager.shared.v3IdentityGeneration)
+            generationAfter: AuthManager.shared.v3IdentityGeneration) &&
+            identityStampAtStart == AuthManager.shared.v3IdentityStamp
         let credentialRoutePresent = identityReadStable && authCredentials?.isAuthenticated == true
         let credentialAppleID = V3AuthIdentityBindingPolicy.normalizedOwner(authCredentials?.appleIDEmailAddress)
         let authenticated = credentialRoutePresent &&
@@ -1402,6 +1421,8 @@ final class V3SideStoreService: NSObject {
                  "account": account,
                  "authenticated": authenticated,
                  "credentialRoutePresent": credentialRoutePresent,
+                 "identityStamp": identityStampAtStart,
+                 "identityStable": identityReadStable,
                  "activeAccountPresent": activeAccount != nil,
                  "activeTeamPresent": team != nil,
                  "activeCertificatePresent": activeCertificate != nil,
