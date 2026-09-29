@@ -49,8 +49,10 @@ class CombinedRefreshContractTests(unittest.TestCase):
             def snapshot():
                 return {name: (root / name).read_bytes() for name in paths + [".combined-refresh-contract.json"] if (root / name).exists()}
             # Shared Keychain transforms successfully in staging, then contract rejects
-            # the changed anchor. Neither Keychain nor operation nor manifest may leak out.
-            operation.write_bytes(prepared.replace(b"let nsError = error as NSError", b"let changed = error as NSError"))
+            # the changed privacy-safe anchor. Neither Keychain nor operation nor manifest may leak out.
+            operation.write_bytes(prepared.replace(
+                b"let category = AutomaticRefreshFailureCategory.classify(error).rawValue",
+                b"let changedCategory = AutomaticRefreshFailureCategory.classify(error).rawValue"))
             before = snapshot()
             with mock.object(patch, "verify_pin", return_value=None):
                 with self.assertRaises(SystemExit):
@@ -69,6 +71,15 @@ class CombinedRefreshContractTests(unittest.TestCase):
             self.assertIn(b"LC_AUTO_REFRESH_CREDENTIAL_SNAPSHOT_V1", applied[paths[1]])
             self.assertIn(b"LC_AUTH_CREDENTIALS_MISSING_V1", applied[paths[1]])
             self.assertIn(b'"failure": failure.wire', applied[paths[1]])
+            self.assertIn(b"CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error)", applied[paths[1]])
+            self.assertIn(b'"error": failure.message', applied[paths[1]])
+            generated = applied[paths[1]].decode("utf-8")
+            start = generated.index("private func automaticRefreshDefaults()")
+            end = generated.index("private func startListeningForRunningApps()", start)
+            manifestHelper = generated[start:end]
+            self.assertNotIn("error.localizedDescription", manifestHelper,
+                             "the final combined manifest and its failure log must not retain raw provider text")
+            self.assertNotIn("error_domain=\\(nsError.domain)", manifestHelper)
             with mock.object(patch, "verify_pin", return_value=None):
                 patch.patch_combined_cli(root)
             self.assertEqual(applied, snapshot())
@@ -104,6 +115,10 @@ class CombinedRefreshContractTests(unittest.TestCase):
             self.assertNotIn('"error": error.localizedDescription', result)
             self.assertIn('defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier', result)
             self.assertIn('CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error)', result)
+            self.assertIn('"error": failure.message, "failure": failure.wire', result)
+            self.assertIn('REFRESH_FAILED \\(failure.technicalDetails)', result)
+            self.assertNotIn("error.localizedDescription", result,
+                             "the composed output must not persist raw provider response text")
             self.assertNotIn(r"\\(refreshIdentifier)", result)
             self.apply(root)
             self.assertEqual(result, file.read_text())
@@ -112,7 +127,10 @@ class CombinedRefreshContractTests(unittest.TestCase):
         for change in ("anchor", "output", "manifest", "pin"):
             with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory); file = self.fixture(root)
-                if change == "anchor": file.write_text(file.read_text().replace("let nsError = error as NSError", "let changed = error as NSError"))
+                if change == "anchor":
+                    file.write_text(file.read_text().replace(
+                        "let category = AutomaticRefreshFailureCategory.classify(error).rawValue",
+                        "let changedCategory = AutomaticRefreshFailureCategory.classify(error).rawValue"))
                 elif change != "pin":
                     self.apply(root)
                     if change == "output": file.write_text(file.read_text() + "// unexpected drift")
@@ -243,6 +261,10 @@ enum StoreApp { static let altstoreAppID = "fixture.host" }
                            NSLocalizedDescriptionKey: "SECRET_TOKEN https://private.invalid/?password=secret"])
             Operation().record(wrapped)
             let stored = defaults.dictionary(forKey: "liveContainerAutoRefreshVerification")!
+            let rawStoredBytes = try PropertyListSerialization.data(fromPropertyList: stored, format: .xml, options: 0)
+            precondition(!String(decoding: rawStoredBytes, as: UTF8.self).contains("SECRET_TOKEN") &&
+                         !String(decoding: rawStoredBytes, as: UTF8.self).contains("private.invalid"),
+                         "the composed SideStore patch must not persist raw provider text")
             let storedRows = stored["results"] as! [[String: Any]]
             let embeddedFailure = CombinedFailure.decode(storedRows[0]["failure"] as! [String: Any], expectedID: run)!
             precondition(embeddedFailure.stage == stage && embeddedFailure.underlyingCode == 77)
