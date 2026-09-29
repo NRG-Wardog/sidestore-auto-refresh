@@ -205,6 +205,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case authResponseCapacityUnavailable
         case keychainSignOutFailed
         case keychainSignOutOutcomeUnknown
+        case operationPersistenceFailed
 
         fileprivate var inferredRetryable: Bool? {
             switch self {
@@ -271,6 +272,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return true
             case .keychainSignOutFailed, .keychainSignOutOutcomeUnknown:
                 return true
+            case .operationPersistenceFailed:
+                return false
             }
         }
     }
@@ -283,7 +286,7 @@ public struct CombinedFailure: Error, LocalizedError {
 
     public enum Stage: String, CaseIterable {
         case hostContainer, storagePreparation, bookmarkCreation, extensionDiscovery, extensionLaunch
-        case xpcConnection, serviceReadiness, command, authentication, provisioning, signing, filePreparation, installation, refreshVerification
+        case xpcConnection, serviceReadiness, command, authentication, provisioning, signing, filePreparation, installation, persistence, refreshVerification
         case replyEncoding
         case endpointSelection, heartbeat, coreDevice, cdTunnel, rsdDiscovery, rsdService, lockdownConnection, uniqueDeviceID, pairing
         case network, source, catalog
@@ -401,6 +404,8 @@ public struct CombinedFailure: Error, LocalizedError {
             return "preparing the selected IPA"
         case .installation:
             return "installing the app"
+        case .persistence:
+            return "saving the operation result"
         case .refreshVerification:
             return "verifying the refresh result"
         case .replyEncoding:
@@ -487,6 +492,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .authResponseCapacityUnavailable: return "SideStore could not start sign-in because it cannot safely reserve a response slot yet."
             case .keychainSignOutFailed: return "SideStore could not confirm removal of the saved Apple sign-in data. Sign Out stopped, and any partial changes were rolled back."
             case .keychainSignOutOutcomeUnknown: return "SideStore could not confirm the Sign Out outcome. Reload Account & Signing to reconcile which Apple account is active before continuing."
+            case .operationPersistenceFailed: return "The device operation may have completed, but SideStore could not confirm that its updated app state was saved."
             }
         }
         switch stage {
@@ -553,6 +559,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "iOS reports that the identity used to sign the executable is no longer valid. The app must be re-signed with a current signing identity."
             }
             return "SideStore could not complete the application installation."
+        case .persistence:
+            return "SideStore could not confirm that the operation result was saved. The device may already have changed."
         case .refreshVerification: return "Refresh completion could not be verified from the installation results."
         case .network: return "Network error during the \(operation) operation."
         case .replyEncoding: return "SideStore could not encode its service response."
@@ -714,6 +722,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Unlock the iPhone and try Sign Out again. If it still fails, copy Diagnostics."
             case .keychainSignOutOutcomeUnknown:
                 return "Reload Account & Signing to reconcile which Apple account is active before continuing. Do not assume Sign Out completed."
+            case .operationPersistenceFailed:
+                return "Reload installed app status and verify the device before starting another mutation. Do not repeat this operation until its state is known."
             }
         }
         switch stage {
@@ -742,7 +752,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case .replyEncoding:
             return "Copy Diagnostics and report the service reply-encoding failure. Repeating the same request will not fix it."
         case .filePreparation: return "Choose the IPA again. SideStore will copy it into private shared staging before starting installation."
-        case .installation, .refreshVerification: return "Reload authoritative app status and expiration before retrying. Completion may be uncertain."
+        case .installation, .persistence, .refreshVerification: return "Reload authoritative app status and expiration before taking another action. Completion may be uncertain."
         case .endpointSelection, .heartbeat, .coreDevice, .cdTunnel, .rsdDiscovery, .rsdService, .lockdownConnection, .uniqueDeviceID, .network:
             return "Check LocalDevVPN and the device connection, then retry explicitly. This failure alone does not prove invalid pairing."
         default: return "Reload the current status to check the result. If the cause remains unclear, copy Diagnostics before deciding whether to try again."
@@ -1059,6 +1069,36 @@ public struct CombinedFailure: Error, LocalizedError {
         return CombinedFailure(operation: operation, stage: resolved,
             code: resolvedCode, id: id,
             underlying: underlying, retryable: resolvedRetryable, safeCause: safeCause, sourceStep: sourceStep)
+    }
+}
+
+// V3_POST_MUTATION_PERSISTENCE_CONTRACT_V1: the device operation may already
+// have succeeded when this local durable save fails. Keep only fixed semantic
+// markers; never retain or serialize the native Core Data error text/userInfo.
+struct V3PostMutationPersistenceError: Error, CustomNSError, LocalizedError {
+    static var errorDomain: String { "V3PostMutationPersistenceErrorDomain" }
+    var errorCode: Int { 1 }
+    var errorUserInfo: [String: Any] {
+        [NSLocalizedDescriptionKey: "SideStore could not confirm that the operation result was saved. The device may already have changed.",
+         "LCStructuredFailureStageV1": CombinedFailure.Stage.persistence.rawValue,
+         "LCStructuredFailureCauseV1": CombinedFailure.SafeCause.operationPersistenceFailed.rawValue]
+    }
+    var errorDescription: String? {
+        errorUserInfo[NSLocalizedDescriptionKey] as? String
+    }
+}
+
+enum V3MutationPersistencePolicy {
+    /// The Runner calls this only after its device-side pipeline returned success.
+    /// A false `hasChanges` means the state was already durable; a failed save
+    /// throws a fixed non-retryable outcome instead of allowing group success.
+    static func persistResult(hasChanges: Bool, save: () throws -> Void) throws {
+        guard hasChanges else { return }
+        do {
+            try save()
+        } catch {
+            throw V3PostMutationPersistenceError()
+        }
     }
 }
 
