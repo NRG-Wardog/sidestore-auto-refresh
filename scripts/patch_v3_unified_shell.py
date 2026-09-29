@@ -55,6 +55,16 @@ IMPORT_OWNERSHIP_SWIFT = '''    // V3_CERTIFICATE_IMPORT_OWNERSHIP_V1: persist o
             defaults.synchronize()
             return true
         }
+        // Cancellation is scoped to the exact current request. A late cancel
+        // from a superseded or expired prompt must not invalidate a newer import.
+        @discardableResult
+        static func cancel(_ requestID: String, defaults: UserDefaults = .standard, now: Date = Date()) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            guard isActiveLocked(requestID, defaults: defaults, now: now) else { return false }
+            invalidateLocked(defaults)
+            defaults.synchronize()
+            return true
+        }
         static func invalidate(defaults: UserDefaults = .standard) {
             lock.lock(); defer { lock.unlock() }
             invalidateLocked(defaults)
@@ -166,7 +176,9 @@ def patch_host(root: Path) -> None:
         text = replace_once(
             text,
             '    func importCertificateFromSideStore() async {\n        if UserDefaults.sideStoreExist() {',
-            '    func importCertificateFromSideStore() async {\n        let requestID = V3CertificateImportOwnership.begin()\n        if UserDefaults.sideStoreExist() {',
+            '    func importCertificateFromSideStore() async {\n'
+            '        let requestID = V3CertificateImportOwnership.begin()\n'
+            '        if UserDefaults.sideStoreExist() {',
             "canonical certificate import request ownership")
         text = replace_once(
             text,
@@ -180,13 +192,39 @@ def patch_host(root: Path) -> None:
                 built_in_callback,
                 '                v3CompleteSideStoreCertificateImport(certificateData: data, password: password, requestID: requestID)\n',
                 "canonical built-in import completion ownership")
-        external_url = '        guard let url = URL(string: "\\(storeScheme.lowercased())://certificate?callback_template=livecontainer%3A%2F%2Fcertificate%3Fcert%3D%24%28BASE64_CERT%29%26password%3D%24%28PASSWORD%29") else {'
-        if external_url in text:
-            text = replace_once(
-                text,
-                external_url,
-                '        guard let url = URL(string: "\\(storeScheme.lowercased())://certificate?callback_template=livecontainer%3A%2F%2Fcertificate%3Fcert%3D%24%28BASE64_CERT%29%26password%3D%24%28PASSWORD%29%26request_id%3D\\(requestID)") else {',
-                "canonical external import callback request id")
+        cancellation_suffix = (
+            ' else {\n'
+            '                // A decline or dismissal cancels this exact prompt.\n'
+            '                _ = V3CertificateImportOwnership.cancel(requestID)\n'
+            '                return\n'
+            '            }\n'
+            '        }\n'
+            '        // A missing embedded SideStore is an invalid combined product.\n'
+            '        _ = V3CertificateImportOwnership.cancel(requestID)\n'
+            '        errorInfo = "Embedded SideStore is unavailable in this LiveContainer build."\n'
+            '        errorShow = true')
+        with_return = '                return\n            }\n        }'
+        without_return = '            }\n        }'
+        if text.count(with_return) == 1:
+            text = text.replace(
+                with_return,
+                '                return\n            }' + cancellation_suffix,
+                1)
+        elif text.count(without_return) == 1:
+            text = text.replace(
+                without_return,
+                '            }' + cancellation_suffix,
+                1)
+        else:
+            die("canonical built-in confirmation cancellation anchor changed")
+        fallback_start = '        let storeScheme'
+        fallback_end = '        await UIApplication.shared.open(url)\n'
+        if text.count(fallback_start) == 1 and text.count(fallback_end) == 1:
+            start = text.index(fallback_start)
+            end = text.index(fallback_end, start) + len(fallback_end)
+            text = text[:start] + text[end:]
+        elif text.count(fallback_start) != 0 or text.count(fallback_end) != 0:
+            die("canonical combined JIT-Less importer fallback anchors changed")
         callback_signature = '    func onSideStoreCertificateCallback(certificateData: Data, password: String) {'
         if callback_signature in text:
             text = replace_once(
@@ -338,6 +376,19 @@ def verify(live: Path, side: Path) -> None:
             die(f"canonical JIT-Less importer is missing {token}")
     if settings_source.count("kSecAttrAccessGroup as String: sharedKeychainGroup") != 2:
         die("canonical JIT-Less importer must scope both certificate and password queries")
+    importer_start = settings_source.index("func importCertificateFromSideStore() async {")
+    importer_end = settings_source.index("private func v3CompleteSideStoreCertificateImport", importer_start)
+    importer = settings_source[importer_start:importer_end]
+    for token in ("V3CertificateImportOwnership.begin()",
+                  "V3CertificateImportOwnership.isActive(requestID)",
+                  "V3CertificateImportOwnership.cancel(requestID)",
+                  "Embedded SideStore is unavailable in this LiveContainer build."):
+        if token not in importer:
+            die(f"canonical JIT-Less importer is missing cancellation contract {token}")
+    if "storeScheme" in importer or "UIApplication.shared.open(url)" in importer:
+        die("canonical combined JIT-Less importer still launches a second app")
+    if "static func cancel(_ requestID:" not in settings_source:
+        die("canonical certificate import owner lacks exact-request cancellation")
     if "V3_JITLESS_ROUTE_ROW_NEUTRALIZED_V1" not in settings_source:
         die("canonical JIT-Less route is not row-neutralized (an empty Settings row would render)")
     if "V3_SIDESTORE_STATUS_SNAPSHOT_V1" not in (side / "AltStore/AppDelegate.swift").read_text(encoding="utf-8"):

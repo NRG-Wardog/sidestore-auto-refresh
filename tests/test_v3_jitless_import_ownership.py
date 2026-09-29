@@ -1,13 +1,11 @@
 """Regression coverage for one-use ownership of canonical JIT-Less imports."""
 from pathlib import Path
 import importlib.util
-import re
 import shutil
 import subprocess
 import tempfile
 import textwrap
 import unittest
-from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("v3_patch_import_ownership", ROOT / "scripts/patch_v3_unified_shell.py")
@@ -102,7 +100,7 @@ class JITLessImportOwnershipTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def test_all_import_routes_use_the_persisted_exact_one_use_request(self):
+    def test_combined_import_uses_exact_one_use_owner_and_never_launches_external_store(self):
         source = self.settings
         self.assertIn(patch.IMPORT_OWNERSHIP_SWIFT, source)
         importer = source[source.index("func importCertificateFromSideStore() async"):
@@ -110,22 +108,23 @@ class JITLessImportOwnershipTests(unittest.TestCase):
         self.assertIn("let requestID = V3CertificateImportOwnership.begin()", importer)
         self.assertLess(importer.index("V3CertificateImportOwnership.begin()"), importer.index("await certificateImportFromBuiltInSideStoreAlert.open()"))
         self.assertIn("V3CertificateImportOwnership.isActive(requestID) else { return }", importer)
-        self.assertIn("request_id%3D\\(requestID)", importer)
+        self.assertIn("V3CertificateImportOwnership.cancel(requestID)", importer)
+        self.assertIn("Embedded SideStore is unavailable in this LiveContainer build.", importer)
+        self.assertNotIn("storeScheme", importer)
+        self.assertNotIn("UIApplication.shared.open(url)", importer)
         self.assertIn("V3CertificateImportOwnership.consume(requestID)", source)
         self.assertIn("onSideStoreCertificateCallback(certificateData: certificateData, password: password)", source)
         self.assertIn("V3CertificateImportOwnership.isActive(requestID) else { return }", source)
 
-    def test_side_store_callback_template_carries_opaque_id_as_its_own_query(self):
+    def test_legacy_external_callback_stays_exact_id_gated_but_is_not_generated(self):
         importer = self.settings[self.settings.index("func importCertificateFromSideStore() async"):
                                 self.settings.index("private func v3CompleteSideStoreCertificateImport")]
-        encoded = re.search(r'callback_template=([^" ]+)', importer).group(1)
-        sample_id = "c0f0e997-461d-4d84-8b07-6ec38a62eb4f"
-        callback = urlparse("sidestore://certificate?callback_template=" + encoded.replace("\\(requestID)", sample_id))
-        nested = parse_qs(callback.query)["callback_template"][0]
-        nested_items = parse_qs(urlparse(nested).query)
-        self.assertEqual(nested_items["request_id"], [sample_id])
-        self.assertEqual(nested_items["cert"], ["$(BASE64_CERT)"])
-        self.assertEqual(nested_items["password"], ["$(PASSWORD)"])
+        self.assertNotIn("callback_template", importer)
+        self.assertNotIn("storeScheme", importer)
+        route = self.settings[self.settings.index("func handleURL(url:"):
+                                self.settings.index("var body: some View")]
+        self.assertIn('queryItems["request_id"]', route)
+        self.assertIn("V3CertificateImportOwnership.isActive(requestID)", route)
 
     def test_removal_invalidates_before_legacy_keys_and_notifies_after_removal(self):
         removal = self.settings[self.settings.index("func removeCertificate() async"):
