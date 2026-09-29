@@ -213,6 +213,74 @@ func v3Prompt(id: String = UUID().uuidString, kind: String, title: String, messa
     return prompt
 }
 
+// V3_PROMPT_OPTION_IDENTITY_V1: the host submits the selected option IDs as
+// comma-separated strings. Decode those IDs against the raw values offered by
+// this prompt so stale, forged, malformed, or repeated values cannot select a
+// different backend object.
+enum V3PromptSelectionPolicy {
+    enum Revocation {
+        case keepExisting
+        case revoke(Set<String>)
+    }
+
+    enum Extensions {
+        case keepAll
+        case removeAll
+        case remove(Set<String>)
+    }
+
+    static func rawValues(from optionIDs: String?, prefix: String,
+                          offeredRawValues: [String]) throws -> Set<String> {
+        guard let optionIDs, !optionIDs.isEmpty, !prefix.isEmpty else {
+            throw CancellationError()
+        }
+        let offered = Set(offeredRawValues)
+        guard offered.count == offeredRawValues.count,
+              offered.allSatisfy({ !$0.isEmpty }) else {
+            throw CancellationError()
+        }
+        let submitted = optionIDs.components(separatedBy: ",")
+        guard !submitted.isEmpty, submitted.allSatisfy({ !$0.isEmpty }),
+              Set(submitted).count == submitted.count else {
+            throw CancellationError()
+        }
+        var selected = Set<String>()
+        for optionID in submitted {
+            guard optionID.hasPrefix(prefix) else { throw CancellationError() }
+            let rawValue = String(optionID.dropFirst(prefix.count))
+            guard !rawValue.isEmpty, offered.contains(rawValue) else {
+                throw CancellationError()
+            }
+            selected.insert(rawValue)
+        }
+        guard !selected.isEmpty else { throw CancellationError() }
+        return selected
+    }
+
+    static func revocation(choice: String?, submittedOptionIDs: String?,
+                           offeredSerials: [String]) throws -> Revocation {
+        switch choice {
+        case "keep": return .keepExisting
+        case "revoke":
+            return .revoke(try rawValues(from: submittedOptionIDs, prefix: "revoke:",
+                                         offeredRawValues: offeredSerials))
+        default: throw CancellationError()
+        }
+    }
+
+    static func extensions(choice: String?, submittedOptionIDs: String?,
+                           offeredBundleIDs: [String]) throws -> Extensions {
+        switch choice {
+        case "keepAll": return .keepAll
+        case "removeAll": return .removeAll
+        case "selected":
+            return .remove(try rawValues(from: submittedOptionIDs, prefix: "remove:",
+                                         offeredRawValues: offeredBundleIDs))
+        default: throw CancellationError()
+        }
+    }
+}
+
 // MARK: - Authentication failure classification (typed, no string guessing)
 
 // Privacy-safe display kind for the previous authentication attempt failure.
@@ -1181,10 +1249,13 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
                                    fields: [["key": "serials", "label": "serials", "secure": "false", "value": ""]],
                                    options: [["id": "keep", "label": "Keep Existing"]] +
                                        certificates.map { ["id": "revoke:\($0.serialNumber)", "label": "\($0.name) (\($0.serialNumber))"] })
-        if answer["choice"] == "keep" { return .keepExisting }
-        let serials = Set((answer["serials"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+        let selection = try V3PromptSelectionPolicy.revocation(
+            choice: answer["choice"], submittedOptionIDs: answer["serials"],
+            offeredSerials: certificates.map(\.serialNumber))
+        if case .keepExisting = selection { return .keepExisting }
+        guard case .revoke(let serials) = selection else { throw CancellationError() }
         let selected = certificates.filter { serials.contains($0.serialNumber) }
-        guard !selected.isEmpty else { throw CancellationError() }
+        guard selected.count == serials.count, !selected.isEmpty else { throw CancellationError() }
         return .revokeSelected(selected)
     }
 
@@ -1281,13 +1352,17 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
                 options: [["id": "keepAll", "label": "Keep All"]] +
                     sorted.map { ["id": "remove:\($0.bundleIdentifier)", "label": "Remove \($0.bundleIdentifier)"] } +
                     [["id": "removeAll", "label": "Remove All"]])
-            switch answer["choice"] {
-            case "keepAll": return .keepAll(useMainProfile: false)
-            case "removeAll": return .removeAll
-            default:
-                let wanted = Set((answer["ids"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
-                let selected = Set(sorted.filter { wanted.contains($0.bundleIdentifier) })
-                guard !selected.isEmpty else { throw CancellationError() }
+            let selection = try V3PromptSelectionPolicy.extensions(
+                choice: answer["choice"], submittedOptionIDs: answer["ids"],
+                offeredBundleIDs: sorted.map(\.bundleIdentifier))
+            switch selection {
+            case .keepAll: return .keepAll(useMainProfile: false)
+            case .removeAll: return .removeAll
+            case .remove(let bundleIDs):
+                let selected = Set(sorted.filter { bundleIDs.contains($0.bundleIdentifier) })
+                guard selected.count == bundleIDs.count, !selected.isEmpty else {
+                    throw CancellationError()
+                }
                 return .removeSelected(selected)
             }
         }
