@@ -111,6 +111,19 @@ struct MalformedStructuredFailureHarness {
         } else {
             preconditionFailure("a valid structured readiness failure remains authoritative without error token")
         }
+
+        let persistenceFailure = CombinedFailure(operation: "install", stage: .persistence,
+            code: .failed, id: id, retryable: false, safeCause: .operationPersistenceFailed)
+        let persistenceReply: [String: Any] = ["version": 1, "id": id, "ok": false,
+            "failure": persistenceFailure.wire]
+        if case .failed(let failure) = V3ServiceReadinessReply.decode(
+            try encoded(persistenceReply), requestID: id) {
+            precondition(failure.operation == "install" && failure.stage == "persistence" &&
+                         failure.safeCause == "operationPersistenceFailed" && failure.retryable == false,
+                "a typed operation persistence failure must survive the readiness plist boundary")
+        } else {
+            preconditionFailure("the readiness decoder must preserve the typed operation persistence failure")
+        }
         print("V3_MALFORMED_STRUCTURED_FAILURE_PASS")
     }
 }

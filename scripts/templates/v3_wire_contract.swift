@@ -511,7 +511,7 @@ enum V3ServiceReadinessReply: Equatable {
         "responseTooLarge", "pairingRequired", "invalidPairingFile",
         "pairingFilePreparationFailed", "authAttemptNotDispatched",
         "authProvisioningRetryNotDispatched", "authSessionUnavailable",
-        "authResponseCapacityUnavailable", "keychainSignOutFailed",
+        "authResponseCapacityUnavailable", "operationPersistenceFailed", "keychainSignOutFailed",
         "keychainSignOutOutcomeUnknown"
     ]
     static let knownSourceStepValues: Set<String> = [
