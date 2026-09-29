@@ -75,9 +75,56 @@ struct V3AuthReadinessRefreshEventLedger {
     }
 }
 
+// V3_SETUP_READINESS_SNAPSHOT_POLICY_V1: a cached readiness belongs to the
+// exact setup-fact revision that observed it. Keep the active-certificate fact
+// in the same value so consumers cannot combine facts from different reads.
+struct V3SetupReadinessObservation: Equatable {
+    let readiness: V3JITLessReadiness
+    let sourceFactRevision: UInt64
+    let activeCertificateAvailable: Bool?
+}
+
 enum V3SetupReadinessObservationPolicy {
-    static func shouldFetchLocalReadiness(_ sharedReadiness: V3JITLessReadiness?) -> Bool {
-        sharedReadiness == nil
+    static func shouldFetchLocalReadiness(_ observation: V3SetupReadinessObservation?) -> Bool {
+        observation == nil
+    }
+
+    static func shouldFetchLocalReadiness(_ observation: V3SetupReadinessObservation?,
+                                          currentFactRevision: UInt64) -> Bool {
+        guard let observation else { return true }
+        return observation.sourceFactRevision != currentFactRevision
+    }
+
+    static func mayApplyFreshObservation(sourceFactRevision: UInt64,
+                                         currentFactRevision: UInt64) -> Bool {
+        sourceFactRevision == currentFactRevision
+    }
+}
+
+// V3_MULTISELECT_PROMPT_ANSWER_POLICY_V1: option IDs representing actions must
+// be routed as choices, while only member IDs may enter the selected-ID list.
+enum V3MultiSelectPromptAnswerPolicy {
+    static func isMemberOption(kind: String, optionID: String) -> Bool {
+        if ["keep", "keepAll"].contains(optionID) { return false }
+        if kind == "extensions" && optionID == "removeAll" { return false }
+        return true
+    }
+
+    static func actionAnswer(_ actionID: String, fields: [String: String]) -> [String: String] {
+        var answer = fields
+        answer["choice"] = actionID
+        answer.removeValue(forKey: "ids")
+        answer.removeValue(forKey: "serials")
+        return answer
+    }
+
+    static func selectedMembersAnswer(kind: String, selectedIDs: Set<String>,
+                                      fields: [String: String]) -> [String: String] {
+        var answer = fields
+        answer["choice"] = kind == "revocation" ? "revoke" : "selected"
+        answer["ids"] = selectedIDs.sorted().joined(separator: ",")
+        answer["serials"] = selectedIDs.sorted().joined(separator: ",")
+        return answer
     }
 }
 
@@ -979,7 +1026,8 @@ final class V3SideStoreStatusStore: ObservableObject {
     var currentSetupFactRevision: UInt64 { setupFactRevision }
 
     func isSetupFactRevisionCurrent(_ revision: UInt64) -> Bool {
-        V3SetupFactRevisionPolicy.mayApply(captured: revision, current: setupFactRevision)
+        V3SetupReadinessObservationPolicy.mayApplyFreshObservation(
+            sourceFactRevision: revision, currentFactRevision: setupFactRevision)
     }
 
     func recordWifiAvailability(_ available: Bool, revision: UInt64? = nil) {
@@ -992,6 +1040,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         setupFactObservation = .pending
         setupFactLastAttemptAt = nil
         wifiAvailable = nil
+        jitlessReadinessObservation = nil
         jitlessReadiness = nil
         jitlessActiveCertificateAvailable = nil
     }
@@ -1007,6 +1056,9 @@ final class V3SideStoreStatusStore: ObservableObject {
     // publish it, and Home reads it, so no surface can claim a different
     // completion answer. nil means "not observed yet" and counts as
     // outstanding, so a fact nothing observes can never read as satisfied.
+    @Published private(set) var jitlessReadinessObservation: V3SetupReadinessObservation?
+    // Compatibility projections for existing UI consumers. The observation is
+    // authoritative; all three values are updated together in this owner.
     @Published private(set) var jitlessReadiness: V3JITLessReadiness?
     @Published private(set) var jitlessActiveCertificateAvailable: Bool?
 
@@ -1015,6 +1067,10 @@ final class V3SideStoreStatusStore: ObservableObject {
                                 activeCertificateAvailable: Bool? = nil,
                                 revision: UInt64? = nil) {
         if let revision, !isSetupFactRevisionCurrent(revision) { return }
+        jitlessReadinessObservation = V3SetupReadinessObservation(
+            readiness: readiness,
+            sourceFactRevision: revision ?? setupFactRevision,
+            activeCertificateAvailable: activeCertificateAvailable)
         jitlessReadiness = readiness
         jitlessActiveCertificateAvailable = activeCertificateAvailable
     }
@@ -1088,18 +1144,18 @@ final class V3SideStoreStatusStore: ObservableObject {
 
     /// Quick Setup reuses the latest shared observation when it is already
     /// running or completed, instead of issuing a second health snapshot.
-    func awaitAuthReadinessRefresh() async -> V3JITLessReadiness? {
+    func awaitAuthReadinessRefresh() async -> V3SetupReadinessObservation? {
         while let task = authReadinessObservationTask {
             let generation = authReadinessEventGeneration
             await task.value
             if generation == authReadinessEventGeneration {
-                return jitlessReadiness
+                return jitlessReadinessObservation
             }
         }
         return nil
     }
 
-    func awaitSharedSetupJITLessReadiness() async -> V3JITLessReadiness? {
+    func awaitSharedSetupJITLessReadiness() async -> V3SetupReadinessObservation? {
         if let authReadiness = await awaitAuthReadinessRefresh() {
             return authReadiness
         }
@@ -1107,10 +1163,10 @@ final class V3SideStoreStatusStore: ObservableObject {
             let generation = setupFactObservationGeneration
             await task.value
             if generation == setupFactObservationGeneration {
-                return jitlessReadiness
+                return jitlessReadinessObservation
             }
         }
-        return jitlessReadiness
+        return jitlessReadinessObservation
     }
 
     private func observeSetupFacts() async {
@@ -4348,7 +4404,10 @@ struct V3PromptSection: View {
                 .font(.caption)
             }
             if isMulti {
-                ForEach(options.filter { $0["id"] != "keep" && $0["id"] != "keepAll" }, id: \.self) { option in
+                ForEach(options.filter {
+                    V3MultiSelectPromptAnswerPolicy.isMemberOption(
+                        kind: kind, optionID: $0["id"] ?? "")
+                }, id: \.self) { option in
                     Button {
                         toggle(option["id"] ?? "")
                     } label: {
@@ -4361,18 +4420,23 @@ struct V3PromptSection: View {
                     .disabled(isSubmitting || isSubmissionBlocked)
                 }
                 if kind == "revocation" {
-                    Button("Keep Existing") { submit(choice: "keep") }
+                    Button("Keep Existing") {
+                        respond(V3MultiSelectPromptAnswerPolicy.actionAnswer("keep", fields: fields))
+                    }
                         .disabled(isSubmitting || isSubmissionBlocked)
                 } else {
-                    Button("Keep All") { submit(choice: "keepAll") }
+                    Button("Keep All") {
+                        respond(V3MultiSelectPromptAnswerPolicy.actionAnswer("keepAll", fields: fields))
+                    }
                         .disabled(isSubmitting || isSubmissionBlocked)
+                    Button("Remove All", role: .destructive) {
+                        respond(V3MultiSelectPromptAnswerPolicy.actionAnswer("removeAll", fields: fields))
+                    }
+                    .disabled(isSubmitting || isSubmissionBlocked)
                 }
-                    Button(kind == "revocation" ? "Revoke Selected" : "Remove Selected", role: .destructive) {
-                    var answer = fields
-                    answer["choice"] = kind == "revocation" ? "revoke" : "selected"
-                    answer["ids"] = selected.sorted().joined(separator: ",")
-                    answer["serials"] = selected.sorted().joined(separator: ",")
-                    respond(answer)
+                Button(kind == "revocation" ? "Revoke Selected" : "Remove Selected", role: .destructive) {
+                    respond(V3MultiSelectPromptAnswerPolicy.selectedMembersAnswer(
+                        kind: kind, selectedIDs: selected, fields: fields))
                 }
                 .disabled(selected.isEmpty || isSubmitting || isSubmissionBlocked)
             } else {
@@ -7934,10 +7998,10 @@ final class V3SetupStore: ObservableObject {
     @Published private(set) var statusProvisioningIncomplete = false
 
     private func publishJITLessReadiness(_ readiness: V3JITLessReadiness,
-                                        activeCertificateAvailable: Bool,
+                                        activeCertificateAvailable: Bool?,
                                         status: V3SideStoreStatusStore,
                                         factRevision: UInt64) {
-        jitlessHasActiveCertificate = activeCertificateAvailable
+        jitlessHasActiveCertificate = activeCertificateAvailable == true
         status.recordJITLessReadiness(readiness,
             activeCertificateAvailable: activeCertificateAvailable, revision: factRevision)
         let presentation = V3JITLessPresentation.present(readiness)
@@ -7958,7 +8022,27 @@ final class V3SetupStore: ObservableObject {
         // join it before taking a new fact revision or opening another health
         // snapshot. This is the Setup Assistant's return-from-sign-in path.
         let sharedReadiness = await status.awaitSharedSetupJITLessReadiness()
-        let factRevision = status.beginSetupFactObservation()
+        // Validate the observation against the status owner's current revision
+        // after the await. Reuse keeps its source revision; a missing or stale
+        // snapshot starts a fresh revision before the authoritative health read.
+        let currentFactRevision = status.currentSetupFactRevision
+        let observationToReuse: V3SetupReadinessObservation?
+        if !V3SetupReadinessObservationPolicy.shouldFetchLocalReadiness(sharedReadiness),
+           let sharedReadiness,
+           !V3SetupReadinessObservationPolicy.shouldFetchLocalReadiness(
+                sharedReadiness, currentFactRevision: currentFactRevision),
+           status.jitlessReadiness == sharedReadiness.readiness,
+           status.jitlessActiveCertificateAvailable == sharedReadiness.activeCertificateAvailable {
+            observationToReuse = sharedReadiness
+        } else {
+            observationToReuse = nil
+        }
+        let factRevision: UInt64
+        if let observationToReuse {
+            factRevision = observationToReuse.sourceFactRevision
+        } else {
+            factRevision = status.beginSetupFactObservation()
+        }
         NSLog("[V3_SETUP] STATUS recalculating")
         // Recorded from the authoritative snapshot so the shared completion
         // policy sees the same provisioning fact Home sees.
@@ -7995,11 +8079,10 @@ final class V3SetupStore: ObservableObject {
             osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion) {
             status.recordJITLessReadiness(.notRequired, revision: factRevision)
             jitless = V3SetupStepState(state: "complete", detail: "Not required on this iOS version")
-        } else if let sharedReadiness,
-                  !V3SetupReadinessObservationPolicy.shouldFetchLocalReadiness(sharedReadiness) {
+        } else if let observationToReuse {
             guard status.isSetupFactRevisionCurrent(factRevision) else { return }
-            publishJITLessReadiness(sharedReadiness,
-                activeCertificateAvailable: status.jitlessActiveCertificateAvailable == true,
+            publishJITLessReadiness(observationToReuse.readiness,
+                activeCertificateAvailable: observationToReuse.activeCertificateAvailable,
                 status: status, factRevision: factRevision)
         } else {
             do {
