@@ -60,11 +60,21 @@ import CFNetwork
         // NSError domain spelling, rather than a guessed framework-name string.
         let cfNetworkDomain = kCFErrorDomainCFNetwork as String
         precondition(cfNetworkDomain == "kCFErrorDomainCFNetwork")
-        let cfNetwork = NSError(domain: cfNetworkDomain, code: 2)
-        let cfNetworkFailure = V3KnownSourcePolicyFailure(cfNetwork)
-        precondition(cfNetworkFailure.kind == .network)
-        precondition(cfNetworkFailure.underlyingDomain == cfNetworkDomain)
-        precondition(cfNetworkFailure.underlyingCode == 2)
+        // An approved domain alone is insufficient: code 2 is not an
+        // allowlisted transport cause and must remain a parsing failure.
+        let unknownCFNetwork = NSError(domain: cfNetworkDomain, code: 2)
+        let unknownCFNetworkFailure = V3KnownSourcePolicyFailure(unknownCFNetwork)
+        precondition(unknownCFNetworkFailure.kind == .invalidResponse)
+        precondition(unknownCFNetworkFailure.underlyingDomain == cfNetworkDomain)
+        precondition(unknownCFNetworkFailure.underlyingCode == 2)
+
+        // A known transport code in the approved CFNetwork domain is network.
+        let transportCode = URLError.Code.networkConnectionLost.rawValue
+        let cfNetworkTransport = NSError(domain: cfNetworkDomain, code: transportCode)
+        let cfNetworkTransportFailure = V3KnownSourcePolicyFailure(cfNetworkTransport)
+        precondition(cfNetworkTransportFailure.kind == .network)
+        precondition(cfNetworkTransportFailure.underlyingDomain == cfNetworkDomain)
+        precondition(cfNetworkTransportFailure.underlyingCode == transportCode)
         print("Known source policy classification PASS")
     }
 }
