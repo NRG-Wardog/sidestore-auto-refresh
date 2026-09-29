@@ -1,3 +1,5 @@
+@preconcurrency import UIKit
+
 public class DeveloperPortalProxy {
     public static let shared: DeveloperPortalProxy = DeveloperPortalProxyWithAuth()
     fileprivate init() {}
