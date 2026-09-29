@@ -94,10 +94,41 @@ final class RefreshHandler {
 @main
 struct BridgeTests {
     @MainActor
-    static func waitForRequest(_ client: FakeClient) async {
+    static func waitForRequest(_ client: FakeClient, bridge: V3ServiceBridge,
+                               afterRequestCount: Int, operation: String,
+                               target: String? = nil, sessionID: String? = nil,
+                               context: String) async {
         let deadline = Date().addingTimeInterval(2)
-        while client.replies.isEmpty {
-            precondition(Date() < deadline, "request was never sent")
+        func matches(_ request: [String: Any]) -> Bool {
+            guard request["operation"] as? String == operation else { return false }
+            if let target, request["target"] as? String != target { return false }
+            if let sessionID {
+                let payload = request["payload"] as? [String: Any] ?? [:]
+                let requestSession = operation == "opStart"
+                    ? payload["session"] as? String
+                    : (payload["session"] as? String ?? request["target"] as? String)
+                guard requestSession == sessionID else { return false }
+            }
+            return true
+        }
+        while !client.requests.dropFirst(min(afterRequestCount, client.requests.count)).contains(where: matches) {
+            if Date() >= deadline {
+                let observed = client.requests.dropFirst(min(afterRequestCount, client.requests.count))
+                    .compactMap { $0["operation"] as? String }.joined(separator: ",")
+                preconditionFailure("request was never sent context=\(context) expected=\(operation) target=\(target ?? "-") session=\(sessionID ?? "-") observed_after_baseline=[\(observed)] bridge_mutating=\(bridge.isMutating) queued_replies=\(client.replies.count)")
+            }
+            await Task.yield()
+        }
+    }
+
+    @MainActor
+    static func waitForOwnershipRelease(_ bridge: V3ServiceBridge, handler: RefreshHandler,
+                                        stopCountBefore: Int, context: String) async {
+        let deadline = Date().addingTimeInterval(4)
+        while bridge.isMutating {
+            if Date() >= deadline {
+                preconditionFailure("mutation ownership did not settle context=\(context) service_stops=\(handler.stops - stopCountBefore)")
+            }
             await Task.yield()
         }
     }
@@ -171,14 +202,20 @@ struct BridgeTests {
         client.stale = false; client.oversized = true
         do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("oversized reply accepted") } catch {}
         client.oversized = false; client.hold = true
+        var requestBaseline = client.requests.count
         let cancelled = Task { try await bridge.request(operation: "install") }
-        await waitForRequest(client)
+        await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
+                             operation: "install", context: "cancelled read/mutation late reply")
         cancelled.cancel()
         do { _ = try await cancelled.value; preconditionFailure("cancel ignored") } catch is CancellationError {} catch { preconditionFailure("wrong cancellation") }
         precondition(client.cancellations == 1)
+        precondition(bridge.isMutating,
+                     "an unacknowledged cancellation must retain mutation ownership until a late reply or service retirement")
         client.flush() // Late success cannot resume an already completed continuation.
+        requestBaseline = client.requests.count
         let interrupted = Task { try await bridge.request(operation: "snapshot") }
-        await waitForRequest(client)
+        await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
+                             operation: "snapshot", context: "disconnect read")
         bridge.disconnected()
         do { _ = try await interrupted.value; preconditionFailure("disconnect ignored") }
         catch let error as CombinedFailure {
@@ -189,20 +226,36 @@ struct BridgeTests {
         precondition(client.cancellations == 2, "expected cancellation plus timeout, received \(client.cancellations)")
         precondition(handler.stops == 1, "idle read timeout must reconnect the service")
         client.flush()
+        requestBaseline = client.requests.count
         let mutation = Task { try await bridge.request(operation: "install") }
-        await waitForRequest(client)
+        await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
+                             operation: "install", context: "cancellable mutation")
         do { _ = try await bridge.request(operation: "signOut"); preconditionFailure("concurrent mutation accepted") } catch {}
         mutation.cancel()
         _ = try? await mutation.value
         client.flush()
         client.hold = false
         _ = try await bridge.request(operation: "snapshot")
+        // The late success callback above is dispatched to MainActor by the
+        // production bridge. Until that callback retires cancellation recovery,
+        // a new mutation must remain blocked. Wait for the bridge's ownership
+        // state, not for an assumed actor scheduling delay.
+        let stopCountBeforeLateMutationReply = handler.stops
+        await waitForOwnershipRelease(bridge, handler: handler,
+            stopCountBefore: stopCountBeforeLateMutationReply,
+            context: "late mutation reply or bounded service retirement")
         // Every boundary must retain the operation, including concurrent reads and a mutation.
         client.hold = true
+        requestBaseline = client.requests.count
         let installDisconnect = Task { try await bridge.request(operation: "install") }
-        await waitForRequest(client)
+        await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
+                             operation: "install", context: "disconnect mutation")
+        requestBaseline = client.requests.count
         let catalogDisconnect = Task { try await bridge.request(operation: "catalog") }
-        while client.replies.count < 2 { await Task.yield() }
+        await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
+                             operation: "catalog", context: "concurrent disconnect read")
+        precondition(client.replies.count >= 2,
+                     "both held requests must be awaiting their service replies before disconnect")
         bridge.disconnected()
         for (task, operation) in [(installDisconnect, "install"), (catalogDisconnect, "catalog")] {
             do { _ = try await task.value; preconditionFailure("disconnect ignored") }
@@ -215,11 +268,14 @@ struct BridgeTests {
         let stopsBeforeRecovery = handler.stops
         client.hold = true
         let stuckAuthSession = UUID().uuidString
+        requestBaseline = client.requests.count
         let stuck = Task {
             try await recovery.request(operation: "authBegin", target: stuckAuthSession,
                 payload: ["session": stuckAuthSession, "sessionDeadline": Date().addingTimeInterval(600)])
         }
-        await waitForRequest(client)
+        await waitForRequest(client, bridge: recovery, afterRequestCount: requestBaseline,
+                             operation: "authBegin", target: stuckAuthSession,
+                             sessionID: stuckAuthSession, context: "cancelled authentication start")
         stuck.cancel()
         _ = try? await stuck.value
         precondition(recovery.isMutating, "cancel must retain the gate while native work unwinds")
@@ -237,8 +293,11 @@ struct BridgeTests {
             payload: ["kind": "install", "session": operationSession])
         precondition(bridge.isMutating, "a returned opStart must retain service mutation ownership")
         client.hold = true
+        requestBaseline = client.requests.count
         let poll = Task { try await bridge.request(operation: "opPoll", target: operationSession) }
-        await waitForRequest(client)
+        await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
+                             operation: "opPoll", target: operationSession,
+                             sessionID: operationSession, context: "timed out operation poll")
         do { _ = try await poll.value; preconditionFailure("stalled operation poll did not time out") }
         catch let error as CombinedFailure {
             precondition(error.operation == "command" && error.stage == .command)
@@ -250,8 +309,11 @@ struct BridgeTests {
         client.operationState = "failed"
         client.backendSettled = false
         client.hold = true
+        requestBaseline = client.requests.count
         let cancelRequest = Task { try await bridge.request(operation: "opCancel", target: operationSession) }
-        await waitForRequest(client)
+        await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
+                             operation: "opCancel", target: operationSession,
+                             sessionID: operationSession, context: "timed out operation cancellation")
         do { _ = try await cancelRequest.value; preconditionFailure("unsettled opCancel did not time out") }
         catch let error as CombinedFailure { precondition(error.code == .timedOut) }
         precondition(bridge.isMutating,
@@ -291,10 +353,13 @@ struct BridgeTests {
         precondition(lateAuthBridge.isMutating, "a live auth session owns host mutation admission")
         client.hold = true
         let stopsBeforeLateAuthCancel = handler.stops
+        requestBaseline = client.requests.count
         let lateAuthCancel = Task {
             try await lateAuthBridge.request(operation: "authCancel", target: authSession)
         }
-        await waitForRequest(client)
+        await waitForRequest(client, bridge: lateAuthBridge, afterRequestCount: requestBaseline,
+                             operation: "authCancel", target: authSession,
+                             sessionID: authSession, context: "timed out authentication cancellation")
         do { _ = try await lateAuthCancel.value; preconditionFailure("authCancel timeout was lost") }
         catch let failure as CombinedFailure { precondition(failure.code == .timedOut) }
         client.flush()
@@ -346,8 +411,11 @@ struct BridgeTests {
             payload: ["kind": "install", "session": lostPollSession])
         client.hold = true
         let startCountBeforeLostPoll = client.operations.filter { $0 == "opStart" }.count
+        requestBaseline = client.requests.count
         let lostPoll = Task { try await bridge.request(operation: "opPoll", target: lostPollSession) }
-        await waitForRequest(client)
+        await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
+                             operation: "opPoll", target: lostPollSession,
+                             sessionID: lostPollSession, context: "lost terminal poll")
         do { _ = try await lostPoll.value; preconditionFailure("stalled poll did not time out") } catch {}
         precondition(bridge.hasUncertainOperationSession(lostPollSession),
             "a lost poll must make the device outcome uncertain")
