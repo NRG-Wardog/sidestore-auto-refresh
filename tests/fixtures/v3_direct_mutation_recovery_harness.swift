@@ -16,7 +16,7 @@ struct DirectMutationRecoveryHarness {
     static let requestID = "10000000-0000-4000-8000-000000000001"
     static let oldInstance = "20000000-0000-4000-8000-000000000002"
     static let newInstance = "30000000-0000-4000-8000-000000000003"
-    static let nextRequestID = "b0000000-0000-4000-8000-00000000000b"
+    static let nextRequestID = "B0000000-0000-4000-8000-00000000000B"
     static let secretURL = "https://user:pass@example.invalid/repo.json?token=opaque"
 
     @MainActor
@@ -37,6 +37,7 @@ struct DirectMutationRecoveryHarness {
         try testV1OperationRecord(root: root.appendingPathComponent("operation"))
         try testPreparedCancellationAndSingleSlot(root: root.appendingPathComponent("prepared"))
         try await testDirectWriteAhead(root: root)
+        try testCanonicalRecoveryRequestIDs(root: root.appendingPathComponent("canonical-ids"))
         try await testCancellationAfterTerminalPersisted(root: root.appendingPathComponent("cancel-after-terminal"))
         try testSettingsStringPrivacy(root: root.appendingPathComponent("settings-string"))
         try testPrivacyForAccountImport(root: root.appendingPathComponent("account"))
@@ -93,7 +94,7 @@ struct DirectMutationRecoveryHarness {
         guard case nil = try V3OperationRecoveryJournal.currentState(containerRoot: root) else {
             fatalError("terminal acknowledgement must remove the single-slot record")
         }
-        let nextRequestAfterAcknowledgement = "a0000000-0000-4000-8000-00000000000a"
+        let nextRequestAfterAcknowledgement = "A0000000-0000-4000-8000-00000000000A"
         let next = ["operation": "settingsSet", "target": "", "payload": [
             "key": "isCellularRefreshEnabled", "type": "bool", "bool": false
         ]] as [String: Any]
@@ -168,6 +169,26 @@ struct DirectMutationRecoveryHarness {
         try expect(try V3OperationRecoveryJournal.direct(containerRoot: root)?.requestID == requestID)
     }
 
+    private static func testCanonicalRecoveryRequestIDs(root: URL) throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let request = ["operation": "settingsSet", "target": "", "payload": [
+            "key": "isCellularRefreshEnabled", "type": "bool", "bool": true
+        ]] as [String: Any]
+        let lowercaseID = "c0000000-0000-4000-8000-00000000000c"
+        try expect(!(try V3OperationRecoveryJournal.reserveDirect(request: request,
+            requestID: lowercaseID, serviceInstanceID: oldInstance, containerRoot: root)),
+            "direct records require the canonical uppercase UUID representation")
+        guard case nil = try V3OperationRecoveryJournal.currentState(containerRoot: root) else {
+            fatalError("a noncanonical UUID must not reserve the journal")
+        }
+        let canonicalID = lowercaseID.uppercased()
+        try expect(try V3OperationRecoveryJournal.reserveDirect(request: request,
+            requestID: canonicalID, serviceInstanceID: oldInstance, containerRoot: root),
+            "the canonical UUID can reserve the same journal after the rejected spelling")
+        try expect(try V3OperationRecoveryJournal.clearPreparedDirectAfterNotDispatched(
+            requestID: canonicalID, containerRoot: root))
+    }
+
     @MainActor
     private static func testDirectWriteAhead(root: URL) async throws {
         let request = ["operation": "sourceAddConfirmed", "target": secretURL] as [String: Any]
@@ -205,7 +226,7 @@ struct DirectMutationRecoveryHarness {
         let nextRequest = ["operation": "settingsSet", "target": "", "payload": [
             "key": "isCellularRefreshEnabled", "type": "bool", "bool": false
         ]] as [String: Any]
-        let nextID = "c0000000-0000-4000-8000-00000000000c"
+        let nextID = "C0000000-0000-4000-8000-00000000000C"
         try expect(try V3DirectMutationRecoveryLifecycle.reserve(request: nextRequest,
             requestID: nextID, serviceInstanceID: oldInstance,
             teamIdentifier: nil, identityStamp: nil, containerRoot: root),
