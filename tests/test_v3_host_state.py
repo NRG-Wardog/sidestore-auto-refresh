@@ -10,46 +10,49 @@ SWIFTC = shutil.which("swiftc")
 
 
 class V3HostStateTests(unittest.TestCase):
-    def test_successful_sign_in_invalidates_and_refreshes_readiness_in_place(self):
+    def test_auth_readiness_events_are_consumed_by_long_lived_root_owner(self):
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        start = shell.index("struct V3SignInView: View")
-        end = shell.index("\nstruct V3CertificateRow", start)
-        sign_in = shell[start:end]
-        auth_change_start = sign_in.index(".onChange(of: auth.isSignedIn)")
-        auth_change_end = sign_in.index(".onChange(of: status.jitlessReadiness)", auth_change_start)
-        auth_change = sign_in[auth_change_start:auth_change_end]
-        self.assertIn("authenticationStateChanged(isSignedIn: isSignedIn)", auth_change)
-        self.assertIn("guard isSignedIn else { return }", auth_change)
-        refresh = auth_change.index("status.refreshSetupFactsAfterSignIn()")
-        reload = auth_change.index("status.reload()", refresh)
-        self.assertLess(refresh, reload)
-        refresh_method = shell[shell.index("func refreshSetupFactsAfterSignIn() {"):]
+        root = shell[shell.index("struct V3UnifiedTabs: View"):
+                     shell.index("final class V3SideStoreStatusStore")]
+        self.assertIn(".onReceive(NotificationCenter.default.publisher(for: V3AuthReadinessRefreshEvent.notificationName))", root)
+        self.assertIn("V3AuthReadinessRefreshEvent.sessionID(from: notification)", root)
+        self.assertIn("status.refreshSetupFactsAfterAuthentication(sessionID: sessionID)", root)
+        status = shell[shell.index("final class V3SideStoreStatusStore"):
+                       shell.index("\nstruct V3SideStoreApp")]
+        refresh_method = status[status.index("func refreshSetupFactsAfterAuthentication(sessionID: String) {"):]
         refresh_method = refresh_method[:refresh_method.index("\n    }")]
+        self.assertLess(refresh_method.index("authReadinessRefreshEventLedger.claim"),
+                        refresh_method.index("invalidateSetupFacts()"))
         self.assertIn("invalidateSetupFacts()", refresh_method)
         self.assertIn("setupFactObservation = .deferred", refresh_method)
         self.assertIn("Task { await observeSetupFacts() }", refresh_method)
-        self.assertIn("jitlessReadinessObservation.observe(readiness)", sign_in)
-        self.assertIn("readinessForPresentation(\n                status.jitlessReadiness)", sign_in)
+        sign_in_start = shell.index("struct V3SignInView: View")
+        sign_in_end = shell.index("\nstruct V3CertificateRow", sign_in_start)
+        sign_in = shell[sign_in_start:sign_in_end]
+        self.assertIn("V3AuthReadinessRefreshEvent.post(sessionID: replySessionID)", shell)
+        self.assertNotIn("refreshSetupFactsAfterAuthentication", sign_in)
+        self.assertNotIn("successfulProvisioningRetryRevision", sign_in)
         self.assertIn('URL(string: "livecontainer://jitless-setup")', sign_in,
                       "canonical LiveContainer setup routing must remain in place")
 
-    def test_successful_provisioning_retry_refreshes_readiness_without_signed_in_edge(self):
+    def test_auth_terminal_posts_once_and_retry_refresh_does_not_duplicate_account_reload(self):
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         start = shell.index("struct V3SignInView: View")
         end = shell.index("\nstruct V3CertificateRow", start)
         sign_in = shell[start:end]
-        retry_change_start = sign_in.index(".onChange(of: auth.successfulProvisioningRetryRevision)")
-        retry_change_end = sign_in.index(".onDisappear", retry_change_start)
-        retry_change = sign_in[retry_change_start:retry_change_end]
-        self.assertIn("guard revision > 0 else { return }", retry_change)
-        self.assertIn("jitlessReadinessObservation.certificateMayHaveChanged()", retry_change)
-        self.assertIn("status.refreshSetupFactsAfterSignIn()", retry_change)
-        self.assertNotIn("status.reload()", retry_change,
-                         "the health refresh must not duplicate the account snapshot")
+        self.assertNotIn("onChange(of: auth.successfulProvisioningRetryRevision)", sign_in)
+        auth_reload = sign_in[sign_in.index(".onChange(of: auth.isSignedIn)"):]
+        auth_reload = auth_reload[:auth_reload.index(".onDisappear")]
+        self.assertIn("guard isSignedIn else { return }", auth_reload)
+        self.assertIn("status.reload()", auth_reload,
+                      "the sign-in view still reloads account status")
+        self.assertNotIn("invalidateSetupFacts()", auth_reload)
+        self.assertNotIn("refreshSetupFactsAfterAuthentication", auth_reload,
+                         "the long-lived root is the only readiness refresh consumer")
 
         auth_store = shell[shell.index("final class V3AuthStore"):]
         auth_store = auth_store[:auth_store.index("\nstruct V3SignInLink")]
-        self.assertIn("@Published private(set) var successfulProvisioningRetryRevision: UInt64 = 0", auth_store)
+        self.assertIn("private var pendingAuthenticationReadinessSessionID: String?", auth_store)
         self.assertIn("private var provisioningRetryReadinessOwnership = V3ProvisioningRetryReadinessOwnership()", auth_store)
         self.assertIn("provisioningRetryReadinessOwnership.begin(sessionID: requestedSession)", auth_store)
         self.assertNotIn("provisioningRetryInProgress", auth_store,
@@ -57,8 +60,17 @@ class V3HostStateTests(unittest.TestCase):
         apply = auth_store[auth_store.index("private func apply(_ reply: [String: Any])"):
                            auth_store.index("func clearPreviousFailure()")]
         self.assertIn("provisioningRetryReadinessOwnership.settle(", apply)
-        self.assertIn("successfulProvisioningRetryRevision &+= 1", apply)
-        self.assertIn('replyState == "completed"', shell)
+        self.assertIn("retryReadinessSettlement == .committed", apply)
+        self.assertIn("retryReadinessSettlement == .notRetry && terminalAuthenticationSucceeded", apply)
+        self.assertIn("replyBelongsToCurrentSession &&", apply)
+        self.assertIn("V3AuthReadinessRefreshEvent.post(sessionID: replySessionID)", apply)
+        self.assertIn("pendingAuthenticationReadinessSessionID = requestedSession", auth_store)
+        self.assertIn("pendingAuthenticationReadinessSessionID = nil", apply)
+        reconcile = auth_store[auth_store.index("func reconcile(force:"):auth_store.index("private func resolveUnavailableAuthSession")]
+        self.assertIn("pendingReadinessSessionID = pendingAuthenticationReadinessSessionID", reconcile)
+        self.assertIn("V3AuthReadinessRefreshEvent.post(sessionID: pendingReadinessSessionID)", reconcile)
+        self.assertIn("pendingAuthenticationReadinessSessionID = nil", reconcile)
+        self.assertNotIn("successfulProvisioningRetryRevision", auth_store)
         self.assertIn("handoffAfterSupersededPollFailure(sessionID: sessionID)", auth_store)
         self.assertIn("provisioningRetryReadinessOwnership.owns(sessionID: sessionID)", auth_store)
         self.assertIn("provisioningRetryReadinessOwnership.allowsPromptResponse(sessionID: session)", auth_store)
@@ -73,7 +85,7 @@ class V3HostStateTests(unittest.TestCase):
         self.assertIn('if session != requestedSession ||', retry_start)
         self.assertIn('(reply["session"] as? String) != requestedSession', retry_start)
 
-    def test_all_sign_in_routes_invalidate_jitless_facts_before_reload(self):
+    def test_sign_in_disappearance_leaves_certificate_invalidation_to_root_event_owner(self):
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         start = shell.index("struct V3SignInView: View")
         end = shell.index("private var statusText", start)
@@ -82,9 +94,9 @@ class V3HostStateTests(unittest.TestCase):
         disappear_start = sign_in_lifecycle.rindex(".onDisappear {")
         disappear_end = sign_in_lifecycle.index("\n        }", disappear_start)
         disappear = sign_in_lifecycle[disappear_start:disappear_end]
-        invalidation = disappear.index("status.invalidateSetupFacts()")
-        reload = disappear.index("status.reload()", invalidation)
-        self.assertLess(invalidation, reload)
+        self.assertIn("status.reload()", disappear)
+        self.assertNotIn("status.invalidateSetupFacts()", disappear)
+        self.assertIn("status.refreshSetupFactsAfterAuthentication(sessionID: sessionID)", shell)
 
     def test_unreadable_recovery_journal_is_visible_and_blocks_new_work(self):
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")

@@ -12,6 +12,17 @@ import Foundation
 //   - one JIT-Less readiness fact, so Home and the assistant cannot disagree
 //   - failure guidance that never shows a numeric error code as advice
 
+private final class V3AuthReadinessHostObserverProbe {
+    private var ledger = V3AuthReadinessRefreshEventLedger()
+    private(set) var readinessRefreshSessionIDs: [String] = []
+
+    func receive(_ notification: Notification) {
+        guard let sessionID = V3AuthReadinessRefreshEvent.sessionID(from: notification),
+              ledger.claim(sessionID: sessionID) else { return }
+        readinessRefreshSessionIDs.append(sessionID)
+    }
+}
+
 @main
 struct SetupAndSemanticUXHarness {
     static func main() {
@@ -545,40 +556,26 @@ struct SetupAndSemanticUXHarness {
                      signInUnknown.presentation.title == "Validation unknown" &&
                      signInUnknown.action == .openSetup,
                      "unobserved readiness is shown as unknown, never as confirmed missing")
-        // V3_SIGNIN_JITLESS_REFRESH_STATE_V1: a successful authentication can
-        // replace SideStore's active certificate, so the old ready fact is
-        // hidden until a new observation arrives. Failures and cancellations
-        // do not invalidate readiness because they do not change auth state to
-        // signed in.
-        var signInReadinessObservation = V3SignInJITLessReadinessObservation()
-        precondition(signInReadinessObservation.readinessForPresentation(.ready) == .ready)
-        signInReadinessObservation.authenticationStateChanged(isSignedIn: false)
-        precondition(signInReadinessObservation.readinessForPresentation(.ready) == .ready,
-                     "failed or cancelled sign-in leaves the current readiness unchanged")
-        signInReadinessObservation.authenticationStateChanged(isSignedIn: true)
-        precondition(signInReadinessObservation.awaitingFreshFactAfterAuthentication)
-        precondition(signInReadinessObservation.readinessForPresentation(.ready) == nil,
-                     "a cached ready result is hidden immediately after successful authentication")
-        let pendingSignInGuidance = V3SignInJITLessGuidancePolicy.resolve(
-            osMajor: 26,
-            readiness: signInReadinessObservation.readinessForPresentation(.ready))!
-        precondition(pendingSignInGuidance.readiness == .unknown &&
-                     pendingSignInGuidance.action == .openSetup,
-                     "pending readiness remains honest and leaves setup available")
-        signInReadinessObservation.observe(nil)
-        precondition(signInReadinessObservation.awaitingFreshFactAfterAuthentication,
-                     "invalidation alone does not release the pending state")
-        signInReadinessObservation.observe(.certificateMismatch)
-        precondition(!signInReadinessObservation.awaitingFreshFactAfterAuthentication)
-        let refreshedSignInGuidance = V3SignInJITLessGuidancePolicy.resolve(
-            osMajor: 26,
-            readiness: signInReadinessObservation.readinessForPresentation(.certificateMismatch))!
-        precondition(refreshedSignInGuidance.readiness == .certificateMismatch &&
-                     refreshedSignInGuidance.action == .refreshCertificate,
-                     "the refreshed stale-copy fact restores the correct refresh action")
-        signInReadinessObservation.certificateMayHaveChanged()
-        precondition(signInReadinessObservation.readinessForPresentation(.ready) == nil,
-                     "a certificate-changing provisioning retry also hides a cached Ready fact")
+        // V3_AUTH_READINESS_REFRESH_EVENT_V1: the root observer outlives each
+        // Sign In presentation and consumes an event after that view disappears.
+        let hostReadinessObserver = V3AuthReadinessHostObserverProbe()
+        let observerToken = NotificationCenter.default.addObserver(
+            forName: V3AuthReadinessRefreshEvent.notificationName,
+            object: nil, queue: nil) { hostReadinessObserver.receive($0) }
+        defer { NotificationCenter.default.removeObserver(observerToken) }
+        var signInViewPresent = true
+        var accountReloadCompletedEarlier = false
+        let signInSessionID = UUID().uuidString
+        signInViewPresent = false
+        accountReloadCompletedEarlier = true // onDisappear's account snapshot finished
+        V3AuthReadinessRefreshEvent.post(sessionID: signInSessionID)
+        precondition(!signInViewPresent && accountReloadCompletedEarlier &&
+                     hostReadinessObserver.readinessRefreshSessionIDs == [signInSessionID],
+                     "the root observes a reconciled auth completion after the view and its reload are gone")
+        V3AuthReadinessRefreshEvent.post(sessionID: signInSessionID) // later terminal poll duplicates same session
+        precondition(hostReadinessObserver.readinessRefreshSessionIDs == [signInSessionID],
+                     "duplicate delivery of one auth session cannot start another readiness read")
+
         let provisioningRetrySession = UUID().uuidString
         var retryOwner = V3ProvisioningRetryReadinessOwnership()
         retryOwner.begin(sessionID: provisioningRetrySession)
@@ -602,21 +599,29 @@ struct SetupAndSemanticUXHarness {
         precondition(retryOwner.handoffAfterSupersededPollFailure(sessionID: provisioningRetrySession) &&
                      retryOwner.owns(sessionID: provisioningRetrySession),
                      "a transient poll failure hands the same retry to its monitor without dropping ownership")
-        var retryRefreshRevision = 0
         let continuedTerminalRefresh = retryOwner.settle(
             currentSessionID: provisioningRetrySession, replySessionID: provisioningRetrySession,
             replyState: "completed", authenticated: true,
             cancellationInProgress: false, taskCancelled: false)
-        if continuedTerminalRefresh { retryRefreshRevision += 1 }
-        precondition(retryRefreshRevision == 1 && !retryOwner.owns(sessionID: provisioningRetrySession),
-                     "the continuation's correlated successful terminal increments readiness once")
+        if continuedTerminalRefresh == .committed {
+            V3AuthReadinessRefreshEvent.post(sessionID: provisioningRetrySession)
+        }
+        precondition(continuedTerminalRefresh == .committed &&
+                     !retryOwner.owns(sessionID: provisioningRetrySession) &&
+                     hostReadinessObserver.readinessRefreshSessionIDs ==
+                        [signInSessionID, provisioningRetrySession],
+                     "the monitor's terminal result reaches the root after sign-in view lifetime")
         let duplicateTerminalRefresh = retryOwner.settle(
             currentSessionID: provisioningRetrySession, replySessionID: provisioningRetrySession,
             replyState: "completed", authenticated: true,
             cancellationInProgress: false, taskCancelled: false)
-        if duplicateTerminalRefresh { retryRefreshRevision += 1 }
-        precondition(retryRefreshRevision == 1,
-                     "a duplicate terminal cannot increment the retry readiness revision twice")
+        if duplicateTerminalRefresh == .committed {
+            V3AuthReadinessRefreshEvent.post(sessionID: provisioningRetrySession)
+        }
+        precondition(duplicateTerminalRefresh == .notRetry &&
+                     hostReadinessObserver.readinessRefreshSessionIDs ==
+                        [signInSessionID, provisioningRetrySession],
+                     "a duplicate retry terminal cannot trigger another authoritative read")
 
         // Cancel can race a commit already accepted by the backend. The
         // authCancel reply carrying the correlated completed result wins.
@@ -627,9 +632,13 @@ struct SetupAndSemanticUXHarness {
             currentSessionID: cancelRaceSession, replySessionID: cancelRaceSession,
             replyState: "completed", authenticated: true,
             cancellationInProgress: true, taskCancelled: false)
-        if completedDuringCancel { retryRefreshRevision += 1 }
-        precondition(completedDuringCancel && retryRefreshRevision == 2,
-                     "a committed successful retry returned by authCancel still refreshes readiness")
+        if completedDuringCancel == .committed {
+            V3AuthReadinessRefreshEvent.post(sessionID: cancelRaceSession)
+        }
+        precondition(completedDuringCancel == .committed &&
+                     hostReadinessObserver.readinessRefreshSessionIDs ==
+                        [signInSessionID, provisioningRetrySession, cancelRaceSession],
+                     "a committed successful retry returned by authCancel reaches the root observer")
 
         let trueCancelSession = UUID().uuidString
         retryOwner.begin(sessionID: trueCancelSession)
@@ -637,15 +646,20 @@ struct SetupAndSemanticUXHarness {
             currentSessionID: trueCancelSession, replySessionID: trueCancelSession,
             replyState: "cancelled", authenticated: false,
             cancellationInProgress: true, taskCancelled: false)
-        if cancelledRetryRefresh { retryRefreshRevision += 1 }
-        precondition(!cancelledRetryRefresh && retryRefreshRevision == 2 &&
+        if cancelledRetryRefresh == .committed {
+            V3AuthReadinessRefreshEvent.post(sessionID: trueCancelSession)
+        }
+        precondition(cancelledRetryRefresh == .finishedWithoutCommit &&
                      !retryOwner.owns(sessionID: trueCancelSession),
                      "a true cancelled terminal releases ownership without refreshing readiness")
+        precondition(hostReadinessObserver.readinessRefreshSessionIDs ==
+                        [signInSessionID, provisioningRetrySession, cancelRaceSession],
+                     "a true cancellation does not trigger another readiness read")
         let lateAfterCancelSuccess = retryOwner.settle(
             currentSessionID: trueCancelSession, replySessionID: trueCancelSession,
             replyState: "completed", authenticated: true,
             cancellationInProgress: false, taskCancelled: false)
-        precondition(!lateAfterCancelSuccess,
+        precondition(lateAfterCancelSuccess == .notRetry,
             "a late success cannot revive an already cancelled retry")
 
         let cancelledTaskSession = UUID().uuidString
@@ -654,8 +668,12 @@ struct SetupAndSemanticUXHarness {
             currentSessionID: cancelledTaskSession, replySessionID: cancelledTaskSession,
             replyState: "completed", authenticated: true,
             cancellationInProgress: false, taskCancelled: true)
-        if cancelledTaskRefresh { retryRefreshRevision += 1 }
-        precondition(!cancelledTaskRefresh && retryRefreshRevision == 2,
+        if cancelledTaskRefresh == .committed {
+            V3AuthReadinessRefreshEvent.post(sessionID: cancelledTaskSession)
+        }
+        precondition(cancelledTaskRefresh == .finishedWithoutCommit &&
+                     hostReadinessObserver.readinessRefreshSessionIDs ==
+                        [signInSessionID, provisioningRetrySession, cancelRaceSession],
                      "a task-cancelled terminal cannot publish a retry success")
 
         let unauthenticatedSession = UUID().uuidString
@@ -664,8 +682,12 @@ struct SetupAndSemanticUXHarness {
             currentSessionID: unauthenticatedSession, replySessionID: unauthenticatedSession,
             replyState: "completed", authenticated: false,
             cancellationInProgress: false, taskCancelled: false)
-        if unauthenticatedRefresh { retryRefreshRevision += 1 }
-        precondition(!unauthenticatedRefresh && retryRefreshRevision == 2,
+        if unauthenticatedRefresh == .committed {
+            V3AuthReadinessRefreshEvent.post(sessionID: unauthenticatedSession)
+        }
+        precondition(unauthenticatedRefresh == .finishedWithoutCommit &&
+                     hostReadinessObserver.readinessRefreshSessionIDs ==
+                        [signInSessionID, provisioningRetrySession, cancelRaceSession],
                      "a completed reply without authenticated=true is not retry success")
 
         let replacedSession = UUID().uuidString
@@ -676,9 +698,13 @@ struct SetupAndSemanticUXHarness {
             currentSessionID: replacementSession, replySessionID: replacedSession,
             replyState: "completed", authenticated: true,
             cancellationInProgress: false, taskCancelled: false)
-        if staleCompletedRefresh { retryRefreshRevision += 1 }
-        precondition(!staleCompletedRefresh && retryOwner.owns(sessionID: replacementSession) &&
-                     retryRefreshRevision == 2,
+        if staleCompletedRefresh == .committed {
+            V3AuthReadinessRefreshEvent.post(sessionID: replacedSession)
+        }
+        precondition(staleCompletedRefresh == .unmatched &&
+                     retryOwner.owns(sessionID: replacementSession) &&
+                     hostReadinessObserver.readinessRefreshSessionIDs ==
+                        [signInSessionID, provisioningRetrySession, cancelRaceSession],
                      "a replaced session's late terminal cannot consume or signal the new owner")
         for terminal in ["failed", "authenticatedProvisioningIncomplete", "timedOut", "promptExpired"] {
             let failedSession = UUID().uuidString
@@ -687,9 +713,13 @@ struct SetupAndSemanticUXHarness {
                 currentSessionID: failedSession, replySessionID: failedSession,
                 replyState: terminal, authenticated: true,
                 cancellationInProgress: false, taskCancelled: false)
-            if failureRefresh { retryRefreshRevision += 1 }
-            precondition(!failureRefresh && !retryOwner.owns(sessionID: failedSession) &&
-                         retryRefreshRevision == 2,
+            if failureRefresh == .committed {
+                V3AuthReadinessRefreshEvent.post(sessionID: failedSession)
+            }
+            precondition(failureRefresh == .finishedWithoutCommit &&
+                         !retryOwner.owns(sessionID: failedSession) &&
+                         hostReadinessObserver.readinessRefreshSessionIDs ==
+                            [signInSessionID, provisioningRetrySession, cancelRaceSession],
                          "a \(terminal) terminal releases ownership without refreshing readiness")
         }
         let contradictoryNotRequired = V3SignInJITLessGuidancePolicy.resolve(

@@ -14,6 +14,34 @@ enum V3AppIdentity: Hashable {
     case source(identifier: String)
 }
 
+// V3_AUTH_READINESS_REFRESH_EVENT_V1: auth tasks can outlive the sign-in view.
+// Send terminal certificate-state changes to the app-owned root observer.
+enum V3AuthReadinessRefreshEvent {
+    static let notificationName = Notification.Name("V3AuthReadinessRefresh")
+    static let sessionIDKey = "sessionID"
+
+    static func post(sessionID: String?) {
+        guard let sessionID, UUID(uuidString: sessionID)?.uuidString == sessionID else { return }
+        NotificationCenter.default.post(name: notificationName, object: nil,
+            userInfo: [sessionIDKey: sessionID])
+    }
+
+    static func sessionID(from notification: Notification) -> String? {
+        guard let sessionID = notification.userInfo?[sessionIDKey] as? String,
+              UUID(uuidString: sessionID)?.uuidString == sessionID else { return nil }
+        return sessionID
+    }
+}
+
+struct V3AuthReadinessRefreshEventLedger {
+    private var consumedSessionIDs = Set<String>()
+
+    mutating func claim(sessionID: String?) -> Bool {
+        guard let sessionID, UUID(uuidString: sessionID)?.uuidString == sessionID else { return false }
+        return consumedSessionIDs.insert(sessionID).inserted
+    }
+}
+
 extension LCAppModel {
     var v3Identity: V3AppIdentity { .guest(path: appInfo.relativeBundlePath ?? appInfo.bundlePath() ?? "") }
 }
@@ -77,6 +105,10 @@ struct V3UnifiedTabs: View {
                     status.setupPresented = true
                 }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: V3AuthReadinessRefreshEvent.notificationName)) { notification in
+            guard let sessionID = V3AuthReadinessRefreshEvent.sessionID(from: notification) else { return }
+            status.refreshSetupFactsAfterAuthentication(sessionID: sessionID)
         }
         .onReceive(monitor) { _ in status.reload(manual: false) }
         .onOpenURL(perform: dispatchURL)
@@ -949,6 +981,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
     private var setupFactObservation: SetupFactObservation = .pending
     private var setupFactLastAttemptAt: Date?
+    private var authReadinessRefreshEventLedger = V3AuthReadinessRefreshEventLedger()
 
     /// Observes the shared setup facts once, when they are the only thing
     /// standing between the user and a cleared setup banner.
@@ -971,10 +1004,11 @@ final class V3SideStoreStatusStore: ObservableObject {
         Task { await observeSetupFacts() }
     }
 
-    /// Re-observes readiness as soon as Sign In reports an authenticated
-    /// account. This explicit path also runs while Setup Assistant owns a
-    /// presentation, when the ordinary root observer correctly stays idle.
-    func refreshSetupFactsAfterSignIn() {
+    /// The app-owned root view consumes auth events so sign-in presentation
+    /// lifetime cannot drop a committed certificate change. A session event is
+    /// claimed once before it invalidates any in-flight observation.
+    func refreshSetupFactsAfterAuthentication(sessionID: String) {
+        guard authReadinessRefreshEventLedger.claim(sessionID: sessionID) else { return }
         invalidateSetupFacts()
         setupFactObservation = .deferred
         setupFactLastAttemptAt = Date()
@@ -4253,11 +4287,10 @@ final class V3AuthStore: ObservableObject {
     // provisioning retry so the screen keeps saying the sign-in succeeded while
     // provisioning is running again.
     @Published private(set) var signedIn = false
-    // A provisioning retry can create or activate SideStore's certificate
-    // without changing this store's sticky signed-in fact. Views observe this
-    // terminal-success revision to refresh certificate-derived readiness.
-    @Published private(set) var successfulProvisioningRetryRevision: UInt64 = 0
+    // Retry identity outlives a Sign In view because the app root observes its
+    // terminal event after a superseded poll monitor takes ownership.
     private var provisioningRetryReadinessOwnership = V3ProvisioningRetryReadinessOwnership()
+    private var pendingAuthenticationReadinessSessionID: String?
     private var session: String?
     private var authoritativeActiveAuthenticationSessionID: String?
     private var task: Task<Void, Never>?
@@ -4294,6 +4327,7 @@ final class V3AuthStore: ObservableObject {
         let requestedSession = UUID().uuidString
         reconciliationGate.invalidate()
         session = requestedSession
+        pendingAuthenticationReadinessSessionID = requestedSession
         attempts = 0
         revision = 0
         state = "working"
@@ -4338,6 +4372,7 @@ final class V3AuthStore: ObservableObject {
         guard canRetryProvisioning else { return }
         let previouslyAvailable = provisioningRetryAvailable
         task?.cancel()
+        pendingAuthenticationReadinessSessionID = nil
         let requestedSession = UUID().uuidString
         reconciliationGate.invalidate()
         session = requestedSession
@@ -4620,6 +4655,15 @@ final class V3AuthStore: ObservableObject {
                 if let snapshotTeam = snapshot["team"] as? String { team = snapshotTeam }
                 return true
             }
+            if accountFacts.authenticated, !accountFacts.authenticationActive,
+               let pendingReadinessSessionID = pendingAuthenticationReadinessSessionID,
+               (expectedSession ?? session) == pendingReadinessSessionID {
+                // The correlated poll terminal may have been lost. Once the
+                // authoritative snapshot confirms authentication and no auth
+                // owner remains, the app root can still refresh JIT-Less facts.
+                V3AuthReadinessRefreshEvent.post(sessionID: pendingReadinessSessionID)
+                pendingAuthenticationReadinessSessionID = nil
+            }
             // A persisted account row can outlive an authenticated Apple
             // session. Only SideStore's explicit session fact proves that
             // authentication is currently active.
@@ -4829,6 +4873,9 @@ final class V3AuthStore: ObservableObject {
             let failureResponseGeneration = pollFailure?.promptResponseGeneration ?? promptResponseGeneration
             if let notDispatched = error as? CombinedFailure,
                V3AuthAttemptStartFailurePolicy.isConfirmedNotDispatched(notDispatched) {
+                if pendingAuthenticationReadinessSessionID == requestedSession {
+                    pendingAuthenticationReadinessSessionID = nil
+                }
                 let reconciliationGenerationBefore = reconciliationGate.generation
                 let snapshotConfirmed = await reconcile(force: true, expectedSession: requestedSession)
                 if V3AuthAttemptFailureCommitPolicy.shouldPreserveAuthoritativeAccountState(
@@ -5213,12 +5260,27 @@ final class V3AuthStore: ObservableObject {
     private func apply(_ reply: [String: Any]) {
         let oldPromptID = prompt?["id"] as? String
         let replyState = reply["state"] as? String ?? state
-        if provisioningRetryReadinessOwnership.settle(
+        let retryReadinessSettlement = provisioningRetryReadinessOwnership.settle(
             currentSessionID: session, replySessionID: reply["session"] as? String,
             replyState: replyState,
             authenticated: V3ServiceBridge.strictBool(reply["authenticated"]) == true,
-            cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled) {
-            successfulProvisioningRetryRevision &+= 1
+            cancellationInProgress: isCancelling, taskCancelled: Task.isCancelled)
+        let terminalAuthenticationSucceeded =
+            ["completed", "authenticatedProvisioningIncomplete"].contains(replyState) &&
+            V3ServiceBridge.strictBool(reply["authenticated"]) == true
+        let replySessionID = reply["session"] as? String
+        let replyBelongsToCurrentSession = replySessionID != nil && replySessionID == session
+        if replyState == "completed" || replyState == "authenticatedProvisioningIncomplete" ||
+           replyState == "failed" || replyState == "timedOut" ||
+           replyState == "promptExpired" || replyState == "cancelled" {
+            if pendingAuthenticationReadinessSessionID == (reply["session"] as? String) {
+                pendingAuthenticationReadinessSessionID = nil
+            }
+        }
+        if replyBelongsToCurrentSession &&
+           (retryReadinessSettlement == .committed ||
+            (retryReadinessSettlement == .notRetry && terminalAuthenticationSucceeded)) {
+            V3AuthReadinessRefreshEvent.post(sessionID: replySessionID)
         }
         state = replyState
         if ["completed", "authenticatedProvisioningIncomplete", "failed", "timedOut", "promptExpired", "cancelled"].contains(state) {
@@ -5531,7 +5593,6 @@ struct V3SignInView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @EnvironmentObject private var sharedModel: SharedModel
     @StateObject private var auth = V3AuthStore()
-    @State private var jitlessReadinessObservation = V3SignInJITLessReadinessObservation()
     var body: some View {
         List {
             Section("Apple ID") {
@@ -5820,34 +5881,17 @@ struct V3SignInView: View {
         .navigationTitle("Sign In")
         .task { await auth.reconcile() }
         .onChange(of: auth.isSignedIn) { isSignedIn in
-            jitlessReadinessObservation.authenticationStateChanged(isSignedIn: isSignedIn)
             guard isSignedIn else { return }
-            // Sign-in may replace SideStore's active certificate. Clear a prior
-            // JIT-Less comparison and request a fresh snapshot while this screen
-            // remains visible, so its guidance cannot reuse stale "Ready".
-            status.refreshSetupFactsAfterSignIn()
+            // The app-owned root observer invalidates certificate-derived
+            // readiness from correlated auth terminal events. This snapshot
+            // updates the account presentation only.
             status.reload()
-        }
-        .onChange(of: status.jitlessReadiness) { readiness in
-            // nil is the invalidated/pending state. Release the UI guard only
-            // after an authoritative post-authentication fact is published.
-            jitlessReadinessObservation.observe(readiness)
-        }
-        .onChange(of: auth.successfulProvisioningRetryRevision) { revision in
-            guard revision > 0 else { return }
-            // Provisioning retry may create or activate a certificate while
-            // signedIn stays true, so it has its own success signal and only
-            // refreshes certificate-derived facts (no second account reload).
-            jitlessReadinessObservation.certificateMayHaveChanged()
-            status.refreshSetupFactsAfterSignIn()
         }
         .onDisappear {
             auth.cancel()
             auth.clearPreviousFailure()
-            // Every entry route (sheet and NavigationLink) shares this view.
-            // Sign-in can change SideStore's active certificate, which is not
-            // represented in the ordinary snapshot used by status.reload().
-            status.invalidateSetupFacts()
+            // The root auth-event observer owns certificate-readiness
+            // invalidation even after this presentation disappears.
             status.reload()
         }
     }
@@ -5859,8 +5903,7 @@ struct V3SignInView: View {
     private var jitlessGuidance: V3SignInJITLessGuidance? {
         V3SignInJITLessGuidancePolicy.resolve(
             osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
-            readiness: jitlessReadinessObservation.readinessForPresentation(
-                status.jitlessReadiness))
+            readiness: status.jitlessReadiness)
     }
 
     // V3_FINISH_LATER_PRESERVES_ACCOUNT_V1: closing the flow reloads the
@@ -6862,31 +6905,6 @@ private struct V3JITLessStatusResult {
     let certificateFacts: V3PKCS12CertificateFacts?
 }
 
-// V3_SIGNIN_JITLESS_REFRESH_STATE_V1: a previously observed ready fact cannot
-// describe the active certificate after authentication succeeds. Keep the
-// guidance unverified until a post-authentication observation arrives.
-private struct V3SignInJITLessReadinessObservation {
-    private(set) var awaitingFreshFactAfterAuthentication = false
-
-    mutating func authenticationStateChanged(isSignedIn: Bool) {
-        guard isSignedIn else { return }
-        certificateMayHaveChanged()
-    }
-
-    mutating func certificateMayHaveChanged() {
-        awaitingFreshFactAfterAuthentication = true
-    }
-
-    mutating func observe(_ readiness: V3JITLessReadiness?) {
-        guard awaitingFreshFactAfterAuthentication, readiness != nil else { return }
-        awaitingFreshFactAfterAuthentication = false
-    }
-
-    func readinessForPresentation(_ readiness: V3JITLessReadiness?) -> V3JITLessReadiness? {
-        awaitingFreshFactAfterAuthentication ? nil : readiness
-    }
-}
-
 enum V3ProvisioningRetryReadinessPolicy {
     static func mayComplete(replyState: String?, authenticated: Bool,
                             cancellationInProgress: Bool, taskCancelled: Bool) -> Bool {
@@ -6934,17 +6952,25 @@ struct V3ProvisioningRetryReadinessOwnership {
 
     mutating func settle(currentSessionID: String?, replySessionID: String?,
                          replyState: String?, authenticated: Bool,
-                         cancellationInProgress: Bool, taskCancelled: Bool) -> Bool {
-        guard let owner = sessionID, currentSessionID == owner,
-              replySessionID == owner,
+                         cancellationInProgress: Bool, taskCancelled: Bool)
+        -> V3ProvisioningRetryReadinessSettlement {
+        guard let owner = sessionID else { return .notRetry }
+        guard currentSessionID == owner, replySessionID == owner,
               ["completed", "authenticatedProvisioningIncomplete", "failed", "timedOut",
-               "promptExpired", "cancelled"].contains(replyState ?? "") else { return false }
+               "promptExpired", "cancelled"].contains(replyState ?? "") else { return .unmatched }
         sessionID = nil
         return V3ProvisioningRetryReadinessPolicy.mayComplete(
             replyState: replyState, authenticated: authenticated,
             cancellationInProgress: cancellationInProgress,
-            taskCancelled: taskCancelled)
+            taskCancelled: taskCancelled) ? .committed : .finishedWithoutCommit
     }
+}
+
+enum V3ProvisioningRetryReadinessSettlement: Equatable {
+    case notRetry
+    case unmatched
+    case finishedWithoutCommit
+    case committed
 }
 
 private enum V3JITLessStatusReader {
