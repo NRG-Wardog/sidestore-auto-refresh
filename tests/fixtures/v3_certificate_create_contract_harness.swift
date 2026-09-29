@@ -13,6 +13,7 @@ struct V3CertificateCreateContractHarness {
         var saves = 0
         let activeSerial = "preexisting-active"
         var storedSerial: String?
+        var indexedSerials: [String] = []
         let created = FakeCertificate(serial: "new-certificate")
 
         let success = try await V3CertificateCreateAdapter.createAndPersist(
@@ -23,10 +24,13 @@ struct V3CertificateCreateContractHarness {
             persist: { certificate in
                 saves += 1
                 storedSerial = certificate.serial
+                indexedSerials.append(certificate.serial)
             },
             verifyStored: { certificate in
-                V3CertificateCreateAdapter.matchesCreatedSerial(
-                    expected: certificate.serial, parsed: storedSerial)
+                V3CertificateCreateAdapter.matchesStoredCertificate(
+                    expectedSerial: certificate.serial,
+                    parsedSerial: storedSerial,
+                    enumeratedSerials: indexedSerials)
             })
 
         precondition(portalCalls == 1, "the portal create request must run once")
@@ -42,10 +46,17 @@ struct V3CertificateCreateContractHarness {
 
         let partial = try await V3CertificateCreateAdapter.createAndPersist(
             create: { created },
-            persist: { _ in },
-            verifyStored: { _ in
-                V3CertificateCreateAdapter.matchesCreatedSerial(
-                    expected: "new-certificate", parsed: nil)
+            persist: { certificate in
+                storedSerial = certificate.serial
+                // Model PKCS#12 persistence succeeding while SideStore's
+                // imported-serial index did not persist the entry.
+                indexedSerials.removeAll()
+            },
+            verifyStored: { certificate in
+                V3CertificateCreateAdapter.matchesStoredCertificate(
+                    expectedSerial: certificate.serial,
+                    parsedSerial: storedSerial,
+                    enumeratedSerials: indexedSerials)
             })
         precondition(partial == .remoteCreatedLocalStorageUnverified)
         precondition(!V3CertificateCreatePresentation.isVerified(partial.rawValue))
@@ -57,6 +68,23 @@ struct V3CertificateCreateContractHarness {
         precondition(!partialMessage.lowercased().contains("activated"),
                      "create must not imply the new certificate was activated")
         precondition(!partial.rawValue.contains(created.serial))
+
+        let indexOnly = V3CertificateCreateAdapter.matchesStoredCertificate(
+            expectedSerial: created.serial,
+            parsedSerial: nil,
+            enumeratedSerials: [created.serial])
+        precondition(!indexOnly,
+                     "the index cannot substitute for a readable matching PKCS#12")
+        let keychainOnly = V3CertificateCreateAdapter.matchesStoredCertificate(
+            expectedSerial: created.serial,
+            parsedSerial: created.serial,
+            enumeratedSerials: [])
+        precondition(!keychainOnly,
+                     "a readable PKCS#12 cannot substitute for the canonical local index")
+        precondition(V3CertificateCreateAdapter.matchesStoredCertificate(
+            expectedSerial: created.serial,
+            parsedSerial: created.serial,
+            enumeratedSerials: [created.serial]))
 
         var failedPortalSaves = 0
         do {
@@ -74,12 +102,9 @@ struct V3CertificateCreateContractHarness {
         }
         precondition(portalCalls == 2)
 
-        precondition(V3CertificateCreateAdapter.matchesCreatedSerial(
-            expected: "new-certificate", parsed: "new-certificate"))
-        precondition(!V3CertificateCreateAdapter.matchesCreatedSerial(
-            expected: "new-certificate", parsed: "different-certificate"))
-        precondition(!V3CertificateCreateAdapter.matchesCreatedSerial(
-            expected: "new-certificate", parsed: nil))
+        precondition(!V3CertificateCreateAdapter.matchesStoredCertificate(
+            expectedSerial: "new-certificate", parsedSerial: "different-certificate",
+            enumeratedSerials: ["new-certificate"]))
 
         let unknownMessage = V3CertificateCreatePresentation.message(for: nil)
         precondition(unknownMessage.contains("could not be confirmed"))

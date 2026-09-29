@@ -23,9 +23,11 @@ enum V3CertificateCreateAdapter {
         return verifyStored(certificate) ? .createdAndStored : .remoteCreatedLocalStorageUnverified
     }
 
-    static func matchesCreatedSerial(expected: String, parsed: String?) -> Bool {
-        guard !expected.isEmpty, let parsed, !parsed.isEmpty else { return false }
-        return expected == parsed
+    static func matchesStoredCertificate(expectedSerial: String, parsedSerial: String?,
+                                         enumeratedSerials: [String]) -> Bool {
+        guard !expectedSerial.isEmpty, let parsedSerial, !parsedSerial.isEmpty,
+              expectedSerial == parsedSerial else { return false }
+        return enumeratedSerials.contains(expectedSerial)
     }
 }
 
@@ -1151,12 +1153,19 @@ final class V3SideStoreService: NSObject {
                     CertificateManager.shared.saveCertificate(certificate)
                 },
                 verifyStored: { certificate in
-                    guard let p12 = Keychain.shared[certificateSerial: certificate.serialNumber],
-                          let parsed = try? CertificateManager.parse(
-                            p12, password: CertificateManager.shared.getPassword(for: certificate.serialNumber))
-                    else { return false }
-                    return V3CertificateCreateAdapter.matchesCreatedSerial(
-                        expected: certificate.serialNumber, parsed: parsed.serialNumber)
+                    let parsedSerial: String? = Keychain.shared[certificateSerial: certificate.serialNumber]
+                        .flatMap { p12 in
+                            try? CertificateManager.parse(
+                                p12, password: CertificateManager.shared.getPassword(for: certificate.serialNumber))
+                        }?.serialNumber
+                    let enumeratedSerials = CertificateManager.shared.getAllLocalX509Certificates()
+                        .map(\.serialNumber)
+                    // These are separate persisted facts: validate the actual
+                    // per-serial PKCS#12 and SideStore's canonical local index.
+                    return V3CertificateCreateAdapter.matchesStoredCertificate(
+                        expectedSerial: certificate.serialNumber,
+                        parsedSerial: parsedSerial,
+                        enumeratedSerials: enumeratedSerials)
                 })
             // Do not return a generic failure after Apple has created the
             // certificate: that could encourage a duplicate portal request.
