@@ -1,11 +1,13 @@
 """Behavioral and boundary coverage for shared AppManager source mutations."""
 import os
+import json
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -61,6 +63,7 @@ def production_core_methods():
     signatures = (
         "func addConfirmed(sourceURL: URL)",
         "private func persistConfirmedSource(",
+        "func remove(@AsyncManaged _ source: Source, presentingViewController: UIViewController) async throws",
         "func removeConfirmed(identifier: String,",
     )
     return "\n\n".join(extract_swift_function(generated, signature) for signature in signatures)
@@ -99,6 +102,12 @@ class V3SourceBackendMigrationTests(unittest.TestCase):
         self.assertIn("persistConfirmedSource(fetched, in: context, notificationSource: source)", ui_add)
         self.assertIn("SourceError.duplicate(source, existingSource: nil)", ui_add)
         self.assertIn("removeConfirmed(identifier: sourceID, notificationSource: source)", ui_remove)
+        default_guard = ui_remove.index("guard sourceID != Source.altStoreIdentifier")
+        confirmation = ui_remove.index("presentingViewController.presentConfirmationAlert")
+        self.assertLess(default_guard, confirmation,
+                        "the UI must reject the default source before presenting confirmation")
+        self.assertIn("OperationError.forbidden", ui_remove)
+        self.assertIn("guard source.identifier != Source.altStoreIdentifier", generated)
         generated_headless = patch_v3_service.headless_app_manager(original)
         self.assertEqual(generated_headless,
                          patch_v3_service.headless_app_manager(generated_headless),
@@ -129,6 +138,36 @@ class V3SourceBackendMigrationTests(unittest.TestCase):
         self.assertIn("persistedSources.contains", dispatch_add)
         self.assertIn("V3SideStoreServiceError.catalogSourceUnavailable", catalog)
         self.assertIn('response["failure"] = CombinedFailure(operation: "catalog"', service)
+
+    def test_prepared_v40_tree_fails_closed_and_requires_regeneration(self):
+        self.assertEqual(patch_v3_service.PATCH_VERSION, 41)
+        with tempfile.TemporaryDirectory(prefix="v3-source-patch-version-") as temporary:
+            root = Path(temporary)
+            live = root / "live"
+            side = root / "side"
+            live.mkdir()
+            side.mkdir()
+            anisette = side / "AltStore/Settings/AnisetteServerList.swift"
+            anisette.parent.mkdir(parents=True)
+            anisette.write_text("prepared fixture", encoding="utf-8")
+            manifest = live / ".v3-command-patch.json"
+            manifest.write_text(json.dumps({"patchVersion": 40}) + "\n", encoding="utf-8")
+            before = {path: path.read_bytes() for path in (anisette, manifest)}
+
+            def pinned_revision(args, text=False):
+                expected = patch_v3_service.PINS[0] if Path(args[2]) == live else patch_v3_service.PINS[1]
+                return expected
+
+            with mock.patch.object(patch_v3_service.subprocess, "check_output", side_effect=pinned_revision), \
+                    mock.patch.object(patch_v3_service, "headless_anisette_models",
+                                      return_value="fixture model"):
+                with self.assertRaisesRegex(
+                        SystemExit,
+                        "prepared patch version 40 cannot be migrated safely to v41"):
+                    patch_v3_service.patch(live, side)
+
+            self.assertEqual(before, {path: path.read_bytes() for path in before},
+                             "a prepared v40 tree must be rejected without partial writes")
 
 
 if __name__ == "__main__":

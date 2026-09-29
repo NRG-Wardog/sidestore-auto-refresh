@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 40
+PATCH_VERSION = 41
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -1038,6 +1038,7 @@ def headless_app_manager_source_mutations(text):
             "let savedSource = try await viewContext.performAsync",
             "notificationSource ?? savedSource",
             "notificationSource ?? eventSource",
+            "guard sourceID != Source.altStoreIdentifier else",
         )
         if any(value not in text for value in required):
             raise SystemExit("v3 service: shared AppManager source mutation extraction is partial")
@@ -1111,6 +1112,9 @@ def headless_app_manager_source_mutations(text):
     func remove(@AsyncManaged _ source: Source, presentingViewController: UIViewController) async throws
     {
         let (sourceName, sourceID) = await $source.perform { ($0.name, $0.identifier) }
+        guard sourceID != Source.altStoreIdentifier else {
+            throw OperationError.forbidden(failureReason: NSLocalizedString("The default SideStore source cannot be removed.", comment: ""))
+        }
         let title = String(format: NSLocalizedString("Are you sure you want to remove the source “%@”?", comment: ""), sourceName)
         let message = NSLocalizedString("Any apps you've installed from this source will remain, but they'll no longer receive any app updates.", comment: "")
         let action = await UIAlertAction(title: NSLocalizedString("Remove Source", comment: ""), style: .destructive)

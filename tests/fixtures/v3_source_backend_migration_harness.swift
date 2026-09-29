@@ -11,6 +11,19 @@ enum OperationError: Error {
     case noSources
 }
 
+enum UIAlertActionStyle { case `default`, destructive }
+
+final class UIAlertAction {
+    init(title: String, style: UIAlertActionStyle) {}
+}
+
+final class UIViewController {
+    private(set) var confirmationCount = 0
+    func presentConfirmationAlert(title: String, message: String, primaryAction: UIAlertAction) async throws {
+        confirmationCount += 1
+    }
+}
+
 final class Counter: @unchecked Sendable {
     private let lock = NSLock()
     private var storedValue = 0
@@ -105,10 +118,12 @@ final class DatabaseManager {
     let viewContext = NSManagedObjectContext(isViewContext: true)
 }
 
-@dynamicMemberLookup
+@propertyWrapper @dynamicMemberLookup
 struct AsyncManaged<Value> {
-    let wrappedValue: Value
+    var wrappedValue: Value
     init(wrappedValue: Value) { self.wrappedValue = wrappedValue }
+    var projectedValue: AsyncManaged<Value> { self }
+    func perform<Result>(_ work: (Value) -> Result) async -> Result { work(wrappedValue) }
     subscript<Member>(dynamicMember keyPath: KeyPath<Value, Member>) -> Member {
         wrappedValue[keyPath: keyPath]
     }
@@ -116,11 +131,13 @@ struct AsyncManaged<Value> {
 
 final class Source: NSObject {
     @objc let identifier: String
+    let name: String
     weak var managedObjectContext: NSManagedObjectContext?
     static let altStoreIdentifier = "default-source"
 
-    init(identifier: String, managedObjectContext: NSManagedObjectContext? = nil) {
+    init(identifier: String, name: String = "Source", managedObjectContext: NSManagedObjectContext? = nil) {
         self.identifier = identifier
+        self.name = name
         self.managedObjectContext = managedObjectContext
     }
 
@@ -216,6 +233,15 @@ struct SourceBackendMigrationHarness {
 
         store.identifiers = [Source.altStoreIdentifier]
         DatabaseManager.shared.viewContext.merge(identifiers: store.identifiers)
+        let confirmationController = UIViewController()
+        let defaultSource = Source(identifier: Source.altStoreIdentifier, name: "Default",
+                                   managedObjectContext: DatabaseManager.shared.viewContext)
+        do {
+            try await manager.remove(defaultSource, presentingViewController: confirmationController)
+            fatalError("UI allowed removal of the default source")
+        } catch {}
+        require(confirmationController.confirmationCount == 0,
+                "UI presented removal confirmation for the default source")
         do {
             try await manager.removeConfirmed(identifier: Source.altStoreIdentifier)
             fatalError("default source removal was allowed")
