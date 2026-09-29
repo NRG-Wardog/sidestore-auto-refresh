@@ -95,6 +95,7 @@ jobs:
           SIDESIGN_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore/Dependencies/SideSign
           SIDESTORE_070_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore
           REQUIRE_SWIFT_070_CHECKS: "1"
+          REQUIRE_PINNED_SOURCE_CLASSIFIER_TEST: "1"
         shell: bash
         run: |
           set -euo pipefail
