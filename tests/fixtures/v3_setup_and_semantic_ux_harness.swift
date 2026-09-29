@@ -1054,12 +1054,13 @@ struct SetupAndSemanticUXHarness {
         let decodedAnisetteNetworkFailure = plistRoundTrip(anisetteNetworkFailure)
         let anisetteGuidance = decodedAnisetteNetworkFailure.flatMap(V3AnisetteFailureGuidance.message)
         precondition(anisetteGuidance?.contains("configured Anisette server") == true &&
+                     anisetteGuidance?.contains("Check its address and your network") == true &&
+                     anisetteGuidance?.contains("This does not show that LocalDevVPN is unavailable.") == true &&
                      decodedAnisetteNetworkFailure?.operation == "anisetteSync" &&
                      decodedAnisetteNetworkFailure?.stage == .network &&
                      decodedAnisetteNetworkFailure?.code == .failed &&
                      decodedAnisetteNetworkFailure?.retryable == true &&
-                     decodedAnisetteNetworkFailure?.safeCause == .networkConnectionLost &&
-                     anisetteGuidance?.localizedCaseInsensitiveContains("LocalDevVPN") == false,
+                     decodedAnisetteNetworkFailure?.safeCause == .networkConnectionLost,
                      "the typed Anisette network failure survives the actual structured wire contract")
         let anisetteUnavailable = V3AnisetteSyncFailurePolicy.failure(
             NSError(domain: "AnisetteServersManager", code: 503), id: UUID().uuidString)
