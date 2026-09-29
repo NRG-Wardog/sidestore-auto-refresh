@@ -1,6 +1,7 @@
 """Crash-reason privacy at the prepared SideStore AppDelegate source."""
 from pathlib import Path
 import importlib.util
+import re
 import shutil
 import subprocess
 import tempfile
@@ -12,6 +13,14 @@ PATCH_SCRIPT = ROOT / "scripts/patch_v3_service.py"
 PRIMITIVES = ROOT / "scripts/templates/v3_behavioral_primitives.swift"
 HARNESS = ROOT / "tests/fixtures/v3_crash_log_privacy_harness.swift"
 SWIFTC = shutil.which("swiftc")
+
+
+def production_crash_log_privacy_declaration():
+    primitives = PRIMITIVES.read_text(encoding="utf-8")
+    match = re.search(r"(?ms)^enum V3CrashLogPrivacy\s*\{.*?^\}", primitives)
+    if match is None:
+        raise AssertionError("V3CrashLogPrivacy declaration not found in production primitives")
+    return match.group(0)
 
 
 def load_patch_module():
@@ -72,13 +81,21 @@ class V3ExceptionLogPrivacyTests(unittest.TestCase):
             source = Path(directory) / "crash_log_privacy.swift"
             executable = Path(directory) / "crash_log_privacy"
             source.write_text(
-                PRIMITIVES.read_text(encoding="utf-8") + "\n" +
+                production_crash_log_privacy_declaration() + "\n" +
                 HARNESS.read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
-            subprocess.run([SWIFTC, str(source), "-o", str(executable)], check=True,
-                           capture_output=True, text=True)
-            result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
+            compiled = subprocess.run([SWIFTC, str(source), "-o", str(executable)],
+                                      check=False, capture_output=True, text=True)
+            self.assertEqual(
+                compiled.returncode, 0,
+                msg=f"swiftc failed with exit code {compiled.returncode}; stderr:\n{compiled.stderr}",
+            )
+            result = subprocess.run([str(executable)], check=False, capture_output=True, text=True)
+            self.assertEqual(
+                result.returncode, 0,
+                msg=f"crash privacy harness failed with exit code {result.returncode}; stderr:\n{result.stderr}",
+            )
             self.assertIn("V3_CRASH_LOG_PRIVACY_PASS", result.stdout)
             self.assertNotIn("CRASH_REASON_SECRET", result.stdout)
 
