@@ -109,14 +109,24 @@ final class Harness {
     }
 HELPER
 }
-let suite = "manifest-privacy-" + UUID().uuidString
-let defaults = UserDefaults(suiteName: suite)!
+let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") ?? .standard
+let manifestKey = "liveContainerAutoRefreshVerification"
+let expectedRunKey = "liveContainerAutoRefreshExpectedRunID"
+let previousManifest = defaults.object(forKey: manifestKey)
+let previousExpectedRunID = defaults.object(forKey: expectedRunKey)
+defer {
+    if let previousManifest { defaults.set(previousManifest, forKey: manifestKey) }
+    else { defaults.removeObject(forKey: manifestKey) }
+    if let previousExpectedRunID { defaults.set(previousExpectedRunID, forKey: expectedRunKey) }
+    else { defaults.removeObject(forKey: expectedRunKey) }
+}
+defaults.removeObject(forKey: manifestKey)
 defaults.set("safe-run-id", forKey: "liveContainerAutoRefreshExpectedRunID")
 let harness = Harness()
 let providerError = NSError(domain: "private.invalid/token=SECRET_TOKEN", code: 73,
     userInfo: [NSLocalizedDescriptionKey: "failed at /private/user/path?access_token=SECRET_TOKEN"])
 harness.persist(providerError)
-let manifest = defaults.dictionary(forKey: "liveContainerAutoRefreshVerification")!
+let manifest = defaults.dictionary(forKey: manifestKey)!
 let rows = manifest["results"] as! [[String: Any]]
 let row = rows[0]
 precondition(row["error_category"] as? String == "unknown")
