@@ -460,6 +460,9 @@ struct V3ReadinessAndDiagnosticsContractHarness {
         readiness_snapshot_end = shell.index("\nenum V3AuthRetryReadinessReconciliationPolicy",
                                              readiness_snapshot_start)
         readiness_snapshot_policy = shell[readiness_snapshot_start:readiness_snapshot_end]
+        readiness_reconciliation_policy = swift_declaration(
+            shell, "enum V3AuthRetryReadinessReconciliationPolicy",
+        )
         harness = (ROOT / "tests/fixtures/v3_setup_and_semantic_ux_harness.swift").read_text(encoding="utf-8")
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         # The behavioral fixture executes the same classifier the service catch
@@ -474,11 +477,13 @@ struct V3ReadinessAndDiagnosticsContractHarness {
         self.assertLess(branch_start, service.index("CombinedFailure.capture(", branch_start))
         generated_source = (failure + "\n" + helper + "\n" +
                             readiness_snapshot_policy + "\n" +
+                            readiness_reconciliation_policy + "\n" +
                             readiness_event_contract + "\n" +
                             readiness_retry_contract + "\n" + harness)
         for declaration in ("struct V3SetupReadinessObservation: Equatable",
                             "enum V3SetupReadinessObservationPolicy {",
-                            "enum V3MultiSelectPromptAnswerPolicy {"):
+                            "enum V3MultiSelectPromptAnswerPolicy {",
+                            "enum V3AuthRetryReadinessReconciliationPolicy {"):
             self.assertEqual(generated_source.count(declaration), 1,
                              f"setup behavioral source must include {declaration} exactly once")
         self.compile_and_run(generated_source,
