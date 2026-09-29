@@ -168,7 +168,7 @@ class ReloadOrderingTests(unittest.TestCase):
 
     def test_only_a_snapshot_completion_resolves_a_waiter(self):
         text = shell()
-        self.assertIn("private func finishSnapshot(outcome: V3ReloadOutcome)", text)
+        self.assertIn("private func finishSnapshot(outcome: V3ReloadOutcome, generation: UInt64)", text)
         self.assertIn("private func finishMutation()", text)
         # The resumption lives in the cancellation path and the two drain paths.
         # Cancellation removes an individual waiter; only snapshot completion
@@ -197,7 +197,8 @@ class ReloadOrderingTests(unittest.TestCase):
         wait = text[text.index("func reloadAndWait(manual: Bool = true) async -> V3ReloadOutcome"):]
         wait = wait[:wait.index("    /// The shared synchronous gate.")]
         self.assertIn("case .performSnapshot, .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:", wait)
-        self.assertIn("snapshotWaiterRegistry.insert(waiterID, manual: manual)", wait)
+        self.assertIn("V3SnapshotWaiterEpochPolicy.requiredGeneration(", wait)
+        self.assertIn("snapshotWaiterRegistry.insert(waiterID, manual: manual,", wait)
         self.assertIn("Task { _ = await performSnapshot() }", wait)
         self.assertIn("withTaskCancellationHandler", wait)
 
@@ -253,8 +254,8 @@ class ReloadOrderingTests(unittest.TestCase):
         perform = perform[:perform.index("\n    /// V3_AWAITABLE_RELOAD_V1: the single place a snapshot")]
         # State is accepted before anyone is resumed.
         self.assertLess(perform.index("accept(try await V3ServiceBridge.shared.request"),
-                        perform.index("finishSnapshot(outcome: outcome)"))
-        finish = text[text.index("private func finishSnapshot(outcome: V3ReloadOutcome)"):]
+                        perform.index("finishSnapshot(outcome: outcome, generation: completedGeneration)"))
+        finish = text[text.index("private func finishSnapshot(outcome: V3ReloadOutcome, generation: UInt64)"):]
         finish = finish[:finish.index("\n    /// V3_LOAD_ACTIVITY_OWNERSHIP_V1: the single place a mutation")]
         self.assertLess(finish.index("loading = false"), finish.index("waiter.continuation.resume"))
 

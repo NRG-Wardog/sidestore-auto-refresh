@@ -2635,24 +2635,56 @@ enum V3SetupFactRevisionPolicy {
 // for other callers. This registry gives each waiter one removable identity and
 // drains only the waiters that are still pending when the snapshot finishes.
 struct V3SnapshotWaiterRegistry {
-    private var manualByID: [UUID: Bool] = [:]
+    private struct Waiter: Equatable {
+        let manual: Bool
+        let requiredSnapshotGeneration: UInt64
+    }
+    private var waitersByID: [UUID: Waiter] = [:]
 
-    var isEmpty: Bool { manualByID.isEmpty }
-    var anyManualWaiter: Bool { manualByID.values.contains(true) }
+    var isEmpty: Bool { waitersByID.isEmpty }
+    var anyManualWaiter: Bool { waitersByID.values.contains(where: \.manual) }
 
-    mutating func insert(_ id: UUID, manual: Bool) {
-        manualByID[id] = manual
+    mutating func insert(_ id: UUID, manual: Bool,
+                         requiredSnapshotGeneration: UInt64 = 0) {
+        waitersByID[id] = Waiter(manual: manual,
+                                 requiredSnapshotGeneration: requiredSnapshotGeneration)
     }
 
     @discardableResult
     mutating func remove(_ id: UUID) -> Bool {
-        manualByID.removeValue(forKey: id) != nil
+        waitersByID.removeValue(forKey: id) != nil
+    }
+
+    /// Take only callers whose freshness requirement is met by this snapshot.
+    /// Waiters parked behind a blocker during an older in-flight snapshot remain
+    /// registered until a later generation completes.
+    mutating func take(throughSnapshotGeneration generation: UInt64) -> [UUID] {
+        let ready = waitersByID.compactMap { id, waiter in
+            waiter.requiredSnapshotGeneration <= generation ? id : nil
+        }
+        for id in ready { waitersByID.removeValue(forKey: id) }
+        return ready
     }
 
     mutating func takeAll() -> [UUID] {
-        let ids = Array(manualByID.keys)
-        manualByID.removeAll(keepingCapacity: true)
+        let ids = Array(waitersByID.keys)
+        waitersByID.removeAll(keepingCapacity: true)
         return ids
+    }
+}
+
+/// Maps the gate decision to the minimum snapshot generation that can satisfy
+/// the caller. A deferred request must not be released by a snapshot that began
+/// before its mutation/presentation blocker ended.
+enum V3SnapshotWaiterEpochPolicy {
+    static func requiredGeneration(for decision: V3SnapshotDecision,
+                                   currentGeneration: UInt64) -> UInt64 {
+        switch decision {
+        case .performSnapshot, .joinSnapshot, .doNotObserve:
+            return currentGeneration
+        case .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:
+            return currentGeneration &+ 1
+        }
     }
 }
 

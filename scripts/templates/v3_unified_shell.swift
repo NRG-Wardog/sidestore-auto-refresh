@@ -1187,9 +1187,13 @@ final class V3SideStoreStatusStore: ObservableObject {
     // any snapshot discharges it, so an unrelated reload can never leave a stale
     // intent behind to cause a second fetch.
     private var snapshotOwedIntent = V3SnapshotOwedIntent()
-    // Callers awaiting an authoritative snapshot. The registry tracks whether
-    // each needs a manual snapshot, because the owed drain is shared and a
-    // non-manual monitor tick must not discharge a caller's manual requirement.
+    // Monotonic identity for each authoritative snapshot started by this store.
+    // Awaiters parked behind a mutation or presentation require a later epoch,
+    // even if an older in-flight snapshot finishes after the blocker.
+    private var snapshotGeneration: UInt64 = 0
+    // Callers awaiting an authoritative snapshot. The registry tracks each
+    // caller's minimum generation and manual requirement, because a shared
+    // drain must not satisfy a deferred caller with an older in-flight fetch.
     private struct SnapshotWaiter {
         let continuation: CheckedContinuation<V3ReloadOutcome, Never>
     }
@@ -1255,6 +1259,8 @@ final class V3SideStoreStatusStore: ObservableObject {
         let decision = beginSnapshot(manual: manual, waiterWillBeInstalled: true)
         switch decision {
         case .performSnapshot, .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:
+            let requiredGeneration = V3SnapshotWaiterEpochPolicy.requiredGeneration(
+                for: decision, currentGeneration: snapshotGeneration)
             // The service request belongs to the store, not to the first caller.
             // Cancellation removes only this caller's continuation and cannot
             // cancel the shared request for other waiters.
@@ -1269,7 +1275,8 @@ final class V3SideStoreStatusStore: ObservableObject {
                         return
                     }
                     snapshotWaiters[waiterID] = SnapshotWaiter(continuation: continuation)
-                    snapshotWaiterRegistry.insert(waiterID, manual: manual)
+                    snapshotWaiterRegistry.insert(waiterID, manual: manual,
+                        requiredSnapshotGeneration: requiredGeneration)
                 }
             } onCancel: {
                 Task { @MainActor [weak self] in
@@ -1321,6 +1328,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     /// request behind to cause a second fetch.
     private func startSnapshot(manual: Bool) {
         snapshotOwedIntent.clear()
+        snapshotGeneration &+= 1
         if manual {
             requiresConnectionRetry = false
             // A deliberate reload is also a deliberate request to try the
@@ -1347,6 +1355,9 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
 
     private func performSnapshot() async -> V3ReloadOutcome {
+        // Only one snapshot may own the service activity at a time, so this
+        // generation remains the request's identity until its completion.
+        let completedGeneration = snapshotGeneration
         var succeeded = false
         var cancelled = false
         do {
@@ -1364,7 +1375,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         let outcome: V3ReloadOutcome = succeeded ? .applied : (cancelled ? .notObserved : .snapshotFailed)
         // The only place a snapshot waiter is ever resumed. State is fully
         // applied first, so no caller can observe a partially updated snapshot.
-        finishSnapshot(outcome: outcome)
+        finishSnapshot(outcome: outcome, generation: completedGeneration)
         if installAttempt.hasActiveAttempt {
             NSLog("[V3_INSTALL_STATE] attempt=%@ event=snapshot_finished phase=%@",
                   installAttempt.attemptID?.uuidString ?? "none", installAttempt.phase.rawValue)
@@ -1377,14 +1388,14 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
 
     /// V3_AWAITABLE_RELOAD_V1: the single place a snapshot activity ends.
-    private func finishSnapshot(outcome: V3ReloadOutcome) {
+    private func finishSnapshot(outcome: V3ReloadOutcome, generation: UInt64) {
         loadActivity = .idle
         loading = false
         // The install presentation gate is snapshot-scoped: it advances only once
         // authoritative state has landed. A mutation advancing it would claim a
         // snapshot had happened.
         installAttempt.reloadFinished()
-        for id in snapshotWaiterRegistry.takeAll() {
+        for id in snapshotWaiterRegistry.take(throughSnapshotGeneration: generation) {
             guard let waiter = snapshotWaiters.removeValue(forKey: id) else { continue }
             waiter.continuation.resume(returning: outcome)
         }

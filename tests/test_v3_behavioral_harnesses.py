@@ -46,13 +46,13 @@ class V3BehavioralHarnessTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("V3_APP_GROUP_SELECTION_PASS", result.stdout)
 
-    def test_snapshot_and_mutation_load_ownership_executes(self):
+    def test_snapshot_epoch_waiters_and_mutation_ownership_execute(self):
         # V3_LOAD_ACTIVITY_OWNERSHIP_V1: one `loading` flag used to mean both
         # "a snapshot is in flight" and "a mutation is in flight", so a caller
         # awaiting authoritative status could join a mutation and be released by
-        # the mutation's completion. This executes the ten required interleavings
-        # against the real gate policy, including the no-duplicate-snapshot and
-        # no-stranded-continuation cases.
+        # the mutation's completion. This executes the ownership interleavings
+        # against production gate/epoch/registry helpers, including the case
+        # where a presentation ends before an older in-flight snapshot returns.
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         # The primitives reference the error model, so it travels with them.
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")

@@ -2,8 +2,9 @@ import Foundation
 
 // V3_LOAD_ACTIVITY_OWNERSHIP_V1
 //
-// This harness models the store's snapshot/mutation ownership machine and
-// executes the ten required interleavings against the real gate policy.
+// This harness exercises the store's snapshot/mutation ownership machine and
+// runs its interleavings against the real gate, epoch policy, and waiter
+// registry.
 //
 // The defect it exists to catch: one `loading` flag meant both "a snapshot is in
 // flight" and "a mutation is in flight". A caller awaiting authoritative status
@@ -12,9 +13,9 @@ import Foundation
 //
 // The model below is a faithful transcription of the store's own transitions:
 // beginSnapshot / startSnapshot / beginMutation / finishSnapshot /
-// finishMutation / drainOwedSnapshot, driven by the production
-// V3SnapshotGate. Continuations are represented by an index into a waiters
-// list, exactly as the store holds a CheckedContinuation array.
+// finishMutation / drainOwedSnapshot. Continuations are represented by an
+// index into a waiters list, while the freshness epoch and waiter selection use
+// the same production helpers as V3SideStoreStatusStore.
 
 @main
 struct SnapshotOwnershipHarness {
@@ -34,6 +35,7 @@ struct SnapshotOwnershipHarness {
         /// so a duplicate or a missing fetch is observable.
         private(set) var snapshotsPerformed: [String] = []
         private(set) var snapshotsStarted = 0
+        private(set) var snapshotGeneration: UInt64 = 0
         /// Resumptions, in order, as (waiterNeedsManual, outcome).
         private(set) var resumptions: [(Bool, String)] = []
         var presentationActive = false
@@ -85,16 +87,19 @@ struct SnapshotOwnershipHarness {
             return true
         }
 
-        private func parkWaiter(manual: Bool) {
+        private func parkWaiter(manual: Bool, decision: V3SnapshotDecision) {
             let id = UUID()
             lastWaiterID = id
             waiterIDs.append(id)
             waiters.append(manual)
-            snapshotWaiterRegistry.insert(id, manual: manual)
+            snapshotWaiterRegistry.insert(id, manual: manual,
+                requiredSnapshotGeneration: V3SnapshotWaiterEpochPolicy.requiredGeneration(
+                    for: decision, currentGeneration: snapshotGeneration))
         }
 
         func startSnapshot(manual: Bool) {
             snapshotOwedIntent.clear()
+            snapshotGeneration &+= 1
             if manual { requiresConnectionRetry = false }
             snapshotsStarted += 1
             activity = .snapshot
@@ -109,20 +114,24 @@ struct SnapshotOwnershipHarness {
         /// The snapshot body completing. Only this may resume a waiter.
         func completeSnapshot() {
             precondition(activity == .snapshot, "a snapshot completed without owning the service")
+            let completedGeneration = snapshotGeneration
             let outcome = nextSnapshotFails ? "snapshotFailed" : "applied"
             if nextSnapshotFails { requiresConnectionRetry = true }
             snapshotsPerformed.append(outcome)
-            finishSnapshot(outcome: outcome)
+            finishSnapshot(outcome: outcome, generation: completedGeneration)
         }
 
-        func finishSnapshot(outcome: String) {
+        func finishSnapshot(outcome: String, generation: UInt64) {
             activity = .idle
             loading = false
-            _ = snapshotWaiterRegistry.takeAll()
-            waiterIDs.removeAll()
-            let waiting = waiters
-            waiters.removeAll()
-            for manual in waiting { resumptions.append((manual, outcome)) }
+            for id in snapshotWaiterRegistry.take(throughSnapshotGeneration: generation) {
+                guard let index = waiterIDs.firstIndex(of: id) else { continue }
+                let manual = waiters[index]
+                waiterIDs.remove(at: index)
+                waiters.remove(at: index)
+                if lastWaiterID == id { lastWaiterID = nil }
+                resumptions.append((manual, outcome))
+            }
             drainOwedSnapshot()
         }
 
@@ -169,13 +178,14 @@ struct SnapshotOwnershipHarness {
         /// "notObserved" for one the policy refuses, and the snapshot's real
         /// outcome for one that owns a snapshot which completed immediately.
         func reloadAndWait(manual: Bool) -> String {
-            switch beginSnapshot(manual: manual, waiterWillBeInstalled: true) {
+            let decision = beginSnapshot(manual: manual, waiterWillBeInstalled: true)
+            switch decision {
             case .performSnapshot:
                 guard completesSnapshotImmediately else { return "inFlight" }
                 completeSnapshot()
                 return snapshotsPerformed.last ?? "applied"
             case .joinSnapshot, .awaitMutationThenSnapshot, .deferForPresentation, .stillBlocked:
-                parkWaiter(manual: manual)
+                parkWaiter(manual: manual, decision: decision)
                 return "parked"
             case .doNotObserve:
                 return "notObserved"
@@ -547,6 +557,44 @@ struct SnapshotOwnershipHarness {
             precondition(Set(s.resumptions.map { $0.1 }).count == 1,
                          "all callers must observe the same authoritative outcome")
             precondition(s.waiters.isEmpty, "no continuation may remain parked")
+        }
+
+        // 10b. A waiter deferred behind a presentation cannot be released by a
+        // snapshot that was already in flight before the presentation began.
+        // The production epoch policy and waiter registry are executed here.
+        do {
+            let s = Store()
+            s.completesSnapshotImmediately = false
+            precondition(s.reloadAndWait(manual: true) == "inFlight",
+                         "the first caller starts snapshot generation 1")
+            precondition(s.snapshotGeneration == 1 && s.activity == .snapshot,
+                         "generation 1 remains active")
+
+            s.presentationActive = true
+            precondition(s.reloadAndWait(manual: true) == "parked",
+                         "a caller behind the presentation must await a later snapshot")
+            guard s.lastWaiterID != nil else {
+                preconditionFailure("the deferred caller has a waiter identity")
+            }
+            precondition(s.waiters.count == 1,
+                         "the deferred waiter remains registered")
+
+            // The presentation ends before generation 1 returns. This is the
+            // ordering that previously let finishSnapshot drain every waiter.
+            s.presentationEnded()
+            precondition(s.activity == .snapshot && s.resumptions.isEmpty,
+                         "ending the presentation cannot substitute the active snapshot")
+            s.completeSnapshot()
+            precondition(s.resumptions.isEmpty && s.waiters.count == 1,
+                         "generation 1 must leave the deferred waiter parked")
+            precondition(s.activity == .snapshot && s.snapshotGeneration == 2,
+                         "one owed post-presentation snapshot starts as generation 2")
+
+            s.completeSnapshot()
+            precondition(s.resumptions.count == 1 && s.resumptions[0].1 == "applied",
+                         "only generation 2 resolves the deferred caller")
+            precondition(s.waiters.isEmpty,
+                         "the later snapshot leaves no waiter behind")
         }
 
         // The UI meaning of `loading` is preserved: busy for either activity.
