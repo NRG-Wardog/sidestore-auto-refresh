@@ -67,7 +67,8 @@ def _patch_verified(root: Path) -> None:
         r'debugLog("[AUTO_REFRESH] REFRESH_FAILED bundle_id=\(bundleIdentifier) stage=refresh failure_category=\(category)")',
         r'debugLog("[AUTO_REFRESH] REFRESH_FAILED \(failure.technicalDetails)")')
     section = replace_once(section,
-        '"error_code": (error as NSError).code, "error_domain": (error as NSError).domain,\n                    "error": error.localizedDescription',
+        '"error_category": category, "error_code": (error as NSError).code,\n'
+        '                    "error": AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)',
         '"error_code": failure.underlyingCode, "error_domain": failure.underlyingDomain,\n                    "error": failure.message, "failure": failure.wire')
     text = text[:start] + section + text[end:]
     verify(text)
@@ -114,6 +115,7 @@ def verify(text: str) -> None:
                    'defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier',
                    'CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error)',
                    '"error": failure.message, "failure": failure.wire',
+                   '"error_code": failure.underlyingCode, "error_domain": failure.underlyingDomain',
                    '"failure": failure.wire', 'REFRESH_FAILED \\(failure.technicalDetails)'):
         if needle not in text:
             raise SystemExit(f"combined refresh contract missing {needle}")

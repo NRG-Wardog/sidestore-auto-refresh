@@ -1292,8 +1292,8 @@ def patch_background_operation(sidestore: Path) -> None:
                 let category = AutomaticRefreshFailureCategory.classify(error).rawValue
                 debugLog("[AUTO_REFRESH] REFRESH_FAILED bundle_id=\(bundleIdentifier) stage=refresh failure_category=\(category)")
                 serialized.append(["bundle_id": bundleIdentifier, "success": false,
-                    "error_code": (error as NSError).code, "error_domain": (error as NSError).domain,
-                    "error": error.localizedDescription])
+                    "error_category": category, "error_code": (error as NSError).code,
+                    "error": AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)])
             }
         }
         defaults.set(["version": 1, "date": Date(),
@@ -1323,6 +1323,8 @@ def patch_background_operation(sidestore: Path) -> None:
         verification_marker,
         "persistAutomaticHostHandoff",
         "persistAutomaticRefreshVerification",
+        '"error_category": category, "error_code": (error as NSError).code',
+        '"error": AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)',
         "content.body = AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)",
         "NOTIFICATION_FAILURE failure_category=",
     ]

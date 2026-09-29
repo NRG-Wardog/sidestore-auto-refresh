@@ -17,9 +17,127 @@ SPEC.loader.exec_module(patch)
 SERVICE_SPEC = importlib.util.spec_from_file_location("v3_service_patch", ROOT / "scripts/patch_v3_service.py")
 service = importlib.util.module_from_spec(SERVICE_SPEC)
 SERVICE_SPEC.loader.exec_module(service)
+BACKGROUND_SPEC = importlib.util.spec_from_file_location("background_automation", ROOT / "scripts/patch_background_automation.py")
+background = importlib.util.module_from_spec(BACKGROUND_SPEC)
+BACKGROUND_SPEC.loader.exec_module(background)
 
 
 class CombinedRefreshContractTests(unittest.TestCase):
+    def test_standalone_manifest_persists_only_safe_failure_fields(self):
+        original = r'''    private let refreshIdentifier: String = UUID().uuidString
+    private var runningApplications: Set<String> = []
+    init(installedApps: [InstalledApp], context: OperationContext) throws {
+        self.installedApps = installedApps
+        try super.init(context: context)
+    }
+                self.debugLog("Failed to refresh apps in background. \(error)")
+                self.debugLog("Failed to refresh apps in background. \(error.localizedDescription)")
+                content.body = error.localizedDescription
+        guard !self.installedApps.isEmpty else {
+            let error = OperationError.noInstalledApps
+            self.scheduleFinishedRefreshingNotification(for: .failure(error), delay: 0)
+            throw error
+        }
+
+        if UserDefaults.standard.enableEMPforWireguard {
+            let filteredApps = await dbContext.perform {
+                return self.installedApps.filter { !self.runningApplications.contains($0.bundleIdentifier) }
+            }
+            let group = AppManager.shared.refresh(apps, presentingViewController: nil)
+            group.beginInstallationHandler = { [weak self] (installedApp) in
+        }
+            group.completionHandler = { (results) in
+                self.setProgress(100)
+                continuation.resume(returning: results)
+            }
+    private func startListeningForRunningApps() {
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            operation = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
+            operation.parent.mkdir(parents=True)
+            operation.write_text(original)
+            background.patch_background_operation(root)
+            generated = operation.read_text()
+            background.patch_background_operation(root)
+            self.assertEqual(generated, operation.read_text(), "standalone patch must be idempotent")
+            start = generated.index("    private func automaticRefreshDefaults()")
+            end = generated.index("    private func startListeningForRunningApps()", start)
+            helper = generated[start:end]
+            self.assertIn('"error_category": category, "error_code": (error as NSError).code', helper)
+            self.assertIn('AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)', helper)
+            self.assertNotIn("error.localizedDescription", helper)
+            self.assertNotIn('(error as NSError).domain', helper)
+
+            # Compose the combined-only upgrade over the actual standalone output,
+            # then replay it to check both generated output and provenance idempotence.
+            patch._patch_verified(root)
+            combined = operation.read_text()
+            self.assertIn('CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error)', combined)
+            self.assertIn('"error": failure.message, "failure": failure.wire', combined)
+            self.assertNotIn("error.localizedDescription", combined)
+            self.assertNotIn('(error as NSError).domain', combined)
+            combined_snapshot = operation.read_bytes()
+            patch._patch_verified(root)
+            self.assertEqual(combined_snapshot, operation.read_bytes(), "combined overlay must be idempotent")
+
+            compiler = shutil.which("swiftc")
+            if not compiler:
+                self.skipTest("requires Swift; generated-source checks above passed")
+            swift = r'''import Foundation
+enum AutomaticRefreshEvent { case failed }
+enum AutomaticRefreshFailureCategory: String {
+    case unknown
+    static func classify(_ error: Error) -> Self { .unknown }
+    static func safeMessage(_ error: Error, event: AutomaticRefreshEvent) -> String {
+        "The refresh failed; no safe underlying cause was available."
+    }
+}
+struct InstalledApp {
+    let bundleIdentifier: String
+    let name: String
+    let refreshedDate: Date
+    let expirationDate: Date
+}
+enum StoreApp { static let altstoreAppID = "com.example.host" }
+final class Harness {
+    let refreshIdentifier = "safe-run-id"
+    var installedApps: [InstalledApp] = []
+    func debugLog(_ message: String) {}
+    func persist(_ error: Error) {
+        persistAutomaticRefreshVerification(results: ["com.example.app": .failure(error)], attemptedAppIDs: ["com.example.app"])
+    }
+HELPER
+}
+let suite = "manifest-privacy-" + UUID().uuidString
+let defaults = UserDefaults(suiteName: suite)!
+defaults.set("safe-run-id", forKey: "liveContainerAutoRefreshExpectedRunID")
+let harness = Harness()
+let providerError = NSError(domain: "private.invalid/token=SECRET_TOKEN", code: 73,
+    userInfo: [NSLocalizedDescriptionKey: "failed at /private/user/path?access_token=SECRET_TOKEN"])
+harness.persist(providerError)
+let manifest = defaults.dictionary(forKey: "liveContainerAutoRefreshVerification")!
+let rows = manifest["results"] as! [[String: Any]]
+let row = rows[0]
+precondition(row["error_category"] as? String == "unknown")
+precondition(row["error_code"] as? Int == 73)
+precondition(row["error"] as? String == "The refresh failed; no safe underlying cause was available.")
+precondition(row["error_domain"] == nil)
+let data = try PropertyListSerialization.data(fromPropertyList: manifest, format: .xml, options: 0)
+let persisted = String(decoding: data, as: UTF8.self)
+precondition(!persisted.contains("SECRET_TOKEN") && !persisted.contains("private.invalid") && !persisted.contains("/private/user/path"))
+print("standalone manifest privacy PASS")
+'''.replace("HELPER", helper)
+            with tempfile.TemporaryDirectory() as swift_directory:
+                source = Path(swift_directory) / "main.swift"
+                executable = Path(swift_directory) / "privacy-test"
+                source.write_text(swift)
+                compiled = subprocess.run([compiler, str(source), "-o", str(executable)], capture_output=True, text=True)
+                self.assertEqual(compiled.returncode, 0, compiled.stderr)
+                result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=15)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("standalone manifest privacy PASS", result.stdout)
+
     def test_full_patch_composition_is_transactional_on_pinned_source(self):
         source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.getenv("SIDESTORE_TEST_SOURCE")
         if not source: self.skipTest("pinned embedded SideStore source required")
