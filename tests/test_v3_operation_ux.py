@@ -166,9 +166,12 @@ class StoreFeedbackTests(unittest.TestCase):
                          if not line.strip().startswith("//"))
         for operation in ("signOut", "syncAppIDs", "clearCache", "refreshSources", "jit"):
             self.assertIn(f'runMutation("{operation}"', store, operation)
-        self.assertIn("accept(try await", code)
+        self.assertIn("let snapshot = try await V3ServiceBridge.shared.request(operation: operation, target: target)", code)
+        self.assertIn("accept(snapshot)", code)
         self.assertIn("beginMutation()", code)
         self.assertIn("finishMutation()", code)
+        self.assertLess(code.index("accept(snapshot)"), code.index("finishMutation()"))
+        self.assertLess(code.index("V3SignOutOutcomePolicy.resolve("), code.index("finishMutation()"))
         # The busy state is released before the trailing reload, so the reload
         # is not suppressed by the store's own guard.
         self.assertLess(code.index("finishMutation()"), code.index("reload()"))

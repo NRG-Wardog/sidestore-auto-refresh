@@ -1781,11 +1781,14 @@ final class V3SideStoreStatusStore: ObservableObject {
                 let snapshot = try await V3ServiceBridge.shared.request(operation: operation, target: target)
                 accept(snapshot)
                 let signOutOutcome = operation == "signOut"
-                    ? V3SignOutOutcomePolicy.resolve(snapshot: snapshot)
+                    ? V3SignOutOutcomePolicy.resolve(
+                        authenticated: V3ServiceBridge.strictBool(snapshot["authenticated"]),
+                        activeAccountPresent: V3ServiceBridge.strictBool(snapshot["activeAccountPresent"]),
+                        activeTeamPresent: V3ServiceBridge.strictBool(snapshot["activeTeamPresent"]))
                     : nil
                 finishMutation()
                 if let signOutOutcome {
-                    if let verifiedNotice = V3SignOutOutcomePolicy.successNotice(for: snapshot) {
+                    if let verifiedNotice = V3SignOutOutcomePolicy.successNotice(for: signOutOutcome) {
                         notice = verifiedNotice
                     } else {
                         presentUnconfirmedSignOut(signOutOutcome)

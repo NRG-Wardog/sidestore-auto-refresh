@@ -2109,10 +2109,10 @@ enum V3SignOutOutcome: Equatable {
 }
 
 enum V3SignOutOutcomePolicy {
-    static func resolve(snapshot: [String: Any]) -> V3SignOutOutcome {
-        guard let authenticated = V3WireContract.strictBool(snapshot["authenticated"]),
-              let activeAccount = V3WireContract.strictBool(snapshot["activeAccountPresent"]),
-              let activeTeam = V3WireContract.strictBool(snapshot["activeTeamPresent"]) else {
+    static func resolve(authenticated: Bool?, activeAccountPresent: Bool?,
+                        activeTeamPresent: Bool?) -> V3SignOutOutcome {
+        guard let authenticated, let activeAccount = activeAccountPresent,
+              let activeTeam = activeTeamPresent else {
             return .snapshotIncomplete
         }
         if authenticated { return .authenticationRemains }
@@ -2120,8 +2120,8 @@ enum V3SignOutOutcomePolicy {
         return .confirmed
     }
 
-    static func successNotice(for snapshot: [String: Any]) -> String? {
-        resolve(snapshot: snapshot) == .confirmed ? "Signed out successfully." : nil
+    static func successNotice(for outcome: V3SignOutOutcome) -> String? {
+        outcome == .confirmed ? "Signed out successfully." : nil
     }
 
     static func whatHappened(for outcome: V3SignOutOutcome) -> String? {

@@ -18,11 +18,13 @@ class SignOutPostconditionTests(unittest.TestCase):
 
         self.assertIn("V3ServiceBridge.shared.request(operation: operation, target: target)", mutation)
         self.assertIn('operation == "signOut"', mutation)
-        self.assertIn("V3SignOutOutcomePolicy.resolve(snapshot: snapshot)", mutation)
-        self.assertIn("V3SignOutOutcomePolicy.successNotice(for: snapshot)", mutation)
+        self.assertIn('authenticated: V3ServiceBridge.strictBool(snapshot["authenticated"])', mutation)
+        self.assertIn('activeAccountPresent: V3ServiceBridge.strictBool(snapshot["activeAccountPresent"])', mutation)
+        self.assertIn('activeTeamPresent: V3ServiceBridge.strictBool(snapshot["activeTeamPresent"])', mutation)
+        self.assertIn("V3SignOutOutcomePolicy.successNotice(for: signOutOutcome)", mutation)
         self.assertIn("presentUnconfirmedSignOut(signOutOutcome)", mutation)
-        self.assertLess(mutation.index("accept(snapshot)"),
-                        mutation.index("V3SignOutOutcomePolicy.resolve(snapshot: snapshot)"))
+        self.assertLess(mutation.index("accept(snapshot)"), mutation.index("V3SignOutOutcomePolicy.resolve("))
+        self.assertLess(mutation.index("V3SignOutOutcomePolicy.resolve("), mutation.index("finishMutation()"))
         self.assertIn('func signOut() { runMutation("signOut", successNotice: "Signed out successfully.") }', shell)
 
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
@@ -43,22 +45,16 @@ class SignOutPostconditionTests(unittest.TestCase):
         if not compiler:
             self.skipTest("Swift compiler unavailable; executable policy harness runs in macOS CI")
 
-        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         fixture = (ROOT / "tests/fixtures/v3_signout_postcondition_harness.swift").read_text(encoding="utf-8")
-        bool_start = wire.index("    static func strictBool(_ value: Any?) -> Bool? {")
-        bool_end = wire.index("\n    static func strictInt", bool_start)
-        production_bool_decoder = (
-            "enum V3WireContract {\n" + wire[bool_start:bool_end] + "\n}"
-        )
         policy_start = primitives.index("enum V3SignOutOutcome: Equatable {")
         policy_end = primitives.index("\nenum V3AnisetteFailureGuidance {", policy_start)
         production_signout_policy = primitives[policy_start:policy_end]
+        self.assertNotIn("V3WireContract", production_signout_policy)
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "main.swift"
             executable = Path(temporary) / "signout-postcondition"
-            source.write_text("import Foundation\nimport CoreFoundation\n" + production_bool_decoder + "\n" +
-                              production_signout_policy + "\n" + fixture,
+            source.write_text("import Foundation\n" + production_signout_policy + "\n" + fixture,
                               encoding="utf-8")
             compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
                                       capture_output=True, text=True)
