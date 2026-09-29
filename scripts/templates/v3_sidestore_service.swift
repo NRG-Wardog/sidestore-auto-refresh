@@ -219,7 +219,7 @@ private enum V3DirectMutationPreDispatchReplyPolicy {
     // original with a new request that was rejected by the recovery hold.
     static func annotate(request: [String: Any], heldRequestID: String? = nil,
                          response: inout [String: Any]) -> Bool {
-        guard V3DirectMutationRecoveryRecord.isEligible(request),
+        guard V3DirectMutationRecoveryRecord.isEligible(request: request),
               let requestID = request["id"] as? String,
               response["id"] as? String == requestID,
               requestID != heldRequestID else { return false }
@@ -901,7 +901,7 @@ final class V3SideStoreService: NSObject {
                 operation: operation))
             return
         }
-        if V3DirectMutationRecoveryRecord.isEligible(request) {
+        if V3DirectMutationRecoveryRecord.isEligible(request: request) {
             do {
                 guard try V3DirectMutationRecoveryLifecycle.reserve(request: request, requestID: id,
                     serviceInstanceID: recoveryServiceInstanceID,
@@ -942,7 +942,7 @@ final class V3SideStoreService: NSObject {
             do {
                 guard DatabaseManager.shared.isStarted else { throw ServiceError.notReady }
                 try Task.checkCancellation()
-                if V3DirectMutationRecoveryRecord.isEligible(request) {
+                if V3DirectMutationRecoveryRecord.isEligible(request: request) {
                     guard let result = try await V3DirectMutationRecoveryLifecycle.dispatchAndSettle(
                         requestID: id, operation: operation,
                         serviceInstanceID: recoveryServiceInstanceID, run: {
@@ -955,7 +955,7 @@ final class V3SideStoreService: NSObject {
                 try Task.checkCancellation()
                 response["ok"] = true
             } catch {
-                let directNotDispatched = V3DirectMutationRecoveryRecord.isEligible(request) &&
+                let directNotDispatched = V3DirectMutationRecoveryRecord.isEligible(request: request) &&
                     V3DirectMutationRecoveryLifecycle.clearPreparedAfterFailure(requestID: id)
                 if operation == "refreshAdmissionBegin", error is CancellationError,
                    let refreshRunID = request["target"] as? String,
