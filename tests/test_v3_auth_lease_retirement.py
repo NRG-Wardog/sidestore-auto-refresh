@@ -55,9 +55,18 @@ class AuthLeaseRetirementTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
-            result = subprocess.run(
-                [str(executable)], capture_output=True, text=True, timeout=10
-            )
+            try:
+                result = subprocess.run(
+                    [str(executable)], capture_output=True, text=True, timeout=10
+                )
+            except subprocess.TimeoutExpired as error:
+                stderr = error.stderr or ""
+                if isinstance(stderr, bytes):
+                    stderr = stderr.decode("utf-8", errors="replace")
+                stdout = error.stdout or ""
+                if isinstance(stdout, bytes):
+                    stdout = stdout.decode("utf-8", errors="replace")
+                self.fail(f"auth lease harness timed out; stdout={stdout}\nstderr={stderr}")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("V3 auth lease retirement PASS", result.stdout)
 

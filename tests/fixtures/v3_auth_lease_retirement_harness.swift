@@ -19,6 +19,7 @@ final class AuthLeaseFakeClient {
         }
         requests.append(request)
         let operation = request["operation"] as! String
+        AuthLeaseRetirementTests.mark("dispatched \(operation)")
         let requestID = request["id"] as! String
         let target = request["target"] as? String ?? ""
         let payload = request["payload"] as? [String: Any] ?? [:]
@@ -61,8 +62,10 @@ final class AuthLeaseFakeClient {
 
         let encoded = encode(response)
         if operation == "authPoll" && holdAuthPollReplies {
+            AuthLeaseRetirementTests.mark("held authPoll response")
             heldReplies.append { reply(encoded) }
         } else {
+            AuthLeaseRetirementTests.mark("replied \(operation)")
             reply(encoded)
         }
     }
@@ -70,6 +73,7 @@ final class AuthLeaseFakeClient {
     func flushAuthPollReplies() {
         let replies = heldReplies
         heldReplies.removeAll()
+        AuthLeaseRetirementTests.mark("flushed \(replies.count) authPoll replies")
         replies.forEach { $0() }
     }
 
@@ -106,9 +110,14 @@ final class RefreshHandler {
 
 @main
 struct AuthLeaseRetirementTests {
+    static func mark(_ stage: String) {
+        FileHandle.standardError.write(Data("[AUTH_LEASE_HARNESS] \(stage)\n".utf8))
+    }
+
     @MainActor
     static func waitForRequest(_ client: AuthLeaseFakeClient, after count: Int,
                                operation: String, target: String) async {
+        mark("wait request \(operation)")
         let deadline = Date().addingTimeInterval(2)
         while !client.requests.dropFirst(min(count, client.requests.count)).contains(where: {
             $0["operation"] as? String == operation && $0["target"] as? String == target
@@ -116,22 +125,27 @@ struct AuthLeaseRetirementTests {
             if Date() >= deadline { preconditionFailure("request not sent: \(operation)/\(target)") }
             await Task.yield()
         }
+        mark("observed request \(operation)")
     }
 
     @MainActor
     static func startAuth(_ bridge: V3ServiceBridge, sessionID: String) async throws {
+        mark("await authBegin")
         _ = try await bridge.request(operation: "authBegin", target: sessionID,
             payload: ["session": sessionID,
                      "sessionDeadline": Date().addingTimeInterval(600)])
+        mark("returned authBegin")
     }
 
     @MainActor
     static func expectStartBlocked(_ bridge: V3ServiceBridge, sessionID: String) async {
+        mark("await blocked authBegin")
         do {
             try await startAuth(bridge, sessionID: sessionID)
             preconditionFailure("new authBegin passed unresolved auth ownership")
         } catch let failure as CombinedFailure {
             precondition(failure.code == .busy, "unresolved auth owner returned \(failure.code)")
+            mark("blocked authBegin confirmed")
         } catch {
             preconditionFailure("unresolved auth owner returned unexpected error: \(error)")
         }
@@ -139,12 +153,14 @@ struct AuthLeaseRetirementTests {
 
     @MainActor
     static func pollUnavailable(_ bridge: V3ServiceBridge, sessionID: String) async {
+        mark("await unavailable authPoll")
         do {
             _ = try await bridge.request(operation: "authPoll", target: sessionID)
             preconditionFailure("missing auth session was accepted")
         } catch let failure as CombinedFailure {
             precondition(failure.safeCause == .authSessionUnavailable,
                 "the exact session-unavailable reply lost its typed cause")
+            mark("authPoll unavailable confirmed")
         } catch {
             preconditionFailure("authPoll returned unexpected error: \(error)")
         }
@@ -152,6 +168,7 @@ struct AuthLeaseRetirementTests {
 
     @MainActor
     static func main() async throws {
+        mark("begin owner isolation")
         let handler = RefreshHandler.shared
         let client = handler.client!
 
@@ -175,6 +192,7 @@ struct AuthLeaseRetirementTests {
 
         // A typed unavailable reply also settles a live active auth lease,
         // then a fresh snapshot can reconcile account state independently.
+        mark("active lease unavailable path")
         let activeUnavailableBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
         let activeUnavailableSession = UUID().uuidString
         try await startAuth(activeUnavailableBridge, sessionID: activeUnavailableSession)
@@ -182,13 +200,16 @@ struct AuthLeaseRetirementTests {
         await pollUnavailable(activeUnavailableBridge, sessionID: activeUnavailableSession)
         precondition(!activeUnavailableBridge.isMutating,
             "an exact unavailable reply must settle a matching active auth lease")
+        mark("await account snapshot after unavailable")
         let freshSnapshot = try await activeUnavailableBridge.request(operation: "snapshot")
+        mark("returned account snapshot after unavailable")
         precondition(freshSnapshot["authenticationActive"] as? Bool == false,
             "account state remains separately reconcilable from auth-session ownership")
         try await startAuth(activeUnavailableBridge, sessionID: UUID().uuidString)
 
         // A valid correlated unavailable reply from authPoll releases only the
         // retired session's shared status owner and allows a fresh authBegin.
+        mark("retired lease unavailable path")
         let unavailableBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
         let unavailableSession = UUID().uuidString
         try await startAuth(unavailableBridge, sessionID: unavailableSession)
@@ -203,12 +224,15 @@ struct AuthLeaseRetirementTests {
         let replacementSession = UUID().uuidString
         try await startAuth(unavailableBridge, sessionID: replacementSession)
         client.authPollReply = .success
+        mark("await replacement authPoll")
         let replacementPoll = try await unavailableBridge.request(operation: "authPoll", target: replacementSession)
+        mark("returned replacement authPoll")
         precondition(replacementPoll["authenticated"] as? Bool == true,
             "a new session must remain usable after exact unavailable reconciliation")
 
         // An unavailable reply for another session and a false snapshot fact
         // for the exact owner are kept distinct.
+        mark("wrong session and snapshot path")
         let snapshotBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
         let snapshotSession = UUID().uuidString
         try await startAuth(snapshotBridge, sessionID: snapshotSession)
@@ -227,6 +251,7 @@ struct AuthLeaseRetirementTests {
         try await startAuth(snapshotBridge, sessionID: UUID().uuidString)
 
         // A malformed structured failure and transport loss preserve ownership.
+        mark("malformed response path")
         let malformedBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
         let malformedSession = UUID().uuidString
         try await startAuth(malformedBridge, sessionID: malformedSession)
@@ -244,6 +269,7 @@ struct AuthLeaseRetirementTests {
         await expectStartBlocked(malformedBridge, sessionID: UUID().uuidString)
 
         let transportBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
+        mark("transport loss path")
         let transportSession = UUID().uuidString
         try await startAuth(transportBridge, sessionID: transportSession)
         transportBridge.disconnected()
@@ -258,6 +284,7 @@ struct AuthLeaseRetirementTests {
         do { _ = try await interruptedPoll.value; preconditionFailure("transport loss was ignored") }
         catch let failure as CombinedFailure {
             precondition(failure.stage == .xpcConnection)
+            mark("transport interruption confirmed")
         }
         precondition(transportBridge.isMutating,
             "transport loss without an authoritative reply cannot release the auth owner")
@@ -266,6 +293,7 @@ struct AuthLeaseRetirementTests {
         client.flushAuthPollReplies()
 
         // A terminal success arriving after cancellation is still authoritative.
+        mark("late success after cancellation path")
         let lateSuccessBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
         let lateSuccessSession = UUID().uuidString
         try await startAuth(lateSuccessBridge, sessionID: lateSuccessSession)
@@ -279,6 +307,7 @@ struct AuthLeaseRetirementTests {
         cancelledPoll.cancel()
         do { _ = try await cancelledPoll.value; preconditionFailure("authPoll cancellation was ignored") }
         catch is CancellationError {} catch { preconditionFailure("wrong authPoll cancellation error") }
+        mark("cancelled authPoll waiter completed")
         precondition(lateSuccessBridge.isMutating,
             "cancelling the waiter cannot release the retired auth owner")
         client.holdAuthPollReplies = false
@@ -288,8 +317,10 @@ struct AuthLeaseRetirementTests {
             if Date() >= deadline { preconditionFailure("late authoritative auth success did not resolve ownership") }
             await Task.yield()
         }
+        mark("late authPoll success released owner")
         let afterLateSuccess = UUID().uuidString
         try await startAuth(lateSuccessBridge, sessionID: afterLateSuccess)
+        mark("completed")
         print("V3 auth lease retirement PASS")
     }
 }

@@ -351,9 +351,16 @@ struct BridgeTests {
             precondition(Date() < deadline, "stuck native operation was not retired")
             await Task.yield()
         }
-        precondition(!recovery.isMutating)
+        precondition(recovery.isMutating,
+                     "service retirement alone must preserve the unresolved auth status owner")
         client.flush()
         client.hold = false
+        let retiredAuthSnapshot = try await recovery.request(operation: "snapshot")
+        precondition(retiredAuthSnapshot["authenticationActive"] as? Bool == false)
+        recovery.reconcileAuthSessionOwnership(sessionID: stuckAuthSession,
+            authenticationActive: retiredAuthSnapshot["authenticationActive"] as? Bool ?? true)
+        precondition(!recovery.isMutating,
+                     "an authoritative inactive snapshot must release the retired auth owner")
 
         let operationSession = UUID().uuidString
         _ = try await bridge.request(operation: "opStart",
