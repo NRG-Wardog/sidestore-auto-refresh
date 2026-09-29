@@ -122,6 +122,39 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
         self.assertIn(".sheet(isPresented: $status.connectionPresented)", shell)
         self.assertIn('case "connection": status.connectionPresented = true', shell)
 
+    def test_anisette_network_guidance_names_the_configured_server(self):
+        compiler = shutil.which("swiftc")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable")
+        harness = r'''import Foundation
+@main
+struct AnisetteNetworkGuidanceHarness {
+    static func main() {
+        let failure = CombinedFailure(operation: "anisetteSync", stage: .network,
+            code: .failed, id: UUID().uuidString, safeCause: .networkTimedOut)
+        let message = V3AnisetteFailureGuidance.message(failure) ?? ""
+        precondition(message.contains("configured Anisette server") &&
+                     message.contains("Check its address and your network"),
+                     "network guidance should direct the user to the configured Anisette service")
+        print("V3_ANISETTE_NETWORK_GUIDANCE_PASS")
+    }
+}'''
+        program = "\n".join([
+            (TEMPLATES / "combined_failure.swift").read_text(encoding="utf-8"),
+            (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8"),
+            harness,
+        ])
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "anisette-guidance.swift"
+            executable = Path(directory) / "anisette-guidance"
+            source.write_text(program, encoding="utf-8")
+            built = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
+                                   capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("V3_ANISETTE_NETWORK_GUIDANCE_PASS", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

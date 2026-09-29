@@ -493,28 +493,8 @@ enum V3ServiceReadinessReply: Equatable {
     // Keep the shared structured-failure vocabulary aligned. The generated
     // source harness compares these sets so a new typed cause cannot silently
     // disappear at this boundary.
-    static let knownSafeCauseValues: Set<String> = [
-        "networkConnectionLost", "networkTimedOut", "networkUnavailable",
-        "signingNetworkConnectionLost", "signingNetworkTimedOut", "signingNetworkUnavailable",
-        "developerPortalRejectedRequest", "developerPortalInvalidResponse",
-        "provisioningProfileUnavailable", "certificateUnavailable", "wifiUnavailable",
-        "localDevVPNUnavailable", "unknownSigningCause", "sourceNetworkFailure",
-        "sourceInvalidManifest", "sourcePersistenceUnverified", "sourceInvalidURL",
-        "sourceBlocked", "sourceChangedID", "sourceDuplicate", "sourceUnsupported",
-        "sourceValidationFailed",
-        "sourceRemoveFailed", "sourceRemoveBusy", "sourceAddBusy", "operationInProgress",
-        "responseCapacityUnavailable", "staleRefreshAttempt", "knownSourcePolicyNetworkFailure",
-        "knownSourcePolicyInvalidResponse", "catalogUnavailable", "catalogSourceUnavailable",
-        "responseEncodingFailed", "responseTooLarge", "pairingRequired", "invalidPairingFile",
-        "pairingFilePreparationFailed", "authAttemptNotDispatched", "authProvisioningRetryNotDispatched",
-        "authSessionUnavailable", "authResponseCapacityUnavailable", "keychainSignOutFailed",
-        "keychainSignOutOutcomeUnknown"
-    ]
-    static let knownSourceStepValues: Set<String> = [
-        "provisioningProfileFetch", "certificateValidation", "localCodeSigning",
-        "sourceDownload", "manifestParsing", "sourceValidation", "knownSourcePolicyFetch",
-        "knownSourcePolicyParsing", "catalogRead"
-    ]
+    static let knownSafeCauseValues = Set(CombinedFailure.SafeCause.allCases.map(\.rawValue))
+    static let knownSourceStepValues = Set(CombinedFailure.SourceStep.allCases.map(\.rawValue))
 
     static func decode(_ data: Data, requestID: String) -> V3ServiceReadinessReply {
         guard !data.isEmpty, data.count <= V3WireContract.responseLimit,

@@ -307,6 +307,81 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         self.compile_and_run(failure + "\n" + wire + "\n" + context + "\n" + harness,
                              "V3_MALFORMED_STRUCTURED_FAILURE_PASS")
 
+    def test_readiness_vocabulary_and_refresh_diagnostics_follow_shared_failure_contract(self):
+        wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        harness = r'''import Foundation
+
+@main
+struct V3ReadinessAndDiagnosticsContractHarness {
+    static func main() throws {
+        let id = UUID().uuidString
+        func encode(_ failure: [String: Any]) throws -> Data {
+            try PropertyListSerialization.data(fromPropertyList: [
+                "version": 1, "id": id, "ok": false, "failure": failure
+            ], format: .binary, options: 0)
+        }
+        let template = CombinedFailure(operation: "refresh", stage: .command,
+            code: .failed, id: id, retryable: true, safeCause: .networkTimedOut)
+        for cause in CombinedFailure.SafeCause.allCases {
+            var envelope = template.wire
+            envelope["safeCause"] = cause.rawValue
+            if case .failed(let decoded) = V3ServiceReadinessReply.decode(try encode(envelope), requestID: id) {
+                precondition(decoded.safeCause == cause.rawValue)
+            } else {
+                preconditionFailure("known SafeCause rejected: \(cause.rawValue)")
+            }
+        }
+        for step in CombinedFailure.SourceStep.allCases {
+            var envelope = template.wire
+            envelope["sourceStep"] = step.rawValue
+            if case .failed(let decoded) = V3ServiceReadinessReply.decode(try encode(envelope), requestID: id) {
+                precondition(decoded.sourceStep == step.rawValue)
+            } else {
+                preconditionFailure("known SourceStep rejected: \(step.rawValue)")
+            }
+        }
+        var unknownCause = template.wire
+        unknownCause["safeCause"] = "futureUnknownCause"
+        precondition(V3ServiceReadinessReply.decode(try encode(unknownCause), requestID: id) == .invalid)
+        var unknownStep = template.wire
+        unknownStep["sourceStep"] = "futureUnknownStep"
+        precondition(V3ServiceReadinessReply.decode(try encode(unknownStep), requestID: id) == .invalid)
+
+        let anisette = CombinedFailure(operation: "anisetteSync", stage: .network,
+            code: .failed, id: id, retryable: true, safeCause: .anisetteServerUnavailable)
+        if case .failed(let decoded) = V3ServiceReadinessReply.decode(try encode(anisette.wire), requestID: id) {
+            precondition(decoded.operation == "anisetteSync" && decoded.stage == "network" &&
+                         decoded.safeCause == "anisetteServerUnavailable" && decoded.retryable == true,
+                         "Anisette operation, stage, cause, and retryability must survive the wire")
+        } else {
+            preconditionFailure("valid Anisette failure rejected")
+        }
+
+        func diagnostic(_ native: Error?) -> String {
+            let requestID = UUID().uuidString
+            let runID = UUID().uuidString
+            let failure = CombinedFailure(operation: "refresh", stage: .refreshVerification,
+                code: .failed, id: runID, underlying: native, safeCause: .networkTimedOut)
+            return V3RefreshAllFailureDiagnostics.text(requestID: requestID, runID: runID,
+                record: ["request_id": requestID, "run_id": runID, "state": "failed",
+                         "failure": failure.wire]) ?? ""
+        }
+        let redacted = diagnostic(NSError(domain: "private.example/token", code: 7428391))
+        precondition(redacted.contains("underlying_domain=redacted") &&
+                     redacted.contains("underlying_code=unknown") && !redacted.contains("7428391"))
+        let allowlisted = diagnostic(NSError(domain: NSURLErrorDomain, code: -1009))
+        precondition(allowlisted.contains("underlying_domain=NSURLErrorDomain") &&
+                     allowlisted.contains("underlying_code=-1009"))
+        let absent = diagnostic(nil)
+        precondition(absent.contains("underlying_domain=none") && absent.contains("underlying_code=0"))
+        print("V3_READINESS_AND_REFRESH_DIAGNOSTICS_PASS")
+    }
+}'''
+        self.compile_and_run(wire + "\n" + failure + "\n" + helper + "\n" + harness,
+                             "V3_READINESS_AND_REFRESH_DIAGNOSTICS_PASS")
+
     def test_setup_completion_status_issue_routing_and_jitless_execute(self):
         # V3_SETUP_COMPLETION_POLICY_V1, V3_RELOAD_STATUS_VISIBILITY_V1,
         # V3_USER_FACING_ISSUE_V1, V3_STATUS_PRESENTATION_V1,
