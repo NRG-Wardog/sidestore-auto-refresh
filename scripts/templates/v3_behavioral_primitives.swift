@@ -1,6 +1,15 @@
 import Foundation
 import CoreFoundation
 
+// V3_CRASH_REASON_LOG_PRIVACY_V1: exception reasons and call stacks may contain
+// credentials, URLs, user data, or local paths. Callers may only log this marker.
+enum V3CrashLogPrivacy {
+    static func safeCrashMarker(reason: String?) -> String {
+        _ = reason
+        return "[AppDelegate] UNCAUGHT_NSEXCEPTION_CRASH details=omitted"
+    }
+}
+
 // Operation phases are fed by PipelineExecutor's actual PipelineStep callback.
 // Unknown steps intentionally collapse to Working... rather than inferring a
 // stage from progress percentages.

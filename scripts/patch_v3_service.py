@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 38
+PATCH_VERSION = 39
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -788,12 +788,54 @@ def headless_sidestore_app_delegate(text):
     text = headless_app_intent_routing(text)
     text = headless_app_open(text)
     text = headless_nuke_app_delegate(text)
+    text = patch_crash_log_privacy(text)
     return text + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + \
         (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8") + \
         (TEMPLATES / "v3_secret_handoff.swift").read_text(encoding="utf-8") + \
         (TEMPLATES / "v3_ipa_staging.swift").read_text(encoding="utf-8") + \
         (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8") + \
         (TEMPLATES / "v3_headless_runtime.swift").read_text(encoding="utf-8")
+
+
+def patch_crash_log_privacy(text):
+    marker = "V3_CRASH_REASON_LOG_PRIVACY_V1"
+    signature = "    func setupCrashHandler()"
+    if marker in text:
+        if (text.count(marker) != 1 or text.count(signature) != 1 or
+                "V3CrashLogPrivacy.safeCrashMarker(reason: exception.reason)" not in text):
+            raise SystemExit("v3 service: crash-log privacy adapter is partial")
+        function = extract_swift_declaration(text, signature)
+        expected = '''    func setupCrashHandler() {
+        NSSetUncaughtExceptionHandler { exception in
+            // Clear handler immediately so execution can never recurse under any circumstance.
+            NSSetUncaughtExceptionHandler(nil)
+
+            // ''' + marker + ''': exception reasons and call stacks can contain secrets or paths.
+            let message = V3CrashLogPrivacy.safeCrashMarker(reason: exception.reason)
+            debugLog(message)
+            fputs(message, stderr)
+            fflush(stderr)
+            NSLog("%@", message)
+        }
+    }'''
+        if function != expected:
+            raise SystemExit("v3 service: crash-log privacy adapter drifted")
+        return text
+
+    replacement = '''    func setupCrashHandler() {
+        NSSetUncaughtExceptionHandler { exception in
+            // Clear handler immediately so execution can never recurse under any circumstance.
+            NSSetUncaughtExceptionHandler(nil)
+
+            // ''' + marker + ''': exception reasons and call stacks can contain secrets or paths.
+            let message = V3CrashLogPrivacy.safeCrashMarker(reason: exception.reason)
+            debugLog(message)
+            fputs(message, stderr)
+            fflush(stderr)
+            NSLog("%@", message)
+        }
+    }'''
+    return replace_swift_function(text, signature, replacement, "crash handler")
 
 
 def headless_scene_open(text):
