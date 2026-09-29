@@ -150,8 +150,6 @@ struct BridgeTests {
             "host admission rejects opStart before dispatch while auth is unresolved")
         _ = try await bridge.request(operation: "authPoll", target: signInSession)
         _ = try await bridge.request(operation: "opStart", target: "", payload: refreshPayload)
-        precondition(client.operations == ["snapshot", "authBegin", "authPoll", "opStart"],
-            "explicit account/opStart integration order changed")
         let dispatchedStart = client.requests.last!
         let dispatchedPayload = dispatchedStart["payload"] as! [String: Any]
         precondition(dispatchedStart["target"] as? String == "" &&
@@ -159,6 +157,15 @@ struct BridgeTests {
                      dispatchedPayload["target"] as? String == refreshTarget &&
                      dispatchedPayload["session"] as? String == refreshSession,
             "opStart must use the payload schema, InstalledApp URI, and canonical session ID")
+        client.operationState = "completed"
+        let settledRefresh = try await bridge.request(operation: "opPoll", target: refreshSession)
+        precondition(settledRefresh["state"] as? String == "completed" &&
+                     settledRefresh["backendSettled"] as? Bool == true,
+            "the refresh session must reach an authoritative terminal reply")
+        precondition(!bridge.isMutating,
+            "a settled opPoll releases the refresh session's host mutation ownership")
+        precondition(client.operations == ["snapshot", "authBegin", "authPoll", "opStart", "opPoll"],
+            "explicit account/opStart/opPoll integration order changed")
         client.stale = true
         do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("stale reply accepted") } catch {}
         client.stale = false; client.oversized = true
