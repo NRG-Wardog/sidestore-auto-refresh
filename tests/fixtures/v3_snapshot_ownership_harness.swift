@@ -612,6 +612,149 @@ struct SnapshotOwnershipHarness {
             precondition(!s.loading && s.activity == .idle, "!s.loading && s.activity == .idle")
         }
 
+        // Execute the production bridge authority and the exact reply commit
+        // policy. Snapshot R is invalidated as soon as write M reserves R+1,
+        // even while M waits for R's correlated callback.
+        do {
+            var authority = V3StatusWriteAuthority()
+            _ = authority.observeServiceInstance("pid-101", continuingOwnerID: nil)
+            let snapshotRevision = authority.revision
+            let snapshot = authority.begin(ownerID: "snapshot:R", revision: snapshotRevision,
+                serviceInstanceID: "pid-101", kind: .snapshot)!
+            let mutationRevision = authority.reserveMutationRevision()
+            precondition(!V3StatusReplyCommitPolicy.mayApply(snapshot, authority: authority,
+                currentServiceEpoch: authority.serviceEpoch, currentServiceInstanceID: "pid-101"),
+                "a write intent invalidates snapshot R before dispatch")
+            precondition(authority.complete(snapshot, outcome: .committed),
+                "the original snapshot callback releases its lease even though its result is stale")
+            let mutation = authority.begin(ownerID: "request:M", revision: mutationRevision,
+                serviceInstanceID: "pid-101", kind: .mutation)!
+            precondition(!V3StatusReplyCommitPolicy.mayApply(snapshot, authority: authority,
+                currentServiceEpoch: authority.serviceEpoch, currentServiceInstanceID: "pid-101"),
+                "late snapshot R cannot overwrite mutation M")
+            precondition(authority.complete(mutation, outcome: .committed),
+                "the correlated direct write callback releases mutation M")
+            precondition(V3StatusReplyCommitPolicy.mayApply(mutation, authority: authority,
+                currentServiceEpoch: authority.serviceEpoch, currentServiceInstanceID: "pid-101"),
+                "only the current mutation ticket can apply its result")
+
+            // The bridge's exact direct-write classification covers each
+            // snapshot-bearing family and leaves file-only operations exempt.
+            let writeOperations = ["sourceAddConfirmed", "sourceRemoveConfirmed", "certCreate",
+                "certDelete", "certRevoke", "pairingImportData", "settingsSet", "sidesignReset",
+                "opRecoveryPrepare", "recoveryDiscardUnreadable"]
+            for operation in writeOperations {
+                precondition(V3StatusAuthorityOperationPolicy.directWriteOwnerID(
+                    operation: operation, requestID: "request-\(operation)") == "request:request-\(operation)",
+                    "\(operation) owns an exact request ticket")
+            }
+            precondition(V3StatusAuthorityOperationPolicy.directWriteOwnerID(
+                operation: "ipaCleanup", requestID: "file-cleanup") == nil &&
+                V3StatusAuthorityOperationPolicy.directWriteOwnerID(
+                operation: "backupResult", requestID: "file-transfer") == nil,
+                "file transfer and staging cleanup do not change snapshot state")
+
+            // Busy snapshots never satisfy the production commit gate.
+            let busySnapshotRevision = authority.revision
+            let busySnapshot = authority.begin(ownerID: "snapshot:busy", revision: busySnapshotRevision,
+                serviceInstanceID: "pid-101", kind: .snapshot)!
+            precondition(authority.complete(busySnapshot, outcome: .committed),
+                "the busy reply is still a correlated snapshot completion")
+            precondition(!V3StatusReplyCommitPolicy.mayApply(busySnapshot, authority: authority,
+                currentServiceEpoch: authority.serviceEpoch, currentServiceInstanceID: "pid-101",
+                busySnapshot: true), "busy=true cannot satisfy reloadAndWait")
+
+            // A v1 durable operation hold can make a cold-relaunch snapshot
+            // busy. Its current-ticket recovery fields may publish the recovery
+            // banner without accepting account/app state or satisfying waiters.
+            let recoveryTicket = authority.begin(ownerID: "snapshot:recovery", revision: authority.revision,
+                serviceInstanceID: "pid-101", kind: .snapshot)!
+            let recoveryReply: [String: Any] = [
+                "busy": true,
+                "operationRecovery": ["session": "12345678-1234-1234-1234-123456789ABC",
+                    "kind": "install", "phase": "dispatched"]
+            ]
+            precondition(authority.complete(recoveryTicket, outcome: .committed),
+                "the busy cold-relaunch reply has a correlated completion")
+            precondition(!V3StatusReplyCommitPolicy.mayApply(recoveryTicket, authority: authority,
+                currentServiceEpoch: authority.serviceEpoch, currentServiceInstanceID: "pid-101",
+                busySnapshot: true), "the recovery-only path still cannot satisfy a reload waiter")
+            precondition(V3StatusRecoveryEvidencePolicy.hasLegacyEvidence(recoveryReply) &&
+                V3StatusRecoveryEvidencePolicy.mayApply(busySnapshot: true, activeMutation: nil,
+                    hasDurableRecoveryEvidence: true) &&
+                V3StatusReplyCommitPolicy.mayApply(recoveryTicket, authority: authority,
+                    currentServiceEpoch: authority.serviceEpoch, currentServiceInstanceID: "pid-101"),
+                "current-ticket v1 recovery evidence remains available while status rows stay stale")
+
+            // Cancellation acknowledgement has no transition in this policy:
+            // the lease remains exclusive until the original callback or an
+            // explicit service retirement.
+            let cancelRevision = authority.reserveMutationRevision()
+            let canceledWrite = authority.begin(ownerID: "request:cancelled", revision: cancelRevision,
+                serviceInstanceID: "pid-101", kind: .mutation)!
+            precondition(!authority.canBegin(kind: .snapshot) && authority.activeLease == canceledWrite,
+                "a cancel ACK cannot release the active write")
+            let retired = authority.retireService()
+            precondition(retired == canceledWrite && authority.hasUnresolvedMutation,
+                "explicit retirement preserves an unknown owner")
+            precondition(!authority.complete(canceledWrite, outcome: .committed),
+                "the late callback cannot revive a retired ticket")
+            _ = authority.observeServiceInstance("pid-202", continuingOwnerID: nil)
+            let postRetirementSnapshot = authority.begin(ownerID: "snapshot:post-retirement",
+                revision: authority.revision, serviceInstanceID: "pid-202", kind: .snapshot)!
+            precondition(authority.complete(postRetirementSnapshot, outcome: .committed),
+                "the new service can produce an authoritative snapshot")
+            precondition(V3StatusReplyCommitPolicy.mayApply(postRetirementSnapshot, authority: authority,
+                currentServiceEpoch: authority.serviceEpoch, currentServiceInstanceID: "pid-202") &&
+                authority.hasUnresolvedMutation,
+                "a generic snapshot does not resolve an ambiguous direct write")
+            precondition(authority.canBegin(kind: .snapshot) && !authority.canBegin(kind: .mutation),
+                "a fresh read can inspect state while mutation retry remains blocked")
+            let beforeLateTerminal = authority.revision
+            precondition(authority.resolveOwnerAfterReconciliation("request:cancelled") &&
+                !authority.hasUnresolvedMutation && authority.revision == beforeLateTerminal &+ 1,
+                "only exact terminal evidence clears that owner and invalidates older snapshots")
+
+            // Confirmed pre-dispatch failure is different from an unknown
+            // dispatched write and does not leave a retry-blocking owner.
+            let notDispatchedRevision = authority.reserveMutationRevision()
+            let notDispatched = authority.begin(ownerID: "request:not-dispatched",
+                revision: notDispatchedRevision, serviceInstanceID: "pid-202", kind: .mutation)!
+            precondition(authority.complete(notDispatched, outcome: .notDispatched) &&
+                !authority.hasUnresolvedMutation, "confirmed not-dispatched leaves no unknown owner")
+
+            let ambiguousRevision = authority.reserveMutationRevision()
+            let ambiguousWrite = authority.begin(ownerID: "request:post-run-error",
+                revision: ambiguousRevision, serviceInstanceID: "pid-202", kind: .mutation)!
+            precondition(authority.complete(ambiguousWrite, outcome: .outcomeUnknown) &&
+                authority.hasUnresolvedMutation && !authority.canBegin(kind: .mutation),
+                "a dispatched error after a possible remote side effect blocks automatic retry")
+            precondition(authority.resolveOwnerAfterReconciliation("request:post-run-error") &&
+                !authority.hasUnresolvedMutation,
+                "only exact correlated terminal evidence clears the ambiguous request owner")
+
+            // Multiple waiters retain FIFO order and cancellation removes only
+            // its own identity.
+            var order = V3StatusLeaseWaiterOrder()
+            order.enqueue("snapshot-1")
+            order.enqueue("write-2")
+            order.enqueue("snapshot-3")
+            order.remove("write-2")
+            precondition(order.takeNext() == "snapshot-1" && order.takeNext() == "snapshot-3" &&
+                order.takeNext() == nil, "multiple waiters drain FIFO after exact cancellation")
+
+            precondition(V3StatusAuthorityOperationPolicy.longOwnerID(
+                operation: "authBegin", sessionID: "auth-session") == "auth:auth-session" &&
+                V3StatusAuthorityOperationPolicy.controlOwnerID(
+                operation: "authPoll", sessionID: "auth-session") == "auth:auth-session",
+                "auth control retains exact long owner")
+            precondition(V3StatusAuthorityOperationPolicy.longOwnerID(
+                operation: "refreshAdmissionBegin", sessionID: "run-id") == "refresh:run-id" &&
+                V3StatusAuthorityOperationPolicy.controlOwnerID(
+                operation: "refreshAdmissionReconcile", sessionID: "run-id") == "refresh:run-id",
+                "refresh reconciliation retains exact run owner")
+        }
+
         // A snapshot waiter is never resumed by anything but a snapshot, and an
         // install-attempt gate is never advanced by a mutation.
         let reflection = Mirror(reflecting: Store())

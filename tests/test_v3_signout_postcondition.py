@@ -23,8 +23,10 @@ class SignOutPostconditionTests(unittest.TestCase):
         self.assertIn('activeTeamPresent: V3ServiceBridge.strictBool(snapshot["activeTeamPresent"])', mutation)
         self.assertIn("V3SignOutOutcomePolicy.successNotice(for: signOutOutcome)", mutation)
         self.assertIn("presentUnconfirmedSignOut(signOutOutcome)", mutation)
-        self.assertLess(mutation.index("accept(snapshot)"), mutation.index("V3SignOutOutcomePolicy.resolve("))
-        self.assertLess(mutation.index("V3SignOutOutcomePolicy.resolve("), mutation.index("finishMutation()"))
+        self.assertLess(mutation.index("accept(snapshot)"),
+                        mutation.index("V3SignOutOutcomePolicy.resolve("))
+        policy_index = mutation.index("V3SignOutOutcomePolicy.resolve(")
+        self.assertLess(policy_index, mutation.index("finishMutation()", policy_index))
         self.assertIn('func signOut() { runMutation("signOut", successNotice: "Signed out successfully.") }', shell)
 
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")

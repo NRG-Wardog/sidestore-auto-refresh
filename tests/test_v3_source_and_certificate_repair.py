@@ -71,7 +71,8 @@ class SourceAddPersistenceContractTests(unittest.TestCase):
         shell = text(SHELL)
         method = region(shell, "private func confirmAdd(url:", "private func confirmRemove(id:")
         for token in ("V3SourceAddPersistencePolicy.confirmationMessage(result)",
-                      'result["persistenceVerified"]', "sources.contains", "status.accept(result)",
+                      'result["persistenceVerified"]', "sources.contains",
+                      "status.finishDirectMutation(ticket: mutationTicket, reply: acceptedSnapshot",
                       'status.sourceURL = ""', "notice = message"):
             self.assertTrue(token in method or token in text(PRIMITIVES))
         self.assertNotIn('notice = "Source added."', method)

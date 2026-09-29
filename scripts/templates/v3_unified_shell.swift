@@ -190,6 +190,12 @@ struct V3UnifiedTabs: View {
             status.reload(manual: false)
             routePendingSetup()
         }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3StatusMutationReserved"))) { _ in
+            status.statusAuthorityInvalidated()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3StatusAuthorityChanged"))) { _ in
+            status.statusAuthorityInvalidated()
+        }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3CanonicalJITLessCertificateUpdated"))) { _ in
             // V3_AWAITABLE_RELOAD_V1: a certificate import just changed
             // authoritative state. The snapshot is awaited before Setup is
@@ -1004,6 +1010,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     // completes before provisioning activates that row.
     @Published private(set) var authenticated = false
     @Published private(set) var identityStamp: String?
+    @Published private(set) var authenticationActive = false
     // V3_AUTH_LOCAL_STATE_SNAPSHOT_V1: persisted account/team/certificate
     // presence is separate from credential readability and display strings.
     @Published private(set) var activeAccountPresent = false
@@ -1414,6 +1421,9 @@ final class V3SideStoreStatusStore: ObservableObject {
     // Awaiters parked behind a mutation or presentation require a later epoch,
     // even if an older in-flight snapshot finishes after the blocker.
     private var snapshotGeneration: UInt64 = 0
+    private var externalMutationCount = 0
+    private var directMutationOwners: Set<UUID> = []
+    private var coordinatedMutationActive = false
     // Callers awaiting an authoritative snapshot. The registry tracks each
     // caller's minimum generation and manual requirement, because a shared
     // drain must not satisfy a deferred caller with an older in-flight fetch.
@@ -1577,8 +1587,46 @@ final class V3SideStoreStatusStore: ObservableObject {
     /// Claims the service for a mutation. A mutation never resolves a snapshot
     /// waiter; it only makes an owed snapshot due.
     private func beginMutation() {
+        coordinatedMutationActive = true
         loadActivity = .mutation
         loading = true
+    }
+
+    /// Begins a view-owned mutation outside runMutation before its first await.
+    func beginDirectMutation() -> UUID {
+        let owner = UUID()
+        directMutationOwners.insert(owner)
+        externalMutationCount += 1
+        if loadActivity == .snapshot {
+            snapshotOwedIntent.record(manual: true)
+        } else if loadActivity == .idle {
+            loadActivity = .mutation
+            loading = true
+        }
+        return owner
+    }
+
+    func finishDirectMutation(ticket: UUID, reply: [String: Any]? = nil,
+                              requestReload: Bool = false) {
+        guard directMutationOwners.remove(ticket) != nil else { return }
+        externalMutationCount = directMutationOwners.count
+        if let reply { _ = accept(reply) }
+        if requestReload { snapshotOwedIntent.record(manual: true) }
+        if externalMutationCount == 0 && !coordinatedMutationActive && loadActivity == .mutation {
+            loadActivity = .idle
+            loading = false
+            drainOwedSnapshot()
+        }
+    }
+
+    /// A bridge write intent may invalidate a snapshot already in flight or
+    /// originate outside a Store-owned mutation wrapper.
+    func statusAuthorityInvalidated() {
+        if loadActivity == .idle {
+            reload(manual: false)
+        } else {
+            snapshotOwedIntent.record(manual: true)
+        }
     }
 
     private func performSnapshot() async -> V3ReloadOutcome {
@@ -1587,11 +1635,15 @@ final class V3SideStoreStatusStore: ObservableObject {
         let completedGeneration = snapshotGeneration
         var succeeded = false
         var cancelled = false
+        var rejectedAsStale = false
         do {
-            accept(try await V3ServiceBridge.shared.request(operation: "snapshot"))
-            succeeded = true
+            let reply = try await V3ServiceBridge.shared.request(operation: "snapshot")
+            succeeded = accept(reply)
+            rejectedAsStale = !succeeded
         } catch {
-            if V3SnapshotErrorPolicy.shouldMarkDisconnected(error) {
+            if rejectedAsStale {
+                rejectedAsStale = true
+            } else if V3SnapshotErrorPolicy.shouldMarkDisconnected(error) {
                 connected = false
                 requiresConnectionRetry = true
                 present(error)
@@ -1599,7 +1651,8 @@ final class V3SideStoreStatusStore: ObservableObject {
                 cancelled = true
             }
         }
-        let outcome: V3ReloadOutcome = succeeded ? .applied : (cancelled ? .notObserved : .snapshotFailed)
+        let outcome: V3ReloadOutcome = succeeded ? .applied :
+            ((cancelled || rejectedAsStale) ? .notObserved : .snapshotFailed)
         // The only place a snapshot waiter is ever resumed. State is fully
         // applied first, so no caller can observe a partially updated snapshot.
         finishSnapshot(outcome: outcome, generation: completedGeneration)
@@ -1616,8 +1669,13 @@ final class V3SideStoreStatusStore: ObservableObject {
 
     /// V3_AWAITABLE_RELOAD_V1: the single place a snapshot activity ends.
     private func finishSnapshot(outcome: V3ReloadOutcome, generation: UInt64) {
-        loadActivity = .idle
-        loading = false
+        if externalMutationCount > 0 {
+            loadActivity = .mutation
+            loading = true
+        } else {
+            loadActivity = .idle
+            loading = false
+        }
         // The install presentation gate is snapshot-scoped: it advances only once
         // authoritative state has landed. A mutation advancing it would claim a
         // snapshot had happened.
@@ -1634,9 +1692,15 @@ final class V3SideStoreStatusStore: ObservableObject {
     /// until a real snapshot completes, because a mutation's reply says nothing
     /// about the state a snapshot reports.
     private func finishMutation() {
-        loadActivity = .idle
-        loading = false
-        drainOwedSnapshot()
+        coordinatedMutationActive = false
+        if externalMutationCount > 0 {
+            loadActivity = .mutation
+            loading = true
+        } else {
+            loadActivity = .idle
+            loading = false
+            drainOwedSnapshot()
+        }
     }
 
     /// Runs the single owed snapshot once nothing blocks it.
@@ -1666,10 +1730,15 @@ final class V3SideStoreStatusStore: ObservableObject {
             }
         }
     }
-    func accept(_ snapshot: [String: Any]) {
+    @discardableResult
+    func accept(_ snapshot: [String: Any]) -> Bool {
+        guard V3ServiceBridge.shared.statusReplyMayApply(snapshot) else {
+            _ = acceptRecoveryEvidence(snapshot)
+            return false
+        }
         guard let incomingIdentityStamp = snapshot["identityStamp"] as? String,
               !incomingIdentityStamp.isEmpty,
-              V3ServiceBridge.strictBool(snapshot["identityStable"]) != nil else { return }
+              V3ServiceBridge.strictBool(snapshot["identityStable"]) != nil else { return false }
         identityStamp = incomingIdentityStamp
         account = snapshot["account"] as? String ?? "Not signed in"
         team = snapshot["team"] as? String ?? "No active team"
@@ -1678,6 +1747,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         certificateExpiration = (snapshot["certificateExpiration"] as? Date).flatMap { $0 == .distantPast ? nil : $0 }
         pairing = snapshot["pairing"] as? String ?? "Unknown"
         authenticated = V3ServiceBridge.strictBool(snapshot["authenticated"]) ?? false
+        authenticationActive = V3ServiceBridge.strictBool(snapshot["authenticationActive"]) ?? false
         activeAccountPresent = V3ServiceBridge.strictBool(snapshot["activeAccountPresent"]) ?? false
         activeTeamPresent = V3ServiceBridge.strictBool(snapshot["activeTeamPresent"]) ?? false
         activeCertificatePresent = V3ServiceBridge.strictBool(snapshot["activeCertificatePresent"]) ?? false
@@ -1687,9 +1757,38 @@ final class V3SideStoreStatusStore: ObservableObject {
         sources = (snapshot["sources"] as? [[String: Any]] ?? []).compactMap(V3SideStoreSource.init)
         settings = snapshot["settings"] as? [String: Bool] ?? [:]
         connected = true
+        applyFullRecoveryEvidence(snapshot)
+        return true
+    }
+
+    private func acceptRecoveryEvidence(_ snapshot: [String: Any]) -> Bool {
+        guard V3ServiceBridge.shared.statusReplyMayApplyRecoveryEvidence(snapshot) else { return false }
         if let recovery = snapshot["operationRecovery"] as? [String: Any],
            let session = recovery["session"] as? String,
-           let kind = recovery["kind"] as? String,
+           UUID(uuidString: session) != nil,
+           let kind = recovery["kind"] as? String, !kind.isEmpty,
+           let phaseText = recovery["phase"] as? String,
+           let phase = V3OperationRecoveryRecord.Phase(rawValue: phaseText) {
+            unresolvedOperationRecovery = V3OperationRecoveryRecord(sessionID: session, kind: kind,
+                phase: phase, stagedIPAToken: recovery["stagedIPAToken"] as? String)
+        }
+        if let refresh = snapshot["refreshRecovery"] as? [String: Any],
+           let runID = refresh["runID"] as? String,
+           V3WireContract.strictBool(refresh["ownerLost"]) == true,
+           UUID(uuidString: runID)?.uuidString == runID {
+            unresolvedRefreshRecoveryRunID = runID
+        }
+        if V3WireContract.strictBool(snapshot["recoveryJournalUnreadable"]) == true {
+            unresolvedRecoveryJournalUnreadable = true
+        }
+        return true
+    }
+
+    private func applyFullRecoveryEvidence(_ snapshot: [String: Any]) {
+        if let recovery = snapshot["operationRecovery"] as? [String: Any],
+           let session = recovery["session"] as? String,
+           UUID(uuidString: session) != nil,
+           let kind = recovery["kind"] as? String, !kind.isEmpty,
            let phaseText = recovery["phase"] as? String,
            let phase = V3OperationRecoveryRecord.Phase(rawValue: phaseText) {
             unresolvedOperationRecovery = V3OperationRecoveryRecord(sessionID: session, kind: kind,
@@ -1784,7 +1883,11 @@ final class V3SideStoreStatusStore: ObservableObject {
         Task {
             do {
                 let snapshot = try await V3ServiceBridge.shared.request(operation: operation, target: target)
-                accept(snapshot)
+                guard accept(snapshot) else {
+                    finishMutation()
+                    reload()
+                    return
+                }
                 let signOutOutcome = operation == "signOut"
                     ? V3SignOutOutcomePolicy.resolve(
                         authenticated: V3ServiceBridge.strictBool(snapshot["authenticated"]),
@@ -1805,6 +1908,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             } catch {
                 finishMutation()
                 failed(error)
+                reload()
             }
         }
         return true
@@ -2705,6 +2809,13 @@ struct V3SourcesView: View {
         sourceFailure = nil
         failedSourceInput = nil
         defer { addBusy = false }
+        let mutationTicket = status.beginDirectMutation()
+        var acceptedSnapshot: [String: Any]?
+        var reloadAfterFailure = false
+        defer {
+            status.finishDirectMutation(ticket: mutationTicket, reply: acceptedSnapshot,
+                requestReload: reloadAfterFailure)
+        }
         do {
             let result = try await V3ServiceBridge.shared.request(operation: "sourceAddConfirmed", target: url)
             guard let message = V3SourceAddPersistencePolicy.confirmationMessage(result),
@@ -2714,7 +2825,7 @@ struct V3SourcesView: View {
                 throw V3SourceAddPersistencePolicy.unverifiedPersistenceFailure(
                     correlationID: UUID().uuidString)
             }
-            status.accept(result)
+            acceptedSnapshot = result
             preview = nil
             status.sourceURL = ""
             isAddSourcePresented = false
@@ -2722,6 +2833,7 @@ struct V3SourcesView: View {
             notice = message
             addSucceeded = true
         } catch {
+            reloadAfterFailure = true
             sourceFailure = V3SourceAddFailure(error)
             failedSourceInput = url
         }
@@ -2739,11 +2851,13 @@ struct V3SourcesView: View {
         notice = "Removing source..."
         addSucceeded = false
         defer { removeBusy = false }
+        let mutationTicket = status.beginDirectMutation()
         do {
             let result = try await V3ServiceBridge.shared.request(operation: "sourceRemoveConfirmed", target: id)
-            status.accept(result)
+            status.finishDirectMutation(ticket: mutationTicket, reply: result)
             notice = "Source removed."
         } catch {
+            status.finishDirectMutation(ticket: mutationTicket, requestReload: true)
             notice = ""
             status.present(error)
         }
@@ -3213,9 +3327,11 @@ struct V3BoolSettingRow: View {
     private func save(_ newValue: Bool) {
         let generation = writeGenerations.begin(key)
         Task {
+            let mutationTicket = status.beginDirectMutation()
             do {
                 _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
                     payload: ["key": key, "type": "bool", "bool": newValue])
+                status.finishDirectMutation(ticket: mutationTicket, requestReload: true)
                 if writeGenerations.isCurrent(generation, for: key) {
                     confirmedValue = newValue
                     status.reload()
@@ -3223,6 +3339,7 @@ struct V3BoolSettingRow: View {
                     _ = await reloadAuthoritative(generation: writeGenerations.current(for: key))
                 }
             } catch {
+                status.finishDirectMutation(ticket: mutationTicket, requestReload: true)
                 guard writeGenerations.isCurrent(generation, for: key) else { return }
                 let loaded = await reloadAuthoritative(generation: generation)
                 if !loaded, writeGenerations.isCurrent(generation, for: key) {
@@ -6428,14 +6545,20 @@ struct V3CertificatesView: View {
             portalLoaded = false
             if !authenticated { busy = "" }
         }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3AuthIdentityTransition"))
-            .receive(on: RunLoop.main)) { _ in
+        .onChange(of: status.authenticationActive) { active in
+            portalTicket &+= 1
+            if active {
+                portal = []
+                portalLoaded = false
+                busy = ""
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3AuthIdentityTransition"))) { _ in
                 portalTicket &+= 1
                 portal = []
                 portalLoaded = false
             }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3AuthIdentityTransitionFinished"))
-            .receive(on: RunLoop.main)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3AuthIdentityTransitionFinished"))) { _ in
                 if status.authenticated { Task { await reload() } }
             }
         .onDisappear {
@@ -6474,6 +6597,7 @@ struct V3CertificatesView: View {
             guard V3AuthReadStampPolicy.ownsTicket(captured: ticket, current: portalTicket) else { return }
             guard V3ServiceBridge.strictBool(currentIdentity["authenticated"]) == true,
                   V3ServiceBridge.strictBool(currentIdentity["identityStable"]) == true,
+                  V3ServiceBridge.strictBool(currentIdentity["authenticationActive"]) != true,
                   currentIdentity["identityStamp"] as? String == stamp else {
                 busy = ""
                 return
@@ -6482,7 +6606,8 @@ struct V3CertificatesView: View {
                   currentTicket: portalTicket, capturedStamp: stamp,
                   currentStamp: status.identityStamp,
                   stable: V3ServiceBridge.strictBool(reply["identityStable"]) == true,
-                  resultStamps: [reply["identityStamp"] as? String]) else {
+                  resultStamps: [reply["identityStamp"] as? String],
+                  authenticationActive: status.authenticationActive) else {
                 busy = ""
                 return
             }
@@ -6501,13 +6626,18 @@ struct V3CertificatesView: View {
         notice = ""
         Task {
             defer { busy = "" }
+            let mutationTicket = status.beginDirectMutation()
             do {
-                _ = try await V3ServiceBridge.shared.request(operation: "certSetActive", target: serial)
+                let reply = try await V3ServiceBridge.shared.request(operation: "certSetActive", target: serial)
+                status.finishDirectMutation(ticket: mutationTicket, reply: reply)
                 status.invalidateSetupFacts()
                 status.reload()
                 await reload()
                 notice = "Active certificate updated."
-            } catch { message = V3FailureGuidance.message(error) }
+            } catch {
+                status.finishDirectMutation(ticket: mutationTicket, requestReload: true)
+                message = V3FailureGuidance.message(error)
+            }
         }
     }
     private func runConfirmed(action: String, serial: String) async {
@@ -6515,15 +6645,18 @@ struct V3CertificatesView: View {
         busy = action + serial
         notice = ""
         defer { busy = "" }
+        let mutationTicket = status.beginDirectMutation()
         do {
             var certificateCreateOutcome: String?
+            var mutationSnapshot: [String: Any]?
             switch action {
-            case "delete": _ = try await V3ServiceBridge.shared.request(operation: "certDelete", target: serial)
-            case "revoke": _ = try await V3ServiceBridge.shared.request(operation: "certRevoke", target: serial)
+            case "delete": mutationSnapshot = try await V3ServiceBridge.shared.request(operation: "certDelete", target: serial)
+            case "revoke": mutationSnapshot = try await V3ServiceBridge.shared.request(operation: "certRevoke", target: serial)
             default:
                 let reply = try await V3ServiceBridge.shared.request(operation: "certCreate")
                 certificateCreateOutcome = reply["outcome"] as? String
             }
+            status.finishDirectMutation(ticket: mutationTicket, reply: mutationSnapshot)
             // Certificate mutations can invalidate the cached JIT-Less
             // comparison. Ordinary snapshots do not carry that private fact,
             // so force a fresh authoritative observation before setup reuses it.
@@ -6538,7 +6671,10 @@ struct V3CertificatesView: View {
             default:
                 notice = V3CertificateCreatePresentation.message(for: certificateCreateOutcome)
             }
-        } catch { message = V3FailureGuidance.message(error) }
+        } catch {
+            status.finishDirectMutation(ticket: mutationTicket, requestReload: true)
+            message = V3FailureGuidance.message(error)
+        }
     }
 }
 
@@ -6604,12 +6740,14 @@ struct V3DeveloperServicesView: View {
             invalidateScopedRows()
             if authenticated { Task { await reload() } }
         }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3AuthIdentityTransition"))
-            .receive(on: RunLoop.main)) { _ in
+        .onChange(of: status.authenticationActive) { active in
+            if active { invalidateScopedRows() }
+            else if status.authenticated { Task { await reload() } }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3AuthIdentityTransition"))) { _ in
                 invalidateScopedRows()
             }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3AuthIdentityTransitionFinished"))
-            .receive(on: RunLoop.main)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3AuthIdentityTransitionFinished"))) { _ in
                 if status.authenticated { Task { await reload() } }
             }
         .onDisappear {
@@ -6656,12 +6794,14 @@ struct V3DeveloperServicesView: View {
             guard status.authenticated,
                   V3ServiceBridge.strictBool(currentIdentity["authenticated"]) == true,
                   V3ServiceBridge.strictBool(currentIdentity["identityStable"]) == true,
+                  V3ServiceBridge.strictBool(currentIdentity["authenticationActive"]) != true,
                   currentIdentity["identityStamp"] as? String == capturedStamp,
                   V3AuthReadStampPolicy.mayCommit(
                   capturedTicket: ticket, currentTicket: reloadTicket,
                   capturedStamp: capturedStamp, currentStamp: status.identityStamp,
                   stable: replies.allSatisfy({ V3ServiceBridge.strictBool($0["identityStable"]) == true }),
-                  resultStamps: replies.map { $0["identityStamp"] as? String }) else {
+                  resultStamps: replies.map { $0["identityStamp"] as? String },
+                  authenticationActive: status.authenticationActive) else {
                 if V3AuthReadStampPolicy.ownsTicket(captured: ticket, current: reloadTicket) {
                     loading = false
                 }
@@ -6875,6 +7015,7 @@ struct V3PairingView: View {
         message = ""
         pairingFailure = nil
         defer { working = false }
+        var mutationTicket: UUID?
         do {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -6893,10 +7034,16 @@ struct V3PairingView: View {
                 return
             }
             defer { status.discardSharedFile(token) }
+            mutationTicket = status.beginDirectMutation()
             let result = try await V3ServiceBridge.shared.request(operation: "pairingImportData", target: token)
-            status.accept(result)
+            status.finishDirectMutation(ticket: mutationTicket!, reply: result)
+            mutationTicket = nil
             message = ""
         } catch {
+            // A failed import may have crossed the service mutation boundary.
+            if let mutationTicket {
+                status.finishDirectMutation(ticket: mutationTicket, requestReload: true)
+            }
             if let failure = error as? CombinedFailure {
                 if V3PairingImportFailurePolicy.shouldOfferFileRetry(operation: failure.operation,
                         stage: failure.stage.rawValue, safeCause: failure.safeCause?.rawValue) {

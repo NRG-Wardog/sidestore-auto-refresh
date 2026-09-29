@@ -171,7 +171,9 @@ class StoreFeedbackTests(unittest.TestCase):
         self.assertIn("beginMutation()", code)
         self.assertIn("finishMutation()", code)
         self.assertLess(code.index("accept(snapshot)"), code.index("finishMutation()"))
-        self.assertLess(code.index("V3SignOutOutcomePolicy.resolve("), code.index("finishMutation()"))
+        self.assertIn("statusReplyMayApply(snapshot)", store)
+        resolve_index = code.index("V3SignOutOutcomePolicy.resolve(")
+        self.assertLess(resolve_index, code.index("finishMutation()", resolve_index))
         # The busy state is released before the trailing reload, so the reload
         # is not suppressed by the store's own guard.
         self.assertLess(code.index("finishMutation()"), code.index("reload()"))
@@ -194,12 +196,9 @@ class StoreFeedbackTests(unittest.TestCase):
         self.assertNotIn("snapshotWaiters", mutation_end)
         # Neither may clear the busy flag anywhere else.
         body = store[store.index("final class V3SideStoreStatusStore"):]
-        direct = [line for line in body.splitlines() if line.strip() == "loading = false"]
-        self.assertEqual(len(direct), 2,
-                         "loading must be cleared once per activity, or waiters can be stranded")
-        # And the flag is only ever set by claiming an activity, never directly.
-        setters = [line.strip() for line in body.splitlines() if line.strip() == "loading = true"]
-        self.assertEqual(len(setters), 2)
+        self.assertIn("if externalMutationCount > 0 {", snapshot_end)
+        self.assertIn("if externalMutationCount > 0 {", mutation_end)
+        self.assertIn("coordinatedMutationActive = false", mutation_end)
         for claim in ("private func startSnapshot(manual: Bool)", "private func beginMutation()"):
             block = store[store.index(claim):]
             block = block[:block.index("\n    }")]

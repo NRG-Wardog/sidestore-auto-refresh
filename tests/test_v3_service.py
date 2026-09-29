@@ -22,6 +22,19 @@ def module(name):
     return value
 
 
+def pinned_sidestore_source():
+    for variable in ("EMBEDDED_SIDESTORE_TEST_SOURCE", "SIDESTORE_TEST_SOURCE"):
+        value = os.environ.get(variable)
+        if value and Path(value).is_dir():
+            return Path(value)
+    for ancestor in (ROOT, *ROOT.parents):
+        if (ancestor / ".git").exists():
+            candidate = ancestor / ".audit" / "v3-side-upstream"
+            if candidate.is_dir():
+                return candidate
+    return None
+
+
 service = module("patch_v3_service")
 shell = module("patch_v3_unified_shell")
 refresh = module("patch_livecontainer_autorefresh")
@@ -632,8 +645,8 @@ import Foundation
                       host.index("struct V3CatalogApp", host.index("private func confirmRemove(id: String) async"))]
         pairing = host[host.index("private func importFile(_ url: URL) async", host.index("struct V3PairingView")):
                         host.index("final class V3SettingsStore", host.index("struct V3PairingView"))]
-        self.assertIn("status.accept(result)", remove)
-        self.assertIn("status.accept(result)", pairing)
+        self.assertIn("status.finishDirectMutation(ticket: mutationTicket, reply: result)", remove)
+        self.assertIn("status.finishDirectMutation(ticket: mutationTicket!, reply: result)", pairing)
         self.assertNotIn("status.reload()", remove)
         self.assertNotIn("status.reload()", pairing)
 
@@ -1627,18 +1640,14 @@ import Foundation
         self.assertIn("actual != expected", patcher)
 
     def test_generated_developer_portal_proxy_binds_session_and_team_owner(self):
-        source_value = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        source_tree = Path(source_value) if source_value else Path()
-        if not source_value or not source_tree.is_dir():
-            source_tree = ROOT.parents[2] / "v3-side-upstream"
-        if source_tree.is_dir():
-            revision = subprocess.check_output(["git", "-C", str(source_tree), "rev-parse", "HEAD"],
-                                               text=True).strip()
-            self.assertEqual(revision, service.PINS[1])
-            source = subprocess.check_output(["git", "-C", str(source_tree), "show",
-                f"{revision}:SideStore/Core/Auth/DeveloperPortalProxy.swift"], text=True, encoding="utf-8")
-        else:
-            source = (ROOT / "tests/fixtures/v3_developer_portal_proxy_source.swift").read_text(encoding="utf-8")
+        source_tree = pinned_sidestore_source()
+        if source_tree is None:
+            self.skipTest("Pinned SideStore source unavailable")
+        revision = subprocess.check_output(["git", "-C", str(source_tree), "rev-parse", "HEAD"],
+                                           text=True).strip()
+        self.assertEqual(revision, service.PINS[1])
+        source = subprocess.check_output(["git", "-C", str(source_tree), "show",
+            f"{revision}:SideStore/Core/Auth/DeveloperPortalProxy.swift"], text=True, encoding="utf-8")
         generated = service.patch_developer_portal_proxy(source)
         self.assertEqual(generated.count("{"), generated.count("}"),
                          "generated pinned DeveloperPortalProxy must remain brace balanced")
@@ -1867,6 +1876,66 @@ import Foundation
         self.assertNotIn("v3SideStoreStatusSnapshot", host)
         self.assertIn("pending.removeValue", bridge)
         self.assertIn("CombinedFailure.uuidCorrelationMatches(responseID, expectedID: id)", bridge)
+
+    def test_status_reply_freshness_is_bridge_owned_and_pre_dispatch(self):
+        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        request = bridge[bridge.index("public func request(operation:"):
+                        bridge.index("public func disconnected()")]
+        acquisition = bridge[bridge.index("private func acquireStatusLease"):
+                             bridge.index("private func cancelStatusLeaseWaiter")]
+        self.assertLess(request.index("acquireStatusLease(ownerID:"), request.index("try await connect()"))
+        self.assertLess(acquisition.index("reserveMutationRevision()"),
+                        acquisition.index("withTaskCancellationHandler"))
+        self.assertIn("if !wasDispatched, let statusLeaseTicket", request)
+        self.assertIn("completeStatusLease(statusLeaseTicket, outcome: .notDispatched)", request)
+        self.assertLess(request.index("statusDispatchedRequestIDs.insert(id)"),
+                        request.index("client.v3Execute(data)"))
+        self.assertIn("return attachStatusReplyTicket(result, requestID: id)", request)
+        self.assertIn("statusWriteAuthority.retireService()", bridge)
+        complete = bridge[bridge.index("private func completeStatusLease"):
+                          bridge.index("private func observeConnectedStatusService")]
+        self.assertIn("if outcome != .outcomeUnknown || ticket.kind == .snapshot", complete)
+        self.assertIn("replyCanReturn = pending[requestID] != nil", bridge)
+        self.assertIn("resolveUnknownStatusOwner(ownerID)", bridge)
+        self.assertIn(".outcomeUnknown", bridge[bridge.index('if ownerID == "request:\\(requestID)"'):])
+        cancel_ack = bridge[bridge.index("private func cancelRemote"):
+                            bridge.index("private func settle(")]
+        self.assertNotIn("completeStatusLease", cancel_ack,
+                         "a cancel ACK cannot release the original direct-write lease")
+        self.assertNotIn("cancellationRecovery.removeValue", cancel_ack,
+                         "an advisory ACK cannot cancel the original request's retirement timer")
+        self.assertIn("func accept(_ snapshot: [String: Any]) -> Bool", host)
+        self.assertIn("guard V3ServiceBridge.shared.statusReplyMayApply(snapshot)", host)
+        self.assertIn("statusReplyMayApplyRecoveryEvidence(snapshot)", host)
+        self.assertIn("unresolvedOperationRecovery = V3OperationRecoveryRecord", host)
+        self.assertIn("recoveryJournalUnreadable", host)
+        self.assertNotIn("stateReplyRevision", host)
+        self.assertNotIn("V3StatusSnapshotRevisionPolicy", primitives + host)
+        self.assertIn("statusWriteAuthority.hasUnresolvedMutation", bridge)
+        self.assertIn("if kind == .mutation && statusWriteAuthority.hasUnresolvedMutation", bridge)
+        for operation in ("refreshAdmissionBegin", "refreshAdmissionEnd", "refreshAdmissionReconcile"):
+            self.assertIn(f'"{operation}"', bridge[bridge.index("private func operationSessionID"):])
+        self.assertIn('"sidesignReset"', primitives)
+
+    def test_status_authority_write_inventory_matches_wire_and_documents_file_exemptions(self):
+        contract = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        operation_block = contract[contract.index("static let operations"):
+            contract.index("static let readOperations")]
+        direct_writes = ("signOut", "accountImport", "syncAppIDs", "clearCache", "refreshSources", "jit",
+            "certSetActive", "certDelete", "certRevoke", "certCreate", "sourceAddConfirmed",
+            "sourceRemoveConfirmed", "pairingImportData", "settingsSet", "sidesignSet", "sidesignReset",
+            "sidesignImport", "anisetteReset", "anisetteSync", "opRecoveryPrepare",
+            "recoveryDiscardUnreadable")
+        for operation in direct_writes:
+            self.assertIn(f'"{operation}"', operation_block)
+            self.assertIn(f'"{operation}"', primitives[
+                primitives.index("static func directWriteOwnerID"):])
+        for exempt in ("backupResult", "ipaCleanup"):
+            self.assertIn(f'"{exempt}"', operation_block)
+            self.assertIn(exempt, primitives[primitives.index("static func directWriteOwnerID"):])
 
     def test_headless_service_has_no_presentation(self):
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")

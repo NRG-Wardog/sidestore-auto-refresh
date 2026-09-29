@@ -253,7 +253,7 @@ class ReloadOrderingTests(unittest.TestCase):
         perform = text[text.index("private func performSnapshot()"):]
         perform = perform[:perform.index("\n    /// V3_AWAITABLE_RELOAD_V1: the single place a snapshot")]
         # State is accepted before anyone is resumed.
-        self.assertLess(perform.index("accept(try await V3ServiceBridge.shared.request"),
+        self.assertLess(perform.index("accept(reply)"),
                         perform.index("finishSnapshot(outcome: outcome, generation: completedGeneration)"))
         finish = text[text.index("private func finishSnapshot(outcome: V3ReloadOutcome, generation: UInt64)"):]
         finish = finish[:finish.index("\n    /// V3_LOAD_ACTIVITY_OWNERSHIP_V1: the single place a mutation")]
@@ -263,7 +263,7 @@ class ReloadOrderingTests(unittest.TestCase):
         text = shell()
         perform = text[text.index("private func performSnapshot()"):]
         perform = perform[:perform.index("\n    /// V3_AWAITABLE_RELOAD_V1: the single place a snapshot")]
-        self.assertIn("cancelled ? .notObserved : .snapshotFailed", perform)
+        self.assertIn("cancelled || rejectedAsStale", perform)
         self.assertIn("V3SnapshotErrorPolicy.shouldMarkDisconnected(error)", perform)
         self.assertIn("requiresConnectionRetry = true", perform)
         self.assertIn("present(error)", perform)

@@ -24,6 +24,265 @@ enum V3AuthSessionCoalescerKey {
     }
 }
 
+struct V3AsyncRequestOwner: Equatable, Sendable {
+    let generation: UInt64
+    let bindingID: String?
+}
+
+struct V3AsyncRequestOwnerState: Sendable {
+    private(set) var generation: UInt64 = 0
+
+    mutating func begin(bindingID: String? = nil) -> V3AsyncRequestOwner {
+        generation &+= 1
+        return V3AsyncRequestOwner(generation: generation, bindingID: bindingID)
+    }
+
+    mutating func invalidate() {
+        generation &+= 1
+    }
+
+    func owns(_ owner: V3AsyncRequestOwner, bindingID: String? = nil) -> Bool {
+        owner.generation == generation && owner.bindingID == bindingID
+    }
+}
+
+struct V3StatusWriteTicket: Equatable, Sendable {
+    let revision: UInt64
+    let serviceEpoch: UInt64
+    let ownerID: String
+    let serviceInstanceID: String
+    let kind: V3StatusAuthorityLeaseKind
+}
+
+enum V3StatusAuthorityLeaseKind: String, Equatable, Sendable {
+    case snapshot
+    case mutation
+}
+
+struct V3StatusLeaseWaiterOrder: Sendable {
+    private var ids: [String] = []
+
+    mutating func enqueue(_ id: String) {
+        ids.append(id)
+    }
+
+    mutating func remove(_ id: String) {
+        ids.removeAll { $0 == id }
+    }
+
+    mutating func takeNext() -> String? {
+        ids.isEmpty ? nil : ids.removeFirst()
+    }
+
+    var count: Int { ids.count }
+}
+
+enum V3StatusWriteOutcome: Equatable, Sendable {
+    case committed
+    case failed
+    case notDispatched
+    case outcomeUnknown
+}
+
+/// One bridge-owned revision and lease authority for status snapshots and writes.
+/// Cancellation ACKs never complete a lease; only its original callback or
+/// explicit service retirement does.
+struct V3StatusWriteAuthority: Sendable {
+    private(set) var revision: UInt64 = 0
+    private(set) var serviceEpoch: UInt64 = 0
+    private(set) var serviceInstanceID: String?
+    private(set) var activeLease: V3StatusWriteTicket?
+    // Unknown one-shot owners are deliberately not evicted or cleared by a
+    // generic snapshot; operation-specific reconciliation must resolve them.
+    private(set) var unresolvedOwnerIDs: Set<String> = []
+
+    func canBegin(kind: V3StatusAuthorityLeaseKind) -> Bool {
+        activeLease == nil && (kind == .snapshot || !hasUnresolvedMutation)
+    }
+
+    /// A mutation reserves a revision before it can suspend for a lease or XPC.
+    mutating func reserveMutationRevision() -> UInt64 {
+        revision &+= 1
+        return revision
+    }
+
+    mutating func begin(ownerID: String, revision reservedRevision: UInt64,
+                        serviceInstanceID: String,
+                        kind: V3StatusAuthorityLeaseKind) -> V3StatusWriteTicket? {
+        guard canBegin(kind: kind), reservedRevision <= revision else { return nil }
+        let ticket = V3StatusWriteTicket(revision: reservedRevision,
+            serviceEpoch: serviceEpoch, ownerID: ownerID,
+            serviceInstanceID: serviceInstanceID, kind: kind)
+        activeLease = ticket
+        return ticket
+    }
+
+    @discardableResult
+    mutating func complete(_ ticket: V3StatusWriteTicket,
+                           outcome: V3StatusWriteOutcome) -> Bool {
+        guard activeLease == ticket else { return false }
+        activeLease = nil
+        switch outcome {
+        case .outcomeUnknown:
+            if ticket.kind == .mutation { unresolvedOwnerIDs.insert(ticket.ownerID) }
+        case .committed, .failed, .notDispatched:
+            unresolvedOwnerIDs.remove(ticket.ownerID)
+        }
+        return true
+    }
+
+    /// Observing a replacement process advances the epoch. A matching long
+    /// session control may transfer its lease to that process; unrelated work
+    /// cannot take ownership from the original request.
+    mutating func observeServiceInstance(_ instanceID: String,
+                                         continuingOwnerID: String?) -> V3StatusWriteTicket? {
+        if serviceInstanceID != instanceID {
+            serviceEpoch &+= 1
+            serviceInstanceID = instanceID
+        }
+        guard let activeLease, let continuingOwnerID,
+              activeLease.ownerID == continuingOwnerID else {
+            return nil
+        }
+        guard activeLease.serviceEpoch != serviceEpoch ||
+              activeLease.serviceInstanceID != instanceID else { return activeLease }
+        let rebound = V3StatusWriteTicket(revision: activeLease.revision,
+            serviceEpoch: serviceEpoch, ownerID: activeLease.ownerID,
+            serviceInstanceID: instanceID, kind: activeLease.kind)
+        self.activeLease = rebound
+        return rebound
+    }
+
+    /// Explicit process retirement is the only no-callback release path.
+    mutating func retireService() -> V3StatusWriteTicket? {
+        serviceEpoch &+= 1
+        serviceInstanceID = nil
+        guard let retired = activeLease else { return nil }
+        activeLease = nil
+        if retired.kind == .mutation { unresolvedOwnerIDs.insert(retired.ownerID) }
+        return retired
+    }
+
+    func mayApply(_ ticket: V3StatusWriteTicket,
+                  currentServiceEpoch: UInt64,
+                  currentServiceInstanceID: String) -> Bool {
+        activeLease == nil && ticket.revision == revision &&
+            ticket.serviceEpoch == currentServiceEpoch &&
+            ticket.serviceInstanceID == currentServiceInstanceID &&
+            !unresolvedOwnerIDs.contains(ticket.ownerID)
+    }
+
+    @discardableResult
+    mutating func resolveOwnerAfterReconciliation(_ ownerID: String) -> Bool {
+        guard unresolvedOwnerIDs.remove(ownerID) != nil else { return false }
+        revision &+= 1
+        return true
+    }
+
+    var hasActiveWrite: Bool { activeLease?.kind == .mutation }
+    var hasActiveLease: Bool { activeLease != nil }
+    var hasUnresolvedMutation: Bool { !unresolvedOwnerIDs.isEmpty }
+}
+
+enum V3StatusReplyCommitPolicy {
+    static func mayApply(_ ticket: V3StatusWriteTicket,
+                         authority: V3StatusWriteAuthority,
+                         currentServiceEpoch: UInt64,
+                         currentServiceInstanceID: String,
+                         busySnapshot: Bool = false) -> Bool {
+        if ticket.kind == .snapshot && busySnapshot { return false }
+        authority.mayApply(ticket, currentServiceEpoch: currentServiceEpoch,
+            currentServiceInstanceID: currentServiceInstanceID)
+    }
+}
+
+enum V3StatusRecoveryEvidencePolicy {
+    static func mayApply(busySnapshot: Bool, activeMutation: Bool?,
+                         hasDurableRecoveryEvidence: Bool) -> Bool {
+        busySnapshot && activeMutation != true && hasDurableRecoveryEvidence
+    }
+
+    static func hasLegacyEvidence(_ reply: [String: Any]) -> Bool {
+        let operation = reply["operationRecovery"] as? [String: Any]
+        let operationEvidence = operation?["session"] as? String
+        let refresh = reply["refreshRecovery"] as? [String: Any]
+        let refreshRunID = refresh?["runID"] as? String
+        let refreshEvidence = refreshRunID.map { UUID(uuidString: $0)?.uuidString == $0 } == true &&
+            V3OperationReplyFieldPolicy.strictBoolean(refresh?["ownerLost"]) == true
+        let unreadable = V3OperationReplyFieldPolicy.strictBoolean(reply["recoveryJournalUnreadable"]) == true
+        return unreadable || refreshEvidence ||
+            (operationEvidence.map { UUID(uuidString: $0) != nil } == true &&
+             (operation?["kind"] as? String)?.isEmpty == false &&
+             V3OperationRecoveryRecord.Phase(rawValue: operation?["phase"] as? String ?? "") != nil)
+    }
+}
+
+enum V3StatusAuthorityOperationPolicy {
+    static func directWriteOwnerID(operation: String, requestID: String) -> String? {
+        // `backupResult` and `ipaCleanup` only transfer/retire staged files; they
+        // do not change snapshot-owned SideStore state. Recovery journal edits
+        // do change fields in the next authoritative snapshot and are fenced.
+        let writes: Set<String> = [
+            "signOut", "accountImport", "syncAppIDs", "clearCache", "refreshSources", "jit",
+            "certSetActive", "certDelete", "certRevoke", "certCreate",
+            "sourceAddConfirmed", "sourceRemoveConfirmed", "pairingImportData", "settingsSet",
+            "sidesignSet", "sidesignReset", "sidesignImport", "anisetteReset", "anisetteSync",
+            "opRecoveryPrepare", "recoveryDiscardUnreadable"
+        ]
+        return writes.contains(operation) ? "request:\(requestID)" : nil
+    }
+
+    static func longOwnerID(operation: String, sessionID: String?) -> String? {
+        guard let sessionID, !sessionID.isEmpty else { return nil }
+        switch operation {
+        case "authBegin", "authRetryProvisioning": return "auth:\(sessionID)"
+        case "opStart": return "operation:\(sessionID)"
+        case "refreshAdmissionBegin": return "refresh:\(sessionID)"
+        default: return nil
+        }
+    }
+
+    static func controlOwnerID(operation: String, sessionID: String?) -> String? {
+        guard let sessionID, !sessionID.isEmpty else { return nil }
+        switch operation {
+        case "authPoll", "authRespond", "authCancel": return "auth:\(sessionID)"
+        case "opPoll", "opAnswer", "opCancel", "opRecoveryReconcile": return "operation:\(sessionID)"
+        case "refreshAdmissionEnd", "refreshAdmissionReconcile": return "refresh:\(sessionID)"
+        default: return nil
+        }
+    }
+
+    static func terminalOutcome(operation: String, result: [String: Any]) -> V3StatusWriteOutcome? {
+        let payload = result["result"] as? [String: Any] ?? result
+        switch operation {
+        case "authBegin", "authRetryProvisioning", "authPoll", "authRespond", "authCancel":
+            guard let state = payload["state"] as? String,
+                  ["completed", "failed", "cancelled", "timedOut", "promptExpired", "resultUnknown"].contains(state) else {
+                return nil
+            }
+            return state == "resultUnknown" ? .outcomeUnknown : .committed
+        case "opStart", "opPoll", "opAnswer", "opCancel":
+            guard let state = payload["state"] as? String,
+                  ["completed", "failed", "cancelled", "requiresSource", "waitingForAuthentication"].contains(state) else {
+                return nil
+            }
+            let settled = V3OperationReplyFieldPolicy.strictBoolean(payload["backendSettled"]) == true ||
+                V3OperationReplyFieldPolicy.strictBoolean(payload["stopConfirmed"]) == true
+            return settled ? .committed : .outcomeUnknown
+        case "refreshAdmissionBegin", "refreshAdmissionEnd", "refreshAdmissionReconcile":
+            if operation != "refreshAdmissionBegin" &&
+               (V3OperationReplyFieldPolicy.strictBoolean(payload["released"]) == true ||
+                V3OperationReplyFieldPolicy.strictBoolean(payload["reconciled"]) == true) { return .committed }
+            return nil
+        case "opRecoveryReconcile":
+            return V3OperationReplyFieldPolicy.strictBoolean(payload["reconciled"]) == true
+                ? .committed : nil
+        default:
+            return .committed
+        }
+    }
+}
+
 import CoreFoundation
 
 /// The lock protects only this small in-memory stamp state. Callers hold no

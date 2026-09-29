@@ -156,10 +156,259 @@ public final class V3ServiceBridge {
     private let cancellationGrace: TimeInterval
     private var activeMutation: String?
     private var authSessionOwnership = V3AuthSessionOwnership()
+    private var statusWriteAuthority = V3StatusWriteAuthority()
+    private struct StatusLeaseWaiter {
+        let id: String
+        let ownerID: String
+        let revision: UInt64
+        let kind: V3StatusAuthorityLeaseKind
+        let continuation: CheckedContinuation<V3StatusWriteTicket, Error>
+    }
+    private var statusLeaseWaiters: [StatusLeaseWaiter] = []
+    private var statusLeaseWaiterOrder = V3StatusLeaseWaiterOrder()
+    private var statusLeaseByRequestID: [String: V3StatusWriteTicket] = [:]
+    private var statusReplyTicketByRequestID: [String: V3StatusWriteTicket] = [:]
+    private var statusDispatchedRequestIDs: Set<String> = []
     public var isMutating: Bool {
         authSessionOwnership.hasActiveSession() || activeMutation != nil ||
-            !activeOperationSessions.isEmpty || !cancellationRecovery.isEmpty
+        !activeOperationSessions.isEmpty || !cancellationRecovery.isEmpty ||
+            statusWriteAuthority.hasActiveWrite || statusWriteAuthority.hasUnresolvedMutation ||
+            RefreshHandler.shared.v3RefreshToken != nil
     }
+
+    private func anotherHostMutationActiveForRefreshControl(operation: String, target: String) -> Bool {
+        let ownsRefreshRun = ["refreshAdmissionBegin", "refreshAdmissionEnd"].contains(operation) &&
+            RefreshHandler.shared.v3RefreshToken != nil &&
+            RefreshHandler.shared.v3RefreshAdmissionRunID == target
+        let matchingStatusLease = statusWriteAuthority.activeLease?.ownerID == "refresh:\(target)"
+        return authSessionOwnership.hasActiveSession() || activeMutation != nil ||
+            !activeOperationSessions.isEmpty || !cancellationRecovery.isEmpty ||
+            statusWriteAuthority.hasUnresolvedMutation ||
+            (statusWriteAuthority.hasActiveWrite && !matchingStatusLease) ||
+            (RefreshHandler.shared.v3RefreshToken != nil && !ownsRefreshRun)
+    }
+
+    private var currentStatusServiceInstanceID: String {
+        String(RefreshHandler.shared.sideStorePid)
+    }
+
+    private func acquireStatusLease(ownerID: String,
+                                    kind: V3StatusAuthorityLeaseKind) async throws -> V3StatusWriteTicket {
+        try Task.checkCancellation()
+        if kind == .mutation && statusWriteAuthority.hasUnresolvedMutation {
+            throw CombinedFailure(operation: "command", stage: .command, code: .busy,
+                id: ownerID, retryable: false, safeCause: .operationInProgress)
+        }
+        let waiterID = UUID().uuidString
+        let reservedRevision: UInt64
+        if kind == .mutation {
+            reservedRevision = statusWriteAuthority.reserveMutationRevision()
+            NotificationCenter.default.post(name: Notification.Name("V3StatusMutationReserved"), object: nil)
+        } else {
+            reservedRevision = statusWriteAuthority.revision
+        }
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if statusWriteAuthority.canBegin(kind: kind) && statusLeaseWaiterOrder.count == 0,
+                          let ticket = statusWriteAuthority.begin(ownerID: ownerID,
+                            revision: reservedRevision,
+                            serviceInstanceID: currentStatusServiceInstanceID, kind: kind) {
+                    continuation.resume(returning: ticket)
+                } else {
+                    statusLeaseWaiterOrder.enqueue(waiterID)
+                    statusLeaseWaiters.append(StatusLeaseWaiter(id: waiterID,
+                        ownerID: ownerID, revision: reservedRevision,
+                        kind: kind, continuation: continuation))
+                }
+            }
+        }, onCancel: {
+            Task { @MainActor [weak self] in self?.cancelStatusLeaseWaiter(waiterID) }
+        })
+    }
+
+    private func cancelStatusLeaseWaiter(_ waiterID: String) {
+        statusLeaseWaiterOrder.remove(waiterID)
+        guard let index = statusLeaseWaiters.firstIndex(where: { $0.id == waiterID }) else { return }
+        let waiter = statusLeaseWaiters.remove(at: index)
+        waiter.continuation.resume(throwing: CancellationError())
+    }
+
+    private func drainStatusLeaseWaiters() {
+        guard statusWriteAuthority.activeLease == nil else { return }
+        while let waiterID = statusLeaseWaiterOrder.takeNext() {
+            guard let index = statusLeaseWaiters.firstIndex(where: { $0.id == waiterID }) else { continue }
+            let waiter = statusLeaseWaiters.remove(at: index)
+            if waiter.kind == .mutation && statusWriteAuthority.hasUnresolvedMutation {
+                waiter.continuation.resume(throwing: CombinedFailure(operation: "command",
+                    stage: .command, code: .busy, id: waiter.id,
+                    retryable: false, safeCause: .operationInProgress))
+                continue
+            }
+            guard let ticket = statusWriteAuthority.begin(ownerID: waiter.ownerID,
+                revision: waiter.revision,
+                serviceInstanceID: currentStatusServiceInstanceID, kind: waiter.kind) else {
+                waiter.continuation.resume(throwing: CombinedFailure(operation: "command",
+                    stage: .command, code: .interrupted, id: waiter.id, retryable: true))
+                continue
+            }
+            waiter.continuation.resume(returning: ticket)
+            return
+        }
+    }
+
+    private func completeStatusLease(_ ticket: V3StatusWriteTicket,
+                                     outcome: V3StatusWriteOutcome,
+                                     replyRequestID: String? = nil) {
+        guard statusWriteAuthority.complete(ticket, outcome: outcome) else { return }
+        if outcome != .outcomeUnknown || ticket.kind == .snapshot {
+            for requestID in Array(statusLeaseByRequestID.keys) where
+                statusLeaseByRequestID[requestID]?.ownerID == ticket.ownerID {
+                statusLeaseByRequestID.removeValue(forKey: requestID)
+            }
+        }
+        if let replyRequestID { statusReplyTicketByRequestID[replyRequestID] = ticket }
+        drainStatusLeaseWaiters()
+    }
+
+    private func observeConnectedStatusService(ownerID: String?) -> V3StatusWriteTicket? {
+        guard let ticket = statusWriteAuthority.observeServiceInstance(
+            currentStatusServiceInstanceID, continuingOwnerID: ownerID) else { return nil }
+        for requestID in Array(statusLeaseByRequestID.keys) where
+            statusLeaseByRequestID[requestID]?.ownerID == ticket.ownerID {
+            statusLeaseByRequestID[requestID] = ticket
+        }
+        return ticket
+    }
+
+    private func resolveUnknownStatusOwner(_ ownerID: String) {
+        let resolved = statusWriteAuthority.resolveOwnerAfterReconciliation(ownerID)
+        for requestID in Array(statusLeaseByRequestID.keys) where
+            statusLeaseByRequestID[requestID]?.ownerID == ownerID {
+            statusLeaseByRequestID.removeValue(forKey: requestID)
+        }
+        if resolved {
+            NotificationCenter.default.post(name: Notification.Name("V3StatusAuthorityChanged"), object: nil)
+        }
+    }
+
+    private func statusResponse(_ data: Data, requestID: String) -> [String: Any]? {
+        guard data.count <= V3WireContract.responseLimit,
+              let envelope = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              V3WireContract.strictInt(envelope["version"]) == 1,
+              envelope["id"] as? String == requestID else { return nil }
+        return envelope
+    }
+
+    private func observeStatusLeaseResponse(requestID: String, operation: String,
+                                            target: String, payload: [String: Any]?,
+                                            data: Data) {
+        let ticket = statusLeaseByRequestID[requestID]
+        guard let envelope = statusResponse(data, requestID: requestID) else {
+            if let ticket,
+               ticket.kind == .snapshot || ticket.ownerID == "request:\(requestID)" {
+                completeStatusLease(ticket, outcome: .outcomeUnknown)
+            }
+            return
+        }
+        let result = envelope["result"] as? [String: Any] ?? [:]
+        let confirmedNotDispatched = V3WireContract.strictBool(envelope["operationNotDispatched"]) == true
+        let requestedStartSession = operation == "opStart" ? payload?["session"] as? String : nil
+        if !confirmedNotDispatched && !V3OperationSessionCorrelationPolicy.matches(operation: operation, target: target,
+            requestedStartSession: requestedStartSession, resultSession: result["session"] as? String) { return }
+        if !confirmedNotDispatched && ["authBegin", "authRetryProvisioning", "authPoll", "authRespond", "authCancel"].contains(operation),
+           let expectedSession = operationSessionID(operation: operation, target: target, payload: payload),
+           result["session"] as? String != expectedSession { return }
+        let candidateOwner = ticket?.ownerID ??
+            V3StatusAuthorityOperationPolicy.controlOwnerID(
+            operation: operation, sessionID: operationSessionID(operation: operation,
+                target: target, payload: payload))
+        guard let ownerID = ticket?.ownerID ?? candidateOwner else { return }
+        guard let active = statusWriteAuthority.activeLease else {
+            let outcome: V3StatusWriteOutcome?
+            if ownerID == "request:\(requestID)" {
+                outcome = confirmedNotDispatched ? .notDispatched :
+                    (V3WireContract.strictBool(envelope["ok"]) == true ? .committed : .outcomeUnknown)
+            } else {
+                outcome = V3StatusAuthorityOperationPolicy.terminalOutcome(
+                    operation: operation, result: envelope)
+            }
+            if let outcome, outcome != .outcomeUnknown { resolveUnknownStatusOwner(ownerID) }
+            return
+        }
+        guard active.ownerID == ownerID else {
+            if let outcome = V3StatusAuthorityOperationPolicy.terminalOutcome(
+                operation: operation, result: envelope), outcome != .outcomeUnknown {
+                resolveUnknownStatusOwner(ownerID)
+            }
+            return
+        }
+
+        let outcome: V3StatusWriteOutcome?
+        if active.kind == .snapshot {
+            if confirmedNotDispatched { outcome = .notDispatched }
+            else { outcome = V3WireContract.strictBool(envelope["ok"]) == true ? .committed : .failed }
+        } else if active.ownerID == "request:\(requestID)" {
+            if confirmedNotDispatched { outcome = .notDispatched }
+            else { outcome = V3WireContract.strictBool(envelope["ok"]) == true ? .committed : .outcomeUnknown }
+        } else if let ticket, ticket.ownerID == active.ownerID {
+            if confirmedNotDispatched { outcome = .notDispatched }
+            else { outcome = V3StatusAuthorityOperationPolicy.terminalOutcome(
+                operation: operation, result: envelope) }
+        } else if confirmedNotDispatched {
+            return
+        } else {
+            outcome = V3StatusAuthorityOperationPolicy.terminalOutcome(
+                operation: operation, result: envelope)
+        }
+        guard let outcome else { return }
+        let replyCanReturn = pending[requestID] != nil && outcome == .committed
+        completeStatusLease(active, outcome: outcome,
+            replyRequestID: replyCanReturn &&
+                (active.kind == .snapshot || active.ownerID == "request:\(requestID)")
+                ? requestID : nil)
+    }
+
+    private func attachStatusReplyTicket(_ result: [String: Any], requestID: String) -> [String: Any] {
+        guard let ticket = statusReplyTicketByRequestID.removeValue(forKey: requestID) else { return result }
+        var tagged = result
+        tagged["_v3StatusAuthorityTicket"] = ticket
+        return tagged
+    }
+
+    public func statusReplyMayApply(_ reply: [String: Any]) -> Bool {
+        guard let ticket = reply["_v3StatusAuthorityTicket"] as? V3StatusWriteTicket else { return false }
+        let busyValue: Bool?
+        if ticket.kind == .snapshot {
+            guard let typedBusy = V3WireContract.strictBool(reply["busy"]) else { return false }
+            busyValue = typedBusy
+        } else {
+            busyValue = false
+        }
+        return V3StatusReplyCommitPolicy.mayApply(ticket, authority: statusWriteAuthority,
+            currentServiceEpoch: statusWriteAuthority.serviceEpoch,
+            currentServiceInstanceID: currentStatusServiceInstanceID,
+            busySnapshot: busyValue == true)
+    }
+
+    public func statusReplyMayApplyRecoveryEvidence(_ reply: [String: Any]) -> Bool {
+        guard let ticket = reply["_v3StatusAuthorityTicket"] as? V3StatusWriteTicket,
+              ticket.kind == .snapshot,
+              let busy = V3WireContract.strictBool(reply["busy"]), busy else { return false }
+        let hasActiveMutationField = reply.keys.contains("activeMutation")
+        let activeMutation = V3WireContract.strictBool(reply["activeMutation"])
+        guard !hasActiveMutationField || activeMutation != nil,
+              V3StatusRecoveryEvidencePolicy.mayApply(
+                busySnapshot: busy, activeMutation: activeMutation,
+                hasDurableRecoveryEvidence: V3StatusRecoveryEvidencePolicy.hasLegacyEvidence(reply)) else {
+            return false
+        }
+        return V3StatusReplyCommitPolicy.mayApply(ticket, authority: statusWriteAuthority,
+            currentServiceEpoch: statusWriteAuthority.serviceEpoch,
+            currentServiceInstanceID: currentStatusServiceInstanceID)
+    }
+
     public func hasUncertainOperationSession(_ sessionID: String) -> Bool {
         uncertainOperationSessions.contains(sessionID)
     }
@@ -223,6 +472,21 @@ public final class V3ServiceBridge {
         knownOperationSessions.removeValue(forKey: sessionID)
     }
 
+    private func operationSessionID(operation: String, target: String,
+                                    payload: [String: Any]?) -> String? {
+        if operation == "opStart" { return payload?["session"] as? String }
+        if ["opPoll", "opAnswer", "opCancel"].contains(operation) { return target }
+        if ["authBegin", "authRetryProvisioning"].contains(operation) {
+            return payload?["session"] as? String ?? (target.isEmpty ? nil : target)
+        }
+        if ["authPoll", "authRespond", "authCancel",
+            "opRecoveryReconcile", "refreshAdmissionBegin", "refreshAdmissionEnd",
+            "refreshAdmissionReconcile"].contains(operation) {
+            return target
+        }
+        return nil
+    }
+
     public func request(operation: String, target: String = "", cursor: Int? = nil,
                         payload: [String: Any]? = nil, requestDeadline: Date? = nil) async throws -> [String: Any] {
         try Task.checkCancellation()
@@ -234,15 +498,7 @@ public final class V3ServiceBridge {
         // receives the request can still be attributed to the caller's actual
         // operation instead of only to the connection attempt.
         let id = UUID().uuidString
-        let operationSessionID: String? = {
-            if operation == "opStart" { return payload?["session"] as? String }
-            if ["opPoll", "opAnswer", "opCancel"].contains(operation) { return target }
-            if ["authBegin", "authRetryProvisioning"].contains(operation) {
-                return payload?["session"] as? String ?? (target.isEmpty ? nil : target)
-            }
-            if ["authPoll", "authRespond", "authCancel"].contains(operation) { return target }
-            return nil
-        }()
+        let operationSessionID = operationSessionID(operation: operation, target: target, payload: payload)
         let scopedSessionControl = ["opAnswer", "opCancel"].contains(operation) &&
             activeOperationSessions.contains(target)
         let explicitRecoveryConfirmation = operation == "opRecoveryReconcile" &&
@@ -254,27 +510,12 @@ public final class V3ServiceBridge {
             authSessionOwnership.hasActiveSession()
         let mutation = !V3WireContract.readOperations.contains(operation) ||
             ["opAnswer", "opCancel", "authCancel"].contains(operation)
-        do {
-            try await connect()
-        } catch {
-            if ["authBegin", "authRetryProvisioning"].contains(operation) {
-                NotificationCenter.default.post(name: Notification.Name("V3AuthIdentityTransitionFinished"), object: nil)
-            }
-            if error is CancellationError { throw CancellationError() }
-            monitorOperationSessionIfNeeded(operation: operation, sessionID: operationSessionID)
-            let annotated = V3CatalogRequestContext.annotating(error, requestedOperation: operation, requestID: id)
-            if ["authBegin", "authRetryProvisioning"].contains(operation) {
-                let failure = (annotated as? CombinedFailure) ?? CombinedFailure.capture(
-                    annotated, operation: "signIn", stage: .xpcConnection, id: id)
-                throw V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(failure, operation: operation)
-            }
-            throw annotated
-        }
         let scopedRefreshAdmissionControl = V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
             operation: operation, target: target,
             activeRunID: RefreshHandler.shared.v3RefreshAdmissionRunID,
             refreshAttemptActive: RefreshHandler.shared.v3RefreshToken != nil,
-            anotherHostMutationActive: isMutating,
+            anotherHostMutationActive: anotherHostMutationActiveForRefreshControl(
+                operation: operation, target: target),
             userConfirmedReconciliation: V3WireContract.strictBool(payload?["userConfirmed"]) == true)
         if mutation {
             guard scopedSessionControl || explicitRecoveryConfirmation || scopedAuthSessionControl || replacesAuthSession || scopedRefreshAdmissionControl ||
@@ -302,6 +543,60 @@ public final class V3ServiceBridge {
             if !scopedSessionControl && !explicitRecoveryConfirmation && !scopedAuthSessionControl { activeMutation = id }
         }
         defer { if activeMutation == id { activeMutation = nil } }
+        var statusLeaseTicket: V3StatusWriteTicket?
+        let directStatusOwner = V3StatusAuthorityOperationPolicy.directWriteOwnerID(
+            operation: operation, requestID: id)
+        let longStatusOwner = V3StatusAuthorityOperationPolicy.longOwnerID(
+            operation: operation, sessionID: operationSessionID)
+        let statusOwnerID: String?
+        let statusLeaseKind: V3StatusAuthorityLeaseKind?
+        if operation == "snapshot" {
+            statusOwnerID = "snapshot:\(id)"
+            statusLeaseKind = .snapshot
+        } else if let directStatusOwner {
+            statusOwnerID = directStatusOwner
+            statusLeaseKind = .mutation
+        } else if let longStatusOwner {
+            statusOwnerID = longStatusOwner
+            statusLeaseKind = .mutation
+        } else {
+            statusOwnerID = nil
+            statusLeaseKind = nil
+        }
+        if let statusOwnerID, let statusLeaseKind {
+            statusLeaseTicket = try await acquireStatusLease(ownerID: statusOwnerID, kind: statusLeaseKind)
+            statusLeaseByRequestID[id] = statusLeaseTicket
+        }
+        defer {
+            let wasDispatched = statusDispatchedRequestIDs.remove(id) != nil
+            if !wasDispatched, let statusLeaseTicket {
+                completeStatusLease(statusLeaseTicket, outcome: .notDispatched)
+            }
+        }
+        do {
+            try await connect()
+            if let connectedTicket = observeConnectedStatusService(ownerID: statusOwnerID ??
+                V3StatusAuthorityOperationPolicy.controlOwnerID(
+                    operation: operation, sessionID: operationSessionID)) {
+                if statusLeaseTicket?.ownerID == connectedTicket.ownerID {
+                    statusLeaseTicket = connectedTicket
+                    statusLeaseByRequestID[id] = connectedTicket
+                }
+            }
+        } catch {
+            if ["authBegin", "authRetryProvisioning"].contains(operation) {
+                NotificationCenter.default.post(name: Notification.Name("V3AuthIdentityTransitionFinished"), object: nil)
+            }
+            if error is CancellationError { throw CancellationError() }
+            monitorOperationSessionIfNeeded(operation: operation, sessionID: operationSessionID)
+            let annotated = V3CatalogRequestContext.annotating(error, requestedOperation: operation, requestID: id)
+            if ["authBegin", "authRetryProvisioning"].contains(operation) {
+                let failure = (annotated as? CombinedFailure) ?? CombinedFailure.capture(
+                    annotated, operation: "signIn", stage: .xpcConnection, id: id)
+                throw V3AuthAttemptStartFailurePolicy.confirmedNotDispatched(failure, operation: operation)
+            }
+            throw annotated
+        }
         let isBoundedSessionCreation = ["authBegin", "authRetryProvisioning",
             "refreshAdmissionBegin", "refreshAdmissionEnd"].contains(operation)
         let configuredTimeout = (V3WireContract.readOperations.contains(operation) || operation == "opCancel" ||
@@ -357,8 +652,11 @@ public final class V3ServiceBridge {
                    let sessionDeadline = requestPayload["sessionDeadline"] as? Date {
                     authSessionOwnership.register(sessionID: session, deadline: sessionDeadline)
                 }
+                statusDispatchedRequestIDs.insert(id)
                 client.v3Execute(data) { response in
                     Task { @MainActor in
+                        self.observeStatusLeaseResponse(requestID: id, operation: operation,
+                            target: target, payload: requestPayload, data: response)
                         if V3CancellationRecoveryReplyPolicy.mayCancelRetirement(
                             operation: operation, requestStillPending: self.pending[id] != nil) {
                             self.cancellationRecovery.removeValue(forKey: id)?.cancel()
@@ -471,10 +769,23 @@ public final class V3ServiceBridge {
             (result["state"] as? String).map { !["working", "awaitingPrompt"].contains($0) } == true) {
             NotificationCenter.default.post(name: Notification.Name("V3AuthIdentityTransitionFinished"), object: nil)
         }
-        return result
+        return attachStatusReplyTicket(result, requestID: id)
     }
 
     public func disconnected() {
+        if let retired = statusWriteAuthority.retireService() {
+            if retired.kind == .snapshot {
+                for requestID in Array(statusLeaseByRequestID.keys) where
+                    statusLeaseByRequestID[requestID]?.ownerID == retired.ownerID {
+                    statusLeaseByRequestID.removeValue(forKey: requestID)
+                }
+            }
+            for requestID in Array(statusReplyTicketByRequestID.keys) where
+                statusReplyTicketByRequestID[requestID]?.ownerID == retired.ownerID {
+                statusReplyTicketByRequestID.removeValue(forKey: requestID)
+            }
+        }
+        drainStatusLeaseWaiters()
         for task in cancellationRecovery.values { task.cancel() }
         cancellationRecovery.removeAll()
         // Every caller first requests SideStore service retirement. Auth state
@@ -502,7 +813,9 @@ public final class V3ServiceBridge {
                 Task { @MainActor in
                     guard V3RefreshAdmissionCancellationAckPolicy.accepts(response,
                         cancellationID: cancellationID) else { return }
-                    self.cancellationRecovery.removeValue(forKey: requestID)?.cancel()
+                    // ACK confirms only the cancel request. The original
+                    // request's correlated callback or explicit retirement
+                    // owns status-lease completion and timer cancellation.
                 }
             }
         }
