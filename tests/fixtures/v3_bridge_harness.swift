@@ -300,6 +300,7 @@ struct BridgeTests {
         let disconnectBridge = V3ServiceBridge(readTimeout: 5, commandTimeout: 5)
         client.hold = true
         requestBaseline = client.requests.count
+        let disconnectRequestBaseline = requestBaseline
         let mutationDisconnect = Task {
             try await disconnectBridge.request(operation: "settingsSet",
                 payload: ["key": "isCellularRefreshEnabled", "type": "bool", "bool": true])
@@ -312,13 +313,22 @@ struct BridgeTests {
                              operation: "catalog", context: "concurrent disconnect read")
         precondition(client.replies.count >= 2,
                      "both held requests must be awaiting their service replies before disconnect")
+        let disconnectRequests = Array(client.requests.dropFirst(disconnectRequestBaseline))
+        let settingsRequestID = (disconnectRequests.first { $0["operation"] as? String == "settingsSet" }?["id"] as? String)!
+        let catalogRequestID = (disconnectRequests.first { $0["operation"] as? String == "catalog" }?["id"] as? String)!
         disconnectBridge.disconnected()
-        for (task, operation) in [(mutationDisconnect, "settingsSet"), (catalogDisconnect, "catalog")] {
-            do { _ = try await task.value; preconditionFailure("disconnect ignored") }
-            catch let error as CombinedFailure {
-                precondition(error.operation == operation && error.stage == .xpcConnection,
-                    "disconnect expected \(operation)/xpcConnection, got \(error.operation)/\(error.stage)")
-            }
+        do { _ = try await mutationDisconnect.value; preconditionFailure("disconnect ignored settingsSet") }
+        catch let error as CombinedFailure {
+            precondition(error.operation == "command" && error.stage == .xpcConnection &&
+                         error.correlationID == settingsRequestID &&
+                         error.requestContext == "request_operation=settingsSet request_correlation=\(settingsRequestID)",
+                "settingsSet disconnect context lost: operation=\(error.operation) stage=\(error.stage) id=\(error.correlationID) context=\(error.requestContext ?? "-")")
+        }
+        do { _ = try await catalogDisconnect.value; preconditionFailure("disconnect ignored catalog") }
+        catch let error as CombinedFailure {
+            precondition(error.operation == "catalog" && error.stage == .xpcConnection &&
+                         error.correlationID == catalogRequestID,
+                "catalog disconnect context lost: operation=\(error.operation) stage=\(error.stage) id=\(error.correlationID)")
         }
         client.flush()
         let recovery = V3ServiceBridge(readTimeout: 1, commandTimeout: 1, cancellationGrace: 0.02)

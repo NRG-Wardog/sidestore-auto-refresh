@@ -889,7 +889,12 @@ public final class V3ServiceBridge {
         // terminal reply or the explicit device-check reconciliation action.
         uncertainOperationSessions.formUnion(activeOperationSessions)
         for id in Array(pending.keys) {
-            settle(id, .failure(CombinedFailure(operation: pendingOperations[id] ?? "command", stage: .xpcConnection, code: .interrupted, id: id)))
+            let requestedOperation = pendingOperations[id] ?? "command"
+            let failure = CombinedFailure(operation: requestedOperation, stage: .xpcConnection,
+                code: .interrupted, id: id)
+            let contextualFailure = V3CatalogRequestContext.annotating(failure,
+                requestedOperation: requestedOperation, requestID: id)
+            settle(id, .failure(contextualFailure))
         }
     }
 
