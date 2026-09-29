@@ -14,6 +14,7 @@ final class FakeClient {
     var cancellations = 0
     var operations: [String] = []
     var requests: [[String: Any]] = []
+    var boolSettings: [String: Bool] = ["isCellularRefreshEnabled": false]
     func v3Execute(_ data: Data, reply: @escaping (Data) -> Void) {
         guard let request = V3WireContract.decodeRequest(data) else {
             preconditionFailure("bridge dispatched a request rejected by the production wire schema")
@@ -55,6 +56,14 @@ final class FakeClient {
                                          "backendSettled": backendSettled]
             if !omitOutcomeUnknown { result["outcomeUnknown"] = !backendSettled }
             operationResult = result
+        case "settingsSet":
+            guard payload["key"] as? String == "isCellularRefreshEnabled",
+                  payload["type"] as? String == "bool",
+                  let value = V3WireContract.strictBool(payload["bool"]) else {
+                preconditionFailure("fixture settings mutation is outside the production SideStore allowlist")
+            }
+            boolSettings["isCellularRefreshEnabled"] = value
+            operationResult = ["account": "fixture"]
         default:
             operationResult = ["account": "fixture"]
         }
@@ -213,7 +222,7 @@ struct BridgeTests {
         var requestBaseline = client.requests.count
         let cancelled = Task {
             try await bridge.request(operation: "settingsSet",
-                payload: ["key": "fixtureMutation", "type": "bool", "bool": true])
+                payload: ["key": "isCellularRefreshEnabled", "type": "bool", "bool": true])
         }
         await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
                              operation: "settingsSet", context: "cancelled valid mutation late reply")
@@ -240,7 +249,7 @@ struct BridgeTests {
         requestBaseline = client.requests.count
         let mutation = Task {
             try await bridge.request(operation: "settingsSet",
-                payload: ["key": "fixtureMutation", "type": "bool", "bool": true])
+                payload: ["key": "isCellularRefreshEnabled", "type": "bool", "bool": true])
         }
         await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
                              operation: "settingsSet", context: "cancellable valid mutation")
@@ -266,7 +275,7 @@ struct BridgeTests {
         requestBaseline = client.requests.count
         let mutationDisconnect = Task {
             try await bridge.request(operation: "settingsSet",
-                payload: ["key": "fixtureMutation", "type": "bool", "bool": true])
+                payload: ["key": "isCellularRefreshEnabled", "type": "bool", "bool": true])
         }
         await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
                              operation: "settingsSet", context: "disconnect mutation")
