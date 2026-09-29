@@ -60,6 +60,52 @@ struct AutomaticRefreshHistoryEntry: Codable, Identifiable {
     var sourceTitle: String { (source ?? .scheduled).rawValue }
 }
 
+enum AutomaticRefreshFailureCategory: String {
+    case network, cancelled, unknown
+
+    static func classify(_ error: Error) -> AutomaticRefreshFailureCategory {
+        let native = error as NSError
+        guard native.domain == NSURLErrorDomain else { return .unknown }
+        switch native.code {
+        case URLError.Code.timedOut.rawValue,
+             URLError.Code.cannotFindHost.rawValue,
+             URLError.Code.cannotConnectToHost.rawValue,
+             URLError.Code.networkConnectionLost.rawValue,
+             URLError.Code.dnsLookupFailed.rawValue,
+             URLError.Code.notConnectedToInternet.rawValue,
+             URLError.Code.dataNotAllowed.rawValue,
+             URLError.Code.internationalRoamingOff.rawValue:
+            return .network
+        case URLError.Code.cancelled.rawValue:
+            return .cancelled
+        default:
+            return .unknown
+        }
+    }
+
+    var historyMessage: String {
+        switch self {
+        case .network: return "The network connection failed during refresh."
+        case .cancelled: return "The refresh was cancelled."
+        case .unknown: return "The refresh failed; no safe underlying cause was available."
+        }
+    }
+
+    static func safeMessage(_ error: Error, event: AutomaticRefreshEvent) -> String {
+        switch event {
+        case .failed:
+            return classify(error).historyMessage
+        case .scheduleFailed:
+            return "The refresh schedule could not be accepted; no safe underlying cause was available."
+        case .notificationFailed:
+            return "The start alert could not be scheduled; no safe underlying cause was available."
+        default:
+            return "The operation failed; no safe underlying cause was available."
+        }
+    }
+
+}
+
 enum AutomaticRefreshHistory {
     static let key = "automaticRefreshHistory"
     static let changed = Notification.Name("AutomaticRefreshHistoryChanged")
@@ -68,7 +114,50 @@ enum AutomaticRefreshHistory {
     private static func read(_ defaults: UserDefaults) -> [AutomaticRefreshHistoryEntry] {
         guard let data = defaults.data(forKey: key),
               let entries = try? JSONDecoder().decode([AutomaticRefreshHistoryEntry].self, from: data) else { return [] }
-        return Array(entries.prefix(100))
+        let bounded = Array(entries.prefix(100))
+        let sanitized = bounded.map { entry in
+            let detail = safeDetail(entry.event, detail: entry.detail)
+            guard detail != entry.detail else { return entry }
+            return AutomaticRefreshHistoryEntry(id: entry.id, date: entry.date, event: entry.event,
+                runID: entry.runID, detail: detail, eligibleDate: entry.eligibleDate, source: entry.source)
+        }
+        if zip(bounded, sanitized).contains(where: { pair in pair.0.detail != pair.1.detail }),
+           let safeData = try? JSONEncoder().encode(sanitized) {
+            defaults.set(safeData, forKey: key)
+        }
+        return sanitized
+    }
+
+    static func safeDetail(_ event: AutomaticRefreshEvent, detail: String,
+                           failure: Error? = nil) -> String {
+        if let failure { return AutomaticRefreshFailureCategory.safeMessage(failure, event: event) }
+        let fixed: Set<String> = [
+            "No apps selected.", "No completion result received for an app.",
+            "No apps are eligible for refresh.", "Background refresh is disabled.",
+            "iOS ended the background execution window.",
+            "Background task registration failed.", "Refresh schedule submission failed.",
+            "The refresh schedule could not be accepted; no safe underlying cause was available.",
+            "The start alert could not be scheduled; no safe underlying cause was available.",
+            "The refresh failed; no safe underlying cause was available.",
+            "The operation failed; no safe underlying cause was available."
+        ]
+        if fixed.contains(detail) { return detail }
+        let countPatterns = [
+            #"^Refreshing [0-9]{1,4} apps\.$"#,
+            #"^Refreshed [0-9]{1,4} of [0-9]{1,4} apps\.$"#,
+            #"^Apps refreshed: [0-9]{1,6}$"#
+        ]
+        if countPatterns.contains(where: { pattern in
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+            let range = NSRange(detail.startIndex..<detail.endIndex, in: detail)
+            return regex.firstMatch(in: detail, range: range) != nil
+        }) {
+            return detail
+        }
+        if event == .failed || event == .scheduleFailed || event == .notificationFailed {
+            return "The operation failed; no safe underlying cause was available."
+        }
+        return ""
     }
 
     static func load(defaults: UserDefaults = .standard) -> [AutomaticRefreshHistoryEntry] {
@@ -79,7 +168,7 @@ enum AutomaticRefreshHistory {
 
     static func record(_ event: AutomaticRefreshEvent, runID: UUID? = nil, detail: String = "",
                        eligibleDate: Date? = nil, now: Date = Date(), defaults: UserDefaults = .standard,
-                       source: RefreshHistorySource = .scheduled) {
+                       source: RefreshHistorySource = .scheduled, failure: Error? = nil) {
         lock.lock()
         var entries = read(defaults)
         if let runID, event.isTerminal,
@@ -88,7 +177,8 @@ enum AutomaticRefreshHistory {
             return
         }
         entries.insert(AutomaticRefreshHistoryEntry(id: UUID(), date: now, event: event,
-            runID: runID, detail: String(detail.prefix(500)), eligibleDate: eligibleDate, source: source), at: 0)
+            runID: runID, detail: String(safeDetail(event, detail: detail, failure: failure).prefix(500)),
+            eligibleDate: eligibleDate, source: source), at: 0)
         if let data = try? JSONEncoder().encode(Array(entries.prefix(100))) {
             defaults.set(data, forKey: key)
         }
@@ -110,17 +200,19 @@ enum AutomaticRefreshHistory {
             return
         }
         var succeeded = 0
-        var firstError: String?
+        var firstFailure: Error?
+        var hadMissingResult = false
         for identifier in expected {
             switch results[identifier] {
             case .success?: succeeded += 1
-            case .failure(let error)?: firstError = firstError ?? error.localizedDescription
-            case nil: firstError = firstError ?? "No completion result received for an app."
+            case .failure(let error)?: firstFailure = firstFailure ?? error
+            case nil: hadMissingResult = true
             }
         }
         record(succeeded == expected.count ? .completed : .failed, runID: runID,
-               detail: "Refreshed \(succeeded) of \(expected.count) apps." + (firstError.map { " " + $0 } ?? ""),
-               defaults: defaults, source: .manual)
+               detail: "Refreshed \(succeeded) of \(expected.count) apps." +
+                    (hadMissingResult ? " No completion result received for an app." : ""),
+               defaults: defaults, source: .manual, failure: firstFailure)
     }
 }
 
@@ -282,7 +374,7 @@ private struct AutomaticRefreshScheduleView: View
                                 _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
                                 await updateNotificationStatus()
                                 notificationError = nil
-                            } catch { notificationError = error.localizedDescription }
+                            } catch { notificationError = AutomaticRefreshFailureCategory.safeMessage(error, event: .notificationFailed) }
                         }
                     }
                 } else if notificationStatus != .authorized {
@@ -419,16 +511,16 @@ def database_start_block(sidestore: Path) -> str:
                 }
                 catch
                 {
-                    debugLog("[AUTO_REFRESH] DATABASE_START_FAIL error=\(error.localizedDescription)")
-                    state.finish(success: false, detail: error.localizedDescription)
+                    debugLog("[AUTO_REFRESH] DATABASE_START_FAIL failure_category=\(AutomaticRefreshFailureCategory.classify(error).rawValue)")
+                    state.finish(success: false, failure: error)
                 }
             }'''
     if "public func start(completionHandler: @escaping (Error?) -> Void)\n" in database:
         return r'''            DatabaseManager.shared.start { error in
                 if let error
                 {
-                    debugLog("[AUTO_REFRESH] DATABASE_START_FAIL error=\(error.localizedDescription)")
-                    state.finish(success: false, detail: error.localizedDescription)
+                    debugLog("[AUTO_REFRESH] DATABASE_START_FAIL failure_category=\(AutomaticRefreshFailureCategory.classify(error).rawValue)")
+                    state.finish(success: false, failure: error)
                 }
                 else
                 {
@@ -508,7 +600,8 @@ private final class AutomaticRefreshTaskState: @unchecked Sendable
         self.finish(success: false, event: .expired, detail: "iOS ended the background execution window.", cancelOperation: true)
     }
 
-    func finish(success: Bool, event: AutomaticRefreshEvent? = nil, detail: String = "", cancelOperation: Bool = false)
+    func finish(success: Bool, event: AutomaticRefreshEvent? = nil, detail: String = "",
+                failure: Error? = nil, cancelOperation: Bool = false)
     {
         self.lock.lock()
         guard !self.didFinish else
@@ -522,8 +615,10 @@ private final class AutomaticRefreshTaskState: @unchecked Sendable
         self.lock.unlock()
 
         let finalEvent = event ?? (success ? .completed : .failed)
-        debugLog("[AUTO_REFRESH] TASK_COMPLETE success=\(success) event=\(finalEvent.rawValue) detail=\(detail)")
-        AutomaticRefreshHistory.record(finalEvent, runID: self.runID, detail: detail)
+        let safeDetail = AutomaticRefreshHistory.safeDetail(finalEvent, detail: detail, failure: failure)
+        let category = failure.map { AutomaticRefreshFailureCategory.classify($0).rawValue } ?? "none"
+        debugLog("[AUTO_REFRESH] TASK_COMPLETE success=\(success) event=\(finalEvent.rawValue) failure_category=\(category) detail=\(safeDetail)")
+        AutomaticRefreshHistory.record(finalEvent, runID: self.runID, detail: detail, failure: failure)
         if cancelOperation { operation?.cancel() }
         self.task.expirationHandler = nil
         self.task.setTaskCompleted(success: success)
@@ -653,9 +748,9 @@ private final class AutomaticRefreshTaskState: @unchecked Sendable
         }}
         catch
         {{
-            debugLog("[AUTO_REFRESH] SCHEDULE_FAIL error=\\(error.localizedDescription)")
-            AutomaticRefreshHistory.record(.scheduleFailed, detail: error.localizedDescription)
-            return error.localizedDescription
+            debugLog("[AUTO_REFRESH] SCHEDULE_FAIL failure_category=\\(AutomaticRefreshFailureCategory.classify(error).rawValue)")
+            AutomaticRefreshHistory.record(.scheduleFailed, failure: error)
+            return AutomaticRefreshFailureCategory.safeMessage(error, event: .scheduleFailed)
         }}
         #endif
         return nil
@@ -713,7 +808,7 @@ private final class AutomaticRefreshTaskState: @unchecked Sendable
                                             content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request) {{ error in
             if let error {{
-                AutomaticRefreshHistory.record(.notificationFailed, runID: runID, detail: error.localizedDescription)
+                AutomaticRefreshHistory.record(.notificationFailed, runID: runID, failure: error)
             }}
         }}
     }}
@@ -805,7 +900,7 @@ private final class AutomaticRefreshTaskState: @unchecked Sendable
                 ) {{ result in
                     let success: Bool
                     let resultCount: Int
-                    var failureDetail = ""
+                    var failure: Error?
                     switch result
                     {{
                     case .success(let results):
@@ -814,7 +909,7 @@ private final class AutomaticRefreshTaskState: @unchecked Sendable
                             switch nestedResult {{
                             case .success: return true
                             case .failure(let error):
-                                failureDetail = error.localizedDescription
+                                failure = failure ?? error
                                 return false
                             }}
                         }}
@@ -828,22 +923,23 @@ private final class AutomaticRefreshTaskState: @unchecked Sendable
                                     debugLog("[AUTO_REFRESH] SIDESTORE_REFRESH_RESULT result=success")
                                 }}
                             case .failure(let error):
-                                debugLog("[AUTO_REFRESH] REFRESH_RESULT app=\\(bundleIdentifier) result=failure error=\\(error.localizedDescription)")
+                                debugLog("[AUTO_REFRESH] REFRESH_RESULT app=\\(bundleIdentifier) result=failure failure_category=\\(AutomaticRefreshFailureCategory.classify(error).rawValue)")
                                 if bundleIdentifier == StoreApp.altstoreAppID {{
-                                    debugLog("[AUTO_REFRESH] SIDESTORE_REFRESH_RESULT result=failure error=\\(error.localizedDescription)")
+                                    debugLog("[AUTO_REFRESH] SIDESTORE_REFRESH_RESULT result=failure failure_category=\\(AutomaticRefreshFailureCategory.classify(error).rawValue)")
                                 }}
                             }}
                         }}
                     case .failure(let error):
                         resultCount = 0
                         success = false
-                        failureDetail = error.localizedDescription
+                        failure = error
                     }}
 
                 debugLog("[AUTO_REFRESH] REFRESH_COMPLETE success=\\(success) result_count=\\(resultCount)")
                     state.finish(success: success,
                         event: success && resultCount == 0 ? .skipped : nil,
-                        detail: success ? "Apps refreshed: \\(resultCount)" : failureDetail)
+                        detail: success ? "Apps refreshed: \\(resultCount)" : "",
+                        failure: failure)
                 }}
                 state.attach(operation: operation)
                 debugLog("[AUTO_REFRESH] REFRESH_ATTEMPT_STARTED app_count=\\(installedApps.count)")
@@ -853,10 +949,10 @@ private final class AutomaticRefreshTaskState: @unchecked Sendable
                 if includesSideStore {{
                     UserDefaults.standard.removeObject(forKey: AutomaticRefreshSchedule.selfRefreshPendingKey)
                     UserDefaults.standard.removeObject(forKey: AutomaticRefreshSchedule.selfRefreshRunKey)
-                    debugLog("[AUTO_REFRESH] SIDESTORE_REFRESH_RESULT result=not_started error=\\(error.localizedDescription)")
+                    debugLog("[AUTO_REFRESH] SIDESTORE_REFRESH_RESULT result=not_started failure_category=\\(AutomaticRefreshFailureCategory.classify(error).rawValue)")
                 }}
-                debugLog("[AUTO_REFRESH] OPERATION_START_FAIL error=\\(error.localizedDescription)")
-                state.finish(success: false, detail: error.localizedDescription)
+                debugLog("[AUTO_REFRESH] OPERATION_START_FAIL failure_category=\\(AutomaticRefreshFailureCategory.classify(error).rawValue)")
+                state.finish(success: false, failure: error)
             }}
         }}
 
@@ -1171,10 +1267,10 @@ def patch_background_operation(sidestore: Path) -> None:
                     "success": true, "refreshed_date": app.refreshedDate,
                     "expiration_date": app.expirationDate])
             case .failure(let error):
-                let nsError = error as NSError
-                debugLog("[AUTO_REFRESH] REFRESH_FAILED bundle_id=\(bundleIdentifier) stage=refresh error_code=\(nsError.code) error_domain=\(nsError.domain) error=\(error.localizedDescription)")
+                let category = AutomaticRefreshFailureCategory.classify(error).rawValue
+                debugLog("[AUTO_REFRESH] REFRESH_FAILED bundle_id=\(bundleIdentifier) stage=refresh failure_category=\(category)")
                 serialized.append(["bundle_id": bundleIdentifier, "success": false,
-                    "error_code": nsError.code, "error_domain": nsError.domain,
+                    "error_code": (error as NSError).code, "error_domain": (error as NSError).domain,
                     "error": error.localizedDescription])
             }
         }
@@ -1238,7 +1334,7 @@ def patch_manual_refresh(sidestore: Path) -> None:
         section = replace_once(section, "                actualGroup.context.error = error",
 '''                if let runID = manualHistoryRunID {
                     AutomaticRefreshHistory.record(.failed, runID: runID,
-                        detail: error.localizedDescription, source: .manual)
+                        source: .manual, failure: error)
                 }
                 actualGroup.context.error = error''', "manual history failure")
         text = text[:start] + section + text[end:]

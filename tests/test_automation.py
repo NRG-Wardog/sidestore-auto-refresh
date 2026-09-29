@@ -477,8 +477,22 @@ AutomaticRefreshHistory.finishManual(runID: UUID(), expected: ["a", "b"],
     results: ["a": Result<Int, Error>.success(1)], defaults: defaults)
 precondition(AutomaticRefreshHistory.load(defaults: defaults)[0].event == .failed)
 AutomaticRefreshHistory.finishManual(runID: UUID(), expected: ["a", "b"],
-    results: ["a": Result<Int, Error>.success(1), "b": .failure(NSError(domain: "test", code: 1))], defaults: defaults)
+    results: ["a": Result<Int, Error>.success(1), "b": .failure(NSError(domain: "provider.invalid", code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "PROVIDER_SECRET raw server response https://private.invalid/?token=secret"]))], defaults: defaults)
 precondition(AutomaticRefreshHistory.load(defaults: defaults)[0].event == .failed)
+let persisted = String(decoding: defaults.data(forKey: AutomaticRefreshHistory.key)!, as: UTF8.self)
+precondition(!persisted.contains("PROVIDER_SECRET") && !persisted.contains("private.invalid") && !persisted.contains("token=secret"),
+             "provider error text must not be persisted in refresh history")
+precondition(AutomaticRefreshHistory.load(defaults: defaults)[0].detail ==
+             "The operation failed; no safe underlying cause was available.")
+let legacySecret = "LEGACY_PROVIDER_SECRET"
+let legacy = AutomaticRefreshHistoryEntry(id: UUID(), date: Date(), event: .failed,
+    runID: UUID(), detail: legacySecret, eligibleDate: nil, source: .manual)
+defaults.set(try JSONEncoder().encode([legacy]), forKey: AutomaticRefreshHistory.key)
+precondition(AutomaticRefreshHistory.load(defaults: defaults)[0].detail ==
+             "The operation failed; no safe underlying cause was available.")
+let migratedBytes = String(decoding: defaults.data(forKey: AutomaticRefreshHistory.key)!, as: UTF8.self)
+precondition(!migratedBytes.contains(legacySecret), "legacy unsafe history must be scrubbed on read")
 AutomaticRefreshHistory.finishManual(runID: UUID(), expected: [],
     results: [String: Result<Int, Error>](), defaults: defaults)
 precondition(AutomaticRefreshHistory.load(defaults: defaults)[0].event == .skipped)
@@ -618,13 +632,20 @@ final class BGProcessingTask {
     var results: [Bool] = []
     func setTaskCompleted(success: Bool) { results.append(success) }
 }
+final class CapturedLogs {
+    private let lock = NSLock()
+    private var storage = [String]()
+    func append(_ message: String) { lock.lock(); storage.append(message); lock.unlock() }
+    var all: String { lock.lock(); defer { lock.unlock() }; return storage.joined(separator: "\n") }
+}
+let capturedLogs = CapturedLogs()
 final class BackgroundRefreshAppsOperation {
     var cancelled = false
     var onCancel: (() -> Void)?
     func cancel() { cancelled = true; onCancel?() }
 }
 ''' + delegate[start:end] + r'''
-func debugLog(_ message: String) {}
+func debugLog(_ message: String) { capturedLogs.append(message) }
 extension UserDefaults {
     var isBackgroundRefreshEnabled: Bool {
         get { bool(forKey: "historyTestEnabled") }
@@ -665,7 +686,7 @@ defaults.set(Data("corrupt".utf8), forKey: AutomaticRefreshHistory.key)
 precondition(AutomaticRefreshHistory.load(defaults: defaults).isEmpty)
 let runID = UUID()
 AutomaticRefreshHistory.record(.started, runID: runID, detail: String(repeating: "x", count: 700), defaults: defaults)
-precondition(AutomaticRefreshHistory.load(defaults: defaults).first!.detail.count == 500)
+precondition(AutomaticRefreshHistory.load(defaults: defaults).first!.detail.isEmpty)
 AutomaticRefreshHistory.record(.expired, runID: runID, defaults: defaults)
 AutomaticRefreshHistory.record(.completed, runID: runID, defaults: defaults)
 precondition(AutomaticRefreshHistory.load(defaults: defaults).map(\.event) == [.expired, .started])
@@ -705,6 +726,40 @@ precondition(completeState.begin())
 DispatchQueue.concurrentPerform(iterations: 20) { _ in completeState.finish(success: true, detail: "Apps refreshed: 2") }
 precondition(completeTask.results == [true])
 precondition(AutomaticRefreshHistory.load().filter { $0.runID == completeState.runID && $0.event.isTerminal }.count == 1)
+
+// The production terminal logger/history writer must not retain or emit provider text.
+let secret = "PROVIDER_SECRET https://private.invalid/?password=raw"
+let malicious = NSError(domain: "provider.private.invalid", code: 91,
+    userInfo: [NSLocalizedDescriptionKey: secret])
+let failedTask = BGProcessingTask()
+let failedState = AutomaticRefreshTaskState(task: failedTask)
+precondition(failedState.begin())
+failedState.finish(success: false, failure: malicious)
+let historyBytes = UserDefaults.standard.data(forKey: AutomaticRefreshHistory.key)!
+let historyText = String(decoding: historyBytes, as: UTF8.self)
+precondition(!historyText.contains("PROVIDER_SECRET") && !historyText.contains("private.invalid") && !historyText.contains("password=raw"),
+             "provider error text must not be persisted in AutomaticRefreshHistory")
+precondition(AutomaticRefreshHistory.load().first!.detail ==
+             "The refresh failed; no safe underlying cause was available.")
+precondition(!capturedLogs.all.contains("PROVIDER_SECRET") && !capturedLogs.all.contains("private.invalid") &&
+             !capturedLogs.all.contains("password=raw"), "raw provider error text must not enter debug logs")
+precondition(capturedLogs.all.contains("failure_category=unknown"),
+             "the safe error category should remain available in logs")
+
+let networkSecret = "NETWORK_PROVIDER_SECRET"
+let networkFailure = NSError(domain: NSURLErrorDomain, code: URLError.Code.networkConnectionLost.rawValue,
+    userInfo: [NSLocalizedDescriptionKey: networkSecret])
+AutomaticRefreshHistory.record(.failed, failure: networkFailure)
+precondition(AutomaticRefreshHistory.load().first!.detail ==
+             "The network connection failed during refresh.")
+let networkHistory = String(decoding: UserDefaults.standard.data(forKey: AutomaticRefreshHistory.key)!, as: UTF8.self)
+precondition(!networkHistory.contains(networkSecret), "typed safe categories must not preserve localized descriptions")
+AutomaticRefreshHistory.record(.failed, detail: secret)
+let rawDetailHistory = String(decoding: UserDefaults.standard.data(forKey: AutomaticRefreshHistory.key)!, as: UTF8.self)
+precondition(!rawDetailHistory.contains("PROVIDER_SECRET") && !rawDetailHistory.contains("private.invalid"),
+             "arbitrary caller detail must be rejected even when no Error value is supplied")
+precondition(AutomaticRefreshHistory.load().first!.detail ==
+             "The operation failed; no safe underlying cause was available.")
 // Actual handler: disabled launches never alert; real launches request an immediate alert.
 AutomaticRefreshHistory.clear()
 let observer = EventDelegate()
