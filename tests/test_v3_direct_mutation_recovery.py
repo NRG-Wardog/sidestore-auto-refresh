@@ -40,6 +40,16 @@ class V3DirectMutationRecoveryTests(unittest.TestCase):
         self.assertLess(create_parent, write_record)
         self.assertIn(".posixPermissions: 0o700", corrupt_fixture)
 
+    def test_direct_not_dispatched_proof_uses_journal_aware_policy(self):
+        fixture = (ROOT / "tests/fixtures/v3_direct_mutation_recovery_harness.swift").read_text(
+            encoding="utf-8")
+        start = fixture.index("private static func testWireContract")
+        end = fixture.index("\n    private static func recordURL", start)
+        wire_fixture = fixture[start:end]
+        self.assertIn("!V3RequestReplayPolicy.mayClaimNotDispatched(", wire_fixture)
+        self.assertIn("V3DirectMutationPreDispatchReplyPolicy.mayClaimInvalidRequestNotDispatched(",
+                      wire_fixture)
+
     def test_receive_routes_direct_mutations_through_ordered_lifecycle(self):
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         start = service.index("private func receive(_ data: Data")

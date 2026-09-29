@@ -353,8 +353,13 @@ struct DirectMutationRecoveryHarness {
         var userResolution = reconcile
         userResolution["payload"] = ["userConfirmed": true]
         precondition(V3WireContract.encodeRequest(userResolution) != nil)
-        precondition(V3RequestReplayPolicy.mayClaimNotDispatched(
-            operation: "sourceAddConfirmed", identifierCollision: false))
+        precondition(!V3RequestReplayPolicy.mayClaimNotDispatched(
+            operation: "sourceAddConfirmed", identifierCollision: false),
+            "the generic replay policy does not infer direct-mutation dispatch state")
+        precondition(V3DirectMutationPreDispatchReplyPolicy.mayClaimInvalidRequestNotDispatched(
+            operation: "sourceAddConfirmed", requestID: nextRequestID,
+            identifierCollision: false, heldRequestID: nil, journalReadable: true),
+            "direct mutations use the journal-aware pre-dispatch policy")
         precondition(!V3RequestReplayPolicy.mayClaimNotDispatched(
             operation: "sourceAddConfirmed", identifierCollision: true))
         print("V3_DIRECT_MUTATION_WIRE_PASS")
