@@ -36,7 +36,7 @@ func debugLog(_ value: String) {}
       operation: "refresh", stage: .command, id: UUID().uuidString)
   precondition(failure.stage == .command)
   precondition(failure.safeCause == nil)
-  precondition(failure.recovery.contains("Reload authoritative status"))
+  precondition(failure.recovery.contains("Reload the current status"))
   precondition(failure.recovery.contains("copy Diagnostics"))
   precondition(!failure.recovery.localizedCaseInsensitiveContains("reconnect"))
   precondition(!failure.recovery.contains("LocalDevVPN"))
@@ -57,6 +57,15 @@ func debugLog(_ value: String) {}
   precondition(network.stage == .network)
   precondition(network.safeCause == .networkConnectionLost)
   precondition(network.recovery.contains("Reconnect"))
+
+  let coreDevice = CombinedFailure(operation: "refresh", stage: .coreDevice,
+      code: .failed, id: id)
+  precondition(coreDevice.recovery.contains("device connection"))
+  precondition(coreDevice.recovery.contains("LocalDevVPN"))
+  let tunnel = CombinedFailure(operation: "refresh", stage: .cdTunnel,
+      code: .failed, id: id)
+  precondition(tunnel.recovery.contains("device connection"))
+  precondition(tunnel.recovery.contains("LocalDevVPN"))
 
   let encoding = CombinedFailure(operation: "catalog", stage: .replyEncoding,
       code: .invalidResponse, id: id, retryable: false, safeCause: .responseEncodingFailed)
