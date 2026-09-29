@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 44
+PATCH_VERSION = 45
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -1163,8 +1163,26 @@ def headless_app_manager_source_mutations(text):
     return text[:add_at] + replacement + text[fetch_at:]
 
 
+def headless_app_manager_metadata_parser(text):
+    """Share SideStore's existing metadata parser with the v3 input adapter."""
+    private_pattern = re.compile(
+        r"(?m)^(\s*)private static func readAppMetadata\(from url: URL, packageType: PackageType\)")
+    shared_pattern = re.compile(
+        r"(?m)^(\s*)static func readAppMetadata\(from url: URL, packageType: PackageType\)")
+    private_matches = list(private_pattern.finditer(text))
+    shared_matches = list(shared_pattern.finditer(text))
+    if len(private_matches) == 1 and not shared_matches:
+        declaration = private_matches[0].group(0).replace("private static func", "static func", 1)
+        return text[:private_matches[0].start()] + declaration + \
+            text[private_matches[0].end():]
+    if not private_matches and len(shared_matches) == 1:
+        return text
+    raise SystemExit("v3 service: pinned AppManager metadata parser visibility changed")
+
+
 def headless_app_manager(text):
-    return headless_app_manager_ui(headless_app_manager_source_mutations(text))
+    text = headless_app_manager_ui(headless_app_manager_source_mutations(text))
+    return headless_app_manager_metadata_parser(text)
 
 
 def headless_refresh_attempt_error_privacy(text):
