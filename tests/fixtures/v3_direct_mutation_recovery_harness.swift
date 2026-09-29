@@ -15,6 +15,7 @@ struct DirectMutationRecoveryHarness {
     static let requestID = "10000000-0000-4000-8000-000000000001"
     static let oldInstance = "20000000-0000-4000-8000-000000000002"
     static let newInstance = "30000000-0000-4000-8000-000000000003"
+    static let nextRequestID = "b0000000-0000-4000-8000-00000000000b"
     static let secretURL = "https://user:pass@example.invalid/repo.json?token=opaque"
 
     static func main() throws {
@@ -46,6 +47,33 @@ struct DirectMutationRecoveryHarness {
         let unknown = try V3OperationRecoveryJournal.markDirectUnknownIfOwnerLost(
             requestID: requestID, currentServiceInstanceID: newInstance, containerRoot: root)
         precondition(unknown?.phase == .unknown, "dispatched work becomes unknown under a new service instance")
+        let nextRequest: [String: Any] = ["id": nextRequestID, "operation": "settingsSet", "target": "",
+            "payload": ["key": "isCellularRefreshEnabled", "type": "bool", "bool": true]]
+        try expect(!(try V3OperationRecoveryJournal.reserveDirect(request: nextRequest,
+            requestID: nextRequestID, serviceInstanceID: newInstance, containerRoot: root)),
+            "cold-relaunch hold rejects a new eligible mutation before dispatch")
+        var rejected: [String: Any] = ["id": nextRequestID, "version": 1, "error": "busy"]
+        try expect(V3DirectMutationPreDispatchReplyPolicy.annotate(request: nextRequest,
+            heldRequestID: requestID, response: &rejected))
+        try expect(rejected["operationNotDispatched"] as? Bool == true &&
+            rejected["id"] as? String == nextRequestID,
+            "busy rejection is correlated and proves the new request did not dispatch")
+        try expect(V3DirectMutationPreDispatchReplyPolicy.mayClaimInvalidRequestNotDispatched(
+            operation: "settingsSet", requestID: nextRequestID, identifierCollision: false,
+            heldRequestID: requestID, journalReadable: true))
+        try expect(!V3DirectMutationPreDispatchReplyPolicy.mayClaimInvalidRequestNotDispatched(
+            operation: "settingsSet", requestID: requestID, identifierCollision: false,
+            heldRequestID: requestID, journalReadable: true))
+        try expect(!V3DirectMutationPreDispatchReplyPolicy.mayClaimInvalidRequestNotDispatched(
+            operation: "settingsSet", requestID: nextRequestID, identifierCollision: false,
+            heldRequestID: nil, journalReadable: false))
+        var originalReplay: [String: Any] = ["id": requestID, "version": 1, "error": "busy"]
+        var originalRequest = nextRequest
+        originalRequest["id"] = requestID
+        try expect(!V3DirectMutationPreDispatchReplyPolicy.annotate(request: originalRequest,
+            heldRequestID: requestID, response: &originalReplay),
+            "the unresolved original cannot be mislabeled not-dispatched")
+        try expect(originalReplay["operationNotDispatched"] == nil)
         try expect(!(try V3OperationRecoveryJournal.reconcileDirect(requestID: requestID,
             allowUnknownDeviceCheck: false, containerRoot: root)))
         try expect(try V3OperationRecoveryJournal.settleDirect(requestID: requestID,
@@ -220,6 +248,10 @@ struct DirectMutationRecoveryHarness {
         var userResolution = reconcile
         userResolution["payload"] = ["userConfirmed": true]
         precondition(V3WireContract.encodeRequest(userResolution) != nil)
+        precondition(V3RequestReplayPolicy.mayClaimNotDispatched(
+            operation: "sourceAddConfirmed", identifierCollision: false))
+        precondition(!V3RequestReplayPolicy.mayClaimNotDispatched(
+            operation: "sourceAddConfirmed", identifierCollision: true))
         print("V3_DIRECT_MUTATION_WIRE_PASS")
     }
 

@@ -202,6 +202,32 @@ private struct V3DirectMutationRecoveryRecord {
     }
 }
 
+private enum V3DirectMutationPreDispatchReplyPolicy {
+    static func mayClaimInvalidRequestNotDispatched(operation: String, requestID: String?,
+                                                     identifierCollision: Bool,
+                                                     heldRequestID: String?,
+                                                     journalReadable: Bool) -> Bool {
+        if V3RequestReplayPolicy.mayClaimNotDispatched(operation: operation,
+            identifierCollision: identifierCollision) { return true }
+        return !identifierCollision && journalReadable &&
+            V3DirectMutationRecoveryRecord.allowedOperations.contains(operation) &&
+            requestID != nil && requestID != heldRequestID
+    }
+
+    // This helper is only used on receive() exits before beginDirectDispatch.
+    // The held request ID guard prevents confusing a replay of the unresolved
+    // original with a new request that was rejected by the recovery hold.
+    static func annotate(request: [String: Any], heldRequestID: String? = nil,
+                         response: inout [String: Any]) -> Bool {
+        guard V3DirectMutationRecoveryRecord.isEligible(request),
+              let requestID = request["id"] as? String,
+              response["id"] as? String == requestID,
+              requestID != heldRequestID else { return false }
+        response["operationNotDispatched"] = true
+        return true
+    }
+}
+
 private enum V3ServiceRecoveryFileRecord {
     case operation(V3OperationRecoveryRecord)
     case directMutation(V3DirectMutationRecoveryRecord)
@@ -758,8 +784,10 @@ final class V3SideStoreService: NSObject {
         if mutation, directRecoveryRecord != nil, !directRecoveryControl {
             let failure = CombinedFailure(operation: operation, stage: .command, code: .busy,
                 id: id, retryable: false, safeCause: .operationInProgress)
-            reply(encode(["version": 1, "id": id, "error": "busy", "failure": failure.wire],
-                operation: operation))
+            var response: [String: Any] = ["version": 1, "id": id, "error": "busy", "failure": failure.wire]
+            _ = V3DirectMutationPreDispatchReplyPolicy.annotate(request: request,
+                heldRequestID: directRecoveryRecord?.requestID, response: &response)
+            reply(encode(response, operation: operation))
             return
         }
         let refreshRelease = recoveryDecision.refreshRelease
@@ -806,6 +834,8 @@ final class V3SideStoreService: NSObject {
             if ["opStart", "authBegin", "authRetryProvisioning"].contains(operation) {
                 response["operationNotDispatched"] = true
             }
+            _ = V3DirectMutationPreDispatchReplyPolicy.annotate(request: request,
+                heldRequestID: directRecoveryRecord?.requestID, response: &response)
             clearPreparedOperationRecoveryIfProven(request: request, reply: response)
             reply(encode(response, operation: operation))
             return
@@ -829,8 +859,11 @@ final class V3SideStoreService: NSObject {
             } catch {
                 let failure = CombinedFailure(operation: operation, stage: .command, code: .busy,
                     id: id, retryable: false, safeCause: .operationInProgress)
-                reply(encode(["version": 1, "id": id, "error": "busy", "failure": failure.wire],
-                    operation: operation))
+                var response: [String: Any] = ["version": 1, "id": id, "error": "busy", "failure": failure.wire]
+                let heldRequestID = (try? V3OperationRecoveryJournal.direct())?.requestID
+                _ = V3DirectMutationPreDispatchReplyPolicy.annotate(request: request,
+                    heldRequestID: heldRequestID, response: &response)
+                reply(encode(response, operation: operation))
                 return
             }
         }
@@ -1090,8 +1123,19 @@ final class V3SideStoreService: NSObject {
         var response: [String: Any] = ["version": 1, "id": id, "error": "invalidRequest",
                 "failure": CombinedFailure(operation: operation, stage: .command,
                     code: .invalidConfiguration, id: id).wire]
-        if V3RequestReplayPolicy.mayClaimNotDispatched(
-            operation: operation, identifierCollision: identifierCollision) {
+        let directRequest = V3DirectMutationRecoveryRecord.allowedOperations.contains(operation)
+        var directJournalReadable = true
+        let heldDirectRequestID: String?
+        if directRequest {
+            do { heldDirectRequestID = try V3OperationRecoveryJournal.direct()?.requestID }
+            catch { heldDirectRequestID = nil; directJournalReadable = false }
+        } else {
+            heldDirectRequestID = nil
+        }
+        if V3DirectMutationPreDispatchReplyPolicy.mayClaimInvalidRequestNotDispatched(
+            operation: operation, requestID: identity.id,
+            identifierCollision: identifierCollision, heldRequestID: heldDirectRequestID,
+            journalReadable: directJournalReadable) {
             response["operationNotDispatched"] = true
         }
         return response
