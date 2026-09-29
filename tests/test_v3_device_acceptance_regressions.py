@@ -56,7 +56,7 @@ class DeviceAcceptanceBehaviorTests(unittest.TestCase):
         self.assertIn("V3InstallPipelineParity.makeOperation(route: route, app)", shared)
         self.assertIn("AppOperation.install($0)", shared)
         self.assertEqual(shared.count("operation: built.operation"), 1)
-        resolver = runtime[runtime.index("private func resolveInstallTarget"):runtime.index("static func readAppMetadata")]
+        resolver = runtime[runtime.index("private func resolveInstallTarget"):runtime.index("struct V3RequiresSourceError")]
         self.assertIn("V3IPAStaging.inspect(token: token", resolver)
         self.assertIn("return try await ipaTarget(url: url, scoped: false, sessionID: id)", resolver)
         self.assertIn("return .app(AnyApp", resolver)

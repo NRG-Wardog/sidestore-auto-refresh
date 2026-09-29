@@ -2165,7 +2165,7 @@ final class V3OperationCenter {
                 throw CombinedIPAFileError(.fileAccess)
             }
             let metadata = try V3IPAStaging.inspect(token: token, containerRoot: root) { url in
-                try Self.readAppMetadata(from: url, packageType: .ipa)
+                try AppManager.readAppMetadata(from: url, packageType: .ipa)
             }
             let file = try V3IPAStaging.resolve(token: token, containerRoot: root)
             return .app(AnyApp(name: metadata.name, bundleIdentifier: metadata.bundleIdentifier,
@@ -2213,7 +2213,7 @@ final class V3OperationCenter {
         if scoped, localURL.startAccessingSecurityScopedResource() { scopedURL = localURL }
         let packageType = PackageType(url: localURL) ?? .ipa
         let (bundleIdentifier, appName): (String, String)
-        do { (bundleIdentifier, appName) = try Self.readAppMetadata(from: localURL, packageType: packageType) }
+        do { (bundleIdentifier, appName) = try AppManager.readAppMetadata(from: localURL, packageType: packageType) }
         catch { throw CombinedIPAFileError(.invalidPackage) }
         guard sessions[sessionID]?.terminal.isEmpty == true,
               sessions[sessionID]?.terminal.isCancellationRequested != true else {
@@ -2223,40 +2223,6 @@ final class V3OperationCenter {
         return .app(AnyApp(name: appName, bundleIdentifier: bundleIdentifier, url: localURL, storeApp: nil))
     }
 
-    static func readAppMetadata(from url: URL, packageType: PackageType) throws -> (bundleIdentifier: String, name: String) {
-        switch packageType {
-        case .ipa:
-            let reader = try Archive.Reader.open(at: url)
-            try reader.goToFirstFile()
-            var plistData: Data?
-            repeat {
-                let filename = try reader.currentFilename()
-                let components = filename.components(separatedBy: "/")
-                if components.count == 3 && components[0] == "Payload" && components[1].hasSuffix(".app") && components[2] == "Info.plist" {
-                    plistData = try reader.readCurrentFile()
-                    break
-                }
-            } while reader.goToNextFile()
-            guard let data = plistData,
-                  let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-                  let bundleIdentifier = (plist["CFBundleIdentifier"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !bundleIdentifier.isEmpty else {
-                throw OperationError.invalidApp(reason: "Archive missing valid Payload/*.app/Info.plist")
-            }
-            let appName = (plist["CFBundleDisplayName"] as? String) ?? (plist["CFBundleName"] as? String) ?? url.deletingPathExtension().lastPathComponent
-            return (bundleIdentifier, appName)
-        case .app:
-            let plistURL = url.appendingPathComponent("Info.plist")
-            let data = try Data(contentsOf: plistURL)
-            guard let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-                  let bundleIdentifier = (plist["CFBundleIdentifier"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !bundleIdentifier.isEmpty else {
-                throw OperationError.invalidApp(reason: "Invalid Info.plist in app directory")
-            }
-            let appName = (plist["CFBundleDisplayName"] as? String) ?? (plist["CFBundleName"] as? String) ?? url.lastPathComponent
-            return (bundleIdentifier, appName)
-        }
-    }
 }
 
 struct V3RequiresSourceError: Error {
