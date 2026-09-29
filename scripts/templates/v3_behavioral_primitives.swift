@@ -1927,6 +1927,8 @@ enum V3RefreshAllFailureDiagnostics {
         }
         guard let failure else { return nil }
         let retryable = failure.retryable.map { $0 ? "true" : "false" } ?? "unknown"
+        let underlying = CombinedFailure.safeDiagnosticUnderlying(domain: failure.underlyingDomain,
+                                                                    code: failure.underlyingCode)
         return [
             "schema=1",
             "request_id=\(requestID)",
@@ -1948,8 +1950,8 @@ enum V3RefreshAllFailureDiagnostics {
             "stage=\(failure.stage.rawValue)",
             "code=\(failure.code.rawValue)",
             "correlation=\(failure.correlationID)",
-            "underlying_domain=\(failure.underlyingDomain)",
-            "underlying_code=\(failure.underlyingCode)",
+            "underlying_domain=\(underlying.domain)",
+            "underlying_code=\(underlying.code)",
             "retryable=\(retryable)",
             "safe_cause=\(failure.safeCause?.rawValue ?? "unknown")",
             "source_step=\(failure.sourceStep?.rawValue ?? "unknown")",

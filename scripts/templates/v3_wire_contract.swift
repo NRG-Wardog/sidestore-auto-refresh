@@ -490,24 +490,28 @@ enum V3ServiceReadinessReply: Equatable {
     case failed(V3ServiceReadinessFailure)
     case ready
 
-    // Keep the shared structured-failure vocabulary aligned. The generated
-    // source harness compares these sets so a new typed cause cannot silently
-    // disappear at this boundary.
+    // This source fragment is compiled independently in both processes, so
+    // its allowlist intentionally has no dependency on the typed failure model. The
+    // executable vocabulary-parity harness verifies every typed cause and
+    // source step is accepted here while unknown values remain rejected.
     static let knownSafeCauseValues: Set<String> = [
         "networkConnectionLost", "networkTimedOut", "networkUnavailable",
+        "anisetteServerUnavailable", "anisetteServerRejected", "anisetteRequestTimedOut",
+        "anisetteRateLimited", "anisetteInvalidResponse", "anisetteUnknownFailure",
         "signingNetworkConnectionLost", "signingNetworkTimedOut", "signingNetworkUnavailable",
         "developerPortalRejectedRequest", "developerPortalInvalidResponse",
         "provisioningProfileUnavailable", "certificateUnavailable", "wifiUnavailable",
         "localDevVPNUnavailable", "unknownSigningCause", "sourceNetworkFailure",
         "sourceInvalidManifest", "sourcePersistenceUnverified", "sourceInvalidURL",
         "sourceBlocked", "sourceChangedID", "sourceDuplicate", "sourceUnsupported",
-        "sourceValidationFailed",
-        "sourceRemoveFailed", "sourceRemoveBusy", "sourceAddBusy", "operationInProgress",
-        "responseCapacityUnavailable", "staleRefreshAttempt", "knownSourcePolicyNetworkFailure",
-        "knownSourcePolicyInvalidResponse", "catalogUnavailable", "catalogSourceUnavailable",
-        "responseEncodingFailed", "responseTooLarge", "pairingRequired", "invalidPairingFile",
-        "pairingFilePreparationFailed", "authAttemptNotDispatched", "authProvisioningRetryNotDispatched",
-        "authSessionUnavailable", "authResponseCapacityUnavailable", "keychainSignOutFailed",
+        "sourceValidationFailed", "sourceRemoveFailed", "sourceRemoveBusy", "sourceAddBusy",
+        "operationInProgress", "responseCapacityUnavailable", "staleRefreshAttempt",
+        "knownSourcePolicyNetworkFailure", "knownSourcePolicyInvalidResponse",
+        "catalogUnavailable", "catalogSourceUnavailable", "responseEncodingFailed",
+        "responseTooLarge", "pairingRequired", "invalidPairingFile",
+        "pairingFilePreparationFailed", "authAttemptNotDispatched",
+        "authProvisioningRetryNotDispatched", "authSessionUnavailable",
+        "authResponseCapacityUnavailable", "keychainSignOutFailed",
         "keychainSignOutOutcomeUnknown"
     ]
     static let knownSourceStepValues: Set<String> = [
