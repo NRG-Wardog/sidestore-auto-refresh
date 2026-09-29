@@ -566,6 +566,29 @@ struct SetupAndSemanticUXHarness {
         // V3_AUTH_READINESS_REFRESH_EVENT_V1: the root observer outlives each
         // Sign In presentation and consumes an event after that view disappears.
         let hostReadinessObserver = V3AuthReadinessHostObserverProbe()
+        func parsedReadinessSequence(_ value: Any) -> UInt64? {
+            let notification = Notification(name: V3AuthReadinessRefreshEvent.notificationName,
+                object: nil, userInfo: [V3AuthReadinessRefreshEvent.attemptSequenceKey: value])
+            return V3AuthReadinessRefreshEvent.attemptSequence(from: notification)
+        }
+        precondition(parsedReadinessSequence(NSNumber(value: UInt64(0))) == 0,
+                     "zero is parsed exactly, then rejected by the event ledger")
+        precondition(parsedReadinessSequence(NSNumber(value: UInt64(7))) == 7,
+                     "positive integer attempt sequences parse exactly")
+        precondition(parsedReadinessSequence(NSNumber(value: UInt64.max)) == UInt64.max,
+                     "the UInt64 maximum parses without wrapping")
+        precondition(parsedReadinessSequence(NSNumber(value: -1)) == nil,
+                     "negative NSNumber values cannot poison the high-water ledger")
+        precondition(parsedReadinessSequence(NSNumber(value: 1.5)) == nil,
+                     "fractional floating-point sequences are rejected")
+        precondition(parsedReadinessSequence(NSNumber(value: true)) == nil,
+                     "CFBoolean is not accepted as an integer sequence")
+        precondition(parsedReadinessSequence(NSDecimalNumber(string: "7")) == nil,
+                     "Decimal NSNumber encodings are rejected even when integral")
+        precondition(parsedReadinessSequence(NSDecimalNumber(string: "18446744073709551616")) == nil,
+                     "an overflowing Decimal cannot wrap to a valid sequence")
+        precondition(parsedReadinessSequence("malformed") == nil,
+                     "non-numeric payloads are rejected")
         let observerToken = NotificationCenter.default.addObserver(
             forName: V3AuthReadinessRefreshEvent.notificationName,
             object: nil, queue: nil) { hostReadinessObserver.receive($0) }

@@ -113,6 +113,12 @@ class V3HostStateTests(unittest.TestCase):
         self.assertIn("mutating func begin(sessionID: String)", shell)
         self.assertIn("private(set) var highestConsumedAttemptSequence: UInt64 = 0", shell)
         self.assertIn("attemptSequence > highestConsumedAttemptSequence", shell)
+        sequence_parser = shell[shell.index("static func attemptSequence(from notification: Notification) -> UInt64?"):]
+        sequence_parser = sequence_parser[:sequence_parser.index("\n    }")]
+        self.assertIn("CFGetTypeID(number) != CFBooleanGetTypeID()", sequence_parser)
+        self.assertIn("number.objCType", sequence_parser)
+        self.assertIn("UInt64(number.stringValue)", sequence_parser)
+        self.assertNotIn("number.uint64Value", sequence_parser)
         self.assertIn("mutating func release(sessionID: String)", shell)
         self.assertIn("mutating func settle(currentSessionID: String?, replySessionID: String?", shell)
         self.assertIn('let committedBeforeCancel = cancellationInProgress && replyState == "completed"', shell)

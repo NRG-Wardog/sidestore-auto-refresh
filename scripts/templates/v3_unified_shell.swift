@@ -55,8 +55,13 @@ enum V3AuthReadinessRefreshEvent {
     static func attemptSequence(from notification: Notification) -> UInt64? {
         guard let number = notification.userInfo?[attemptSequenceKey] as? NSNumber,
               CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
-        let sequence = number.uint64Value
-        return sequence > 0 ? sequence : nil
+        // NSNumber.uint64Value wraps negatives and truncates floating-point
+        // inputs. Accept only Objective-C integer encodings, then parse their
+        // exact decimal representation so overflow and negative values fail.
+        let type = String(cString: number.objCType)
+        guard ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(type),
+              let sequence = UInt64(number.stringValue) else { return nil }
+        return sequence
     }
 }
 
