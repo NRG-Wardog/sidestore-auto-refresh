@@ -491,7 +491,7 @@ struct V3DeviceAcceptanceRegressionsHarness {
             requestID: homeRequest, runID: homeRun, record: failed)!
         for field in ["request_id=\(homeRequest)", "run_id=\(homeRun)", "operation=refresh",
                       "stage=signing", "code=failed", "source_step=provisioningProfileFetch",
-                      "correlation=\(homeRun)", "underlying_domain=redacted", "underlying_code=-1005",
+                      "correlation=\(homeRun)", "underlying_domain=redacted", "underlying_code=unknown",
                       "retryable=true", "safe_cause=signingNetworkConnectionLost",
                       "network_preflight=passed", "active_run_id=none", "health=REFRESH_FAILED",
                       "terminal_ledger_state=failed", "origin=home",

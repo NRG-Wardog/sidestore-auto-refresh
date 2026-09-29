@@ -316,7 +316,7 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         event_marker = shell.index("// V3_AUTH_READINESS_REFRESH_EVENT_V1")
-        event_start = shell.rfind("\n", 0, event_marker) + 1
+        event_start = shell.rfind("private final class V3AuthReadinessSequenceStorage:", 0, event_marker)
         event_end = shell.index("\nextension LCAppModel", event_marker)
         readiness_event_contract = shell[event_start:event_end]
         retry_policy_marker = shell.index("enum V3ProvisioningRetryReadinessPolicy")

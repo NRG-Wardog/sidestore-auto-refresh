@@ -92,7 +92,7 @@ class AutomationTests(unittest.TestCase):
 '''
                 pending = "CheckedContinuation<Void, Never>" if modern else "(() -> Void)"
                 release = "pending?.resume()" if modern else "pending?()"
-                harness = r'''
+                harness = automation.SCHEDULE_MODEL + r'''
 import Foundation
 enum StartupError: Error { case failed }
 func debugLog(_ message: String) {}
@@ -534,12 +534,14 @@ precondition(AutomaticRefreshHistory.load(defaults: defaults)[0].event == .faile
 let persisted = String(decoding: defaults.data(forKey: AutomaticRefreshHistory.key)!, as: UTF8.self)
 precondition(!persisted.contains("PROVIDER_SECRET") && !persisted.contains("private.invalid") && !persisted.contains("token=secret"),
              "provider error text must not be persisted in refresh history")
-precondition(!AutomaticRefreshHistory.load(defaults: defaults)[0].detail.isEmpty)
+precondition(AutomaticRefreshHistory.load(defaults: defaults)[0].detail ==
+             AutomaticRefreshFailureCategory.unknown.historyMessage)
 let legacySecret = "LEGACY_PROVIDER_SECRET"
 let legacy = AutomaticRefreshHistoryEntry(id: UUID(), date: Date(), event: .failed,
     runID: UUID(), detail: legacySecret, eligibleDate: nil, source: .manual)
 defaults.set(try JSONEncoder().encode([legacy]), forKey: AutomaticRefreshHistory.key)
-precondition(!AutomaticRefreshHistory.load(defaults: defaults)[0].detail.isEmpty &&
+precondition(AutomaticRefreshHistory.load(defaults: defaults)[0].detail ==
+             "The operation failed; no safe underlying cause was available." &&
              !AutomaticRefreshHistory.load(defaults: defaults)[0].detail.contains(legacySecret))
 let migratedBytes = String(decoding: defaults.data(forKey: AutomaticRefreshHistory.key)!, as: UTF8.self)
 precondition(!migratedBytes.contains(legacySecret), "legacy unsafe history must be scrubbed on read")
@@ -754,7 +756,7 @@ precondition(AutomaticRefreshHistory.load(defaults: defaults).isEmpty)
 // Expiration must win over synchronous cancellation completion.
 AutomaticRefreshHistory.clear()
 let task = BGProcessingTask()
-let state = AutomaticRefreshTaskState(task: task)
+private let state = AutomaticRefreshTaskState(task: task)
 precondition(state.begin())
 precondition(!state.begin())
 let operation = BackgroundRefreshAppsOperation()
@@ -771,7 +773,7 @@ let late = BackgroundRefreshAppsOperation()
 state.attach(operation: late)
 precondition(late.cancelled)
 let completeTask = BGProcessingTask()
-let completeState = AutomaticRefreshTaskState(task: completeTask)
+private let completeState = AutomaticRefreshTaskState(task: completeTask)
 precondition(completeState.begin())
 DispatchQueue.concurrentPerform(iterations: 20) { _ in completeState.finish(success: true, detail: "Apps refreshed: 2") }
 precondition(completeTask.results == [true])
@@ -789,7 +791,8 @@ let historyBytes = UserDefaults.standard.data(forKey: AutomaticRefreshHistory.ke
 let historyText = String(decoding: historyBytes, as: UTF8.self)
 precondition(!historyText.contains("PROVIDER_SECRET") && !historyText.contains("private.invalid") && !historyText.contains("password=raw"),
              "provider error text must not be persisted in AutomaticRefreshHistory")
-precondition(!AutomaticRefreshHistory.load().first!.detail.isEmpty &&
+precondition(AutomaticRefreshHistory.load().first!.detail ==
+             AutomaticRefreshFailureCategory.unknown.historyMessage &&
              !AutomaticRefreshHistory.load().first!.detail.contains("PROVIDER_SECRET"))
 precondition(!capturedLogs.all.contains("PROVIDER_SECRET") && !capturedLogs.all.contains("private.invalid") &&
              !capturedLogs.all.contains("password=raw"), "raw provider error text must not enter debug logs")

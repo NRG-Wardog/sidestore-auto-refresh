@@ -16,7 +16,10 @@ struct MalformedStructuredFailureHarness {
         let rangeFailureWire: [String: Any] = ["version": 1, "operation": "refresh",
             "stage": "command", "code": "failed", "correlationID": id,
             "underlyingDomain": "redacted", "underlyingCode": largestSigned]
-        precondition(CombinedFailure.decode(rangeFailureWire, expectedID: id)?.underlyingCode == Int.max)
+        let decodedRangeFailure = CombinedFailure.decode(rangeFailureWire, expectedID: id)
+        precondition(decodedRangeFailure?.underlyingDomain == "redacted" &&
+                     decodedRangeFailure?.underlyingCode == 0,
+            "a redacted wire domain cannot carry an unverified numeric code")
         var overflowFailureWire = rangeFailureWire
         overflowFailureWire["underlyingCode"] = unsignedOverflow
         precondition(V3WireContract.strictInt(unsignedOverflow) == nil &&

@@ -123,6 +123,7 @@ class SourceURLClassificationExecutionTests(unittest.TestCase):
             f".{name}: .{PINNED_SOURCE_ERROR_CAUSES[name]}" for name in pinned_case_names)
 
         failure = read(FAILURE)
+        wire = read(ROOT / "scripts/templates/v3_wire_contract.swift")
         headless = read(HEADLESS)
         service = read(SERVICE)
         source_classifier = extracted(
@@ -150,7 +151,7 @@ struct SourceError: Error, LocalizedError {
     var errorDescription: String? { privateDetails }
 }
 
-''' + failure + "\n" + primitives + "\n" + source_classifier + "\n" + policy_classifier + r'''
+''' + wire + "\n" + failure + "\n" + primitives + "\n" + source_classifier + "\n" + policy_classifier + r'''
 
 @main struct Tests {
     static func main() {
