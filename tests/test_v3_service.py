@@ -761,6 +761,7 @@ import Foundation
              "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
             ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",
              "AltStore/Managing Apps/AppManager.swift",
+             "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift",
              "AltStore/Core/Components/Keychain.swift",
              "SideStore/AppBootManager.swift",
              "SideStore/Core/JIT/SideJITManager.swift",
@@ -811,6 +812,67 @@ import Foundation
 
     def snapshot(self, directory):
         return {str(p.relative_to(directory)): p.read_bytes() for p in directory.rglob("*") if p.is_file()}
+
+    def test_featured_sort_startup_skip_matches_exact_pin_and_keeps_backend_startup(self):
+        side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE") or os.getenv("SIDESTORE_TEST_SOURCE")
+        if not side_source:
+            self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the pinned SideStore checkout")
+        relative = "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift"
+        source = subprocess.check_output(
+            ["git", "-C", side_source, "show", service.PINS[1] + ":" + relative],
+            text=True, encoding="utf-8")
+        patched = service.headless_featured_sort_startup(source)
+        self.assertEqual(service.headless_featured_sort_startup(patched), patched)
+        self.assertEqual(patched.count("V3_HEADLESS_FEATURED_SORT_SKIP_V1"), 1)
+
+        boot = self.swift_declaration(patched, "private func performStart() async throws")
+        self.assertIn("try await self.migrateDatabaseToAppGroupIfNeeded()", boot)
+        self.assertIn("try await self.persistentContainer.loadPersistentStores()", boot)
+        self.assertIn("try await self.prepareDatabase()", boot)
+        preparation = self.swift_declaration(patched, "private func prepareDatabase() async throws")
+        self.assertNotIn("updateFeaturedSortIDs()", preparation)
+        self.assertIn("try context.save()", preparation,
+                      "the required self-app metadata write remains in startup")
+        self.assertEqual(patched.count("updateFeaturedSortIDs()"), 1,
+                         "the now-unreferenced legacy method declaration remains available")
+        updater = self.swift_declaration(patched, "public func updateFeaturedSortIDs() async")
+        self.assertEqual(updater.count("context.fetch(fetchRequest)"), 2)
+        self.assertEqual(updater.count("try context.save()"), 2)
+        self.assertEqual(updater.count("UUID().uuidString"), 2)
+
+        startup = module("patch_embedded_sidestore_startup")
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            roots = self.fixture(directory)
+            database_path = roots[1] / relative
+            startup.patch_database(database_path)
+            self.apply(roots)
+            generated = database_path.read_text(encoding="utf-8")
+            generated_boot = self.swift_declaration(generated, "private func performStart() async throws")
+            self.assertIn("persistentStoreCoordinator.persistentStores.isEmpty", generated_boot)
+            self.assertIn("try await self.migrateDatabaseToAppGroupIfNeeded()", generated_boot)
+            self.assertIn("try await self.prepareDatabase()", generated_boot)
+            generated_preparation = self.swift_declaration(
+                generated, "private func prepareDatabase() async throws")
+            self.assertIn("V3_HEADLESS_FEATURED_SORT_SKIP_V1", generated_preparation)
+            self.assertNotIn("updateFeaturedSortIDs()", generated_preparation)
+            first = self.snapshot(directory)
+            self.apply(roots)
+            self.assertEqual(first, self.snapshot(directory),
+                             "generated database startup output must remain stable on replay")
+
+    def test_featured_sort_anchor_failure_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            roots = self.fixture(directory)
+            database = roots[1] / "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift"
+            database.write_text(database.read_text(encoding="utf-8").replace(
+                "await self.updateFeaturedSortIDs()", "await self.updateLegacySortIDs()"), encoding="utf-8")
+            before = self.snapshot(directory)
+            with self.assertRaises(SystemExit):
+                self.apply(roots)
+            self.assertEqual(before, self.snapshot(directory),
+                             "pinned updater anchor drift must fail before any patch writes")
 
     def test_pipeline_ui_extraction_preserves_no_presenter_safety_and_refresh_routing(self):
         with tempfile.TemporaryDirectory() as name:
@@ -877,7 +939,7 @@ import Foundation
             prior["patchVersion"] = 31
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 31 cannot be migrated safely to v35"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 31 cannot be migrated safely to v36"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -891,7 +953,7 @@ import Foundation
             prior["patchVersion"] = 32
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 32 cannot be migrated safely to v35"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 32 cannot be migrated safely to v36"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -905,7 +967,7 @@ import Foundation
             prior["patchVersion"] = 33
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 33 cannot be migrated safely to v35"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 33 cannot be migrated safely to v36"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -919,7 +981,7 @@ import Foundation
             prior["patchVersion"] = 34
             manifest.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 34 cannot be migrated safely to v35"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 34 cannot be migrated safely to v36"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory))
 
@@ -986,7 +1048,7 @@ import Foundation
             manifest_path.write_text(json.dumps(v30_manifest, indent=2) + "\n", encoding="utf-8")
 
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 30 cannot be migrated safely to v35"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 30 cannot be migrated safely to v36"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory),
                              "the real v30 output shape must fail closed without partial migration")
@@ -1003,7 +1065,7 @@ import Foundation
             legacy["templates"].pop(service.HEADLESS_ANISETTE_MODELS_MANIFEST_KEY)
             manifest_path.write_text(json.dumps(legacy, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 29 cannot be migrated safely to v35.*discard generated work directories"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 29 cannot be migrated safely to v36.*discard generated work directories"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory), "unsupported v29 manifests must fail without mutation")
 
@@ -1017,9 +1079,24 @@ import Foundation
             unknown["patchVersion"] = 999
             manifest_path.write_text(json.dumps(unknown, indent=2) + "\n", encoding="utf-8")
             before = self.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, "prepared patch version 999 cannot be migrated safely to v35"):
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 999 cannot be migrated safely to v36"):
                 self.apply(roots)
             self.assertEqual(before, self.snapshot(directory), "unknown patch versions must fail without mutation")
+
+    def test_v35_manifest_fails_closed_without_mutation(self):
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            roots = self.fixture(directory)
+            self.apply(roots)
+            manifest_path = roots[0] / ".v3-command-patch.json"
+            prior = json.loads(manifest_path.read_text(encoding="utf-8"))
+            prior["patchVersion"] = 35
+            manifest_path.write_text(json.dumps(prior, indent=2) + "\n", encoding="utf-8")
+            before = self.snapshot(directory)
+            with self.assertRaisesRegex(SystemExit, "prepared patch version 35 cannot be migrated safely to v36"):
+                self.apply(roots)
+            self.assertEqual(before, self.snapshot(directory),
+                             "v35 generated trees must be discarded without partial migration")
 
     def test_pinned_headless_ui_adapter_verifier_rejects_drift(self):
         side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")

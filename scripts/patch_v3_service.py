@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 35
+PATCH_VERSION = 36
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -914,6 +914,20 @@ def headless_app_manager_ui(text):
     return replace(text, "import Intents\n", "")
 
 
+def headless_featured_sort_startup(text):
+    marker = "V3_HEADLESS_FEATURED_SORT_SKIP_V1"
+    call = "        await self.updateFeaturedSortIDs()\n"
+    if marker in text:
+        if text.count(marker) != 1 or call in text:
+            raise SystemExit("v3 service: Featured sort startup adapter is partial")
+        return text
+    return replace(
+        text,
+        call,
+        "        // " + marker + ": this embedded process has no Featured UI consumer.\n",
+    )
+
+
 def headless_app_boot_manager(text):
     state_marker = "V3_HEADLESS_BOOT_UI_STATE_REMOVED_V1"
     pairing_marker = "V3_HEADLESS_BOOT_PAIRING_PROMPT_REMOVED_V1"
@@ -1534,6 +1548,8 @@ def patch(live, side):
          headless_clear_cache_operation)
     edit(side, "SideStore/Core/Auth/AuthManager.swift", headless_auth_manager)
     edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager_ui)
+    edit(side, "AltStore/Core/Model/DatabaseManager/DatabaseManager.swift",
+         headless_featured_sort_startup)
     edit(side, "SideStore/Handlers/PipelineHandler.swift", headless_pipeline_handler)
     edit(side, "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
          headless_connection_config)
