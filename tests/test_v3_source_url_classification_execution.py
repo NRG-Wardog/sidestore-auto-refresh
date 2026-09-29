@@ -23,27 +23,47 @@ def extracted(source, start, end):
     return source[begin:source.index(end, begin)]
 
 
-def pinned_source_root(embedded_source, standalone_source, revision):
+def pinned_source_root(embedded_source, standalone_source, revision,
+                       source_error_exists=True, require_pinned=False):
+    if require_pinned and not embedded_source:
+        raise ValueError("candidate classifier test requires an embedded SideStore checkout")
     if embedded_source:
         if revision != SIDESTORE_SOURCE_SHA:
-            raise ValueError("embedded SideStore source does not match the pinned revision")
+            if require_pinned:
+                raise ValueError("embedded SideStore source does not match the pinned revision")
+            return None
+        if not source_error_exists:
+            if require_pinned:
+                raise ValueError("pinned SourceError.swift is missing from the candidate embedded source")
+            return None
         return Path(embedded_source)
-    if standalone_source and revision == SIDESTORE_SOURCE_SHA:
+    if standalone_source and revision == SIDESTORE_SOURCE_SHA and source_error_exists:
         return Path(standalone_source)
     return None
 
 
 class SourceURLClassificationExecutionTests(unittest.TestCase):
-    def test_standalone_source_revision_mismatch_skips_pinned_harness(self):
+    def test_nonpinned_source_revisions_skip_unless_candidate_requires_pin(self):
         self.assertEqual(pinned_source_root(
             embedded_source=None, standalone_source="C:/standalone/SideStore",
             revision=SIDESTORE_SOURCE_SHA), Path("C:/standalone/SideStore"))
         self.assertIsNone(pinned_source_root(
             embedded_source=None, standalone_source="C:/standalone/SideStore",
             revision="c6f0000000000000000000000000000000000000"))
+        self.assertIsNone(pinned_source_root(
+            embedded_source="C:/fixture/EmbeddedSideStore", standalone_source=None,
+            revision="10ffa00000000000000000000000000000000000"))
         with self.assertRaisesRegex(ValueError, "embedded SideStore source"):
-            pinned_source_root("C:/embedded/SideStore", None,
-                               revision="c6f0000000000000000000000000000000000000")
+            pinned_source_root("C:/candidate/EmbeddedSideStore", None,
+                revision="10ffa00000000000000000000000000000000000", require_pinned=True)
+        with self.assertRaisesRegex(ValueError, "requires an embedded"):
+            pinned_source_root(None, "C:/standalone/SideStore",
+                revision=SIDESTORE_SOURCE_SHA, require_pinned=True)
+        with self.assertRaisesRegex(ValueError, "SourceError.swift is missing"):
+            pinned_source_root("C:/candidate/EmbeddedSideStore", None,
+                revision=SIDESTORE_SOURCE_SHA, source_error_exists=False, require_pinned=True)
+        self.assertEqual(pinned_source_root("C:/candidate/EmbeddedSideStore", None,
+            revision=SIDESTORE_SOURCE_SHA, require_pinned=True), Path("C:/candidate/EmbeddedSideStore"))
 
     def test_production_helper_and_both_source_classifiers(self):
         compiler = shutil.which("swiftc")
@@ -52,25 +72,30 @@ class SourceURLClassificationExecutionTests(unittest.TestCase):
 
         embedded_source = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
         standalone_source = os.environ.get("SIDESTORE_TEST_SOURCE")
+        require_pinned = os.environ.get("REQUIRE_PINNED_SOURCE_CLASSIFIER_TEST") == "1"
         source_value = embedded_source or standalone_source
         if not source_value:
+            if require_pinned:
+                self.fail("candidate classifier test requires an embedded SideStore checkout")
             self.skipTest("Pinned SideStore source is supplied by macOS CI")
         source_path = Path(source_value)
         source_error_path = source_path / "SideStore/Core/Operations/Errors/SourceError.swift"
-        if not source_error_path.is_file():
-            self.skipTest("Pinned SideStore SourceError.swift is unavailable")
         revision = subprocess.run(
             ["git", "-C", str(source_path), "rev-parse", "HEAD"],
             capture_output=True, text=True,
         )
-        self.assertEqual(revision.returncode, 0, revision.stderr)
+        if revision.returncode != 0:
+            if require_pinned:
+                self.fail(revision.stderr or "candidate embedded SideStore checkout is unavailable")
+            self.skipTest("Configured SideStore source checkout is unavailable")
         try:
             side_store_root = pinned_source_root(
-                embedded_source, standalone_source, revision.stdout.strip())
+                embedded_source, standalone_source, revision.stdout.strip(),
+                source_error_exists=source_error_path.is_file(), require_pinned=require_pinned)
         except ValueError as error:
             self.fail(str(error))
         if side_store_root is None:
-            self.skipTest("Standalone SideStore source is not the embedded classifier-test pin")
+            self.skipTest("Configured SideStore source is not the embedded classifier-test pin")
         source_error_text = read(source_error_path)
         code_start = source_error_text.index("    enum Code: Int, ALTErrorCode")
         code_end = source_error_text.index("    static func unsupported", code_start)
