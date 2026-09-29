@@ -12,6 +12,24 @@ import Foundation
 //   - one JIT-Less readiness fact, so Home and the assistant cannot disagree
 //   - failure guidance that never shows a numeric error code as advice
 
+private final class V3AuthReadinessHostObserverProbe {
+    private var ledger = V3AuthReadinessRefreshEventLedger()
+    private(set) var readinessRefreshSessionIDs: [String] = []
+    private(set) var readinessRefreshAttemptSequences: [UInt64] = []
+    private(set) var authoritativeHealthReadCount = 0
+    var sharedReadiness: V3JITLessReadiness?
+
+    func receive(_ notification: Notification) {
+        guard let sessionID = V3AuthReadinessRefreshEvent.sessionID(from: notification),
+              let attemptSequence = V3AuthReadinessRefreshEvent.attemptSequence(from: notification),
+              ledger.claim(attemptSequence: attemptSequence) else { return }
+        readinessRefreshSessionIDs.append(sessionID)
+        readinessRefreshAttemptSequences.append(attemptSequence)
+        authoritativeHealthReadCount += 1
+        sharedReadiness = .ready
+    }
+}
+
 @main
 struct SetupAndSemanticUXHarness {
     static func main() {
@@ -517,6 +535,280 @@ struct SetupAndSemanticUXHarness {
         precondition(ready.severity == .completed && !ready.isOutstandingSetupTask)
         precondition(ready.title == "Configured / Ready")
         precondition(V3JITLessPresentation.present(.notRequired).severity == .completed)
+        let signInReady = V3SignInJITLessGuidancePolicy.resolve(osMajor: 26, readiness: .ready)!
+        precondition(signInReady.presentation.title == "Configured / Ready" &&
+                     !signInReady.presentation.isOutstandingSetupTask &&
+                     signInReady.action == .none,
+                     "a signed-in account with ready JIT-Less is not prompted to set it up again")
+        let signInMissing = V3SignInJITLessGuidancePolicy.resolve(osMajor: 26, readiness: .setupRequired)!
+        precondition(signInMissing.presentation.title == "JIT-Less certificate not configured" &&
+                     signInMissing.action == .setUp,
+                     "a confirmed missing JIT-Less copy goes to canonical setup")
+        for stale: V3JITLessReadiness in [.needsCertificateRefresh, .certificateMismatch, .revoked] {
+            let guidance = V3SignInJITLessGuidancePolicy.resolve(osMajor: 26, readiness: stale)!
+            precondition(guidance.presentation.isOutstandingSetupTask &&
+                         guidance.action == .refreshCertificate,
+                         "\(stale.rawValue) routes to canonical certificate refresh")
+        }
+        for activeCertificateIssue: V3JITLessReadiness in [
+            .activeCertificateMissing, .activeCertificateRevoked, .activeCertificateExpired
+        ] {
+            let guidance = V3SignInJITLessGuidancePolicy.resolve(
+                osMajor: 26, readiness: activeCertificateIssue)!
+            precondition(guidance.action == .openCertificates,
+                         "\(activeCertificateIssue.rawValue) routes to SideStore Certificates")
+        }
+        let signInUnknown = V3SignInJITLessGuidancePolicy.resolve(osMajor: 26, readiness: nil)!
+        precondition(signInUnknown.readiness == .unknown &&
+                     signInUnknown.presentation.title == "Validation unknown" &&
+                     signInUnknown.action == .openSetup,
+                     "unobserved readiness is shown as unknown, never as confirmed missing")
+        // V3_AUTH_READINESS_REFRESH_EVENT_V1: the root observer outlives each
+        // Sign In presentation and consumes an event after that view disappears.
+        let hostReadinessObserver = V3AuthReadinessHostObserverProbe()
+        func parsedReadinessSequence(_ value: Any) -> UInt64? {
+            let notification = Notification(name: V3AuthReadinessRefreshEvent.notificationName,
+                object: nil, userInfo: [V3AuthReadinessRefreshEvent.attemptSequenceKey: value])
+            return V3AuthReadinessRefreshEvent.attemptSequence(from: notification)
+        }
+        precondition(parsedReadinessSequence(NSNumber(value: UInt64(0))) == 0,
+                     "zero is parsed exactly, then rejected by the event ledger")
+        precondition(parsedReadinessSequence(NSNumber(value: UInt64(7))) == 7,
+                     "positive integer attempt sequences parse exactly")
+        precondition(parsedReadinessSequence(NSNumber(value: UInt64.max)) == UInt64.max,
+                     "the UInt64 maximum parses without wrapping")
+        precondition(parsedReadinessSequence(NSNumber(value: -1)) == nil,
+                     "negative NSNumber values cannot poison the high-water ledger")
+        precondition(parsedReadinessSequence(NSNumber(value: 1.5)) == nil,
+                     "fractional floating-point sequences are rejected")
+        precondition(parsedReadinessSequence(NSNumber(value: true)) == nil,
+                     "CFBoolean is not accepted as an integer sequence")
+        precondition(parsedReadinessSequence(NSDecimalNumber(string: "7")) == nil,
+                     "Decimal NSNumber encodings are rejected even when integral")
+        precondition(parsedReadinessSequence(NSDecimalNumber(string: "18446744073709551616")) == nil,
+                     "an overflowing Decimal cannot wrap to a valid sequence")
+        precondition(parsedReadinessSequence("malformed") == nil,
+                     "non-numeric payloads are rejected")
+        let observerToken = NotificationCenter.default.addObserver(
+            forName: V3AuthReadinessRefreshEvent.notificationName,
+            object: nil, queue: nil) { hostReadinessObserver.receive($0) }
+        defer { NotificationCenter.default.removeObserver(observerToken) }
+        var signInViewPresent = true
+        var accountReloadCompletedEarlier = false
+        let signInSessionID = UUID().uuidString
+        signInViewPresent = false
+        accountReloadCompletedEarlier = true // onDisappear's account snapshot finished
+        let signInAttemptSequence: UInt64 = 1
+        V3AuthReadinessRefreshEvent.post(sessionID: signInSessionID, attemptSequence: signInAttemptSequence)
+        precondition(!signInViewPresent && accountReloadCompletedEarlier &&
+                     hostReadinessObserver.readinessRefreshSessionIDs == [signInSessionID],
+                     "the root observes a reconciled auth completion after the view and its reload are gone")
+        V3AuthReadinessRefreshEvent.post(sessionID: signInSessionID, attemptSequence: signInAttemptSequence) // same attempt
+        precondition(hostReadinessObserver.readinessRefreshSessionIDs == [signInSessionID],
+                     "duplicate delivery of one auth session cannot start another readiness read")
+        var setupLocalHealthReadCount = 0
+        if V3SetupReadinessObservationPolicy.shouldFetchLocalReadiness(
+            hostReadinessObserver.sharedReadiness) {
+            setupLocalHealthReadCount += 1
+        }
+        precondition(hostReadinessObserver.authoritativeHealthReadCount == 1 &&
+                     setupLocalHealthReadCount == 0,
+                     "Quick Setup reuses the root-published JIT-Less fact instead of fetching it again")
+
+        let provisioningRetrySession = signInSessionID
+        let retryAttemptSequence: UInt64 = 2
+        var retryOwner = V3ProvisioningRetryReadinessOwnership()
+        retryOwner.begin(sessionID: provisioningRetrySession)
+        precondition(retryOwner.owns(sessionID: provisioningRetrySession))
+        precondition(retryOwner.allowsPromptResponse(sessionID: provisioningRetrySession),
+                     "the retry owns its own verification prompt response")
+        precondition(retryOwner.owns(sessionID: provisioningRetrySession),
+                     "submitting a prompt response retains retry ownership")
+        let replacementMonitorAllowed = V3AuthPollMonitorRecoveryPolicy.shouldResume(
+            requestedSessionID: provisioningRetrySession,
+            currentSessionID: provisioningRetrySession,
+            failedPromptRevision: 1, currentPromptRevision: 2,
+            failedPromptResponseGeneration: 1, currentPromptResponseGeneration: 2,
+            state: "awaitingPrompt", promptSubmissionInProgress: true,
+            activeSessionID: provisioningRetrySession, pollFailureIsTransient: true,
+            cancellationInProgress: false, taskCancelled: false,
+            reconciliationWasSuperseded: true,
+            sessionDeadline: Date().addingTimeInterval(60))
+        precondition(replacementMonitorAllowed,
+                     "a transient poll failure after a prompt response transfers monitoring")
+        precondition(retryOwner.handoffAfterSupersededPollFailure(sessionID: provisioningRetrySession) &&
+                     retryOwner.owns(sessionID: provisioningRetrySession),
+                     "a transient poll failure hands the same retry to its monitor without dropping ownership")
+        let continuedTerminalRefresh = retryOwner.settle(
+            currentSessionID: provisioningRetrySession, replySessionID: provisioningRetrySession,
+            replyState: "completed", authenticated: true,
+            cancellationInProgress: false, taskCancelled: false)
+        if continuedTerminalRefresh == .committed {
+            V3AuthReadinessRefreshEvent.post(sessionID: provisioningRetrySession, attemptSequence: retryAttemptSequence)
+        }
+        precondition(continuedTerminalRefresh == .committed &&
+                     !retryOwner.owns(sessionID: provisioningRetrySession) &&
+                     hostReadinessObserver.readinessRefreshSessionIDs ==
+                        [signInSessionID, provisioningRetrySession],
+                     "the monitor's terminal result reaches the root after sign-in view lifetime")
+        if V3SetupReadinessObservationPolicy.shouldFetchLocalReadiness(
+            hostReadinessObserver.sharedReadiness) {
+            setupLocalHealthReadCount += 1
+        }
+        precondition(hostReadinessObserver.authoritativeHealthReadCount == 2 &&
+                     setupLocalHealthReadCount == 0,
+                     "Setup Assistant coalesces with the retry terminal's single shared health read")
+        let duplicateTerminalRefresh = retryOwner.settle(
+            currentSessionID: provisioningRetrySession, replySessionID: provisioningRetrySession,
+            replyState: "completed", authenticated: true,
+            cancellationInProgress: false, taskCancelled: false)
+        if duplicateTerminalRefresh == .committed {
+            V3AuthReadinessRefreshEvent.post(sessionID: provisioningRetrySession, attemptSequence: retryAttemptSequence)
+        }
+        precondition(duplicateTerminalRefresh == .notRetry &&
+                     hostReadinessObserver.readinessRefreshSessionIDs ==
+                        [signInSessionID, provisioningRetrySession],
+                     "a duplicate retry terminal cannot trigger another authoritative read")
+        precondition(hostReadinessObserver.readinessRefreshAttemptSequences == [1, 2],
+                     "initial sign-in and later retry remain distinct despite sharing a backend session ID")
+
+        let retryReconcileSession = UUID().uuidString
+        let retryReconcileSequence: UInt64 = 3
+        precondition(V3AuthRetryReadinessReconciliationPolicy.shouldPublish(
+            sessionID: retryReconcileSession, expectedSessionID: retryReconcileSession,
+            ownsRetry: true, authenticated: true, authenticationActive: false,
+            provisioningIncomplete: false, attemptSequence: retryReconcileSequence),
+            "a correlated committed retry reconciliation publishes readiness")
+        V3AuthReadinessRefreshEvent.post(sessionID: retryReconcileSession,
+            attemptSequence: retryReconcileSequence)
+        V3AuthReadinessRefreshEvent.post(sessionID: retryReconcileSession,
+            attemptSequence: retryReconcileSequence) // the later terminal is the same attempt
+        precondition(hostReadinessObserver.readinessRefreshAttemptSequences == [1, 2, 3] &&
+                     hostReadinessObserver.authoritativeHealthReadCount == 3,
+                     "retry reconciliation and terminal delivery coalesce to one shared read")
+        V3AuthReadinessRefreshEvent.post(sessionID: signInSessionID,
+            attemptSequence: signInAttemptSequence) // old auth event after newer retry fact
+        precondition(hostReadinessObserver.readinessRefreshAttemptSequences == [1, 2, 3],
+                     "bounded high-water dedupe rejects old attempt events after a newer fact")
+        let reconciliationControls: [(Bool, Bool, Bool, String)] = [
+            (false, false, false, retryReconcileSession),
+            (true, true, false, retryReconcileSession),
+            (true, false, true, retryReconcileSession),
+            (true, false, false, UUID().uuidString)
+        ]
+        for (authenticated, active, incomplete, expectedSession) in reconciliationControls {
+            precondition(!V3AuthRetryReadinessReconciliationPolicy.shouldPublish(
+                sessionID: retryReconcileSession, expectedSessionID: expectedSession,
+                ownsRetry: true, authenticated: authenticated, authenticationActive: active,
+                provisioningIncomplete: incomplete, attemptSequence: 4),
+                "failed, active, incomplete or replaced reconciliation cannot publish")
+        }
+
+        // Cancel can race a commit already accepted by the backend. The
+        // authCancel reply carrying the correlated completed result wins.
+        let cancelRaceSession = UUID().uuidString
+        retryOwner.begin(sessionID: cancelRaceSession)
+        precondition(retryOwner.handoffAfterSupersededPollFailure(sessionID: cancelRaceSession))
+        let completedDuringCancel = retryOwner.settle(
+            currentSessionID: cancelRaceSession, replySessionID: cancelRaceSession,
+            replyState: "completed", authenticated: true,
+            cancellationInProgress: true, taskCancelled: false)
+        if completedDuringCancel == .committed {
+            V3AuthReadinessRefreshEvent.post(sessionID: cancelRaceSession, attemptSequence: 5)
+        }
+        precondition(completedDuringCancel == .committed &&
+                     hostReadinessObserver.readinessRefreshSessionIDs ==
+                        [signInSessionID, provisioningRetrySession, retryReconcileSession, cancelRaceSession],
+                     "a committed successful retry returned by authCancel reaches the root observer")
+
+        let trueCancelSession = UUID().uuidString
+        retryOwner.begin(sessionID: trueCancelSession)
+        let cancelledRetryRefresh = retryOwner.settle(
+            currentSessionID: trueCancelSession, replySessionID: trueCancelSession,
+            replyState: "cancelled", authenticated: false,
+            cancellationInProgress: true, taskCancelled: false)
+        if cancelledRetryRefresh == .committed {
+            V3AuthReadinessRefreshEvent.post(sessionID: trueCancelSession, attemptSequence: 6)
+        }
+        precondition(cancelledRetryRefresh == .finishedWithoutCommit &&
+                     !retryOwner.owns(sessionID: trueCancelSession),
+                     "a true cancelled terminal releases ownership without refreshing readiness")
+        precondition(hostReadinessObserver.readinessRefreshSessionIDs ==
+                        [signInSessionID, provisioningRetrySession, retryReconcileSession, cancelRaceSession],
+                     "a true cancellation does not trigger another readiness read")
+        let lateAfterCancelSuccess = retryOwner.settle(
+            currentSessionID: trueCancelSession, replySessionID: trueCancelSession,
+            replyState: "completed", authenticated: true,
+            cancellationInProgress: false, taskCancelled: false)
+        precondition(lateAfterCancelSuccess == .notRetry,
+            "a late success cannot revive an already cancelled retry")
+
+        let cancelledTaskSession = UUID().uuidString
+        retryOwner.begin(sessionID: cancelledTaskSession)
+        let cancelledTaskRefresh = retryOwner.settle(
+            currentSessionID: cancelledTaskSession, replySessionID: cancelledTaskSession,
+            replyState: "completed", authenticated: true,
+            cancellationInProgress: false, taskCancelled: true)
+        if cancelledTaskRefresh == .committed {
+            V3AuthReadinessRefreshEvent.post(sessionID: cancelledTaskSession, attemptSequence: 7)
+        }
+        precondition(cancelledTaskRefresh == .finishedWithoutCommit &&
+                     hostReadinessObserver.readinessRefreshSessionIDs ==
+                        [signInSessionID, provisioningRetrySession, retryReconcileSession, cancelRaceSession],
+                     "a task-cancelled terminal cannot publish a retry success")
+
+        let unauthenticatedSession = UUID().uuidString
+        retryOwner.begin(sessionID: unauthenticatedSession)
+        let unauthenticatedRefresh = retryOwner.settle(
+            currentSessionID: unauthenticatedSession, replySessionID: unauthenticatedSession,
+            replyState: "completed", authenticated: false,
+            cancellationInProgress: false, taskCancelled: false)
+        if unauthenticatedRefresh == .committed {
+            V3AuthReadinessRefreshEvent.post(sessionID: unauthenticatedSession, attemptSequence: 8)
+        }
+        precondition(unauthenticatedRefresh == .finishedWithoutCommit &&
+                     hostReadinessObserver.readinessRefreshSessionIDs ==
+                        [signInSessionID, provisioningRetrySession, retryReconcileSession, cancelRaceSession],
+                     "a completed reply without authenticated=true is not retry success")
+
+        let replacedSession = UUID().uuidString
+        let replacementSession = UUID().uuidString
+        retryOwner.begin(sessionID: replacedSession)
+        retryOwner.begin(sessionID: replacementSession)
+        let staleCompletedRefresh = retryOwner.settle(
+            currentSessionID: replacementSession, replySessionID: replacedSession,
+            replyState: "completed", authenticated: true,
+            cancellationInProgress: false, taskCancelled: false)
+        if staleCompletedRefresh == .committed {
+            V3AuthReadinessRefreshEvent.post(sessionID: replacedSession, attemptSequence: 9)
+        }
+        precondition(staleCompletedRefresh == .unmatched &&
+                     retryOwner.owns(sessionID: replacementSession) &&
+                     hostReadinessObserver.readinessRefreshSessionIDs ==
+                        [signInSessionID, provisioningRetrySession, retryReconcileSession, cancelRaceSession],
+                     "a replaced session's late terminal cannot consume or signal the new owner")
+        for terminal in ["failed", "authenticatedProvisioningIncomplete", "timedOut", "promptExpired"] {
+            let failedSession = UUID().uuidString
+            retryOwner.begin(sessionID: failedSession)
+            let failureRefresh = retryOwner.settle(
+                currentSessionID: failedSession, replySessionID: failedSession,
+                replyState: terminal, authenticated: true,
+                cancellationInProgress: false, taskCancelled: false)
+            if failureRefresh == .committed {
+                V3AuthReadinessRefreshEvent.post(sessionID: failedSession, attemptSequence: 10)
+            }
+            precondition(failureRefresh == .finishedWithoutCommit &&
+                         !retryOwner.owns(sessionID: failedSession) &&
+                         hostReadinessObserver.readinessRefreshSessionIDs ==
+                            [signInSessionID, provisioningRetrySession, retryReconcileSession, cancelRaceSession],
+                         "a \(terminal) terminal releases ownership without refreshing readiness")
+        }
+        let contradictoryNotRequired = V3SignInJITLessGuidancePolicy.resolve(
+            osMajor: 26, readiness: .notRequired)!
+        precondition(contradictoryNotRequired.readiness == .unknown,
+                     "an iOS 26+ view cannot accept a stale not-required fact as ready")
+        precondition(V3SignInJITLessGuidancePolicy.resolve(osMajor: 25, readiness: .setupRequired) == nil,
+                     "older iOS keeps the legacy sign-in presentation with no JIT-Less stage")
         // Everything that still needs work is flagged as an outstanding task.
         for state: V3JITLessReadiness in [.setupRequired, .certificateMismatch, .certificateImported,
                                           .needsCertificateRefresh, .revoked, .activeCertificateMissing,

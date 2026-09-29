@@ -308,6 +308,15 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         # V3_SOURCE_EDITING_POLICY_V1
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        event_marker = shell.index("// V3_AUTH_READINESS_REFRESH_EVENT_V1")
+        event_start = shell.rfind("\n", 0, event_marker) + 1
+        event_end = shell.index("\nextension LCAppModel", event_marker)
+        readiness_event_contract = shell[event_start:event_end]
+        retry_policy_marker = shell.index("enum V3ProvisioningRetryReadinessPolicy")
+        retry_policy_start = shell.rfind("\n", 0, retry_policy_marker) + 1
+        retry_policy_end = shell.index("\nprivate enum V3JITLessStatusReader", retry_policy_marker)
+        readiness_retry_contract = shell[retry_policy_start:retry_policy_end]
         harness = (ROOT / "tests/fixtures/v3_setup_and_semantic_ux_harness.swift").read_text(encoding="utf-8")
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         # The behavioral fixture executes the same classifier the service catch
@@ -320,8 +329,23 @@ class V3BehavioralHarnessTests(unittest.TestCase):
         self.assertIn("V3AnisetteSyncFailurePolicy.failure(error, id: id).wire", branch)
         self.assertGreater(branch_start, service.index("else if let structuredFailure = error as? CombinedFailure"))
         self.assertLess(branch_start, service.index("CombinedFailure.capture(", branch_start))
-        self.compile_and_run(failure + "\n" + helper + "\n" + harness,
+        self.compile_and_run(failure + "\n" + helper + "\n" +
+                             readiness_event_contract + "\n" +
+                             readiness_retry_contract + "\n" + harness,
                              "V3_SETUP_AND_SEMANTIC_UX_PASS")
+
+    def test_sign_in_jitless_ui_uses_authoritative_readiness_and_actions(self):
+        host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        sign_in_start = host.index("struct V3SignInView: View")
+        sign_in_end = host.index("\nstruct V3CertificateRow", sign_in_start)
+        sign_in = host[sign_in_start:sign_in_end]
+        self.assertIn("V3SignInJITLessGuidancePolicy.resolve", sign_in)
+        self.assertIn("readiness: status.jitlessReadiness", sign_in)
+        self.assertNotIn('Text("Next: Set Up JIT-Less")', sign_in)
+        self.assertIn('Label("Review JIT-Less Status"', sign_in)
+        self.assertIn('Button("Continue to JIT-Less Setup")', sign_in)
+        self.assertIn('Button("Refresh JIT-Less Certificate")', sign_in)
+        self.assertIn('Label("Open Certificates"', sign_in)
 
     def test_two_factor_phone_back_sends_no_delivery_and_allows_new_method(self):
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")

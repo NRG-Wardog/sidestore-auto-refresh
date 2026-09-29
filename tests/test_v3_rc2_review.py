@@ -377,7 +377,9 @@ class SharedSetupCompletionTests(unittest.TestCase):
         self.assertIn("observeSetupFactsIfNeeded()", text[text.index("private func performSnapshot()"):])
         self.assertIn("V3ServiceBridge.shared.request(operation: \"healthSnapshot\")", text)
         self.assertIn("recordWifiAvailability(wifi, revision: revision)", text)
-        self.assertIn("recordJITLessReadiness(readiness.readiness, revision: revision)", text)
+        self.assertIn("recordJITLessReadiness(readiness.readiness,", text)
+        self.assertIn('activeCertificateAvailable: V3WireContract.strictBool(certificate["active"]),', text)
+        self.assertIn("revision: revision)", text)
         # A failure is published as unknown, never as an assumed-good fact.
         observation = text[text.index("private func observeSetupFacts() async"):]
         observation = observation[:observation.index("\n    @Published private(set) var updatedAt")]
@@ -411,7 +413,9 @@ class SharedSetupCompletionTests(unittest.TestCase):
         # assistant showed the item complete.
         text = shell()
         self.assertIn("@Published private(set) var jitlessReadiness: V3JITLessReadiness?", text)
-        self.assertIn("func recordJITLessReadiness(_ readiness: V3JITLessReadiness, revision: UInt64? = nil)", text)
+        self.assertIn("func recordJITLessReadiness(_ readiness: V3JITLessReadiness,", text)
+        self.assertIn("activeCertificateAvailable: Bool? = nil,", text)
+        self.assertIn("revision: UInt64? = nil)", text)
         self.assertIn("jitlessComplete: V3JITLessCompletionPolicy.isComplete(status.jitlessReadiness)", text)
         # Every observer publishes into the same fact.
         self.assertGreaterEqual(text.count("status.recordJITLessReadiness("), 4)
@@ -624,7 +628,8 @@ class SemanticStatusTests(unittest.TestCase):
     def test_setup_rows_use_the_shared_severity_mapping(self):
         text = shell()
         # The JIT-Less step state is derived from the shared presentation.
-        self.assertIn("let presentation = V3JITLessPresentation.present(readiness.readiness)", text)
+        self.assertIn("V3JITLessPresentation.present(readiness)", text)
+        self.assertIn("V3JITLessPresentation.present(jitlessReadiness)", text)
         self.assertIn("switch presentation.severity {", text)
         # The sources view renders failures with the failure icon and success
         # with the success icon.
@@ -689,7 +694,7 @@ class JITLessCertificationTests(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             for match in re.finditer(r"switch ([A-Za-z0-9_.]+) \{\n((?:.*\n)*?)\s{8}\}\n", text):
                 subject, body = match.group(1), match.group(2)
-                if "jitless" not in subject.lower() and subject != "readiness":
+                if subject not in {"jitlessReadiness", "readiness"}:
                     continue
                 if "default:" in body:
                     continue
