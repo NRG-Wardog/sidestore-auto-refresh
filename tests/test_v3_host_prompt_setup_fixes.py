@@ -38,7 +38,7 @@ class V3HostPromptSetupFixesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "main.swift"
             executable = Path(temporary) / "host-prompt-setup-fixes"
-            source.write_text(shell_policy + "\n" + backend_policy + "\n" +
+            source.write_text("import Foundation\n" + shell_policy + "\n" + backend_policy + "\n" +
                               HARNESS.read_text(encoding="utf-8"), encoding="utf-8")
             compiled = subprocess.run([SWIFTC, "-parse-as-library", str(source), "-o", str(executable)],
                                       capture_output=True, text=True)
@@ -70,8 +70,12 @@ class V3HostPromptSetupFixesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "main.swift"
             executable = Path(temporary) / "setup-readiness-interleavings"
-            source.write_text(shell_policy + "\n" + HARNESS.read_text(encoding="utf-8"),
-                              encoding="utf-8")
+            runtime = RUNTIME.read_text(encoding="utf-8")
+            backend_policy = block(runtime,
+                "// V3_PROMPT_OPTION_IDENTITY_V1:",
+                "// MARK: - Authentication failure classification")
+            source.write_text("import Foundation\n" + shell_policy + "\n" + backend_policy + "\n" +
+                              HARNESS.read_text(encoding="utf-8"), encoding="utf-8")
             compiled = subprocess.run([SWIFTC, "-parse-as-library", str(source), "-o", str(executable)],
                                       capture_output=True, text=True)
             self.assertEqual(compiled.returncode, 0, compiled.stderr)

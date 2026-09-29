@@ -70,6 +70,7 @@ final class NSManagedObjectContext {
     init(store: TestPersistentStore = .shared, isViewContext: Bool = false) {
         self.store = store
         self.isViewContext = isViewContext
+        rows = []
         rows = store.identifiers.map { Source(identifier: $0, managedObjectContext: self) }
     }
 

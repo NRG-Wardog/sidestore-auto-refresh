@@ -17,7 +17,7 @@ private final class V3AuthReadinessHostObserverProbe {
     private(set) var readinessRefreshSessionIDs: [String] = []
     private(set) var readinessRefreshAttemptSequences: [UInt64] = []
     private(set) var authoritativeHealthReadCount = 0
-    var sharedReadiness: V3JITLessReadiness?
+    var sharedReadiness: V3SetupReadinessObservation?
 
     func receive(_ notification: Notification) {
         guard let sessionID = V3AuthReadinessRefreshEvent.sessionID(from: notification),
@@ -26,7 +26,8 @@ private final class V3AuthReadinessHostObserverProbe {
         readinessRefreshSessionIDs.append(sessionID)
         readinessRefreshAttemptSequences.append(attemptSequence)
         authoritativeHealthReadCount += 1
-        sharedReadiness = .ready
+        sharedReadiness = V3SetupReadinessObservation(readiness: .ready,
+            sourceFactRevision: 0, activeCertificateAvailable: true)
     }
 }
 

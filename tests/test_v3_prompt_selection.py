@@ -122,7 +122,8 @@ class V3PromptSelectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "main.swift"
             executable = Path(temporary) / "prompt-selection"
-            source.write_text(production_policy + "\n" + HARNESS, encoding="utf-8")
+            source.write_text("import Foundation\n" + production_policy + "\n" + HARNESS,
+                              encoding="utf-8")
             compiled = subprocess.run([SWIFTC, "-parse-as-library", str(source), "-o", str(executable)],
                                       capture_output=True, text=True)
             self.assertEqual(compiled.returncode, 0, compiled.stderr)

@@ -679,7 +679,7 @@ struct SnapshotOwnershipHarness {
             precondition(!V3StatusReplyCommitPolicy.mayApply(recoveryTicket, authority: authority,
                 currentServiceEpoch: authority.serviceEpoch, currentServiceInstanceID: "pid-101",
                 busySnapshot: true), "the recovery-only path still cannot satisfy a reload waiter")
-            precondition(V3StatusRecoveryEvidencePolicy.hasLegacyEvidence(recoveryReply) &&
+            precondition(V3StatusRecoveryEvidencePolicy.hasRecoveryEvidence(recoveryReply) &&
                 V3StatusRecoveryEvidencePolicy.mayApply(busySnapshot: true, activeMutation: nil,
                     hasDurableRecoveryEvidence: true) &&
                 V3StatusReplyCommitPolicy.mayApply(recoveryTicket, authority: authority,

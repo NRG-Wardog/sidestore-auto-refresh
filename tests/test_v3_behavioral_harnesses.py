@@ -398,10 +398,12 @@ struct V3ReadinessAndDiagnosticsContractHarness {
         }
         var unknownCause = template.wire
         unknownCause["safeCause"] = "futureUnknownCause"
-        precondition(V3ServiceReadinessReply.decode(try encode(unknownCause), requestID: id) == .invalid)
+        let unknownCauseData = try encode(unknownCause)
+        precondition(V3ServiceReadinessReply.decode(unknownCauseData, requestID: id) == .invalid)
         var unknownStep = template.wire
         unknownStep["sourceStep"] = "futureUnknownStep"
-        precondition(V3ServiceReadinessReply.decode(try encode(unknownStep), requestID: id) == .invalid)
+        let unknownStepData = try encode(unknownStep)
+        precondition(V3ServiceReadinessReply.decode(unknownStepData, requestID: id) == .invalid)
 
         let anisette = CombinedFailure(operation: "anisetteSync", stage: .network,
             code: .failed, id: id, retryable: true, safeCause: .anisetteServerUnavailable)
@@ -452,6 +454,10 @@ struct V3ReadinessAndDiagnosticsContractHarness {
         retry_policy_start = shell.rfind("\n", 0, retry_policy_marker) + 1
         retry_policy_end = shell.index("\nprivate enum V3JITLessStatusReader", retry_policy_marker)
         readiness_retry_contract = shell[retry_policy_start:retry_policy_end]
+        readiness_snapshot_start = shell.index("// V3_SETUP_READINESS_SNAPSHOT_POLICY_V1:")
+        readiness_snapshot_end = shell.index("\nenum V3AuthRetryReadinessReconciliationPolicy",
+                                             readiness_snapshot_start)
+        readiness_snapshot_policy = shell[readiness_snapshot_start:readiness_snapshot_end]
         harness = (ROOT / "tests/fixtures/v3_setup_and_semantic_ux_harness.swift").read_text(encoding="utf-8")
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         # The behavioral fixture executes the same classifier the service catch
@@ -465,6 +471,7 @@ struct V3ReadinessAndDiagnosticsContractHarness {
         self.assertGreater(branch_start, service.index("else if let structuredFailure = error as? CombinedFailure"))
         self.assertLess(branch_start, service.index("CombinedFailure.capture(", branch_start))
         self.compile_and_run(failure + "\n" + helper + "\n" +
+                             readiness_snapshot_policy + "\n" +
                              readiness_event_contract + "\n" +
                              readiness_retry_contract + "\n" + harness,
                              "V3_SETUP_AND_SEMANTIC_UX_PASS")

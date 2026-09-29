@@ -141,6 +141,7 @@ struct AnisetteNetworkGuidanceHarness {
 }'''
         program = "\n".join([
             (TEMPLATES / "combined_failure.swift").read_text(encoding="utf-8"),
+            (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8"),
             (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8"),
             harness,
         ])
