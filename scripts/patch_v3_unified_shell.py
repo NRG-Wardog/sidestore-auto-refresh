@@ -20,6 +20,48 @@ BEHAVIOR_TEMPLATE = Path(__file__).with_name("templates") / "v3_behavioral_primi
 IPA_STAGING_TEMPLATE = Path(__file__).with_name("templates") / "v3_ipa_staging.swift"
 SECRET_HANDOFF_TEMPLATE = Path(__file__).with_name("templates") / "v3_secret_handoff.swift"
 
+IMPORT_OWNERSHIP_SWIFT = '''    // V3_CERTIFICATE_IMPORT_OWNERSHIP_V1: persist only a short-lived opaque request id.
+    private enum V3CertificateImportOwnership {
+        private static let requestKey = "V3PendingCertificateImportRequestID"
+        private static let expiryKey = "V3PendingCertificateImportExpiry"
+        private static let lifetime: TimeInterval = 300
+        private static let lock = NSLock()
+        private static func invalidateLocked(_ defaults: UserDefaults) {
+            defaults.removeObject(forKey: requestKey)
+            defaults.removeObject(forKey: expiryKey)
+        }
+        private static func isActiveLocked(_ requestID: String, defaults: UserDefaults, now: Date) -> Bool {
+            guard UUID(uuidString: requestID) != nil,
+                  defaults.string(forKey: requestKey) == requestID,
+                  let expiry = defaults.object(forKey: expiryKey) as? NSNumber else { return false }
+            return expiry.doubleValue > now.timeIntervalSince1970
+        }
+        static func begin(defaults: UserDefaults = .standard, now: Date = Date()) -> String {
+            lock.lock(); defer { lock.unlock() }
+            let requestID = UUID().uuidString
+            defaults.set(requestID, forKey: requestKey)
+            defaults.set(now.addingTimeInterval(lifetime).timeIntervalSince1970, forKey: expiryKey)
+            defaults.synchronize()
+            return requestID
+        }
+        static func isActive(_ requestID: String, defaults: UserDefaults = .standard, now: Date = Date()) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            return isActiveLocked(requestID, defaults: defaults, now: now)
+        }
+        static func consume(_ requestID: String, defaults: UserDefaults = .standard, now: Date = Date()) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            guard isActiveLocked(requestID, defaults: defaults, now: now) else { return false }
+            invalidateLocked(defaults)
+            defaults.synchronize()
+            return true
+        }
+        static func invalidate(defaults: UserDefaults = .standard) {
+            lock.lock(); defer { lock.unlock() }
+            invalidateLocked(defaults)
+            defaults.synchronize()
+        }
+    }'''
+
 
 def die(message: str) -> None:
     raise SystemExit(f"patch_v3_unified_shell: {message}")
@@ -109,7 +151,7 @@ def patch_host(root: Path) -> None:
         text = replace_once(
             text,
             '    @State private var certificateDataFound = false',
-            '    @State private var certificateDataFound = false\n    @State private var v3OpenJITLessDiagnose = false // V3_CANONICAL_JITLESS_ROUTE_V1',
+            '    @State private var certificateDataFound = false\n    @State private var v3OpenJITLessDiagnose = false // V3_CANONICAL_JITLESS_ROUTE_V1\n' + IMPORT_OWNERSHIP_SWIFT,
             "canonical JIT-Less diagnose route state")
         text = replace_once(
             text,
@@ -121,6 +163,63 @@ def patch_host(root: Path) -> None:
             '        certificateDataFound = true\n    }',
             '        certificateDataFound = true\n        NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated"), object: nil)\n    }',
             "canonical JIT-Less import completion event")
+        text = replace_once(
+            text,
+            '    func importCertificateFromSideStore() async {\n        if UserDefaults.sideStoreExist() {',
+            '    func importCertificateFromSideStore() async {\n        let requestID = V3CertificateImportOwnership.begin()\n        if UserDefaults.sideStoreExist() {',
+            "canonical certificate import request ownership")
+        text = replace_once(
+            text,
+            '            if let ans = await certificateImportFromBuiltInSideStoreAlert.open(), ans {\n                guard let sharedKeychainGroup = v3SharedSideStoreKeychainAccessGroup() else {',
+            '            if let ans = await certificateImportFromBuiltInSideStoreAlert.open(), ans {\n                guard V3CertificateImportOwnership.isActive(requestID) else { return }\n                guard let sharedKeychainGroup = v3SharedSideStoreKeychainAccessGroup() else {',
+            "canonical built-in import ownership after await")
+        built_in_callback = '                onSideStoreCertificateCallback(certificateData: data, password: password)\n'
+        if built_in_callback in text:
+            text = replace_once(
+                text,
+                built_in_callback,
+                '                v3CompleteSideStoreCertificateImport(certificateData: data, password: password, requestID: requestID)\n',
+                "canonical built-in import completion ownership")
+        external_url = '        guard let url = URL(string: "\\(storeScheme.lowercased())://certificate?callback_template=livecontainer%3A%2F%2Fcertificate%3Fcert%3D%24%28BASE64_CERT%29%26password%3D%24%28PASSWORD%29") else {'
+        if external_url in text:
+            text = replace_once(
+                text,
+                external_url,
+                '        guard let url = URL(string: "\\(storeScheme.lowercased())://certificate?callback_template=livecontainer%3A%2F%2Fcertificate%3Fcert%3D%24%28BASE64_CERT%29%26password%3D%24%28PASSWORD%29%26request_id%3D\\(requestID)") else {',
+                "canonical external import callback request id")
+        callback_signature = '    func onSideStoreCertificateCallback(certificateData: Data, password: String) {'
+        if callback_signature in text:
+            text = replace_once(
+                text,
+                callback_signature,
+                '    // Only an exact, live, one-use request may reach the existing three-key writer.\n'
+                '    private func v3CompleteSideStoreCertificateImport(certificateData: Data, password: String, requestID: String) {\n'
+                '        guard V3CertificateImportOwnership.consume(requestID) else { return }\n'
+                '        onSideStoreCertificateCallback(certificateData: certificateData, password: password)\n'
+                '    }\n'
+                '    func onSideStoreCertificateCallback(certificateData: Data, password: String) {',
+                "canonical certificate callback ownership gate")
+        removal_anchor = '        LCUtils.appGroupUserDefault.set(nil, forKey: "LCCertificateData")'
+        if removal_anchor in text:
+            text = replace_once(
+                text,
+                removal_anchor,
+                '        V3CertificateImportOwnership.invalidate()\n        LCUtils.appGroupUserDefault.set(nil, forKey: "LCCertificateData")',
+                "invalidate certificate import ownership before removal")
+        removal_tail = '        UserDefaults.standard.set(nil, forKey: "LCAppGroupID")\n    }'
+        if removal_tail in text:
+            text = replace_once(
+                text,
+                removal_tail,
+                '        UserDefaults.standard.set(nil, forKey: "LCAppGroupID")\n        NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated"), object: nil)\n    }',
+                "certificate removal readiness invalidation")
+        external_callback = '                onSideStoreCertificateCallback(certificateData: certData, password: password)'
+        if external_callback in text:
+            text = replace_once(
+                text,
+                external_callback,
+                '                guard let requestID = queryItems["request_id"],\n                      V3CertificateImportOwnership.isActive(requestID) else { return }\n                v3CompleteSideStoreCertificateImport(certificateData: certData, password: password, requestID: requestID)',
+                "canonical callback requires exact live request id")
     # The programmatic route is required, but a NavigationLink placed as a Form
     # child is a List row participant: SwiftUI still allocates a row and its
     # minimum height for it, so the user sees a blank cell. Upstream uses this
