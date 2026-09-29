@@ -719,7 +719,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case .installation, .refreshVerification: return "Reload authoritative app status and expiration before retrying. Completion may be uncertain."
         case .endpointSelection, .heartbeat, .coreDevice, .cdTunnel, .rsdDiscovery, .rsdService, .lockdownConnection, .uniqueDeviceID, .network:
             return "Check LocalDevVPN and the device connection, then retry explicitly. This failure alone does not prove invalid pairing."
-        default: return "Reconnect explicitly and reload authoritative status before repeating a mutation."
+        default: return "Reload authoritative status to check whether the action took effect. If the cause remains unclear, copy Diagnostics before deciding whether to try again."
         }
     }
     public var safeMessage: String {
