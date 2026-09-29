@@ -159,6 +159,21 @@ struct BridgeTests {
     }
     @MainActor
     static func main() async throws {
+        let operationOwner = "operation:\(UUID().uuidString)"
+        let retainedOwners = ["auth:\(UUID().uuidString)", "refresh:\(UUID().uuidString)",
+                              "request:\(UUID().uuidString)"]
+        var ownerAuthority = V3StatusWriteAuthority()
+        for ownerID in [operationOwner] + retainedOwners {
+            let revision = ownerAuthority.reserveMutationRevision()
+            let ticket = ownerAuthority.begin(ownerID: ownerID, revision: revision,
+                serviceInstanceID: "fixture", kind: .mutation,
+                allowUnresolvedMutation: true)!
+            precondition(ownerAuthority.complete(ticket, outcome: .outcomeUnknown))
+        }
+        precondition(ownerAuthority.resolveOwnerAfterAuthoritativeReconciliation(operationOwner) &&
+                     ownerAuthority.unresolvedOwnerIDs == Set(retainedOwners),
+            "confirmed operation reconciliation must leave every other owner unresolved")
+
         let bridge = V3ServiceBridge(readTimeout: 0.25, commandTimeout: 1)
         let handler = RefreshHandler.shared
         let client = handler.client!
@@ -410,11 +425,33 @@ struct BridgeTests {
         client.operationState = "failed"
         let unresolved = try await bridge.request(operation: "opPoll", target: unresolvedSession)
         precondition(unresolved["outcomeUnknown"] as? Bool == true && bridge.isMutating)
+        let requestsBeforeUnconfirmedStart = client.requests.count
+        do {
+            _ = try await bridge.request(operation: "signOut")
+            preconditionFailure("unconfirmed operation ownership allowed a new mutation")
+        } catch let failure as CombinedFailure {
+            precondition(failure.code == .busy)
+        }
+        precondition(client.requests.count == requestsBeforeUnconfirmedStart,
+            "an unconfirmed operation must hold admission before dispatch")
         let stopsBeforeConfirmation = handler.stops
         precondition(bridge.confirmUncertainOperationAfterDeviceCheck(sessionID: unresolvedSession),
                      "user-confirmed device reconciliation must retire the uncertain backend process")
         precondition(handler.stops == stopsBeforeConfirmation + 1 && !bridge.isMutating,
                      "the explicit confirmed-reconciliation path must release the host mutation gate")
+        client.operationState = "working"
+        client.backendSettled = false
+        let postReconciliationSession = UUID().uuidString
+        _ = try await bridge.request(operation: "opStart",
+            payload: ["kind": "delete", "target": installedAppTarget,
+                      "session": postReconciliationSession])
+        precondition(bridge.isMutating,
+            "an exact confirmed reconciliation must admit the next operation")
+        client.operationState = "completed"
+        client.backendSettled = true
+        _ = try await bridge.request(operation: "opPoll", target: postReconciliationSession)
+        precondition(!bridge.isMutating,
+            "the next operation's own terminal reply must release its own lease")
 
         // A terminal authCancel reply arriving after its request times out is
         // late and bypasses ownership classification. It must not suppress the

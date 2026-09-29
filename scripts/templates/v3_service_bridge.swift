@@ -330,7 +330,14 @@ public final class V3ServiceBridge {
     /// Authoritative auth-session reconciliation may settle this exact active
     /// lease or its retired unresolved form. It never releases another owner.
     private func reconcileAuthStatusOwner(sessionID: String) {
-        let ownerID = "auth:\(sessionID)"
+        reconcileStatusOwnerAfterAuthoritativeEvidence("auth:\(sessionID)")
+    }
+
+    /// Reconciliation releases only the exact session owner reported by the
+    /// authoritative evidence. Active and retired unresolved leases share the
+    /// same owner authority, while unrelated operation, refresh, and request
+    /// owners remain fenced.
+    private func reconcileStatusOwnerAfterAuthoritativeEvidence(_ ownerID: String) {
         let resolved = statusWriteAuthority.resolveOwnerAfterAuthoritativeReconciliation(ownerID)
         for requestID in Array(statusLeaseByRequestID.keys) where
             statusLeaseByRequestID[requestID]?.ownerID == ownerID {
@@ -576,6 +583,7 @@ public final class V3ServiceBridge {
         knownOperationSessions.removeValue(forKey: sessionID)
         RefreshHandler.shared.v3_stopService()
         disconnected()
+        reconcileStatusOwnerAfterAuthoritativeEvidence("operation:\(sessionID)")
         return true
     }
 
@@ -588,12 +596,14 @@ public final class V3ServiceBridge {
         knownOperationSessions.removeValue(forKey: sessionID)
         RefreshHandler.shared.v3_stopService()
         disconnected()
+        reconcileStatusOwnerAfterAuthoritativeEvidence("operation:\(sessionID)")
     }
 
     public func retireReconciledRefreshService(runID: String) {
         guard UUID(uuidString: runID)?.uuidString == runID else { return }
         RefreshHandler.shared.v3_stopService()
         disconnected()
+        reconcileStatusOwnerAfterAuthoritativeEvidence("refresh:\(runID)")
     }
 
     public func forgetSettledOperationSession(_ sessionID: String) {

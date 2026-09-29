@@ -2250,6 +2250,21 @@ enum Failure: Error { case native }
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("V3 native callback exactly-once PASS", result.stdout)
 
+    def test_explicit_session_retirement_releases_only_its_status_owner(self):
+        bridge = (ROOT / "scripts/templates/v3_service_bridge.swift").read_text(encoding="utf-8")
+        confirm = bridge[bridge.index("public func confirmUncertainOperationAfterDeviceCheck"):
+                         bridge.index("public func retireReconciledRefreshService")]
+        self.assertIn('reconcileStatusOwnerAfterAuthoritativeEvidence("operation:\\(sessionID)")', confirm)
+        retire_operation = bridge[bridge.index("public func retireReconciledOperationService"):
+                                  bridge.index("public func retireReconciledRefreshService")]
+        self.assertIn('reconcileStatusOwnerAfterAuthoritativeEvidence("operation:\\(sessionID)")', retire_operation)
+        refresh = bridge[bridge.index("public func retireReconciledRefreshService"):
+                         bridge.index("public func forgetSettledOperationSession")]
+        self.assertIn('reconcileStatusOwnerAfterAuthoritativeEvidence("refresh:\\(runID)")', refresh)
+        disconnected = bridge[bridge.index("public func disconnected()"):
+                              bridge.index("private func cancelRemote")]
+        self.assertNotIn("reconcileStatusOwnerAfterAuthoritativeEvidence", disconnected)
+
     def test_shipped_bridge_lifecycle(self):
         compiler = shutil.which("swiftc")
         if not compiler:
