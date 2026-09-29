@@ -157,11 +157,13 @@ public final class V3ServiceBridge {
     private var activeMutation: String?
     private var authSessionOwnership = V3AuthSessionOwnership()
     private var statusWriteAuthority = V3StatusWriteAuthority()
+    private var hostRecoveryHoldActive = false
     private struct StatusLeaseWaiter {
         let id: String
         let ownerID: String
         let revision: UInt64
         let kind: V3StatusAuthorityLeaseKind
+        let allowUnresolvedMutation: Bool
         let continuation: CheckedContinuation<V3StatusWriteTicket, Error>
     }
     private var statusLeaseWaiters: [StatusLeaseWaiter] = []
@@ -173,7 +175,7 @@ public final class V3ServiceBridge {
         authSessionOwnership.hasActiveSession() || activeMutation != nil ||
         !activeOperationSessions.isEmpty || !cancellationRecovery.isEmpty ||
             statusWriteAuthority.hasActiveWrite || statusWriteAuthority.hasUnresolvedMutation ||
-            RefreshHandler.shared.v3RefreshToken != nil
+            hostRecoveryHoldActive || RefreshHandler.shared.v3RefreshToken != nil
     }
 
     private func anotherHostMutationActiveForRefreshControl(operation: String, target: String) -> Bool {
@@ -183,7 +185,7 @@ public final class V3ServiceBridge {
         let matchingStatusLease = statusWriteAuthority.activeLease?.ownerID == "refresh:\(target)"
         return authSessionOwnership.hasActiveSession() || activeMutation != nil ||
             !activeOperationSessions.isEmpty || !cancellationRecovery.isEmpty ||
-            statusWriteAuthority.hasUnresolvedMutation ||
+            statusWriteAuthority.hasUnresolvedMutation || hostRecoveryHoldActive ||
             (statusWriteAuthority.hasActiveWrite && !matchingStatusLease) ||
             (RefreshHandler.shared.v3RefreshToken != nil && !ownsRefreshRun)
     }
@@ -192,10 +194,15 @@ public final class V3ServiceBridge {
         String(RefreshHandler.shared.sideStorePid)
     }
 
+    public func setHostRecoveryHold(_ active: Bool) {
+        hostRecoveryHoldActive = active
+    }
+
     private func acquireStatusLease(ownerID: String,
-                                    kind: V3StatusAuthorityLeaseKind) async throws -> V3StatusWriteTicket {
+                                    kind: V3StatusAuthorityLeaseKind,
+                                    allowUnresolvedMutation: Bool = false) async throws -> V3StatusWriteTicket {
         try Task.checkCancellation()
-        if kind == .mutation && statusWriteAuthority.hasUnresolvedMutation {
+        if kind == .mutation && statusWriteAuthority.hasUnresolvedMutation && !allowUnresolvedMutation {
             throw CombinedFailure(operation: "command", stage: .command, code: .busy,
                 id: ownerID, retryable: false, safeCause: .operationInProgress)
         }
@@ -211,16 +218,19 @@ public final class V3ServiceBridge {
             try await withCheckedThrowingContinuation { continuation in
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
-                } else if statusWriteAuthority.canBegin(kind: kind) && statusLeaseWaiterOrder.count == 0,
+                } else if statusWriteAuthority.canBegin(kind: kind,
+                            allowUnresolvedMutation: allowUnresolvedMutation) && statusLeaseWaiterOrder.count == 0,
                           let ticket = statusWriteAuthority.begin(ownerID: ownerID,
                             revision: reservedRevision,
-                            serviceInstanceID: currentStatusServiceInstanceID, kind: kind) {
+                            serviceInstanceID: currentStatusServiceInstanceID, kind: kind,
+                            allowUnresolvedMutation: allowUnresolvedMutation) {
                     continuation.resume(returning: ticket)
                 } else {
                     statusLeaseWaiterOrder.enqueue(waiterID)
                     statusLeaseWaiters.append(StatusLeaseWaiter(id: waiterID,
                         ownerID: ownerID, revision: reservedRevision,
-                        kind: kind, continuation: continuation))
+                        kind: kind, allowUnresolvedMutation: allowUnresolvedMutation,
+                        continuation: continuation))
                 }
             }
         }, onCancel: {
@@ -240,7 +250,8 @@ public final class V3ServiceBridge {
         while let waiterID = statusLeaseWaiterOrder.takeNext() {
             guard let index = statusLeaseWaiters.firstIndex(where: { $0.id == waiterID }) else { continue }
             let waiter = statusLeaseWaiters.remove(at: index)
-            if waiter.kind == .mutation && statusWriteAuthority.hasUnresolvedMutation {
+            if waiter.kind == .mutation && statusWriteAuthority.hasUnresolvedMutation &&
+               !waiter.allowUnresolvedMutation {
                 waiter.continuation.resume(throwing: CombinedFailure(operation: "command",
                     stage: .command, code: .busy, id: waiter.id,
                     retryable: false, safeCause: .operationInProgress))
@@ -248,7 +259,8 @@ public final class V3ServiceBridge {
             }
             guard let ticket = statusWriteAuthority.begin(ownerID: waiter.ownerID,
                 revision: waiter.revision,
-                serviceInstanceID: currentStatusServiceInstanceID, kind: waiter.kind) else {
+                serviceInstanceID: currentStatusServiceInstanceID, kind: waiter.kind,
+                allowUnresolvedMutation: waiter.allowUnresolvedMutation) else {
                 waiter.continuation.resume(throwing: CombinedFailure(operation: "command",
                     stage: .command, code: .interrupted, id: waiter.id, retryable: true))
                 continue
@@ -309,11 +321,31 @@ public final class V3ServiceBridge {
             if let ticket,
                ticket.kind == .snapshot || ticket.ownerID == "request:\(requestID)" {
                 completeStatusLease(ticket, outcome: .outcomeUnknown)
+            } else if operation == "directRecoveryReconcile",
+                      let ticket, let active = statusWriteAuthority.activeLease, active == ticket {
+                // A malformed control reply cannot create a second unknown
+                // owner; the exact target recovery record remains authoritative.
+                completeStatusLease(ticket, outcome: .failed)
             }
             return
         }
         let result = envelope["result"] as? [String: Any] ?? [:]
         let confirmedNotDispatched = V3WireContract.strictBool(envelope["operationNotDispatched"]) == true
+        if operation == "directRecoveryReconcile",
+           V3WireContract.strictBool(envelope["ok"]) != true {
+            if let ticket, let active = statusWriteAuthority.activeLease, active == ticket {
+                completeStatusLease(active, outcome: .failed)
+            }
+            return
+        }
+        if ["directRecoveryInspect", "directRecoveryReconcile"].contains(operation),
+           (UUID(uuidString: target)?.uuidString != target || result["requestID"] as? String != target) {
+            if operation == "directRecoveryReconcile", let ticket,
+               let active = statusWriteAuthority.activeLease, active == ticket {
+                completeStatusLease(active, outcome: .failed)
+            }
+            return
+        }
         let requestedStartSession = operation == "opStart" ? payload?["session"] as? String : nil
         if !confirmedNotDispatched && !V3OperationSessionCorrelationPolicy.matches(operation: operation, target: target,
             requestedStartSession: requestedStartSession, resultSession: result["session"] as? String) { return }
@@ -338,8 +370,15 @@ public final class V3ServiceBridge {
             return
         }
         guard active.ownerID == ownerID else {
-            if let outcome = V3StatusAuthorityOperationPolicy.terminalOutcome(
-                operation: operation, result: envelope), outcome != .outcomeUnknown {
+            let outcome: V3StatusWriteOutcome?
+            if ownerID == "request:\(requestID)" {
+                outcome = confirmedNotDispatched ? .notDispatched :
+                    (V3WireContract.strictBool(envelope["ok"]) == true ? .committed : .outcomeUnknown)
+            } else {
+                outcome = V3StatusAuthorityOperationPolicy.terminalOutcome(
+                    operation: operation, result: envelope)
+            }
+            if let outcome, outcome != .outcomeUnknown {
                 resolveUnknownStatusOwner(ownerID)
             }
             return
@@ -368,20 +407,63 @@ public final class V3ServiceBridge {
             replyRequestID: replyCanReturn &&
                 (active.kind == .snapshot || active.ownerID == "request:\(requestID)")
                 ? requestID : nil)
+        if operation == "directRecoveryReconcile",
+           result["requestID"] as? String == target,
+           V3WireContract.strictBool(result["reconciled"]) == true {
+            resolveUnknownStatusOwner("request:\(target)")
+            NotificationCenter.default.post(name: Notification.Name("V3StatusAuthorityChanged"), object: nil)
+        }
     }
 
     private func attachStatusReplyTicket(_ result: [String: Any], requestID: String) -> [String: Any] {
         guard let ticket = statusReplyTicketByRequestID.removeValue(forKey: requestID) else { return result }
         var tagged = result
         tagged["_v3StatusAuthorityTicket"] = ticket
+        tagged["_v3StatusAuthorityRequestID"] = requestID
         return tagged
     }
+
+    /// ACKs only an exact terminal direct request after its feature caller has
+    /// accepted the successful result. The certCreate partial-remote outcome is
+    /// deliberately left in recovery for a manual check.
+    public func acknowledgeDirectRecoveryAfterSuccess(_ result: [String: Any],
+                                                       operation: String) async -> Bool {
+        guard V3DirectRecoveryHostPolicy.mayAcknowledgeSuccessfulResponse(
+                operation: operation, result: result),
+              let requestID = result["_v3StatusAuthorityRequestID"] as? String,
+              UUID(uuidString: requestID)?.uuidString == requestID else { return false }
+        // Close host admission while the durable terminal slot is being
+        // acknowledged. A current quiescent snapshot reopens it after proof.
+        setHostRecoveryHold(true)
+        do {
+            let ack = try await request(operation: "directRecoveryReconcile", target: requestID,
+                payload: ["ackTerminal": true])
+            guard ack["requestID"] as? String == requestID,
+                  V3WireContract.strictBool(ack["reconciled"]) == true else {
+                NotificationCenter.default.post(name: Notification.Name("V3StatusAuthorityChanged"), object: nil)
+                return false
+            }
+            NotificationCenter.default.post(name: Notification.Name("V3StatusAuthorityChanged"), object: nil)
+            return true
+        } catch {
+            // Preserve the original successful result in the caller. The durable
+            // recovery record remains visible on the next authoritative snapshot.
+            NotificationCenter.default.post(name: Notification.Name("V3StatusAuthorityChanged"), object: nil)
+            return false
+        }
+    }
+
 
     public func statusReplyMayApply(_ reply: [String: Any]) -> Bool {
         guard let ticket = reply["_v3StatusAuthorityTicket"] as? V3StatusWriteTicket else { return false }
         let busyValue: Bool?
         if ticket.kind == .snapshot {
-            guard let typedBusy = V3WireContract.strictBool(reply["busy"]) else { return false }
+            guard let typedBusy = V3WireContract.strictBool(reply["busy"]),
+                  V3WireContract.strictBool(reply["activeMutation"]) == false else { return false }
+            // These ownership facts are emitted on every current service
+            // snapshot. Missing or malformed fields cannot authorize a commit.
+            guard V3WireContract.strictBool(reply["activeMutation"]) != nil,
+                  V3WireContract.strictBool(reply["recoveryHold"]) != nil else { return false }
             busyValue = typedBusy
         } else {
             busyValue = false
@@ -398,10 +480,11 @@ public final class V3ServiceBridge {
               let busy = V3WireContract.strictBool(reply["busy"]), busy else { return false }
         let hasActiveMutationField = reply.keys.contains("activeMutation")
         let activeMutation = V3WireContract.strictBool(reply["activeMutation"])
-        guard !hasActiveMutationField || activeMutation != nil,
+        guard hasActiveMutationField, activeMutation == false,
+              V3WireContract.strictBool(reply["recoveryHold"]) == true,
               V3StatusRecoveryEvidencePolicy.mayApply(
                 busySnapshot: busy, activeMutation: activeMutation,
-                hasDurableRecoveryEvidence: V3StatusRecoveryEvidencePolicy.hasLegacyEvidence(reply)) else {
+                hasDurableRecoveryEvidence: V3StatusRecoveryEvidencePolicy.hasRecoveryEvidence(reply)) else {
             return false
         }
         return V3StatusReplyCommitPolicy.mayApply(ticket, authority: statusWriteAuthority,
@@ -480,8 +563,8 @@ public final class V3ServiceBridge {
             return payload?["session"] as? String ?? (target.isEmpty ? nil : target)
         }
         if ["authPoll", "authRespond", "authCancel",
-            "opRecoveryReconcile", "refreshAdmissionBegin", "refreshAdmissionEnd",
-            "refreshAdmissionReconcile"].contains(operation) {
+            "opRecoveryReconcile", "directRecoveryInspect", "directRecoveryReconcile",
+            "refreshAdmissionBegin", "refreshAdmissionEnd", "refreshAdmissionReconcile"].contains(operation) {
             return target
         }
         return nil
@@ -504,6 +587,11 @@ public final class V3ServiceBridge {
         let explicitRecoveryConfirmation = operation == "opRecoveryReconcile" &&
             V3WireContract.strictBool(payload?["userConfirmed"]) == true &&
             UUID(uuidString: target)?.uuidString == target
+        let directRecoveryTerminalAck = V3WireContract.strictBool(payload?["ackTerminal"]) == true
+        let directRecoveryUserCheck = V3WireContract.strictBool(payload?["userConfirmed"]) == true
+        let explicitDirectRecoveryControl = operation == "directRecoveryReconcile" &&
+            UUID(uuidString: target)?.uuidString == target &&
+            directRecoveryTerminalAck != directRecoveryUserCheck
         let scopedAuthSessionControl = ["authRespond", "authCancel"].contains(operation) &&
             authSessionOwnership.owns(target)
         let replacesAuthSession = ["authBegin", "authRetryProvisioning"].contains(operation) &&
@@ -518,7 +606,8 @@ public final class V3ServiceBridge {
                 operation: operation, target: target),
             userConfirmedReconciliation: V3WireContract.strictBool(payload?["userConfirmed"]) == true)
         if mutation {
-            guard scopedSessionControl || explicitRecoveryConfirmation || scopedAuthSessionControl || replacesAuthSession || scopedRefreshAdmissionControl ||
+            guard scopedSessionControl || explicitRecoveryConfirmation || explicitDirectRecoveryControl ||
+                    scopedAuthSessionControl || replacesAuthSession || scopedRefreshAdmissionControl ||
                     (!isMutating && RefreshHandler.shared.v3RefreshToken == nil) else {
                 if ["authBegin", "authRetryProvisioning"].contains(operation) {
                     let failure = CombinedFailure(operation: "signIn", stage: .command,
@@ -540,12 +629,13 @@ public final class V3ServiceBridge {
                 throw CombinedFailure(operation: operation, stage: .command, code: .busy,
                                       id: id, retryable: true, safeCause: .operationInProgress)
             }
-            if !scopedSessionControl && !explicitRecoveryConfirmation && !scopedAuthSessionControl { activeMutation = id }
+            if !scopedSessionControl && !explicitRecoveryConfirmation && !explicitDirectRecoveryControl &&
+               !scopedAuthSessionControl { activeMutation = id }
         }
         defer { if activeMutation == id { activeMutation = nil } }
         var statusLeaseTicket: V3StatusWriteTicket?
-        let directStatusOwner = V3StatusAuthorityOperationPolicy.directWriteOwnerID(
-            operation: operation, requestID: id)
+        let directStatusOwner = explicitDirectRecoveryControl ? "recovery-control:\(target)" :
+            V3StatusAuthorityOperationPolicy.directWriteOwnerID(operation: operation, requestID: id)
         let longStatusOwner = V3StatusAuthorityOperationPolicy.longOwnerID(
             operation: operation, sessionID: operationSessionID)
         let statusOwnerID: String?
@@ -564,7 +654,8 @@ public final class V3ServiceBridge {
             statusLeaseKind = nil
         }
         if let statusOwnerID, let statusLeaseKind {
-            statusLeaseTicket = try await acquireStatusLease(ownerID: statusOwnerID, kind: statusLeaseKind)
+            statusLeaseTicket = try await acquireStatusLease(ownerID: statusOwnerID, kind: statusLeaseKind,
+                allowUnresolvedMutation: explicitDirectRecoveryControl)
             statusLeaseByRequestID[id] = statusLeaseTicket
         }
         defer {

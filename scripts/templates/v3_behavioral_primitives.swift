@@ -12,6 +12,129 @@ enum V3SetupReloadRecomputePolicy {
     }
 }
 
+struct V3HostDirectRecoveryRecord: Equatable {
+    enum Phase: String { case prepared, dispatched, terminal, unknown }
+
+    let requestID: String
+    let operation: String
+    let phase: Phase
+    let resultState: String?
+    let postcondition: V3DirectRecoveryPostcondition?
+
+    init?(_ rawValue: Any?) {
+        guard let raw = rawValue as? [String: Any],
+              Set(raw.keys).isSubset(of: ["requestID", "operation", "phase", "resultState", "postcondition"]),
+              let requestID = raw["requestID"] as? String,
+              UUID(uuidString: requestID)?.uuidString == requestID,
+              let operation = raw["operation"] as? String,
+              Self.operations.contains(operation),
+              let phase = (raw["phase"] as? String).flatMap(Phase.init(rawValue:)),
+              !raw.keys.contains("resultState") || raw["resultState"] is String else { return nil }
+        let resultState = raw["resultState"] as? String
+        guard resultState.map({ ["completed", "createdAndStored",
+              "remoteCreatedLocalStorageUnverified"].contains($0) }) ?? true,
+              (phase == .terminal) == (resultState != nil) else { return nil }
+        let postcondition: V3DirectRecoveryPostcondition?
+        if raw.keys.contains("postcondition") {
+            guard let rawPostcondition = raw["postcondition"] as? String,
+                  let parsed = V3DirectRecoveryPostcondition(rawValue: rawPostcondition) else { return nil }
+            postcondition = parsed
+        } else {
+            postcondition = nil
+        }
+        self.requestID = requestID
+        self.operation = operation
+        self.phase = phase
+        self.resultState = resultState
+        self.postcondition = postcondition
+    }
+
+    init?(snapshotValue: Any?) {
+        guard let raw = snapshotValue as? [String: Any], !raw.keys.contains("postcondition"),
+              let parsed = V3HostDirectRecoveryRecord(raw) else { return nil }
+        self = parsed
+    }
+
+    init?(inspectionReply: [String: Any]) {
+        guard let parsed = V3HostDirectRecoveryRecord(inspectionReply),
+              parsed.postcondition != nil else { return nil }
+        self = parsed
+    }
+
+    static let operations: Set<String> = [
+        "certCreate", "certRevoke", "sourceAddConfirmed", "sourceRemoveConfirmed",
+        "pairingImportData", "settingsSet", "accountImport"
+    ]
+}
+
+enum V3DirectRecoveryPostcondition: String {
+    case achieved, notAchieved, indeterminate, manualCheckRequired, notDispatched
+}
+
+enum V3DirectRecoveryHostPolicy {
+    static func mayOfferUserConfirmation(_ record: V3HostDirectRecoveryRecord,
+                                        postcondition: V3DirectRecoveryPostcondition?) -> Bool {
+        record.phase != .dispatched && postcondition != nil
+    }
+
+    static func mayAcknowledgeSuccessfulResponse(operation: String,
+                                                  result: [String: Any]) -> Bool {
+        guard V3HostDirectRecoveryRecord.operations.contains(operation) else { return false }
+        if operation == "certCreate" {
+            return result["outcome"] as? String == "createdAndStored"
+        }
+        if operation == "accountImport" { return false }
+        return true
+    }
+
+    static func mayAcknowledgeInspectedTerminal(_ record: V3HostDirectRecoveryRecord,
+                                                 postcondition: V3DirectRecoveryPostcondition) -> Bool {
+        guard record.phase == .terminal, postcondition == .achieved else { return false }
+        if record.operation == "certCreate",
+           record.resultState == "remoteCreatedLocalStorageUnverified" { return false }
+        return true
+    }
+}
+
+enum V3DirectRecoveryPresentationPolicy {
+    static func operationName(_ operation: String) -> String {
+        switch operation {
+        case "certCreate": return "certificate creation"
+        case "certRevoke": return "certificate revocation"
+        case "sourceAddConfirmed": return "source add"
+        case "sourceRemoveConfirmed": return "source removal"
+        case "pairingImportData": return "pairing import"
+        case "settingsSet": return "setting change"
+        case "accountImport": return "account import"
+        default: return "SideStore request"
+        }
+    }
+
+    static func explanation(record: V3HostDirectRecoveryRecord,
+                            postcondition: V3DirectRecoveryPostcondition?) -> String {
+        if record.operation == "certCreate",
+           record.resultState == "remoteCreatedLocalStorageUnverified" {
+            return "The remote certificate may exist, but local storage was not verified. Check before trying again."
+        }
+        switch postcondition {
+        case .achieved:
+            return "The service verified the requested result. The matching terminal record can be acknowledged."
+        case .notAchieved:
+            return "The service did not observe the requested result. Check the account or device before clearing this hold."
+        case .indeterminate:
+            return "The service could not verify the result. Check the account or device before clearing this hold."
+        case .manualCheckRequired:
+            return "The result needs a manual account or device check before the recovery hold can be cleared."
+        case .notDispatched:
+            return "The service confirms this request was not dispatched. Clear the reservation only after reviewing it."
+        case nil:
+            return record.phase == .prepared
+                ? "SideStore prepared the request but did not confirm dispatch. Inspect the result before retrying."
+                : "The original reply is unavailable. Inspect the exact request before retrying."
+        }
+    }
+}
+
 enum V3AuthReadStampPolicy {
     static func ownsTicket(captured: UInt64, current: UInt64) -> Bool {
         captured == current
@@ -108,8 +231,9 @@ struct V3StatusWriteAuthority: Sendable {
     // generic snapshot; operation-specific reconciliation must resolve them.
     private(set) var unresolvedOwnerIDs: Set<String> = []
 
-    func canBegin(kind: V3StatusAuthorityLeaseKind) -> Bool {
-        activeLease == nil && (kind == .snapshot || !hasUnresolvedMutation)
+    func canBegin(kind: V3StatusAuthorityLeaseKind,
+                  allowUnresolvedMutation: Bool = false) -> Bool {
+        activeLease == nil && (kind == .snapshot || allowUnresolvedMutation || !hasUnresolvedMutation)
     }
 
     /// A mutation reserves a revision before it can suspend for a lease or XPC.
@@ -120,8 +244,10 @@ struct V3StatusWriteAuthority: Sendable {
 
     mutating func begin(ownerID: String, revision reservedRevision: UInt64,
                         serviceInstanceID: String,
-                        kind: V3StatusAuthorityLeaseKind) -> V3StatusWriteTicket? {
-        guard canBegin(kind: kind), reservedRevision <= revision else { return nil }
+                        kind: V3StatusAuthorityLeaseKind,
+                        allowUnresolvedMutation: Bool = false) -> V3StatusWriteTicket? {
+        guard canBegin(kind: kind, allowUnresolvedMutation: allowUnresolvedMutation),
+              reservedRevision <= revision else { return nil }
         let ticket = V3StatusWriteTicket(revision: reservedRevision,
             serviceEpoch: serviceEpoch, ownerID: ownerID,
             serviceInstanceID: serviceInstanceID, kind: kind)
@@ -171,7 +297,9 @@ struct V3StatusWriteAuthority: Sendable {
         serviceInstanceID = nil
         guard let retired = activeLease else { return nil }
         activeLease = nil
-        if retired.kind == .mutation { unresolvedOwnerIDs.insert(retired.ownerID) }
+        if retired.kind == .mutation && !retired.ownerID.hasPrefix("recovery-control:") {
+            unresolvedOwnerIDs.insert(retired.ownerID)
+        }
         return retired
     }
 
@@ -214,7 +342,8 @@ enum V3StatusRecoveryEvidencePolicy {
         busySnapshot && activeMutation != true && hasDurableRecoveryEvidence
     }
 
-    static func hasLegacyEvidence(_ reply: [String: Any]) -> Bool {
+    static func hasRecoveryEvidence(_ reply: [String: Any]) -> Bool {
+        let recoveryHold = V3OperationReplyFieldPolicy.strictBoolean(reply["recoveryHold"]) == true
         let operation = reply["operationRecovery"] as? [String: Any]
         let operationEvidence = operation?["session"] as? String
         let refresh = reply["refreshRecovery"] as? [String: Any]
@@ -222,7 +351,11 @@ enum V3StatusRecoveryEvidencePolicy {
         let refreshEvidence = refreshRunID.map { UUID(uuidString: $0)?.uuidString == $0 } == true &&
             V3OperationReplyFieldPolicy.strictBoolean(refresh?["ownerLost"]) == true
         let unreadable = V3OperationReplyFieldPolicy.strictBoolean(reply["recoveryJournalUnreadable"]) == true
-        return unreadable || refreshEvidence ||
+        let direct = V3HostDirectRecoveryRecord(snapshotValue: reply["directRecovery"])
+        let directEvidence = direct != nil && recoveryHold
+        let hasRecoveryField = reply.keys.contains("operationRecovery") ||
+            reply.keys.contains("refreshRecovery") || reply.keys.contains("directRecovery")
+        return recoveryHold || hasRecoveryField || directEvidence || unreadable || refreshEvidence ||
             (operationEvidence.map { UUID(uuidString: $0) != nil } == true &&
              (operation?["kind"] as? String)?.isEmpty == false &&
              V3OperationRecoveryRecord.Phase(rawValue: operation?["phase"] as? String ?? "") != nil)
@@ -287,6 +420,9 @@ enum V3StatusAuthorityOperationPolicy {
                 V3OperationReplyFieldPolicy.strictBoolean(payload["reconciled"]) == true) { return .committed }
             return nil
         case "opRecoveryReconcile":
+            return V3OperationReplyFieldPolicy.strictBoolean(payload["reconciled"]) == true
+                ? .committed : nil
+        case "directRecoveryReconcile":
             return V3OperationReplyFieldPolicy.strictBoolean(payload["reconciled"]) == true
                 ? .committed : nil
         default:

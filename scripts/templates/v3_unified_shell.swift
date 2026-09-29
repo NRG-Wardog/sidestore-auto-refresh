@@ -155,6 +155,7 @@ struct V3UnifiedTabs: View {
     @State private var showOperationDeviceCheck = false
     @State private var showRefreshDeviceCheck = false
     @State private var showUnreadableRecoveryDeviceCheck = false
+    @State private var showDirectRecoveryDeviceCheck = false
     private let monitor = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     var body: some View {
         TabView(selection: $sharedModel.selectedTab) {
@@ -263,6 +264,41 @@ struct V3UnifiedTabs: View {
                         Button("Keep waiting", role: .cancel) {}
                     } message: {
                         Text("Only continue after confirming the device is no longer installing, updating, refreshing, or deleting the app.")
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.regularMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 12)
+                .padding(.top, 4)
+            } else if let direct = status.unresolvedDirectRecovery {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("A previous \(V3DirectRecoveryPresentationPolicy.operationName(direct.operation)) has an unresolved result")
+                        .font(.subheadline.weight(.semibold))
+                    Text(V3DirectRecoveryPresentationPolicy.explanation(
+                        record: direct, postcondition: status.directRecoveryPostcondition))
+                        .font(.caption)
+                    Button(status.directRecoveryInspecting ? "Inspecting..." : "Inspect result") {
+                        status.inspectDirectRecovery()
+                    }
+                    .disabled(status.directRecoveryInspecting)
+                        .font(.caption.weight(.semibold))
+                    if V3DirectRecoveryHostPolicy.mayOfferUserConfirmation(
+                        direct, postcondition: status.directRecoveryPostcondition) {
+                        Button("I checked the account or device", role: .destructive) {
+                            showDirectRecoveryDeviceCheck = true
+                        }
+                        .font(.caption.weight(.semibold))
+                        .confirmationDialog("Reconcile the previous request?",
+                            isPresented: $showDirectRecoveryDeviceCheck, titleVisibility: .visible) {
+                            Button("Confirm after checking", role: .destructive) {
+                                status.reconcileDirectRecoveryAfterUserCheck()
+                            }
+                            Button("Keep recovery hold", role: .cancel) {}
+                        } message: {
+                            Text("Only clear this request after checking the account, source, certificate, pairing, or setting it may have changed.")
+                        }
                     }
                 }
                 .padding(12)
@@ -1222,6 +1258,9 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var unresolvedOperationRecovery: V3OperationRecoveryRecord?
     @Published private(set) var unresolvedRefreshRecoveryRunID: String?
     @Published private(set) var unresolvedRecoveryJournalUnreadable = false
+    @Published private(set) var unresolvedDirectRecovery: V3HostDirectRecoveryRecord?
+    @Published private(set) var directRecoveryPostcondition: V3DirectRecoveryPostcondition?
+    @Published private(set) var directRecoveryInspecting = false
     // V3_USER_FACING_ISSUE_V1: the structured issue behind the global alert.
     // The string form is retained for compatibility and copyable summaries, but
     // actions are chosen from the typed issue, never from the string.
@@ -1301,6 +1340,67 @@ final class V3SideStoreStatusStore: ObservableObject {
             } catch {
                 self.error = "SideStore could not clear the refresh hold. Reconnect and try again."
             }
+        }
+    }
+
+    func inspectDirectRecovery() {
+        guard !directRecoveryInspecting, let record = unresolvedDirectRecovery else { return }
+        directRecoveryInspecting = true
+        Task {
+            defer { directRecoveryInspecting = false }
+            do {
+                let reply = try await V3ServiceBridge.shared.request(
+                    operation: "directRecoveryInspect", target: record.requestID)
+                guard let inspected = V3HostDirectRecoveryRecord(inspectionReply: reply),
+                      inspected.requestID == record.requestID,
+                      inspected.operation == record.operation,
+                      let postcondition = inspected.postcondition,
+                      unresolvedDirectRecovery?.requestID == record.requestID else {
+                    throw CombinedFailure(operation: "directRecoveryInspect", stage: .command,
+                        code: .staleResult, id: record.requestID, retryable: false)
+                }
+                unresolvedDirectRecovery = inspected
+                directRecoveryPostcondition = postcondition
+                if V3DirectRecoveryHostPolicy.mayAcknowledgeInspectedTerminal(
+                    inspected, postcondition: postcondition) {
+                    _ = await reconcileDirectRecovery(inspected, userConfirmed: false)
+                }
+            } catch {
+                present(error)
+                reload()
+            }
+        }
+    }
+
+    func reconcileDirectRecoveryAfterUserCheck() {
+        guard let record = unresolvedDirectRecovery,
+              V3DirectRecoveryHostPolicy.mayOfferUserConfirmation(
+                record, postcondition: directRecoveryPostcondition) else { return }
+        Task { _ = await reconcileDirectRecovery(record, userConfirmed: true) }
+    }
+
+    private func reconcileDirectRecovery(_ record: V3HostDirectRecoveryRecord,
+                                         userConfirmed: Bool) async -> Bool {
+        let payload: [String: Any] = record.phase == .terminal
+            ? ["ackTerminal": true] : ["userConfirmed": userConfirmed]
+        do {
+            let reply = try await V3ServiceBridge.shared.request(operation: "directRecoveryReconcile",
+                target: record.requestID, payload: payload)
+            guard reply["requestID"] as? String == record.requestID,
+                  V3WireContract.strictBool(reply["reconciled"]) == true else {
+                throw CombinedFailure(operation: "directRecoveryReconcile", stage: .command,
+                    code: .staleResult, id: record.requestID, retryable: false)
+            }
+            if unresolvedDirectRecovery?.requestID == record.requestID {
+                unresolvedDirectRecovery = nil
+                directRecoveryPostcondition = nil
+            }
+            notice = "The previous request was reconciled."
+            reload()
+            return true
+        } catch {
+            present(error)
+            return false
         }
     }
 
@@ -1777,7 +1877,11 @@ final class V3SideStoreStatusStore: ObservableObject {
 
     private func acceptRecoveryEvidence(_ snapshot: [String: Any]) -> Bool {
         guard V3ServiceBridge.shared.statusReplyMayApplyRecoveryEvidence(snapshot) else { return false }
-        if let recovery = snapshot["operationRecovery"] as? [String: Any],
+        V3ServiceBridge.shared.setHostRecoveryHold(true)
+        let recoveryHold = V3WireContract.strictBool(snapshot["recoveryHold"]) == true
+        var foundValidEvidence = false
+        if snapshot.keys.contains("operationRecovery"),
+           let recovery = snapshot["operationRecovery"] as? [String: Any],
            let session = recovery["session"] as? String,
            UUID(uuidString: session) != nil,
            let kind = recovery["kind"] as? String, !kind.isEmpty,
@@ -1785,21 +1889,47 @@ final class V3SideStoreStatusStore: ObservableObject {
            let phase = V3OperationRecoveryRecord.Phase(rawValue: phaseText) {
             unresolvedOperationRecovery = V3OperationRecoveryRecord(sessionID: session, kind: kind,
                 phase: phase, stagedIPAToken: recovery["stagedIPAToken"] as? String)
+            foundValidEvidence = true
+        } else if snapshot.keys.contains("operationRecovery") {
+            unresolvedOperationRecovery = nil
+            unresolvedRecoveryJournalUnreadable = true
         }
-        if let refresh = snapshot["refreshRecovery"] as? [String: Any],
+        if snapshot.keys.contains("refreshRecovery"),
+           let refresh = snapshot["refreshRecovery"] as? [String: Any],
            let runID = refresh["runID"] as? String,
-           V3WireContract.strictBool(refresh["ownerLost"]) == true,
+           let ownerLost = V3WireContract.strictBool(refresh["ownerLost"]),
            UUID(uuidString: runID)?.uuidString == runID {
-            unresolvedRefreshRecoveryRunID = runID
+            if ownerLost { unresolvedRefreshRecoveryRunID = runID }
+            foundValidEvidence = true
+        } else if snapshot.keys.contains("refreshRecovery") {
+            unresolvedRefreshRecoveryRunID = nil
+            unresolvedRecoveryJournalUnreadable = true
         }
         if V3WireContract.strictBool(snapshot["recoveryJournalUnreadable"]) == true {
+            unresolvedRecoveryJournalUnreadable = true
+        }
+        if snapshot.keys.contains("directRecovery") {
+            if recoveryHold,
+               let direct = V3HostDirectRecoveryRecord(snapshotValue: snapshot["directRecovery"]) {
+                unresolvedDirectRecovery = direct
+                directRecoveryPostcondition = nil
+                foundValidEvidence = true
+            } else {
+                unresolvedRecoveryJournalUnreadable = true
+            }
+        }
+        if recoveryHold && !foundValidEvidence && !unresolvedRecoveryJournalUnreadable {
             unresolvedRecoveryJournalUnreadable = true
         }
         return true
     }
 
     private func applyFullRecoveryEvidence(_ snapshot: [String: Any]) {
-        if let recovery = snapshot["operationRecovery"] as? [String: Any],
+        let recoveryHold = V3WireContract.strictBool(snapshot["recoveryHold"]) == true
+        var foundValidEvidence = false
+        var unreadable = V3WireContract.strictBool(snapshot["recoveryJournalUnreadable"]) == true
+        if snapshot.keys.contains("operationRecovery"),
+           let recovery = snapshot["operationRecovery"] as? [String: Any],
            let session = recovery["session"] as? String,
            UUID(uuidString: session) != nil,
            let kind = recovery["kind"] as? String, !kind.isEmpty,
@@ -1807,26 +1937,50 @@ final class V3SideStoreStatusStore: ObservableObject {
            let phase = V3OperationRecoveryRecord.Phase(rawValue: phaseText) {
             unresolvedOperationRecovery = V3OperationRecoveryRecord(sessionID: session, kind: kind,
                 phase: phase, stagedIPAToken: recovery["stagedIPAToken"] as? String)
+            foundValidEvidence = true
         } else {
             unresolvedOperationRecovery = nil
+            if snapshot.keys.contains("operationRecovery") { unreadable = true }
         }
-        if let refresh = snapshot["refreshRecovery"] as? [String: Any],
+        if snapshot.keys.contains("refreshRecovery"),
+           let refresh = snapshot["refreshRecovery"] as? [String: Any],
            let runID = refresh["runID"] as? String,
-           V3WireContract.strictBool(refresh["ownerLost"]) == true,
+           let ownerLost = V3WireContract.strictBool(refresh["ownerLost"]),
            UUID(uuidString: runID)?.uuidString == runID {
-            unresolvedRefreshRecoveryRunID = runID
+            unresolvedRefreshRecoveryRunID = ownerLost ? runID : nil
+            foundValidEvidence = true
         } else {
             unresolvedRefreshRecoveryRunID = nil
+            if snapshot.keys.contains("refreshRecovery") { unreadable = true }
         }
-        unresolvedRecoveryJournalUnreadable = V3WireContract.strictBool(
-            snapshot["recoveryJournalUnreadable"]) == true
+        if snapshot.keys.contains("directRecovery") {
+            if recoveryHold,
+               let direct = V3HostDirectRecoveryRecord(snapshotValue: snapshot["directRecovery"]) {
+                unresolvedDirectRecovery = direct
+                foundValidEvidence = true
+            } else {
+                unreadable = true
+            }
+        }
+        if recoveryHold && !foundValidEvidence && !unreadable { unreadable = true }
+        unresolvedRecoveryJournalUnreadable = unreadable
+        directRecoveryPostcondition = nil
+        // Only a full, current-ticket snapshot with no durable hold can clear
+        // the bridge admission fence. Locally retained unknown records keep it
+        // closed even if an unrelated snapshot omits their journal entry.
+        let locallyUnresolved = unresolvedOperationRecovery != nil ||
+            unresolvedRefreshRecoveryRunID != nil || unresolvedRecoveryJournalUnreadable ||
+            unresolvedDirectRecovery != nil
+        V3ServiceBridge.shared.setHostRecoveryHold(recoveryHold || locallyUnresolved)
     }
     private func rejectForUnresolvedRecovery() -> Bool {
         guard unresolvedOperationRecovery != nil || unresolvedRefreshRecoveryRunID != nil ||
-              unresolvedRecoveryJournalUnreadable else { return false }
+              unresolvedRecoveryJournalUnreadable || unresolvedDirectRecovery != nil else { return false }
         error = unresolvedRecoveryJournalUnreadable
             ? "The recovery record cannot be read. Use the recovery banner after checking the device before starting another operation."
-            : "A previous operation is unresolved. Use the recovery banner at the top of SideStore to resume its status check or reconcile after checking the device."
+            : unresolvedDirectRecovery != nil
+                ? "A previous request has an unresolved result. Inspect it in the recovery banner before repeating the action."
+                : "A previous operation is unresolved. Use the recovery banner at the top of SideStore to resume its status check or reconcile after checking the device."
         return true
     }
 
@@ -2840,6 +2994,8 @@ struct V3SourcesView: View {
                     correlationID: UUID().uuidString)
             }
             acceptedSnapshot = result
+            _ = await V3ServiceBridge.shared.acknowledgeDirectRecoveryAfterSuccess(
+                result, operation: "sourceAddConfirmed")
             preview = nil
             status.sourceURL = ""
             isAddSourcePresented = false
@@ -2868,6 +3024,8 @@ struct V3SourcesView: View {
         let mutationTicket = status.beginDirectMutation()
         do {
             let result = try await V3ServiceBridge.shared.request(operation: "sourceRemoveConfirmed", target: id)
+            _ = await V3ServiceBridge.shared.acknowledgeDirectRecoveryAfterSuccess(
+                result, operation: "sourceRemoveConfirmed")
             status.finishDirectMutation(ticket: mutationTicket, reply: result)
             notice = "Source removed."
         } catch {
@@ -3343,8 +3501,10 @@ struct V3BoolSettingRow: View {
         Task {
             let mutationTicket = status.beginDirectMutation()
             do {
-                _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
+                let reply = try await V3ServiceBridge.shared.request(operation: "settingsSet",
                     payload: ["key": key, "type": "bool", "bool": newValue])
+                _ = await V3ServiceBridge.shared.acknowledgeDirectRecoveryAfterSuccess(
+                    reply, operation: "settingsSet")
                 status.finishDirectMutation(ticket: mutationTicket, requestReload: true)
                 if writeGenerations.isCurrent(generation, for: key) {
                     confirmedValue = newValue
@@ -4123,8 +4283,10 @@ struct V3OperationSheet: View {
         guard !id.isEmpty, attempt.beginTransition() else { return }
         do {
             let preview = try await V3ServiceBridge.shared.request(operation: "sourcePreview", target: id)
-            _ = try await V3ServiceBridge.shared.request(operation: "sourceAddConfirmed",
+            let added = try await V3ServiceBridge.shared.request(operation: "sourceAddConfirmed",
                 target: preview["identifier"] as? String ?? id)
+            _ = await V3ServiceBridge.shared.acknowledgeDirectRecoveryAfterSuccess(
+                added, operation: "sourceAddConfirmed")
             sourceAddFailure = nil
             sourceAddRetryBlocked = false
             retryBlocked = false
@@ -6665,10 +6827,17 @@ struct V3CertificatesView: View {
             var mutationSnapshot: [String: Any]?
             switch action {
             case "delete": mutationSnapshot = try await V3ServiceBridge.shared.request(operation: "certDelete", target: serial)
-            case "revoke": mutationSnapshot = try await V3ServiceBridge.shared.request(operation: "certRevoke", target: serial)
+            case "revoke":
+                mutationSnapshot = try await V3ServiceBridge.shared.request(operation: "certRevoke", target: serial)
+                if let mutationSnapshot {
+                    _ = await V3ServiceBridge.shared.acknowledgeDirectRecoveryAfterSuccess(
+                        mutationSnapshot, operation: "certRevoke")
+                }
             default:
                 let reply = try await V3ServiceBridge.shared.request(operation: "certCreate")
                 certificateCreateOutcome = reply["outcome"] as? String
+                _ = await V3ServiceBridge.shared.acknowledgeDirectRecoveryAfterSuccess(
+                    reply, operation: "certCreate")
             }
             status.finishDirectMutation(ticket: mutationTicket, reply: mutationSnapshot)
             // Certificate mutations can invalidate the cached JIT-Less
@@ -7051,6 +7220,8 @@ struct V3PairingView: View {
             mutationTicket = status.beginDirectMutation()
             let result = try await V3ServiceBridge.shared.request(operation: "pairingImportData", target: token)
             status.finishDirectMutation(ticket: mutationTicket!, reply: result)
+            _ = await V3ServiceBridge.shared.acknowledgeDirectRecoveryAfterSuccess(
+                result, operation: "pairingImportData")
             mutationTicket = nil
             message = ""
         } catch {
@@ -7105,8 +7276,10 @@ final class V3SettingsStore: ObservableObject {
         bools[key] = value
         Task {
             do {
-                _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
+                let reply = try await V3ServiceBridge.shared.request(operation: "settingsSet",
                     payload: ["key": key, "type": "bool", "bool": value])
+                _ = await V3ServiceBridge.shared.acknowledgeDirectRecoveryAfterSuccess(
+                    reply, operation: "settingsSet")
                 if writeGenerations.isCurrent(generation, for: key) {
                     confirmedBools[key] = value
                 } else {
@@ -7131,8 +7304,10 @@ final class V3SettingsStore: ObservableObject {
         strings[key] = value
         message = ""
         do {
-            _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
+            let reply = try await V3ServiceBridge.shared.request(operation: "settingsSet",
                 payload: ["key": key, "type": "string", "string": value])
+            _ = await V3ServiceBridge.shared.acknowledgeDirectRecoveryAfterSuccess(
+                reply, operation: "settingsSet")
             if writeGenerations.isCurrent(generation, for: key) {
                 confirmedStrings[key] = value
             } else {
@@ -7153,8 +7328,10 @@ final class V3SettingsStore: ObservableObject {
         ints[key] = value
         Task {
             do {
-                _ = try await V3ServiceBridge.shared.request(operation: "settingsSet",
+                let reply = try await V3ServiceBridge.shared.request(operation: "settingsSet",
                     payload: ["key": key, "type": "int", "int": value])
+                _ = await V3ServiceBridge.shared.acknowledgeDirectRecoveryAfterSuccess(
+                    reply, operation: "settingsSet")
                 if writeGenerations.isCurrent(generation, for: key) {
                     confirmedInts[key] = value
                 } else {
