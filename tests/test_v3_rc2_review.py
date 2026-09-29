@@ -721,6 +721,23 @@ class SourceKeyboardTests(unittest.TestCase):
         self.assertIn('Button("Cancel") { cancelSourceEditing() }', sources)
         self.assertIn('Button("Done") { dismissKeyboard() }', sources)
 
+    def test_add_source_has_visible_cancel_when_keyboard_is_hidden_or_shown(self):
+        text = shell()
+        sources = text[text.index("struct V3SourcesView"):]
+        sources = sources[:sources.index("struct V3CatalogApp")]
+        self.assertIn("if isAddSourcePresented {", sources)
+        self.assertIn('ToolbarItem(placement: .cancellationAction)', sources)
+        self.assertIn('Button("Cancel", action: cancelSourceForm)', sources)
+        self.assertIn('accessibilityHint("Closes Add Source without previewing or adding the URL.")', sources)
+        self.assertIn("V3SourceEditingPolicy.closeForm(V3SourceFormState(", sources)
+
+    def test_prefilled_and_saved_guest_urls_open_the_source_form(self):
+        text = shell()
+        sources = text[text.index("struct V3SourcesView"):]
+        sources = sources[:sources.index("struct V3CatalogApp")]
+        self.assertIn('if !status.sourceURL.isEmpty { openSourceForm() }', sources)
+        self.assertIn("status.sourceURL = url\n                                openSourceForm()", sources)
+
     def test_return_only_dismisses_the_keyboard(self):
         text = shell()
         sources = text[text.index("struct V3SourcesView"):]
@@ -741,6 +758,12 @@ class SourceKeyboardTests(unittest.TestCase):
                               "sourcePreview", "status.reload"):
                 self.assertNotIn(forbidden, block,
                                  f"a keyboard action must not trigger {forbidden}")
+        cancel_form = sources[sources.index("private func cancelSourceForm()"):]
+        cancel_form = cancel_form[:cancel_form.index("\n    }")]
+        for forbidden in ("previewSource", "confirmAdd", "V3ServiceBridge", "sourceAddConfirmed",
+                          "sourcePreview", "status.reload"):
+            self.assertNotIn(forbidden, cancel_form,
+                             f"Add Source Cancel must not trigger {forbidden}")
 
     def test_preview_and_add_remain_separate_explicit_actions(self):
         text = shell()

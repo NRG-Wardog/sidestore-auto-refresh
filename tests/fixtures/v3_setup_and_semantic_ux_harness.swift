@@ -866,6 +866,23 @@ struct SetupAndSemanticUXHarness {
         precondition(V3SourceEditingPolicy.resolved(
             V3SourceEditingPolicy.cancel(typed: "same", beforeEditing: "same"), typed: "same") == "same")
 
+        // A visible Add Source Cancel closes the form with keyboard either
+        // shown or hidden, restores the pre-open value, discards only the local
+        // preview, and emits no preview/validate/persist effect.
+        for focused in [false, true] {
+            let beforeCancel = V3SourceFormState(isPresented: true,
+                url: "https://example.invalid/new.json",
+                originalURL: "https://example.invalid/saved.json",
+                isFocused: focused, hasPreview: true)
+            let cancelled = V3SourceEditingPolicy.closeForm(beforeCancel)
+            precondition(!cancelled.state.isPresented)
+            precondition(cancelled.state.url == beforeCancel.originalURL)
+            precondition(!cancelled.state.isFocused)
+            precondition(!cancelled.state.hasPreview)
+            precondition(cancelled.effects.isEmpty,
+                "Cancel must not preview, validate, or persist a source")
+        }
+
         // V3_SHARED_JITLESS_FACT_V1: Home and the Setup Assistant must be able to
         // reach the same completion answer from the same observed readiness.
         // A verified copy completes the item on a platform that requires it; an

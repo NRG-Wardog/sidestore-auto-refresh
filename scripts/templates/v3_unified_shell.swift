@@ -2276,6 +2276,9 @@ struct V3SourcesView: View {
     // @State so the pre-edit value survives; the view is a struct, so a plain
     // stored var could not be assigned from a non-mutating method.
     @State private var sourceURLBeforeEditing: String = ""
+    @State private var sourceURLBeforeOpening: String = ""
+    @State private var isAddSourcePresented = false
+    @State private var didResolveInitialSourcePrefill = false
     private var savedGuestSources: [String] {
         (UserDefaults.standard.stringArray(forKey: "LCAltStoreSourceURLs") ?? [])
             .filter { saved in !status.sources.contains(where: { $0.url == saved }) }
@@ -2320,73 +2323,82 @@ struct V3SourcesView: View {
                         .font(.caption)
                     }
                 }
-                Section("Add Source") {
-                    HStack {
-                        Image(systemName: "link")
-                            .foregroundColor(.secondary)
-                        TextField("https://example.com/source.json", text: $status.sourceURL)
-                            .keyboardType(.URL)
-                            .autocapitalization(.none)
-                            .disableAutocorrection(true)
-                            .focused($sourceFieldFocused)
-                            // Return only dismisses the keyboard. It never
-                            // previews and never adds a source.
-                            .submitLabel(.done)
-                            .onSubmit { dismissKeyboard() }
-                            // The pre-edit value is captured when editing actually
-                            // begins, which is focus. It used to be captured when a
-                            // preview was requested, so a Cancel after typing but
-                            // before previewing restored the wrong value, and a
-                            // Cancel after previewing restored the value that was
-                            // already on screen. Only the rising edge captures,
-                            // because Cancel itself drops focus and must not
-                            // overwrite the value it is about to restore.
-                    .onChange(of: sourceFieldFocused) { focused in
-                        if focused { sourceURLBeforeEditing = status.sourceURL }
-                    }
-                    .onChange(of: status.sourceURL) { newURL in
-                        if failedSourceInput != newURL {
-                            sourceFailure = nil
-                            failedSourceInput = nil
-                        }
-                        if let previewURL = preview?["url"] as? String, previewURL != newURL {
-                            preview = nil
-                        }
-                    }
-                    }
-                    // Explicit keyboard dismissal, with an explicit Cancel that
-                    // performs no preview, no network request and no persistence.
-                    .toolbar {
-                        ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button("Cancel") { cancelSourceEditing() }
-                            Button("Done") { dismissKeyboard() }
-                        }
-                    }
-                    Button {
-                        Task { await previewSource() }
-                    } label: {
-                        Label(previewBusy ? "Checking Source..." : "Preview and Add Source", systemImage: "plus.circle.fill")
-                    }
-                    .disabled(status.sourceURL.isEmpty || previewBusy || isSubmissionBlocked(for: status.sourceURL))
-                    if let preview {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(preview["name"] as? String ?? "")
-                                .font(.headline)
-                            Text(preview["title"] as? String ?? "")
-                                .font(.subheadline)
-                            Text(preview["message"] as? String ?? "")
-                                .font(.caption)
+                if isAddSourcePresented {
+                    Section("Add Source") {
+                        HStack {
+                            Image(systemName: "link")
                                 .foregroundColor(.secondary)
+                            TextField("https://example.com/source.json", text: $status.sourceURL)
+                                .keyboardType(.URL)
+                                .autocapitalization(.none)
+                                .disableAutocorrection(true)
+                                .focused($sourceFieldFocused)
+                                // Return only dismisses the keyboard. It never
+                                // previews and never adds a source.
+                                .submitLabel(.done)
+                                .onSubmit { dismissKeyboard() }
+                                // The pre-edit value is captured when editing actually
+                                // begins, which is focus. It used to be captured when a
+                                // preview was requested, so a Cancel after typing but
+                                // before previewing restored the wrong value, and a
+                                // Cancel after previewing restored the value that was
+                                // already on screen. Only the rising edge captures,
+                                // because Cancel itself drops focus and must not
+                                // overwrite the value it is about to restore.
+                        .onChange(of: sourceFieldFocused) { focused in
+                            if focused { sourceURLBeforeEditing = status.sourceURL }
                         }
-                        .padding(.vertical, 4)
+                        .onChange(of: status.sourceURL) { newURL in
+                            if failedSourceInput != newURL {
+                                sourceFailure = nil
+                                failedSourceInput = nil
+                            }
+                            if let previewURL = preview?["url"] as? String, previewURL != newURL {
+                                preview = nil
+                            }
+                        }
+                        }
+                        // Explicit keyboard dismissal, with an explicit Cancel that
+                        // performs no preview, no network request and no persistence.
+                        .toolbar {
+                            ToolbarItemGroup(placement: .keyboard) {
+                                Spacer()
+                                Button("Cancel") { cancelSourceEditing() }
+                                Button("Done") { dismissKeyboard() }
+                            }
+                        }
                         Button {
-                            Task { await confirmAdd(url: preview["url"] as? String ?? status.sourceURL) }
+                            Task { await previewSource() }
                         } label: {
-                            Label((preview["alreadyAdded"] as? Bool ?? false) ? "Already Added" : (addBusy ? "Adding Source..." : "Confirm Add Source"), systemImage: "checkmark.circle.fill")
+                            Label(previewBusy ? "Checking Source..." : "Preview and Add Source", systemImage: "plus.circle.fill")
                         }
-                        .disabled((preview["alreadyAdded"] as? Bool ?? false) || addBusy ||
-                            isSubmissionBlocked(for: preview["url"] as? String ?? status.sourceURL))
+                        .disabled(status.sourceURL.isEmpty || previewBusy || isSubmissionBlocked(for: status.sourceURL))
+                        if let preview {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(preview["name"] as? String ?? "")
+                                    .font(.headline)
+                                Text(preview["title"] as? String ?? "")
+                                    .font(.subheadline)
+                                Text(preview["message"] as? String ?? "")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                            Button {
+                                Task { await confirmAdd(url: preview["url"] as? String ?? status.sourceURL) }
+                            } label: {
+                                Label((preview["alreadyAdded"] as? Bool ?? false) ? "Already Added" : (addBusy ? "Adding Source..." : "Confirm Add Source"), systemImage: "checkmark.circle.fill")
+                            }
+                            .disabled((preview["alreadyAdded"] as? Bool ?? false) || addBusy ||
+                                isSubmissionBlocked(for: preview["url"] as? String ?? status.sourceURL))
+                        }
+                    }
+                } else {
+                    Section {
+                        Button(action: openSourceForm) {
+                            Label("Add Source", systemImage: "plus.circle.fill")
+                        }
+                        .accessibilityHint("Opens the source URL form. Nothing is added until you confirm.")
                     }
                 }
                 Section("Sources (\(status.sources.count))") {
@@ -2422,6 +2434,7 @@ struct V3SourcesView: View {
                         ForEach(savedGuestSources, id: \.self) { url in
                             Button {
                                 status.sourceURL = url
+                                openSourceForm()
                             } label: {
                                 HStack {
                                     Image(systemName: "bookmark")
@@ -2441,6 +2454,12 @@ struct V3SourcesView: View {
             .listStyle(.insetGrouped)
             .navigationTitle("Sources")
             .toolbar {
+                if isAddSourcePresented {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel", action: cancelSourceForm)
+                            .accessibilityHint("Closes Add Source without previewing or adding the URL.")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         status.refreshSources()
@@ -2462,6 +2481,21 @@ struct V3SourcesView: View {
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
+        .onAppear {
+            // Deep links prefill status.sourceURL before the Sources screen is
+            // shown. Preserve that behavior and reveal the form once.
+            guard !didResolveInitialSourcePrefill else { return }
+            didResolveInitialSourcePrefill = true
+            if !status.sourceURL.isEmpty { openSourceForm() }
+        }
+    }
+    private func openSourceForm() {
+        sourceURLBeforeOpening = status.sourceURL
+        isAddSourcePresented = true
+        sourceFailure = nil
+        failedSourceInput = nil
+        notice = ""
+        addSucceeded = false
     }
     // V3_SOURCE_KEYBOARD_DISMISS_V1: dismissing the keyboard is a pure UI action.
     // It previews nothing, requests nothing and persists nothing.
@@ -2485,6 +2519,22 @@ struct V3SourcesView: View {
             V3SourceEditingPolicy.cancel(typed: status.sourceURL, beforeEditing: sourceURLBeforeEditing),
             typed: status.sourceURL)
         sourceFieldFocused = false
+    }
+
+    /// The visible navigation Cancel works with the keyboard shown or hidden.
+    /// The production transition has no service effects; it only closes this
+    /// form, restores its opening value and discards its uncommitted preview.
+    private func cancelSourceForm() {
+        let transition = V3SourceEditingPolicy.closeForm(V3SourceFormState(
+            isPresented: isAddSourcePresented,
+            url: status.sourceURL,
+            originalURL: sourceURLBeforeOpening,
+            isFocused: sourceFieldFocused,
+            hasPreview: preview != nil))
+        status.sourceURL = transition.state.url
+        sourceFieldFocused = transition.state.isFocused
+        preview = nil
+        isAddSourcePresented = transition.state.isPresented
     }
 
     private func previewSource() async {
@@ -2524,6 +2574,7 @@ struct V3SourcesView: View {
             status.accept(result)
             preview = nil
             status.sourceURL = ""
+            isAddSourcePresented = false
             failedSourceInput = nil
             notice = message
             addSucceeded = true

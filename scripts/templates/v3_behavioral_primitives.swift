@@ -2404,6 +2404,25 @@ enum V3SourceEditingOutcome: Equatable {
     case restored(String)
 }
 
+struct V3SourceFormState: Equatable {
+    var isPresented: Bool
+    var url: String
+    var originalURL: String
+    var isFocused: Bool
+    var hasPreview: Bool
+}
+
+enum V3SourceFormEffect: Equatable {
+    case preview
+    case validate
+    case persist
+}
+
+struct V3SourceFormTransition: Equatable {
+    var state: V3SourceFormState
+    var effects: [V3SourceFormEffect]
+}
+
 enum V3SourceEditingPolicy {
     /// Done: a pure UI dismissal. The typed value is kept.
     static func done(typed: String) -> V3SourceEditingOutcome { .dismissed }
@@ -2420,6 +2439,20 @@ enum V3SourceEditingPolicy {
         case .dismissed: return typed
         case .restored(let value): return value
         }
+    }
+
+    /// Closing Add Source is a UI-only transition. It restores the value that
+    /// was present when the form opened and cannot request preview, validation,
+    /// or persistence work.
+    static func closeForm(_ current: V3SourceFormState) -> V3SourceFormTransition {
+        V3SourceFormTransition(
+            state: V3SourceFormState(
+                isPresented: false,
+                url: current.originalURL,
+                originalURL: current.originalURL,
+                isFocused: false,
+                hasPreview: false),
+            effects: [])
     }
 }
 
