@@ -60,6 +60,15 @@ struct AuthIdentityBindingHarness {
             dsid: "dsid-b", xcodeToken: "token-b2", sessionDSID: "dsid-b",
             sessionXcodeToken: "token-b1", generationBefore: 8, generationAfter: 8),
             "a coalesced stale session with the same DSID but rotated token is rejected")
+        let staleResumeSessionIsUsable = V3AuthIdentityBindingPolicy.hasUsableSession(
+            credentialRoutePresent: true, dsid: "dsid-b", xcodeToken: "token-b2",
+            sessionDSID: "dsid-b", sessionXcodeToken: "token-b1",
+            generationBefore: 8, generationAfter: 8)
+        precondition(!V3ProvisioningResumeAvailabilityPolicy.canResume(authenticated: true,
+            currentAppleID: "b@example.com", resumableAppleID: "b@example.com",
+            hasSession: staleResumeSessionIsUsable, hasTeamAccount: true,
+            teamAccountAppleID: "b@example.com"),
+            "provisioning retry cannot pair B credentials with a cached B session for an older token")
         precondition(V3AuthIdentityBindingPolicy.sameCredentialRoute(
             appleIDBefore: "b@example.com", appleIDAfter: "B@EXAMPLE.COM",
             dsidBefore: "dsid-b", dsidAfter: "dsid-b", tokenBefore: "token-b", tokenAfter: "token-b"))

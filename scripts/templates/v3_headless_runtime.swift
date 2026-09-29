@@ -617,8 +617,21 @@ final class V3AuthCenter {
     private(set) var resumableProvisioning: (appleID: String, stage: String)?
 
     func canResumeProvisioning() -> Bool {
-        let credentials = AuthManager.shared.authenticationSnapshot
-        let teamOwner = AuthManager.shared.team?.account.appleID
+        let auth = AuthManager.shared
+        let generationAtStart = auth.v3IdentityGeneration
+        let stampAtStart = auth.v3IdentityStamp
+        let stableAtStart = auth.v3IdentityIsStable
+        let credentials = auth.authenticationSnapshot
+        let session = auth.session
+        let teamOwner = auth.team?.account.appleID
+        let stableSession = stableAtStart && V3AuthReadStampPolicy.mayReturn(
+            capturedStamp: stampAtStart, currentStamp: auth.v3IdentityStamp,
+            stable: auth.v3IdentityIsStable) &&
+            V3AuthIdentityBindingPolicy.hasUsableSession(
+                credentialRoutePresent: credentials?.isAuthenticated == true,
+                dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken,
+                sessionDSID: session?.dsid, sessionXcodeToken: session?.authToken,
+                generationBefore: generationAtStart, generationAfter: auth.v3IdentityGeneration)
         return V3AuthSessionAdmissionPolicy.mayStartNewSession(hasActiveSession: hasActiveSession) &&
             V3ProvisioningResumeAvailabilityPolicy.canResume(
             authenticated: V3AuthIdentityBindingPolicy.hasTokenBackedRoute(
@@ -626,7 +639,7 @@ final class V3AuthCenter {
                 dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken),
             currentAppleID: credentials?.appleIDEmailAddress,
             resumableAppleID: resumableProvisioning?.appleID,
-            hasSession: AuthManager.shared.session != nil,
+            hasSession: stableSession,
             hasTeamAccount: teamOwner != nil,
             teamAccountAppleID: teamOwner)
     }

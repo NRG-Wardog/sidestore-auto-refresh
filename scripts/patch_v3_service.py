@@ -1813,6 +1813,9 @@ def patch_sign_in_operation(text):
     marker = "V3_PROVISIONING_RETRY_BYPASSES_CACHED_SIGNIN_V1"
     if marker in text:
         required = (
+            "V3_AUTH_CREDENTIAL_TRANSACTION_V1",
+            "AuthManager.shared.v3ReplaceSession(session)",
+            "V3AuthIdentityBindingPolicy.hasUsableSession(",
             "v3ForceProvisioningRetry: Bool",
             "V3ProvisioningResumeExecutionPolicy.mayUseCachedSignIn",
             "V3ProvisioningResumeExecutionPolicy.mayPromptForCredentials",
@@ -1825,7 +1828,7 @@ def patch_sign_in_operation(text):
             "V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1",
             "V3_AUTH_CREDENTIAL_TRANSACTION_V1",
             "Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)",
-            "AuthManager.shared.v3AdvanceIdentityGeneration()",
+            "v3CachedSessionMatchesCurrentRoute",
             "currentAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()",
         )
         if text.count(marker) != 1 or any(value not in text for value in required):
@@ -1855,21 +1858,55 @@ def patch_sign_in_operation(text):
     text = replace(text,
         "            if var session = AuthManager.shared.session,\n",
         "            if self.v3ForceProvisioningRetry {\n"
-        "                guard var session = AuthManager.shared.session,\n"
+        "                let identityAtStart = AuthManager.shared.v3IdentityStamp\n"
+        "                let generationAtStart = AuthManager.shared.v3IdentityGeneration\n"
+        "                let credentials = AuthManager.shared.authenticationSnapshot\n"
+        "                guard AuthManager.shared.v3IdentityIsStable,\n"
+        "                      var session = AuthManager.shared.session,\n"
         "                      let team = AuthManager.shared.team,\n"
         "                      let account = team.account,\n"
-        "                      let currentAppleID = AuthManager.shared.authenticationSnapshot?.appleIDEmailAddress,\n"
+        "                      let currentAppleID = credentials?.appleIDEmailAddress,\n"
         "                      currentAppleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ==\n"
-        "                        account.appleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {\n"
+        "                        account.appleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),\n"
+        "                      V3AuthIdentityBindingPolicy.hasUsableSession(\n"
+        "                        credentialRoutePresent: credentials?.isAuthenticated == true,\n"
+        "                        dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken,\n"
+        "                        sessionDSID: session.dsid, sessionXcodeToken: session.authToken,\n"
+        "                        generationBefore: generationAtStart, generationAfter: AuthManager.shared.v3IdentityGeneration) else {\n"
         "                    throw V3ProvisioningResumeUnavailableError()\n"
         "                }\n"
         "                session.anisetteData = try await self.getAnisetteData()\n"
-        "                AuthManager.shared.session = session\n"
+        "                let currentCredentials = AuthManager.shared.authenticationSnapshot\n"
+        "                guard V3AuthReadStampPolicy.mayReturn(capturedStamp: identityAtStart,\n"
+        "                        currentStamp: AuthManager.shared.v3IdentityStamp,\n"
+        "                        stable: AuthManager.shared.v3IdentityIsStable),\n"
+        "                      V3AuthIdentityBindingPolicy.sameCredentialRoute(\n"
+        "                        appleIDBefore: credentials?.appleIDEmailAddress,\n"
+        "                        appleIDAfter: currentCredentials?.appleIDEmailAddress,\n"
+        "                        dsidBefore: credentials?.appleIDAdsid, dsidAfter: currentCredentials?.appleIDAdsid,\n"
+        "                        tokenBefore: credentials?.appleIDXcodeToken, tokenAfter: currentCredentials?.appleIDXcodeToken),\n"
+        "                      V3AuthIdentityBindingPolicy.hasUsableSession(\n"
+        "                        credentialRoutePresent: currentCredentials?.isAuthenticated == true,\n"
+        "                        dsid: currentCredentials?.appleIDAdsid, xcodeToken: currentCredentials?.appleIDXcodeToken,\n"
+        "                        sessionDSID: session.dsid, sessionXcodeToken: session.authToken,\n"
+        "                        generationBefore: generationAtStart, generationAfter: AuthManager.shared.v3IdentityGeneration) else {\n"
+        "                    throw V3ProvisioningResumeUnavailableError()\n"
+        "                }\n"
+        "                guard AuthManager.shared.v3CachedSessionMatchesCurrentRoute(session) else {\n"
+        "                    throw V3ProvisioningResumeUnavailableError()\n"
+        "                }\n"
+        "                AuthManager.shared.v3ReplaceSession(session)\n"
         "                authResult = try await self.provisioningLoop(account: account, session: session,\n"
         "                    reportProgress: { [weak self] progress in self?.setProgress(progress) })\n"
         "            } else if V3ProvisioningResumeExecutionPolicy.mayUseCachedSignIn(\n"
         "                forceProvisioningRetry: self.v3ForceProvisioningRetry),\n"
         "               var session = AuthManager.shared.session,\n")
+    text = replace(text,
+        "               var session = AuthManager.shared.session,\n"
+        "               let team = AuthManager.shared.team,\n",
+        "               var session = AuthManager.shared.session,\n"
+        "               AuthManager.shared.v3CachedSessionMatchesCurrentRoute(session),\n"
+        "               let team = AuthManager.shared.team,\n")
     text = replace(text,
         "        let (account, session) = if let silentResult = try await self.silentSignIn() {\n"
         "            silentResult\n"
@@ -1934,7 +1971,19 @@ def patch_sign_in_operation(text):
         "        AuthManager.shared.v3BeginIdentityTransition()\n"
         "        defer { AuthManager.shared.v3CompleteIdentityTransition() }\n"
         "        try Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)\n"
+        "        AuthManager.shared.session = session\n"
         )
+    text = replace(text,
+        "        AuthManager.shared.session = session\n\n"
+        "        let authResult = try await self.provisioningLoop(",
+        "        AuthManager.shared.v3ReplaceSession(session)\n\n"
+        "        let authResult = try await self.provisioningLoop(")
+    text = replace(text,
+        "            try await self.finalizeAuthentication(result: .success(authResult))\n",
+        "            guard AuthManager.shared.v3CachedSessionMatchesCurrentRoute(authResult.session) else {\n"
+        "                throw V3ProvisioningResumeUnavailableError()\n"
+        "            }\n"
+        "            try await self.finalizeAuthentication(result: .success(authResult))\n")
     return text
 
 
@@ -1945,52 +1994,94 @@ def patch_auth_identity_generation(text):
                 "v3BeginIdentityTransition()" not in text or
                 "v3CompleteIdentityTransition()" not in text or
                 "v3IdentityStamp" not in text or
-                "v3IdentityLock.lock()" not in text or
-                "v3IdentityLock.unlock()" not in text):
+                "V3AuthIdentityStampState" not in text or
+                "v3IdentityStampState.snapshot" not in text or
+                "V3AuthSessionCoalescerKey.value(for: identityAtStart.stamp)" not in text or
+                "v3InstallSessionIfCurrent" not in text or
+                "v3CachedSessionMatchesCurrentRoute" not in text):
             raise SystemExit("v3 service: auth identity generation patch is partial")
         return text
     text = replace(text, "    private init() {}\n", "    private init() {}\n\n"
         "    // " + marker + ": one AuthManager-owned process stamp and transition gate.\n"
-        "    private let v3IdentityLock = NSLock()\n"
-        "    private var v3IdentityGenerationStorage: UInt64 = 0\n"
-        "    private let v3IdentityProcessNonce = UUID().uuidString\n"
-        "    private var v3IdentityTransitionDepthStorage = 0\n"
+        "    private let v3IdentityStampState = V3AuthIdentityStampState()\n"
         "    var v3IdentityGeneration: UInt64 {\n"
-        "        v3IdentityLock.lock()\n"
-        "        defer { v3IdentityLock.unlock() }\n"
-        "        return v3IdentityGenerationStorage\n"
+        "        v3IdentityStampState.snapshot.generation\n"
         "    }\n"
         "    var v3IdentityStamp: String {\n"
-        "        v3IdentityLock.lock()\n"
-        "        defer { v3IdentityLock.unlock() }\n"
-        "        return v3IdentityProcessNonce + \":\(v3IdentityGenerationStorage)\"\n"
+        "        v3IdentityStampState.snapshot.stamp\n"
         "    }\n"
         "    var v3IdentityIsStable: Bool {\n"
-        "        v3IdentityLock.lock()\n"
-        "        defer { v3IdentityLock.unlock() }\n"
-        "        return v3IdentityTransitionDepthStorage == 0\n"
+        "        v3IdentityStampState.snapshot.stable\n"
         "    }\n"
         "    func v3BeginIdentityTransition() {\n"
-        "        v3IdentityLock.lock()\n"
-        "        v3IdentityGenerationStorage &+= 1\n"
-        "        v3IdentityTransitionDepthStorage += 1\n"
-        "        v3IdentityLock.unlock()\n"
+        "        v3IdentityStampState.beginTransition()\n"
         "    }\n"
         "    func v3CompleteIdentityTransition() {\n"
-        "        v3IdentityLock.lock()\n"
-        "        v3IdentityGenerationStorage &+= 1\n"
-        "        if v3IdentityTransitionDepthStorage > 0 { v3IdentityTransitionDepthStorage -= 1 }\n"
-        "        v3IdentityLock.unlock()\n"
+        "        v3IdentityStampState.completeTransition()\n"
+        "    }\n"
+        "    func v3ReplaceSession(_ session: ALTAppleAPISession?) {\n"
+        "        v3BeginIdentityTransition()\n"
+        "        defer { v3CompleteIdentityTransition() }\n"
+        "        self.session = session\n"
+        "    }\n"
+        "    func v3InstallSessionIfCurrent(_ session: ALTAppleAPISession, capturedStamp: String) -> Bool {\n"
+        "        v3IdentityStampState.runIfCurrent(capturedStamp) { self.session = session }\n"
+        "    }\n"
+        "    func v3CachedSessionMatchesCurrentRoute(_ session: ALTAppleAPISession?) -> Bool {\n"
+        "        let identityAtStart = v3IdentityStampState.snapshot\n"
+        "        guard identityAtStart.stable, let session,\n"
+        "              let credentials = authenticationSnapshot else { return false }\n"
+        "        let identityAfterRead = v3IdentityStampState.snapshot\n"
+        "        return V3AuthReadStampPolicy.mayReturn(capturedStamp: identityAtStart.stamp,\n"
+        "                  currentStamp: identityAfterRead.stamp, stable: identityAfterRead.stable) &&\n"
+        "            V3AuthIdentityBindingPolicy.hasUsableSession(\n"
+        "                credentialRoutePresent: credentials.isAuthenticated,\n"
+        "                dsid: credentials.appleIDAdsid, xcodeToken: credentials.appleIDXcodeToken,\n"
+        "                sessionDSID: session.dsid, sessionXcodeToken: session.authToken,\n"
+        "                generationBefore: identityAtStart.generation,\n"
+        "                generationAfter: identityAfterRead.generation)\n"
         "    }\n"
         "    func v3AdvanceIdentityGeneration() {\n"
-        "        v3IdentityLock.lock()\n"
-        "        v3IdentityGenerationStorage &+= 1\n"
-        "        v3IdentityLock.unlock()\n"
+        "        v3IdentityStampState.advanceGeneration()\n"
         "    }\n")
     text = replace(text, "    ) {\n        self.session = nil\n", "    ) {\n"
         "        self.v3BeginIdentityTransition()\n"
         "        defer { self.v3CompleteIdentityTransition() }\n"
         "        self.session = nil\n")
+    text = replace(text,
+        '        return try await TaskChainCoalescer.shared.coalesce(key: "apple_auth_session") {\n',
+        "        let identityAtStart = v3IdentityStampState.snapshot\n"
+        "        guard identityAtStart.stable else { throw OperationError.notAuthenticated }\n"
+        "        return try await TaskChainCoalescer.shared.coalesce(\n"
+        "            key: V3AuthSessionCoalescerKey.value(for: identityAtStart.stamp)) {\n")
+    text = replace(text,
+        "            let xcodeVersion = await AnisetteConfigManager.shared.resolvedXcodeVersion()\n",
+        "            let xcodeVersion = await AnisetteConfigManager.shared.resolvedXcodeVersion()\n"
+        "            guard self.v3IdentityIsStable &&\n"
+        "                  self.v3IdentityStamp == identityAtStart.stamp else {\n"
+        "                throw OperationError.notAuthenticated\n"
+        "            }\n")
+    text = replace(text,
+        "            guard self.v3IdentityIsStable &&\n"
+        "                  self.v3IdentityStamp == identityAtStart.stamp else {\n"
+        "                throw OperationError.notAuthenticated\n"
+        "            }\n",
+        "            let credentialSnapshotAfter: LCEmbeddedAuthenticationSnapshot?\n"
+        "            do { credentialSnapshotAfter = try Keychain.shared.authenticationSnapshot() }\n"
+        "            catch { throw Keychain.shared.embeddedAuthenticationFailure(error) }\n"
+        "            guard self.v3IdentityIsStable,\n"
+        "                  self.v3IdentityStamp == identityAtStart.stamp,\n"
+        "                  credentialSnapshotAfter?.appleIDAdsid == adsid,\n"
+        "                  credentialSnapshotAfter?.appleIDXcodeToken == xcodeToken else {\n"
+        "                throw OperationError.notAuthenticated\n"
+        "            }\n")
+    text = replace(text,
+        "            self.session = session\n"
+        "            return session\n",
+        "            guard self.v3InstallSessionIfCurrent(session, capturedStamp: identityAtStart.stamp) else {\n"
+        "                throw OperationError.notAuthenticated\n"
+        "            }\n"
+        "            return session\n")
     for old, new in (
         ("set { Keychain.shared.appleIDEmailAddress = newValue }",
          "set { self.v3BeginIdentityTransition(); defer { self.v3CompleteIdentityTransition() }; Keychain.shared.appleIDEmailAddress = newValue }"),
@@ -2087,6 +2178,7 @@ def patch_developer_portal_proxy(text):
 
     private func awaitBound<T>(_ context: BoundSession,
                                operation: () async throws -> T) async throws -> T {
+        try verifyCurrent(context)
         let value = try await operation()
         try verifyCurrent(context)
         return value

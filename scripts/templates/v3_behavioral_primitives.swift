@@ -1,19 +1,84 @@
 import Foundation
 
 enum V3AuthReadStampPolicy {
+    static func ownsTicket(captured: UInt64, current: UInt64) -> Bool {
+        captured == current
+    }
+
     static func mayReturn(capturedStamp: String, currentStamp: String, stable: Bool) -> Bool {
         stable && capturedStamp == currentStamp
     }
 
     static func mayCommit(capturedTicket: UInt64, currentTicket: UInt64,
                           capturedStamp: String, currentStamp: String?, stable: Bool,
-                          resultStamps: [String?]) -> Bool {
-        stable && capturedTicket == currentTicket &&
+                          resultStamps: [String?], authenticationActive: Bool = false) -> Bool {
+        stable && !authenticationActive && capturedTicket == currentTicket &&
             currentStamp == capturedStamp && !resultStamps.isEmpty &&
             resultStamps.allSatisfy { $0 == capturedStamp }
     }
 }
+
+enum V3AuthSessionCoalescerKey {
+    static func value(for identityStamp: String) -> String {
+        "apple_auth_session:" + identityStamp
+    }
+}
+
 import CoreFoundation
+
+/// The lock protects only this small in-memory stamp state. Callers hold no
+/// lock while network requests, authentication prompts, or provisioning run.
+final class V3AuthIdentityStampState: @unchecked Sendable {
+    struct Snapshot: Equatable, Sendable {
+        let stamp: String
+        let generation: UInt64
+        let stable: Bool
+    }
+
+    private let lock = NSLock()
+    private let processNonce = UUID().uuidString
+    private var revision: UInt64 = 0
+    private var transitionDepth = 0
+
+    var snapshot: Snapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return Snapshot(stamp: processNonce + ":\(revision)",
+            generation: revision, stable: transitionDepth == 0)
+    }
+
+    func beginTransition() {
+        lock.lock()
+        revision &+= 1
+        transitionDepth += 1
+        lock.unlock()
+    }
+
+    func completeTransition() {
+        lock.lock()
+        revision &+= 1
+        if transitionDepth > 0 { transitionDepth -= 1 }
+        lock.unlock()
+    }
+
+    func advanceGeneration() {
+        lock.lock()
+        revision &+= 1
+        lock.unlock()
+    }
+
+    /// Performs a short in-memory commit only while the captured identity is
+    /// still current. The closure must not suspend or perform I/O.
+    func runIfCurrent(_ capturedStamp: String, commit: () -> Void) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard transitionDepth == 0, processNonce + ":\(revision)" == capturedStamp else {
+            return false
+        }
+        commit()
+        return true
+    }
+}
 
 // V3_CRASH_REASON_LOG_PRIVACY_V1: exception reasons and call stacks may contain
 // credentials, URLs, user data, or local paths. Callers may only log this marker.

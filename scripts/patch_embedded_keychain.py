@@ -115,7 +115,8 @@ def patch_background_auth_snapshot(text: str) -> str:
 '''
     new = '''        // ''' + BACKGROUND_AUTH_SNAPSHOT_MARKER + ''': each credential route uses one locked Keychain epoch.
         let auth = AuthManager.shared
-        let hasReusableSession = auth.session != nil && auth.team != nil && CertificateManager.shared.activeCertificate != nil
+        let hasReusableSession = auth.v3CachedSessionMatchesCurrentRoute(auth.session) &&
+            auth.team != nil && CertificateManager.shared.activeCertificate != nil
         let authSnapshot: LCEmbeddedAuthenticationSnapshot?
         if hasReusableSession {
             authSnapshot = nil

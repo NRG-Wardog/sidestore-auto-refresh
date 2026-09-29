@@ -508,9 +508,11 @@ struct V3ReadinessAndDiagnosticsContractHarness {
 
     def test_auth_read_stamps_execute_transition_and_batch_interleavings(self):
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
-        start = primitives.index("enum V3AuthReadStampPolicy {")
-        end = primitives.index("\nimport CoreFoundation", start)
-        production_policy = primitives[start:end]
+        policy_start = primitives.index("enum V3AuthReadStampPolicy {")
+        policy_end = primitives.index("\nimport CoreFoundation", policy_start)
+        state_start = primitives.index("final class V3AuthIdentityStampState:")
+        state_end = primitives.index("\n// V3_CRASH_REASON_LOG_PRIVACY_V1", state_start)
+        production_policy = primitives[policy_start:policy_end] + "\n" + primitives[state_start:state_end]
         harness = (ROOT / "tests/fixtures/v3_auth_read_stamp_harness.swift").read_text(encoding="utf-8")
         self.compile_and_run("import Foundation\n" + production_policy + "\n" + harness,
                              "V3_AUTH_READ_STAMP_PASS")
@@ -518,9 +520,12 @@ struct V3ReadinessAndDiagnosticsContractHarness {
         for operation in ("devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles", "certPortalList"):
             self.assertIn(f'case "{operation}":', service)
         self.assertIn("identityStampAtStart", service)
+        self.assertGreaterEqual(service.count("!V3HeadlessRuntime.shared.auth.hasActiveSession"), 2)
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         self.assertIn("V3AuthReadStampPolicy.mayCommit", shell)
         self.assertIn("invalidateScopedRows()", shell)
+        self.assertIn("@Published private(set) var authenticationActive = false", shell)
+        self.assertIn('currentIdentity["authenticationActive"]', shell)
 
     def test_generated_coredata_owner_snapshot_executes_in_memory(self):
         if sys.platform != "darwin":

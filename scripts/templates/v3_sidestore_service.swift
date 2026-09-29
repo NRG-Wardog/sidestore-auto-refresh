@@ -1353,10 +1353,14 @@ final class V3SideStoreService: NSObject {
     private func accountScopedRead(_ key: String,
                                    fetch: () async throws -> Any) async throws -> [String: Any] {
         let auth = AuthManager.shared
-        guard auth.v3IdentityIsStable else { throw V3SideStoreServiceError.authRequired }
+        guard auth.v3IdentityIsStable,
+              !V3HeadlessRuntime.shared.auth.hasActiveSession else {
+            throw V3SideStoreServiceError.authRequired
+        }
         let capturedStamp = auth.v3IdentityStamp
         let value = try await fetch()
-        guard auth.v3IdentityIsStable, auth.v3IdentityStamp == capturedStamp else {
+        guard auth.v3IdentityIsStable, auth.v3IdentityStamp == capturedStamp,
+              !V3HeadlessRuntime.shared.auth.hasActiveSession else {
             throw V3SideStoreServiceError.authRequired
         }
         return [key: value, "identityStamp": capturedStamp, "identityStable": true]

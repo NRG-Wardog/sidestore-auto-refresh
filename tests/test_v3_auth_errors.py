@@ -383,7 +383,7 @@ class V3AuthErrorTests(unittest.TestCase):
         runtime_text = runtime()
         self.assertIn("V3ProvisioningResumeIdentityPolicy.select", runtime_text)
         self.assertIn("authenticatedSessionAppleID: session?.authenticatedAppleID", runtime_text)
-        self.assertIn("hasSession: AuthManager.shared.session != nil", runtime_text)
+        self.assertIn("hasSession: stableSession", runtime_text)
         self.assertIn("teamAccountAppleID: teamOwner", runtime_text)
         self.assertIn("hasTokenBackedRoute(", runtime_text)
         self.assertIn("dsid: credentials?.appleIDAdsid", runtime_text)

@@ -1169,7 +1169,7 @@ def patch_background_operation(sidestore: Path) -> None:
         let credentials = auth.authenticationSnapshot
         let hasPasswordCredentials = credentials?.appleIDEmailAddress != nil && credentials?.appleIDPassword != nil
         let hasTokenCredentials = credentials?.appleIDAdsid != nil && credentials?.appleIDXcodeToken != nil
-        let hasReusableSession = auth.session != nil && auth.team != nil && CertificateManager.shared.activeCertificate != nil
+        let hasReusableSession = auth.v3CachedSessionMatchesCurrentRoute(auth.session) && auth.team != nil && CertificateManager.shared.activeCertificate != nil
         debugLog("[AUTO_REFRESH] AUTH_CREDENTIAL_VISIBILITY password_path=\\(hasPasswordCredentials) token_path=\\(hasTokenCredentials) session_path=\\(hasReusableSession)")
         guard hasPasswordCredentials || hasTokenCredentials || hasReusableSession else {
             let error = NSError(

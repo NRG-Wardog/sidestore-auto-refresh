@@ -6471,14 +6471,21 @@ struct V3CertificatesView: View {
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "certPortalList")
             let currentIdentity = try await V3ServiceBridge.shared.request(operation: "snapshot")
+            guard V3AuthReadStampPolicy.ownsTicket(captured: ticket, current: portalTicket) else { return }
             guard V3ServiceBridge.strictBool(currentIdentity["authenticated"]) == true,
                   V3ServiceBridge.strictBool(currentIdentity["identityStable"]) == true,
-                  currentIdentity["identityStamp"] as? String == stamp else { return }
+                  currentIdentity["identityStamp"] as? String == stamp else {
+                busy = ""
+                return
+            }
             guard V3AuthReadStampPolicy.mayCommit(capturedTicket: ticket,
                   currentTicket: portalTicket, capturedStamp: stamp,
                   currentStamp: status.identityStamp,
                   stable: V3ServiceBridge.strictBool(reply["identityStable"]) == true,
-                  resultStamps: [reply["identityStamp"] as? String]) else { return }
+                  resultStamps: [reply["identityStamp"] as? String]) else {
+                busy = ""
+                return
+            }
             portal = (reply["certificates"] as? [[String: Any]] ?? []).compactMap(V3CertificateRow.init)
             portalLoaded = true
             message = ""
@@ -6645,6 +6652,7 @@ struct V3DeveloperServicesView: View {
                 try await (teamsReply, devicesReply, appIDsReply, groupsReply, profilesReply)
             let currentIdentity = try await V3ServiceBridge.shared.request(operation: "snapshot")
             let replies = [teamsResult, devicesResult, appIDsResult, groupsResult, profilesResult]
+            guard V3AuthReadStampPolicy.ownsTicket(captured: ticket, current: reloadTicket) else { return }
             guard status.authenticated,
                   V3ServiceBridge.strictBool(currentIdentity["authenticated"]) == true,
                   V3ServiceBridge.strictBool(currentIdentity["identityStable"]) == true,
@@ -6653,7 +6661,12 @@ struct V3DeveloperServicesView: View {
                   capturedTicket: ticket, currentTicket: reloadTicket,
                   capturedStamp: capturedStamp, currentStamp: status.identityStamp,
                   stable: replies.allSatisfy({ V3ServiceBridge.strictBool($0["identityStable"]) == true }),
-                  resultStamps: replies.map { $0["identityStamp"] as? String }) else { return }
+                  resultStamps: replies.map { $0["identityStamp"] as? String }) else {
+                if V3AuthReadStampPolicy.ownsTicket(captured: ticket, current: reloadTicket) {
+                    loading = false
+                }
+                return
+            }
             teams = strings(teamsResult, key: "teams")
             devices = strings(devicesResult, key: "devices")
             appIDs = strings(appIDsResult, key: "appIDs")

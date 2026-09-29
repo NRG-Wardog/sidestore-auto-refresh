@@ -574,7 +574,7 @@ import Foundation
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         availability = runtime[runtime.index("func canResumeProvisioning()"):
             runtime.index("    var sessions: [String: Session]", runtime.index("func canResumeProvisioning()"))]
-        self.assertIn("let credentials = AuthManager.shared.authenticationSnapshot", availability)
+        self.assertIn("let credentials = auth.authenticationSnapshot", availability)
         self.assertIn("hasTokenBackedRoute(", availability)
         self.assertIn("credentialRoutePresent: credentials?.isAuthenticated == true", availability)
         self.assertIn("currentAppleID: credentials?.appleIDEmailAddress", availability)
@@ -1571,6 +1571,15 @@ import Foundation
             sign_in = (roots[1] / "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift").read_text()
             self.assertIn("V3_PROVISIONING_RETRY_BYPASSES_CACHED_SIGNIN_V1", sign_in)
             self.assertIn("V3_AUTH_CREDENTIAL_TRANSACTION_V1", sign_in)
+            transaction_start = sign_in.index("V3_AUTH_CREDENTIAL_TRANSACTION_V1")
+            transaction_end = sign_in.index("return (account, session)", transaction_start)
+            credential_transaction = sign_in[transaction_start:transaction_end]
+            self.assertLess(credential_transaction.index("v3BeginIdentityTransition()"),
+                            credential_transaction.index("writeAuthenticationCredentials"))
+            self.assertLess(credential_transaction.index("writeAuthenticationCredentials"),
+                            credential_transaction.index("AuthManager.shared.session = session"))
+            self.assertIn("defer { AuthManager.shared.v3CompleteIdentityTransition() }",
+                          credential_transaction)
             self.assertIn("Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)", sign_in)
             self.assertNotIn("AuthManager.shared.adsid = session.dsid", sign_in)
             self.assertNotIn("AuthManager.shared.xcodeToken = session.authToken", sign_in)
@@ -1584,7 +1593,7 @@ import Foundation
             retry = sign_in[sign_in.index("if self.v3ForceProvisioningRetry {"):sign_in.index("} else if V3ProvisioningResumeExecutionPolicy")]
             self.assertIn("self.provisioningLoop(account: account, session: session", retry)
             self.assertIn("session.anisetteData = try await self.getAnisetteData()", retry)
-            self.assertIn("AuthManager.shared.session = session", retry)
+            self.assertIn("AuthManager.shared.v3ReplaceSession(session)", retry)
             self.assertNotIn("silentSignIn()", retry,
                              "provisioning retry must reuse the authenticated session without reauthentication")
             self.assertIn("retryCredentials: (String, String)?", sign_in)
@@ -1708,17 +1717,33 @@ import Foundation
                     service.headless_auth_manager(auth_source), "patch_auth_manager"))
         else:
             updated_auth = service.patch_auth_identity_generation(
-                "    private init() {}\n    public func signOut() {\n        self.session = nil\n    }\n")
-        self.assertGreaterEqual(updated_auth.count("v3IdentityGeneration"), 2)
+                "    private init() {}\n"
+                "    var currentAppleID: String? { set { Keychain.shared.appleIDEmailAddress = newValue } }\n"
+                "    var password: String? { set { Keychain.shared.appleIDPassword = newValue } }\n"
+                "    var adsid: String? { set { Keychain.shared.appleIDAdsid = newValue } }\n"
+                "    var xcodeToken: String? { set { Keychain.shared.appleIDXcodeToken = newValue } }\n"
+                "    public func signOut(keepCertificate: Bool = false) {\n        self.session = nil\n    }\n"
+                "    public func getAuthenticatedSession() async throws -> ALTAppleAPISession {\n"
+                "        return try await TaskChainCoalescer.shared.coalesce(key: \"apple_auth_session\") {\n"
+                "            let credentialSnapshot: LCEmbeddedAuthenticationSnapshot? = nil\n"
+                "            let adsid = credentialSnapshot?.appleIDAdsid\n"
+                "            let xcodeToken = credentialSnapshot?.appleIDXcodeToken\n"
+                "            let anisetteData = try await AnisetteProvider.fetch()\n"
+                "            let xcodeVersion = await AnisetteConfigManager.shared.resolvedXcodeVersion()\n"
+                "            let session = ALTAppleAPISession(dsid: adsid, authToken: xcodeToken, anisetteData: anisetteData, xcodeVersion: xcodeVersion)\n"
+                "            self.session = session\n            return session\n        }\n    }\n")
+        self.assertIn("var v3IdentityGeneration: UInt64", updated_auth)
         self.assertIn("func v3BeginIdentityTransition()", updated_auth)
         self.assertIn("func v3CompleteIdentityTransition()", updated_auth)
-        self.assertIn("private let v3IdentityLock = NSLock()", updated_auth)
-        self.assertIn("v3IdentityLock.lock()", updated_auth)
-        self.assertIn("v3IdentityLock.unlock()", updated_auth)
+        self.assertIn("private let v3IdentityStampState = V3AuthIdentityStampState()", updated_auth)
+        self.assertIn("v3IdentityStampState.snapshot", updated_auth)
+        self.assertIn("V3AuthSessionCoalescerKey.value(for: identityAtStart.stamp)", updated_auth)
+        self.assertIn("v3InstallSessionIfCurrent", updated_auth)
+        self.assertIn("credentialSnapshotAfter?.appleIDXcodeToken == xcodeToken", updated_auth)
+        self.assertIn("v3CachedSessionMatchesCurrentRoute", updated_auth)
         for setter in ("appleIDEmailAddress", "appleIDPassword", "appleIDAdsid", "appleIDXcodeToken"):
             self.assertIn(f"defer {{ self.v3CompleteIdentityTransition() }}; Keychain.shared.{setter} = newValue",
                           updated_auth)
-        self.assertIn("private var v3IdentityTransitionDepthStorage = 0", updated_auth)
         self.assertIn("defer { self.v3CompleteIdentityTransition() }", updated_auth)
 
     def test_snapshot_separates_stored_credentials_from_bound_authenticated_state(self):
