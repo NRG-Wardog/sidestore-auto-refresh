@@ -627,11 +627,11 @@ public struct CombinedFailure: Error, LocalizedError {
             case .networkConnectionLost, .networkTimedOut, .networkUnavailable:
                 return "Check the network used by this request, then retry when the connection is stable. If a device operation still fails, run Connection Check."
             case .anisetteServerUnavailable:
-                return "Try syncing again later or choose another configured Anisette server. This does not indicate a LocalDevVPN problem."
+                return "Try syncing again later or choose another configured Anisette server."
             case .anisetteServerRejected:
                 return "Check the configured Anisette server address, then sync again after correcting it."
             case .anisetteRequestTimedOut:
-                return "Retry once. If the configured Anisette server times out again, choose another server. This does not indicate a LocalDevVPN problem."
+                return "Retry once. If the configured Anisette server times out again, choose another server."
             case .anisetteRateLimited:
                 return "Wait before retrying once. If the server is still rate-limiting requests, choose another configured Anisette server."
             case .anisetteInvalidResponse:

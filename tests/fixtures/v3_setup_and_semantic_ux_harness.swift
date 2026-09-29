@@ -1082,9 +1082,21 @@ struct SetupAndSemanticUXHarness {
                      "an explicit HTTP 5xx is a server outage, not a network-path or LocalDevVPN failure")
         let anisetteUnavailableIssue = V3UserFacingIssue.make(anisetteUnavailable)
         precondition(anisetteUnavailableIssue.recoveryDestination == nil &&
+                     anisetteUnavailableIssue.primaryAction == .dismiss &&
+                     anisetteUnavailableIssue.retryDisposition == .allowed &&
                      anisetteUnavailableIssue.whatToDo.contains("Anisette server") &&
                      !anisetteUnavailableIssue.whatToDo.localizedCaseInsensitiveContains("LocalDevVPN"),
                      "a server outage does not route to or blame the device tunnel")
+        let anisetteUnavailableWithNetworkStage = CombinedFailure(operation: "anisetteSync",
+            stage: .network, code: .failed, id: UUID().uuidString, retryable: true,
+            safeCause: .anisetteServerUnavailable)
+        let anisetteUnavailableNetworkIssue = V3UserFacingIssue.make(anisetteUnavailableWithNetworkStage)
+        precondition(anisetteUnavailableNetworkIssue.recoveryDestination == nil &&
+                     anisetteUnavailableNetworkIssue.primaryAction == .dismiss &&
+                     anisetteUnavailableNetworkIssue.retryDisposition == .allowed &&
+                     anisetteUnavailableNetworkIssue.whatToDo == anisetteUnavailableWithNetworkStage.recovery &&
+                     !anisetteUnavailableNetworkIssue.whatToDo.localizedCaseInsensitiveContains("LocalDevVPN"),
+                     "typed Anisette server evidence outranks a generic network stage")
         let anisetteRejected = V3AnisetteSyncFailurePolicy.failure(
             NSError(domain: "AnisetteServersManager", code: 404), id: UUID().uuidString)
         let rejectedRoundTrip = plistRoundTrip(anisetteRejected)
@@ -1249,9 +1261,19 @@ struct SetupAndSemanticUXHarness {
         let anisetteNetworkIssue = V3UserFacingIssue.make(
             anisetteNetworkFailure)
         precondition(anisetteNetworkIssue.recoveryDestination == nil &&
+                     anisetteNetworkIssue.primaryAction == .dismiss &&
+                     anisetteNetworkIssue.retryDisposition == .allowed &&
                      anisetteNetworkIssue.whatToDo.contains("Anisette server") &&
                      !anisetteNetworkIssue.whatToDo.localizedCaseInsensitiveContains("LocalDevVPN"),
             "remote Anisette failures do not blame the device tunnel")
+        let localDevVPNTunnelFailure = CombinedFailure(operation: "refresh", stage: .coreDevice,
+            code: .unavailable, id: UUID().uuidString, retryable: true,
+            safeCause: .localDevVPNUnavailable)
+        let localDevVPNTunnelIssue = V3UserFacingIssue.make(localDevVPNTunnelFailure)
+        precondition(localDevVPNTunnelIssue.recoveryDestination == "connection" &&
+                     localDevVPNTunnelIssue.primaryAction == .openConnectionCheck &&
+                     localDevVPNTunnelIssue.whatToDo.contains("Restore LocalDevVPN"),
+                     "only explicit device-tunnel evidence routes to LocalDevVPN settings")
         // A connection-stage failure that is provably not retryable is inspected
         // rather than blindly retried.
         let blockedNetworkIssue = V3UserFacingIssue.make(

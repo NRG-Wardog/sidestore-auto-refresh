@@ -2693,8 +2693,13 @@ struct V3UserFacingIssue: Equatable {
             [CombinedFailure.SafeCause.networkConnectionLost.rawValue,
              CombinedFailure.SafeCause.networkTimedOut.rawValue,
              CombinedFailure.SafeCause.networkUnavailable.rawValue].contains(safeCause ?? "")
+        let anisetteServerUnavailable = operation.lowercased().hasPrefix("anisette") &&
+            safeCause == CombinedFailure.SafeCause.anisetteServerUnavailable.rawValue
         let destination: String? = {
-            if anisetteNetworkFailure { return nil }
+            // A remote Anisette server outage is service evidence even if an
+            // upstream caller labels the boundary as `.network`. Do not let
+            // the generic stage fallback send it to LocalDevVPN settings.
+            if anisetteNetworkFailure || anisetteServerUnavailable { return nil }
             if safeCause == CombinedFailure.SafeCause.pairingRequired.rawValue ||
                safeCause == CombinedFailure.SafeCause.invalidPairingFile.rawValue { return "pairing" }
             if safeCause == CombinedFailure.SafeCause.authResponseCapacityUnavailable.rawValue { return "signIn" }
