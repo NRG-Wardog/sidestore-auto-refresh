@@ -293,25 +293,31 @@ struct BridgeTests {
             stopCountBefore: stopCountBeforeLateMutationReply,
             context: "late mutation reply or bounded service retirement")
         // Every boundary must retain the operation, including concurrent reads and a mutation.
+        // Keep this disconnect race independent from the short request deadlines
+        // used above to exercise timeout recovery. On a loaded CI runner, a
+        // 250 ms read timeout can otherwise win before the harness gets to the
+        // explicit disconnect below.
+        let disconnectBridge = V3ServiceBridge(readTimeout: 5, commandTimeout: 5)
         client.hold = true
         requestBaseline = client.requests.count
         let mutationDisconnect = Task {
-            try await bridge.request(operation: "settingsSet",
+            try await disconnectBridge.request(operation: "settingsSet",
                 payload: ["key": "isCellularRefreshEnabled", "type": "bool", "bool": true])
         }
-        await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
+        await waitForRequest(client, bridge: disconnectBridge, afterRequestCount: requestBaseline,
                              operation: "settingsSet", context: "disconnect mutation")
         requestBaseline = client.requests.count
-        let catalogDisconnect = Task { try await bridge.request(operation: "catalog") }
-        await waitForRequest(client, bridge: bridge, afterRequestCount: requestBaseline,
+        let catalogDisconnect = Task { try await disconnectBridge.request(operation: "catalog") }
+        await waitForRequest(client, bridge: disconnectBridge, afterRequestCount: requestBaseline,
                              operation: "catalog", context: "concurrent disconnect read")
         precondition(client.replies.count >= 2,
                      "both held requests must be awaiting their service replies before disconnect")
-        bridge.disconnected()
+        disconnectBridge.disconnected()
         for (task, operation) in [(mutationDisconnect, "settingsSet"), (catalogDisconnect, "catalog")] {
             do { _ = try await task.value; preconditionFailure("disconnect ignored") }
             catch let error as CombinedFailure {
-                precondition(error.operation == operation && error.stage == .xpcConnection)
+                precondition(error.operation == operation && error.stage == .xpcConnection,
+                    "disconnect expected \(operation)/xpcConnection, got \(error.operation)/\(error.stage)")
             }
         }
         client.flush()
