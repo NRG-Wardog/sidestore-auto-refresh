@@ -6256,6 +6256,24 @@ struct V3SignInView: View {
     }
 }
 
+// V3_CERTIFICATE_CREATE_PRESENTATION_V1: keep the partial remote-success
+// case explicit so users are not prompted to create a duplicate certificate.
+enum V3CertificateCreatePresentation {
+    static func message(for outcome: String?) -> String {
+        if isVerified(outcome) { return "Certificate created and saved." }
+        switch outcome {
+        case "remoteCreatedLocalStorageUnverified":
+            return "Apple created the certificate, but its local signing copy could not be verified. Open Certificates and reload before creating another certificate."
+        default:
+            return "Certificate creation finished, but its local signing copy could not be confirmed. Open Certificates and reload before creating another certificate."
+        }
+    }
+
+    static func isVerified(_ outcome: String?) -> Bool {
+        outcome == "createdAndStored"
+    }
+}
+
 struct V3CertificateRow: Identifiable {
     let serial: String, name: String, machine: String, email: String
     let active: Bool
@@ -6408,10 +6426,13 @@ struct V3CertificatesView: View {
         notice = ""
         defer { busy = "" }
         do {
+            var certificateCreateOutcome: String?
             switch action {
             case "delete": _ = try await V3ServiceBridge.shared.request(operation: "certDelete", target: serial)
             case "revoke": _ = try await V3ServiceBridge.shared.request(operation: "certRevoke", target: serial)
-            default: _ = try await V3ServiceBridge.shared.request(operation: "certCreate")
+            default:
+                let reply = try await V3ServiceBridge.shared.request(operation: "certCreate")
+                certificateCreateOutcome = reply["outcome"] as? String
             }
             // Certificate mutations can invalidate the cached JIT-Less
             // comparison. Ordinary snapshots do not carry that private fact,
@@ -6424,7 +6445,8 @@ struct V3CertificatesView: View {
             switch action {
             case "delete": notice = "Certificate deleted."
             case "revoke": notice = "Certificate revoked."
-            default: notice = "Certificate requested."
+            default:
+                notice = V3CertificateCreatePresentation.message(for: certificateCreateOutcome)
             }
         } catch { message = V3FailureGuidance.message(error) }
     }

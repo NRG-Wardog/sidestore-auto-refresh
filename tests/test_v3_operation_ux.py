@@ -425,12 +425,16 @@ class CertificatesFeedbackTests(unittest.TestCase):
         text = shell()
         view = text[text.index("struct V3CertificatesView"):]
         view = view[:view.index("struct V3DeveloperServicesView")]
+        create_policy = text[text.index("enum V3CertificateCreatePresentation"):text.index("struct V3CertificateRow")]
         self.assertIn("Working...", view)
         self.assertIn("Loading Portal Certificates...", view)
         self.assertIn("Active certificate updated.", view)
         self.assertIn("Certificate deleted.", view)
         self.assertIn("Certificate revoked.", view)
-        self.assertIn("Certificate requested.", view)
+        self.assertIn('return "Certificate created and saved."', create_policy)
+        self.assertIn("local signing copy could not be verified", create_policy)
+        self.assertIn("before creating another certificate", create_policy)
+        self.assertNotIn("Certificate requested.", view)
         self.assertIn(".disabled(!busy.isEmpty)", view)
 
 
