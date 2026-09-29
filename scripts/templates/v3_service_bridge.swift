@@ -641,8 +641,6 @@ public final class V3ServiceBridge {
             directRecoveryTerminalAck != directRecoveryUserCheck
         let scopedAuthSessionControl = ["authRespond", "authCancel"].contains(operation) &&
             authSessionOwnership.owns(target)
-        let replacesAuthSession = ["authBegin", "authRetryProvisioning"].contains(operation) &&
-            authSessionOwnership.hasActiveSession()
         let mutation = !V3WireContract.readOperations.contains(operation) ||
             ["opAnswer", "opCancel", "authCancel"].contains(operation)
         let scopedRefreshAdmissionControl = V3ServiceMutationAdmissionPolicy.ownsRefreshAdmissionControl(
@@ -654,7 +652,7 @@ public final class V3ServiceBridge {
             userConfirmedReconciliation: V3WireContract.strictBool(payload?["userConfirmed"]) == true)
         if mutation {
             guard scopedSessionControl || explicitRecoveryConfirmation || explicitDirectRecoveryControl ||
-                    scopedAuthSessionControl || replacesAuthSession || scopedRefreshAdmissionControl ||
+                    scopedAuthSessionControl || scopedRefreshAdmissionControl ||
                     (!isMutating && RefreshHandler.shared.v3RefreshToken == nil) else {
                 if ["authBegin", "authRetryProvisioning"].contains(operation) {
                     let failure = CombinedFailure(operation: "signIn", stage: .command,

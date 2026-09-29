@@ -138,13 +138,17 @@ struct AuthLeaseRetirementTests {
     }
 
     @MainActor
-    static func expectStartBlocked(_ bridge: V3ServiceBridge, sessionID: String) async {
+    static func expectStartBlocked(_ bridge: V3ServiceBridge, client: AuthLeaseFakeClient,
+                                   sessionID: String) async {
         mark("await blocked authBegin")
+        let requestCountBefore = client.requests.count
         do {
             try await startAuth(bridge, sessionID: sessionID)
             preconditionFailure("new authBegin passed unresolved auth ownership")
         } catch let failure as CombinedFailure {
             precondition(failure.code == .busy, "unresolved auth owner returned \(failure.code)")
+            precondition(client.requests.count == requestCountBefore,
+                "a new authBegin blocked by an exact owner must not reach the service")
             mark("blocked authBegin confirmed")
         } catch {
             preconditionFailure("unresolved auth owner returned unexpected error: \(error)")
@@ -241,7 +245,7 @@ struct AuthLeaseRetirementTests {
         await pollUnavailable(snapshotBridge, sessionID: wrongSession)
         precondition(snapshotBridge.isMutating,
             "an unavailable response for another session cannot release the auth owner")
-        await expectStartBlocked(snapshotBridge, sessionID: UUID().uuidString)
+        await expectStartBlocked(snapshotBridge, client: client, sessionID: UUID().uuidString)
         snapshotBridge.reconcileAuthSessionOwnership(sessionID: snapshotSession, authenticationActive: true)
         precondition(snapshotBridge.isMutating,
             "a snapshot that still reports active auth cannot release the owner")
@@ -266,7 +270,7 @@ struct AuthLeaseRetirementTests {
         }
         precondition(malformedBridge.isMutating,
             "a malformed unavailable reply cannot release the auth owner")
-        await expectStartBlocked(malformedBridge, sessionID: UUID().uuidString)
+        await expectStartBlocked(malformedBridge, client: client, sessionID: UUID().uuidString)
 
         let transportBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
         mark("transport loss path")
@@ -288,7 +292,7 @@ struct AuthLeaseRetirementTests {
         }
         precondition(transportBridge.isMutating,
             "transport loss without an authoritative reply cannot release the auth owner")
-        await expectStartBlocked(transportBridge, sessionID: UUID().uuidString)
+        await expectStartBlocked(transportBridge, client: client, sessionID: UUID().uuidString)
         client.holdAuthPollReplies = false
         client.flushAuthPollReplies()
 

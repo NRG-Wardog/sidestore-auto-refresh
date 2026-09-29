@@ -19,6 +19,7 @@ class AuthLeaseRetirementTests(unittest.TestCase):
         self.assertNotIn("V3WireContract", re.sub(r"//[^\n]*", "", primitives))
         self.assertNotIn("CombinedFailure", wire)
         self.assertIn(policy_name, bridge)
+        self.assertNotIn("replacesAuthSession", bridge)
         self.assertIn("CombinedFailure.decode(rawFailure, expectedID: requestID)", bridge)
         self.assertIn("V3WireContract.strictInt(envelope[\"version\"]) == 1", bridge)
 
