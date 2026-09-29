@@ -331,7 +331,7 @@ enum V3StatusReplyCommitPolicy {
                          currentServiceInstanceID: String,
                          busySnapshot: Bool = false) -> Bool {
         if ticket.kind == .snapshot && busySnapshot { return false }
-        authority.mayApply(ticket, currentServiceEpoch: currentServiceEpoch,
+        return authority.mayApply(ticket, currentServiceEpoch: currentServiceEpoch,
             currentServiceInstanceID: currentServiceInstanceID)
     }
 }

@@ -30,7 +30,7 @@ struct V3StatusAuthorityInterleavingsHarness {
         let mutation = authority.begin(ownerID: "request:write-1", revision: mutationRevision,
             serviceInstanceID: "service-1", kind: .mutation)!
         precondition(authority.complete(mutation, outcome: .committed))
-        precondition(!authority.markSnapshotApplied(oldSnapshot,
+        precondition(!authority.mayApply(oldSnapshot,
             currentServiceEpoch: authority.serviceEpoch, currentServiceInstanceID: "service-1"),
             "a snapshot from before the reserved write revision must be rejected")
         precondition(!V3StatusReplyCommitPolicy.mayApply(oldSnapshot, authority: authority,
