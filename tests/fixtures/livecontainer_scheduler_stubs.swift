@@ -4,8 +4,10 @@ import Foundation
 @MainActor enum LiveContainerNetworkPreflight {
     static var error: Error?
     static var checks = 0
-    static func check(allowForegroundActivation: Bool) async throws {
+    static var runIDs: [String] = []
+    static func check(allowForegroundActivation: Bool, runID: String) async throws {
         checks += 1
+        runIDs.append(runID)
         if let error { throw error }
     }
     static func consumePendingReturn() -> Bool { false }
