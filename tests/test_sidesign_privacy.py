@@ -207,9 +207,12 @@ struct OperationFixture: OperationLogging {}
         // error marker, so the generated production sink must still omit the
         // full serial from every user-copyable log path.
         debugLog("[CertificateManager] Successfully loaded certificate (serial: 0123456789ABCDEF0123456789ABCDEF).")
+        debugLog("[CertificateManager] deleteCertificate: 0123456789ABCDEF0123456789ABCDEF")
         debugLog("[OCSPValidator] Certificate 0123456789ABCDEF0123456789ABCDEF confirmed REVOKED by OCSP.")
         debugLog("[OCSPValidator] Direct Live HTTP OCSP status for 0123456789ABCDEF0123456789ABCDEF: good")
         operation.debugLog("[SignInOperation] Successfully requested certificate (Serial: 0123456789ABCDEF0123456789ABCDEF).")
+        operation.debugLog("[SignInOperation] Active certificate (0123456789ABCDEF0123456789ABCDEF) and running bundle certificate (FEDCBA9876543210FEDCBA9876543210) mismatch detected.")
+        operation.debugLog("[UpdateAppCertificateOperation] Loaded custom certificate '0123456789ABCDEF0123456789ABCDEF' for app 'Example'.")
         debugLog("SAFE_DIAGNOSTIC_MARKER")
         debugLog("[SignInOperation] error=SECRET_DSID_PHONE_RAW_2FA_BODY")
         verboseLog("authorization header SECRET_SECURITY_CODE_COOKIE")
@@ -235,6 +238,7 @@ struct OperationFixture: OperationLogging {}
             self.assertIn("SIDESTORE_LOG_PRIVACY_PASS", result.stdout)
             self.assertIn("SAFE_DIAGNOSTIC_MARKER", result.stdout)
             self.assertNotIn("0123456789ABCDEF0123456789ABCDEF", result.stdout)
+            self.assertNotIn("FEDCBA9876543210FEDCBA9876543210", result.stdout)
             self.assertNotIn("SECRET_", result.stdout)
             self.assertNotIn("com.example.privateguest", result.stdout)
             self.assertNotIn("com.spotify.client", result.stdout)

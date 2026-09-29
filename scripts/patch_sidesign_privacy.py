@@ -33,10 +33,11 @@ func shouldOmitUserCopyableSideStoreLog(_ message: String) -> Bool {
         of: #"\b[a-z0-9_]*serial(?:[_-]?(?:number|hex|dec))?\b"#,
         options: .regularExpression
     ) != nil
-    // The pinned OCSP implementation also emits the serial as an unlabelled
-    // value ("Certificate <serial> ..." / "OCSP status for <serial>").
+    // The pinned code also emits unlabelled serials in certificate context,
+    // including "certificate (<serial>)", "certificate '<serial>'",
+    // "deleteCertificate: <serial>", and OCSP status lines.
     let certificateValue = lowercased.range(
-        of: #"\bcertificate\s+(?:0x)?[0-9a-f]{2,}\b"#,
+        of: #"(?:\bcertificate\s+(?:0x)?[0-9a-f]{2,}\b|\bcertificate\s*[\(\['"]+\s*(?:0x)?[a-z0-9:-]{2,}\b|\b[a-z]*certificate\s*:\s*(?:0x)?[a-z0-9:-]{2,}\b)"#,
         options: .regularExpression
     ) != nil
     let ocspValue = lowercased.range(
