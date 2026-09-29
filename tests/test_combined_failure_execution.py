@@ -102,8 +102,8 @@ func query() throws -> String {
     if value == 0 {
       precondition(frees == 1 && failure.stage == .uniqueDeviceID,
                    "native Lockdown failure must survive the gateway adapter")
-      precondition(failure.underlyingDomain == "IdeviceGatewayError" && failure.underlyingCode == 77,
-                   "known gateway diagnostics retain their typed native code")
+      precondition(failure.underlyingDomain == "DeviceGatewayError" && failure.underlyingCode == 77,
+                   "the gateway test double preserves its allowlisted native domain and code")
     }
     precondition(!failure.localizedDescription.contains("SECRET"))
     let decoded = CombinedFailure.fromEncodedString(failure.encodedString, expectedID: id)!
@@ -225,6 +225,13 @@ func debugLog(_ value: String) {}
    precondition(failure.underlyingDomain == "DeviceGatewayError", "allowlisted gateway domain")
    precondition(failure.underlyingCode == 77, "allowlisted gateway code")
   }
+  do {
+   let error = NSError(domain: "IdeviceGatewayError", code: 1,
+       userInfo: [NSLocalizedDescriptionKey: "transport failed lc_native_code=78"])
+   let failure = CombinedFailure.capture(error, operation: "refresh", stage: .command, id: id)
+   precondition(failure.underlyingDomain == "IdeviceGatewayError" && failure.underlyingCode == 78,
+                "the production IdeviceGatewayError domain retains its allowlisted native code")
+  }
   // 4. An unknown error gains no fake domain and keeps the caller stage.
   do {
    let error = NSError(domain: "com.example.mystery", code: 20,
@@ -232,6 +239,7 @@ func debugLog(_ value: String) {}
    let failure = CombinedFailure.capture(error, operation: "refresh", stage: .command, id: id)
    precondition(failure.stage == .command, "unknown stage")
    precondition(failure.underlyingDomain == "redacted", "unknown domain: \\\\(failure.underlyingDomain)")
+   precondition(failure.underlyingCode == 0, "unknown private-domain codes are removed from the wire model")
    precondition(failure.technicalDetails.contains("underlying_code=unknown"),
                 "unknown private error codes are redacted in diagnostics")
   }

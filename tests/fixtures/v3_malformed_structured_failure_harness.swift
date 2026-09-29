@@ -17,9 +17,9 @@ struct MalformedStructuredFailureHarness {
             "stage": "command", "code": "failed", "correlationID": id,
             "underlyingDomain": "redacted", "underlyingCode": largestSigned]
         let decodedRangeFailure = CombinedFailure.decode(rangeFailureWire, expectedID: id)
-        precondition(decodedRangeFailure?.underlyingDomain == "redacted" &&
+        precondition(decodedRangeFailure != nil && decodedRangeFailure?.underlyingDomain == "redacted" &&
                      decodedRangeFailure?.underlyingCode == 0,
-            "a redacted wire domain cannot carry an unverified numeric code")
+            "decoding accepts an in-range integer and safely normalizes redacted/nonzero to redacted/0")
         var overflowFailureWire = rangeFailureWire
         overflowFailureWire["underlyingCode"] = unsignedOverflow
         precondition(V3WireContract.strictInt(unsignedOverflow) == nil &&
