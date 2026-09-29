@@ -784,7 +784,7 @@ let secret = "PROVIDER_SECRET https://private.invalid/?password=raw"
 let malicious = NSError(domain: "provider.private.invalid", code: 91,
     userInfo: [NSLocalizedDescriptionKey: secret])
 let failedTask = BGProcessingTask()
-let failedState = AutomaticRefreshTaskState(task: failedTask)
+private let failedState = AutomaticRefreshTaskState(task: failedTask)
 precondition(failedState.begin())
 failedState.finish(success: false, failure: malicious)
 let historyBytes = UserDefaults.standard.data(forKey: AutomaticRefreshHistory.key)!
