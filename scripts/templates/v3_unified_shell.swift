@@ -7464,6 +7464,7 @@ struct V3AnisetteView: View {
     @State private var message = ""
     @State private var notice = ""
     @State private var remoteBusy = false
+    @State private var serverRequestOwners = V3AsyncRequestOwnerState()
     var body: some View {
         List {
             if !message.isEmpty {
@@ -7485,11 +7486,16 @@ struct V3AnisetteView: View {
                                 Text("Active").font(.caption.weight(.bold)).foregroundColor(.green)
                             }
                         }
-                        Text(server.address).font(.caption).foregroundColor(.secondary).textSelection(.enabled)
+                            Text(server.address).font(.caption).foregroundColor(.secondary).textSelection(.enabled)
                         if !server.active && !server.hidden {
                             Button("Use This Server") {
+                                guard !remoteBusy else { return }
+                                remoteBusy = true
+                                let owner = serverRequestOwners.begin(bindingID: "anisette-servers")
                                 Task {
+                                    defer { remoteBusy = false }
                                     await store.setStringAndWait("menuAnisetteURL", server.address)
+                                    guard serverRequestOwners.owns(owner, bindingID: "anisette-servers") else { return }
                                     if !store.message.isEmpty {
                                         message = store.message
                                         return
@@ -7498,6 +7504,7 @@ struct V3AnisetteView: View {
                                 }
                             }
                             .font(.caption)
+                            .disabled(remoteBusy)
                         }
                     }
                     .padding(.vertical, 2)
@@ -7525,24 +7532,34 @@ struct V3AnisetteView: View {
             await store.load()
             await reload()
         }
+        .onDisappear { serverRequestOwners.invalidate() }
     }
     private func reload() async {
+        let owner = serverRequestOwners.begin(bindingID: "anisette-servers")
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "anisetteList")
+            guard serverRequestOwners.owns(owner, bindingID: "anisette-servers") else { return }
             servers = (reply["servers"] as? [[String: Any]] ?? []).compactMap(V3AnisetteServerRow.init)
             message = ""
-        } catch { message = V3FailureGuidance.message(error) }
+        } catch {
+            guard serverRequestOwners.owns(owner, bindingID: "anisette-servers") else { return }
+            message = V3FailureGuidance.message(error)
+        }
     }
     private func remote(_ operation: String) async {
+        guard !remoteBusy else { return }
+        let owner = serverRequestOwners.begin(bindingID: "anisette-servers")
         remoteBusy = true
         notice = ""
         defer { remoteBusy = false }
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: operation)
+            guard serverRequestOwners.owns(owner, bindingID: "anisette-servers") else { return }
             servers = (reply["servers"] as? [[String: Any]] ?? []).compactMap(V3AnisetteServerRow.init)
             message = ""
             notice = operation == "anisetteReset" ? "Anisette servers reset." : "Anisette servers synced."
         } catch {
+            guard serverRequestOwners.owns(owner, bindingID: "anisette-servers") else { return }
             if let failure = error as? CombinedFailure,
                let anisetteGuidance = V3AnisetteFailureGuidance.message(failure) {
                 message = anisetteGuidance
@@ -7556,6 +7573,9 @@ struct V3AnisetteView: View {
 struct V3SideSignView: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @State private var config = ""
+    @State private var editorRevision: UInt64 = 0
+    @State private var configRequestOwners = V3AsyncRequestOwnerState()
+    @State private var editorVisible = false
     @State private var message = ""
     @State private var notice = ""
     @State private var busy = false
@@ -7596,6 +7616,12 @@ struct V3SideSignView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("SideSign Configuration")
         .task { await reload() }
+        .onAppear { editorVisible = true }
+        .onChange(of: config) { _ in invalidateConfigRequestOwner() }
+        .onDisappear {
+            editorVisible = false
+            invalidateConfigRequestOwner()
+        }
         .sheet(isPresented: $pickerPresented) {
             V3FilePicker(types: ["public.json"]) { url in
                 pickerPresented = false
@@ -7607,13 +7633,26 @@ struct V3SideSignView: View {
         }
     }
     private func reload() async {
+        let owner = configRequestOwners.begin(bindingID: "sidesign-config-editor")
+        let capturedRevision = editorRevision
+        let capturedConfig = config
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "sidesignGet")
-            config = try consumeConfigToken(in: reply)
+            let loadedConfig = try consumeConfigToken(in: reply)
+            guard mayApply(owner, capturedEditorRevision: capturedRevision),
+                  config == capturedConfig else { return }
+            config = loadedConfig
             message = ""
-        } catch { message = V3FailureGuidance.message(error) }
+        } catch {
+            guard mayApply(owner, capturedEditorRevision: capturedRevision),
+                  config == capturedConfig else { return }
+            message = V3FailureGuidance.message(error)
+        }
     }
     private func save() async {
+        let owner = configRequestOwners.begin(bindingID: "sidesign-config-editor")
+        let capturedRevision = editorRevision
+        let submittedConfig = config
         busy = true
         notice = ""
         defer { busy = false }
@@ -7622,23 +7661,51 @@ struct V3SideSignView: View {
             defer { V3SecretHandoff.discard(secretToken) }
             let reply = try await V3ServiceBridge.shared.request(operation: "sidesignSet",
                 payload: ["secretToken": secretToken])
-            config = try consumeConfigToken(in: reply)
+            let savedConfig = try consumeConfigToken(in: reply)
+            guard mayApply(owner, capturedEditorRevision: capturedRevision),
+                  config == submittedConfig else {
+                reportStaleMutationIfDraftChanged(from: submittedConfig,
+                    capturedEditorRevision: capturedRevision)
+                return
+            }
+            config = savedConfig
             message = ""
             notice = "Configuration saved."
-        } catch { message = V3FailureGuidance.message(error) }
+        } catch {
+            guard mayApply(owner, capturedEditorRevision: capturedRevision),
+                  config == submittedConfig else { return }
+            message = V3FailureGuidance.message(error)
+        }
     }
     private func remote(_ operation: String) async {
+        let owner = configRequestOwners.begin(bindingID: "sidesign-config-editor")
+        let capturedRevision = editorRevision
+        let capturedConfig = config
         busy = true
         notice = ""
         defer { busy = false }
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: operation)
-            config = try consumeConfigToken(in: reply)
+            let resetConfig = try consumeConfigToken(in: reply)
+            guard mayApply(owner, capturedEditorRevision: capturedRevision),
+                  config == capturedConfig else {
+                reportStaleMutationIfDraftChanged(from: capturedConfig,
+                    capturedEditorRevision: capturedRevision)
+                return
+            }
+            config = resetConfig
             message = ""
             notice = "Configuration reset."
-        } catch { message = V3FailureGuidance.message(error) }
+        } catch {
+            guard mayApply(owner, capturedEditorRevision: capturedRevision),
+                  config == capturedConfig else { return }
+            message = V3FailureGuidance.message(error)
+        }
     }
     private func importFile(_ url: URL) async {
+        let owner = configRequestOwners.begin(bindingID: "sidesign-config-editor")
+        let capturedRevision = editorRevision
+        let capturedConfig = config
         busy = true
         notice = ""
         defer { busy = false }
@@ -7646,16 +7713,34 @@ struct V3SideSignView: View {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let data = try await V3SharedFileInput.readBoundedAsync(url)
+            guard mayApply(owner, capturedEditorRevision: capturedRevision),
+                  config == capturedConfig else { return }
             guard let token = await status.stageSharedFile(data, purpose: "sidesign") else { return }
             defer { status.discardSharedFile(token) }
+            guard mayApply(owner, capturedEditorRevision: capturedRevision),
+                  config == capturedConfig else { return }
             let reply = try await V3ServiceBridge.shared.request(operation: "sidesignImport", target: token)
-            config = try consumeConfigToken(in: reply)
+            let importedConfig = try consumeConfigToken(in: reply)
+            guard mayApply(owner, capturedEditorRevision: capturedRevision),
+                  config == capturedConfig else {
+                reportStaleMutationIfDraftChanged(from: capturedConfig,
+                    capturedEditorRevision: capturedRevision)
+                return
+            }
+            config = importedConfig
             message = ""
             notice = "Configuration imported."
-        } catch { message = V3FailureGuidance.message(error) }
+        } catch {
+            guard mayApply(owner, capturedEditorRevision: capturedRevision),
+                  config == capturedConfig else { return }
+            message = V3FailureGuidance.message(error)
+        }
     }
     private func exportConfig() async {
         guard !busy, !exporting else { return }
+        let owner = configRequestOwners.begin(bindingID: "sidesign-config-editor")
+        let capturedRevision = editorRevision
+        let capturedConfig = config
         exporting = true
         defer { exporting = false }
         message = ""
@@ -7663,11 +7748,35 @@ struct V3SideSignView: View {
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "sidesignExport")
             let text = try consumeConfigToken(in: reply)
+            guard mayApply(owner, capturedEditorRevision: capturedRevision),
+                  config == capturedConfig else { return }
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("sidesign-config.json")
             try text.write(to: url, atomically: true, encoding: .utf8)
             shareItems = [url]
             notice = "Configuration exported."
-        } catch { message = V3FailureGuidance.message(error) }
+        } catch {
+            guard mayApply(owner, capturedEditorRevision: capturedRevision),
+                  config == capturedConfig else { return }
+            message = V3FailureGuidance.message(error)
+        }
+    }
+
+    private func invalidateConfigRequestOwner() {
+        editorRevision &+= 1
+        configRequestOwners.invalidate()
+    }
+
+    private func mayApply(_ owner: V3AsyncRequestOwner,
+                          capturedEditorRevision: UInt64) -> Bool {
+        configRequestOwners.owns(owner, bindingID: "sidesign-config-editor") &&
+            capturedEditorRevision == editorRevision
+    }
+
+    private func reportStaleMutationIfDraftChanged(from capturedConfig: String,
+                                                   capturedEditorRevision: UInt64) {
+        guard editorVisible,
+              config != capturedConfig || editorRevision != capturedEditorRevision else { return }
+        notice = "SideStore accepted an earlier configuration change. Review your current draft before saving it."
     }
 
     private func consumeConfigToken(in reply: [String: Any]) throws -> String {
