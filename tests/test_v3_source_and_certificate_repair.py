@@ -44,19 +44,19 @@ class SourceAddPersistenceContractTests(unittest.TestCase):
         self.assertIn("knownSourcePolicyNetworkFailure", service)
         self.assertIn("knownSourcePolicyInvalidResponse", service)
 
-    def test_headless_add_uses_persisted_check_save_and_fresh_context_verification(self):
+    def test_headless_add_uses_shared_appmanager_persistence_and_fresh_context_verification(self):
         runtime = text(RUNTIME)
         method = region(runtime, "static func sourceAddConfirmed(urlString:",
-                        "static func sourceRemoveConfirmed(identifier:")
+                        "static func authoritativeSourceRows()")
         self.assertIn("V3SourceAddPersistencePolicy.validatedURL(urlString)", method)
-        self.assertIn("AppManager.shared.fetchSource", method)
-        self.assertIn("source.isAdded()", method)
+        self.assertIn("AppManager.shared.addConfirmed(sourceURL: url)", method)
+        self.assertIn("addResult.alreadyAdded", method)
         self.assertNotIn("background.fetch(NSFetchRequest<Source>", method)
-        self.assertLess(method.index("source.isAdded()"), method.index("background.save()"))
-        self.assertLess(method.index("background.save()"), method.index("verificationContext"))
+        for duplicate_business_rule in ("source.isAdded()", "background.save()", "context.save()",
+                                        "didAddSourceNotification", "Source.altStoreIdentifier"):
+            self.assertNotIn(duplicate_business_rule, method)
         self.assertIn("verificationContext.count(for: query)", method)
         self.assertIn("authoritativeCount: authoritativeCount", method)
-        self.assertIn("object: persistedSource", method)
         self.assertIn("static func authoritativeSourceRows()", runtime)
 
     def test_service_returns_authoritative_source_snapshot_and_result(self):
