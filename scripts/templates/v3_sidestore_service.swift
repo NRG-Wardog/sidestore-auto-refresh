@@ -227,11 +227,20 @@ private struct V3KnownSourcePolicyFailure: Error {
     let underlyingDomain: String
     let underlyingCode: Int
 
+    // Cancellation belongs to the request lifecycle. Let the service-level
+    // cancellation path see it instead of translating it into a list parse error.
+    static func preservingCancellation(_ error: Error) -> Error {
+        if error is CancellationError { return error }
+        let cause = error as NSError
+        if CombinedFailure.isURLCancellation(domain: cause.domain, code: cause.code) { return error }
+        return V3KnownSourcePolicyFailure(error)
+    }
+
     init(_ error: Error) {
         let cause = error as NSError
-        // CFNetwork exposes this domain as kCFErrorDomainCFNetwork. Keep the
-        // domain's actual NSError string, not the framework name.
-        kind = [NSURLErrorDomain, "kCFErrorDomainCFNetwork"].contains(cause.domain)
+        // URL-loading errors include local temporary-file I/O. The shared
+        // domain-and-code policy separates those from typed transport failures.
+        kind = CombinedFailure.knownURLTransportCause(domain: cause.domain, code: cause.code) != nil
             ? .network : .invalidResponse
         underlyingDomain = [NSURLErrorDomain, NSPOSIXErrorDomain,
                             "kCFErrorDomainCFNetwork", "NSCocoaErrorDomain"]
@@ -596,10 +605,19 @@ final class V3SideStoreService: NSObject {
                     case .network:
                         response["failure"] = CombinedFailure(operation: "source", stage: .source, code: .failed,
                             id: id, underlying: NSError(domain: sourceError.domain, code: sourceError.code),
-                            safeCause: .sourceNetworkFailure, sourceStep: .sourceDownload).wire
+                            retryable: true, safeCause: sourceError.safeCause,
+                            sourceStep: sourceError.sourceStep).wire
                     case .invalidManifest:
                         response["failure"] = CombinedFailure(operation: "source", stage: .source, code: .invalidResponse,
-                            id: id, safeCause: .sourceInvalidManifest, sourceStep: .manifestParsing).wire
+                            id: id, underlying: NSError(domain: sourceError.domain, code: sourceError.code),
+                            retryable: false, safeCause: sourceError.safeCause,
+                            sourceStep: sourceError.sourceStep).wire
+                    case .validation:
+                        response["failure"] = CombinedFailure(operation: "source", stage: .source,
+                            code: .invalidResponse, id: id,
+                            underlying: NSError(domain: sourceError.domain, code: sourceError.code),
+                            retryable: false, safeCause: sourceError.safeCause,
+                            sourceStep: sourceError.sourceStep).wire
                     }
                 } else if operation == "catalog" {
                     response["failure"] = CombinedFailure(operation: "catalog", stage: .catalog, code: .failed,
@@ -1248,7 +1266,7 @@ final class V3SideStoreService: NSObject {
 
         if let knownSourcesUpdateTask {
             do { try await knownSourcesUpdateTask.value }
-            catch { throw V3KnownSourcePolicyFailure(error) }
+            catch { throw V3KnownSourcePolicyFailure.preservingCancellation(error) }
             guard defaults.blockedSources != nil else { throw ServiceError.notReady }
             return
         }
@@ -1269,7 +1287,7 @@ final class V3SideStoreService: NSObject {
         knownSourcesUpdateTask = task
         defer { knownSourcesUpdateTask = nil }
         do { try await task.value }
-        catch { throw V3KnownSourcePolicyFailure(error) }
+        catch { throw V3KnownSourcePolicyFailure.preservingCancellation(error) }
         guard defaults.blockedSources != nil else { throw ServiceError.notReady }
         defaults.set(Date(), forKey: "v3KnownSourcesUpdatedAt")
     }

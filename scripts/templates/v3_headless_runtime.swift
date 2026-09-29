@@ -258,10 +258,17 @@ func v3AuthFailureStage(_ kind: V3AuthFailureKind) -> CombinedFailure.Stage {
 //   Apple endpoint did not return a valid auth response (e.g. HTTP 5xx with an
 //   empty body, which SideSign reports without a status code)
 // - ServerError.underlyingError with a GrandSlam rate-limit code: rateLimited
-// - URLError (any code): network reachability failure
+// - known URL transport codes: network failure
 // Anything else is honestly reported as unknown.
+func v3IsAuthCancellation(_ error: Error) -> Bool {
+    if error is CancellationError { return true }
+    if let portal = error as? DeveloperPortalError, case .userCancelled = portal { return true }
+    let native = error as NSError
+    return CombinedFailure.isURLCancellation(domain: native.domain, code: native.code)
+}
+
 func v3ClassifyAuthError(_ error: Error) -> V3AuthFailureKind? {
-    if error is CancellationError { return nil }
+    if v3IsAuthCancellation(error) { return nil }
     if let portal = error as? DeveloperPortalError {
         switch portal {
         case .incorrectCredentials: return .invalidCredentials
@@ -291,7 +298,10 @@ func v3ClassifyAuthError(_ error: Error) -> V3AuthFailureKind? {
             return .unknown
         }
     }
-    if (error as NSError).domain == NSURLErrorDomain { return .network }
+    let native = error as NSError
+    if CombinedFailure.knownURLTransportCause(domain: native.domain, code: native.code) != nil {
+        return .network
+    }
     return .unknown
 }
 
@@ -676,7 +686,7 @@ final class V3AuthCenter {
                 authenticationCallbackSeen: session?.authenticatedAppleID != nil,
                 submittedAppleID: submitted, activeAppleID: activeAppleID,
                 accountAppleIDAtStart: session?.accountAppleIDAtStart)
-            let cancelled = error is CancellationError || session?.cancellationRequested == true
+            let cancelled = v3IsAuthCancellation(error) || session?.cancellationRequested == true
             let authenticatedOutcome = V3AuthTerminalPolicy.resolve(
                 authenticationSucceeded: authenticationSucceeded,
                 authoritativeAccountMatches: false,
@@ -2185,19 +2195,47 @@ enum V3SideStoreServiceError: String, Error {
 }
 
 struct V3SourceCommandError: Error {
-    enum Kind { case network, invalidManifest }
+    enum Kind { case network, invalidManifest, validation }
     let kind: Kind
     let domain: String
     let code: Int
+    let safeCause: CombinedFailure.SafeCause
+    let sourceStep: CombinedFailure.SourceStep
 
     static func classify(_ error: Error) -> V3SourceCommandError? {
         let native = error as NSError
-        if error is URLError || native.domain == NSURLErrorDomain {
-            return V3SourceCommandError(kind: .network, domain: NSURLErrorDomain, code: native.code)
+        if error is CancellationError ||
+            CombinedFailure.isURLCancellation(domain: native.domain, code: native.code) {
+            return nil
         }
-        if error is DecodingError || native.domain == "io.sidestore.SideStore.DecodingError" ||
-            ((error as? SourceError)?.code == .unsupported) {
-            return V3SourceCommandError(kind: .invalidManifest, domain: native.domain, code: native.code)
+        // Prefer the typed SideStore source code over NSError domain/code.
+        if let sourceError = error as? SourceError {
+            let safeCause: CombinedFailure.SafeCause
+            switch sourceError.code {
+            case .blocked: safeCause = .sourceBlocked
+            case .changedID: safeCause = .sourceChangedID
+            case .duplicate: safeCause = .sourceDuplicate
+            case .unsupported, .marketplaceNotSupported: safeCause = .sourceUnsupported
+            case .duplicateBundleID, .duplicateVersion, .missingPermissionUsageDescription,
+                 .missingScreenshotSize, .marketplaceRequired:
+                safeCause = .sourceValidationFailed
+            default:
+                // Future pinned SourceError codes remain unknown until their
+                // meaning is reviewed; never forward associated values.
+                return nil
+            }
+            return V3SourceCommandError(kind: .validation, domain: native.domain, code: native.code,
+                safeCause: safeCause, sourceStep: .sourceValidation)
+        }
+        // URLSession also uses URL error domains for local download-file I/O.
+        // Only SideStore's shared typed transport-code policy proves network loss.
+        if CombinedFailure.knownURLTransportCause(domain: native.domain, code: native.code) != nil {
+            return V3SourceCommandError(kind: .network, domain: native.domain, code: native.code,
+                safeCause: .sourceNetworkFailure, sourceStep: .sourceDownload)
+        }
+        if error is DecodingError || native.domain == "io.sidestore.SideStore.DecodingError" {
+            return V3SourceCommandError(kind: .invalidManifest, domain: native.domain, code: native.code,
+                safeCause: .sourceInvalidManifest, sourceStep: .manifestParsing)
         }
         return nil
     }

@@ -2187,9 +2187,16 @@ struct V3UserFacingIssue: Equatable {
                 if safeCause == CombinedFailure.SafeCause.sourceRemoveFailed.rawValue ||
                    safeCause == CombinedFailure.SafeCause.sourceRemoveBusy.rawValue { return .reloadSources }
                 if safeCause == CombinedFailure.SafeCause.knownSourcePolicyNetworkFailure.rawValue ||
-                   safeCause == CombinedFailure.SafeCause.knownSourcePolicyInvalidResponse.rawValue ||
-                   safeCause == CombinedFailure.SafeCause.sourceInvalidManifest.rawValue ||
-                   safeCause == CombinedFailure.SafeCause.sourceInvalidURL.rawValue { return .openSources }
+                    safeCause == CombinedFailure.SafeCause.knownSourcePolicyInvalidResponse.rawValue ||
+                    safeCause == CombinedFailure.SafeCause.sourceInvalidManifest.rawValue ||
+                    safeCause == CombinedFailure.SafeCause.sourceInvalidURL.rawValue ||
+                    safeCause == CombinedFailure.SafeCause.sourceBlocked.rawValue ||
+                    safeCause == CombinedFailure.SafeCause.sourceChangedID.rawValue ||
+                    safeCause == CombinedFailure.SafeCause.sourceDuplicate.rawValue ||
+                    safeCause == CombinedFailure.SafeCause.sourceUnsupported.rawValue ||
+                    safeCause == CombinedFailure.SafeCause.sourceValidationFailed.rawValue {
+                    return .openSources
+                }
                 if [CombinedFailure.SafeCause.responseEncodingFailed.rawValue,
                     CombinedFailure.SafeCause.responseTooLarge.rawValue,
                     CombinedFailure.SafeCause.responseCapacityUnavailable.rawValue,
@@ -3010,6 +3017,16 @@ struct V3OperationFailureDetails {
         case CombinedFailure.SafeCause.sourceInvalidManifest.rawValue,
              CombinedFailure.SafeCause.sourceInvalidURL.rawValue:
             return "Open Sources and correct the source URL or manifest before retrying."
+        case CombinedFailure.SafeCause.sourceBlocked.rawValue:
+            return "Do not add this source. Verify with the provider that it is safe before trying again."
+        case CombinedFailure.SafeCause.sourceChangedID.rawValue:
+            return "Contact the source provider before removing the saved source or adding it again."
+        case CombinedFailure.SafeCause.sourceDuplicate.rawValue:
+            return "Open Sources and use the existing source. Remove it only after confirming which entry is correct."
+        case CombinedFailure.SafeCause.sourceUnsupported.rawValue:
+            return "Update SideStore or use a source format supported by this version."
+        case CombinedFailure.SafeCause.sourceValidationFailed.rawValue:
+            return "Ask the source provider to correct its metadata, then preview it again."
         case CombinedFailure.SafeCause.sourcePersistenceUnverified.rawValue:
             return "Open Sources and reload the list to see whether the source was saved before retrying."
         case CombinedFailure.SafeCause.sourceAddBusy.rawValue,
@@ -4138,7 +4155,7 @@ enum V3AuthTerminalFailureActionPolicy {
         case .beginNewSignIn(_) where kind == "anisette" || kind == "anisetteFailure":
             return "SideStore could not obtain Anisette data. Check Anisette Servers in Settings, then start a new sign-in."
         case .beginNewSignIn(_) where kind == "network" || kind == "networkFailure":
-            return "The connection to Apple's authentication service failed. Check Connection or LocalDevVPN, then start a new sign-in."
+            return "The connection to Apple's authentication service failed. Check your internet connection, then start a new sign-in."
         case .beginNewSignIn(_) where kind == "unknown" || (kind == nil && retryable == nil):
             return "The exact cause or retry safety could not be confirmed. Starting again creates a new attempt and may not resolve the previous failure."
         case .beginNewSignIn(_):

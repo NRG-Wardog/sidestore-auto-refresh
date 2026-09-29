@@ -209,6 +209,35 @@ struct ResponseClassificationHarness {
         precondition(hostFailure(numericOK, operation: "snapshot", id: invalidRootID).code == .invalidResponse,
             "numeric one must not impersonate the root Boolean ok field")
 
+        let missingID = try! PropertyListSerialization.data(fromPropertyList: [
+            "version": 1, "ok": true, "result": [:] as [String: Any]
+        ], format: .binary, options: 0)
+        precondition(hostFailure(missingID, operation: "catalog", id: invalidRootID).code == .invalidResponse,
+                     "a missing UUID is a malformed reply, not a stale result")
+        let invalidIDs: [Any] = [NSNumber(value: 7), "not-a-uuid"]
+        for invalidID in invalidIDs {
+            let malformedID = try! PropertyListSerialization.data(fromPropertyList: [
+                "version": 1, "id": invalidID, "ok": true, "result": [:] as [String: Any]
+            ], format: .binary, options: 0)
+            precondition(hostFailure(malformedID, operation: "catalog", id: invalidRootID).code == .invalidResponse,
+                         "a non-UUID reply ID is a malformed response")
+        }
+
+        // UUID text is case-insensitive on the wire. A lowercased outer ID and
+        // canonical nested failure still identify this exact request.
+        let equivalentID = UUID().uuidString
+        let equivalentFailure = CombinedFailure(operation: "refresh", stage: .network,
+            code: .failed, id: equivalentID, retryable: true, safeCause: .networkTimedOut)
+        let equivalentReply = try! PropertyListSerialization.data(fromPropertyList: [
+            "version": 1, "id": equivalentID.lowercased(), "error": "operationFailed",
+            "failure": equivalentFailure.wire
+        ], format: .binary, options: 0)
+        let equivalentRoundTrip = hostFailure(equivalentReply, operation: "refresh", id: equivalentID)
+        precondition(equivalentRoundTrip.code == .failed &&
+                     equivalentRoundTrip.safeCause == .networkTimedOut &&
+                     equivalentRoundTrip.correlationID == equivalentID,
+                     "equivalent UUID spellings decode the nested failure for the current request")
+
         // A reply for a different request is protocol evidence, never a
         // serialization defect, and never resolved to this caller.
         precondition(hostFailure(encodingReply, operation: "catalog",

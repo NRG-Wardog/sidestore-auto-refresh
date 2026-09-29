@@ -173,6 +173,11 @@ public struct CombinedFailure: Error, LocalizedError {
         case sourceInvalidManifest
         case sourcePersistenceUnverified
         case sourceInvalidURL
+        case sourceBlocked
+        case sourceChangedID
+        case sourceDuplicate
+        case sourceUnsupported
+        case sourceValidationFailed
         case sourceRemoveFailed
         case sourceRemoveBusy
         case sourceAddBusy
@@ -224,6 +229,8 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceNetworkFailure:
                 return true
             case .sourceInvalidManifest, .sourcePersistenceUnverified, .sourceInvalidURL,
+                 .sourceBlocked, .sourceChangedID, .sourceDuplicate, .sourceUnsupported,
+                 .sourceValidationFailed,
                  .sourceRemoveFailed, .catalogUnavailable:
                 return false
             case .sourceRemoveBusy, .sourceAddBusy:
@@ -270,7 +277,8 @@ public struct CombinedFailure: Error, LocalizedError {
 
     public enum SourceStep: String, CaseIterable {
         case provisioningProfileFetch, certificateValidation, localCodeSigning
-        case sourceDownload, manifestParsing, knownSourcePolicyFetch, knownSourcePolicyParsing, catalogRead
+        case sourceDownload, manifestParsing, sourceValidation, knownSourcePolicyFetch,
+             knownSourcePolicyParsing, catalogRead
     }
 
     public enum Stage: String, CaseIterable {
@@ -453,6 +461,11 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceInvalidManifest: return "The source returned data SideStore could not read as a valid source."
             case .sourcePersistenceUnverified: return "SideStore could not confirm that the source was saved."
             case .sourceInvalidURL: return "The source URL is invalid."
+            case .sourceBlocked: return "SideStore blocked this source for security reasons."
+            case .sourceChangedID: return "SideStore stopped updating this source because its identifier changed."
+            case .sourceDuplicate: return "A source with the same identifier is already saved."
+            case .sourceUnsupported: return "This source format is not supported by this version of SideStore."
+            case .sourceValidationFailed: return "SideStore rejected metadata in this source."
             case .sourceRemoveFailed: return "SideStore could not confirm that the source was removed from its saved list."
             case .sourceRemoveBusy: return "SideStore was busy with another request, so it did not start removing this source."
             case .sourceAddBusy: return "SideStore was busy with another request, so it did not confirm adding this source."
@@ -497,6 +510,7 @@ public struct CombinedFailure: Error, LocalizedError {
             switch sourceStep {
             case .sourceDownload: return "The source could not be downloaded."
             case .manifestParsing: return "The source returned data SideStore could not read as a valid source."
+            case .sourceValidation: return "SideStore rejected the source during validation."
             case .catalogRead: return "SideStore could not confirm that the source was saved or read from its catalog."
             default: return "SideStore could not complete the source request."
             }
@@ -603,7 +617,7 @@ public struct CombinedFailure: Error, LocalizedError {
         if let safeCause {
             switch safeCause {
             case .networkConnectionLost, .networkTimedOut, .networkUnavailable:
-                return "Reconnect, check LocalDevVPN if enabled, and retry when the connection is stable."
+                return "Check the network used by this request, then retry when the connection is stable. If a device operation still fails, run Connection Check."
             case .anisetteServerUnavailable:
                 return "Try syncing again later or choose another configured Anisette server. This does not indicate a LocalDevVPN problem."
             case .anisetteServerRejected:
@@ -622,14 +636,26 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Check Account & Signing and Certificates. If it repeats, keep these diagnostics for support before retrying."
             case .provisioningProfileUnavailable, .certificateUnavailable:
                 return "Open Certificates and select or create a current signing certificate/profile before retrying."
-            case .wifiUnavailable, .localDevVPNUnavailable:
-                return "Restore the indicated connection prerequisite, then start a new refresh."
+            case .wifiUnavailable:
+                return "Restore Wi-Fi, then start a new refresh."
+            case .localDevVPNUnavailable:
+                return "Restore LocalDevVPN, then start a new refresh."
             case .unknownSigningCause:
                 return "Check Account & Signing and Certificates. The exact underlying cause was not safely identified; keep these diagnostics before trying again."
             case .sourceNetworkFailure:
                 return "Check the network connection and retry the source request."
             case .sourceInvalidManifest:
                 return "Check the source provider's manifest format, then preview it again."
+            case .sourceBlocked:
+                return "Do not add this source. Verify with the provider that it is safe before trying again."
+            case .sourceChangedID:
+                return "Contact the source provider before removing the saved source or adding it again."
+            case .sourceDuplicate:
+                return "Return to Sources and use the existing source. Remove it only after confirming which entry is correct."
+            case .sourceUnsupported:
+                return "Update SideStore or use a source format supported by this version."
+            case .sourceValidationFailed:
+                return "Ask the source provider to correct its metadata, then preview it again."
             case .sourcePersistenceUnverified:
                 return "Return to Sources and reload the list. Confirm whether the source is present before submitting another add; copy Diagnostics if its status remains unclear."
             case .sourceInvalidURL:
@@ -794,7 +820,8 @@ public struct CombinedFailure: Error, LocalizedError {
     }
     public static func decode(_ value: [String: Any], expectedID: String) -> CombinedFailure? {
         guard Set(value.keys).isSubset(of: ["version", "operation", "stage", "code", "correlationID", "underlyingDomain", "underlyingCode", "retryable", "safeCause", "sourceStep"]),
-              Self.strictInteger(value["version"]) == 1, value["correlationID"] as? String == expectedID,
+              Self.strictInteger(value["version"]) == 1,
+              Self.uuidCorrelationMatches(value["correlationID"] as? String, expectedID: expectedID),
               let operation = value["operation"] as? String, operations.contains(operation),
               let stageName = value["stage"] as? String, let stage = Stage(rawValue: stageName),
               let codeName = value["code"] as? String, let code = Code(rawValue: codeName),
@@ -852,6 +879,30 @@ public struct CombinedFailure: Error, LocalizedError {
         }
     }
 
+    /// Returns network evidence only for URL transport errors SideStore knows
+    /// how to explain. URL-loading domains also carry local file I/O failures,
+    /// so domain membership alone is not a network classification.
+    public static func knownURLTransportCause(domain: String, code: Int,
+                                               signing: Bool = false) -> SafeCause? {
+        guard domain == NSURLErrorDomain || domain == "kCFErrorDomainCFNetwork" else { return nil }
+        return networkSafeCauseForURLCode(code, signing: signing)
+    }
+
+    /// URL cancellation is terminal lifecycle evidence, not network failure.
+    public static func isURLCancellation(domain: String, code: Int) -> Bool {
+        (domain == NSURLErrorDomain || domain == "kCFErrorDomainCFNetwork") &&
+            code == NSURLErrorCancelled
+    }
+
+    /// Correlation IDs are UUIDs. Compare their parsed identity so equivalent
+    /// uppercase and lowercase UUID spellings stay bound to the same request.
+    public static func uuidCorrelationMatches(_ receivedID: String?, expectedID: String) -> Bool {
+        guard let receivedID,
+              let received = UUID(uuidString: receivedID),
+              let expected = UUID(uuidString: expectedID) else { return false }
+        return received == expected
+    }
+
     public static func capture(_ error: Error, operation: String, stage: Stage, id: String,
                                retryable: Bool? = nil) -> CombinedFailure {
         if let known = error as? CombinedFailure { return known }
@@ -890,7 +941,7 @@ public struct CombinedFailure: Error, LocalizedError {
                let found = SafeCause(rawValue: name) {
                 safeCause = found
             }
-            if cause.domain == NSURLErrorDomain && cause.code == NSURLErrorCancelled {
+            if isURLCancellation(domain: cause.domain, code: cause.code) {
                 resolvedCode = .cancelled
                 resolvedRetryable = false
             }
@@ -908,11 +959,12 @@ public struct CombinedFailure: Error, LocalizedError {
                 switch cause.domain {
                 case "com.SideStore.Authentication":
                     resolved = .authentication
-                case "NSURLErrorDomain":
+                case NSURLErrorDomain, "kCFErrorDomainCFNetwork":
                     // Only transport-specific URL errors establish network
                     // failure. URLSession also uses this domain for local
                     // download-file and cancellation errors.
-                    if let urlCause = networkSafeCauseForURLCode(cause.code, signing: resolved == .signing) {
+                    if let urlCause = knownURLTransportCause(
+                        domain: cause.domain, code: cause.code, signing: resolved == .signing) {
                         if resolved != .signing { resolved = .network }
                         if safeCause == nil { safeCause = urlCause }
                     }
@@ -1000,8 +1052,9 @@ public struct CombinedFailure: Error, LocalizedError {
         } else {
             underlying = cause
         }
-        if safeCause == nil && (resolved == .signing || resolved == .network) && cause.domain == NSURLErrorDomain {
-            safeCause = networkSafeCauseForURLCode(cause.code, signing: resolved == .signing)
+        if safeCause == nil && (resolved == .signing || resolved == .network) {
+            safeCause = knownURLTransportCause(
+                domain: cause.domain, code: cause.code, signing: resolved == .signing)
         }
         return CombinedFailure(operation: operation, stage: resolved,
             code: resolvedCode, id: id,
@@ -1073,7 +1126,7 @@ enum V3NotDispatchedReplyPolicy {
         guard maximumBytes > 0, !data.isEmpty, data.count <= maximumBytes,
               let reply = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               v3StrictPlistInteger(reply["version"]) == 1,
-              reply["id"] as? String == requestID,
+              CombinedFailure.uuidCorrelationMatches(reply["id"] as? String, expectedID: requestID),
               reply["error"] as? String != nil,
               reply["result"] == nil,
               reply["ok"] == nil,

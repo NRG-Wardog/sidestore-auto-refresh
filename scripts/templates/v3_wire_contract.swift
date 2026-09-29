@@ -500,6 +500,8 @@ enum V3ServiceReadinessReply: Equatable {
         "provisioningProfileUnavailable", "certificateUnavailable", "wifiUnavailable",
         "localDevVPNUnavailable", "unknownSigningCause", "sourceNetworkFailure",
         "sourceInvalidManifest", "sourcePersistenceUnverified", "sourceInvalidURL",
+        "sourceBlocked", "sourceChangedID", "sourceDuplicate", "sourceUnsupported",
+        "sourceValidationFailed",
         "sourceRemoveFailed", "sourceRemoveBusy", "sourceAddBusy", "operationInProgress",
         "responseCapacityUnavailable", "staleRefreshAttempt", "knownSourcePolicyNetworkFailure",
         "knownSourcePolicyInvalidResponse", "catalogUnavailable", "catalogSourceUnavailable",
@@ -510,7 +512,7 @@ enum V3ServiceReadinessReply: Equatable {
     ]
     static let knownSourceStepValues: Set<String> = [
         "provisioningProfileFetch", "certificateValidation", "localCodeSigning",
-        "sourceDownload", "manifestParsing", "knownSourcePolicyFetch",
+        "sourceDownload", "manifestParsing", "sourceValidation", "knownSourcePolicyFetch",
         "knownSourcePolicyParsing", "catalogRead"
     ]
 
