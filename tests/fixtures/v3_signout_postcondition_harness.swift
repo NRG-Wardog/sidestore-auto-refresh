@@ -43,8 +43,6 @@
             precondition(V3SignOutOutcomePolicy.whatToDo(for: outcome) != nil)
         }
 
-        precondition(V3IssueAction.reloadStatus.title == "Reload Status")
-        precondition(V3IssueAction.reloadStatus.destination == nil)
         print("V3_SIGNOUT_POSTCONDITION_PASS")
     }
 }

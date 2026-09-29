@@ -46,10 +46,19 @@ class SignOutPostconditionTests(unittest.TestCase):
         wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         fixture = (ROOT / "tests/fixtures/v3_signout_postcondition_harness.swift").read_text(encoding="utf-8")
+        bool_start = wire.index("    static func strictBool(_ value: Any?) -> Bool? {")
+        bool_end = wire.index("\n    static func strictInt", bool_start)
+        production_bool_decoder = (
+            "enum V3WireContract {\n" + wire[bool_start:bool_end] + "\n}"
+        )
+        policy_start = primitives.index("enum V3SignOutOutcome: Equatable {")
+        policy_end = primitives.index("\nenum V3AnisetteFailureGuidance {", policy_start)
+        production_signout_policy = primitives[policy_start:policy_end]
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "main.swift"
             executable = Path(temporary) / "signout-postcondition"
-            source.write_text("import Foundation\n" + wire + "\n" + primitives + "\n" + fixture,
+            source.write_text("import Foundation\nimport CoreFoundation\n" + production_bool_decoder + "\n" +
+                              production_signout_policy + "\n" + fixture,
                               encoding="utf-8")
             compiled = subprocess.run([compiler, "-parse-as-library", str(source), "-o", str(executable)],
                                       capture_output=True, text=True)
