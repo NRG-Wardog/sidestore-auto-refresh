@@ -75,6 +75,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     result = RequiredTextTestRunner(verbosity=args.verbosity).run(suite)
     unexpected = unexpected_skips(result.skip_records, allowed)
+    if result.testsRun == 0:
+        print("required test runner discovered zero tests", file=sys.stderr)
     print(f"Required skip gate: observed={len(result.skip_records)} allowlisted="
           f"{len(result.skip_records) - len(unexpected)} unexpected={len(unexpected)}")
     for test_id, reason in unexpected:
@@ -82,6 +84,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if not result.wasSuccessful():
         return 1
+    if result.testsRun == 0:
+        return 2
     if unexpected:
         return 2
     return 0

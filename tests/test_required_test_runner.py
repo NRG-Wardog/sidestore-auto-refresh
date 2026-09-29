@@ -83,6 +83,19 @@ class RequiredSkipGateTests(unittest.TestCase):
             self.assertIn("UNEXPECTED SKIP: test_synthetic.Synthetic.test_swift_case :: swiftc unavailable",
                           result.stderr)
 
+    def test_runner_rejects_empty_discovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            allowlist = root / "allowlist.json"
+            allowlist.write_text("[]", encoding="utf-8")
+            result = subprocess.run([
+                sys.executable, str(ROOT / "scripts" / "run_required_tests.py"),
+                "--start-directory", directory, "--top-level-directory", directory,
+                "--allowlist", str(allowlist), "--verbosity", "2",
+            ], capture_output=True, text=True)
+            self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+            self.assertIn("required test runner discovered zero tests", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
