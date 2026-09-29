@@ -61,16 +61,18 @@ class PipelinePersistenceContractTests(unittest.TestCase):
         service = module("patch_v3_service")
         service_tests = module("test_v3_service")
         fixture = service_tests.ServicePatchTests("test_featured_sort_startup_skip_matches_exact_pin_and_keeps_backend_startup")
+        prepared_version = service.PATCH_VERSION - 1
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
             roots = fixture.fixture(directory)
             fixture.apply(roots)
             manifest_path = roots[0] / ".v3-command-patch.json"
             manifest = __import__("json").loads(manifest_path.read_text(encoding="utf-8"))
-            manifest["patchVersion"] = 42
+            manifest["patchVersion"] = prepared_version
             manifest_path.write_text(__import__("json").dumps(manifest, indent=2) + "\n", encoding="utf-8")
             before = fixture.snapshot(directory)
-            with self.assertRaisesRegex(SystemExit, f"prepared patch version 42 cannot be migrated safely to v{service.PATCH_VERSION}"):
+            with self.assertRaisesRegex(SystemExit,
+                    f"prepared patch version {prepared_version} cannot be migrated safely to v{service.PATCH_VERSION}"):
                 fixture.apply(roots)
             self.assertEqual(before, fixture.snapshot(directory))
 
