@@ -14,6 +14,37 @@ CLANG = shutil.which("clang")
 WIRE_CONTRACT = ROOT / "scripts/templates/v3_wire_contract.swift"
 
 
+def swift_declaration(source: str, signature: str) -> str:
+    start = source.find(signature)
+    if start < 0:
+        raise AssertionError(f"Swift declaration missing from fixture source: {signature}")
+    opening = source.find("{", start)
+    if opening < 0:
+        raise AssertionError(f"Swift declaration has no body: {signature}")
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(opening, len(source)):
+        character = source[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start:index + 1]
+    raise AssertionError(f"unterminated Swift declaration in fixture source: {signature}")
+
+
 class V3BehavioralHarnessTests(unittest.TestCase):
     def compile_and_run(self, source: str, marker: str) -> None:
         if not SWIFTC:
@@ -530,11 +561,11 @@ struct V3ReadinessAndDiagnosticsContractHarness {
 
     def test_auth_read_stamps_execute_transition_and_batch_interleavings(self):
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
-        policy_start = primitives.index("enum V3AuthReadStampPolicy {")
-        policy_end = primitives.index("\nimport CoreFoundation", policy_start)
-        state_start = primitives.index("final class V3AuthIdentityStampState:")
-        state_end = primitives.index("\n// V3_CRASH_REASON_LOG_PRIVACY_V1", state_start)
-        production_policy = primitives[policy_start:policy_end] + "\n" + primitives[state_start:state_end]
+        production_policy = "\n".join((
+            swift_declaration(primitives, "enum V3AuthReadStampPolicy"),
+            swift_declaration(primitives, "enum V3AuthSessionCoalescerKey"),
+            swift_declaration(primitives, "final class V3AuthIdentityStampState:"),
+        ))
         harness = (ROOT / "tests/fixtures/v3_auth_read_stamp_harness.swift").read_text(encoding="utf-8")
         self.compile_and_run("import Foundation\n" + production_policy + "\n" + harness,
                              "V3_AUTH_READ_STAMP_PASS")

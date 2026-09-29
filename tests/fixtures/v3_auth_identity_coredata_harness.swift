@@ -119,9 +119,12 @@ struct AuthIdentityCoreDataHarness {
             other.identifier = "team-b"
             other.isActiveTeam = false
             other.account = accountB
+            try context.save()
+            // Capture permanent IDs. Saving upgrades an inserted object from
+            // its temporary ID; carrying the temporary ID to existingObject
+            // later produces Core Data's "object not found in store" error.
             accountAID = accountA.objectID
             accountBID = accountB.objectID
-            try context.save()
         }
 
         let proxy = DeveloperPortalProxy()

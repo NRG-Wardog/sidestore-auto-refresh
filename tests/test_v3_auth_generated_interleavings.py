@@ -114,6 +114,10 @@ def declarations_for_harness(auth: str, sign_in: str, coalescer: str) -> str:
         swift_declaration(behavior, "enum V3AuthIdentityBindingPolicy"),
         swift_declaration(behavior, "enum V3ProvisioningResumeExecutionPolicy"),
     ]
+    runtime_template = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+    provisioning_resume_error = swift_declaration(
+        runtime_template, "struct V3ProvisioningResumeUnavailableError",
+    )
     keychain_template = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text(encoding="utf-8")
     snapshot = swift_declaration(keychain_template, "struct LCEmbeddedAuthenticationSnapshot")
     cached_execute = swift_declaration(sign_in, "    override func execute(parentProgress: Progress?) async throws -> SignInResult")
@@ -124,9 +128,9 @@ def declarations_for_harness(auth: str, sign_in: str, coalescer: str) -> str:
     var cachedPathAnisetteCalls = 0
     var startAuthenticationCalls = 0
 
-    func getAnisetteData() async throws -> String {
+    func getAnisetteData() async throws -> ALTAnisetteData {
         cachedPathAnisetteCalls += 1
-        return "cached-path-anisette"
+        return ALTAnisetteData(value: "cached-path-anisette")
     }
     func setProgress(_ value: Int64) {}
     func startAuthentication(reportProgress: @escaping @Sendable (Int64) -> Void) async throws -> SignInResult {
@@ -141,6 +145,7 @@ def declarations_for_harness(auth: str, sign_in: str, coalescer: str) -> str:
         "import Foundation\nimport CoreFoundation",
         snapshot,
         *production_policies,
+        provisioning_resume_error,
         state,
         coalescer,
         """
@@ -257,6 +262,13 @@ def declarations_for_harness(auth: str, sign_in: str, coalescer: str) -> str:
         }
         final class SignInOperation: BaseStandaloneOperation<Int, SignInResult> {
             __SIGN_IN_FIELDS__
+            // execute() compiles the pinned retry branch, but this harness only
+            // exercises the ordinary cached-session fallback. Reaching retry
+            // provisioning must fail the harness instead of simulating success.
+            func provisioningLoop(account: ALTAccount, session: ALTAppleAPISession,
+                                  reportProgress: @escaping @Sendable (Int64) -> Void) async throws -> SignInResult {
+                fatalError("unexpected provisioning retry path in cached-session harness")
+            }
             __CACHED_EXECUTE__
         }
 
@@ -366,7 +378,8 @@ class GeneratedAuthInterleavingTests(unittest.TestCase):
             swift = Path(directory) / "AuthGeneratedInterleavingHarness.swift"
             binary = Path(directory) / "auth-generated-interleavings"
             swift.write_text(harness, encoding="utf-8")
-            compiled = subprocess.run([compiler, "-swift-version", "5", str(swift), "-o", str(binary)],
+            compiled = subprocess.run([compiler, "-swift-version", "5", "-parse-as-library",
+                                       str(swift), "-o", str(binary)],
                                       capture_output=True, text=True, timeout=60)
             self.assertEqual(0, compiled.returncode, compiled.stdout + compiled.stderr)
             executed = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30)
