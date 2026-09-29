@@ -10,11 +10,18 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 KEYCHAIN = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text(encoding="utf-8")
 HANDOFF = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
+IPA_STAGING = (ROOT / "scripts/templates/v3_ipa_staging.swift").read_text(encoding="utf-8")
 FAILURE = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
 RUNTIME = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
 
 
 class KeychainCoordinationSourceTests(unittest.TestCase):
+    def test_process_lock_uses_shared_group_without_app_target_bundle_extension(self):
+        lock = HANDOFF[HANDOFF.index("enum V3AppGroupProcessLock {"):HANDOFF.index("enum V3SecretHandoffError")]
+        self.assertIn('forSecurityApplicationGroupIdentifier: "group.com.SideStore.SideStore"', lock)
+        self.assertIn('sideStoreAppGroupIdentifier = "group.com.SideStore.SideStore"', IPA_STAGING)
+        self.assertNotIn("Bundle.main.altstoreAppGroup", lock)
+
     def test_stale_migration_snapshot_rechecks_tombstone_before_writing(self):
         start = KEYCHAIN.index("static func prepare(group: String")
         end = KEYCHAIN.index("// LC_SHARED_MIGRATION_POLICY_END", start)

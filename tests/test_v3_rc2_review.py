@@ -732,6 +732,10 @@ class SourceKeyboardTests(unittest.TestCase):
         sources = sources[:sources.index("struct V3CatalogApp")]
         self.assertIn("if isAddSourcePresented {", sources)
         self.assertIn('ToolbarItem(placement: .cancellationAction)', sources)
+        toolbar = sources[sources.index(".toolbar {"):sources.index(".confirmationDialog", sources.index(".toolbar {"))]
+        self.assertIn("ToolbarItem(placement: .cancellationAction) {\n                    Group {\n                        if isAddSourcePresented {", toolbar)
+        self.assertNotIn(".toolbar {\n                if isAddSourcePresented {", toolbar,
+                         "ToolbarContentBuilder.buildIf requires iOS 16; conditional content belongs inside a ViewBuilder")
         self.assertIn('Button("Cancel", action: cancelSourceForm)', sources)
         self.assertIn('accessibilityHint("Closes Add Source without starting an add request. An in-flight preview read may be cancelled.")', sources)
         self.assertIn("V3SourceEditingPolicy.closeForm(V3SourceFormState(", sources)
@@ -857,6 +861,11 @@ class HiddenNavigationRowTests(unittest.TestCase):
 
 class NoRegressionOfWorkingSystemsTests(unittest.TestCase):
     """Item 18: nothing that already worked may regress."""
+
+    def test_swiftui_shell_uses_the_public_bridge_instead_of_private_wire_type(self):
+        shell_text = shell()
+        self.assertNotIn("V3WireContract.", shell_text)
+        self.assertIn("V3ServiceBridge.strictBool(", shell_text)
 
     def test_pairing_storage_and_transport_remain_upstream_compatible(self):
         service = SERVICE.read_text(encoding="utf-8")

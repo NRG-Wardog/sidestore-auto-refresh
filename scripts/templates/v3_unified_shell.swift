@@ -1240,7 +1240,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificate)
             guard isSetupFactRevisionCurrent(revision) else { return }
             recordJITLessReadiness(readiness.readiness,
-                activeCertificateAvailable: V3WireContract.strictBool(certificate["active"]),
+                activeCertificateAvailable: V3ServiceBridge.strictBool(certificate["active"]),
                 revision: revision)
             markSetupFactsObserved(revision: revision)
         } catch {
@@ -1298,7 +1298,7 @@ final class V3SideStoreStatusStore: ObservableObject {
                 let reply = try await V3ServiceBridge.shared.request(operation: "opRecoveryReconcile",
                     target: record.sessionID, payload: ["userConfirmed": true])
                 guard reply["session"] as? String == record.sessionID,
-                      V3WireContract.strictBool(reply["reconciled"]) == true else {
+                      V3ServiceBridge.strictBool(reply["reconciled"]) == true else {
                     throw CombinedFailure(operation: "opRecoveryReconcile", stage: .command,
                         code: .staleResult, id: record.sessionID, retryable: false)
                 }
@@ -1328,8 +1328,8 @@ final class V3SideStoreStatusStore: ObservableObject {
                 let reply = try await V3ServiceBridge.shared.request(operation: "refreshAdmissionReconcile",
                     target: runID, payload: ["userConfirmed": true])
                 guard reply["runID"] as? String == runID,
-                      V3WireContract.strictBool(reply["released"]) == true,
-                      V3WireContract.strictBool(reply["reconciled"]) == true else {
+                      V3ServiceBridge.strictBool(reply["released"]) == true,
+                      V3ServiceBridge.strictBool(reply["reconciled"]) == true else {
                     throw CombinedFailure(operation: "refresh", stage: .command,
                         code: .staleResult, id: runID, retryable: false)
                 }
@@ -1387,7 +1387,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             let reply = try await V3ServiceBridge.shared.request(operation: "directRecoveryReconcile",
                 target: record.requestID, payload: payload)
             guard reply["requestID"] as? String == record.requestID,
-                  V3WireContract.strictBool(reply["reconciled"]) == true else {
+                  V3ServiceBridge.strictBool(reply["reconciled"]) == true else {
                 throw CombinedFailure(operation: "directRecoveryReconcile", stage: .command,
                     code: .staleResult, id: record.requestID, retryable: false)
             }
@@ -1410,7 +1410,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             do {
                 let reply = try await V3ServiceBridge.shared.request(
                     operation: "recoveryDiscardUnreadable", payload: ["userConfirmed": true])
-                guard V3WireContract.strictBool(reply["discardedUnreadable"]) == true else {
+                guard V3ServiceBridge.strictBool(reply["discardedUnreadable"]) == true else {
                     throw CombinedFailure(operation: "command", stage: .command,
                         code: .staleResult, id: UUID().uuidString, retryable: false)
                 }
@@ -1878,7 +1878,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     private func acceptRecoveryEvidence(_ snapshot: [String: Any]) -> Bool {
         guard V3ServiceBridge.shared.statusReplyMayApplyRecoveryEvidence(snapshot) else { return false }
         V3ServiceBridge.shared.setHostRecoveryHold(true)
-        let recoveryHold = V3WireContract.strictBool(snapshot["recoveryHold"]) == true
+        let recoveryHold = V3ServiceBridge.strictBool(snapshot["recoveryHold"]) == true
         var foundValidEvidence = false
         if snapshot.keys.contains("operationRecovery"),
            let recovery = snapshot["operationRecovery"] as? [String: Any],
@@ -1897,7 +1897,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         if snapshot.keys.contains("refreshRecovery"),
            let refresh = snapshot["refreshRecovery"] as? [String: Any],
            let runID = refresh["runID"] as? String,
-           let ownerLost = V3WireContract.strictBool(refresh["ownerLost"]),
+           let ownerLost = V3ServiceBridge.strictBool(refresh["ownerLost"]),
            UUID(uuidString: runID)?.uuidString == runID {
             if ownerLost { unresolvedRefreshRecoveryRunID = runID }
             foundValidEvidence = true
@@ -1905,7 +1905,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             unresolvedRefreshRecoveryRunID = nil
             unresolvedRecoveryJournalUnreadable = true
         }
-        if V3WireContract.strictBool(snapshot["recoveryJournalUnreadable"]) == true {
+        if V3ServiceBridge.strictBool(snapshot["recoveryJournalUnreadable"]) == true {
             unresolvedRecoveryJournalUnreadable = true
         }
         if snapshot.keys.contains("directRecovery") {
@@ -1925,9 +1925,9 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
 
     private func applyFullRecoveryEvidence(_ snapshot: [String: Any]) {
-        let recoveryHold = V3WireContract.strictBool(snapshot["recoveryHold"]) == true
+        let recoveryHold = V3ServiceBridge.strictBool(snapshot["recoveryHold"]) == true
         var foundValidEvidence = false
-        var unreadable = V3WireContract.strictBool(snapshot["recoveryJournalUnreadable"]) == true
+        var unreadable = V3ServiceBridge.strictBool(snapshot["recoveryJournalUnreadable"]) == true
         if snapshot.keys.contains("operationRecovery"),
            let recovery = snapshot["operationRecovery"] as? [String: Any],
            let session = recovery["session"] as? String,
@@ -1945,7 +1945,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         if snapshot.keys.contains("refreshRecovery"),
            let refresh = snapshot["refreshRecovery"] as? [String: Any],
            let runID = refresh["runID"] as? String,
-           let ownerLost = V3WireContract.strictBool(refresh["ownerLost"]),
+           let ownerLost = V3ServiceBridge.strictBool(refresh["ownerLost"]),
            UUID(uuidString: runID)?.uuidString == runID {
             unresolvedRefreshRecoveryRunID = ownerLost ? runID : nil
             foundValidEvidence = true
@@ -2837,11 +2837,13 @@ struct V3SourcesView: View {
             .listStyle(.insetGrouped)
             .navigationTitle("Sources")
             .toolbar {
-                if isAddSourcePresented {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel", action: cancelSourceForm)
-                            .disabled(!V3SourceEditingPolicy.canCancelForm(isAdding: addBusy))
-                            .accessibilityHint("Closes Add Source without starting an add request. An in-flight preview read may be cancelled.")
+                ToolbarItem(placement: .cancellationAction) {
+                    Group {
+                        if isAddSourcePresented {
+                            Button("Cancel", action: cancelSourceForm)
+                                .disabled(!V3SourceEditingPolicy.canCancelForm(isAdding: addBusy))
+                                .accessibilityHint("Closes Add Source without starting an add request. An in-flight preview read may be cancelled.")
+                        }
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
@@ -4019,7 +4021,7 @@ struct V3OperationSheet: View {
                 let reply = try await V3ServiceBridge.shared.request(operation: "opRecoveryReconcile",
                     target: sessionID, payload: ["userConfirmed": true])
                 guard reply["session"] as? String == sessionID,
-                      V3WireContract.strictBool(reply["reconciled"]) == true else {
+                      V3ServiceBridge.strictBool(reply["reconciled"]) == true else {
                     throw CombinedFailure(operation: request.operation, stage: .command,
                         code: .staleResult, id: sessionID, retryable: false)
                 }
@@ -8127,7 +8129,7 @@ struct V3HealthView: View {
             }
             rows = result
             let certificateState = reply["certificateState"] as? [String: Any] ?? [:]
-            let activeCertificateAvailable = V3WireContract.strictBool(certificateState["active"])
+            let activeCertificateAvailable = V3ServiceBridge.strictBool(certificateState["active"])
             let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificateState)
             guard healthRevisionIsCurrent(factRevision) else { return }
             certRows = certComparison(service: certificateState,
@@ -8716,7 +8718,7 @@ final class V3SetupStore: ObservableObject {
                 let health = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
                 guard status.isSetupFactRevisionCurrent(factRevision) else { return }
                 let certificate = health["certificateState"] as? [String: Any] ?? [:]
-                let activeCertificateAvailable = V3WireContract.strictBool(certificate["active"]) == true
+                let activeCertificateAvailable = V3ServiceBridge.strictBool(certificate["active"]) == true
                 let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificate)
                 guard status.isSetupFactRevisionCurrent(factRevision) else { return }
                 publishJITLessReadiness(readiness.readiness,

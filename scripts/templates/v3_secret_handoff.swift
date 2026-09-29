@@ -15,9 +15,11 @@ enum V3AppGroupProcessLock {
         let container: URL
         if let containerRoot { container = containerRoot }
         else {
-            guard let appGroup = Bundle.main.altstoreAppGroup, !appGroup.isEmpty,
-                  let sharedContainer = FileManager.default.containerURL(
-                    forSecurityApplicationGroupIdentifier: appGroup) else {
+            // This helper is compiled into both SideStore and LiveContainerSwiftUI.
+            // Resolve the same fixed shared group used by V3IPAStaging without
+            // depending on SideStore's app-target-only Bundle extension.
+            guard let sharedContainer = FileManager.default.containerURL(
+                    forSecurityApplicationGroupIdentifier: "group.com.SideStore.SideStore") else {
                 throw V3SecretHandoffError.unavailable
             }
             container = sharedContainer
