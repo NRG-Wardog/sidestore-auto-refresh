@@ -37,6 +37,21 @@ def uncommented(text: str) -> str:
     """Strip // comments so prose about a rule is not read as the rule."""
     return "\n".join(re.sub(r"//.*$", "", line) for line in text.splitlines())
 
+
+def swift_braced_block(text: str, marker: str) -> str:
+    """Extract a balanced Swift block beginning at marker, including nested blocks."""
+    start = text.index(marker)
+    opening = text.index("{", start)
+    depth = 0
+    for index in range(opening, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:index + 1]
+    raise AssertionError(f"unterminated Swift block: {marker}")
+
 def bridge():
     return BRIDGE.read_text(encoding="utf-8")
 
@@ -80,10 +95,13 @@ class HostBridgePropagationTests(unittest.TestCase):
 
     def test_pre_connect_failure_keeps_its_own_truthful_operation(self):
         body = request_function()
-        start = body.index("do {\n            try await connect()")
-        block = body[start:body.index("if mutation {", start)]
-        self.assertIn("if error is CancellationError { throw CancellationError() }", block)
-        self.assertIn("V3CatalogRequestContext.annotating(error, requestedOperation: operation, requestID: id)", block)
+        connect_do = swift_braced_block(body, "do {")
+        after_connect_do = body[body.index(connect_do) + len(connect_do):]
+        connect_catch = swift_braced_block(after_connect_do, "catch {")
+        self.assertIn("try await connect()", connect_do)
+        self.assertIn("if error is CancellationError { throw CancellationError() }", connect_catch)
+        self.assertIn("V3CatalogRequestContext.annotating(error, requestedOperation: operation, requestID: id)", connect_catch)
+        self.assertIn("throw annotated", connect_catch)
         # operation=connect is what proves no mutation ran; it is never rewritten.
         self.assertIn("guard combined.operation != requestedOperation else { return combined }", bridge())
 

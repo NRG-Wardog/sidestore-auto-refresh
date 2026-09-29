@@ -2472,10 +2472,25 @@ print("V3 headless wire contract PASS")
 
 class GsaPreparedTreeTests(unittest.TestCase):
     def test_gsa_connection_close_in_prepared_tree(self):
-        side = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
-        if not side:
-            self.skipTest("Set EMBEDDED_SIDESTORE_TEST_SOURCE to the pinned source checkout")
-        auth = Path(side) / "Dependencies/SideSign/Sources/DeveloperPortal/Authentication.swift"
+        side_sign = os.getenv("SIDESIGN_TEST_SOURCE")
+        if side_sign:
+            side = Path(side_sign)
+        else:
+            embedded = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
+            nested = Path(embedded) / "Dependencies/SideSign" if embedded else None
+            if nested is None or not nested.is_dir():
+                self.skipTest("Pinned SideSign source is unavailable")
+            side = nested
+
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
+        match = re.search(r"(?m)^  SIDESIGN_REF: ([0-9a-f]{40})$", workflow)
+        self.assertIsNotNone(match, "workflow must pin the SideSign checkout used by CI")
+        revision = subprocess.check_output(["git", "-C", str(side), "rev-parse", "HEAD"],
+                                           text=True).strip()
+        self.assertEqual(revision, match.group(1), "SideSign source must match the workflow pin")
+
+        auth = side / "Sources/DeveloperPortal/Authentication.swift"
+        self.assertTrue(auth.is_file(), f"pinned SideSign source is missing {auth}")
         text = auth.read_text(encoding="utf-8")
         hits = [m.start() for m in re.finditer(r'"Connection": "close"', text)]
         self.assertEqual(len(hits), 2)
