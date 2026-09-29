@@ -895,6 +895,7 @@ import Foundation
              "SideStore/Core/Auth/AuthManager.swift", "SideStore/Handlers/SignInFlowHandler.swift",
              "SideStore/Core/Operations/PipelineExecutor.swift",
              "SideStore/Core/Operations/PipelineRunner.swift",
+             "SideStore/Core/Auth/DeveloperPortalProxy.swift",
              "SideStore/Core/Certificates/CertificateManager.swift",
              "SideStore/Core/Certificates/OCSPValidator.swift",
              "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
@@ -1754,6 +1755,27 @@ import Foundation
             self.assertIn(f"defer {{ self.v3CompleteIdentityTransition() }}; Keychain.shared.{setter} = newValue",
                           updated_auth)
         self.assertIn("defer { self.v3CompleteIdentityTransition() }", updated_auth)
+
+    def test_pinned_fixture_stages_developer_portal_proxy_for_generation(self):
+        live_source = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
+        side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
+        if not live_source or not side_source:
+            self.skipTest("Set pinned source environment variables")
+        revision = subprocess.check_output(["git", "-C", side_source, "rev-parse", "HEAD"],
+                                           text=True).strip()
+        self.assertEqual(revision, service.PINS[1])
+        relative = "SideStore/Core/Auth/DeveloperPortalProxy.swift"
+        expected = subprocess.check_output(
+            ["git", "-C", side_source, "show", f"{revision}:{relative}"])
+        with tempfile.TemporaryDirectory() as name:
+            roots = self.fixture(Path(name))
+            staged = roots[1] / relative
+            self.assertTrue(staged.is_file(), f"pinned fixture omitted {relative}")
+            self.assertEqual(staged.read_bytes(), expected,
+                             "generated patch input must match the exact pinned source blob")
+            generated = service.patch_developer_portal_proxy(
+                staged.read_text(encoding="utf-8"))
+            self.assertEqual(generated.count("V3_AUTH_IDENTITY_BOUND_DEVELOPER_PORTAL_V1"), 1)
 
     def test_snapshot_separates_stored_credentials_from_bound_authenticated_state(self):
         source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
