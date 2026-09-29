@@ -46,6 +46,33 @@ def pinned_app_manager():
         text=True, encoding="utf-8")
 
 
+def pinned_archive_reader():
+    source_root = pinned_source_root()
+    entry = subprocess.check_output(
+        ["git", "-C", str(source_root), "ls-tree", patch_v3_service.PINS[1],
+         "Dependencies/SideSign"], text=True, encoding="utf-8").strip()
+    fields = entry.split()
+    if len(fields) != 4 or fields[1] != "commit":
+        raise AssertionError("pinned SideStore source must record Dependencies/SideSign as a gitlink")
+    revision = fields[2]
+    override = os.environ.get("SIDESIGN_TEST_SOURCE")
+    candidates = [Path(override)] if override else [source_root / "Dependencies/SideSign"]
+    for candidate in candidates:
+        if not candidate.is_dir():
+            continue
+        actual = subprocess.check_output(
+            ["git", "-C", str(candidate), "rev-parse", "HEAD"],
+            text=True, encoding="utf-8").strip()
+        if actual == revision:
+            return subprocess.check_output(
+                ["git", "-C", str(candidate), "show",
+                 f"{revision}:Sources/Archiver/Archive.swift"],
+                text=True, encoding="utf-8")
+        if override:
+            raise AssertionError(f"SideSign source must match pinned gitlink {revision}, found {actual}")
+    raise unittest.SkipTest("exact pinned SideSign checkout unavailable")
+
+
 def swift_function(source, signature):
     if source.count(signature) != 1:
         raise AssertionError(f"expected exactly one function signature: {signature}")
@@ -87,6 +114,21 @@ class V3InstallMetadataAdapterTests(unittest.TestCase):
         self.assertNotIn("static func readAppMetadata(from url:", runtime)
         self.assertIn("V3IPAStaging.inspect(token: token", runtime)
         self.assertIn("return try await ipaTarget(url: url, scoped: false, sessionID: id)", runtime)
+
+    def test_archive_reader_harness_stub_matches_pinned_sidesign_api(self):
+        archive = pinned_archive_reader()
+        next_file = swift_function(archive, "public func goToNextFile() -> Bool")
+        self.assertIn("let nextIndex = currentIndex + 1", next_file)
+        self.assertIn("if hasNext {\n                currentIndex = nextIndex", next_file)
+        self.assertIn("return hasNext", next_file)
+        fixture = HARNESS.read_text(encoding="utf-8")
+        self.assertIn("func goToNextFile() -> Bool { false }", fixture)
+        self.assertNotIn("func goToNextFile() throws", fixture)
+        parser = swift_function(
+            patch_v3_service.headless_app_manager_metadata_parser(pinned_app_manager()),
+            "static func readAppMetadata(from url: URL, packageType: PackageType)")
+        self.assertIn("} while reader.goToNextFile()", parser)
+        self.assertNotIn("try reader.goToNextFile()", parser)
 
     def test_pinned_appmanager_parser_executes_for_app_bundle_fixtures(self):
         if not SWIFTC:

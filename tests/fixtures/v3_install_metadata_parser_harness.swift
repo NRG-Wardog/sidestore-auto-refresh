@@ -10,14 +10,16 @@ enum OperationError: Error {
 }
 
 // This type only satisfies the unexecuted IPA branch for the .app fixture
-// run. The production AppManager parser is inserted verbatim below.
+// run. Match SideSign's pinned Archive.Reader API: goToNextFile() advances
+// synchronously and reports whether another entry exists; it does not throw.
+// The production AppManager parser is inserted verbatim below.
 enum Archive {
     final class Reader {
         static func open(at url: URL) throws -> Reader { Reader() }
         func goToFirstFile() throws {}
         func currentFilename() throws -> String { "" }
         func readCurrentFile() throws -> Data { Data() }
-        func goToNextFile() throws -> Bool { false }
+        func goToNextFile() -> Bool { false }
     }
 }
 
