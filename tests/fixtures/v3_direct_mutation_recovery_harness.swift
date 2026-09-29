@@ -12,28 +12,32 @@ enum V3BackendCommands {
 
 @main
 struct DirectMutationRecoveryHarness {
+    enum FixtureRunError: Error { case failedAfterDispatch }
     static let requestID = "10000000-0000-4000-8000-000000000001"
     static let oldInstance = "20000000-0000-4000-8000-000000000002"
     static let newInstance = "30000000-0000-4000-8000-000000000003"
     static let nextRequestID = "b0000000-0000-4000-8000-00000000000b"
     static let secretURL = "https://user:pass@example.invalid/repo.json?token=opaque"
 
-    static func main() throws {
+    @MainActor
+    static func main() async throws {
         guard CommandLine.arguments.count == 3 else { fatalError("expected seed|verify and root") }
         let mode = CommandLine.arguments[1]
         let root = URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true)
         switch mode {
-        case "seed": try seed(root: root)
+        case "seed": try await seed(root: root)
         case "verify": try verifyColdRelaunch(root: root)
         default: fatalError("unknown mode")
         }
     }
 
-    private static func seed(root: URL) throws {
+    @MainActor
+    private static func seed(root: URL) async throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try testV1OperationRecord(root: root.appendingPathComponent("operation"))
         try testPreparedCancellationAndSingleSlot(root: root.appendingPathComponent("prepared"))
-        try testDirectWriteAhead(root: root)
+        try await testDirectWriteAhead(root: root)
+        try await testCancellationAfterTerminalPersisted(root: root.appendingPathComponent("cancel-after-terminal"))
         try testSettingsStringPrivacy(root: root.appendingPathComponent("settings-string"))
         try testPrivacyForAccountImport(root: root.appendingPathComponent("account"))
         try testUnknownV2FailsClosed(root: root.appendingPathComponent("corrupt"))
@@ -97,6 +101,15 @@ struct DirectMutationRecoveryHarness {
             requestID: nextRequest, serviceInstanceID: newInstance, containerRoot: root))
         try expect(V3OperationRecoveryJournal.clearPreparedDirectAfterNotDispatched(
             requestID: nextRequest, containerRoot: root))
+        let cancelledRoot = root.appendingPathComponent("cancel-after-terminal")
+        let cancelledTerminal = try V3OperationRecoveryJournal.direct(containerRoot: cancelledRoot)
+        precondition(cancelledTerminal?.requestID == nextRequestID &&
+                     cancelledTerminal?.phase == .terminal &&
+                     cancelledTerminal?.terminalOutcome == "completed",
+                     "terminal state remains durable after post-run cancellation and relaunch")
+        try expect(try V3OperationRecoveryJournal.reconcileDirect(requestID: nextRequestID,
+            allowUnknownDeviceCheck: false, containerRoot: cancelledRoot),
+            "the exact terminal request can be acknowledged after relaunch")
         print("V3_DIRECT_MUTATION_RELAUNCH_PASS")
     }
 
@@ -133,18 +146,20 @@ struct DirectMutationRecoveryHarness {
             "key": "isCellularRefreshEnabled", "type": "bool", "bool": true
         ]] as [String: Any]
         precondition(V3DirectMutationRecoveryRecord.isEligible(request))
-        try expect(try V3OperationRecoveryJournal.reserveDirect(request: request,
-            requestID: requestID, serviceInstanceID: oldInstance, containerRoot: root))
-        try expect(!(try V3OperationRecoveryJournal.clearPreparedDirectAfterNotDispatched(
-            requestID: newInstance, containerRoot: root)))
-        try expect(try V3OperationRecoveryJournal.clearPreparedDirectAfterNotDispatched(
+        try expect(try V3DirectMutationRecoveryLifecycle.reserve(request: request,
+            requestID: requestID, serviceInstanceID: oldInstance,
+            teamIdentifier: nil, identityStamp: nil, containerRoot: root))
+        try expect(!V3DirectMutationRecoveryLifecycle.clearPreparedAfterFailure(
+            requestID: newInstance, containerRoot: root))
+        try expect(V3DirectMutationRecoveryLifecycle.clearPreparedAfterFailure(
             requestID: requestID, containerRoot: root))
         guard case nil = try V3OperationRecoveryJournal.currentState(containerRoot: root) else {
             fatalError("prepared cancel clears only the exact request before dispatch")
         }
 
-        try expect(try V3OperationRecoveryJournal.reserveDirect(request: request,
-            requestID: requestID, serviceInstanceID: oldInstance, containerRoot: root))
+        try expect(try V3DirectMutationRecoveryLifecycle.reserve(request: request,
+            requestID: requestID, serviceInstanceID: oldInstance,
+            teamIdentifier: nil, identityStamp: nil, containerRoot: root))
         do {
             _ = try V3OperationRecoveryJournal.reserve(sessionID: "60000000-0000-4000-8000-000000000006",
                 kind: "delete", containerRoot: root)
@@ -153,10 +168,12 @@ struct DirectMutationRecoveryHarness {
         try expect(try V3OperationRecoveryJournal.direct(containerRoot: root)?.requestID == requestID)
     }
 
-    private static func testDirectWriteAhead(root: URL) throws {
+    @MainActor
+    private static func testDirectWriteAhead(root: URL) async throws {
         let request = ["operation": "sourceAddConfirmed", "target": secretURL] as [String: Any]
-        try expect(try V3OperationRecoveryJournal.reserveDirect(request: request,
-            requestID: requestID, serviceInstanceID: oldInstance, containerRoot: root))
+        try expect(try V3DirectMutationRecoveryLifecycle.reserve(request: request,
+            requestID: requestID, serviceInstanceID: oldInstance,
+            teamIdentifier: nil, identityStamp: nil, containerRoot: root))
         let plist = try PropertyListSerialization.propertyList(
             from: Data(contentsOf: recordURL(root)), format: nil) as! [String: Any]
         precondition(plist["version"] as? Int == 2 && plist["recordType"] as? String == "directMutation")
@@ -168,9 +185,50 @@ struct DirectMutationRecoveryHarness {
         let serialized = String(data: persistedXML, encoding: .utf8) ?? ""
         precondition(!serialized.contains("user:pass") && !serialized.contains("opaque") && !serialized.contains(secretURL),
             "payload and source URL must never be persisted")
-        try expect(try V3OperationRecoveryJournal.beginDirectDispatch(requestID: requestID,
-            serviceInstanceID: oldInstance, containerRoot: root))
+        do {
+            _ = try await V3DirectMutationRecoveryLifecycle.dispatchAndSettle(
+                requestID: requestID, operation: "sourceAddConfirmed",
+                serviceInstanceID: oldInstance, containerRoot: root) {
+                    throw FixtureRunError.failedAfterDispatch
+                }
+            fatalError("the fixture operation should fail after dispatch")
+        } catch FixtureRunError.failedAfterDispatch { }
+        try expect(!V3DirectMutationRecoveryLifecycle.clearPreparedAfterFailure(
+            requestID: requestID, containerRoot: root),
+            "post-dispatch failure retains the ambiguous record for relaunch reconciliation")
         try expect(try V3OperationRecoveryJournal.direct(containerRoot: root)?.phase == .dispatched)
+    }
+
+    @MainActor
+    private static func testCancellationAfterTerminalPersisted(root: URL) async throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let request = ["operation": "sourceAddConfirmed", "target": secretURL]
+        try expect(try V3DirectMutationRecoveryLifecycle.reserve(request: request,
+            requestID: nextRequestID, serviceInstanceID: oldInstance,
+            teamIdentifier: nil, identityStamp: nil, containerRoot: root))
+
+        let task = Task { () async throws -> Void in
+            guard let result = try await V3DirectMutationRecoveryLifecycle.dispatchAndSettle(
+                requestID: nextRequestID, operation: "sourceAddConfirmed",
+                serviceInstanceID: oldInstance, containerRoot: root, run: {
+                    // Cancellation arrives after the remote operation returned.
+                    withUnsafeCurrentTask { $0?.cancel() }
+                    return [:]
+                }) else { fatalError("dispatch should be accepted") }
+            precondition(result.isEmpty)
+            try Task.checkCancellation()
+        }
+        do {
+            try await task.value
+            fatalError("post-run cancellation must be observed after terminal persistence")
+        } catch is CancellationError { }
+
+        try expect(!V3DirectMutationRecoveryLifecycle.clearPreparedAfterFailure(
+            requestID: nextRequestID, containerRoot: root),
+            "post-run cancellation must not erase an already-terminal record")
+        let terminal = try V3OperationRecoveryJournal.direct(containerRoot: root)
+        precondition(terminal?.phase == .terminal && terminal?.terminalOutcome == "completed",
+                     "terminal state is durable before cancellation is returned")
     }
 
     private static func testPrivacyForAccountImport(root: URL) throws {

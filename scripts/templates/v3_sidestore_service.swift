@@ -561,6 +561,39 @@ private enum V3OperationRecoveryJournal {
     }
 }
 
+/// Keeps the dispatched write, terminal journal, and post-run cancellation
+/// check in one ordered path. A thrown operation intentionally leaves the
+/// dispatched record for service-restart reconciliation.
+private enum V3DirectMutationRecoveryLifecycle {
+    static func reserve(request: [String: Any], requestID: String,
+                        serviceInstanceID: String, teamIdentifier: String?,
+                        identityStamp: String?, containerRoot: URL? = nil) throws -> Bool {
+        try V3OperationRecoveryJournal.reserveDirect(request: request, requestID: requestID,
+            serviceInstanceID: serviceInstanceID, teamIdentifier: teamIdentifier,
+            identityStamp: identityStamp, containerRoot: containerRoot)
+    }
+
+    @MainActor
+    static func dispatchAndSettle(requestID: String, operation: String,
+                                  serviceInstanceID: String,
+                                  containerRoot: URL? = nil,
+                                  run: @MainActor () async throws -> [String: Any]) async throws -> [String: Any]? {
+        guard try V3OperationRecoveryJournal.beginDirectDispatch(requestID: requestID,
+            serviceInstanceID: serviceInstanceID, containerRoot: containerRoot) else { return nil }
+        let result = try await run()
+        let terminalOutcome = operation == "certCreate"
+            ? (result["outcome"] as? String ?? "") : "completed"
+        guard try V3OperationRecoveryJournal.settleDirect(requestID: requestID,
+            terminalOutcome: terminalOutcome, containerRoot: containerRoot) else { return nil }
+        return result
+    }
+
+    static func clearPreparedAfterFailure(requestID: String, containerRoot: URL? = nil) -> Bool {
+        (try? V3OperationRecoveryJournal.clearPreparedDirectAfterNotDispatched(
+            requestID: requestID, containerRoot: containerRoot)) == true
+    }
+}
+
 // V3_NATIVE_CALLBACK_GATE_V1: native completions can arrive on arbitrary queues.
 // Cancellation does not manufacture a native completion or release the mutation gate.
 // The owning service retains it until the real callback returns or the process retires.
@@ -849,7 +882,7 @@ final class V3SideStoreService: NSObject {
         }
         if V3DirectMutationRecoveryRecord.isEligible(request) {
             do {
-                guard try V3OperationRecoveryJournal.reserveDirect(request: request, requestID: id,
+                guard try V3DirectMutationRecoveryLifecycle.reserve(request: request, requestID: id,
                     serviceInstanceID: recoveryServiceInstanceID,
                     teamIdentifier: DatabaseManager.shared.activeTeam()?.identifier,
                     identityStamp: AuthManager.shared.v3IdentityIsStable
@@ -889,22 +922,20 @@ final class V3SideStoreService: NSObject {
                 guard DatabaseManager.shared.isStarted else { throw ServiceError.notReady }
                 try Task.checkCancellation()
                 if V3DirectMutationRecoveryRecord.isEligible(request) {
-                    guard try V3OperationRecoveryJournal.beginDirectDispatch(requestID: id,
-                        serviceInstanceID: recoveryServiceInstanceID) else { throw ServiceError.busy }
-                }
-                response["result"] = try await run(operation, request: request, id: id)
-                if V3DirectMutationRecoveryRecord.isEligible(request) {
-                    let result = response["result"] as? [String: Any] ?? [:]
-                    let outcome = operation == "certCreate"
-                        ? (result["outcome"] as? String ?? "") : "completed"
-                    guard try V3OperationRecoveryJournal.settleDirect(requestID: id,
-                        terminalOutcome: outcome) else { throw ServiceError.busy }
+                    guard let result = try await V3DirectMutationRecoveryLifecycle.dispatchAndSettle(
+                        requestID: id, operation: operation,
+                        serviceInstanceID: recoveryServiceInstanceID, run: {
+                            try await run(operation, request: request, id: id)
+                        }) else { throw ServiceError.busy }
+                    response["result"] = result
+                } else {
+                    response["result"] = try await run(operation, request: request, id: id)
                 }
                 try Task.checkCancellation()
                 response["ok"] = true
             } catch {
                 let directNotDispatched = V3DirectMutationRecoveryRecord.isEligible(request) &&
-                    (try? V3OperationRecoveryJournal.clearPreparedDirectAfterNotDispatched(requestID: id)) == true
+                    V3DirectMutationRecoveryLifecycle.clearPreparedAfterFailure(requestID: id)
                 if operation == "refreshAdmissionBegin", error is CancellationError,
                    let refreshRunID = request["target"] as? String,
                    refreshAdmission.release(runID: refreshRunID) {

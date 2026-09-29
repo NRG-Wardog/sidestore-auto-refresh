@@ -10,6 +10,29 @@ SWIFTC = shutil.which("swiftc")
 
 
 class V3DirectMutationRecoveryTests(unittest.TestCase):
+    def test_receive_routes_direct_mutations_through_ordered_lifecycle(self):
+        service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        start = service.index("private func receive(_ data: Data")
+        end = service.index("\n    private func invalidRequestReply", start)
+        receive = service[start:end]
+
+        reservation = receive.index("V3DirectMutationRecoveryLifecycle.reserve(")
+        task_start = receive.index("tasks[id] = Task")
+        lifecycle = receive.index("V3DirectMutationRecoveryLifecycle.dispatchAndSettle(", task_start)
+        post_run_cancel_check = receive.index("try Task.checkCancellation()", lifecycle)
+        catch_start = receive.index("} catch {", lifecycle)
+        catch_end = receive.index("if operation == \"refreshAdmissionBegin\"", catch_start)
+        failure_cleanup = receive[catch_start:catch_end]
+
+        self.assertLess(reservation, task_start,
+                        "the durable direct record is reserved before the async dispatch task")
+        self.assertLess(task_start, lifecycle)
+        self.assertLess(lifecycle, post_run_cancel_check,
+                        "the lifecycle helper persists terminal state before cancellation is observed")
+        self.assertIn("V3DirectMutationRecoveryLifecycle.clearPreparedAfterFailure", failure_cleanup)
+        self.assertNotIn("V3OperationRecoveryJournal.beginDirectDispatch", receive)
+        self.assertNotIn("V3OperationRecoveryJournal.settleDirect", receive)
+
     def test_production_journal_write_ahead_relaunch_v1_and_wire_contract(self):
         if not SWIFTC:
             self.skipTest("Swift compiler unavailable; executable recovery harness runs in macOS CI")

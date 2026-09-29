@@ -107,6 +107,9 @@ struct V3DirectRecoveryHostPolicyHarness {
         precondition(V3DirectRecoveryHostPolicy.mayAcknowledgeSuccessfulResponse(
             operation: "sourceRemoveConfirmed", result: [:]))
         precondition(!V3DirectRecoveryHostPolicy.mayAcknowledgeSuccessfulResponse(
+            operation: "accountImport", result: [:]),
+            "account import has no automatic postcondition and requires a manual device check")
+        precondition(!V3DirectRecoveryHostPolicy.mayAcknowledgeSuccessfulResponse(
             operation: "opStart", result: [:]), "non-direct operations cannot be acknowledged here")
     }
 }
