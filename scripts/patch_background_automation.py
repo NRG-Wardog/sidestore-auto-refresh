@@ -135,6 +135,9 @@ enum AutomaticRefreshHistory {
             "No apps selected.", "No completion result received for an app.",
             "No apps are eligible for refresh.", "Background refresh is disabled.",
             "iOS ended the background execution window.",
+            AutomaticRefreshFailureCategory.network.historyMessage,
+            AutomaticRefreshFailureCategory.cancelled.historyMessage,
+            AutomaticRefreshFailureCategory.unknown.historyMessage,
             "Background task registration failed.", "Refresh schedule submission failed.",
             "The refresh schedule could not be accepted; no safe underlying cause was available.",
             "The start alert could not be scheduled; no safe underlying cause was available.",
@@ -1127,6 +1130,25 @@ def patch_background_operation(sidestore: Path) -> None:
 
         text = replace_once(
             text,
+            r'                self.debugLog("Failed to refresh apps in background. \(error)")',
+            r'                self.debugLog("[AUTO_REFRESH] NOTIFICATION_FAILURE failure_category=\(AutomaticRefreshFailureCategory.classify(error).rawValue)")',
+            "safe background refresh notification log",
+        )
+        text = replace_once(
+            text,
+            r'                self.debugLog("Failed to refresh apps in background. \(error.localizedDescription)")',
+            "",
+            "remove raw background refresh notification log",
+        )
+        text = replace_once(
+            text,
+            "                content.body = error.localizedDescription",
+            "                content.body = AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)",
+            "safe background refresh notification body",
+        )
+
+        text = replace_once(
+            text,
             '''        guard !self.installedApps.isEmpty else {
             let error = OperationError.noInstalledApps
             self.scheduleFinishedRefreshingNotification(for: .failure(error), delay: 0)
@@ -1301,6 +1323,8 @@ def patch_background_operation(sidestore: Path) -> None:
         verification_marker,
         "persistAutomaticHostHandoff",
         "persistAutomaticRefreshVerification",
+        "content.body = AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)",
+        "NOTIFICATION_FAILURE failure_category=",
     ]
     missing = [item for item in required if item not in text]
     if missing:

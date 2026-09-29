@@ -379,6 +379,14 @@ print("Schedule date tests passed")
             self.assertIn("AutomaticRefreshSchedule.requestDate(after: Date(), replacePending: replacePending)", app_delegate)
             self.assertIn("request.earliestBeginDate = nextDate", app_delegate)
             self.assertIn("scheduled_utc=", app_delegate)
+            notification_source = background[
+                background.index("private func scheduleFinishedRefreshingNotification("):
+                background.index("private func saveRefreshAttempt(")]
+            self.assertIn("content.body = AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)",
+                          notification_source)
+            self.assertIn("NOTIFICATION_FAILURE failure_category=", notification_source)
+            self.assertNotIn("content.body = error.localizedDescription", notification_source)
+            self.assertNotIn("Failed to refresh apps in background. \\(error", notification_source)
             if SWIFTC:
                 for name in FILES:
                     if name.endswith(".swift"):
@@ -387,6 +395,7 @@ print("Schedule date tests passed")
                         self.assertEqual(result.returncode, 0, result.stderr)
                 self.check_scheduler(root)
                 self.check_history_and_lifecycle(root)
+                self.check_notification_failure_body(root)
                 self.check_manual_refresh_entry(root, section)
                 if platform.system() == "Darwin":
                     self.check_swiftui(root)
@@ -454,6 +463,48 @@ class Manager {
         result = subprocess.run([SWIFTC, "-parse-as-library", str(path), "-o", str(executable)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         subprocess.run([str(executable)], check=True)
+
+    def check_notification_failure_body(self, root):
+        operation = (root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift").read_text(encoding="utf-8")
+        start = operation.index("private func scheduleFinishedRefreshingNotification(")
+        end = operation.index("private func saveRefreshAttempt(", start)
+        generated = operation[start:end]
+        self.assertIn("content.body = AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)", generated)
+        self.assertNotIn("content.body = error.localizedDescription", generated)
+        body_assignment = next(line.strip() for line in generated.splitlines()
+                               if "content.body = AutomaticRefreshFailureCategory.safeMessage" in line)
+        source = "import Foundation\n" + automation.SCHEDULE_MODEL + r'''
+struct NotificationContent { var body = "" }
+func notificationBody(_ error: Error) -> String {
+    let content = NotificationContent()
+    BODY_ASSIGNMENT
+    return content.body
+}
+@main struct Test {
+    static func main() {
+        let secret = "SIDESIGN_RAW_SECRET https://provider.invalid/?token=private"
+        let malicious = NSError(domain: "provider.private.invalid", code: 77,
+            userInfo: [NSLocalizedDescriptionKey: secret])
+        let body = notificationBody(malicious)
+        precondition(body == "The refresh failed; no safe underlying cause was available.")
+        precondition(!body.contains("SIDESIGN_RAW_SECRET") && !body.contains("provider.invalid") &&
+                     !body.contains("token=private"), "raw provider text must not reach the notification body")
+        let network = NSError(domain: NSURLErrorDomain, code: URLError.Code.networkConnectionLost.rawValue,
+            userInfo: [NSLocalizedDescriptionKey: secret])
+        precondition(notificationBody(network) == "The network connection failed during refresh.")
+        print("Generated refresh notification privacy PASS")
+    }
+}
+'''.replace("BODY_ASSIGNMENT", body_assignment)
+        path = root / "notification-privacy.swift"
+        path.write_text(source, encoding="utf-8")
+        executable = root / "notification-privacy-test"
+        compiled = subprocess.run([SWIFTC, "-parse-as-library", str(path), "-o", str(executable)],
+                                  capture_output=True, text=True, timeout=120)
+        self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+        result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Generated refresh notification privacy PASS", result.stdout)
 
     @unittest.skipUnless(SWIFTC, "Swift compiler required")
     def test_manual_history_results_and_migration(self):
@@ -752,8 +803,17 @@ let networkFailure = NSError(domain: NSURLErrorDomain, code: URLError.Code.netwo
 AutomaticRefreshHistory.record(.failed, failure: networkFailure)
 precondition(AutomaticRefreshHistory.load().first!.detail ==
              "The network connection failed during refresh.")
+precondition(AutomaticRefreshHistory.load().first!.detail ==
+             "The network connection failed during refresh.",
+             "a safe persisted category must remain stable across repeated reads")
 let networkHistory = String(decoding: UserDefaults.standard.data(forKey: AutomaticRefreshHistory.key)!, as: UTF8.self)
 precondition(!networkHistory.contains(networkSecret), "typed safe categories must not preserve localized descriptions")
+let cancellation = NSError(domain: NSURLErrorDomain, code: URLError.Code.cancelled.rawValue,
+    userInfo: [NSLocalizedDescriptionKey: networkSecret])
+AutomaticRefreshHistory.record(.failed, failure: cancellation)
+precondition(AutomaticRefreshHistory.load().first!.detail == "The refresh was cancelled.")
+precondition(AutomaticRefreshHistory.load().first!.detail == "The refresh was cancelled.",
+             "the cancellation category must survive serialization and later reads")
 AutomaticRefreshHistory.record(.failed, detail: secret)
 let rawDetailHistory = String(decoding: UserDefaults.standard.data(forKey: AutomaticRefreshHistory.key)!, as: UTF8.self)
 precondition(!rawDetailHistory.contains("PROVIDER_SECRET") && !rawDetailHistory.contains("private.invalid"),
