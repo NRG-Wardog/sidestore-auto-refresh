@@ -33,7 +33,7 @@ class RefreshClassificationTests(unittest.TestCase):
                       "sourcePersistenceUnverified", "catalogUnavailable", "pairingRequired"):
             self.assertIn(token, text)
         self.assertIn("error is DecodingError", runtime)
-        self.assertIn("native.domain == NSURLErrorDomain", runtime)
+        self.assertIn("CombinedFailure.knownURLTransportCause", runtime)
         self.assertIn('native.domain == "io.sidestore.SideStore.DecodingError"', runtime)
         self.assertIn('case "catalog": stage = .catalog', service)
         self.assertIn("activeCertificate", host)
@@ -79,10 +79,15 @@ class RefreshClassificationTests(unittest.TestCase):
 
     def test_url_network_classification_uses_known_transport_codes(self):
         text = template()
-        self.assertIn('"NSURLErrorDomain"', text)
+        self.assertIn('"kCFErrorDomainCFNetwork"', text)
+        helper = text[text.index("public static func knownURLTransportCause"):]
+        helper = helper[:helper.index("    public static func capture(")]
+        self.assertIn("domain == NSURLErrorDomain", helper)
+        self.assertIn('domain == "kCFErrorDomainCFNetwork"', helper)
+        self.assertIn("networkSafeCauseForURLCode(code, signing: signing)", helper)
         capture = text[text.index("static func capture"):]
-        self.assertIn('case "NSURLErrorDomain":', capture)
-        self.assertIn("networkSafeCauseForURLCode(cause.code", capture)
+        self.assertIn('case NSURLErrorDomain, "kCFErrorDomainCFNetwork":', capture)
+        self.assertIn("knownURLTransportCause(", capture)
         self.assertNotIn('case "NSPOSIXErrorDomain":', capture)
 
     def test_no_bare_numeric_code_guessing(self):

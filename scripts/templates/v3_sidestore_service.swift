@@ -229,9 +229,9 @@ private struct V3KnownSourcePolicyFailure: Error {
 
     init(_ error: Error) {
         let cause = error as NSError
-        // CFNetwork exposes this domain as kCFErrorDomainCFNetwork. Keep the
-        // domain's actual NSError string, not the framework name.
-        kind = [NSURLErrorDomain, "kCFErrorDomainCFNetwork"].contains(cause.domain)
+        // URL-loading errors include local temporary-file I/O. The shared
+        // domain-and-code policy separates those from typed transport failures.
+        kind = CombinedFailure.knownURLTransportCause(domain: cause.domain, code: cause.code) != nil
             ? .network : .invalidResponse
         underlyingDomain = [NSURLErrorDomain, NSPOSIXErrorDomain,
                             "kCFErrorDomainCFNetwork", "NSCocoaErrorDomain"]

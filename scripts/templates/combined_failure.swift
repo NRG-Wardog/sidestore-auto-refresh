@@ -603,7 +603,7 @@ public struct CombinedFailure: Error, LocalizedError {
         if let safeCause {
             switch safeCause {
             case .networkConnectionLost, .networkTimedOut, .networkUnavailable:
-                return "Reconnect, check LocalDevVPN if enabled, and retry when the connection is stable."
+                return "Check the network used by this request, then retry when the connection is stable. If a device operation still fails, run Connection Check."
             case .anisetteServerUnavailable:
                 return "Try syncing again later or choose another configured Anisette server. This does not indicate a LocalDevVPN problem."
             case .anisetteServerRejected:
@@ -622,8 +622,10 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Check Account & Signing and Certificates. If it repeats, keep these diagnostics for support before retrying."
             case .provisioningProfileUnavailable, .certificateUnavailable:
                 return "Open Certificates and select or create a current signing certificate/profile before retrying."
-            case .wifiUnavailable, .localDevVPNUnavailable:
-                return "Restore the indicated connection prerequisite, then start a new refresh."
+            case .wifiUnavailable:
+                return "Restore Wi-Fi, then start a new refresh."
+            case .localDevVPNUnavailable:
+                return "Restore LocalDevVPN, then start a new refresh."
             case .unknownSigningCause:
                 return "Check Account & Signing and Certificates. The exact underlying cause was not safely identified; keep these diagnostics before trying again."
             case .sourceNetworkFailure:
@@ -852,6 +854,15 @@ public struct CombinedFailure: Error, LocalizedError {
         }
     }
 
+    /// Returns network evidence only for URL transport errors SideStore knows
+    /// how to explain. URL-loading domains also carry local file I/O failures,
+    /// so domain membership alone is not a network classification.
+    public static func knownURLTransportCause(domain: String, code: Int,
+                                               signing: Bool = false) -> SafeCause? {
+        guard domain == NSURLErrorDomain || domain == "kCFErrorDomainCFNetwork" else { return nil }
+        return networkSafeCauseForURLCode(code, signing: signing)
+    }
+
     public static func capture(_ error: Error, operation: String, stage: Stage, id: String,
                                retryable: Bool? = nil) -> CombinedFailure {
         if let known = error as? CombinedFailure { return known }
@@ -908,11 +919,12 @@ public struct CombinedFailure: Error, LocalizedError {
                 switch cause.domain {
                 case "com.SideStore.Authentication":
                     resolved = .authentication
-                case "NSURLErrorDomain":
+                case NSURLErrorDomain, "kCFErrorDomainCFNetwork":
                     // Only transport-specific URL errors establish network
                     // failure. URLSession also uses this domain for local
                     // download-file and cancellation errors.
-                    if let urlCause = networkSafeCauseForURLCode(cause.code, signing: resolved == .signing) {
+                    if let urlCause = knownURLTransportCause(
+                        domain: cause.domain, code: cause.code, signing: resolved == .signing) {
                         if resolved != .signing { resolved = .network }
                         if safeCause == nil { safeCause = urlCause }
                     }
@@ -1000,8 +1012,9 @@ public struct CombinedFailure: Error, LocalizedError {
         } else {
             underlying = cause
         }
-        if safeCause == nil && (resolved == .signing || resolved == .network) && cause.domain == NSURLErrorDomain {
-            safeCause = networkSafeCauseForURLCode(cause.code, signing: resolved == .signing)
+        if safeCause == nil && (resolved == .signing || resolved == .network) {
+            safeCause = knownURLTransportCause(
+                domain: cause.domain, code: cause.code, signing: resolved == .signing)
         }
         return CombinedFailure(operation: operation, stage: resolved,
             code: resolvedCode, id: id,

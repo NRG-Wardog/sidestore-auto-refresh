@@ -2192,8 +2192,10 @@ struct V3SourceCommandError: Error {
 
     static func classify(_ error: Error) -> V3SourceCommandError? {
         let native = error as NSError
-        if error is URLError || native.domain == NSURLErrorDomain {
-            return V3SourceCommandError(kind: .network, domain: NSURLErrorDomain, code: native.code)
+        // URLSession also uses URL error domains for local download-file I/O.
+        // Only SideStore's shared typed transport-code policy proves network loss.
+        if CombinedFailure.knownURLTransportCause(domain: native.domain, code: native.code) != nil {
+            return V3SourceCommandError(kind: .network, domain: native.domain, code: native.code)
         }
         if error is DecodingError || native.domain == "io.sidestore.SideStore.DecodingError" ||
             ((error as? SourceError)?.code == .unsupported) {
