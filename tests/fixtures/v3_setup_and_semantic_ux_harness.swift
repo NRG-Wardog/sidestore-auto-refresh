@@ -1216,12 +1216,27 @@ struct SetupAndSemanticUXHarness {
                      "unknown NSURLErrorDomain codes remain unknown through the production classifier and plist wire")
         let anisetteCancelled = V3AnisetteSyncFailurePolicy.failure(
             CancellationError(), id: UUID().uuidString)
-        precondition(anisetteCancelled.code == .cancelled && anisetteCancelled.safeCause == nil &&
-                     V3AnisetteFailureGuidance.message(anisetteCancelled) == nil,
-                     "cancellation is not mislabeled as Anisette networking failure")
+        let anisetteCancellationGuidance = V3AnisetteFailureGuidance.message(anisetteCancelled)
+        let anisetteCancellationIssue = V3UserFacingIssue.make(anisetteCancelled)
+        precondition(anisetteCancelled.operation == "anisetteSync" &&
+                     anisetteCancelled.stage == .command &&
+                     anisetteCancelled.code == .cancelled &&
+                     anisetteCancelled.retryable == false &&
+                     anisetteCancelled.safeCause == nil &&
+                     anisetteCancellationGuidance?.contains("request was cancelled") == true &&
+                     anisetteCancellationGuidance?.contains("check the current state") == true &&
+                     anisetteCancellationGuidance?.localizedCaseInsensitiveContains("configured Anisette server") == false &&
+                     anisetteCancellationGuidance?.localizedCaseInsensitiveContains("network") == false &&
+                     anisetteCancellationIssue.recoveryDestination == nil &&
+                     anisetteCancellationIssue.primaryAction == .dismiss &&
+                     anisetteCancellationIssue.retryDisposition == .blocked &&
+                     !anisetteCancelled.recovery.localizedCaseInsensitiveContains("LocalDevVPN") &&
+                     !anisetteCancelled.recovery.localizedCaseInsensitiveContains("retry when the connection"),
+                     "CancellationError stays a non-retryable cancellation with cancellation-only guidance")
         let anisetteNSErrorCancelled = V3AnisetteSyncFailurePolicy.failure(
             NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled), id: UUID().uuidString)
         let cancelledRoundTrip = plistRoundTrip(anisetteNSErrorCancelled)
+        let nsErrorCancellationGuidance = V3AnisetteFailureGuidance.message(anisetteNSErrorCancelled)
         precondition(anisetteNSErrorCancelled.operation == "anisetteSync" &&
                      anisetteNSErrorCancelled.stage == .command &&
                      anisetteNSErrorCancelled.code == .cancelled &&
@@ -1234,11 +1249,15 @@ struct SetupAndSemanticUXHarness {
                      cancelledRoundTrip?.safeCause == nil &&
                      cancelledRoundTrip?.underlyingDomain == "NSURLErrorDomain" &&
                      cancelledRoundTrip?.underlyingCode == NSURLErrorCancelled &&
-                     V3AnisetteFailureGuidance.message(anisetteNSErrorCancelled) == nil,
+                     nsErrorCancellationGuidance?.contains("request was cancelled") == true &&
+                     nsErrorCancellationGuidance?.localizedCaseInsensitiveContains("configured Anisette server") == false &&
+                     nsErrorCancellationGuidance?.localizedCaseInsensitiveContains("network") == false &&
+                     nsErrorCancellationGuidance?.localizedCaseInsensitiveContains("LocalDevVPN") == false,
                      "raw NSError URL cancellation remains cancellation through the real plist boundary")
         let anisetteURLErrorCancelled = V3AnisetteSyncFailurePolicy.failure(
             URLError(.cancelled), id: UUID().uuidString)
         let urlErrorCancelledRoundTrip = plistRoundTrip(anisetteURLErrorCancelled)
+        let urlErrorCancellationGuidance = V3AnisetteFailureGuidance.message(anisetteURLErrorCancelled)
         precondition(anisetteURLErrorCancelled.operation == "anisetteSync" &&
                      anisetteURLErrorCancelled.stage == .command &&
                      anisetteURLErrorCancelled.code == .cancelled &&
@@ -1254,6 +1273,11 @@ struct SetupAndSemanticUXHarness {
                      urlErrorCancelledRoundTrip?.underlyingDomain == "NSURLErrorDomain" &&
                      urlErrorCancelledRoundTrip?.underlyingCode == NSURLErrorCancelled,
                      "typed URLError cancellation preserves the same terminal metadata through plist")
+        precondition(urlErrorCancellationGuidance?.contains("request was cancelled") == true &&
+                     urlErrorCancellationGuidance?.localizedCaseInsensitiveContains("configured Anisette server") == false &&
+                     urlErrorCancellationGuidance?.localizedCaseInsensitiveContains("network") == false &&
+                     urlErrorCancellationGuidance?.localizedCaseInsensitiveContains("LocalDevVPN") == false,
+                     "typed URLError cancellation gets cancellation guidance, not network/server guidance")
         let ordinaryRefreshFailure = CombinedFailure(operation: "refresh", stage: .network,
             code: .failed, id: UUID().uuidString, retryable: true, safeCause: .networkConnectionLost)
         precondition(V3AnisetteFailureGuidance.message(ordinaryRefreshFailure) == nil,
