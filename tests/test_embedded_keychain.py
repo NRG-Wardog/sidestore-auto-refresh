@@ -23,6 +23,18 @@ BACKGROUND_SPEC = importlib.util.spec_from_file_location(
     "background_automation_patch", ROOT / "scripts/patch_background_automation.py")
 background_module = importlib.util.module_from_spec(BACKGROUND_SPEC)
 BACKGROUND_SPEC.loader.exec_module(background_module)
+CONTRACT_SPEC = importlib.util.spec_from_file_location(
+    "combined_refresh_contract_patch", ROOT / "scripts/patch_combined_refresh_contract.py")
+contract_module = importlib.util.module_from_spec(CONTRACT_SPEC)
+CONTRACT_SPEC.loader.exec_module(contract_module)
+
+
+def read_pinned_source(source, relative):
+    """Read tracked source at the embedded SideStore pin, ignoring checkout edits."""
+    return subprocess.check_output(
+        ["git", "-C", str(source), "show", f"{contract_module.PIN}:{relative}"],
+        text=True,
+    )
 
 DOUBLES = r'''
 import Foundation
@@ -614,7 +626,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
             for name in relatives:
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
-                original = (Path(source) / name).read_text(encoding="utf-8")
+                original = read_pinned_source(source, name)
                 if name == "SideStore/Core/Auth/AuthManager.swift":
                     original = service_module.headless_auth_manager(original)
                 elif name == "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift":
@@ -665,7 +677,7 @@ class KeychainPatchGenerationTests(unittest.TestCase):
             root = Path(directory)
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(Path(source) / relative, target)
+            target.write_text(read_pinned_source(source, relative), encoding="utf-8")
             background_module.patch_background_operation(root)
             patched = module.patch_background_auth_snapshot(target.read_text(encoding="utf-8"))
             first = patched
@@ -700,7 +712,7 @@ class KeychainPatchGenerationTests(unittest.TestCase):
             for relative in relative_files:
                 target = root / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
-                original = (Path(source) / relative).read_text(encoding="utf-8")
+                original = read_pinned_source(source, relative)
                 if relative == "SideStore/Core/Auth/AuthManager.swift":
                     original = service_module.headless_auth_manager(original)
                 elif relative == "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift":
@@ -758,9 +770,9 @@ class KeychainPatchGenerationTests(unittest.TestCase):
             self.assertIn(module.BACKGROUND_AUTH_SNAPSHOT_MARKER, background.read_text(encoding="utf-8"))
             self.assertNotIn("AuthManager.shared.currentAppleID", background.read_text(encoding="utf-8"))
             expected_auth = module.patch_auth_manager(service_module.headless_auth_manager(
-                (Path(source) / relative_files[1]).read_text(encoding="utf-8")))
+                read_pinned_source(source, relative_files[1])))
             expected_sign_in = module.patch_sign_in_operation(service_module.patch_sign_in_operation(
-                (Path(source) / relative_files[2]).read_text(encoding="utf-8")))
+                read_pinned_source(source, relative_files[2])))
             self.assertEqual(auth, expected_auth)
             self.assertEqual(sign_in, expected_sign_in)
             first = tuple(path.read_bytes() for path in paths) + (background.read_bytes(),)
