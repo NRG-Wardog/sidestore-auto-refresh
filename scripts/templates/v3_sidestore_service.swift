@@ -4,6 +4,31 @@
 // V3_HEADLESS_SERVICE_V2: headless backend. This file owns the command gate,
 // snapshots, and non-interactive reads. All interactive work runs through
 // V3HeadlessRuntime sessions; no window, presenter, or visible UI exists here.
+// V3_CERTIFICATE_CREATE_ADAPTER_V1: use the upstream portal and persistence
+// implementations, but make their non-throwing persistence contract explicit
+// at the v3 boundary. Certificate creation must never implicitly activate it.
+enum V3CertificateCreateAdapter {
+    enum Outcome: String {
+        case createdAndStored
+        case remoteCreatedLocalStorageUnverified
+    }
+
+    static func createAndPersist<Certificate>(
+        create: () async throws -> Certificate,
+        persist: (Certificate) -> Void,
+        verifyStored: (Certificate) -> Bool
+    ) async throws -> Outcome {
+        let certificate = try await create()
+        persist(certificate)
+        return verifyStored(certificate) ? .createdAndStored : .remoteCreatedLocalStorageUnverified
+    }
+
+    static func matchesCreatedSerial(expected: String, parsed: String?) -> Bool {
+        guard !expected.isEmpty, let parsed, !parsed.isEmpty else { return false }
+        return expected == parsed
+    }
+}
+
 // V3_OPERATION_RECOVERY_JOURNAL_V1
 // Shared by LiveContainer's App Group and this service process. Serialization
 // uses the existing process-shared App Group lock; the record stores only IDs
@@ -1114,13 +1139,30 @@ final class V3SideStoreService: NSObject {
             _ = try await AuthManager.shared.getAuthenticatedSession()
             let team = try await AuthManager.shared.getAuthenticatedTeam()
             let name = UIDevice.current.name
-            let created = try await DeveloperPortalProxy.shared.createCertificate(
-                machineName: "SideStore - \(team.name)'s \(name)", team: team)
-            CertificateManager.shared.saveCertificate(created)
-            if let local = CertificateManager.shared.getLocalCertificate(serialNumber: created.serialNumber) {
-                try? CertificateManager.shared.setActiveCertificate(local)
-            }
-            return try snapshot()
+            let outcome = try await V3CertificateCreateAdapter.createAndPersist(
+                create: {
+                    try await DeveloperPortalProxy.shared.createCertificate(
+                        machineName: "SideStore - \(team.name)'s \(name)", team: team)
+                },
+                persist: { certificate in
+                    // Reuse SideStore's canonical local certificate storage.
+                    // Its save API is non-throwing and can suppress conversion
+                    // failures, so success is decided only by the read-back.
+                    CertificateManager.shared.saveCertificate(certificate)
+                },
+                verifyStored: { certificate in
+                    guard let p12 = Keychain.shared[certificateSerial: certificate.serialNumber],
+                          let parsed = try? CertificateManager.parse(
+                            p12, password: CertificateManager.shared.getPassword(for: certificate.serialNumber))
+                    else { return false }
+                    return V3CertificateCreateAdapter.matchesCreatedSerial(
+                        expected: certificate.serialNumber, parsed: parsed.serialNumber)
+                })
+            // Do not return a generic failure after Apple has created the
+            // certificate: that could encourage a duplicate portal request.
+            // The host distinguishes a verified local copy from this partial
+            // remote-success outcome and directs the user to inspect/reload.
+            return ["outcome": outcome.rawValue]
         case "devTeams":
             return ["teams": try await V3BackendCommands.developerTeams()]
         case "devDevices":
