@@ -46,22 +46,34 @@ class CertificateCreateContractTests(unittest.TestCase):
 
     def test_production_adapter_and_host_mapping_execute_behaviorally(self):
         compiler = shutil.which("swiftc")
-        if not compiler:
-            self.skipTest("Swift compiler unavailable; this executable harness runs in macOS CI")
-
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
         host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text()
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text()
         declarations = "\n\n".join((
             swift_declaration(service, "enum V3CertificateCreateAdapter"),
             swift_declaration(host, "enum V3CertificateCreatePresentation"),
+            swift_declaration(primitives, "struct V3HostDirectRecoveryRecord:"),
+            swift_declaration(primitives, "enum V3DirectRecoveryPostcondition:"),
+            swift_declaration(primitives, "enum V3DirectRecoveryHostPolicy {"),
         ))
         fixture = (ROOT / "tests/fixtures/v3_certificate_create_contract_harness.swift").read_text()
+        generated_source = "import Foundation\n" + declarations + "\n\n" + fixture
+        for declaration in ("enum V3CertificateCreateAdapter {",
+                            "enum V3CertificateCreatePresentation {",
+                            "struct V3HostDirectRecoveryRecord:",
+                            "enum V3DirectRecoveryPostcondition:",
+                            "enum V3DirectRecoveryHostPolicy {"):
+            self.assertEqual(generated_source.count(declaration), 1,
+                             f"certificate-create harness must include {declaration} exactly once")
+        if not compiler:
+            self.skipTest("Swift compiler unavailable; this executable harness runs in macOS CI")
         with tempfile.TemporaryDirectory() as directory:
             program = Path(directory) / "certificate_create_contract.swift"
             executable = Path(directory) / "certificate_create_contract"
-            program.write_text(declarations + "\n\n" + fixture)
-            subprocess.run([compiler, str(program), "-o", str(executable)], check=True,
-                           capture_output=True, text=True)
+            program.write_text(generated_source)
+            compiled = subprocess.run([compiler, "-parse-as-library", str(program), "-o", str(executable)],
+                                      capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
             result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
             self.assertIn("certificate create contract passed", result.stdout)
 

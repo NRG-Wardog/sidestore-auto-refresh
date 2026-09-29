@@ -36,6 +36,9 @@ struct V3CertificateCreateContractHarness {
         precondition(portalCalls == 1, "the portal create request must run once")
         precondition(saves == 1, "the upstream persistence method must run once")
         precondition(success == .createdAndStored)
+        precondition(V3DirectRecoveryHostPolicy.mayAcknowledgeSuccessfulResponse(
+            operation: "certCreate", result: ["outcome": success.rawValue]),
+            "a verified certificate outcome may settle its direct-recovery record")
         precondition(activeSerial == "preexisting-active",
                      "create must not mutate active certificate ownership")
         precondition(V3CertificateCreatePresentation.isVerified(success.rawValue))
@@ -59,6 +62,9 @@ struct V3CertificateCreateContractHarness {
                     enumeratedSerials: indexedSerials)
             })
         precondition(partial == .remoteCreatedLocalStorageUnverified)
+        precondition(!V3DirectRecoveryHostPolicy.mayAcknowledgeSuccessfulResponse(
+            operation: "certCreate", result: ["outcome": partial.rawValue]),
+            "an unverified local certificate outcome must retain recovery evidence")
         precondition(!V3CertificateCreatePresentation.isVerified(partial.rawValue))
         let partialMessage = V3CertificateCreatePresentation.message(for: partial.rawValue)
         precondition(partialMessage.contains("could not be verified"))
