@@ -1035,6 +1035,9 @@ def headless_app_manager_source_mutations(text):
             "func removeConfirmed(identifier: String",
             "self.persistConfirmedSource(fetched, in: context, notificationSource: source)",
             "self.removeConfirmed(identifier: sourceID, notificationSource: source)",
+            "let savedSource = try await viewContext.performAsync",
+            "notificationSource ?? savedSource",
+            "notificationSource ?? eventSource",
         )
         if any(value not in text for value in required):
             raise SystemExit("v3 service: shared AppManager source mutation extraction is partial")
@@ -1091,9 +1094,16 @@ def headless_app_manager_source_mutations(text):
         guard try await !fetchedSource.isAdded() else { return (identifier, true) }
 
         try await context.performAsync { try context.save() }
+        let viewContext = DatabaseManager.shared.viewContext
+        let savedSource = try await viewContext.performAsync {
+            Source.first(satisfying: NSPredicate(format: "%K == %@", #keyPath(Source.identifier), identifier), in: viewContext)
+        }
+        guard let eventSource = notificationSource ?? savedSource else {
+            throw OperationError.noSources
+        }
         await MainActor.run {
             NotificationCenter.default.post(name: AppManager.didAddSourceNotification,
-                                            object: notificationSource ?? fetchedSource)
+                                            object: eventSource)
         }
         return (identifier, false)
     }
@@ -1133,9 +1143,11 @@ def headless_app_manager_source_mutations(text):
             try context.save()
         }
 
-        await MainActor.run {
-            NotificationCenter.default.post(name: AppManager.didRemoveSourceNotification,
-                                            object: notificationSource ?? eventSource)
+        if let eventSource = notificationSource ?? eventSource {
+            await MainActor.run {
+                NotificationCenter.default.post(name: AppManager.didRemoveSourceNotification,
+                                                object: eventSource)
+            }
         }
     }
 
