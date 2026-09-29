@@ -4049,6 +4049,28 @@ struct V3AuthSessionOwnership {
     }
 }
 
+enum V3AuthSessionUnavailableReplyPolicy {
+    /// Only a current, correlated authPoll failure from SideStore proves that
+    /// the exact target session no longer exists. Transport, malformed, or
+    /// unrelated session replies cannot retire an auth status owner.
+    static func confirmsUnavailable(operation: String, target: String,
+                                    requestID: String,
+                                    envelope: [String: Any]) -> Bool {
+        guard operation == "authPoll",
+              UUID(uuidString: target)?.uuidString == target,
+              V3WireContract.strictInt(envelope["version"]) == 1,
+              CombinedFailure.uuidCorrelationMatches(envelope["id"] as? String,
+                  expectedID: requestID),
+              V3WireContract.strictBool(envelope["ok"]) == false,
+              let rawFailure = envelope["failure"] as? [String: Any],
+              let failure = CombinedFailure.decode(rawFailure, expectedID: requestID) else {
+            return false
+        }
+        return failure.operation == "signIn" && failure.stage == .authentication &&
+            failure.code == .invalidResponse && failure.safeCause == .authSessionUnavailable
+    }
+}
+
 enum V3ProvisioningResumeAvailabilityPolicy {
     static func canResume(authenticated: Bool, currentAppleID: String?, resumableAppleID: String?,
                           hasSession: Bool = true, hasTeamAccount: Bool = true,

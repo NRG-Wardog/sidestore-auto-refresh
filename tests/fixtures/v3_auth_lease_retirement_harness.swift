@@ -1,0 +1,274 @@
+import Foundation
+
+@MainActor
+final class AuthLeaseFakeClient {
+    enum AuthPollReply {
+        case unavailable
+        case malformedUnavailable
+        case success
+    }
+
+    var authPollReply: AuthPollReply = .success
+    var holdAuthPollReplies = false
+    var heldReplies: [() -> Void] = []
+    var requests: [[String: Any]] = []
+
+    func v3Execute(_ data: Data, reply: @escaping (Data) -> Void) {
+        guard let request = V3WireContract.decodeRequest(data) else {
+            preconditionFailure("bridge dispatched a request rejected by the production wire schema")
+        }
+        requests.append(request)
+        let operation = request["operation"] as! String
+        let requestID = request["id"] as! String
+        let target = request["target"] as? String ?? ""
+        let payload = request["payload"] as? [String: Any] ?? [:]
+        if operation == "cancel" {
+            reply(encode(["version": 1, "id": requestID, "ok": true, "result": [:]]))
+            return
+        }
+
+        let response: [String: Any]
+        switch operation {
+        case "authBegin", "authRetryProvisioning":
+            response = ["version": 1, "id": requestID, "ok": true,
+                "result": ["session": payload["session"] as? String ?? target,
+                           "state": "working"]]
+        case "authPoll":
+            switch authPollReply {
+            case .unavailable:
+                let failure = CombinedFailure(operation: "signIn", stage: .authentication,
+                    code: .invalidResponse, id: requestID,
+                    safeCause: .authSessionUnavailable)
+                response = ["version": 1, "id": requestID, "ok": false,
+                    "error": "invalidResponse", "failure": failure.wire]
+            case .malformedUnavailable:
+                let failure = CombinedFailure(operation: "signIn", stage: .authentication,
+                    code: .invalidResponse, id: UUID().uuidString,
+                    safeCause: .authSessionUnavailable)
+                response = ["version": 1, "id": requestID, "ok": false,
+                    "error": "invalidResponse", "failure": failure.wire]
+            case .success:
+                response = ["version": 1, "id": requestID, "ok": true,
+                    "result": ["session": target, "state": "completed", "authenticated": true]]
+            }
+        default:
+            response = ["version": 1, "id": requestID, "ok": true, "result": [:]]
+        }
+
+        let encoded = encode(response)
+        if operation == "authPoll" && holdAuthPollReplies {
+            heldReplies.append { reply(encoded) }
+        } else {
+            reply(encoded)
+        }
+    }
+
+    func flushAuthPollReplies() {
+        let replies = heldReplies
+        heldReplies.removeAll()
+        replies.forEach { $0() }
+    }
+
+    private func encode(_ value: [String: Any]) -> Data {
+        try! PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
+    }
+}
+
+@MainActor
+final class RefreshHandler {
+    static let shared = RefreshHandler()
+    var sideStorePid: Int32 = 321
+    var v3RefreshToken: UUID?
+    var v3RefreshAdmissionRunID: String?
+    var client: AuthLeaseFakeClient? = AuthLeaseFakeClient()
+    var connects = 0
+    var stops = 0
+    func v3_stopService() { stops += 1 }
+    lazy var connection: CombinedServiceConnection = CombinedServiceConnection(dependencies: .init(
+        resolveHost: { URL(fileURLWithPath: "/fixture") },
+        prepareStorage: { $0.appendingPathComponent("Documents/SideStore") },
+        createBookmark: { _ in Data([1]) },
+        discoverExtension: {},
+        launch: { [unowned self] id, _ in
+            self.connects += 1
+            Task { @MainActor in
+                self.connection.signal(.launched, attempt: id)
+                self.connection.signal(.connected, attempt: id)
+                self.connection.signal(.ready, attempt: id)
+            }
+        }, retire: { _ in }))
+    func ensureServiceConnected() async throws { try await connection.ensureConnected() }
+}
+
+@main
+struct AuthLeaseRetirementTests {
+    @MainActor
+    static func waitForRequest(_ client: AuthLeaseFakeClient, after count: Int,
+                               operation: String, target: String) async {
+        let deadline = Date().addingTimeInterval(2)
+        while !client.requests.dropFirst(min(count, client.requests.count)).contains(where: {
+            $0["operation"] as? String == operation && $0["target"] as? String == target
+        }) {
+            if Date() >= deadline { preconditionFailure("request not sent: \(operation)/\(target)") }
+            await Task.yield()
+        }
+    }
+
+    @MainActor
+    static func startAuth(_ bridge: V3ServiceBridge, sessionID: String) async throws {
+        _ = try await bridge.request(operation: "authBegin", target: sessionID,
+            payload: ["session": sessionID,
+                     "sessionDeadline": Date().addingTimeInterval(600)])
+    }
+
+    @MainActor
+    static func expectStartBlocked(_ bridge: V3ServiceBridge, sessionID: String) async {
+        do {
+            try await startAuth(bridge, sessionID: sessionID)
+            preconditionFailure("new authBegin passed unresolved auth ownership")
+        } catch let failure as CombinedFailure {
+            precondition(failure.code == .busy, "unresolved auth owner returned \(failure.code)")
+        } catch {
+            preconditionFailure("unresolved auth owner returned unexpected error: \(error)")
+        }
+    }
+
+    @MainActor
+    static func pollUnavailable(_ bridge: V3ServiceBridge, sessionID: String) async {
+        do {
+            _ = try await bridge.request(operation: "authPoll", target: sessionID)
+            preconditionFailure("missing auth session was accepted")
+        } catch let failure as CombinedFailure {
+            precondition(failure.safeCause == .authSessionUnavailable,
+                "the exact session-unavailable reply lost its typed cause")
+        } catch {
+            preconditionFailure("authPoll returned unexpected error: \(error)")
+        }
+    }
+
+    @MainActor
+    static func main() async throws {
+        let handler = RefreshHandler.shared
+        let client = handler.client!
+
+        let retainedOwners = ["request:direct", "operation:\(UUID().uuidString)",
+                              "refresh:\(UUID().uuidString)"]
+        let exactAuthOwner = "auth:\(UUID().uuidString)"
+        var authority = V3StatusWriteAuthority()
+        for ownerID in [exactAuthOwner] + retainedOwners {
+            let revision = authority.reserveMutationRevision()
+            let ticket = authority.begin(ownerID: ownerID, revision: revision,
+                serviceInstanceID: "321", kind: .mutation, allowUnresolvedMutation: true)!
+            precondition(authority.complete(ticket, outcome: .outcomeUnknown))
+        }
+        precondition(authority.resolveOwnerAfterReconciliation(exactAuthOwner) &&
+                     authority.unresolvedOwnerIDs == Set(retainedOwners),
+            "auth reconciliation must preserve direct, operation, and refresh owners")
+
+        // A valid correlated unavailable reply from authPoll releases only the
+        // retired session's shared status owner and allows a fresh authBegin.
+        let unavailableBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
+        let unavailableSession = UUID().uuidString
+        try await startAuth(unavailableBridge, sessionID: unavailableSession)
+        precondition(unavailableBridge.isMutating)
+        unavailableBridge.disconnected()
+        precondition(unavailableBridge.isMutating,
+            "process retirement alone must preserve the unresolved auth status owner")
+        client.authPollReply = .unavailable
+        await pollUnavailable(unavailableBridge, sessionID: unavailableSession)
+        precondition(!unavailableBridge.isMutating,
+            "the exact typed unavailable reply must resolve auth and status ownership")
+        let replacementSession = UUID().uuidString
+        try await startAuth(unavailableBridge, sessionID: replacementSession)
+        let replacementPoll = try await unavailableBridge.request(operation: "authPoll", target: replacementSession)
+        precondition(replacementPoll["authenticated"] as? Bool == true,
+            "a new session must remain usable after exact unavailable reconciliation")
+
+        // An unavailable reply for another session and a false snapshot fact
+        // for the exact owner are kept distinct.
+        let snapshotBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
+        let snapshotSession = UUID().uuidString
+        try await startAuth(snapshotBridge, sessionID: snapshotSession)
+        snapshotBridge.disconnected()
+        let wrongSession = UUID().uuidString
+        client.authPollReply = .unavailable
+        await pollUnavailable(snapshotBridge, sessionID: wrongSession)
+        precondition(snapshotBridge.isMutating,
+            "an unavailable response for another session cannot release the auth owner")
+        await expectStartBlocked(snapshotBridge, sessionID: UUID().uuidString)
+        snapshotBridge.reconcileAuthSessionOwnership(sessionID: snapshotSession, authenticationActive: true)
+        precondition(snapshotBridge.isMutating,
+            "a snapshot that still reports active auth cannot release the owner")
+        snapshotBridge.reconcileAuthSessionOwnership(sessionID: snapshotSession, authenticationActive: false)
+        precondition(!snapshotBridge.isMutating,
+            "a validated inactive snapshot must release only its exact auth owner")
+        try await startAuth(snapshotBridge, sessionID: UUID().uuidString)
+
+        // A malformed structured failure and transport loss preserve ownership.
+        let malformedBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
+        let malformedSession = UUID().uuidString
+        try await startAuth(malformedBridge, sessionID: malformedSession)
+        malformedBridge.disconnected()
+        client.authPollReply = .malformedUnavailable
+        do {
+            _ = try await malformedBridge.request(operation: "authPoll", target: malformedSession)
+            preconditionFailure("malformed unavailable reply was accepted")
+        }
+        catch let failure as CombinedFailure {
+            precondition(failure.safeCause != .authSessionUnavailable,
+                "a malformed failure envelope retained an untrusted auth cause")
+        }
+        precondition(malformedBridge.isMutating,
+            "a malformed unavailable reply cannot release the auth owner")
+        await expectStartBlocked(malformedBridge, sessionID: UUID().uuidString)
+
+        let transportBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
+        let transportSession = UUID().uuidString
+        try await startAuth(transportBridge, sessionID: transportSession)
+        transportBridge.disconnected()
+        client.authPollReply = .success
+        client.holdAuthPollReplies = true
+        let baseline = client.requests.count
+        let interruptedPoll = Task {
+            try await transportBridge.request(operation: "authPoll", target: transportSession)
+        }
+        await waitForRequest(client, after: baseline, operation: "authPoll", target: transportSession)
+        transportBridge.disconnected()
+        do { _ = try await interruptedPoll.value; preconditionFailure("transport loss was ignored") }
+        catch let failure as CombinedFailure {
+            precondition(failure.stage == .xpcConnection)
+        }
+        precondition(transportBridge.isMutating,
+            "transport loss without an authoritative reply cannot release the auth owner")
+        await expectStartBlocked(transportBridge, sessionID: UUID().uuidString)
+        client.holdAuthPollReplies = false
+        client.flushAuthPollReplies()
+
+        // A terminal success arriving after cancellation is still authoritative.
+        let lateSuccessBridge = V3ServiceBridge(readTimeout: 2, commandTimeout: 2)
+        let lateSuccessSession = UUID().uuidString
+        try await startAuth(lateSuccessBridge, sessionID: lateSuccessSession)
+        lateSuccessBridge.disconnected()
+        client.holdAuthPollReplies = true
+        let lateBaseline = client.requests.count
+        let cancelledPoll = Task {
+            try await lateSuccessBridge.request(operation: "authPoll", target: lateSuccessSession)
+        }
+        await waitForRequest(client, after: lateBaseline, operation: "authPoll", target: lateSuccessSession)
+        cancelledPoll.cancel()
+        do { _ = try await cancelledPoll.value; preconditionFailure("authPoll cancellation was ignored") }
+        catch is CancellationError {} catch { preconditionFailure("wrong authPoll cancellation error") }
+        precondition(lateSuccessBridge.isMutating,
+            "cancelling the waiter cannot release the retired auth owner")
+        client.holdAuthPollReplies = false
+        client.flushAuthPollReplies()
+        let deadline = Date().addingTimeInterval(2)
+        while lateSuccessBridge.isMutating {
+            if Date() >= deadline { preconditionFailure("late authoritative auth success did not resolve ownership") }
+            await Task.yield()
+        }
+        let afterLateSuccess = UUID().uuidString
+        try await startAuth(lateSuccessBridge, sessionID: afterLateSuccess)
+        print("V3 auth lease retirement PASS")
+    }
+}

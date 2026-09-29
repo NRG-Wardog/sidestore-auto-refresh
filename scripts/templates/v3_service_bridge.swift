@@ -331,6 +331,11 @@ public final class V3ServiceBridge {
         }
         let result = envelope["result"] as? [String: Any] ?? [:]
         let confirmedNotDispatched = V3WireContract.strictBool(envelope["operationNotDispatched"]) == true
+        if V3AuthSessionUnavailableReplyPolicy.confirmsUnavailable(
+            operation: operation, target: target, requestID: requestID, envelope: envelope) {
+            confirmAuthSessionUnavailable(sessionID: target)
+            return
+        }
         if operation == "directRecoveryReconcile",
            V3WireContract.strictBool(envelope["ok"]) != true {
             if let ticket, let active = statusWriteAuthority.activeLease, active == ticket {
@@ -498,12 +503,17 @@ public final class V3ServiceBridge {
     /// Clear only a host owner for a session SideStore explicitly reports as
     /// unavailable. Transport loss and malformed replies retain ownership.
     public func confirmAuthSessionUnavailable(sessionID: String) {
+        guard UUID(uuidString: sessionID)?.uuidString == sessionID else { return }
         authSessionOwnership.clear(sessionID: sessionID)
+        resolveUnknownStatusOwner("auth:\(sessionID)")
     }
     /// A validated service snapshot can retire a host owner when it proves
     /// there is no active authentication task, even if the terminal poll was lost.
     public func reconcileAuthSessionOwnership(sessionID: String, authenticationActive: Bool) {
         authSessionOwnership.reconcile(sessionID: sessionID, authenticationActive: authenticationActive)
+        guard !authenticationActive,
+              UUID(uuidString: sessionID)?.uuidString == sessionID else { return }
+        resolveUnknownStatusOwner("auth:\(sessionID)")
     }
     public var processID: Int32 { RefreshHandler.shared.sideStorePid }
 
