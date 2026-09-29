@@ -322,9 +322,9 @@ func v3AuthFailureStage(_ kind: V3AuthFailureKind) -> CombinedFailure.Stage {
 // - incorrectVerificationCode: wrong 2FA code (returns to credentials prompt)
 // - invalidAnisetteData: Anisette infrastructure failure
 // - accountRepairRequired: Apple requires account attention
-// - ServerError.badServerResponse / invalidResponseFormat / missingKey: the
-//   Apple endpoint did not return a valid auth response (e.g. HTTP 5xx with an
-//   empty body, which SideSign reports without a status code)
+// - ServerError.badServerResponse / invalidResponseFormat / missingKey do not
+//   establish an outage: they can describe an empty/unparseable response or a
+//   missing field, but carry no safe typed HTTP status. Keep them unknown.
 // - ServerError.underlyingError with a GrandSlam rate-limit code: rateLimited
 // - known URL transport codes: network failure
 // Anything else is honestly reported as unknown.
@@ -356,8 +356,11 @@ func v3ClassifyAuthError(_ error: Error) -> V3AuthFailureKind? {
     if error is SideSign.AnisetteError { return .anisette }
     if let server = error as? ServerError {
         switch server {
+        // These response-shape cases have unsafe associated text/payload and
+        // do not prove that Apple is unavailable. Only an explicit typed
+        // outage should map to serviceUnavailable.
         case .badServerResponse, .invalidResponseFormat, .missingKey:
-            return .serviceUnavailable
+            return .unknown
         case .underlyingError(let code, _):
             // GrandSlam rate-limit codes (Sources/Constants.swift).
             if code == -22411 || code == -20102 || code == -21668 {
