@@ -448,7 +448,9 @@ struct V3ReadinessAndDiagnosticsContractHarness {
         shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         event_marker = shell.index("// V3_AUTH_READINESS_REFRESH_EVENT_V1")
         event_start = shell.rfind("private final class V3AuthReadinessSequenceStorage:", 0, event_marker)
-        event_end = shell.index("\nextension LCAppModel", event_marker)
+        # The auth event declarations end before the adjacent setup readiness
+        # policies. Keep those declarations in `readiness_snapshot_policy` only.
+        event_end = shell.index("// V3_SETUP_READINESS_SNAPSHOT_POLICY_V1:", event_marker)
         readiness_event_contract = shell[event_start:event_end]
         retry_policy_marker = shell.index("enum V3ProvisioningRetryReadinessPolicy")
         retry_policy_start = shell.rfind("\n", 0, retry_policy_marker) + 1
@@ -470,10 +472,16 @@ struct V3ReadinessAndDiagnosticsContractHarness {
         self.assertIn("V3AnisetteSyncFailurePolicy.failure(error, id: id).wire", branch)
         self.assertGreater(branch_start, service.index("else if let structuredFailure = error as? CombinedFailure"))
         self.assertLess(branch_start, service.index("CombinedFailure.capture(", branch_start))
-        self.compile_and_run(failure + "\n" + helper + "\n" +
-                             readiness_snapshot_policy + "\n" +
-                             readiness_event_contract + "\n" +
-                             readiness_retry_contract + "\n" + harness,
+        generated_source = (failure + "\n" + helper + "\n" +
+                            readiness_snapshot_policy + "\n" +
+                            readiness_event_contract + "\n" +
+                            readiness_retry_contract + "\n" + harness)
+        for declaration in ("struct V3SetupReadinessObservation: Equatable",
+                            "enum V3SetupReadinessObservationPolicy {",
+                            "enum V3MultiSelectPromptAnswerPolicy {"):
+            self.assertEqual(generated_source.count(declaration), 1,
+                             f"setup behavioral source must include {declaration} exactly once")
+        self.compile_and_run(generated_source,
                              "V3_SETUP_AND_SEMANTIC_UX_PASS")
 
     def test_sign_in_jitless_ui_uses_authoritative_readiness_and_actions(self):
