@@ -227,6 +227,15 @@ private struct V3KnownSourcePolicyFailure: Error {
     let underlyingDomain: String
     let underlyingCode: Int
 
+    // Cancellation belongs to the request lifecycle. Let the service-level
+    // cancellation path see it instead of translating it into a list parse error.
+    static func preservingCancellation(_ error: Error) -> Error {
+        if error is CancellationError { return error }
+        let cause = error as NSError
+        if CombinedFailure.isURLCancellation(domain: cause.domain, code: cause.code) { return error }
+        return V3KnownSourcePolicyFailure(error)
+    }
+
     init(_ error: Error) {
         let cause = error as NSError
         // URL-loading errors include local temporary-file I/O. The shared
@@ -1248,7 +1257,7 @@ final class V3SideStoreService: NSObject {
 
         if let knownSourcesUpdateTask {
             do { try await knownSourcesUpdateTask.value }
-            catch { throw V3KnownSourcePolicyFailure(error) }
+            catch { throw V3KnownSourcePolicyFailure.preservingCancellation(error) }
             guard defaults.blockedSources != nil else { throw ServiceError.notReady }
             return
         }
@@ -1269,7 +1278,7 @@ final class V3SideStoreService: NSObject {
         knownSourcesUpdateTask = task
         defer { knownSourcesUpdateTask = nil }
         do { try await task.value }
-        catch { throw V3KnownSourcePolicyFailure(error) }
+        catch { throw V3KnownSourcePolicyFailure.preservingCancellation(error) }
         guard defaults.blockedSources != nil else { throw ServiceError.notReady }
         defaults.set(Date(), forKey: "v3KnownSourcesUpdatedAt")
     }

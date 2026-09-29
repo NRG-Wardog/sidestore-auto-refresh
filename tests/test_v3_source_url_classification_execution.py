@@ -68,6 +68,11 @@ enum SourceError: Error {
                 let policy = V3KnownSourcePolicyFailure(localFileError)
                 precondition(policy.kind == .invalidResponse)
                 precondition(policy.underlyingDomain == domain && policy.underlyingCode == fileCode.rawValue)
+                guard let wrappedPolicy = V3KnownSourcePolicyFailure.preservingCancellation(localFileError)
+                    as? V3KnownSourcePolicyFailure else {
+                    preconditionFailure("local file errors still enter known-source error classification")
+                }
+                precondition(wrappedPolicy.kind == .invalidResponse)
 
                 // A generic source failure keeps its caller stage and has no
                 // connectivity or LocalDevVPN recovery advice.
@@ -102,6 +107,22 @@ enum SourceError: Error {
                 precondition(policy.kind == .network)
                 precondition(policy.underlyingDomain == domain && policy.underlyingCode == code.rawValue)
             }
+        }
+
+        // The known-source preflight uses this production wrapping policy at
+        // both its shared-task and direct-task catch sites. Cancellation must
+        // reach CombinedFailure as lifecycle evidence, not as policy parsing.
+        let cancellationErrors: [Error] = [
+            CancellationError(), URLError(.cancelled),
+            NSError(domain: "kCFErrorDomainCFNetwork", code: URLError.Code.cancelled.rawValue)
+        ]
+        for cancellation in cancellationErrors {
+            let preserved = V3KnownSourcePolicyFailure.preservingCancellation(cancellation)
+            let failure = CombinedFailure.capture(preserved,
+                operation: "sourcePreview", stage: .source, id: UUID().uuidString)
+            precondition(failure.code == .cancelled && failure.retryable == false)
+            precondition(failure.safeCause == nil)
+            precondition(!failure.recovery.contains("LocalDevVPN"))
         }
 
         let urlDownloadTimeout = CombinedFailure.capture(
@@ -148,6 +169,10 @@ enum SourceError: Error {
 
     def test_service_response_keeps_network_and_non_network_source_causes_distinct(self):
         service = read(SERVICE)
+        preflight = extracted(
+            service, "private func ensureKnownSourcesUpdated()", "private func snapshot()"
+        )
+        self.assertEqual(preflight.count("V3KnownSourcePolicyFailure.preservingCancellation(error)"), 2)
         block = extracted(
             service,
             "} else if let policyError = error as? V3KnownSourcePolicyFailure {",
