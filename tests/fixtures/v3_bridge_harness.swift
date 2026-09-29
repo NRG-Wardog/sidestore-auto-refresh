@@ -13,9 +13,11 @@ final class FakeClient {
     var replies: [() -> Void] = []
     var cancellations = 0
     var operations: [String] = []
+    var requests: [[String: Any]] = []
     func v3Execute(_ data: Data, reply: @escaping (Data) -> Void) {
         let request = try! PropertyListSerialization.propertyList(from: data, format: nil) as! [String: Any]
         operations.append(request["operation"] as! String)
+        requests.append(request)
         if request["operation"] as? String == "cancel" { cancellations += 1; reply(Data()); return }
         let operation = request["operation"] as! String
         let payload = request["payload"] as? [String: Any] ?? [:]
@@ -131,21 +133,39 @@ struct BridgeTests {
         let signInSession = UUID().uuidString
         _ = try await bridge.request(operation: "authBegin", target: signInSession,
             payload: ["session": signInSession, "sessionDeadline": Date().addingTimeInterval(600)])
-        let callsBeforeBlockedRefresh = client.operations.count
+        let refreshTarget = "x-coredata://A1B2C3D4-E5F6-47A8-9123-456789ABCDEF/InstalledApp/p42"
+        let refreshSession = UUID().uuidString
+        let refreshPayload: [String: Any] = ["kind": "refreshApp", "target": refreshTarget,
+                                             "session": refreshSession]
+        let callsBeforeBlockedOpStart = client.operations.count
         do {
-            _ = try await bridge.request(operation: "refreshApp", target: "fixture-app")
-            preconditionFailure("refresh bypassed active authentication ownership")
+            _ = try await bridge.request(operation: "opStart", target: "", payload: refreshPayload)
+            preconditionFailure("refresh opStart bypassed active authentication ownership")
         } catch let failure as CombinedFailure {
-            precondition(failure.operation == "refresh" && failure.stage == .command &&
+            precondition(failure.operation == "command" && failure.stage == .command &&
                 failure.code == .busy && failure.safeCause == .operationInProgress,
-                "refresh during an active auth session returns the typed ownership conflict")
+                "opStart during an active auth session returns the typed ownership conflict")
         }
-        precondition(client.operations.count == callsBeforeBlockedRefresh,
-            "host admission rejects refresh before dispatch while auth is unresolved")
+        precondition(client.operations.count == callsBeforeBlockedOpStart,
+            "host admission rejects opStart before dispatch while auth is unresolved")
         _ = try await bridge.request(operation: "authPoll", target: signInSession)
-        _ = try await bridge.request(operation: "refreshApp", target: "fixture-app")
-        precondition(client.operations == ["snapshot", "authBegin", "authPoll", "refreshApp"],
-            "explicit account/refresh integration order changed")
+        _ = try await bridge.request(operation: "opStart", target: "", payload: refreshPayload)
+        let dispatchedStart = client.requests.last!
+        let dispatchedPayload = dispatchedStart["payload"] as! [String: Any]
+        precondition(dispatchedStart["target"] as? String == "" &&
+                     dispatchedPayload["kind"] as? String == "refreshApp" &&
+                     dispatchedPayload["target"] as? String == refreshTarget &&
+                     dispatchedPayload["session"] as? String == refreshSession,
+            "opStart must use the payload schema, InstalledApp URI, and canonical session ID")
+        client.operationState = "completed"
+        let settledRefresh = try await bridge.request(operation: "opPoll", target: refreshSession)
+        precondition(settledRefresh["state"] as? String == "completed" &&
+                     settledRefresh["backendSettled"] as? Bool == true,
+            "the refresh session must reach an authoritative terminal reply")
+        precondition(!bridge.isMutating,
+            "a settled opPoll releases the refresh session's host mutation ownership")
+        precondition(client.operations == ["snapshot", "authBegin", "authPoll", "opStart", "opPoll"],
+            "explicit account/opStart/opPoll integration order changed")
         client.stale = true
         do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("stale reply accepted") } catch {}
         client.stale = false; client.oversized = true

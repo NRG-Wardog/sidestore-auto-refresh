@@ -43,7 +43,7 @@ struct RefreshFailureCorrelationHarness {
             requestID: homeRequest, runID: homeRun, record: failed)!
         for field in ["manual_refresh_request=\(homeRequest)", "run_id=\(homeRun)",
                       "operation=refresh", "stage=network", "correlation=\(homeRun)",
-                      "underlying_domain=redacted", "underlying_code=-1005",
+                      "underlying_domain=redacted", "underlying_code=unknown",
                       "retryable=true", "safe_cause=localDevVPNUnavailable"] {
             precondition(diagnostic.contains(field), "missing current-run diagnostic field: \(field)")
         }

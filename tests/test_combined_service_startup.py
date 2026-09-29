@@ -501,7 +501,8 @@ enum Constants { static let defaultAccountRepairMessage = "" }
         let details = V3OperationFailureDetails(bridged)
         precondition(bridged.stage == .signing && bridged.safeCause == .developerPortalRejectedRequest)
         precondition(bridged.sourceStep == .provisioningProfileFetch && bridged.underlyingDomain == "redacted")
-        precondition(bridged.underlyingCode == -1005 && details.recoveryDestination == "certificates")
+        precondition(bridged.technicalDetails.contains("underlying_code=unknown") &&
+                     details.recoveryDestination == "certificates")
         print("PINNED_SIDESIGN_TYPED_SIGNING_CAUSE_PASS")
     }
 }

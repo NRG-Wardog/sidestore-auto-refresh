@@ -99,7 +99,8 @@ struct StartupTests {
             let native = NSError(domain: "Private.Secret.Domain", code: 7,
                 userInfo: [NSLocalizedDescriptionKey: "lc_stage=\(stage.rawValue) lc_native_code=77 SECRET"])
             let failure = CombinedFailure.capture(native, operation: "refresh", stage: .command, id: id)
-            precondition(failure.stage == stage && failure.underlyingCode == 77)
+            precondition(failure.stage == stage && failure.underlyingDomain == "redacted" &&
+                         failure.underlyingCode == 0)
             let text = failure.encodedString
             precondition(!text.contains("SECRET"))
             precondition(CombinedFailure.fromEncodedString(text, expectedID: id)?.stage == stage)

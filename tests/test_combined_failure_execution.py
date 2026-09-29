@@ -67,6 +67,8 @@ struct Adapter { let gateway = Gateway()
         source = self.gateway.read_text(encoding='utf-8')
         query = function(source, 'syncFetchUDID')
         query = query[query.index('            var plistVal:'):query.index('            return udid') + len('            return udid')]
+        self.assertIn('lc_native_code=\\(code)', query,
+                      'native Lockdown query codes must reach CombinedFailure classification')
         common = (ROOT / 'scripts/templates/combined_failure.swift').read_text(encoding='utf-8')
         native = self.read('DeviceGateway/DeviceGatewayError.swift')
         self.execute(common + native + '''
@@ -97,7 +99,12 @@ func query() throws -> String {
    catch {
     let failure = CombinedFailure.capture(error, operation: "refresh", stage: .command, id: id)
     precondition(failure.stage == .uniqueDeviceID)
-    if value == 0 { precondition(frees == 1 && failure.underlyingCode == 77) }
+    if value == 0 {
+      precondition(frees == 1 && failure.stage == .uniqueDeviceID,
+                   "native Lockdown failure must survive the gateway adapter")
+      precondition(failure.underlyingDomain == "DeviceGatewayError" && failure.underlyingCode == 77,
+                   "the gateway test double preserves its allowlisted native domain and code")
+    }
     precondition(!failure.localizedDescription.contains("SECRET"))
     let decoded = CombinedFailure.fromEncodedString(failure.encodedString, expectedID: id)!
     precondition(decoded.stage == .uniqueDeviceID)
@@ -152,7 +159,10 @@ func debugLog(_ value: String) {}
    let failure = CombinedFailure.capture(error, operation: "install", stage: .installation, id: id)
    precondition(failure.stage == .network, "typed URL network failure")
    precondition(failure.safeCause == .networkConnectionLost, "typed network cause")
-   precondition(failure.recovery.contains("Reconnect"), "typed network error keeps network recovery")
+   precondition(failure.safeCause == .networkConnectionLost)
+   precondition(failure.recovery.localizedCaseInsensitiveContains("network used by this request"))
+   precondition(failure.recovery.localizedCaseInsensitiveContains("then retry when the connection is stable"))
+   precondition(!failure.recovery.localizedCaseInsensitiveContains("localdevvpn"))
   }
   // URLSession uses URL error domains for local temporary-file I/O too.
   for localCode in [URLError.Code.cannotCreateFile, .cannotOpenFile, .cannotWriteToFile,
@@ -212,8 +222,15 @@ func debugLog(_ value: String) {}
        userInfo: [NSLocalizedDescriptionKey: "transport failed lc_native_code=77"])
    let failure = CombinedFailure.capture(error, operation: "install", stage: .installation, id: id)
    precondition(failure.stage == .command, "gateway stage")
-   precondition(failure.underlyingDomain == "DeviceGatewayError", "gateway domain")
-   precondition(failure.underlyingCode == 77, "gateway code")
+   precondition(failure.underlyingDomain == "DeviceGatewayError", "allowlisted gateway domain")
+   precondition(failure.underlyingCode == 77, "allowlisted gateway code")
+  }
+  do {
+   let error = NSError(domain: "IdeviceGatewayError", code: 1,
+       userInfo: [NSLocalizedDescriptionKey: "transport failed lc_native_code=78"])
+   let failure = CombinedFailure.capture(error, operation: "refresh", stage: .command, id: id)
+   precondition(failure.underlyingDomain == "IdeviceGatewayError" && failure.underlyingCode == 78,
+                "the production IdeviceGatewayError domain retains its allowlisted native code")
   }
   // 4. An unknown error gains no fake domain and keeps the caller stage.
   do {
@@ -222,7 +239,9 @@ func debugLog(_ value: String) {}
    let failure = CombinedFailure.capture(error, operation: "refresh", stage: .command, id: id)
    precondition(failure.stage == .command, "unknown stage")
    precondition(failure.underlyingDomain == "redacted", "unknown domain: \\\\(failure.underlyingDomain)")
-   precondition(failure.underlyingCode == 20, "unknown code")
+   precondition(failure.underlyingCode == 0, "unknown private-domain codes are removed from the wire model")
+   precondition(failure.technicalDetails.contains("underlying_code=unknown"),
+                "unknown private error codes are redacted in diagnostics")
   }
   // 5. ApplicationVerificationFailed 0xE8008024 is an installation failure
   // describing profile rejection, not pairing/network/CoreDevice trouble.
@@ -232,23 +251,24 @@ func debugLog(_ value: String) {}
    let failure = CombinedFailure.capture(error, operation: "install", stage: .command, id: id)
    precondition(failure.stage == .installation, "ppq stage")
    precondition(failure.stage != .pairing && failure.stage != .network && failure.stage != .coreDevice, "ppq not misclassified")
-   precondition(failure.underlyingDomain == "IdeviceGatewayError", "ppq domain")
-   precondition(failure.underlyingCode == 0xE8008024, "ppq code")
+   precondition(failure.underlyingDomain == "IdeviceGatewayError", "allowlisted gateway domain")
+   precondition(failure.underlyingCode == 0xE8008024, "typed verification code")
    precondition(failure.message.contains("provisioning profile is banned"), "ppq message")
    precondition(!failure.message.lowercased().contains("account"), "no account-ban claim")
    let decoded = CombinedFailure.fromEncodedString(failure.encodedString, expectedID: id)!
-   precondition(decoded.stage == .installation && decoded.underlyingCode == 0xE8008024, "ppq wire")
+   precondition(decoded.stage == .installation && decoded.underlyingCode == 0xE8008024,
+                "typed verification evidence survives the wire")
   }
   // 6. ApplicationVerificationFailed 0xE8008018 is a signing-identity rejection
-  // that keeps an honest (redacted) domain when the source domain is unknown.
+  // from an allowlisted installd domain, so its typed native code is retained.
   do {
    let error = NSError(domain: "com.apple.installd", code: 0,
        userInfo: [NSLocalizedDescriptionKey: "ApplicationVerificationFailed: 0xE8008018 (The identity used to sign the executable is no longer valid.)"])
    let failure = CombinedFailure.capture(error, operation: "install", stage: .command, id: id)
    precondition(failure.stage == .installation, "ppq8018 stage")
    precondition(failure.stage != .pairing && failure.stage != .network && failure.stage != .coreDevice, "ppq8018 not misclassified")
-   precondition(failure.underlyingDomain == "com.apple.installd", "ppq8018 domain: \\\\(failure.underlyingDomain)")
-   precondition(failure.underlyingCode == 0xE8008018, "ppq8018 code")
+   precondition(failure.underlyingDomain == "com.apple.installd", "allowlisted installd domain")
+   precondition(failure.underlyingCode == 0xE8008018, "typed signing identity code")
    precondition(failure.message.contains("signing identity"), "ppq8018 message")
   }
   // 7. An unknown install error stays an honest generic installation

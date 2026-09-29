@@ -56,7 +56,10 @@ func debugLog(_ value: String) {}
       operation: "refresh", stage: .command, id: id)
   precondition(network.stage == .network)
   precondition(network.safeCause == .networkConnectionLost)
-  precondition(network.recovery.contains("Reconnect"))
+  precondition(network.recovery.localizedCaseInsensitiveContains("network used by this request"))
+  precondition(network.recovery.localizedCaseInsensitiveContains("then retry when the connection is stable"))
+  precondition(!network.recovery.localizedCaseInsensitiveContains("localdevvpn"),
+      "a transient request failure does not claim persistent tunnel failure")
 
   let coreDevice = CombinedFailure(operation: "refresh", stage: .coreDevice,
       code: .failed, id: id)

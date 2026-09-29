@@ -38,7 +38,7 @@ class KnownSourcePolicyExecutionTests(unittest.TestCase):
 import Foundation
 import CFNetwork
 
-""" + production_classifier + """
+""" + (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8") + "\n" + production_classifier + """
 
 @main struct Tests {
     static func main() {
