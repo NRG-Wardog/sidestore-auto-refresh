@@ -335,6 +335,39 @@ def patch_embedded_status(root: Path) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def exclude_legacy_sources_ui(root: Path) -> None:
+    project = root / "LiveContainer.xcodeproj/project.pbxproj"
+    text = project.read_text(encoding="utf-8")
+    marker = "V3_LEGACY_SOURCES_UI_EXCLUDED_V1"
+    expected_group = (
+        '17413FB62D9C0BAE00F3F928 /* LiveContainerSwiftUI */ = '
+        '{isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; '
+        'explicitFolders = (); path = LiveContainerSwiftUI; sourceTree = "<group>"; };')
+    excluded_group = (
+        '17413FB62D9C0BAE00F3F928 /* LiveContainerSwiftUI */ = '
+        '{isa = PBXFileSystemSynchronizedRootGroup; '
+        'exceptions = (F3D3650F9A3C11B900000001 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); '
+        'explicitFileTypes = {}; explicitFolders = (); path = LiveContainerSwiftUI; sourceTree = "<group>"; };')
+    exclusion = '''\t\tF3D3650F9A3C11B900000001 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+\t\t\tisa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+\t\t\tmembershipExceptions = (
+\t\t\t\t"Views/LCAltStoreSourcesView.swift",
+\t\t\t);
+\t\t\ttarget = 17413FB42D9C0BAE00F3F928 /* LiveContainerSwiftUI */;
+\t\t};
+\t\t/* V3_LEGACY_SOURCES_UI_EXCLUDED_V1: V3SourcesView owns the visible Sources tab. */
+'''
+    if marker not in text:
+        text = replace_once(text, expected_group, excluded_group, "legacy sources build membership")
+        text = replace_once(text,
+            "/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */",
+            exclusion + "/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */",
+            "legacy sources build exclusion")
+        project.write_text(text, encoding="utf-8")
+    elif excluded_group not in text or exclusion not in text:
+        die("legacy sources build exclusion drifted")
+
+
 def verify(live: Path, side: Path) -> None:
     required = (
         live / "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
@@ -390,6 +423,12 @@ def verify(live: Path, side: Path) -> None:
         die("canonical JIT-Less route is not row-neutralized (an empty Settings row would render)")
     if "V3_SIDESTORE_STATUS_SNAPSHOT_V1" not in (side / "AltStore/AppDelegate.swift").read_text(encoding="utf-8"):
         die("embedded SideStore snapshot retirement marker is missing")
+    project = (live / "LiveContainer.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+    if "V3_LEGACY_SOURCES_UI_EXCLUDED_V1" not in project or \
+            '"Views/LCAltStoreSourcesView.swift"' not in project:
+        die("legacy LiveContainer sources view remains in the production target")
+    if '"LCAltStoreSourceURLs"' not in shell:
+        die("legacy source URL migration read must survive UI exclusion")
     compiler = shutil.which("swiftc")
     if compiler:
         for path in (required[0], side / "AltStore/AppDelegate.swift"):
@@ -399,7 +438,8 @@ def verify(live: Path, side: Path) -> None:
 def patch(live: Path, side: Path) -> None:
     # Validate the complete transaction on disposable copies before touching inputs.
     paths = (
-        ("LiveContainerSwiftUI/Utilities/Shared.swift", "LiveContainerSwiftUI/App/LiveContainerSwiftUIApp.swift",
+        ("LiveContainer.xcodeproj/project.pbxproj",
+         "LiveContainerSwiftUI/Utilities/Shared.swift", "LiveContainerSwiftUI/App/LiveContainerSwiftUIApp.swift",
          "LiveContainerSwiftUI/App/V3SetupAssistantIntent.swift",
          "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift",
          "LiveContainerSwiftUI/Views/V3UnifiedShell.swift"),
@@ -412,6 +452,7 @@ def patch(live: Path, side: Path) -> None:
                     (destination / name).parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(original / name, destination / name)
         patch_host(staged[0])
+        exclude_legacy_sources_ui(staged[0])
         patch_embedded_status(staged[1])
         verify(*staged)
         for original, destination, names in zip((live, side), staged, paths):

@@ -20,7 +20,12 @@ def fixture(root: Path) -> Tuple[Path, Path]:
     (live / "LiveContainerSwiftUI/Utilities").mkdir(parents=True)
     (live / "LiveContainerSwiftUI/App").mkdir(parents=True)
     (live / "LiveContainerSwiftUI/Views/Settings").mkdir(parents=True)
+    (live / "LiveContainer.xcodeproj").mkdir(parents=True)
     (side / "AltStore").mkdir(parents=True)
+    (live / "LiveContainer.xcodeproj/project.pbxproj").write_text('''/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+17413FB62D9C0BAE00F3F928 /* LiveContainerSwiftUI */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = LiveContainerSwiftUI; sourceTree = "<group>"; };
+''')
     (live / "LiveContainerSwiftUI/Utilities/Shared.swift").write_text("public enum LCTabIdentifier: Hashable {\n    case sources\n    case apps\n    case tweaks\n    case settings\n}\n\npublic struct SharedModel {\n    @Published var selectedTab: LCTabIdentifier = .apps\n}\n")
     (live / "LiveContainerSwiftUI/App/LiveContainerSwiftUIApp.swift").write_text("struct Root {\n            LCTabView()\n}\n")
     (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").write_text('''import Foundation
@@ -141,6 +146,11 @@ class V3UnifiedShellTests(unittest.TestCase):
             patch.patch(live, side)
             self.assertEqual(first, {p.relative_to(Path(directory)): p.read_bytes() for p in Path(directory).rglob("*") if p.is_file()})
             shell = (live / "LiveContainerSwiftUI/Views/V3UnifiedShell.swift").read_text()
+            project = (live / "LiveContainer.xcodeproj/project.pbxproj").read_text()
+            self.assertIn("V3_LEGACY_SOURCES_UI_EXCLUDED_V1", project)
+            self.assertIn('"Views/LCAltStoreSourcesView.swift"', project)
+            self.assertIn('"LCAltStoreSourceURLs"', shell,
+                "source URL migration remains readable after the obsolete screen is excluded")
             self.assertIn("struct V3UnifiedShell", shell)
             self.assertIn(".tag(LCTabIdentifier.home)", shell)
             self.assertNotIn(".tag(LCTabIdentifier.refresh)", shell)
