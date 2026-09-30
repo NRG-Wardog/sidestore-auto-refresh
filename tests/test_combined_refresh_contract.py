@@ -328,8 +328,15 @@ print("standalone manifest privacy PASS")
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); file = self.fixture(root); self.apply(root)
-            # Inject only the UserDefaults suite, preserving actual generated helper logic.
-            helper = file.read_text().replace('"group.com.SideStore.SideStore"', "testSuite")
+            # Execute the generated verification helper in isolation. The
+            # fixture also carries a separate notification catch block so the
+            # combined transform can verify both call sites; that fragment is
+            # not part of the Operation class body in this harness.
+            generated = file.read_text()
+            helper_start = generated.index("    private func automaticRefreshDefaults()")
+            helper_end = generated.index("    private func startListeningForRunningApps()")
+            helper = generated[helper_start:helper_end]
+            helper = helper.replace('"group.com.SideStore.SideStore"', "testSuite")
             wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text()
             failure = (ROOT / "scripts/templates/combined_failure.swift").read_text()
             primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text()
