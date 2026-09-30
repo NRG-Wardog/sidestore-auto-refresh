@@ -59,7 +59,7 @@ class KeychainCoordinationSourceTests(unittest.TestCase):
     def test_migration_and_signout_use_process_shared_flock(self):
         self.assertIn("LCSharedKeychainFileLock.withLock(appGroup: installedAppGroup)", KEYCHAIN)
         self.assertIn("Bundle.main.altstoreAppGroup == appGroup", KEYCHAIN)
-        self.assertIn("V3AppGroupProcessLock.withLock(operation)", KEYCHAIN)
+        self.assertIn("V3AppGroupProcessLock.withLock(containerRoot: sharedContainer, operation)", KEYCHAIN)
         self.assertIn("flock(descriptor, LOCK_EX)", HANDOFF)
         self.assertNotIn("flock(descriptor", KEYCHAIN)
         self.assertIn("try withSharedTransaction {", KEYCHAIN)

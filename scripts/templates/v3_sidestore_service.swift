@@ -319,15 +319,49 @@ private enum V3OperationRecoveryJournal {
     private static let components = ["Library", "Application Support", "LiveContainer"]
     private static let fileName = "operation-recovery.plist"
 
-    private static func recordURL(containerRoot: URL?) throws -> URL {
-        let container: URL
-        if let containerRoot { container = containerRoot }
-        else if let sharedContainer = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: V3IPAStaging.sideStoreAppGroupIdentifier) {
-            container = sharedContainer
-        } else {
-            throw V3RecoveryStorageFailure(.storageUnavailable, sourceStep: "appGroup")
+    // SideStore's existing Bundle hook resolves to LCSharedUtils.appGroupID.
+    // It follows the group validated at LiveProcess launch, including a
+    // device-signer suffix or an AltStore group when that is the shared owner.
+    private static func runtimeGroup() -> String? {
+        #if canImport(Darwin)
+        return Bundle.main.altstoreAppGroup
+        #else
+        return nil
+        #endif
+    }
+
+    static func appGroupDiagnostic(selectedGroup: String?, inheritedGroup: String?,
+                                   signedEntitled: Bool?,
+                                   resolveContainer: (String) -> URL?) -> [String: Any] {
+        let source: String
+        if selectedGroup == nil || selectedGroup?.isEmpty == true { source = "none" }
+        else if selectedGroup == inheritedGroup { source = "inherited" }
+        else { source = "runtimeSelected" }
+        let digest = selectedGroup.map {
+            String(SHA256.hash(data: Data($0.utf8)).map { String(format: "%02x", $0) }
+                .joined().prefix(12))
+        } ?? "none"
+        let available = selectedGroup.flatMap(resolveContainer) != nil
+        return ["groupHash": digest, "selectionSource": source,
+                "signedEntitled": signedEntitled.map { $0 ? "yes" : "no" } ?? "unknown",
+                "containerResolves": available]
+    }
+
+    static func runtimeAppGroupDiagnostic() -> [String: Any] {
+        let selected = runtimeGroup()
+        // LiveProcess records these process-local facts before LC swaps its
+        // UserDefaults implementation during embedded SideStore bootstrap.
+        let inherited = ProcessInfo.processInfo.environment["LC_V3_INHERITED_APP_GROUP"]
+        let entitlementValue = ProcessInfo.processInfo.environment["LC_V3_INHERITED_GROUP_ENTITLED"]
+        let signed: Bool? = selected != nil && selected == inherited
+            ? (entitlementValue == "1" ? true : entitlementValue == "0" ? false : nil) : nil
+        return appGroupDiagnostic(selectedGroup: selected, inheritedGroup: inherited,
+                                  signedEntitled: signed) {
+            FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0)
         }
+    }
+
+    private static func recordURL(containerRoot container: URL) throws -> URL {
         let directory = components.reduce(container.standardizedFileURL) {
             $0.appendingPathComponent($1, isDirectory: true)
         }.standardizedFileURL
@@ -347,11 +381,16 @@ private enum V3OperationRecoveryJournal {
     }
 
     static func resolvedRoot(containerRoot: URL?,
+                             selectedGroup: () -> String? = { runtimeGroup() },
                              resolveContainer: (String) -> URL? = {
                                  FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0)
                              }) throws -> URL {
         if let containerRoot { return containerRoot }
-        guard let container = resolveContainer(V3IPAStaging.sideStoreAppGroupIdentifier) else {
+        // SideStore's identity hook returns LiveContainer's validated, inherited
+        // runtime group. A fixed build-time group may not be entitled after the
+        // combined app is signed for a device.
+        guard let group = selectedGroup(), !group.isEmpty,
+              let container = resolveContainer(group) else {
             throw V3RecoveryStorageFailure(.storageUnavailable, sourceStep: "appGroup")
         }
         return container
@@ -2250,6 +2289,7 @@ final class V3SideStoreService: NSObject {
         if let recoveryStorageFailure {
             response["recoveryStorageFailure"] = recoveryStorageFailure.snapshotValue
         }
+        response["recoveryAppGroup"] = V3OperationRecoveryJournal.runtimeAppGroupDiagnostic()
         if let activeSessionID = activeAuthenticationSessionID {
             response["authenticationSessionID"] = activeSessionID
         }

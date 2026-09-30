@@ -37,6 +37,11 @@ struct OperationRecoveryJournalHarness {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
+        let initiallyAbsent = try V3OperationRecoveryJournal.currentState(containerRoot: root)
+        guard case nil = initiallyAbsent else {
+            fatalError("a resolvable group with no journal record must not create recovery hold")
+        }
+
         try testNonInstallSchemaAndTerminalRemoval(root: root)
         try testUnreadableJournalRequiresDeviceConfirmedRepair(root: root)
         try testTypedRecoveryStorageAndIdempotentDiscard(root: root)
@@ -256,8 +261,35 @@ struct OperationRecoveryJournalHarness {
         precondition(absentCleared,
             "a record already absent before clear is successfully cleared")
 
+        let inheritedGroup = "group.com.rileytestut.AltStore.TESTTEAM"
+        var queriedGroups: [String] = []
+        let selectedRoot = try V3OperationRecoveryJournal.resolvedRoot(containerRoot: nil,
+            selectedGroup: { inheritedGroup }, resolveContainer: { group in
+                queriedGroups.append(group)
+                return group == inheritedGroup ? root : nil
+            })
+        precondition(selectedRoot == root && queriedGroups == [inheritedGroup],
+            "journal must use the runtime-selected group without probing a fixed fallback")
+        let groupFacts = V3OperationRecoveryJournal.appGroupDiagnostic(
+            selectedGroup: inheritedGroup, inheritedGroup: inheritedGroup,
+            signedEntitled: true, resolveContainer: { $0 == inheritedGroup ? root : nil })
+        precondition(groupFacts["selectionSource"] as? String == "inherited" &&
+                     groupFacts["signedEntitled"] as? String == "yes" &&
+                     groupFacts["containerResolves"] as? Bool == true &&
+                     groupFacts["groupHash"] as? String != inheritedGroup,
+            "runtime probe must report only bounded, path-free group facts")
+        precondition(!String(describing: groupFacts).contains(inheritedGroup) &&
+                     !String(describing: groupFacts).contains(root.path),
+            "runtime probe cannot expose a group identifier or container path")
+        queriedGroups.removeAll()
+        let explicitRoot = try V3OperationRecoveryJournal.resolvedRoot(containerRoot: root,
+            selectedGroup: { fatalError("explicit test root must bypass group selection") },
+            resolveContainer: { group in queriedGroups.append(group); return nil })
+        precondition(explicitRoot == root && queriedGroups.isEmpty)
+
         do {
             _ = try V3OperationRecoveryJournal.resolvedRoot(containerRoot: nil,
+                selectedGroup: { inheritedGroup },
                 resolveContainer: { _ in nil })
             fatalError("missing App Group must not look like malformed bytes")
         } catch let failure as V3RecoveryStorageFailure {

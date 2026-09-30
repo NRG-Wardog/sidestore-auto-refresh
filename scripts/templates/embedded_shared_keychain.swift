@@ -145,10 +145,11 @@ private enum LCSharedKeychainFileLock {
         }
         guard let appGroup, !appGroup.isEmpty,
               Bundle.main.altstoreAppGroup == appGroup,
-              FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) != nil else {
+              let sharedContainer = FileManager.default.containerURL(
+                  forSecurityApplicationGroupIdentifier: appGroup) else {
             throw NSError(domain: "com.SideStore.Keychain", code: -34018)
         }
-        return try V3AppGroupProcessLock.withLock(operation)
+        return try V3AppGroupProcessLock.withLock(containerRoot: sharedContainer, operation)
         #elseif canImport(Glibc)
         guard let containerRoot else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
         return try V3AppGroupProcessLock.withLock(containerRoot: containerRoot, operation)
