@@ -919,8 +919,7 @@ struct V3RefreshAllButton: View {
     }
 
     private func runRecord(requestID: String, runID: String? = nil) -> [String: Any]? {
-        guard let defaults,
-              let ledger = defaults.dictionary(forKey: "liveContainerAutoRefreshRunLedger") else { return nil }
+        let ledger = defaults.dictionary(forKey: "liveContainerAutoRefreshRunLedger")
         return V3RefreshAllAttemptState.record(in: ledger, requestID: requestID, runID: runID)
     }
 
@@ -9914,7 +9913,7 @@ private struct V3HomeView: View {
                         Text(refreshState.replacingOccurrences(of: "_", with: " ").capitalized)
                             .foregroundColor(.secondary)
                     }
-                    if let date = defaults?.object(forKey: "liveContainerAutoRefreshLastSuccessfulRefresh") as? Date {
+                    if let date = defaults.object(forKey: "liveContainerAutoRefreshLastSuccessfulRefresh") as? Date {
                         HStack {
                             Label("Last Verified Run", systemImage: "checkmark.circle")
                             Spacer()
@@ -9922,7 +9921,7 @@ private struct V3HomeView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
-                    if let date = defaults?.object(forKey: "liveContainerAutoRefreshTargetDeadline") as? Date {
+                    if let date = defaults.object(forKey: "liveContainerAutoRefreshTargetDeadline") as? Date {
                         HStack {
                             Label("Refresh Deadline", systemImage: "hourglass")
                             Spacer()
@@ -9930,7 +9929,7 @@ private struct V3HomeView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
-                    if let error = defaults?.string(forKey: "liveContainerAutoRefreshLastError"), !error.isEmpty {
+                    if let error = defaults.string(forKey: "liveContainerAutoRefreshLastError"), !error.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             Label("Last Refresh Warning", systemImage: "exclamationmark.triangle")
                                 .foregroundColor(.red)
