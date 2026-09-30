@@ -760,6 +760,33 @@ import Foundation
         self.assertNotIn("exportPairingFile", scene_patched)
         self.assertEqual(service.headless_scene_open(scene_patched), scene_patched)
 
+    def test_headless_removal_emits_clean_pinned_source_diff(self):
+        side = pinned_sidestore_source()
+        if side is None:
+            self.skipTest("Pinned SideStore source unavailable")
+        adapters = (
+            ("AltStore/AppDelegate.swift", service.headless_sidestore_app_delegate),
+            ("SideStore/Core/Pairing/PairingFileManager.swift", service.headless_pairing_file_manager),
+        )
+        with tempfile.TemporaryDirectory() as name:
+            for index, (relative, transform) in enumerate(adapters):
+                original = subprocess.check_output(
+                    ["git", "-C", str(side), "show", f"{service.PINS[1]}:{relative}"],
+                    text=True, encoding="utf-8")
+                generated = transform(original)
+                before = Path(name) / f"before-{index}.swift"
+                after = Path(name) / f"after-{index}.swift"
+                before.write_text(original, encoding="utf-8")
+                after.write_text(generated, encoding="utf-8")
+                checked = subprocess.run(
+                    ["git", "diff", "--no-index", "--check", "--", str(before), str(after)],
+                    capture_output=True, text=True)
+                self.assertIn(checked.returncode, (0, 1), checked.stderr)
+                self.assertEqual(checked.stdout + checked.stderr, "", relative)
+                if relative.endswith("PairingFileManager.swift"):
+                    self.assertTrue(generated.endswith("backend-owned.\n"))
+                    self.assertEqual(transform(generated), generated)
+
     def test_generated_log_formatter_redacts_urls_identifiers_and_provider_bodies(self):
         side = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
         source = (Path(side) if side else ROOT / ".audit/v3-side-upstream") / "SideStore/Core/Logging/SideStoreLogging.swift"

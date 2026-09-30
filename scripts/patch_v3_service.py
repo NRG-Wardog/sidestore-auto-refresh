@@ -693,6 +693,11 @@ def headless_app_open(text):
     text = replace(text, pending_property, "")
     text = replace_swift_function(text, "func applicationDidBecomeActive(", "",
         "legacy IPA-import active callback")
+    # Removing the callback leaves its indented separator behind. Do not emit
+    # an added whitespace-only line into the prepared pinned-source diff.
+    text = replace(text,
+        "\n    \n\n    func application(_ app: UIApplication, open url: URL",
+        "\n\n    func application(_ app: UIApplication, open url: URL")
     if any(token in text for token in ("pendingImportIPAURL", "importAppDeepLinkNotification",
             "importAppDeepLinkURLKey", "addSourceDeepLinkNotification", "addSourceDeepLinkURLKey")):
         raise SystemExit("v3 service: legacy app IPA-import state remains")
@@ -1364,7 +1369,7 @@ def headless_pairing_file_manager(text):
     end = text.rfind(end_marker)
     if end < start or text[end + len(end_marker):].strip():
         raise SystemExit("v3 service: PairingFileManager picker extension boundary changed")
-    text = text[:start] + "// " + marker + ": pairing bytes and persistence remain backend-owned.\n" + text[end + len(end_marker):]
+    text = text[:start] + "// " + marker + ": pairing bytes and persistence remain backend-owned.\n"
     forbidden = ("UIViewController", "UIDocumentPicker", "UIAlertController", "UTType", "UniformTypeIdentifiers",
                  "import UIKit", "private var completion:")
     if (any(token in text for token in forbidden) or
