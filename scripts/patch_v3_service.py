@@ -2657,7 +2657,7 @@ static void V3InitializeUIKitFixes(void) {
     edit(live, "MultitaskSupport/AppSceneViewController.m", forward_selected_app_group)
     def apply_inherited_app_group(s):
         s = replace(s, '#import "../SideStoreSupport/XPCServer.h"',
-            '#import "../SideStoreSupport/XPCServer.h"\n#import "../LiveContainer/LCAppGroupSelectionPolicy.h"\n#import "../LiveContainer/FoundationPrivate.h"')
+            '#import "../SideStoreSupport/XPCServer.h"\n#import "../LiveContainer/LCAppGroupSelectionPolicy.h"\n#import "../LiveContainer/FoundationPrivate.h"\n#import <CommonCrypto/CommonDigest.h>')
         return replace(s,
             '    NSUserDefaults *lcUserDefaults = NSUserDefaults.standardUserDefaults;\n',
             '    NSUserDefaults *lcUserDefaults = NSUserDefaults.standardUserDefaults;\n'
@@ -2665,9 +2665,9 @@ static void V3InitializeUIKitFixes(void) {
             '        return [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:groupID] != nil;\n'
             '    });\n'
             '    // Probe the extension process signature, not the framework Info.plist.\n'
-            '    // Only a Boolean is retained; no entitlement list or container path is logged.\n'
+            '    // Retain only group digests; no identifier or container path is logged.\n'
             '    unsetenv("LC_V3_INHERITED_APP_GROUP");\n'
-            '    unsetenv("LC_V3_INHERITED_GROUP_ENTITLED");\n'
+            '    unsetenv("LC_V3_SIGNED_APP_GROUP_DIGESTS");\n'
             '    if (inheritedGroupID) {\n'
             '        setenv("LC_V3_INHERITED_APP_GROUP", inheritedGroupID.UTF8String, 1);\n'
             '        void *task = SecTaskCreateFromSelf(NULL);\n'
@@ -2677,10 +2677,20 @@ static void V3InitializeUIKitFixes(void) {
             '                CFSTR("com.apple.security.application-groups"), &entitlementError);\n'
             '            CFRelease(task);\n'
             '            if (groups && CFGetTypeID(groups) == CFArrayGetTypeID()) {\n'
-            '                BOOL entitled = CFArrayContainsValue((CFArrayRef)groups,\n'
-            '                    CFRangeMake(0, CFArrayGetCount((CFArrayRef)groups)),\n'
-            '                    (__bridge const void *)inheritedGroupID);\n'
-            '                setenv("LC_V3_INHERITED_GROUP_ENTITLED", entitled ? "1" : "0", 1);\n'
+            '                NSMutableArray<NSString *> *digests = [NSMutableArray array];\n'
+            '                for (id value in (__bridge NSArray *)groups) {\n'
+            '                    if (![value isKindOfClass:NSString.class]) continue;\n'
+            '                    NSData *bytes = [(NSString *)value dataUsingEncoding:NSUTF8StringEncoding];\n'
+            '                    unsigned char digest[CC_SHA256_DIGEST_LENGTH];\n'
+            '                    CC_SHA256(bytes.bytes, (CC_LONG)bytes.length, digest);\n'
+            '                    NSMutableString *hex = [NSMutableString stringWithCapacity:64];\n'
+            '                    for (NSUInteger index = 0; index < CC_SHA256_DIGEST_LENGTH; index++) {\n'
+            '                        [hex appendFormat:@"%02x", digest[index]];\n'
+            '                    }\n'
+            '                    [digests addObject:hex];\n'
+            '                }\n'
+            '                setenv("LC_V3_SIGNED_APP_GROUP_DIGESTS",\n'
+            '                    [digests componentsJoinedByString:@","].UTF8String, 1);\n'
             '            }\n'
             '            if (groups) CFRelease(groups);\n'
             '            if (entitlementError) CFRelease(entitlementError);\n'

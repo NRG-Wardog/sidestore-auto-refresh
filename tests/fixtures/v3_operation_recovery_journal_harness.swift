@@ -293,6 +293,15 @@ struct OperationRecoveryJournalHarness {
         precondition(!String(describing: groupFacts).contains(inheritedGroup) &&
                      !String(describing: groupFacts).contains(root.path),
             "runtime probe cannot expose a group identifier or container path")
+        let signedDigest = SHA256.hash(data: Data(inheritedGroup.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        precondition(V3OperationRecoveryJournal.signedEntitlementContains(
+            selectedGroup: inheritedGroup, digestList: signedDigest) == true)
+        precondition(V3OperationRecoveryJournal.signedEntitlementContains(
+            selectedGroup: "group.example.other", digestList: signedDigest) == false)
+        precondition(V3OperationRecoveryJournal.signedEntitlementContains(
+            selectedGroup: inheritedGroup, digestList: "malformed") == nil,
+            "a malformed signature probe cannot be reported as an entitlement denial")
         queriedGroups.removeAll()
         let explicitRoot = try V3OperationRecoveryJournal.resolvedRoot(containerRoot: root,
             selectedGroup: { fatalError("explicit test root must bypass group selection") },

@@ -352,13 +352,24 @@ private enum V3OperationRecoveryJournal {
         // LiveProcess records these process-local facts before LC swaps its
         // UserDefaults implementation during embedded SideStore bootstrap.
         let inherited = processEnvironment("LC_V3_INHERITED_APP_GROUP")
-        let entitlementValue = processEnvironment("LC_V3_INHERITED_GROUP_ENTITLED")
-        let signed: Bool? = selected != nil && selected == inherited
-            ? (entitlementValue == "1" ? true : entitlementValue == "0" ? false : nil) : nil
+        let signed = signedEntitlementContains(selectedGroup: selected,
+            digestList: processEnvironment("LC_V3_SIGNED_APP_GROUP_DIGESTS"))
         return appGroupDiagnostic(selectedGroup: selected, inheritedGroup: inherited,
                                   signedEntitled: signed) {
             FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0)
         }
+    }
+
+    static func signedEntitlementContains(selectedGroup: String?, digestList: String?) -> Bool? {
+        guard let selectedGroup, !selectedGroup.isEmpty, let digestList else { return nil }
+        if digestList.isEmpty { return false }
+        let digests = digestList.split(separator: ",", omittingEmptySubsequences: false)
+        guard digests.allSatisfy({ $0.count == 64 && $0.utf8.allSatisfy {
+            (48...57).contains($0) || (97...102).contains($0)
+        } }) else { return nil }
+        let selectedDigest = SHA256.hash(data: Data(selectedGroup.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        return digests.contains(Substring(selectedDigest))
     }
 
     private static func processEnvironment(_ name: String) -> String? {
