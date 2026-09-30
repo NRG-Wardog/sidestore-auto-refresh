@@ -285,6 +285,10 @@ class DocumentPickerHandler: NSObject, UIDocumentPickerDelegate {
 }
 #endif
 ''', "\n")
+    # Removing the trailing picker block leaves the file's own terminator
+    # followed by a blank line, which git diff --check rejects as a new blank
+    # line at EOF. End the file with exactly one newline, as upstream does.
+    text = text.rstrip("\n") + "\n"
     if (IMPORT_EXPORT_HEADLESS_MARKER not in text
             or "public static func exportAccount(" not in text
             or "public static func importAccount(" not in text
