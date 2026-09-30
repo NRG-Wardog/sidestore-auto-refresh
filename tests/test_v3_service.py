@@ -668,7 +668,8 @@ import Foundation
         self.assertNotIn('payload["answer"]', service_template)
         self.assertIn("kSecAttrAccessibleWhenUnlockedThisDeviceOnly", handoff)
         self.assertIn("V3SecretHandoffRecord.lifetime", handoff)
-        self.assertIn("hasSuffix(\".com.kdt.livecontainer.shared\")", handoff)
+        self.assertIn("sharedGroup(fromDefaultGroup: defaultGroup)", handoff)
+        self.assertIn("probeAccessGroup(explicitGroup: group) == group", handoff)
         shared_keychain = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text(encoding="utf-8")
         self.assertIn("V3SecretHandoff.sharedKeychainAccessGroup()", shared_keychain)
         self.assertNotIn("accessGroup: appGroup", shared_keychain)
@@ -786,6 +787,29 @@ import Foundation
                 if relative.endswith("PairingFileManager.swift"):
                     self.assertTrue(generated.endswith("backend-owned.\n"))
                     self.assertEqual(transform(generated), generated)
+
+    def test_shared_secret_handoff_uses_public_keychain_group_probe(self):
+        handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
+        self.assertNotIn("SecTaskCreateFromSelf", handoff)
+        self.assertNotIn("SecTaskCopyValueForEntitlement", handoff)
+        self.assertIn("SecItemAdd(item as CFDictionary, &result)", handoff)
+        self.assertIn("let deleteStatus = SecItemDelete(deletion as CFDictionary)", handoff)
+        self.assertIn("guard deleteStatus == errSecSuccess", handoff)
+        self.assertIn("V3SharedKeychainAccessGroupPolicy.sharedGroup(fromDefaultGroup:", handoff)
+        probe = handoff[handoff.index("private static func probeAccessGroup("):]
+        self.assertIn("kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly", probe)
+
+    def test_generated_service_uses_current_team_policy_and_pairing_module(self):
+        service_source = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        self.assertIn("storedTeamOwners: [], activeTeamIdentifier: storedTeam?.identifier", service_source)
+        self.assertIn("requestedTeamIdentifier: candidate.identifier", service_source)
+        self.assertNotIn("activeTeamMatches: true", service_source)
+        self.assertIn("static func resolveColdTeamOwner(storedTeamOwners: [String]", primitives)
+        self.assertIn("auth.team?.account?.appleID", runtime)
+        self.assertIn("AuthManager.shared.team?.account?.appleID", runtime)
+        self.assertIn("import MinimuxerCommon", runtime)
 
     def test_generated_log_formatter_redacts_urls_identifiers_and_provider_bodies(self):
         side = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
@@ -1690,6 +1714,10 @@ import Foundation
         source = subprocess.check_output(["git", "-C", str(source_tree), "show",
             f"{revision}:SideStore/Core/Auth/DeveloperPortalProxy.swift"], text=True, encoding="utf-8")
         generated = service.patch_developer_portal_proxy(source)
+        bootstrap_marker = "class DeveloperPortalProxyWithAuth: DeveloperPortalProxy {"
+        self.assertEqual(generated.split(bootstrap_marker, 1)[1],
+                         source.split(bootstrap_marker, 1)[1],
+                         "auth bootstrap has no bound session and must not inherit team-scoped wrapping")
         self.assertEqual(generated.count("{"), generated.count("}"),
                          "generated pinned DeveloperPortalProxy must remain brace balanced")
         self.assertEqual(generated.count("V3_AUTH_IDENTITY_BOUND_DEVELOPER_PORTAL_V1"), 1)

@@ -118,7 +118,7 @@ class V3UnifiedShellTests(unittest.TestCase):
             patch.patch(live, side)
             settings = (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text()
             self.assertIn("V3_SHARED_KEYCHAIN_GROUP_SCOPE_V1", settings)
-            self.assertIn("V3SharedKeychainAccessGroupPolicy.sharedGroup(in: groups)", settings)
+            self.assertIn("V3SecretHandoff.sharedKeychainAccessGroup()", settings)
             self.assertEqual(settings.count("kSecAttrAccessGroup as String: sharedKeychainGroup"), 2)
             self.assertIn('errorInfo = "The shared SideStore signing certificate is unavailable in this app build."', settings)
 

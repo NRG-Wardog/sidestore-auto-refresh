@@ -75,6 +75,9 @@ class CombinedRefreshContractTests(unittest.TestCase):
             combined = operation.read_text()
             self.assertIn('CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error)', combined)
             self.assertIn('"error": failure.message, "failure": failure.wire', combined)
+            self.assertIn('content.body = failure.message', combined)
+            self.assertNotIn('AutomaticRefreshFailureCategory', combined,
+                             'the combined headless target does not include the legacy scheduler classifier')
             self.assertNotIn("error.localizedDescription", combined)
             self.assertNotIn('(error as NSError).domain', combined)
             combined_snapshot = operation.read_bytes()
@@ -229,7 +232,10 @@ print("standalone manifest privacy PASS")
                       and isinstance(node.value, str) and node.value.startswith("\n    private func automaticRefreshDefaults()"))
         path = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
         path.parent.mkdir(parents=True)
-        path.write_text(helper + "\n    private func startListeningForRunningApps() {}\n")
+        notification = r'''                self.debugLog("[AUTO_REFRESH] NOTIFICATION_FAILURE failure_category=\(AutomaticRefreshFailureCategory.classify(error).rawValue)")
+                content.body = AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)
+'''
+        path.write_text(notification + helper + "\n    private func startListeningForRunningApps() {}\n")
         return path
 
     def apply(self, root):

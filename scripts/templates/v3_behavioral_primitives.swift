@@ -5227,4 +5227,12 @@ enum V3SharedKeychainAccessGroupPolicy {
     static func sharedGroup(in entitledGroups: [String]) -> String? {
         entitledGroups.first(where: { $0.hasSuffix(".com.kdt.livecontainer.shared") })
     }
+
+    static func sharedGroup(fromDefaultGroup group: String) -> String? {
+        guard let prefix = group.split(separator: ".", maxSplits: 1).first,
+              String(prefix).range(of: #"^[A-Z0-9]{10}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        return "\(prefix).com.kdt.livecontainer.shared"
+    }
 }

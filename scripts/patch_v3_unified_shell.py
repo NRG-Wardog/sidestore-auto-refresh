@@ -132,10 +132,7 @@ def patch_host(root: Path) -> None:
             '    // credential group explicitly; stale legacy-group copies must not win a\n'
             '    // kSecMatchLimitOne query after migration.\n'
             '    private func v3SharedSideStoreKeychainAccessGroup() -> String? {\n'
-            '        let task = SecTaskCreateFromSelf(nil)\n'
-            '        guard let value = SecTaskCopyValueForEntitlement(task, "keychain-access-groups" as CFString, nil),\n'
-            '              let groups = value.takeRetainedValue() as? [String] else { return nil }\n'
-            '        return V3SharedKeychainAccessGroupPolicy.sharedGroup(in: groups)\n'
+            '        return try? V3SecretHandoff.sharedKeychainAccessGroup()\n'
             '    }\n'
             '    func importCertificateFromSideStore() async {\n'
             '        if UserDefaults.sideStoreExist() {\n'
@@ -370,7 +367,7 @@ def verify(live: Path, side: Path) -> None:
         if token not in settings_source:
             die(f"canonical LiveContainer JIT-Less route is missing {token}")
     for token in ("V3_SHARED_KEYCHAIN_GROUP_SCOPE_V1",
-                  "V3SharedKeychainAccessGroupPolicy.sharedGroup(in: groups)",
+                  "V3SecretHandoff.sharedKeychainAccessGroup()",
                   "kSecAttrAccessGroup as String: sharedKeychainGroup"):
         if token not in settings_source:
             die(f"canonical JIT-Less importer is missing {token}")

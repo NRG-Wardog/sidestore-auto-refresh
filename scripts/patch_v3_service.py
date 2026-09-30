@@ -2279,7 +2279,13 @@ def patch_developer_portal_proxy(text):
     if "getSession()" in text or "getTeam(team)" in text:
         raise SystemExit("v3 service: unbound DeveloperPortalProxy call path remains")
     # Every portal response is checked again after its await. This is a syntax-
-    # balanced call wrapper so multiline argument lists remain intact.
+    # balanced call wrapper so multiline argument lists remain intact. Limit it
+    # to the team-scoped base proxy: the auth-bootstrap subclass has no bound
+    # session yet and cannot access the base class's private awaitBound helper.
+    bootstrap_marker = "class DeveloperPortalProxyWithAuth: DeveloperPortalProxy {"
+    if text.count(bootstrap_marker) != 1:
+        raise SystemExit("v3 service: DeveloperPortalProxy auth-bootstrap boundary changed")
+    text, auth_bootstrap = text.split(bootstrap_marker, 1)
     needle = "try await ALTAppleAPI.shared."
     offset = 0
     wrapped = []
@@ -2307,7 +2313,7 @@ def patch_developer_portal_proxy(text):
         call = text[start:end]
         wrapped.append("try await self.awaitBound(context) { " + call + " }")
         offset = end
-    text = "".join(wrapped)
+    text = "".join(wrapped) + bootstrap_marker + auth_bootstrap
     text = replace(text, "@preconcurrency import UIKit\n", "@preconcurrency import UIKit\nimport CoreData\n")
     return text
 

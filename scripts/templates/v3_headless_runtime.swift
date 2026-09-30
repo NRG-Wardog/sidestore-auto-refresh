@@ -4,6 +4,7 @@ import CryptoKit
 import UIKit
 import SideSign
 import Minimuxer
+import MinimuxerCommon
 
 enum V3HeadlessPairingFailure {
     static func tagIfInvalidPairing(_ error: Error) -> Error {
@@ -623,7 +624,7 @@ final class V3AuthCenter {
         let stableAtStart = auth.v3IdentityIsStable
         let credentials = auth.authenticationSnapshot
         let session = auth.session
-        let teamOwner = auth.team?.account.appleID
+        let teamOwner = auth.team?.account?.appleID
         let stableSession = stableAtStart && V3AuthReadStampPolicy.mayReturn(
             capturedStamp: stampAtStart, currentStamp: auth.v3IdentityStamp,
             stable: auth.v3IdentityIsStable) &&
@@ -689,7 +690,7 @@ final class V3AuthCenter {
             // account whose provisioning actually failed.
             let sessionAppleID = authCredentials?.appleIDEmailAddress?.lowercased()
             let resumable = resumableProvisioning
-            let teamAppleID = AuthManager.shared.team?.account.appleID
+            let teamAppleID = AuthManager.shared.team?.account?.appleID
             guard V3AuthIdentityBindingPolicy.hasTokenBackedRoute(
                     credentialRoutePresent: authCredentials?.isAuthenticated == true,
                     dsid: authCredentials?.appleIDAdsid, xcodeToken: authCredentials?.appleIDXcodeToken),

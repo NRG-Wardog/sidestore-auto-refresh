@@ -49,6 +49,13 @@ struct SetupAndSemanticUXHarness {
             "TEAMID.com.kdt.livecontainer", "TEAMID.other.shared"
         ]) == nil,
             "a default or unrelated keychain group cannot stand in for SideStore's shared group")
+        precondition(V3SharedKeychainAccessGroupPolicy.sharedGroup(
+            fromDefaultGroup: "AAAAA11111.com.kdt.livecontainer") ==
+            "AAAAA11111.com.kdt.livecontainer.shared",
+            "the signed default group must select the same team-scoped shared group")
+        precondition(V3SharedKeychainAccessGroupPolicy.sharedGroup(
+            fromDefaultGroup: "invalid.com.kdt.livecontainer") == nil,
+            "an invalid signing prefix cannot select a shared keychain group")
         // V3_SETUP_COMPLETION_POLICY_V1
         var all = V3SetupCompletionInputs()
         all.accountComplete = true

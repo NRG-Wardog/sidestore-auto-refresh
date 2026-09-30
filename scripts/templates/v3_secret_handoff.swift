@@ -483,10 +483,45 @@ enum V3SecretHandoff {
     }
 
     static func sharedKeychainAccessGroup() throws -> String {
-        guard let task = SecTaskCreateFromSelf(nil),
-              let raw = SecTaskCopyValueForEntitlement(task, "keychain-access-groups" as CFString, nil),
-              let groups = raw.takeRetainedValue() as? [String],
-              let group = groups.first(where: { $0.hasSuffix(".com.kdt.livecontainer.shared") }) else {
+        // SecTask entitlement APIs are not exposed by the iOS SDK. Ask the
+        // public Keychain API which default access group this signed process
+        // owns, then verify the derived shared group with an explicit add.
+        let defaultGroup = try probeAccessGroup()
+        guard let group = V3SharedKeychainAccessGroupPolicy.sharedGroup(fromDefaultGroup: defaultGroup),
+              try probeAccessGroup(explicitGroup: group) == group else {
+            throw V3SecretHandoffError.unavailable
+        }
+        return group
+    }
+
+    private static func probeAccessGroup(explicitGroup: String? = nil) throws -> String {
+        let service = "com.kdt.livecontainer.v3-access-group-probe"
+        let account = UUID().uuidString
+        var item: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: kCFBooleanFalse,
+            // Group discovery also runs during background refresh after the
+            // first unlock, matching the credential client's accessibility.
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            kSecValueData as String: Data([0]),
+            kSecReturnAttributes as String: true]
+        var deletion: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: kCFBooleanFalse]
+        if let explicitGroup {
+            item[kSecAttrAccessGroup as String] = explicitGroup
+            deletion[kSecAttrAccessGroup as String] = explicitGroup
+        }
+        var result: CFTypeRef?
+        let status = SecItemAdd(item as CFDictionary, &result)
+        guard status == errSecSuccess else { throw V3SecretHandoffError.unavailable }
+        let group = (result as? [String: Any])?[kSecAttrAccessGroup as String] as? String
+        let deleteStatus = SecItemDelete(deletion as CFDictionary)
+        guard deleteStatus == errSecSuccess, let group else {
             throw V3SecretHandoffError.unavailable
         }
         return group

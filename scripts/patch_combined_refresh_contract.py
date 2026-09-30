@@ -39,6 +39,19 @@ def _patch_verified(root: Path) -> None:
         return
     if MARKER in text:
         raise SystemExit("combined refresh contract marker without matching provenance")
+    # The headless combined target invokes only the background-operation patch,
+    # not the legacy SideStore scheduler that defines AutomaticRefreshFailureCategory.
+    # Route the remaining notification through the shared structured failure
+    # contract used by verification, avoiding a second failure classifier.
+    text = replace_once(text,
+        r'                self.debugLog("[AUTO_REFRESH] NOTIFICATION_FAILURE failure_category=\(AutomaticRefreshFailureCategory.classify(error).rawValue)")',
+        '''                let runID = automaticRefreshDefaults().string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier
+                let failure = CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error),
+                    operation: "refresh", stage: .refreshVerification, id: runID)
+                self.debugLog("[AUTO_REFRESH] NOTIFICATION_FAILURE \\(failure.technicalDetails)")''')
+    text = replace_once(text,
+        '                content.body = AutomaticRefreshFailureCategory.safeMessage(error, event: .failed)',
+        '                content.body = failure.message')
     text = replace_once(text,
         'defaults.set(refreshIdentifier, forKey: "liveContainerAutoRefreshHostHandoffRunID")',
         'defaults.set(defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier,\n                     forKey: "liveContainerAutoRefreshHostHandoffRunID")')
@@ -111,6 +124,8 @@ def patch_combined_cli(root: Path) -> None:
 
 
 def verify(text: str) -> None:
+    if "AutomaticRefreshFailureCategory" in text:
+        raise SystemExit("combined refresh contract retained legacy scheduler failure policy")
     for needle in (MARKER, '"expected_ids": expectedIDs, "requested_ids": requestedIDs, "skipped_ids": skippedIDs',
                    'defaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier',
                    'CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error)',

@@ -1957,9 +1957,13 @@ final class V3SideStoreService: NSObject {
                 teamOwner: candidate.appleID) ? candidate : nil
         } : nil
         let team = identityReadStable ? storedTeam.flatMap { candidate in
-            let owner = V3AuthIdentityBindingPolicy.resolveColdTeamOwner(
-                storedTeamOwner: candidate.account?.appleID, activeTeamMatches: true,
-                activeAccountOwner: activeAccount?.appleID, sessionOwner: credentialAppleID)
+            // A directly attached account is authoritative. Only an ownerless
+            // active team may inherit the current active account's identity.
+            let owner = V3AuthIdentityBindingPolicy.normalizedOwner(candidate.account?.appleID) ??
+                V3AuthIdentityBindingPolicy.resolveColdTeamOwner(
+                    storedTeamOwners: [], activeTeamIdentifier: storedTeam?.identifier,
+                    requestedTeamIdentifier: candidate.identifier,
+                    activeAccountOwner: activeAccount?.appleID, sessionOwner: credentialAppleID)
             return V3AuthIdentityBindingPolicy.mayUseTeam(sessionOwner: credentialAppleID,
                 teamOwner: owner) ? candidate : nil
         } : nil
