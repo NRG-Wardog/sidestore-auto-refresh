@@ -758,6 +758,18 @@ class KeychainPatchGenerationTests(unittest.TestCase):
             self.assertNotIn("if let appleID = AuthManager.shared.currentAppleID", sign_in)
             self.assertIn("LC_IMPORT_EXPORT_CREDENTIAL_SNAPSHOT_V1", import_export)
             self.assertIn("let authSnapshot = AuthManager.shared.authenticationSnapshot", import_export)
+            self.assertIn(module.IMPORT_EXPORT_HEADLESS_MARKER, import_export)
+            for removed in ("UIDocumentPicker", "UIViewController", "DocumentPickerHandler",
+                            "documentPickerHandler", "AssociatedKeys", "importBackup(",
+                            "importBackupContents(", "renameBackupContents(", "getPreviousBackupURL("):
+                self.assertNotIn(removed, import_export)
+            self.assertIn("AES.GCM.seal(jsonData, using: key)", import_export)
+            self.assertIn("AES.GCM.open(sealedBox, using: key)", import_export)
+            self.assertIn("public static func exportAccount(password: String, includeApplePassword: Bool)", import_export)
+            self.assertIn("public static func importAccount(_ encryptedData: Data, filePassword: String)", import_export)
+            headless_runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+            self.assertIn("ImportExport.exportAccount(password: password, includeApplePassword: includeApplePassword)", headless_runtime)
+            self.assertIn("ImportExport.importAccount(data, filePassword: password)", headless_runtime)
             failure_start = sign_in.index("V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1")
             failure_end = sign_in.index("try? await self.finalizeAuthentication", failure_start)
             failure_catch = sign_in[failure_start:failure_end]

@@ -18,6 +18,7 @@ BACKGROUND_AUTH_SNAPSHOT_MARKER = "LC_AUTO_REFRESH_CREDENTIAL_SNAPSHOT_V1"
 BACKGROUND_AUTH_MISSING_MARKER = "LC_AUTH_CREDENTIALS_MISSING_V1"
 SIGN_IN_SNAPSHOT_MARKER = "LC_SIGNIN_CREDENTIAL_SNAPSHOT_V1"
 IMPORT_EXPORT_SNAPSHOT_MARKER = "LC_IMPORT_EXPORT_CREDENTIAL_SNAPSHOT_V1"
+IMPORT_EXPORT_HEADLESS_MARKER = "LC_HEADLESS_IMPORT_EXPORT_UI_REMOVED_V1"
 TEMPLATE = Path(__file__).parent / "templates/embedded_shared_keychain.swift"
 KEYCHAIN_ACCESS_ADAPTER = '''extension Keychain {
     func authenticationSnapshot() throws -> LCEmbeddedAuthenticationSnapshot? {
@@ -202,9 +203,24 @@ def patch_sign_in_operation(text: str) -> str:
 
 
 def patch_import_export(text: str) -> str:
-    if IMPORT_EXPORT_SNAPSHOT_MARKER in text:
-        if text.count("AuthManager.shared.authenticationSnapshot") < 2:
-            raise ValueError("embedded keychain: ImportExport credential snapshot is incomplete")
+    if IMPORT_EXPORT_HEADLESS_MARKER in text:
+        required = (
+            IMPORT_EXPORT_SNAPSHOT_MARKER,
+            "public static func exportAccount(password: String, includeApplePassword: Bool)",
+            "public static func importAccount(_ encryptedData: Data, filePassword: String)",
+            "AES.GCM.seal(jsonData, using: key)",
+            "AES.GCM.open(sealedBox, using: key)",
+            "AuthManager.shared.authenticationSnapshot",
+        )
+        forbidden = (
+            "UIDocumentPicker", "UIViewController", "DocumentPickerHandler",
+            "documentPickerHandler", "AssociatedKeys", "importBackup(",
+            "importBackupContents(", "renameBackupContents(", "getPreviousBackupURL(",
+        )
+        if (not all(token in text for token in required)
+                or text.count("AuthManager.shared.authenticationSnapshot") < 2
+                or any(token in text for token in forbidden)):
+            raise ValueError("embedded keychain: headless ImportExport patch is incomplete")
         return text
 
     def patch_export_segment(source: str, start_anchor: str, end_anchor: str,
@@ -222,10 +238,62 @@ def patch_import_export(text: str) -> str:
             raise ValueError(f"embedded keychain: {label} password snapshot anchors changed ({count})")
         return source[:start] + segment + source[end:]
 
-    text = patch_export_segment(text, "    public static func exportAccount(",
+    if IMPORT_EXPORT_SNAPSHOT_MARKER in text:
+        if text.count("AuthManager.shared.authenticationSnapshot") < 2:
+            raise ValueError("embedded keychain: ImportExport credential snapshot is incomplete")
+    else:
+        text = patch_export_segment(text, "    public static func exportAccount(",
         "    public static func importAccount(", "account backup")
-    text = patch_export_segment(text, "    static func exportAccountJSON(",
+        text = patch_export_segment(text, "    static func exportAccountJSON(",
         "    static func importAccountJSON(", "debug account backup")
+
+    # SideStore's native settings UI uses this folder picker for local app-data
+    # restoration. The embedded headless target restores pipeline data through
+    # its own host staging path, and retains only encrypted account backups here.
+    text = once(text, "@preconcurrency import UIKit\nimport SideSign\n",
+                "import Foundation\nimport Security\nimport SideSign\n")
+    text = once(text, '''    #if !os(tvOS)
+    public static var documentPickerHandler: DocumentPickerHandler?
+    #endif
+
+''', "")
+    text = once(text, "class ImportExport {\n", "class ImportExport {\n    // " + IMPORT_EXPORT_HEADLESS_MARKER + ": account backup encryption remains available to the host pipeline.\n")
+    picker_start = text.index("    public static func getPreviousBackupURL(")
+    picker_end = text.index("\n}\n\n#if DEBUG", picker_start)
+    text = text[:picker_start] + text[picker_end:]
+    text = once(text, '''
+#if !os(tvOS)
+private struct AssociatedKeys {
+    static var documentPickerHandler: UInt8 = 0
+}
+
+
+class DocumentPickerHandler: NSObject, UIDocumentPickerDelegate {
+    private let completion: (URL?) -> Void
+
+    init(completion: @escaping (URL?) -> Void) {
+        self.completion = completion
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        completion(urls.first)
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        completion(nil)
+    }
+}
+#endif
+''', "\n")
+    if (IMPORT_EXPORT_HEADLESS_MARKER not in text
+            or "public static func exportAccount(" not in text
+            or "public static func importAccount(" not in text
+            or any(token in text for token in (
+                "UIDocumentPicker", "UIViewController", "DocumentPickerHandler",
+                "documentPickerHandler", "AssociatedKeys", "importBackup(",
+                "importBackupContents(", "renameBackupContents(", "getPreviousBackupURL(",
+            ))):
+        raise ValueError("embedded keychain: ImportExport folder picker removal is partial")
     return text
 
 
