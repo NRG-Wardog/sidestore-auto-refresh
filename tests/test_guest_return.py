@@ -137,6 +137,26 @@ SWIFT_TESTS = r'''
 '''
 
 class GuestReturnTests(unittest.TestCase):
+    def test_the_return_control_does_not_depend_on_removed_sidestore_hooks(self):
+        # The SideStore-only escape hook was removed with the rest of that UI.
+        # This patcher used to inject a second copy of the direct-return
+        # diagnostic into it, so it failed closed on a clean patched tree. The
+        # shipped control is LCDirectReturnPresenter in LCBootstrap.m, and the
+        # hooks file is now read, never written.
+        source = (ROOT / "scripts/patch_guest_return.py").read_text(encoding="utf-8")
+        startup = (ROOT / "scripts/patch_embedded_sidestore_startup.py").read_text(encoding="utf-8")
+        self.assertIn("SideStoreMyAppsViewController_orig_viewDidload", startup,
+                      "the hook removal must stay anchored to the swizzle it removes")
+        for removed in ("SideStoreMyAppsViewController_hook_escapeButtonTapped",
+                        "SideStoreMyAppsViewController_orig_viewDidload"):
+            self.assertIn(removed, source, "the retired hook must stay rejected")
+            self.assertNotIn(removed, module.DIRECT_CONTROL + module.DIRECT_RUNTIME + module.METHODS,
+                             "the shipped return control must not reintroduce the removed hook")
+        self.assertNotIn("hooks = replace(hooks", source,
+                         "the hooks file must not be patched")
+        self.assertNotIn('(hooks, "DIRECT_PROCESS_RESTART_RETURN")', source,
+                         "the removed hook must not still be a required token")
+
     def test_virtual_control_is_above_chrome_and_native_stays_local(self):
         self.assertIn('[(DecoratedAppSceneViewController *)self.delegate view] : self.view', module.METHODS)
         self.assertIn('[overlayHost addSubview:self.lcReturnControl]', module.METHODS)

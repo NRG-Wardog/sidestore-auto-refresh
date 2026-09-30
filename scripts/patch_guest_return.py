@@ -501,7 +501,7 @@ def verify(texts):
     implementation, header, window, dock, hooks, model, tab, bootstrap, settings, decorated = (texts[p] for p in PATHS)
     for text, token in ((implementation, CONTROL), (implementation, METHODS), (implementation, CLEANUP),
                         (window, WINDOW_MANAGER), (dock, DOCK_RESUME), (header, "lcActivateHost"),
-                        (hooks, "DIRECT_PROCESS_RESTART_RETURN"), (model, "LC_RETURN_CONTAINER_GUARD"),
+                        (model, "LC_RETURN_CONTAINER_GUARD"),
                         (tab, "MultitaskWindowManager.mainSceneSession")):
         if token.strip() not in text:
             raise ValueError("Incomplete guest-return patch: " + token[:65])
@@ -515,6 +515,13 @@ def verify(texts):
     for state in ("YES", "NO"):
         if f"self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];" not in decorated:
             raise ValueError("Return visibility transition missing: " + state)
+    # The SideStore-only escape hook that used to carry a second copy of the
+    # direct-return diagnostic was removed with the rest of that UI. Reject it
+    # here rather than quietly relying on another patcher having removed it.
+    for removed in ("SideStoreMyAppsViewController_hook_escapeButtonTapped",
+                    "SideStoreMyAppsViewController_orig_viewDidload"):
+        if removed in hooks:
+            raise ValueError("retired SideStore UI hook returned: " + removed)
 
 
 def patch(root):
@@ -589,7 +596,6 @@ def patch(root):
             if await MainActor.run(body: { MultitaskManager.isUsing(container: currentDataFolder) }) {
                 throw "lc.container.inUse".loc + "\\nA retained guest still owns this container. Close its existing window before relaunching."
             }''', "container ownership")
-    hooks = replace(hooks, "    [LCSharedUtils launchToGuestAppWithClassicMode:0];", '    NSLog(@"[LC_RETURN] MODE_DIRECT mode=DIRECT_PROCESS_RESTART_RETURN");\n    [LCSharedUtils launchToGuestAppWithClassicMode:0];', "direct fallback diagnostic")
     tab = replace(tab, "            shouldToggleMainWindowOpen = true\n", "            shouldToggleMainWindowOpen = true\n            if #available(iOS 16.1, *) {\n                MultitaskWindowManager.mainSceneSession = sceneDelegate.window?.windowScene?.session\n            }\n", "capture real main scene")
     tab = replace(tab, "                    DataManager.shared.model.mainWindowOpened = false", "                    DataManager.shared.model.mainWindowOpened = false\n                    if #available(iOS 16.1, *), MultitaskWindowManager.mainSceneSession?.persistentIdentifier == scene1.session.persistentIdentifier {\n                        MultitaskWindowManager.mainSceneSession = nil\n                    }", "clear disconnected main scene")
     bootstrap = replace(bootstrap, "extern char **environ;", "#include <math.h>\n" + DIRECT_CONTROL + DIRECT_RUNTIME + "\nextern char **environ;", "direct return presenter")
