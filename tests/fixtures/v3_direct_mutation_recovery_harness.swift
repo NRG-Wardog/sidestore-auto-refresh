@@ -166,7 +166,7 @@ struct DirectMutationRecoveryHarness {
                 kind: "delete", containerRoot: root)
             fatalError("one-slot lease admitted conflicting operation recovery")
         } catch let failure as V3RecoveryStorageFailure {
-            try expect(failure.kind == .incompatibleRecord && failure.clearEligible)
+            try expect(failure.kind == .incompatibleRecord && !failure.clearEligible)
         }
         try expect(try V3OperationRecoveryJournal.direct(containerRoot: root)?.requestID == requestID)
     }
@@ -330,7 +330,9 @@ struct DirectMutationRecoveryHarness {
         do {
             _ = try V3OperationRecoveryJournal.currentState(containerRoot: root)
             fatalError("unknown v2 keys must be treated as unreadable")
-        } catch is V3SecretHandoffError { }
+        } catch let failure as V3RecoveryStorageFailure {
+            try expect(failure.kind == .incompatibleRecord && failure.clearEligible)
+        }
         try expect(!(try V3OperationRecoveryJournal.discardUnreadableAfterDeviceCheck(
             userConfirmed: false, containerRoot: root)))
         try expect(try V3OperationRecoveryJournal.discardUnreadableAfterDeviceCheck(
