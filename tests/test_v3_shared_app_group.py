@@ -81,15 +81,22 @@ class AppGroupIdentityRuleExecutionTests(unittest.TestCase):
                      "7. Nothing malformed"):
             self.assertIn(case, harness)
         for label in ("suffixed group must be well formed",
+                      "a team-suffixed group must rank as the packaged group",
+                      "an AltStore-owned group is not the packaged group",
+                      "an empty team suffix must not rank as the packaged group",
+                      "a non-alphanumeric team suffix must not rank as the packaged group",
                       "suffixed group must be selected",
                       "altstore group must be well formed",
                       "an explicitly selected AltStore-owned group must win over the packaged one",
-                      "host and service must resolve the same runtime group",
+                      "host and service must resolve the same runtime group despite different packaged entitlements",
+                      "the packaged fallbacks must differ, or the parity case proves nothing",
+                      "the packaged fallback must rank the SideStore group first",
                       "an unavailable selected group must be unavailable even with a packaged fallback",
                       "an unavailable selected group must not switch to the packaged group",
                       "a conflicting Info.plist entitlement must not override the runtime group",
                       "the packaged fallback must still be available for a launch that published nothing",
                       "the process-shared lock must resolve one group in both processes",
+                      "a process that cannot open the published group must take no lock, not another one",
                       "no published and no packaged group must be unavailable",
                       "an empty packaged list must be unavailable",
                       "a malformed group identifier must be rejected",
@@ -98,9 +105,21 @@ class AppGroupIdentityRuleExecutionTests(unittest.TestCase):
                       "a null identifier must be rejected",
                       "the packaged scan must skip malformed entries"):
             self.assertIn(f'"{label}"', harness)
+        # The parity case must not be two calls with identical arguments, which
+        # cannot fail; it models two processes with different packaged lists.
+        parity = harness[harness.index("/* 3. Host/service parity"):harness.index("/* 4. An unavailable")]
+        self.assertIn("hostPackaged", parity)
+        self.assertIn("servicePackaged", parity)
+        self.assertNotEqual(parity.count("resolve(altStore, 1, both, 2)"), 2,
+                            "the parity case compares two different packaged lists")
 
 
 class AppGroupRuleParityTests(unittest.TestCase):
+    @staticmethod
+    def strip_comments(text: str) -> str:
+        """Remove comments only. String literals are load-bearing here."""
+        return re.sub(r"//[^\n]*|/\*.*?\*/", "", text, flags=re.S)
+
     def test_swift_and_c_declare_the_same_rule_set(self):
         # The Swift resolver names each rule it implements with the identifier
         # the C rule set uses, so a rule added on one side and forgotten on the
@@ -114,46 +133,109 @@ class AppGroupRuleParityTests(unittest.TestCase):
         self.assertIn("LC_APP_GROUP_RULE_SET_V1", rules)
         self.assertIn("LC_APP_GROUP_RULE_SET_V1", shared)
 
+    def test_each_documented_c_rule_has_predicate_code_that_is_actually_called(self):
+        # The C rule set names its rules in prose and expresses them in
+        # predicates. A documented rule with no predicate, or a predicate nothing
+        # calls, is a rule that does not exist.
+        code = self.strip_comments(RULES.read_text(encoding="utf-8"))
+        validator = code[code.index("static inline int LCAppGroupIDIsWellFormed("):
+                         code.index("static inline int LCAppGroupSelectionSourceFor(")]
+        for predicate in ("LCAppGroupRuleIsVisibleASCII", "LCAppGroupRuleIsReserved",
+                          "LC_APP_GROUP_IDENTIFIER_MAX_LENGTH"):
+            self.assertIn(predicate, validator,
+                          f"{predicate} is documented but the well-formedness check does not use it")
+        # LC_RULE_GROUP_NO_SEPARATOR is enforced one level down, by the reserved
+        # predicate the validator calls, so the chain must exist.
+        reserved = code[code.index("static inline int LCAppGroupRuleIsReserved("):
+                        code.index("static inline int LCAppGroupIDIsWellFormed(")]
+        self.assertIn("LCAppGroupRuleIsSeparator(value)", reserved)
+        separator = code[code.index("static inline int LCAppGroupRuleIsSeparator("):
+                        code.index("static inline int LCAppGroupRuleIsReserved(")]
+        self.assertIn("value == '/' || value == '\\\\'", separator)
+        # LC_RULE_GROUP_NO_TRAVERSAL is enforced by the previous-byte comparison
+        # and the leading-byte check, both inside the same predicate.
+        self.assertIn("previous == (unsigned char)'.' && current == (unsigned char)'.'", validator)
+        self.assertIn("if ((unsigned char)bytes[0] == (unsigned char)'.') {", validator)
+        # The precedence rules live in one function the resolver must call.
+        self.assertIn("LCAppGroupSelectionSourceFor", code)
+        self.assertIn("LCAppGroupFirstPackagedGroup", code)
+        self.assertIn("LCAppGroupIsPackagedSideStoreGroup(candidate)", code)
+        ranking = code[code.index("static inline const char *LCAppGroupFirstPackagedGroup("):]
+        self.assertIn("return LCAppGroupFirstWellFormed(candidates, count);", ranking,
+                      "the packaged ranking must fall back to the first well-formed entry")
+
     def test_swift_shape_rules_match_the_c_shape_rules(self):
         shared = SHARED.read_text(encoding="utf-8")
         validator = shared[shared.index("static func wellFormedIdentifier("):
                            shared.index("static func isPackagedSideStoreGroup(")]
-        code = "\n".join(line for line in validator.splitlines() if not line.strip().startswith("//"))
+        code = self.strip_comments(validator)
         for token in ("0x21", "0x7E", 'UInt8(ascii: "/")', 'UInt8(ascii: "\\\\")',
                       'UInt8(ascii: ":")', "maximumIdentifierLength"):
             self.assertIn(token, code, f"the Swift validator lost the C rule for {token}")
-        self.assertIn("return candidate.utf8.first == UInt8(ascii: \".\") ? nil : candidate", code,
+        self.assertIn('return candidate.utf8.first == UInt8(ascii: ".") ? nil : candidate', code,
                       "a leading dot must be rejected in Swift exactly as in C")
+        self.assertIn('previous == UInt8(ascii: ".") && byte == UInt8(ascii: ".") { return nil }', code,
+                      "traversal must be rejected in Swift exactly as in C")
         self.assertLess(shared.index("maximumIdentifierLength = 255"), shared.index("wellFormedIdentifier"),
                         "the C bound of 255 must be the one the Swift validator reads")
+        # The Objective-C wrapper must measure bytes, like the C rule, and must
+        # not carry a second implementation of the ranking predicate.
+        selection = SELECTION.read_text(encoding="utf-8")
+        self.assertIn("LCAppGroupIDIsWellFormed(utf8, strlen(utf8))", selection)
+        self.assertNotIn("groupID.length", selection)
+        self.assertIn("LCAppGroupFirstPackagedGroup(candidates, count)", selection)
+        self.assertNotIn("LCIsPackagedSideStoreGroup", selection)
 
     def test_swift_precedence_matches_the_c_precedence(self):
         shared = SHARED.read_text(encoding="utf-8")
         resolver = shared[shared.index("static func identity(selectedGroup:"):
                           shared.index("static func runtimeIdentity(")]
-        code = "\n".join(line for line in resolver.splitlines() if not line.strip().startswith("//"))
+        code = self.strip_comments(resolver)
         # A supplied or inherited group is authoritative and is never replaced.
         self.assertIn("let supplied = selectedGroup.flatMap { $0.isEmpty ? nil : $0 }", code)
         self.assertIn("if let authoritative = supplied ?? inherited {", code)
         # An unusable authoritative group fails instead of falling through.
         self.assertIn("guard let identifier = wellFormedIdentifier(authoritative),", code)
         self.assertIn("let containerRoot = resolveContainer(identifier) else { return nil }", code)
-        # The packaged list is reached only when nothing was published.
+        # The packaged list is reached only when nothing was published, and the
+        # ranking the C rule set implements is the same one.
         self.assertIn('(bundleInfo["ALTAppGroups"] as? [String])', code)
         self.assertIn("wellFormed.first(where: isPackagedSideStoreGroup) ?? wellFormed.first", code)
-        # The packaged fallback still has to resolve.
         self.assertIn("let containerRoot = resolveContainer(identifier) else { return nil }\n        return Identity(identifier: identifier, containerRoot: containerRoot, source: .packaged)", code)
 
     def test_c_precedence_function_keeps_explicit_wins_and_fails_closed(self):
         rules = RULES.read_text(encoding="utf-8")
         precedence = rules[rules.index("static inline int LCAppGroupSelectionSourceFor("):
                            rules.index("/* The first well-formed entry")]
-        code = "\n".join(line for line in precedence.splitlines() if not line.strip().startswith("/*"))
+        code = self.strip_comments(precedence)
         self.assertIn("if (runtimeGroupSupplied) {", code)
         self.assertIn("return LCAppGroupSelectionUnavailable;", code)
         self.assertIn("return LCAppGroupSelectionRuntimeGroup;", code)
         self.assertIn("if (packagedFallbackAvailable) {", code)
         self.assertIn("return LCAppGroupSelectionPackagedFallback;", code)
+
+    def test_publishing_only_an_openable_group_is_what_closes_the_split(self):
+        # The host publishes the group it resolved. If it published a group it
+        # could not open, the service would reject it and choose its own
+        # packaged fallback, which is the split this change exists to remove.
+        shared = SHARED.read_text(encoding="utf-8")
+        publish = shared[shared.index("static func publishRuntimeGroup("):
+                         shared.index("/// Resolve the one authoritative identity.")]
+        code = self.strip_comments(publish)
+        self.assertIn("unsetenv(runtimeGroupEnvironmentKey)", code)
+        self.assertIn("guard let resolved = runtimeIdentity(selectedGroup: group)?.identifier,", code)
+        self.assertNotIn("wellFormedIdentifier(group)", code,
+                         "publishing a merely well-formed group would let the service reject it")
+        # The packaging verifier is what makes an openable group openable in the
+        # service, so the guarantee is checkable rather than assumed.
+        verifier = (ROOT / "scripts/verify_candidate_ipa.py").read_text(encoding="utf-8")
+        self.assertIn("if host != service:", verifier)
+        self.assertIn('raise ValueError("host-selectable App Groups differ from LiveProcess service entitlements")',
+                      verifier)
+        # The host publishes before any shared state is read.
+        autorefresh = (ROOT / "scripts/patch_livecontainer_autorefresh.py").read_text(encoding="utf-8")
+        self.assertLess(autorefresh.index("V3SharedAppGroup.publishRuntimeGroup("),
+                        autorefresh.index("LiveContainerAutoRefreshScheduler.register()"))
 
 
 class CrossProcessParityTests(unittest.TestCase):
@@ -254,24 +336,48 @@ class SharedRefreshStoreTests(unittest.TestCase):
 
     def test_host_handler_fails_with_a_structured_error_when_the_store_is_missing(self):
         handler = HANDLER.read_text(encoding="utf-8")
-        self.assertIn("let sharedDefaults = try V3SharedAppGroup.requireSharedUserDefaults()", handler)
+        self.assertIn("try V3SharedAppGroup.requireSharedUserDefaults()", handler)
         self.assertIn("V3SharedAppGroup.sharedUserDefaults()", handler)
         self.assertEqual(handler.count("V3SharedAppGroup.sharedUserDefaults()"), 2,
                          "both terminal-result paths must read the runtime store")
+        # The store is resolved once, before any claim, and every read and write
+        # that follows uses the resolved value rather than an optional that no
+        # longer exists.
+        self.assertNotIn("defaults?.", handler)
+        claimed = handler[handler.index("sharedDefaults = try V3SharedAppGroup.requireSharedUserDefaults()"):]
+        claimed = claimed[:claimed.index('client.refreshAllApps(withIdentifier:')]
+        for use in ('sharedDefaults.string(forKey: "liveContainerAutoRefreshExpectedRunID")',
+                    'sharedDefaults.string(forKey: "liveContainerAutoRefreshActiveRunID")',
+                    'sharedDefaults.set(run, forKey: "liveContainerAutoRefreshExpectedRunID")',
+                    'sharedDefaults.removeObject(forKey: "liveContainerAutoRefreshExpectedRunID")',
+                    'sharedDefaults.set(run, forKey: "liveContainerAutoRefreshUncertainMutationRunID")',
+                    'sharedDefaults.dictionary(forKey: V3DirectRefreshRunClaimPolicy.defaultsKey)'):
+            self.assertIn(use, claimed)
 
     def test_service_verification_store_is_resolved_once_and_fails_the_run(self):
         script = (ROOT / "scripts/patch_background_automation.py").read_text(encoding="utf-8")
-        self.assertIn("let refreshDefaults = try automaticRefreshDefaults()", script)
         self.assertIn("private func automaticRefreshDefaults() throws -> UserDefaults {", script)
         self.assertIn("try V3SharedAppGroup.requireSharedUserDefaults()", script)
         self.assertIn('debugLog("[AUTO_REFRESH] HOST_HANDOFF_UNAVAILABLE reason=shared_store_unavailable")', script)
         self.assertIn('debugLog("[AUTO_REFRESH] VERIFICATION_UNAVAILABLE reason=shared_store_unavailable")', script)
+        # The store is resolved once per run, before any work, and the rest of
+        # the run uses the resolved value.
+        self.assertEqual(script.count("refreshDefaults = try automaticRefreshDefaults()"), 1)
+        self.assertIn("let refreshDefaults: UserDefaults", script)
+        self.assertIn("let expectedRunID = refreshDefaults.string(forKey:", script)
+        self.assertNotIn('let refreshDefaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")', script)
 
     def test_refresh_result_bridge_correlates_through_the_runtime_group(self):
         script = (ROOT / "scripts/patch_refresh_result_bridge.py").read_text(encoding="utf-8")
-        self.assertIn('getenv("LC_V3_INHERITED_APP_GROUP")', script)
-        self.assertIn("V3SharedAppGroup.sharedUserDefaults()", script)
+        self.assertIn("RUNTIME_APP_GROUP_ENV_KEY = runtime_app_group_environment_key()", script)
+        # The Objective-C side must prove the container is openable before
+        # opening the suite: +initWithSuiteName: accepts any name and writes the
+        # process's own domain when the suite is not an entitled group, which
+        # would stamp the run contract where the service cannot read it.
+        self.assertIn("containerURLForSecurityApplicationGroupIdentifier:runtimeAppGroupID] != nil", script)
+        self.assertIn("[[NSUserDefaults alloc] initWithSuiteName:runtimeAppGroupID] : nil;", script)
         self.assertIn("RESULT_STORE_UNAVAILABLE reason=runtime_app_group_unresolved", script)
+        self.assertIn("V3SharedAppGroup.sharedUserDefaults()", script)
         # The run ID, the manifest and the handoff record stay one contract.
         for key in ("liveContainerAutoRefreshExpectedRunID",
                     "liveContainerAutoRefreshVerification",
@@ -403,12 +509,64 @@ class TemplateInstallationTests(unittest.TestCase):
         self.assertIn('template_hashes[group_rules_template.name]', service)
         self.assertIn('#import "LCAppGroupIdentityRules.h"', SELECTION.read_text(encoding="utf-8"))
 
+    def test_the_environment_key_has_one_source_of_truth(self):
+        # Generated Objective-C cannot see the Swift constant, so the name is
+        # repeated in two emitters. Both derive it from the authoritative
+        # template, so a rename cannot leave half the contract on the old key.
+        key = re.search(r'static let runtimeGroupEnvironmentKey = "([A-Za-z0-9_]+)"',
+                        SHARED.read_text(encoding="utf-8")).group(1)
+        for script in ("patch_v3_service.py", "patch_refresh_result_bridge.py"):
+            source = (ROOT / "scripts" / script).read_text(encoding="utf-8")
+            self.assertIn("def runtime_app_group_environment_key()", source, script)
+            self.assertIn("RUNTIME_APP_GROUP_ENV_KEY = runtime_app_group_environment_key()", source, script)
+            self.assertNotIn(f'"{key}"', source, script)
+            # The producer and the consumer must both use the derived name.
+            self.assertIn("RUNTIME_APP_GROUP_ENV_KEY", source, script)
+        # Nothing else may hardcode it.
+        for path in sorted((ROOT / "scripts").glob("*.py")):
+            self.assertNotIn(f'"{key}"', path.read_text(encoding="utf-8"),
+                             f"{path.name} hardcodes the runtime App Group environment key")
+        # The service Keychain lock and the recovery journal read the same key
+        # through the one Swift constant, never a literal.
+        for template in (KEYCHAIN, SERVICE):
+            self.assertNotIn(f'"{key}"', template.read_text(encoding="utf-8"))
+
     def test_typed_recoverable_failure_exists_for_the_shared_store(self):
         shared = SHARED.read_text(encoding="utf-8")
-        self.assertIn("enum Unavailable: Error, Equatable {", shared)
+        self.assertIn("enum Unavailable: Error, Equatable, LocalizedError {", shared)
         self.assertIn("case sharedStore", shared)
         self.assertIn("var isRecoverable: Bool { true }", shared)
         self.assertIn("throw Unavailable.sharedStore", shared)
+        # A defined safe sentence, so the service can log a cause without
+        # reaching for a provider string or a private path.
+        self.assertIn("var errorDescription: String?", shared)
+
+    def test_the_unavailable_store_reaches_the_user_inside_the_envelope(self):
+        # A bare typed error thrown out of the refresh handler would lose the
+        # correlation ID, the stage and the retryable cause on the wire.
+        handler = HANDLER.read_text(encoding="utf-8")
+        self.assertIn("do {\n            sharedDefaults = try V3SharedAppGroup.requireSharedUserDefaults()", handler)
+        self.assertIn('throw CombinedFailure(operation: "refresh", stage: .persistence,', handler)
+        self.assertIn("code: .unavailable, id: schedulerRunID ?? UUID().uuidString,", handler)
+        self.assertIn("retryable: true, safeCause: .sharedStoreUnavailable)", handler)
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        self.assertIn("case sharedStoreUnavailable", failure)
+        for handler_text in (
+            "case .sharedStoreUnavailable:\n                return true",
+            "case .sharedStoreUnavailable: return \"LiveContainer could not open the shared store",
+            "case .sharedStoreUnavailable:\n                return \"Relaunch LiveContainer after reinstalling",
+        ):
+            self.assertIn(handler_text, failure,
+                          "the new safe cause needs a retryability, a message and a recovery line")
+        # The service side keeps an honest cause in the log and rethrows rather
+        # than substituting a private store.
+        script = (ROOT / "scripts/patch_background_automation.py").read_text(encoding="utf-8")
+        self.assertIn('self.debugLog("[AUTO_REFRESH] SHARED_STORE_UNAVAILABLE failure_category=sharedStoreUnavailable")',
+                      script)
+        self.assertIn("refreshDefaults = try automaticRefreshDefaults()\n            } catch {", script)
+        # The combined contract composes on top of the throwing helper.
+        contract = (ROOT / "scripts/patch_combined_refresh_contract.py").read_text(encoding="utf-8")
+        self.assertIn("(try? automaticRefreshDefaults())?.string(forKey:", contract)
 
 
 if __name__ == "__main__":

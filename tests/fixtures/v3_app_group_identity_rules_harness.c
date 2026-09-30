@@ -26,20 +26,20 @@ static int selection(int runtimeSupplied, int runtimeAvailable, int packagedAvai
 }
 
 /* Resolve the identifier this process would actually use, mirroring the Swift
- * identity resolver: a runtime group is authoritative, the packaged list is
- * ranked only when nothing was published, and an unusable runtime group never
+ * identity resolver exactly: a runtime group is authoritative, the packaged list
+ * is ranked only when nothing was published, and an unusable runtime group never
  * falls through. */
 static const char *resolve(const char *runtimeGroup, int runtimeAvailable,
                            const char *const *packaged, size_t packagedCount) {
     int source = selection(runtimeGroup != NULL, runtimeGroup != NULL ? runtimeAvailable : 0,
-                           LCAppGroupFirstWellFormed(packaged, packagedCount) != NULL);
+                           LCAppGroupFirstPackagedGroup(packaged, packagedCount) != NULL);
     if (source == LCAppGroupSelectionUnavailable) {
         return NULL;
     }
     if (source == LCAppGroupSelectionRuntimeGroup) {
         return LCAppGroupIDIsWellFormed(runtimeGroup, strlen(runtimeGroup)) ? runtimeGroup : NULL;
     }
-    return LCAppGroupFirstWellFormed(packaged, packagedCount);
+    return LCAppGroupFirstPackagedGroup(packaged, packagedCount);
 }
 
 int main(void) {
@@ -55,6 +55,14 @@ int main(void) {
     /* 1. A SideStore-suffixed group is a legitimate runtime selection. */
     expect(LCAppGroupIDIsWellFormed(suffixed, strlen(suffixed)) == 1,
            "suffixed group must be well formed");
+    expect(LCAppGroupIsPackagedSideStoreGroup(suffixed) == 1,
+           "a team-suffixed group must rank as the packaged group");
+    expect(LCAppGroupIsPackagedSideStoreGroup(altStore) == 0,
+           "an AltStore-owned group is not the packaged group");
+    expect(LCAppGroupIsPackagedSideStoreGroup("group.com.SideStore.SideStore.") == 0,
+           "an empty team suffix must not rank as the packaged group");
+    expect(LCAppGroupIsPackagedSideStoreGroup("group.com.SideStore.SideStore.TEAM-1") == 0,
+           "a non-alphanumeric team suffix must not rank as the packaged group");
     expect(resolve(suffixed, 1, packagedOnly, 1) != NULL
                && strcmp(resolve(suffixed, 1, packagedOnly, 1), suffixed) == 0,
            "suffixed group must be selected");
@@ -66,17 +74,27 @@ int main(void) {
                && strcmp(resolve(altStore, 1, packagedOnly, 1), altStore) == 0,
            "an explicitly selected AltStore-owned group must win over the packaged one");
 
-    /* 3. Host/service parity: the host's selection and the service's inherited
-     *    copy of the same value must resolve the same identifier, so both take
-     *    the same lock file and the same IPA staging directory. */
+    /* 3. Host/service parity. The two processes have DIFFERENT packaged
+     *    entitlements and different process-local facts, which is the real
+     *    situation: only the host's selection is forwarded. If the resolver
+     *    preferred anything but the inherited runtime group, these two would
+     *    diverge, and the host and the service would take different locks. */
     {
-        const char *hostView = resolve(altStore, 1, both, 2);
-        /* The service receives the host's validated group through the launch
-         * payload and republishes it; its own packaged list is irrelevant. */
-        const char *serviceView = resolve(altStore, 1, both, 2);
+        const char *hostPackaged[] = {packaged, altStore};
+        const char *servicePackaged[] = {suffixed};
+        const char *hostView = resolve(altStore, 1, hostPackaged, 2);
+        const char *serviceView = resolve(altStore, 1, servicePackaged, 1);
         expect(hostView != NULL && serviceView != NULL
                    && strcmp(hostView, serviceView) == 0,
-               "host and service must resolve the same runtime group");
+               "host and service must resolve the same runtime group despite different packaged entitlements");
+        /* The packaged lists really do disagree, so the agreement above is not
+         * an artefact of identical inputs. */
+        expect(strcmp(resolve(NULL, 0, hostPackaged, 2), resolve(NULL, 0, servicePackaged, 1)) != 0,
+               "the packaged fallbacks must differ, or the parity case proves nothing");
+        /* And the packaged ranking the rule documents is the production one:
+         * the SideStore group outranks an AltStore-owned entry. */
+        expect(strcmp(resolve(NULL, 0, hostPackaged, 2), packaged) == 0,
+               "the packaged fallback must rank the SideStore group first");
     }
 
     /* 4. An unavailable runtime group fails; it never falls back. */
@@ -93,17 +111,22 @@ int main(void) {
                "a conflicting Info.plist entitlement must not override the runtime group");
         /* And with no runtime group the packaged list is used, ranked. */
         expect(resolve(NULL, 0, both, 2) != NULL
-                   && strcmp(resolve(NULL, 0, both, 2), altStore) == 0,
+                   && strcmp(resolve(NULL, 0, both, 2), suffixed) == 0,
                "the packaged fallback must still be available for a launch that published nothing");
     }
 
-    /* 6. Cross-process lock ownership: the group that names the lock file is the
-     *    same one the store is opened under, for both processes. */
+    /* 6. Cross-process lock ownership: the group that names the lock file is
+     *    the group the store is opened under, in both processes, and neither
+     *    can reach a state where it locks a different one. */
     {
-        const char *hostLock = resolve(altStore, 1, both, 2);
+        const char *hostLock = resolve(altStore, 1, packagedOnly, 1);
         const char *serviceLock = resolve(altStore, 1, both, 2);
         expect(hostLock != NULL && strcmp(hostLock, serviceLock) == 0,
                "the process-shared lock must resolve one group in both processes");
+        /* If either process could not open the published group it must get no
+         * lock at all rather than a different one. */
+        expect(resolve(altStore, 0, packagedOnly, 1) == NULL,
+               "a process that cannot open the published group must take no lock, not another one");
         expect(selection(0, 0, 0) == LCAppGroupSelectionUnavailable,
                "no published and no packaged group must be unavailable");
         expect(resolve(NULL, 0, emptyPackaged, 1) == NULL,

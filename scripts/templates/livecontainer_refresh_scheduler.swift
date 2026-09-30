@@ -81,6 +81,7 @@ enum LiveContainerAutoRefreshScheduler {
     private static var processingRegistered = false
     private static var watchdogRegistered = false
     private static var registered = false
+    private static var sharedStoreUnavailableReported = false
     private static var activeRun: UUID?
     // Capture the real host before LiveContainer changes Bundle.main for guests.
     private static var hostBundle: Bundle?
@@ -96,9 +97,15 @@ enum LiveContainerAutoRefreshScheduler {
         guard !sharedStoreAvailable else { return true }
         defaults.set(sharedStoreUnavailableMessage, forKey: lastErrorKey)
         defaults.set("SHARED_STORE_UNAVAILABLE", forKey: healthStateKey)
-        print("[LIVE_CONTAINER_REFRESH] SHARED_STORE_UNAVAILABLE operation_refused=1")
-        notify(title: "Scheduled refresh unavailable",
-               body: sharedStoreUnavailableMessage, kind: "shared_store_unavailable")
+        // schedule() runs on every background transition, so the refusal is
+        // reported once per launch. The stored keys stay set, so the settings
+        // screen and Home still show the reason.
+        if !sharedStoreUnavailableReported {
+            sharedStoreUnavailableReported = true
+            print("[LIVE_CONTAINER_REFRESH] SHARED_STORE_UNAVAILABLE operation_refused=1")
+            notify(title: "Scheduled refresh unavailable",
+                   body: sharedStoreUnavailableMessage, kind: "shared_store_unavailable")
+        }
         NotificationCenter.default.post(name: Notification.Name(runStateChangedNotification), object: nil)
         return false
     }

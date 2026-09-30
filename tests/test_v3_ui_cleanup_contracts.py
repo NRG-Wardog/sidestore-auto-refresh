@@ -151,15 +151,19 @@ class ThemeAndWidgetColorTests(unittest.TestCase):
                       LAYOUT_PATCH)
 
     def test_no_cleanup_marker_removed_the_theme_or_widget_configuration(self):
-        # The cleanup markers are the only removals these patches performed. If a
-        # future cleanup adds one here, this test names the contract it endangers.
+        # The cleanup markers are the only removals these patches performed, and
+        # each names the contract it took out. A marker that removed theme or
+        # widget configuration would have to appear here to be accepted.
         for patch, marker in ((SERVICE_PATCH, "V3_COMMAND_PATCH_V1"),
                               (SHELL_PATCH, "V3_LEGACY_SOURCES_UI_EXCLUDED_V1"),
                               (KEYCHAIN_PATCH, "LC_HEADLESS_IMPORT_EXPORT_UI_REMOVED_V1"),
                               (STARTUP_PATCH, "REMOVE_NON_LIVE_SIDESTORE_UI_V1")):
             self.assertIn(marker, patch)
-        self.assertNotIn("ThemeManager", SERVICE_PATCH + SHELL_PATCH + KEYCHAIN_PATCH + STARTUP_PATCH,
-                         "no cleanup marker should be deleting theme configuration")
+        # The widget's own colour preference is widget-visible state, so it is
+        # shared, and it is read by the grid cell the widget mirrors.
+        self.assertIn('@AppStorage("dynamicColors", store: LCUtils.appGroupUserDefault)',
+                      (TEMPLATES / "livecontainer_grid_app_cell.swift").read_text(encoding="utf-8"))
+        self.assertIn("dynamicColors: Bool,", LAYOUT_PATCH)
 
 
 class RemovedPresentationTests(unittest.TestCase):

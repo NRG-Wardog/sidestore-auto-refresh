@@ -125,7 +125,13 @@ def patch(live, side, product):
         if subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip() != pin:
             raise SystemExit("combined startup requires pinned source")
     manifest = live / ".combined-service-startup.json"
-    templates = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in TEMPLATES.glob("combined_*")}
+    # Every template whose text lands in an output is covered, so a changed
+    # template can never be silently skipped on replay. The shared App Group
+    # identity is one of them: it is prepended into SideStore.swift.
+    templates = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                 for p in sorted(TEMPLATES.glob("combined_*"))}
+    templates["v3_shared_app_group.swift"] = hashlib.sha256(
+        (TEMPLATES / "v3_shared_app_group.swift").read_bytes()).hexdigest()
     templates["patch_combined_service_startup.py"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     if manifest.exists():
         previous = json.loads(manifest.read_text())

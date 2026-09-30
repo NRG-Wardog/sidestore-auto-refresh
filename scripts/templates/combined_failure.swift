@@ -183,6 +183,11 @@ public struct CombinedFailure: Error, LocalizedError {
         case sourceAddBusy
         case operationInProgress
         case responseCapacityUnavailable
+        // V3_RUNTIME_SHARED_STORE_CAUSE_V1: the host and the embedded service must
+        // read and write refresh state through one App Group. When that store
+        // cannot be opened the run is refused rather than written somewhere the
+        // other process cannot see, and retrying after a reinstall can succeed.
+        case sharedStoreUnavailable
         case staleRefreshAttempt
         case knownSourcePolicyNetworkFailure
         case knownSourcePolicyInvalidResponse
@@ -242,6 +247,8 @@ public struct CombinedFailure: Error, LocalizedError {
             case .operationInProgress, .knownSourcePolicyNetworkFailure:
                 return true
             case .responseCapacityUnavailable:
+                return true
+            case .sharedStoreUnavailable:
                 return true
             case .staleRefreshAttempt:
                 return false
@@ -485,6 +492,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .sourceAddBusy: return "SideStore was busy with another request, so it did not confirm adding this source."
             case .operationInProgress: return "Another SideStore operation is still active."
             case .responseCapacityUnavailable: return "SideStore cannot safely accept another state-changing request yet."
+            case .sharedStoreUnavailable: return "LiveContainer could not open the shared store that its refresh state and the embedded SideStore service both use."
             case .staleRefreshAttempt: return "This refresh request belonged to an expired scheduler run and was not started."
             case .knownSourcePolicyNetworkFailure: return "SideStore could not update its own known-source safety list."
             case .knownSourcePolicyInvalidResponse: return "SideStore could not read its own known-source safety list."
@@ -693,6 +701,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Wait for the active SideStore request to finish, check the action's current state, then retry that action if needed."
             case .responseCapacityUnavailable:
                 return "Wait for SideStore to release earlier request results, check the current state, then retry this action."
+            case .sharedStoreUnavailable:
+                return "Relaunch LiveContainer after reinstalling or re-signing it. Nothing was written to a private store, and the next launch can retry this run."
             case .staleRefreshAttempt:
                 return "Return to Refresh and start a new refresh. This stale request did not reach SideStore or the device."
             case .knownSourcePolicyNetworkFailure:

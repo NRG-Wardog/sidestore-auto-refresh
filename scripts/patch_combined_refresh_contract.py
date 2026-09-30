@@ -45,7 +45,7 @@ def _patch_verified(root: Path) -> None:
     # contract used by verification, avoiding a second failure classifier.
     text = replace_once(text,
         r'                self.debugLog("[AUTO_REFRESH] NOTIFICATION_FAILURE failure_category=\(AutomaticRefreshFailureCategory.classify(error).rawValue)")',
-        '''                let runID = automaticRefreshDefaults().string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier
+        '''                let runID = (try? automaticRefreshDefaults())?.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? refreshIdentifier
                 let failure = CombinedFailure.capture(V3HeadlessPairingFailure.tagIfInvalidPairing(error),
                     operation: "refresh", stage: .refreshVerification, id: runID)
                 self.debugLog("[AUTO_REFRESH] NOTIFICATION_FAILURE \\(failure.technicalDetails)")''')

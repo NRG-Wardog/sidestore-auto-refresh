@@ -1,7 +1,27 @@
 """Carry refresh metadata across the existing XPC boundary, not guest preferences."""
 from pathlib import Path
+import re
 
 MARKER = "LC_REFRESH_RESULT_XPC_V1"
+TEMPLATES = Path(__file__).parent / "templates"
+
+
+def runtime_app_group_environment_key() -> str:
+    """The one key the host publishes and every process reads.
+
+    Generated Objective-C cannot see the Swift constant, so the literal is
+    repeated in the emitters. Deriving it from the authoritative template means a
+    rename fails here instead of silently splitting the two halves of one
+    process-boundary contract.
+    """
+    shared = (TEMPLATES / "v3_shared_app_group.swift").read_text(encoding="utf-8")
+    match = re.search(r'static let runtimeGroupEnvironmentKey = "([A-Za-z0-9_]+)"', shared)
+    if not match:
+        raise SystemExit("refresh result bridge: the runtime App Group environment key moved")
+    return match.group(1)
+
+
+RUNTIME_APP_GROUP_ENV_KEY = runtime_app_group_environment_key()
 
 
 def replace(text, old, new):
@@ -101,10 +121,16 @@ def patch(root: Path):
     // they are cleared and stamped in the one runtime App Group the host
     // published. A fixed suite name would clear a store the embedded service
     // never writes, leaving the previous run's manifest to match a new run.
-    const char *runtimeAppGroup = getenv("LC_V3_INHERITED_APP_GROUP");
+    // +[NSUserDefaults initWithSuiteName:] accepts any name and silently writes
+    // the process's own domain when the suite is not a group this build is
+    // entitled to, so the container is proven openable first. Otherwise the
+    // stamps would land where the service can never read them.
+    const char *runtimeAppGroup = getenv(RUNTIME_APP_GROUP_ENV_KEY);
     NSString *runtimeAppGroupID = (runtimeAppGroup != NULL && runtimeAppGroup[0] != '\\0')
         ? [NSString stringWithUTF8String:runtimeAppGroup] : nil;
-    NSUserDefaults *defaults = runtimeAppGroupID
+    BOOL runtimeAppGroupOpenable = runtimeAppGroupID.length > 0 &&
+        [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:runtimeAppGroupID] != nil;
+    NSUserDefaults *defaults = runtimeAppGroupOpenable
         ? [[NSUserDefaults alloc] initWithSuiteName:runtimeAppGroupID] : nil;
     if (defaults == nil) {
         NSLog(@"[LIVE_CONTAINER_REFRESH] RESULT_STORE_UNAVAILABLE reason=runtime_app_group_unresolved");

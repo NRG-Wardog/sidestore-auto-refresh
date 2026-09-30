@@ -13,6 +13,23 @@ TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
 PATCH_VERSION = 48
+
+
+def runtime_app_group_environment_key() -> str:
+    """The one key LiveProcess publishes and every process reads.
+
+    The generated Objective-C below cannot see the Swift constant, so the name
+    is repeated. Deriving it here means a rename fails at patch time instead of
+    silently splitting the host and the service across two shared stores.
+    """
+    shared = (TEMPLATES / "v3_shared_app_group.swift").read_text(encoding="utf-8")
+    match = re.search(r'static let runtimeGroupEnvironmentKey = "([A-Za-z0-9_]+)"', shared)
+    if not match:
+        raise SystemExit("v3 service: the runtime App Group environment key moved")
+    return match.group(1)
+
+
+RUNTIME_APP_GROUP_ENV_KEY = runtime_app_group_environment_key()
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -2700,8 +2717,11 @@ def patch(live, side):
         launchUrl = nil;
     }
     if([lcUserDefaults boolForKey:@"LCOpenSideStore"] || [selectedApp isEqualToString:@"builtinSideStore"]) {'''))
+    # Anchor on the Form root, not on the first Section: the refresh settings
+    # screen may insert its own leading section, and an anchor that assumes a
+    # particular neighbour breaks the whole build when that changes.
     edit(live, "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift", lambda s: replace(s,
-        '        Form {\n            Section("Status") {', '        Form {\n            V3TargetedRefreshSection()\n            Section("Status") {'))
+        '        Form {\n', '        Form {\n            V3TargetedRefreshSection()\n'))
     edit(live, "LiveContainerSwiftUI/App/AppDelegate.swift", lambda s: replace(replace(s,
         '    private static func record(source: String, result: String, detail: String = "") {',
         '    static func record(source: String, result: String, detail: String = "") {'),
@@ -2799,10 +2819,10 @@ static void V3InitializeUIKitFixes(void) {
             '    });\n'
             '    // Probe the extension process signature, not the framework Info.plist.\n'
             '    // Retain only group digests; no identifier or container path is logged.\n'
-            '    unsetenv("LC_V3_INHERITED_APP_GROUP");\n'
+            '    unsetenv(RUNTIME_APP_GROUP_ENV_KEY);\n'
             '    unsetenv("LC_V3_SIGNED_APP_GROUP_DIGESTS");\n'
             '    if (inheritedGroupID) {\n'
-            '        setenv("LC_V3_INHERITED_APP_GROUP", inheritedGroupID.UTF8String, 1);\n'
+            '        setenv(RUNTIME_APP_GROUP_ENV_KEY, inheritedGroupID.UTF8String, 1);\n'
             '        void *task = SecTaskCreateFromSelf(NULL);\n'
             '        if (task) {\n'
             '            CFErrorRef entitlementError = NULL;\n'

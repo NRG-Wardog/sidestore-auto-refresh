@@ -1200,9 +1200,15 @@ def patch_background_operation(sidestore: Path) -> None:
             // verification manifest, the host-handoff record and the expected
             // run ID that the host reads back from the shared App Group. A
             // `.standard` or nil store would write them where no other process
-            // can read them, so an unavailable shared store fails the run now
-            // with a typed, recoverable error instead of completing unobserved.
-            let refreshDefaults = try automaticRefreshDefaults()
+            // can read them, so an unavailable shared store fails the run now,
+            // before any work, instead of completing unobserved.
+            let refreshDefaults: UserDefaults
+            do {
+                refreshDefaults = try automaticRefreshDefaults()
+            } catch {
+                self.debugLog("[AUTO_REFRESH] SHARED_STORE_UNAVAILABLE failure_category=sharedStoreUnavailable")
+                throw error
+            }
             let expectedRunID = refreshDefaults.string(forKey: "liveContainerAutoRefreshExpectedRunID")
             let manualRunID = refreshDefaults.string(forKey: "liveContainerAutoRefreshActiveManualOriginRunID")
             let manualOrigin = refreshDefaults.string(forKey: "liveContainerAutoRefreshActiveManualOrigin")

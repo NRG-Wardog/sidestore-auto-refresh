@@ -46,11 +46,15 @@ enum V3SharedAppGroup {
     }
 
     /// A typed, recoverable failure. Shared state is never substituted with a
-    /// process-local store to hide this.
-    enum Unavailable: Error, Equatable {
+    /// process-local store to hide this. The description is a defined safe
+    /// sentence, never a provider string and never a private path.
+    enum Unavailable: Error, Equatable, LocalizedError {
         case sharedStore
 
         var isRecoverable: Bool { true }
+        var errorDescription: String? {
+            "LiveContainer could not open the shared store it uses with the embedded SideStore service."
+        }
     }
 
     /// LC_RULE_GROUP_VISIBLE_ASCII, LC_RULE_GROUP_NO_SEPARATOR,
@@ -90,16 +94,20 @@ enum V3SharedAppGroup {
         #endif
     }
 
-    /// Publish this process's own selection. The host calls it with
-    /// LiveContainer's selected group before any shared state is touched, so
-    /// the service inherits exactly that group.
+    /// Publish this process's own selection so the embedded service resolves the
+    /// identical group. Only a group this process can actually open is published:
+    /// the packaging verifier requires the host and LiveProcess to carry the same
+    /// App Group entitlements, so an openable group is openable in the service
+    /// too. Publishing a group that cannot be opened would leave the service
+    /// choosing a different one on its own, which is the split this exists to
+    /// prevent. Publishing nothing leaves both processes on their packaged
+    /// fallback, which the same verifier constrains to the same group set.
     static func publishRuntimeGroup(_ group: String?) {
         #if canImport(Darwin)
-        let identifier = wellFormedIdentifier(group)
         unsetenv(runtimeGroupEnvironmentKey)
-        if let identifier, let bytes = identifier.cString(using: .utf8) {
-            setenv(runtimeGroupEnvironmentKey, bytes, 1)
-        }
+        guard let resolved = runtimeIdentity(selectedGroup: group)?.identifier,
+              let bytes = resolved.cString(using: .utf8) else { return }
+        setenv(runtimeGroupEnvironmentKey, bytes, 1)
         #endif
     }
 
@@ -162,9 +170,14 @@ enum V3SharedAppGroup {
     /// A private store used only when no shared store exists, so a failing launch
     /// can still render without its process-local values being mistaken for the
     /// cross-process state they stand in for. A unique suite name cannot collide
-    /// with a real store and no other process can open it, so it is never `.standard`
-    /// and never an App Group suite. Callers must still refuse to run
-    /// cross-process work while the shared store is unavailable.
+    /// with a real store and no other process can open it, so it is never an App
+    /// Group suite. Callers must still refuse to run cross-process work while the
+    /// shared store is unavailable, which is what `requireSharedStore` and
+    /// `requireSharedUserDefaults` are for.
+    ///
+    /// The trailing `.standard` is an absolute last resort for the case where even
+    /// a unique suite cannot be created. It is not a supported state and nothing
+    /// treats it as a shared store.
     static func quarantinedUserDefaults() -> UserDefaults {
         let unique = "com.kdt.livecontainer.v3.quarantined-shared-store.\(UUID().uuidString)"
         return UserDefaults(suiteName: unique) ?? UserDefaults.standard

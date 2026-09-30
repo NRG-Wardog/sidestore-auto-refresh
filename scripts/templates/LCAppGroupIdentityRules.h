@@ -43,6 +43,7 @@
  */
 
 #define LC_APP_GROUP_IDENTIFIER_MAX_LENGTH 255
+#define LC_APP_GROUP_PACKAGED_PREFIX "group.com.SideStore.SideStore"
 
 typedef enum {
     /* No shared store exists for this process. Callers must fail explicitly. */
@@ -123,6 +124,54 @@ static inline const char *LCAppGroupFirstWellFormed(const char * const *candidat
         }
     }
     return NULL;
+}
+
+/* The packaged group, or the team-suffixed variant a re-signer writes. This is
+ * the ranking LC_RULE_PACKAGED_FALLBACK_ONLY uses; it is the same predicate as
+ * isPackagedSideStoreGroup in v3_shared_app_group.swift and
+ * LCIsPackagedSideStoreGroup in LCAppGroupSelectionPolicy.h. */
+static inline int LCAppGroupIsPackagedSideStoreGroup(const char *candidate) {
+    static const char base[] = LC_APP_GROUP_PACKAGED_PREFIX;
+    const size_t baseLength = sizeof(base) - 1;
+    size_t index, length;
+    if (candidate == NULL) {
+        return 0;
+    }
+    length = strlen(candidate);
+    if (length == baseLength && strncmp(candidate, base, baseLength) == 0) {
+        return 1;
+    }
+    if (length <= baseLength + 1 || strncmp(candidate, base, baseLength) != 0 ||
+        candidate[baseLength] != '.') {
+        return 0;
+    }
+    for (index = baseLength + 1; index < length; index++) {
+        unsigned char value = (unsigned char)candidate[index];
+        if (!((value >= '0' && value <= '9') ||
+              (value >= 'A' && value <= 'Z') ||
+              (value >= 'a' && value <= 'z'))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* LC_RULE_PACKAGED_FALLBACK_ONLY: the packaged SideStore group first, then the
+ * first well-formed entry. */
+static inline const char *LCAppGroupFirstPackagedGroup(const char * const *candidates,
+                                                       size_t count) {
+    size_t index;
+    if (candidates == NULL) {
+        return NULL;
+    }
+    for (index = 0; index < count; index++) {
+        const char *candidate = candidates[index];
+        if (candidate != NULL && LCAppGroupIsPackagedSideStoreGroup(candidate) &&
+            LCAppGroupIDIsWellFormed(candidate, strlen(candidate))) {
+            return candidate;
+        }
+    }
+    return LCAppGroupFirstWellFormed(candidates, count);
 }
 
 #endif /* LC_APP_GROUP_IDENTITY_RULES_H */

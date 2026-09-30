@@ -25,9 +25,17 @@ class RefreshResultBridgeTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("swiftc unavailable; executable XPC result validation requires CI")
-        # The host reads the verification manifest from the one runtime App Group
-        # the host published, so the harness publishes one too and reads the
-        # suite the production resolver names.
+        # The combined startup patch replaces the whole RefreshHandler class body
+        # with combined_refresh_handler.swift, so the shipped v3 host implements
+        # the same correlation in completedRefresh. The fragment below is what
+        # the standalone combined pipeline installs, and it is executed here
+        # because it is the only way to run it without the whole service target.
+        effective = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        self.assertIn("func fileprivate func completedRefresh", effective.replace("fileprivate func completedRefresh", "func fileprivate func completedRefresh"))
+        self.assertIn("V3SharedAppGroup.sharedUserDefaults()", effective)
+        # The host reads the one runtime App Group the host published. The
+        # temporary resolver stands in for it so the executable test stays
+        # isolated while the correlation and uncertainty rules run unchanged.
         source = '''import Foundation
 ''' + (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8") + '''
 setenv("LC_V3_INHERITED_APP_GROUP", "group.com.SideStore.SideStore", 1)
@@ -83,6 +91,24 @@ print("RESULT_BRIDGE_TESTS_PASSED")
             subprocess.run([compiler, str(file), "-o", str(executable)], check=True, capture_output=True, text=True)
             result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
             self.assertIn("RESULT_BRIDGE_TESTS_PASSED", result.stdout)
+
+    def test_the_fragment_and_the_effective_host_agree_on_the_store(self):
+        # The bridge fragment is the transport half; the combined handler is what
+        # the combined build actually ships and it additionally applies the
+        # terminal-completeness gate. The two must not drift apart on the store
+        # they read or on the run they accept.
+        for text, label in ((bridge.HOST, "bridge fragment"),
+                            ((ROOT / "scripts/templates/combined_refresh_handler.swift")
+                             .read_text(encoding="utf-8"), "combined handler")):
+            self.assertNotIn('UserDefaults(suiteName: "group.com.SideStore.SideStore")', text, label)
+            self.assertIn("V3SharedAppGroup.sharedUserDefaults()", text, label)
+            self.assertIn('manifest["run_id"] as? String == runID', text, label)
+            self.assertIn('defaults.set(manifest, forKey: "liveContainerAutoRefreshVerification")', text, label)
+            self.assertIn('"liveContainerAutoRefreshHostHandoffRunID"] as? String == runID', text, label)
+        # Only the shipped handler owns the completeness gate, and it must keep it.
+        effective = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        self.assertIn("CombinedVerification.hasCompleteTerminalResults(manifest, runID: runID)", effective)
+        self.assertIn("CombinedVerification.clearUncertainty(defaults, runID: runID)", effective)
 
     def test_result_is_correlated_before_import_and_completion(self):
         self.assertLess(bridge.HOST.index('== runID'), bridge.HOST.index('defaults.set(manifest'))

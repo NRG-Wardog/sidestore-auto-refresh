@@ -308,10 +308,20 @@ def verify(root: Path) -> None:
             die(f"generated host missing {marker}")
     if "enum V3SharedAppGroup {" not in shared_group or "enum V3SharedRefreshStore {" not in shared_group:
         die("the host shared App Group identity was not installed")
-    if "UserDefaults(suiteName:" in shared_group and "quarantinedUserDefaults" not in shared_group:
-        die("the host shared App Group identity lost its quarantined read store")
     if shared_group.count("enum V3SharedAppGroup {") != 1:
         die("the host shared App Group identity is declared more than once")
+    if shared_group != template("v3_shared_app_group.swift"):
+        die("the installed host shared App Group identity is not the current template")
+    # The quarantine store must never be an App Group suite: a quarantined write
+    # that landed in the real group would look like a successful shared write.
+    quarantine = shared_group[shared_group.index("static func quarantinedUserDefaults()"):]
+    self_line = quarantine[:quarantine.index("\n    }\n")]
+    if "com.kdt.livecontainer.v3.quarantined-shared-store" not in self_line:
+        die("the quarantined read store must use a private suite name")
+    if "group." in self_line:
+        die("the quarantined read store must never open an App Group suite")
+    if "throws -> UserDefaults {" not in shared_group or "case sharedStore" not in shared_group:
+        die("an unavailable shared store must be a typed recoverable failure")
     if "V3ShortcutRefreshRequest(userInfo: notification.userInfo)" not in delegate:
         die("host refresh observer does not validate the request handoff")
     if "guard let request = V3ShortcutRefreshRequest(userInfo: notification.userInfo) else" not in delegate:

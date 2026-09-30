@@ -280,7 +280,16 @@ class RefreshHandler: NSObject {
         // fixed suite name and never in a per-process fallback: a store that
         // cannot be opened is a typed recoverable failure, because a private
         // store would strand the run identity the service is about to write.
-        let sharedDefaults = try V3SharedAppGroup.requireSharedUserDefaults()
+        // The structured envelope carries the retryable cause, so the refusal
+        // reaches the user as a correlated failure rather than an untyped throw.
+        let sharedDefaults: UserDefaults
+        do {
+            sharedDefaults = try V3SharedAppGroup.requireSharedUserDefaults()
+        } catch {
+            throw CombinedFailure(operation: "refresh", stage: .persistence,
+                code: .unavailable, id: schedulerRunID ?? UUID().uuidString,
+                retryable: true, safeCause: .sharedStoreUnavailable)
+        }
         if schedulerRunID == nil && V3DirectRefreshPreflightPolicy.isBlocked(
             activeRunID: sharedDefaults.string(forKey: "liveContainerAutoRefreshActiveRunID"),
             hostHandoffPending: sharedDefaults.bool(forKey: "liveContainerAutoRefreshHostHandoff"),
@@ -334,8 +343,8 @@ class RefreshHandler: NSObject {
         }
         let selectedRun = V3RefreshRunIdentitySelection.select(
             schedulerRunID: schedulerRunID,
-            expectedRunID: defaults?.string(forKey: "liveContainerAutoRefreshExpectedRunID"),
-            activeRunID: defaults?.string(forKey: "liveContainerAutoRefreshActiveRunID"),
+            expectedRunID: sharedDefaults.string(forKey: "liveContainerAutoRefreshExpectedRunID"),
+            activeRunID: sharedDefaults.string(forKey: "liveContainerAutoRefreshActiveRunID"),
             newRunID: directClaimID ?? UUID().uuidString)
         guard let client else {
             throw CombinedFailure(operation: "refresh", stage: .xpcConnection, code: .invalidConfiguration, id: token.uuidString)
@@ -377,11 +386,11 @@ class RefreshHandler: NSObject {
                 "deadline": Date().addingTimeInterval(V3RefreshAdmissionLease.lifetime)],
                 forKey: V3DirectRefreshRunClaimPolicy.defaultsKey)
         }
-        defaults?.set(run, forKey: "liveContainerAutoRefreshExpectedRunID")
+        sharedDefaults.set(run, forKey: "liveContainerAutoRefreshExpectedRunID")
         defer {
             if !selectedRun.schedulerOwned,
-               defaults?.string(forKey: "liveContainerAutoRefreshExpectedRunID") == run {
-                defaults?.removeObject(forKey: "liveContainerAutoRefreshExpectedRunID")
+               sharedDefaults.string(forKey: "liveContainerAutoRefreshExpectedRunID") == run {
+                sharedDefaults.removeObject(forKey: "liveContainerAutoRefreshExpectedRunID")
             }
         }
         refreshRunID = run
@@ -399,7 +408,7 @@ class RefreshHandler: NSObject {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                     if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
                     refreshContinuation = continuation
-                    defaults?.set(run, forKey: "liveContainerAutoRefreshUncertainMutationRunID")
+                    sharedDefaults.set(run, forKey: "liveContainerAutoRefreshUncertainMutationRunID")
                     v3RefreshTerminalCallbackRunID = nil
                     v3RefreshDispatchedRunID = run
                     client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName, refreshRunID: run)
