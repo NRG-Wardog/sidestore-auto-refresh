@@ -919,7 +919,7 @@ struct V3RefreshAllButton: View {
     }
 
     private func runRecord(requestID: String, runID: String? = nil) -> [String: Any]? {
-        let ledger = defaults.dictionary(forKey: "liveContainerAutoRefreshRunLedger")
+        guard let ledger = defaults.dictionary(forKey: "liveContainerAutoRefreshRunLedger") else { return nil }
         return V3RefreshAllAttemptState.record(in: ledger, requestID: requestID, runID: runID)
     }
 
