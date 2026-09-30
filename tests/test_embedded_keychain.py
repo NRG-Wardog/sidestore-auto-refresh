@@ -80,6 +80,19 @@ enum V3SecretHandoff {
         return Store.keychainGroup
     }
 }
+// The credential migration resolves the same runtime App Group identity the
+// secret handoff and IPA staging use. Here it is driven by Store.group so the
+// "no group" scenario keeps its fail-closed meaning: an unresolvable group is an
+// unavailable shared store, not a reason to use a private namespace.
+enum V3SharedAppGroup {
+    struct Identity { let identifier: String; let containerRoot: URL }
+    static func environmentGroup() -> String? { Store.group }
+    static func runtimeIdentity(selectedGroup: String? = nil) -> Identity? {
+        guard let group = selectedGroup ?? Store.group, !group.isEmpty else { return nil }
+        return Identity(identifier: group,
+                        containerRoot: URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true))
+    }
+}
 extension Bundle {
     enum Info { static var appbundleIdentifier = "com.kdt.livecontainer" }
     var altstoreAppGroup: String? { Store.group }

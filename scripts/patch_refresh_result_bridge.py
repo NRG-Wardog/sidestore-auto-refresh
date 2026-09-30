@@ -12,8 +12,12 @@ def replace(text, old, new):
 
 HOST = r'''
     // LC_REFRESH_RESULT_XPC_V1: accept only this outstanding host request.
+    // V3_RUNTIME_SHARED_REFRESH_STORE_V1: the expected run ID, the verification
+    // manifest and the host-handoff record are the host/service contract, so
+    // they are read from the one runtime App Group the host published. A fixed
+    // suite name silently reads a store the embedded service never writes.
     func finishRefresh(_ error: String?, runID: String, verification: Data?) {
-        guard let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") else {
+        guard let defaults = V3SharedAppGroup.sharedUserDefaults() else {
             finish("LiveContainer could not open its refresh-state store. Refresh is unconfirmed.")
             return
         }
@@ -51,8 +55,11 @@ HOST = r'''
 
 CLIENT = r'''
     // LC_REFRESH_RESULT_XPC_V1: bounded, allowlisted non-secret metadata only.
+    // V3_RUNTIME_SHARED_REFRESH_STORE_V1: the same runtime App Group the service
+    // wrote the manifest into. Without it the result is reported unconfirmed
+    // rather than read from a store the service can never have written.
     func reportRefreshResult(_ error: String?, server: any RefreshServer) {
-        guard let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") else {
+        guard let defaults = V3SharedAppGroup.sharedUserDefaults() else {
             server.finish("SideStore could not open its refresh-state store. Refresh is unconfirmed.")
             return
         }
@@ -89,14 +96,27 @@ def patch(root: Path):
     signature = "mangledTypeName:(NSString *)mangledTypeName"
     header = replace(header, signature + ";", signature + " refreshRunID:(NSString* _Nullable)refreshRunID;")
     objc = replace(objc, signature + " {", signature + " refreshRunID:(NSString* _Nullable)refreshRunID {")
-    objc = replace(objc, "    [self performRefreshForRealWithIdentifier:", '''    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"group.com.SideStore.SideStore"];
-    [defaults removeObjectForKey:@"liveContainerAutoRefreshVerification"];
-    [defaults removeObjectForKey:@"liveContainerAutoRefreshHostHandoff"];
-    [defaults removeObjectForKey:@"liveContainerAutoRefreshHostHandoffRunID"];
-    if (refreshRunID.length) [defaults setObject:refreshRunID forKey:@"liveContainerAutoRefreshExpectedRunID"];
-    else [defaults removeObjectForKey:@"liveContainerAutoRefreshExpectedRunID"];
+    objc = replace(objc, "    [self performRefreshForRealWithIdentifier:", '''    // V3_RUNTIME_SHARED_REFRESH_STORE_V1: the run ID, the previous verification
+    // manifest and the host-handoff record form the host/service contract, so
+    // they are cleared and stamped in the one runtime App Group the host
+    // published. A fixed suite name would clear a store the embedded service
+    // never writes, leaving the previous run's manifest to match a new run.
+    const char *runtimeAppGroup = getenv("LC_V3_INHERITED_APP_GROUP");
+    NSString *runtimeAppGroupID = (runtimeAppGroup != NULL && runtimeAppGroup[0] != '\\0')
+        ? [NSString stringWithUTF8String:runtimeAppGroup] : nil;
+    NSUserDefaults *defaults = runtimeAppGroupID
+        ? [[NSUserDefaults alloc] initWithSuiteName:runtimeAppGroupID] : nil;
+    if (defaults == nil) {
+        NSLog(@"[LIVE_CONTAINER_REFRESH] RESULT_STORE_UNAVAILABLE reason=runtime_app_group_unresolved");
+    } else {
+        [defaults removeObjectForKey:@"liveContainerAutoRefreshVerification"];
+        [defaults removeObjectForKey:@"liveContainerAutoRefreshHostHandoff"];
+        [defaults removeObjectForKey:@"liveContainerAutoRefreshHostHandoffRunID"];
+        if (refreshRunID.length) [defaults setObject:refreshRunID forKey:@"liveContainerAutoRefreshExpectedRunID"];
+        else [defaults removeObjectForKey:@"liveContainerAutoRefreshExpectedRunID"];
+    }
     [self performRefreshForRealWithIdentifier:''')
-    host = replace(host, "client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName)", 'client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName, refreshRunID: UserDefaults(suiteName: "group.com.SideStore.SideStore")?.string(forKey: "liveContainerAutoRefreshExpectedRunID"))')
+    host = replace(host, "client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName)", 'client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName, refreshRunID: V3SharedAppGroup.sharedUserDefaults()?.string(forKey: "liveContainerAutoRefreshExpectedRunID"))')
     host = replace(host, "    func finish(_ error: String?) {", HOST + "\n    func finish(_ error: String?) {")
     client = replace(client, "    @objc(performRefreshForRealWithIdentifier:mangledTypeName:server:)", CLIENT + "\n    @objc(performRefreshForRealWithIdentifier:mangledTypeName:server:)")
     client = replace(client, "                server.finish(nil)", "                reportRefreshResult(nil, server: server)")

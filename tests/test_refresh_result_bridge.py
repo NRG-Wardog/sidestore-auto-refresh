@@ -25,7 +25,13 @@ class RefreshResultBridgeTests(unittest.TestCase):
         compiler = shutil.which("swiftc")
         if not compiler:
             self.skipTest("swiftc unavailable; executable XPC result validation requires CI")
+        # The host reads the verification manifest from the one runtime App Group
+        # the host published, so the harness publishes one too and reads the
+        # suite the production resolver names.
         source = '''import Foundation
+''' + (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8") + '''
+setenv("LC_V3_INHERITED_APP_GROUP", "group.com.SideStore.SideStore", 1)
+let sharedGroup = V3SharedAppGroup.runtimeIdentity()!.identifier
 class Host {
     var c: Int? = 1
     var completions = 0
@@ -33,9 +39,9 @@ class Host {
     func finish(_ error: String?) { completions += 1; lastError = error; c = nil }
 ''' + bridge.HOST + r'''
 }
-let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")!
-defaults.removePersistentDomain(forName: "group.com.SideStore.SideStore")
-defer { defaults.removePersistentDomain(forName: "group.com.SideStore.SideStore") }
+let defaults = UserDefaults(suiteName: sharedGroup)!
+defaults.removePersistentDomain(forName: sharedGroup)
+defer { defaults.removePersistentDomain(forName: sharedGroup) }
 defaults.set("current", forKey: "liveContainerAutoRefreshExpectedRunID")
 func payload(_ run: String) throws -> Data {
     try PropertyListSerialization.data(fromPropertyList: ["liveContainerAutoRefreshVerification":
@@ -61,6 +67,13 @@ for data in [Data([0, 1, 2]), Data(repeating: 0, count: 262145)] {
 let failed = Host()
 failed.finishRefresh("Signing failed", runID: "current", verification: nil)
 precondition(failed.lastError == "Signing failed")
+// An unresolved runtime group is an honest unconfirmed result, not a read from
+// a store the embedded service can never have written.
+unsetenv("LC_V3_INHERITED_APP_GROUP")
+let unavailable = Host()
+unavailable.finishRefresh(nil, runID: "current", verification: nil)
+precondition(unavailable.completions == 1 && unavailable.lastError != nil
+             && unavailable.lastError!.contains("refresh-state store"))
 print("RESULT_BRIDGE_TESTS_PASSED")
 '''
         with tempfile.TemporaryDirectory() as directory:
@@ -77,6 +90,10 @@ print("RESULT_BRIDGE_TESTS_PASSED")
         self.assertIn('verification.count <= 262144', bridge.HOST)
         self.assertIn('data.count <= 262144', bridge.CLIENT)
         self.assertNotIn('dictionaryRepresentation', bridge.CLIENT)
+        # Neither side may name a fixed App Group suite: the contract is the one
+        # runtime group the host published.
+        self.assertNotIn('group.com.SideStore.SideStore', bridge.HOST + bridge.CLIENT)
+        self.assertIn("V3SharedAppGroup.sharedUserDefaults()", bridge.HOST + bridge.CLIENT)
         for secret in ('password', 'token', 'Keychain', 'certificate'):
             self.assertNotIn(secret, bridge.CLIENT)
 

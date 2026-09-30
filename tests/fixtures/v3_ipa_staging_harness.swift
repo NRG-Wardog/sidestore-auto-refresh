@@ -39,9 +39,24 @@ struct IPAStagingHarness {
         precondition(cachedLiveContainerGroup != resolvedGroup && hostStagingRoot == serviceStagingRoot &&
                      serviceStagingRoot == multiGroupServiceRoot,
             "an AltStore-origin user-data cache must not split host staging from SideStore's service container")
-        precondition(V3IPAStaging.sideStoreContainerRoot(bundleInfo: ["ALTAppGroups": [cachedLiveContainerGroup]],
-            resolveContainer: { _ in root }) == nil,
-            "the IPA staging resolver must reject a non-SideStore group")
+        // A packaged list holding only an AltStore-owned group is a legitimate
+        // last-resort fallback, not a reason to fail: this bundle declares it, so
+        // the process is entitled to it. Rejecting it is what used to hide the
+        // shared store from a re-signed build.
+        var packagedOnlyGroup: String?
+        let altStorePackagedRoot = V3IPAStaging.sideStoreContainerRoot(bundleInfo:
+            ["ALTAppGroups": [cachedLiveContainerGroup]]) { group in
+                packagedOnlyGroup = group
+                return group == cachedLiveContainerGroup ? root : nil
+            }
+        precondition(altStorePackagedRoot == root && packagedOnlyGroup == cachedLiveContainerGroup,
+            "a packaged AltStore-owned group is a usable last-resort fallback")
+        // A packaged group this process cannot open is not a shared store.
+        precondition(V3IPAStaging.sideStoreContainerRoot(bundleInfo:
+            ["ALTAppGroups": [cachedLiveContainerGroup]], resolveContainer: { _ in nil }) == nil,
+            "an unentitled packaged group must not be reported as a usable shared store")
+        precondition(V3IPAStaging.sideStoreContainerRoot(bundleInfo: [:], resolveContainer: { _ in root }) == nil,
+            "a bundle with no App Group entitlement has no shared store")
 
         let signedGroup = "group.com.SideStore.SideStore.TESTTEAM"
         var selectedGroups: [String] = []
@@ -62,12 +77,55 @@ struct IPAStagingHarness {
         precondition(fallbackSignedRoot == root,
             "a signer-rewritten ALTAppGroups value remains usable without a launch handoff")
         selectedGroups.removeAll()
+        // V3_RULE_EXPLICIT_WINS: LiveContainer's own selection is authoritative
+        // for its own name. An AltStore-owned group is not rejected for lacking
+        // the SideStore suffix, and it wins over the conflicting packaged value.
         let inheritedAltRoot = V3IPAStaging.sideStoreContainerRoot(bundleInfo:
             ["ALTAppGroups": [signedGroup]], selectedGroup: cachedLiveContainerGroup) { group in
                 selectedGroups.append(group); return group == cachedLiveContainerGroup ? root : nil
             }
         precondition(inheritedAltRoot == root && selectedGroups == [cachedLiveContainerGroup],
-            "an explicitly validated LC group wins over a conflicting Info.plist fallback")
+            "an explicitly selected LC group wins over a conflicting Info.plist fallback")
+        selectedGroups.removeAll()
+        // The service receives the host's validated group and republishes it. It
+        // must land on exactly the container the host used, so both processes
+        // take the same staging directory and the same cross-process lock file.
+        let serviceInheritedRoot = V3IPAStaging.sharedIdentity(
+            selectedGroup: nil, inheritedGroup: cachedLiveContainerGroup,
+            bundleInfo: ["ALTAppGroups": [signedGroup]],
+            resolveContainer: { group in
+                selectedGroups.append(group); return group == cachedLiveContainerGroup ? root : nil
+            })
+        precondition(serviceInheritedRoot?.identifier == cachedLiveContainerGroup &&
+                     serviceInheritedRoot?.containerRoot == root &&
+                     selectedGroups == [cachedLiveContainerGroup],
+            "the service inherits the host's group and resolves the identical container")
+        selectedGroups.removeAll()
+        let unavailableSelectedRoot = V3IPAStaging.sideStoreContainerRoot(bundleInfo:
+            ["ALTAppGroups": [signedGroup]], selectedGroup: signedGroup) { group in
+                selectedGroups.append(group); return nil
+            }
+        precondition(unavailableSelectedRoot == nil && selectedGroups == [signedGroup],
+            "an unavailable selected group must not fall back to another group")
+        selectedGroups.removeAll()
+        let traversalSelectedRoot = V3IPAStaging.sideStoreContainerRoot(bundleInfo:
+            ["ALTAppGroups": [signedGroup]], selectedGroup: signedGroup + "/../../container") { group in
+                selectedGroups.append(group); return root
+            }
+        precondition(traversalSelectedRoot == nil && selectedGroups.isEmpty,
+            "a path-shaped group identifier must be rejected before container lookup")
+        let whitespaceSelectedRoot = V3IPAStaging.sideStoreContainerRoot(bundleInfo:
+            ["ALTAppGroups": [signedGroup]], selectedGroup: " " + signedGroup + " ") { group in
+                selectedGroups.append(group); return root
+            }
+        precondition(whitespaceSelectedRoot == nil && selectedGroups.isEmpty,
+            "a padded group identifier must be rejected before container lookup")
+        let emptySelectedRoot = V3IPAStaging.sideStoreContainerRoot(bundleInfo:
+            ["ALTAppGroups": [signedGroup]], selectedGroup: "") { group in
+                selectedGroups.append(group); return root
+            }
+        precondition(emptySelectedRoot == root && selectedGroups == [signedGroup],
+            "an empty selection is not a selection: the packaged entitlement still applies")
 
         // The asCopy picker URL disappears after the immediate staging copy.
         let picked = pickedDirectory.appendingPathComponent("known-valid.ipa")

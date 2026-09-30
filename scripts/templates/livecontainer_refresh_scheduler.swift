@@ -2,7 +2,19 @@
 // There is no timer, persistent network probe, or permanently running task.
 @MainActor
 enum LiveContainerAutoRefreshScheduler {
-    static let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") ?? .standard
+    // V3_RUNTIME_SHARED_REFRESH_STORE_V1: every key below is read by the
+    // embedded service, the background run and the service's verification
+    // manifest, so it is cross-process state. It lives in the one runtime App
+    // Group the host selected and published. `.standard` and a nil suite would
+    // each silently split the host and the service across two private stores,
+    // which is exactly how a refresh result stopped matching its run.
+    static let sharedStoreAvailable = V3SharedRefreshStore.isAvailable
+    /// Reads must not trap on a launch that cannot open the shared store. The
+    /// quarantine store is unique per process and unopenable by the service, so
+    /// a reader can render without its values being mistaken for shared state.
+    /// Every mutating entry point still refuses to run through `requireSharedStore`.
+    static let defaults: UserDefaults = V3SharedRefreshStore.defaults
+    static let sharedStoreUnavailableMessage = V3SharedRefreshStore.unavailableMessage
     static let enabledKey = "liveContainerAutoRefreshEnabled"
     static let frequencyKey = "liveContainerAutoRefreshFrequency"
     static let weekdayKey = "liveContainerAutoRefreshWeekday"
@@ -72,6 +84,24 @@ enum LiveContainerAutoRefreshScheduler {
     private static var activeRun: UUID?
     // Capture the real host before LiveContainer changes Bundle.main for guests.
     private static var hostBundle: Bundle?
+
+    /// V3_RUNTIME_SHARED_REFRESH_STORE_V1: refresh state is cross-process state.
+    /// When the runtime App Group cannot be opened, the operation is refused
+    /// instead of being written to a store the embedded service and the
+    /// background run can never read. The refusal is typed and recoverable: the
+    /// process stays alive, manual Refresh All still reaches the service, and the
+    /// user is told once instead of being shown a scheduler that appears idle.
+    @discardableResult
+    static func requireSharedStore() -> Bool {
+        guard !sharedStoreAvailable else { return true }
+        defaults.set(sharedStoreUnavailableMessage, forKey: lastErrorKey)
+        defaults.set("SHARED_STORE_UNAVAILABLE", forKey: healthStateKey)
+        print("[LIVE_CONTAINER_REFRESH] SHARED_STORE_UNAVAILABLE operation_refused=1")
+        notify(title: "Scheduled refresh unavailable",
+               body: sharedStoreUnavailableMessage, kind: "shared_store_unavailable")
+        NotificationCenter.default.post(name: Notification.Name(runStateChangedNotification), object: nil)
+        return false
+    }
 
     static func requestNotificationPermission() async {
         let center = UNUserNotificationCenter.current()
@@ -660,6 +690,10 @@ enum LiveContainerAutoRefreshScheduler {
     private static func execute(source: String, task: BGTask? = nil, manualRequestID: String? = nil,
                                 manualOrigin: String? = nil,
                                 gate: LiveContainerRefreshCompletionGate = LiveContainerRefreshCompletionGate()) async {
+        if !requireSharedStore() {
+            task?.setTaskCompleted(success: false)
+            return
+        }
         guard !gate.isFinished, !Task.isCancelled else { return }
         let manual = source == "manual" || source == "alarm_action" || source == "vpn_return"
         let now = Date()
@@ -868,6 +902,7 @@ enum LiveContainerAutoRefreshScheduler {
 
     static func register() {
         guard !registered else { return }
+        guard requireSharedStore() else { return }
         registered = true
         hostBundle = Bundle.main
         recoverOrphanedRunLedger()
@@ -923,6 +958,7 @@ enum LiveContainerAutoRefreshScheduler {
 
     static func recoverAfterLaunchOrResume() {
         guard activeRun == nil else { return }
+        guard requireSharedStore() else { return }
         verifyPendingHostHandoff()
         if LiveContainerNetworkPreflight.consumePendingReturn() {
             Task { @MainActor in await execute(source: "vpn_return") }
@@ -935,6 +971,7 @@ enum LiveContainerAutoRefreshScheduler {
     }
 
     static func scheduleChanged() {
+        guard requireSharedStore() else { return }
         cancelDeadlineProtection()
         defaults.removeObject(forKey: deadlineKey)
         defaults.removeObject(forKey: satisfiedDeadlineKey)
@@ -966,6 +1003,7 @@ enum LiveContainerAutoRefreshScheduler {
     }
 
     static func schedule() {
+        guard requireSharedStore() else { return }
         guard defaults.bool(forKey: enabledKey) else {
             if let ids = identifiers {
                 BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: ids.processing)

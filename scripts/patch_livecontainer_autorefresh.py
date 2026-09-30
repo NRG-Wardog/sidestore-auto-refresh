@@ -16,6 +16,7 @@ import sys
 TASK_ID = "com.kdt.livecontainer.sidestore.automatic-refresh"
 MARKER = "[LIVE_CONTAINER_REFRESH] REGISTER_PASS"
 TEMPLATES = Path(__file__).resolve().parent / "templates"
+SHARED_APP_GROUP_FILE = "LiveContainerSwiftUI/Utilities/V3SharedAppGroup.swift"
 
 
 def template(name: str) -> str:
@@ -173,6 +174,11 @@ def patch_host_delegate(root: Path) -> None:
     startup = '''        application.shortcutItems = nil
         // LC_REFRESH_HOST_V2
         UNUserNotificationCenter.current().delegate = self
+        // V3_RUNTIME_SHARED_REFRESH_STORE_V1: the host owns the App Group
+        // selection. Publish it before any shared refresh state is touched, so
+        // the embedded service, which cannot see LiveContainer's Objective-C
+        // helper, resolves the identical group instead of a packaged name.
+        V3SharedAppGroup.publishRuntimeGroup(LCSharedUtils.appGroupID())
         LiveContainerAutoRefreshScheduler.register()
         LiveContainerAutoRefreshScheduler.recoverAfterLaunchOrResume()
         LiveContainerAutoRefreshScheduler.schedule()
@@ -268,9 +274,27 @@ def patch_settings(root: Path) -> None:
     (path.parent / "LCEmbeddedSideStoreRefreshView.swift").write_text(SETTINGS_VIEW, encoding="utf-8")
 
 
+def patch_shared_app_group(root: Path) -> None:
+    """Install the one runtime App Group identity as its own host source file.
+
+    The LiveContainerSwiftUI target uses synchronized file-system groups, so a
+    dedicated file is the only way to define the identity exactly once for the
+    host module: the scheduler, the refresh settings screen, the unified shell
+    and the app delegate all consume it, and duplicating it inside any one of
+    those files would be a redeclaration in the same module.
+    """
+    path = root / SHARED_APP_GROUP_FILE
+    expected = template("v3_shared_app_group.swift")
+    if path.exists() and path.read_text(encoding="utf-8") != expected:
+        die("outdated shared App Group template: reapply to the pinned clean source")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(expected, encoding="utf-8")
+
+
 def verify(root: Path) -> None:
     delegate = (root / "LiveContainerSwiftUI/App/AppDelegate.swift").read_text(encoding="utf-8")
     support = (root / "SideStoreSupport/SideStore.swift").read_text(encoding="utf-8")
+    shared_group = (root / SHARED_APP_GROUP_FILE).read_text(encoding="utf-8")
     info = plistlib.loads((root / "LiveContainer/Info.plist").read_bytes())
     for identifier in (TASK_ID, TASK_ID + ".watchdog"):
         if identifier not in info.get("BGTaskSchedulerPermittedIdentifiers", []):
@@ -278,9 +302,16 @@ def verify(root: Path) -> None:
     if not {"processing", "fetch"}.issubset(info.get("UIBackgroundModes", [])):
         die("both processing and fetch background modes are required")
     for marker in (MARKER, "LiveContainerRefreshTaskIdentifiers.resolve", "LiveContainerRefreshCompletionGate",
-                   "verifyRefreshManifest", "HOST_REFRESH_VERIFIED", "MISSED_BACKGROUND_REFRESH", "UNUserNotificationCenterDelegate"):
+                   "verifyRefreshManifest", "HOST_REFRESH_VERIFIED", "MISSED_BACKGROUND_REFRESH", "UNUserNotificationCenterDelegate",
+                   "V3SharedAppGroup.publishRuntimeGroup(LCSharedUtils.appGroupID())"):
         if marker not in delegate:
             die(f"generated host missing {marker}")
+    if "enum V3SharedAppGroup {" not in shared_group or "enum V3SharedRefreshStore {" not in shared_group:
+        die("the host shared App Group identity was not installed")
+    if "UserDefaults(suiteName:" in shared_group and "quarantinedUserDefaults" not in shared_group:
+        die("the host shared App Group identity lost its quarantined read store")
+    if shared_group.count("enum V3SharedAppGroup {") != 1:
+        die("the host shared App Group identity is declared more than once")
     if "V3ShortcutRefreshRequest(userInfo: notification.userInfo)" not in delegate:
         die("host refresh observer does not validate the request handoff")
     if "guard let request = V3ShortcutRefreshRequest(userInfo: notification.userInfo) else" not in delegate:
@@ -313,7 +344,8 @@ def verify(root: Path) -> None:
     compiler = shutil.which("swiftc")
     if compiler:
         for relative in ("LiveContainerSwiftUI/App/AppDelegate.swift", "LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift",
-                         "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift", "SideStoreSupport/SideStore.swift"):
+                         "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift", "SideStoreSupport/SideStore.swift",
+                         SHARED_APP_GROUP_FILE):
             subprocess.run([compiler, "-frontend", "-parse", str(root / relative)], check=True)
         client = root / "SideStoreSupport/SideStoreClient.swift"
         if client.exists():
@@ -328,6 +360,7 @@ def main() -> None:
         die(f"not a LiveContainer checkout: {root}")
     patch_support(root)
     patch_host_delegate(root)
+    patch_shared_app_group(root)
     patch_host_info(root)
     patch_project(root)
     patch_alarm_provider(root)

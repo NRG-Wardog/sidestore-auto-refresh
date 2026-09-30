@@ -64,8 +64,9 @@ class RefreshHandler: NSObject, RefreshServer {
 
 
 def apply(root: Path) -> None:
-    for operation in (patch.patch_support, patch.patch_host_delegate, patch.patch_host_info,
-                      patch.patch_project, patch.patch_alarm_provider, patch.patch_settings):
+    for operation in (patch.patch_support, patch.patch_host_delegate, patch.patch_shared_app_group,
+                      patch.patch_host_info, patch.patch_project, patch.patch_alarm_provider,
+                      patch.patch_settings):
         operation(root)
     patch.verify(root)
 

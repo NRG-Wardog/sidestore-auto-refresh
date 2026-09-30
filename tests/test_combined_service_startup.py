@@ -79,10 +79,14 @@ class ExecutableStartupTests(unittest.TestCase):
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
         adapter = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text()
         method = adapter[adapter.index("    fileprivate func completedRefresh("):adapter.index("    fileprivate func legacyCompletion(")]
-        # Inject only the UserDefaults suite to keep the executable test isolated.
-        method = method.replace('UserDefaults(suiteName: "group.com.SideStore.SideStore")', 'UserDefaults(suiteName: testSuite)')
         source = (ROOT / "scripts/templates/combined_failure.swift").read_text() + '''
 let testSuite = "CombinedCompletionTest." + UUID().uuidString
+// The completion path reads the one runtime App Group the host published. The
+// harness stands in for that resolver so the executable test stays isolated
+// while the production correlation and uncertainty rules run unchanged.
+enum V3SharedAppGroup {
+    static func sharedUserDefaults() -> UserDefaults? { UserDefaults(suiteName: testSuite) }
+}
 @MainActor final class Probe {
     var launchID: UUID? = UUID()
     var refreshRunID: String?

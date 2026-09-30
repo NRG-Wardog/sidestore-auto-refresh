@@ -143,13 +143,15 @@ private enum LCSharedKeychainFileLock {
         if let containerRoot {
             return try V3AppGroupProcessLock.withLock(containerRoot: containerRoot, operation)
         }
-        guard let appGroup, !appGroup.isEmpty,
-              Bundle.main.altstoreAppGroup == appGroup,
-              let sharedContainer = FileManager.default.containerURL(
-                  forSecurityApplicationGroupIdentifier: appGroup) else {
+        // The credential migration must take the same process-shared lock as the
+        // secret handoff, so it resolves the same runtime group rather than the
+        // packaged name or this process's own bundle declaration.
+        guard let selected = appGroup.flatMap({ $0.isEmpty ? nil : $0 }) ??
+                V3SharedAppGroup.environmentGroup(),
+              let shared = V3SharedAppGroup.runtimeIdentity(selectedGroup: selected) else {
             throw NSError(domain: "com.SideStore.Keychain", code: -34018)
         }
-        return try V3AppGroupProcessLock.withLock(containerRoot: sharedContainer, operation)
+        return try V3AppGroupProcessLock.withLock(containerRoot: shared.containerRoot, operation)
         #elseif canImport(Glibc)
         guard let containerRoot else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
         return try V3AppGroupProcessLock.withLock(containerRoot: containerRoot, operation)
@@ -193,7 +195,11 @@ fileprivate enum LCEmbeddedSharedKeychain {
         installedGroup = nil
         installedAppGroup = nil
         service = Bundle.Info.appbundleIdentifier
-        let appGroup = Bundle.main.altstoreAppGroup
+        // The migration lock must be the same process-shared lock the secret
+        // handoff takes, so it resolves the one runtime group. This bundle's own
+        // packaged declaration is only a fallback for a launch that published
+        // nothing, and it is not proof that the process is entitled to it.
+        let appGroup = V3SharedAppGroup.runtimeIdentity()?.identifier
         let keychainGroup = try? V3SecretHandoff.sharedKeychainAccessGroup()
         // The normal identity hooks must already have run. Do not quietly
         // persist new credentials into an unshared, process-private namespace.

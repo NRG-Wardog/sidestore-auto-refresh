@@ -79,6 +79,7 @@ class V3DirectMutationRecoveryTests(unittest.TestCase):
 
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
+        shared = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8")
         wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
@@ -99,8 +100,10 @@ class V3DirectMutationRecoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             main = Path(temporary) / "direct-recovery-main.swift"
             executable = Path(temporary) / "direct-recovery-harness"
+            # The journal and the lock resolve the real shared App Group identity,
+            # so the write-ahead record lands where the host looks for it.
             main.write_text(
-                injected_imports + wire + "\n" + failure + "\n" + primitives + "\n" +
+                injected_imports + wire + "\n" + failure + "\n" + primitives + "\n" + shared + "\n" +
                 "enum V3IPAStaging { static let sideStoreAppGroupIdentifier = \"group.com.SideStore.SideStore\" }\n" +
                 handoff[lock_start:lock_end] + "\n" + handoff[error_start:error_end] + "\n" +
                 service[journal_start:journal_end] + "\n" + fixture,

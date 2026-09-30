@@ -51,13 +51,19 @@ def operation_sheet():
 
 
 class InstallFirstAttemptTests(unittest.TestCase):
-    def test_host_and_service_stage_local_ipas_in_the_same_sidestore_group(self):
+    def test_host_and_service_stage_local_ipas_in_the_same_runtime_group(self):
         host = shell()
         runtime_source = runtime()
         staging = (ROOT / "scripts/templates/v3_ipa_staging.swift").read_text(encoding="utf-8")
+        shared = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8")
         self.assertIn("static func sideStoreContainerRoot", staging)
-        self.assertIn('bundleInfo["ALTAppGroups"]', staging)
-        self.assertIn('"group.com.SideStore.SideStore"', staging)
+        self.assertIn("static func sharedIdentity", staging)
+        self.assertIn("V3SharedAppGroup.identity(selectedGroup: selectedGroup", staging)
+        # The packaged name survives only as the fallback ranking constant. It
+        # must never be the group a re-signed build is forced to use.
+        self.assertIn('bundleInfo["ALTAppGroups"]', shared)
+        self.assertIn('static let packagedGroup = "group.com.SideStore.SideStore"', shared)
+        self.assertNotIn('"group.com.SideStore.SideStore"', staging)
         self.assertIn("V3IPAStaging.sideStoreContainerRoot(selectedGroup: LCSharedUtils.appGroupID())", host)
         self.assertIn("V3IPAStaging.sideStoreContainerRoot()", runtime_source)
         self.assertNotIn("LCSharedUtils.appGroupPath()", host[host.index("func cleanupOrphanedStagedIPAs"):host.index("private func drainInstallPresentation")])
@@ -65,6 +71,12 @@ class InstallFirstAttemptTests(unittest.TestCase):
         self.assertIn("cachedLiveContainerGroup", harness)
         self.assertIn("hostStagingRoot", harness)
         self.assertIn("serviceStagingRoot", harness)
+        # The harness must exercise the two selection rules that caused the
+        # device failure: a legitimate AltStore-owned group is accepted, and an
+        # unavailable group fails instead of falling back.
+        self.assertIn("an explicitly selected LC group wins over a conflicting Info.plist fallback", harness)
+        self.assertIn("an unavailable selected group must not fall back to another group", harness)
+        self.assertIn("the service inherits the host's group and resolves the identical container", harness)
 
     def test_service_cleanup_uses_the_full_staged_ipa_lease(self):
         text = runtime()

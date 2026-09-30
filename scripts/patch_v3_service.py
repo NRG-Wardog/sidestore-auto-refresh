@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 47
+PATCH_VERSION = 48
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -868,6 +868,7 @@ def headless_sidestore_app_delegate(text):
     text = patch_crash_log_privacy(text)
     return text + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + \
         (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8") + \
+        (TEMPLATES / "v3_shared_app_group.swift").read_text(encoding="utf-8") + \
         (TEMPLATES / "v3_secret_handoff.swift").read_text(encoding="utf-8") + \
         (TEMPLATES / "v3_ipa_staging.swift").read_text(encoding="utf-8") + \
         (TEMPLATES / "v3_sidestore_service.swift").read_text(encoding="utf-8") + \
@@ -2480,6 +2481,8 @@ def patch(live, side):
     template_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in TEMPLATES.glob("v3_*.swift")}
     group_policy_template = TEMPLATES / "LCAppGroupSelectionPolicy.h"
     template_hashes[group_policy_template.name] = hashlib.sha256(group_policy_template.read_bytes()).hexdigest()
+    group_rules_template = TEMPLATES / "LCAppGroupIdentityRules.h"
+    template_hashes[group_rules_template.name] = hashlib.sha256(group_rules_template.read_bytes()).hexdigest()
     template_hashes[BACKEND_CONNECTION_CONFIG_MANIFEST_KEY] = hashlib.sha256(
         (HEADLESS_BACKEND_CONNECTION_CONFIG + "\n").encode("utf-8")).hexdigest()
     anisette_ui_source = (side / HEADLESS_ANISETTE_UI_SOURCE).read_text(encoding="utf-8")
@@ -2512,6 +2515,7 @@ def patch(live, side):
         changes[path] = transform(changes.get(path, path.read_text(encoding="utf-8")))
 
     changes[live / "LiveContainer/LCAppGroupSelectionPolicy.h"] = group_policy_template.read_text(encoding="utf-8")
+    changes[live / "LiveContainer/LCAppGroupIdentityRules.h"] = group_rules_template.read_text(encoding="utf-8")
 
     def lifecycle(s):
         s = replace(s, "struct LCTabView: View {", "struct V3ApplicationRoot<Content: View>: View {\n    let content: Content")

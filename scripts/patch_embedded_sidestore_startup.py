@@ -237,9 +237,14 @@ def patch_database(path: Path) -> None:
     new = '''                let activeBundle = Bundle.Info.activeBundle
                 let activeBundleURL = Bundle.Info.activeBundleURL
                 let profileURL = activeBundle.provisioningProfileURL
-                let requestedAppGroup = Bundle.main.altstoreAppGroup ?? "nil"
-                let appGroupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: requestedAppGroup)
-                debugLog("[SIDESTORE_STARTUP] EMBEDDED_SIDESTORE_STARTUP_FIX_V1 main_bundle=\\(Bundle.main.bundleIdentifier ?? "nil") active_bundle=\\(activeBundle.bundleIdentifier ?? "nil") store_bundle=\\(Bundle.Info.storeAppBundleIdentifier) app_bundle=\\(Bundle.Info.appbundleIdentifier) profile_exists=\\(FileManager.default.fileExists(atPath: profileURL.path)) app_group_resolved=\\(appGroupURL != nil)")
+                // V3_RUNTIME_SHARED_APP_GROUP_DIAGNOSTIC_V1: report whether the
+                // one runtime App Group resolves, not whether this bundle's
+                // packaged declaration happens to be entitled. After a
+                // re-sign the packaged name can be absent while the group the
+                // host selected works, and the old check reported a working
+                // build as broken. The identifier itself is never logged.
+                let runtimeAppGroup = V3SharedAppGroup.runtimeIdentity()
+                debugLog("[SIDESTORE_STARTUP] EMBEDDED_SIDESTORE_STARTUP_FIX_V1 main_bundle=\\(Bundle.main.bundleIdentifier ?? "nil") active_bundle=\\(activeBundle.bundleIdentifier ?? "nil") store_bundle=\\(Bundle.Info.storeAppBundleIdentifier) app_bundle=\\(Bundle.Info.appbundleIdentifier) profile_exists=\\(FileManager.default.fileExists(atPath: profileURL.path)) app_group_resolved=\\(runtimeAppGroup != nil) app_group_source=\\(runtimeAppGroup?.source.rawValue ?? "none")")
 
                 guard let localAppBundle = ALTApplication(fileURL: activeBundleURL) else {
                     completionHandler(.failure(ALTError.invalidApp(reason: "Unable to read the active LiveContainer application bundle.")))

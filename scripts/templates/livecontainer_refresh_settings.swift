@@ -67,7 +67,12 @@ enum LiveContainerRefreshHistoryStore {
 
 @MainActor
 struct LCEmbeddedSideStoreRefreshView: View {
-    private let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") ?? .standard
+    // V3_RUNTIME_SHARED_REFRESH_STORE_V1: this screen renders the same keys the
+    // embedded service writes, so it binds to the one runtime App Group store
+    // rather than a fixed suite name. When that store is unavailable the screen
+    // says so instead of showing an empty schedule that looks disabled.
+    private let defaults = V3SharedRefreshStore.defaults
+    private var sharedStoreUnavailable: Bool { !V3SharedRefreshStore.isAvailable }
     @Environment(\.layoutDirection) private var layoutDirection
     // V3_REFRESH_PREREQUISITE_POLICY_V1: nil-default key so a missing store hides
     // the gate instead of trapping. An unknown pairing status never blocks.
@@ -76,13 +81,13 @@ struct LCEmbeddedSideStoreRefreshView: View {
     @State private var isSelectingHistory = false
     @State private var selectedHistoryIDs: Set<String> = []
     @State private var showClearHistoryConfirmation = false
-    @AppStorage("liveContainerAutoRefreshUncertainMutationRunID", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var uncertainMutation = ""
-    @AppStorage("liveContainerAutoRefreshLastError", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var lastError = ""
-    @AppStorage("liveContainerAutoRefreshHealthState", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var healthState = "UNKNOWN"
-    @AppStorage("liveContainerAutoRefreshEnabled", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var enabled = false
-    @AppStorage("liveContainerAutoRefreshFrequency", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var frequency = "interval"
-    @AppStorage("liveContainerAutoRefreshWeekday", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var weekday = 2
-    @AppStorage("liveContainerAutoRefreshMinutes", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var minutes = 600
+    @AppStorage("liveContainerAutoRefreshUncertainMutationRunID", store: V3SharedRefreshStore.defaults) private var uncertainMutation = ""
+    @AppStorage("liveContainerAutoRefreshLastError", store: V3SharedRefreshStore.defaults) private var lastError = ""
+    @AppStorage("liveContainerAutoRefreshHealthState", store: V3SharedRefreshStore.defaults) private var healthState = "UNKNOWN"
+    @AppStorage("liveContainerAutoRefreshEnabled", store: V3SharedRefreshStore.defaults) private var enabled = false
+    @AppStorage("liveContainerAutoRefreshFrequency", store: V3SharedRefreshStore.defaults) private var frequency = "interval"
+    @AppStorage("liveContainerAutoRefreshWeekday", store: V3SharedRefreshStore.defaults) private var weekday = 2
+    @AppStorage("liveContainerAutoRefreshMinutes", store: V3SharedRefreshStore.defaults) private var minutes = 600
 
     private var time: Binding<Date> {
         Binding(get: {
@@ -96,6 +101,13 @@ struct LCEmbeddedSideStoreRefreshView: View {
 
     var body: some View {
         Form {
+            if sharedStoreUnavailable {
+                Section("Scheduled Refresh Unavailable") {
+                    Text(V3SharedRefreshStore.unavailableMessage).font(.footnote)
+                    Text("Relaunch LiveContainer after reinstalling or re-signing. Manual Refresh All still works.")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+            }
             Section("Status") {
                 Text("Auto Refresh: \(enabled ? "Enabled" : "Disabled")")
                 let strategy = defaults.string(forKey: "liveContainerAutoRefreshStrategy") ?? "foreground_recovery_only"
@@ -116,6 +128,7 @@ struct LCEmbeddedSideStoreRefreshView: View {
             }
             Section {
                 Toggle("Scheduled refresh", isOn: Binding(get: { enabled }, set: { enabled = $0; notifyScheduleChanged() }))
+                    .disabled(sharedStoreUnavailable)
                 // V3_REFRESH_PREREQUISITE_POLICY_V1: manual refresh uses the same
                 // authoritative prerequisite contract as Home Refresh All, Setup
                 // Assistant Test Refresh, and targeted refresh. A known-missing

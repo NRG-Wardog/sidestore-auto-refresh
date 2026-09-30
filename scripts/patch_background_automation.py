@@ -1196,10 +1196,16 @@ def patch_background_operation(sidestore: Path) -> None:
 ''',
             '''            guard !self.isCancelled else { throw OperationError.cancelled }
 
-            let refreshDefaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
-            let expectedRunID = refreshDefaults?.string(forKey: "liveContainerAutoRefreshExpectedRunID")
-            let manualRunID = refreshDefaults?.string(forKey: "liveContainerAutoRefreshActiveManualOriginRunID")
-            let manualOrigin = refreshDefaults?.string(forKey: "liveContainerAutoRefreshActiveManualOrigin")
+            // V3_RUNTIME_SHARED_REFRESH_STORE_V1: this operation writes the
+            // verification manifest, the host-handoff record and the expected
+            // run ID that the host reads back from the shared App Group. A
+            // `.standard` or nil store would write them where no other process
+            // can read them, so an unavailable shared store fails the run now
+            // with a typed, recoverable error instead of completing unobserved.
+            let refreshDefaults = try automaticRefreshDefaults()
+            let expectedRunID = refreshDefaults.string(forKey: "liveContainerAutoRefreshExpectedRunID")
+            let manualRunID = refreshDefaults.string(forKey: "liveContainerAutoRefreshActiveManualOriginRunID")
+            let manualOrigin = refreshDefaults.string(forKey: "liveContainerAutoRefreshActiveManualOrigin")
             let isCorrelatedManualRun = expectedRunID != nil && expectedRunID == manualRunID &&
                 UUID(uuidString: expectedRunID ?? "") != nil &&
                 ["home", "refreshManager", "setupAssistant", "deadlineAlarm", "vpnReturn", "manualUnknown"].contains(manualOrigin ?? "")
@@ -1262,12 +1268,24 @@ def patch_background_operation(sidestore: Path) -> None:
         )
 
         helper = r'''
-    private func automaticRefreshDefaults() -> UserDefaults {
-        UserDefaults(suiteName: "group.com.SideStore.SideStore") ?? .standard
+    private func automaticRefreshDefaults() throws -> UserDefaults {
+        // V3_RUNTIME_SHARED_REFRESH_STORE_V1: the one runtime App Group the host
+        // published, resolved by the same V3SharedAppGroup identity IPA staging,
+        // the secret handoff lock and the recovery journal use. It throws instead
+        // of falling back to `.standard`, which would strand the host/service
+        // contract: the host would never see the manifest this run writes.
+        try V3SharedAppGroup.requireSharedUserDefaults()
     }
 
     private func persistAutomaticHostHandoff() {
-        let defaults = automaticRefreshDefaults()
+        // The run already resolved the shared store before doing any work. A
+        // store that becomes unavailable mid-run is an honest refusal: writing a
+        // private record the host can never read would claim a handoff that did
+        // not happen.
+        guard let defaults = try? automaticRefreshDefaults() else {
+            debugLog("[AUTO_REFRESH] HOST_HANDOFF_UNAVAILABLE reason=shared_store_unavailable")
+            return
+        }
         defaults.set(true, forKey: "liveContainerAutoRefreshHostHandoff")
         defaults.set(refreshIdentifier, forKey: "liveContainerAutoRefreshHostHandoffRunID")
         defaults.set(Date(), forKey: "liveContainerAutoRefreshHostHandoffStartedAt")
@@ -1279,7 +1297,10 @@ def patch_background_operation(sidestore: Path) -> None:
 
     private func persistAutomaticRefreshVerification(results: [String: Result<InstalledApp, Error>],
                                                      attemptedAppIDs: [String]) {
-        let defaults = automaticRefreshDefaults()
+        guard let defaults = try? automaticRefreshDefaults() else {
+            debugLog("[AUTO_REFRESH] VERIFICATION_UNAVAILABLE reason=shared_store_unavailable")
+            return
+        }
         var serialized: [[String: Any]] = []
         for (bundleIdentifier, result) in results.sorted(by: { $0.key < $1.key }) {
             switch result {

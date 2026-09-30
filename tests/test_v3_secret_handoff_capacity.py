@@ -9,6 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "scripts/templates/v3_secret_handoff.swift"
+SHARED = ROOT / "scripts/templates/v3_shared_app_group.swift"
 
 
 def extract_type(source: str, declaration: str) -> str:
@@ -34,7 +35,7 @@ class SecretHandoffCapacityContractTests(unittest.TestCase):
                         admission.index("liveItemCount()"))
         self.assertLess(admission.index("liveItemCount()"), admission.index("insert()"))
 
-        store_start = source.index("    private static func store(_ payload: Data, kind: String) throws -> String {")
+        store_start = source.index("    private static func store(_ payload: Data, kind: String, selectedGroup: String? = nil) throws -> String {")
         store_end = source.index("\n    private static func consume(", store_start)
         store = source[store_start:store_end]
         self.assertIn("V3SecretHandoffStoreAdmission.add", store)
@@ -44,18 +45,18 @@ class SecretHandoffCapacityContractTests(unittest.TestCase):
         self.assertIn("maximumPayloadBytes = 64 * 1024", source)
         self.assertIn("payload.count <= V3SecretHandoffRecord.maximumPayloadBytes", store)
 
-        cleanup_start = source.index("    static func cleanupExpiredItems() {")
+        cleanup_start = source.index("    static func cleanupExpiredItems(selectedGroup: String? = nil) {")
         cleanup_end = source.index("\n    private static func store(", cleanup_start)
         cleanup = source[cleanup_start:cleanup_end]
         self.assertLess(cleanup.index("V3AppGroupProcessLock.withLock"), cleanup.index("listedItems(group: group)"))
         self.assertLess(cleanup.index("listedItems(group: group)"), cleanup.index("removeExpiredItems(group: group"))
 
-        consume_start = source.index("    private static func consume(_ token: String, kind: String) throws -> Data {")
+        consume_start = source.index("    private static func consume(_ token: String, kind: String, selectedGroup: String? = nil) throws -> Data {")
         consume_end = source.index("    private static func consumeLocked", consume_start)
-        self.assertIn("V3AppGroupProcessLock.withLock", source[consume_start:consume_end])
-        discard_start = source.index("    static func discard(_ token: String) {")
-        discard_end = source.index("    static func cleanupExpiredItems()", discard_start)
-        self.assertIn("V3AppGroupProcessLock.withLock", source[discard_start:discard_end])
+        self.assertIn("V3AppGroupProcessLock.withLock(selectedGroup: selectedGroup)", source[consume_start:consume_end])
+        discard_start = source.index("    static func discard(_ token: String, selectedGroup: String? = nil) {")
+        discard_end = source.index("    static func cleanupExpiredItems(selectedGroup: String? = nil)", discard_start)
+        self.assertIn("V3AppGroupProcessLock.withLock(selectedGroup: selectedGroup)", source[discard_start:discard_end])
 
     def test_concurrent_processes_share_capacity_and_consume_lock(self):
         if sys.platform != "darwin":
@@ -70,6 +71,7 @@ class SecretHandoffCapacityContractTests(unittest.TestCase):
             "import CoreFoundation",
             "import Darwin",
             "extension Bundle { var altstoreAppGroup: String? { nil } }",
+            extract_type(SHARED.read_text(encoding="utf-8"), "enum V3SharedAppGroup {"),
             extract_type(source, "enum V3SecretHandoffError: Error, LocalizedError {"),
             extract_type(source, "enum V3AppGroupProcessLock {"),
             extract_type(source, "enum V3SecretHandoffRecord {"),

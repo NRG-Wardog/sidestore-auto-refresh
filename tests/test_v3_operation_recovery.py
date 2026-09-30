@@ -54,10 +54,14 @@ class V3OperationRecoveryTests(unittest.TestCase):
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         injected_imports = "import Foundation\n#if canImport(Darwin)\nimport Darwin\n#elseif canImport(Glibc)\nimport Glibc\n#endif\n"
+        shared = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as temporary:
             main = Path(temporary) / "journal-main.swift"
             executable = Path(temporary) / "journal-harness"
-            main.write_text(injected_imports + wire + "\n" + failure + "\n" + primitives +
+            # The journal resolves the runtime App Group through the same
+            # identity the host and the service use, so the real resolver is
+            # compiled here rather than a stand-in.
+            main.write_text(injected_imports + wire + "\n" + failure + "\n" + primitives + "\n" + shared +
                 "\nenum V3IPAStaging { static let sideStoreAppGroupIdentifier = \"group.com.SideStore.SideStore\" }\n" +
                 settings_metadata + "\n" + lock + "\n" + error + "\n" + journal + "\n" + fixture,
                 encoding="utf-8")

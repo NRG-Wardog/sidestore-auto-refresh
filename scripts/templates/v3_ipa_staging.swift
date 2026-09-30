@@ -7,48 +7,40 @@ import Darwin
 // XPC carries a canonical UUID token; the service derives every path itself.
 enum V3IPAStaging {
     private static let directoryComponents = ["Library", "Application Support", "LiveContainer", "V3IPAStaging"]
-    static let sideStoreAppGroupIdentifier = "group.com.SideStore.SideStore"
+    /// The packaged group name, retained for diagnostics and for the packaged
+    /// fallback ranking. It is never used as a fixed runtime group: a re-signed
+    /// build may only be entitled to a team-suffixed variant, or to the group
+    /// LiveContainer itself selected.
+    static let sideStoreAppGroupIdentifier = V3SharedAppGroup.packagedGroup
     static let orphanRetention: TimeInterval = 24 * 60 * 60
 
-    private static func isSideStoreGroup(_ group: String) -> Bool {
-        group == sideStoreAppGroupIdentifier ||
-            (group.hasPrefix(sideStoreAppGroupIdentifier + ".") &&
-             !group.dropFirst(sideStoreAppGroupIdentifier.count + 1).isEmpty &&
-             group.dropFirst(sideStoreAppGroupIdentifier.count + 1).utf8.allSatisfy {
-                 (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0)
-             })
-    }
-
-    private static func inheritedRuntimeGroup() -> String? {
-        #if canImport(Darwin)
-        guard let value = getenv("LC_V3_INHERITED_APP_GROUP") else { return nil }
-        return String(cString: value)
-        #else
-        return nil
-        #endif
+    /// Staging, the secret handoff lock, the recovery journal, the service
+    /// Keychain lock and the cross-process refresh store all resolve the group
+    /// through V3SharedAppGroup, so they cannot end up in different containers.
+    /// This entry point takes every input explicitly and never reads process
+    /// state, so the same call with the same facts always yields the same
+    /// container in both processes.
+    static func sharedIdentity(selectedGroup: String? = nil,
+                               inheritedGroup: String? = nil,
+                               bundleInfo: [String: Any],
+                               resolveContainer: (String) -> URL?) -> V3SharedAppGroup.Identity? {
+        V3SharedAppGroup.identity(selectedGroup: selectedGroup, inheritedGroup: inheritedGroup,
+                                  usesEnvironment: false, bundleInfo: bundleInfo,
+                                  resolveContainer: resolveContainer)
     }
 
     static func sideStoreContainerRoot(bundleInfo: [String: Any],
                                        selectedGroup: String? = nil,
                                        resolveContainer: (String) -> URL?) -> URL? {
-        // The host passes LC's selected group. LiveProcess uses its validated
-        // inherited group. Info.plist is only a fallback for older launches;
-        // it is not proof of entitlement by itself.
-        let configured = (bundleInfo["ALTAppGroups"] as? [String]) ??
-            (bundleInfo["ALTAppGroups"] as? String).map { [$0] } ?? []
-        let group = selectedGroup.flatMap { $0.isEmpty ? nil : $0 } ??
-            configured.first(where: isSideStoreGroup)
-        guard let group else { return nil }
-        return resolveContainer(group)
+        sharedIdentity(selectedGroup: selectedGroup, bundleInfo: bundleInfo,
+                       resolveContainer: resolveContainer)?.containerRoot
     }
 
     static func sideStoreContainerRoot(bundle: Bundle = .main,
                                        fileManager: FileManager = .default,
                                        selectedGroup: String? = nil) -> URL? {
-        sideStoreContainerRoot(bundleInfo: bundle.infoDictionary ?? [:],
-                               selectedGroup: selectedGroup ?? inheritedRuntimeGroup()) { group in
-            fileManager.containerURL(forSecurityApplicationGroupIdentifier: group)
-        }
+        V3SharedAppGroup.runtimeIdentity(selectedGroup: selectedGroup, bundle: bundle,
+                                         fileManager: fileManager)?.containerRoot
     }
 
     private final class CopyStatus: @unchecked Sendable {

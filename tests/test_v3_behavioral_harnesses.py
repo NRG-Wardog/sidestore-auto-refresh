@@ -306,10 +306,11 @@ enum V3SetupReloadOutcomeHarness {
                              "V3_RETRY_SIGNING_STAGE_AND_START_FAILURE_PASS")
 
     def test_picker_staging_file_lifetime_and_path_validation_execute(self):
+        shared = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8")
         helper = (ROOT / "scripts/templates/v3_ipa_staging.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_ipa_staging_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run(failure + "\n" + helper + "\n" + harness, "V3_IPA_STAGING_PASS")
+        self.compile_and_run(failure + "\n" + shared + "\n" + helper + "\n" + harness, "V3_IPA_STAGING_PASS")
 
     def test_prompt_cancellation_and_duplicate_answers_execute(self):
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")

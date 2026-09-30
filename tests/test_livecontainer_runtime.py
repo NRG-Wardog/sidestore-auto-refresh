@@ -15,6 +15,7 @@ class LiveContainerRuntimeTests(unittest.TestCase):
             self.skipTest("swiftc unavailable")
         paths = ["scripts/templates/combined_failure.swift", "scripts/templates/v3_wire_contract.swift",
                  "scripts/templates/v3_behavioral_primitives.swift", "tests/fixtures/livecontainer_scheduler_stubs.swift",
+                 "scripts/templates/v3_shared_app_group.swift",
                  "scripts/templates/livecontainer_refresh_policy.swift",
                  "scripts/templates/livecontainer_refresh_scheduler.swift", "tests/fixtures/livecontainer_scheduler_harness.swift"]
         source = "\n".join((ROOT / p).read_text() for p in paths)

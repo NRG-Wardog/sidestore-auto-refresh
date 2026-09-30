@@ -762,15 +762,18 @@ struct V3InstallPickerPresenter: UIViewControllerRepresentable {
 
 struct V3RefreshAllButton: View {
     @EnvironmentObject private var status: V3SideStoreStatusStore
-    @AppStorage("liveContainerAutoRefreshActiveRunID", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var activeRun = ""
-    @AppStorage("liveContainerAutoRefreshHealthState", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var health = "UNKNOWN"
+    // V3_RUNTIME_SHARED_REFRESH_STORE_V1: the active run and health state are
+    // written by the embedded service, so these bind to the one runtime App
+    // Group store the host published, not a fixed suite name.
+    @AppStorage("liveContainerAutoRefreshActiveRunID", store: V3SharedRefreshStore.defaults) private var activeRun = ""
+    @AppStorage("liveContainerAutoRefreshHealthState", store: V3SharedRefreshStore.defaults) private var health = "UNKNOWN"
     @State private var attempt = V3RefreshAllAttemptState()
     @State private var message = ""
     @State private var diagnostics = ""
     @State private var terminalFailure: V3OperationFailureDetails?
     @State private var copied = false
     @State private var monitor: Task<Void, Never>?
-    private let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
+    private let defaults = V3SharedRefreshStore.defaults
 
     private var phase: String { attempt.phase.rawValue }
     private var requestID: String { attempt.requestID }
@@ -1037,7 +1040,9 @@ struct V3PromptAnswer {
 final class V3SideStoreStatusStore: ObservableObject {
     init() {
         Task.detached(priority: .utility) {
-            V3SecretHandoff.cleanupExpiredItems()
+            // The host owns the App Group selection, so it injects it here rather
+            // than relying on the launch-time publication having happened first.
+            V3SecretHandoff.cleanupExpiredItems(selectedGroup: LCSharedUtils.appGroupID())
             V3SharedFileRecord.removeLegacyDefaultsRecords(LCUtils.appGroupUserDefault)
         }
         if let containerRoot = V3IPAStaging.sideStoreContainerRoot(selectedGroup: LCSharedUtils.appGroupID()) {
@@ -8615,8 +8620,12 @@ final class V3SetupStore: ObservableObject {
     private var testRunID: String?
     private var testAttemptID: String?
 
+    // The setup assistant reconciles the same run ledger and verification
+    // manifest the embedded service writes, so it reads the runtime App Group
+    // store. An unavailable store is an honest "not observed", never a private
+    // store that would report an empty ledger as authoritative.
     private var groupDefaults: UserDefaults? {
-        UserDefaults(suiteName: "group.com.SideStore.SideStore")
+        V3SharedAppGroup.sharedUserDefaults()
     }
     private static let pendingTestRequestIDKey = "V3SetupPendingRefreshRequestID"
     private static let pendingTestRequestDateKey = "V3SetupPendingRefreshRequestDate"
@@ -9713,8 +9722,8 @@ struct V3HomeServiceHeader: View {
 private struct V3HomeView: View {
     @EnvironmentObject private var sharedModel: SharedModel
     @EnvironmentObject private var status: V3SideStoreStatusStore
-    @AppStorage("liveContainerAutoRefreshHealthState", store: UserDefaults(suiteName: "group.com.SideStore.SideStore")) private var refreshState = "UNKNOWN"
-    private let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
+    @AppStorage("liveContainerAutoRefreshHealthState", store: V3SharedRefreshStore.defaults) private var refreshState = "UNKNOWN"
+    private let defaults = V3SharedRefreshStore.defaults
     // The banner is a nudge, not acceptance: it hides only when account,
     // pairing, schedule, Background App Refresh and at least one verified
     // refresh are all in place. Acceptance itself stays in V3SetupStore.

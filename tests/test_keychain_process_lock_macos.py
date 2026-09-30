@@ -33,14 +33,17 @@ class ProductionProcessLockTests(unittest.TestCase):
             raise unittest.SkipTest("swiftc unavailable")
         keychain = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text(encoding="utf-8")
         handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
+        shared = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8")
         embedded_lock = extract_type(keychain, "private enum LCSharedKeychainFileLock {")
         handoff_lock = extract_type(handoff, "enum V3AppGroupProcessLock {")
+        # Both production lock helpers resolve the same shared identity, so the
+        # harness compiles the real resolver rather than a stand-in.
+        shared_identity = extract_type(shared, "enum V3SharedAppGroup {")
         fixture = (ROOT / "tests/fixtures/keychain_process_lock_harness.swift").read_text(encoding="utf-8")
         source = "\n".join([
             "import Foundation", "import Darwin",
-            "extension Bundle { var altstoreAppGroup: String? { nil } }",
             "enum V3SecretHandoffError: Error { case unavailable }",
-            embedded_lock, handoff_lock, fixture,
+            shared_identity, embedded_lock, handoff_lock, fixture,
         ])
         cls.temp = tempfile.TemporaryDirectory(prefix="lc-process-lock-")
         cls.addClassCleanup(cls.temp.cleanup)

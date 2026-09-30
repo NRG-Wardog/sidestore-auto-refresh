@@ -11,22 +11,27 @@ import Glibc
 /// the LiveContainer app and its embedded service process. NSLock is process local.
 enum V3AppGroupProcessLock {
     static func withLock<T>(containerRoot: URL? = nil,
+                            selectedGroup: String? = nil,
                             onFailure: ((String, String, Int) -> Void)? = nil,
                             _ operation: () throws -> T) throws -> T {
         #if canImport(Darwin)
         let container: URL
         if let containerRoot { container = containerRoot }
         else {
-            // This helper is compiled into both SideStore and LiveContainerSwiftUI.
-            // Resolve the same fixed shared group used by V3IPAStaging without
-            // depending on SideStore's app-target-only Bundle extension.
-            guard let sharedContainer = FileManager.default.containerURL(
-                    forSecurityApplicationGroupIdentifier: "group.com.SideStore.SideStore") else {
+            // This helper is compiled into the host, the SideStoreSupport
+            // framework and the embedded service. Only Foundation is visible in
+            // all three, so the group is injected: the host passes
+            // LiveContainer's own selection, and the service resolves the group
+            // LiveProcess validated and published. Both land on the same
+            // V3SharedAppGroup identity IPA staging and the recovery journal
+            // use, so the two processes take the same lock file.
+            guard let shared = V3SharedAppGroup.runtimeIdentity(selectedGroup: selectedGroup) else {
                 onFailure?("appGroup", "none", 0)
                 throw V3SecretHandoffError.unavailable
             }
-            container = sharedContainer
+            container = shared.containerRoot
         }
+
         #elseif canImport(Glibc)
         guard let containerRoot else {
             onFailure?("appGroup", "none", 0)
@@ -94,10 +99,10 @@ enum V3SecretHandoffError: Error, LocalizedError {
 /// and embedded service processes. The count/purge callback and SecItemAdd
 /// callback must remain within this one lock scope.
 enum V3SecretHandoffStoreAdmission {
-    static func add<T>(containerRoot: URL? = nil, maximumOutstandingItems: Int,
+    static func add<T>(containerRoot: URL? = nil, selectedGroup: String? = nil, maximumOutstandingItems: Int,
                        liveItemCount: () throws -> Int,
                        insert: () throws -> T) throws -> T {
-        try V3AppGroupProcessLock.withLock(containerRoot: containerRoot) {
+        try V3AppGroupProcessLock.withLock(containerRoot: containerRoot, selectedGroup: selectedGroup) {
             guard try liveItemCount() < maximumOutstandingItems else {
                 throw V3SecretHandoffError.capacity
             }
@@ -397,31 +402,31 @@ enum V3SecretHandoff {
         return uuid.uuidString == token
     }
 
-    static func storeString(_ value: String) throws -> String {
+    static func storeString(_ value: String, selectedGroup: String? = nil) throws -> String {
         guard value.utf8.count <= 8192 else { throw V3SecretHandoffError.malformed }
-        return try store(Data(value.utf8), kind: "string")
+        return try store(Data(value.utf8), kind: "string", selectedGroup: selectedGroup)
     }
 
-    static func consumeString(_ token: String) throws -> String {
-        let data = try consume(token, kind: "string")
+    static func consumeString(_ token: String, selectedGroup: String? = nil) throws -> String {
+        let data = try consume(token, kind: "string", selectedGroup: selectedGroup)
         guard let value = String(data: data, encoding: .utf8), value.utf8.count <= 8192 else {
             throw V3SecretHandoffError.malformed
         }
         return value
     }
 
-    static func storeStringDictionary(_ value: [String: String]) throws -> String {
+    static func storeStringDictionary(_ value: [String: String], selectedGroup: String? = nil) throws -> String {
         guard value.count <= 128,
               value.allSatisfy({ !$0.key.isEmpty && $0.key.utf8.count <= 256 && $0.value.utf8.count <= 4096 }),
               let data = try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0),
               data.count <= V3SecretHandoffRecord.maximumPayloadBytes else {
             throw V3SecretHandoffError.malformed
         }
-        return try store(data, kind: "stringDictionary")
+        return try store(data, kind: "stringDictionary", selectedGroup: selectedGroup)
     }
 
-    static func consumeStringDictionary(_ token: String) throws -> [String: String] {
-        let data = try consume(token, kind: "stringDictionary")
+    static func consumeStringDictionary(_ token: String, selectedGroup: String? = nil) throws -> [String: String] {
+        let data = try consume(token, kind: "stringDictionary", selectedGroup: selectedGroup)
         guard let value = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: String],
               value.count <= 128,
               value.allSatisfy({ !$0.key.isEmpty && $0.key.utf8.count <= 256 && $0.value.utf8.count <= 4096 }) else {
@@ -430,27 +435,28 @@ enum V3SecretHandoff {
         return value
     }
 
-    static func discard(_ token: String) {
+    static func discard(_ token: String, selectedGroup: String? = nil) {
         guard isValidToken(token), let group = try? sharedKeychainAccessGroup() else { return }
-        _ = try? V3AppGroupProcessLock.withLock {
+        _ = try? V3AppGroupProcessLock.withLock(selectedGroup: selectedGroup) {
             _ = SecItemDelete(itemQuery(token, group: group) as CFDictionary)
         }
     }
 
-    static func cleanupExpiredItems() {
+    static func cleanupExpiredItems(selectedGroup: String? = nil) {
         guard let group = try? sharedKeychainAccessGroup() else { return }
-        _ = try? V3AppGroupProcessLock.withLock {
+        _ = try? V3AppGroupProcessLock.withLock(selectedGroup: selectedGroup) {
             let rows = try listedItems(group: group)
             _ = try removeExpiredItems(group: group, rows: rows, now: Date())
         }
     }
 
-    private static func store(_ payload: Data, kind: String) throws -> String {
+    private static func store(_ payload: Data, kind: String, selectedGroup: String? = nil) throws -> String {
         guard payload.count <= V3SecretHandoffRecord.maximumPayloadBytes else {
             throw V3SecretHandoffError.malformed
         }
         let group = try sharedKeychainAccessGroup()
-        return try V3SecretHandoffStoreAdmission.add(maximumOutstandingItems: maximumOutstandingItems,
+        return try V3SecretHandoffStoreAdmission.add(selectedGroup: selectedGroup,
+            maximumOutstandingItems: maximumOutstandingItems,
             liveItemCount: {
                 let rows = try listedItems(group: group)
                 return try removeExpiredItems(group: group, rows: rows, now: Date())
@@ -472,12 +478,12 @@ enum V3SecretHandoff {
             })
     }
 
-    private static func consume(_ token: String, kind: String) throws -> Data {
+    private static func consume(_ token: String, kind: String, selectedGroup: String? = nil) throws -> Data {
         guard isValidToken(token) else { throw V3SecretHandoffError.invalidToken }
         // The process-shared advisory lock surrounds both copy and delete.
         // This makes competing patched processes serialize the one-time take;
         // NSLock alone cannot coordinate separate app/service processes.
-        return try V3AppGroupProcessLock.withLock {
+        return try V3AppGroupProcessLock.withLock(selectedGroup: selectedGroup) {
             try consumeLocked(token, kind: kind)
         }
     }

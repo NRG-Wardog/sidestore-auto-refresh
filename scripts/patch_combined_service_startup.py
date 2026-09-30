@@ -244,7 +244,7 @@ def patch(live, side, product):
         // which remains owned by the subsequent explicit refresh intent.
         try Task.checkCancellation()
 ''')
-        return text[:start] + template("combined_failure.swift") + template("combined_service_connection.swift") + handler + text[end:]
+        return text[:start] + template("combined_failure.swift") + template("v3_shared_app_group.swift") + template("combined_service_connection.swift") + handler + text[end:]
     edit(live, "SideStoreSupport/SideStore.swift", host)
     edit(live, "LiveContainer/LCContainerStorage.h", lambda _: template("combined_container_storage.h"))
     def bootstrap(text):
@@ -290,10 +290,14 @@ void LCLaunchServiceExtension(NSExtension *extension, NSExtensionItem *item, voi
                 break
         else: raise SystemExit("structured refresh failure anchor missing")
         return text + '''
-@available(iOS 17.0, *)
-extension SideStoreClient {
+    @available(iOS 17.0, *)
+    extension SideStoreClient {
     func reportStructuredRefreshFailure(_ error: Error, server: any RefreshServer) {
-        let id = UserDefaults(suiteName: "group.com.SideStore.SideStore")?.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? UUID().uuidString
+        // V3_RUNTIME_SHARED_REFRESH_STORE_V1: the expected run ID is written by
+        // the host scheduler into the one runtime App Group, and read back by the
+        // embedded service. A fixed suite name correlates the failure to a run
+        // the service never began.
+        let id = V3SharedAppGroup.sharedUserDefaults()?.string(forKey: "liveContainerAutoRefreshExpectedRunID") ?? UUID().uuidString
         reportRefreshResult(CombinedFailure.capture(error, operation: "refresh", stage: .command, id: id).encodedString, server: server)
     }
 }

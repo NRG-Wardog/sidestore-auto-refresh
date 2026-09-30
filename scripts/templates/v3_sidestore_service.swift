@@ -320,14 +320,12 @@ private enum V3OperationRecoveryJournal {
     private static let fileName = "operation-recovery.plist"
 
     // LiveProcess validates the host-selected group against its own sandbox
-    // before SideStore boots. LCSharedUtils honors that same inherited group;
-    // the Bundle hook is the fallback for launches without an inherited ID.
+    // before SideStore boots and publishes it; the host publishes the same key
+    // for itself. The journal therefore resolves the identical identity IPA
+    // staging and the secret handoff lock use. A bundle declaration is only the
+    // packaged fallback for a launch that published nothing.
     private static func runtimeGroup() -> String? {
-        #if canImport(Darwin)
-        return processEnvironment("LC_V3_INHERITED_APP_GROUP") ?? Bundle.main.altstoreAppGroup
-        #else
-        return nil
-        #endif
+        V3SharedAppGroup.environmentGroup() ?? V3SharedAppGroup.runtimeIdentity()?.identifier
     }
 
     static func appGroupDiagnostic(selectedGroup: String?, inheritedGroup: String?,
@@ -351,7 +349,7 @@ private enum V3OperationRecoveryJournal {
         let selected = runtimeGroup()
         // LiveProcess records these process-local facts before LC swaps its
         // UserDefaults implementation during embedded SideStore bootstrap.
-        let inherited = processEnvironment("LC_V3_INHERITED_APP_GROUP")
+        let inherited = V3SharedAppGroup.environmentGroup()
         let signed = signedEntitlementContains(selectedGroup: selected,
             digestList: processEnvironment("LC_V3_SIGNED_APP_GROUP_DIGESTS"))
         return appGroupDiagnostic(selectedGroup: selected, inheritedGroup: inherited,

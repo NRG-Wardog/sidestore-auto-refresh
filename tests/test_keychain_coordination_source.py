@@ -16,11 +16,22 @@ RUNTIME = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encod
 
 
 class KeychainCoordinationSourceTests(unittest.TestCase):
-    def test_process_lock_uses_shared_group_without_app_target_bundle_extension(self):
+    def test_process_lock_resolves_the_shared_runtime_group_without_app_target_helpers(self):
         lock = HANDOFF[HANDOFF.index("enum V3AppGroupProcessLock {"):HANDOFF.index("enum V3SecretHandoffError")]
-        self.assertIn('forSecurityApplicationGroupIdentifier: "group.com.SideStore.SideStore"', lock)
-        self.assertIn('sideStoreAppGroupIdentifier = "group.com.SideStore.SideStore"', IPA_STAGING)
+        # The lock is compiled into three modules, so it may only use Foundation
+        # and the one shared identity. A fixed packaged group would put the host
+        # and the service in different containers, and the lock would stop
+        # coordinating them at all on a re-signed build.
+        self.assertIn("V3SharedAppGroup.runtimeIdentity(selectedGroup: selectedGroup)", lock)
+        self.assertIn("container = shared.containerRoot", lock)
+        self.assertNotIn("forSecurityApplicationGroupIdentifier: \"group.", lock)
         self.assertNotIn("Bundle.main.altstoreAppGroup", lock)
+        self.assertNotIn("LCSharedUtils", lock)
+        # The same identity produces the staging container, so the lock file and
+        # the staged IPA cannot land in different App Groups.
+        self.assertIn("static let sideStoreAppGroupIdentifier = V3SharedAppGroup.packagedGroup", IPA_STAGING)
+        self.assertIn('static let packagedGroup = "group.com.SideStore.SideStore"',
+                      (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8"))
 
     def test_stale_migration_snapshot_rechecks_tombstone_before_writing(self):
         start = KEYCHAIN.index("static func prepare(group: String")
@@ -58,8 +69,13 @@ class KeychainCoordinationSourceTests(unittest.TestCase):
 
     def test_migration_and_signout_use_process_shared_flock(self):
         self.assertIn("LCSharedKeychainFileLock.withLock(appGroup: installedAppGroup)", KEYCHAIN)
-        self.assertIn("Bundle.main.altstoreAppGroup == appGroup", KEYCHAIN)
-        self.assertIn("V3AppGroupProcessLock.withLock(containerRoot: sharedContainer, operation)", KEYCHAIN)
+        # The migration lock must resolve the same runtime group as the secret
+        # handoff. Trusting this bundle's own packaged declaration is what let
+        # the credential migration and the handoff take different locks.
+        self.assertNotIn("Bundle.main.altstoreAppGroup", KEYCHAIN)
+        self.assertIn("let appGroup = V3SharedAppGroup.runtimeIdentity()?.identifier", KEYCHAIN)
+        self.assertIn("V3SharedAppGroup.environmentGroup()", KEYCHAIN)
+        self.assertIn("V3AppGroupProcessLock.withLock(containerRoot: shared.containerRoot, operation)", KEYCHAIN)
         self.assertIn("flock(descriptor, LOCK_EX)", HANDOFF)
         self.assertNotIn("flock(descriptor", KEYCHAIN)
         self.assertIn("try withSharedTransaction {", KEYCHAIN)
@@ -67,15 +83,28 @@ class KeychainCoordinationSourceTests(unittest.TestCase):
         self.assertIn("no client-side protocol can", KEYCHAIN)
 
     def test_handoff_copy_and_delete_are_inside_process_shared_lock(self):
-        start = HANDOFF.index("private static func consume(_ token: String, kind: String)")
+        start = HANDOFF.index("private static func consume(_ token: String, kind: String")
         end = HANDOFF.index("static func sharedKeychainAccessGroup()", start)
         consume = HANDOFF[start:end]
-        self.assertIn("V3AppGroupProcessLock.withLock", consume)
+        self.assertIn("V3AppGroupProcessLock.withLock(selectedGroup: selectedGroup)", consume)
         self.assertLess(consume.index("V3AppGroupProcessLock.withLock"),
                         consume.index("private static func consumeLocked"))
         self.assertLess(consume.index("SecItemCopyMatching"), consume.index("SecItemDelete"))
         self.assertIn("flock(descriptor, LOCK_EX)", HANDOFF)
         self.assertIn("NSLock is process local", HANDOFF)
+
+    def test_every_handoff_entry_point_accepts_the_injected_runtime_group(self):
+        # The host cannot reach LiveContainer's Objective-C helper from this
+        # Foundation-only helper, so the selected group is injected explicitly
+        # rather than discovered differently on each side.
+        for signature in ("static func storeString(_ value: String, selectedGroup: String? = nil)",
+                          "static func consumeString(_ token: String, selectedGroup: String? = nil)",
+                          "static func storeStringDictionary(_ value: [String: String], selectedGroup: String? = nil)",
+                          "static func consumeStringDictionary(_ token: String, selectedGroup: String? = nil)",
+                          "static func discard(_ token: String, selectedGroup: String? = nil)",
+                          "static func cleanupExpiredItems(selectedGroup: String? = nil)"):
+            self.assertIn(signature, HANDOFF)
+        self.assertIn("V3SecretHandoffStoreAdmission.add(selectedGroup: selectedGroup", HANDOFF)
 
     def test_authentication_signin_uses_complete_credential_transaction(self):
         runtime = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")

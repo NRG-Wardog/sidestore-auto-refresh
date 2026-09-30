@@ -275,11 +275,12 @@ class RefreshHandler: NSObject {
                 refreshRunID = previousRefreshRunID
             }
         }
-        let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore")
-        guard let sharedDefaults = defaults else {
-            throw CombinedFailure(operation: "refresh", stage: .xpcConnection,
-                code: .invalidConfiguration, id: UUID().uuidString)
-        }
+        // V3_RUNTIME_SHARED_REFRESH_STORE_V1: these keys are the host/service
+        // refresh contract. They live in the one runtime App Group, never in a
+        // fixed suite name and never in a per-process fallback: a store that
+        // cannot be opened is a typed recoverable failure, because a private
+        // store would strand the run identity the service is about to write.
+        let sharedDefaults = try V3SharedAppGroup.requireSharedUserDefaults()
         if schedulerRunID == nil && V3DirectRefreshPreflightPolicy.isBlocked(
             activeRunID: sharedDefaults.string(forKey: "liveContainerAutoRefreshActiveRunID"),
             hostHandoffPending: sharedDefaults.bool(forKey: "liveContainerAutoRefreshHostHandoff"),
@@ -463,7 +464,7 @@ class RefreshHandler: NSObject {
         guard launchID == id, refreshContinuation != nil, refreshRunID == runID else { return }
         v3RefreshTerminalCallbackRunID = runID
         if let error {
-            if let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") {
+            if let defaults = V3SharedAppGroup.sharedUserDefaults() {
                 CombinedVerification.clearUncertainty(defaults, runID: runID)
             }
             finishRefreshContinuation(.failure(CombinedFailure.fromEncodedString(error, expectedID: runID) ??
@@ -474,7 +475,7 @@ class RefreshHandler: NSObject {
               let payload = try? PropertyListSerialization.propertyList(from: verification, format: nil) as? [String: Any],
               let manifest = payload["liveContainerAutoRefreshVerification"] as? [String: Any],
               manifest["run_id"] as? String == runID,
-              let defaults = UserDefaults(suiteName: "group.com.SideStore.SideStore") else {
+              let defaults = V3SharedAppGroup.sharedUserDefaults() else {
             finishRefreshContinuation(.failure(CombinedFailure(operation: "refresh", stage: .refreshVerification, code: .missingResult, id: runID)))
             return
         }
