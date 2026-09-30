@@ -19,7 +19,8 @@ import zipfile
 
 from audit_ipa_signing import inventory
 from package_livecontainer_combined import verify_shared_secret_handoff_group
-from patch_v3_service import (HEADLESS_SIDESTORE_AUX_UI_FILES,
+from patch_v3_service import (HEADLESS_BACKEND_CONNECTION_CONFIG,
+                              HEADLESS_SIDESTORE_AUX_UI_FILES,
                               HEADLESS_SIDESTORE_PIPELINE_UI_FILES,
                               HEADLESS_SIDESTORE_VIEW_FILES, PINS as SOURCE_PINS)
 
@@ -812,6 +813,20 @@ def excluded_side_store_view_type_names(side_source: Path,
     for git_path, source in by_git_path.items():
         if git_path not in excluded_paths:
             retained_types.update(SWIFT_TYPE_DECLARATION.findall(source))
+    # ConnectionConfig keeps its upstream type name because Minimuxer uses its
+    # backend API. The former SwiftUI model was removed, then the exact
+    # transport-only definition was generated under Core/DeviceApi. A raw
+    # symbol-name check cannot distinguish those two definitions.
+    retired_connection = side_source / "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift"
+    backend_connection = side_source / "SideStore/Core/DeviceApi/ConnectionConfig.swift"
+    if backend_connection.is_file():
+        expected_retired = ("// V3_HEADLESS_CONNECTION_CONFIG_MOVED_V1: transport settings now live "
+                            "in Core/DeviceApi/ConnectionConfig.swift.\n")
+        if (not retired_connection.is_file() or
+                retired_connection.read_text(encoding="utf-8") != expected_retired or
+                backend_connection.read_text(encoding="utf-8") != HEADLESS_BACKEND_CONNECTION_CONFIG + "\n"):
+            raise ValueError("generated backend ConnectionConfig differs from the headless source contract")
+        retained_types.add("ConnectionConfig")
     return sorted(removed_types - retained_types - {"Color"})
 
 

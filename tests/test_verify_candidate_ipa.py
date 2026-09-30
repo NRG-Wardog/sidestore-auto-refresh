@@ -72,6 +72,42 @@ def write_zip_with_central_entries(path, count):
 
 
 class ExcludedSideStorePipelineUITests(unittest.TestCase):
+    def test_generated_backend_connection_type_is_not_mistaken_for_removed_swiftui_model(self):
+        relative = "Views/Settings/Advanced/Connection/ConnectionConfig.swift"
+        tracked = "SideStore/" + relative
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            retired = root / tracked
+            backend = root / "SideStore/Core/DeviceApi/ConnectionConfig.swift"
+            retired.parent.mkdir(parents=True)
+            backend.parent.mkdir(parents=True)
+            retired.write_text("// V3_HEADLESS_CONNECTION_CONFIG_MOVED_V1: transport settings now live "
+                               "in Core/DeviceApi/ConnectionConfig.swift.\n", encoding="utf-8")
+            backend.write_text(patch_v3_service.HEADLESS_BACKEND_CONNECTION_CONFIG + "\n",
+                               encoding="utf-8")
+
+            def pinned_source(command, **kwargs):
+                if "ls-tree" in command:
+                    return tracked + "\n"
+                if "show" in command:
+                    return "final class ConnectionConfig: ObservableObject {}\n"
+                raise AssertionError(command)
+
+            with mock.patch.object(verify_module.subprocess, "check_output", side_effect=pinned_source):
+                symbols = verify_module.excluded_side_store_view_type_names(
+                    root, (relative,), source_ref="pinned-revision")
+                self.assertNotIn("ConnectionConfig", symbols)
+                verify_module.verify_no_excluded_side_store_ui(
+                    b"$s9SideStore16ConnectionConfigC", symbols)
+                backend.write_text("import SwiftUI\nfinal class ConnectionConfig {}\n", encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "generated backend ConnectionConfig differs"):
+                    verify_module.excluded_side_store_view_type_names(
+                        root, (relative,), source_ref="pinned-revision")
+                backend.unlink()
+                symbols = verify_module.excluded_side_store_view_type_names(
+                    root, (relative,), source_ref="pinned-revision")
+                self.assertIn("ConnectionConfig", symbols)
+
     def test_pipeline_ui_types_are_discovered_from_production_patch_file_list(self):
         side_files = (patch_v3_service.HEADLESS_SIDESTORE_VIEW_FILES +
                       patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES)
