@@ -1264,6 +1264,7 @@ import Foundation
             embedded_keychain.patch(roots[1])
             with mock.object(service.subprocess, "check_output", side_effect=read_pinned_source):
                 service.verify_headless_ui_adapters(roots[1], service.PINS[1])
+                service.verify_sign_in_operation(roots[1], service.PINS[1])
                 manager = roots[1] / "AltStore/Managing Apps/AppManager.swift"
                 manager.write_text(manager.read_text(encoding="utf-8") + "\n// drift\n", encoding="utf-8")
                 with self.assertRaises(SystemExit):
@@ -1640,6 +1641,9 @@ import Foundation
         self.assertIn("--verify-headless-ui-adapters", workflow)
         self.assertIn("--verify-sign-in-operation", workflow)
         self.assertEqual(workflow.count("--verify-headless-ui-adapters"), 1)
+        self.assertLess(workflow.index("patch_combined_refresh_contract.py work/EmbeddedSideStore"),
+                        workflow.index("--verify-headless-ui-adapters"),
+                        "SignInOperation is complete only after the shared-Keychain contract")
         self.assertLess(workflow.index("--verify-headless-ui-adapters"),
                         workflow.index("patch_combined_service_startup.py work/LiveContainer work/EmbeddedSideStore v3"),
                         "exact headless verification must precede the combined AppDelegate overlay")
