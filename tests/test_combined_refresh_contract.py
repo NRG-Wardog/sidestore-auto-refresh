@@ -359,7 +359,9 @@ print("standalone manifest privacy PASS")
             helper_start = generated.index("    private func automaticRefreshDefaults()")
             helper_end = generated.index("    private func startListeningForRunningApps()")
             helper = generated[helper_start:helper_end]
-            helper = helper.replace('"group.com.SideStore.SideStore"', "testSuite")
+            self.assertNotIn('"group.com.SideStore.SideStore"', helper,
+                             "the helper must resolve its suite from the published group, "
+                             "not from a literal that a test can rewrite")
             wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text()
             failure = (ROOT / "scripts/templates/combined_failure.swift").read_text()
             primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text()
@@ -428,7 +430,7 @@ enum StoreApp { static let altstoreAppID = "fixture.host" }
 @main struct Test {
     @MainActor static func main() throws {
         V3SharedAppGroup.containerFileManager = HarnessContainerFileManager()
-        V3SharedAppGroup.publishRuntimeGroup(V3SharedAppGroup.packagedGroup)
+        V3SharedAppGroup.publishRuntimeGroup(testSuite)
         let defaults = UserDefaults(suiteName: testSuite)!
         defer { defaults.removePersistentDomain(forName: testSuite) }
         let run = UUID().uuidString
