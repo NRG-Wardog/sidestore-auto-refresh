@@ -270,6 +270,18 @@ struct OperationRecoveryJournalHarness {
             })
         precondition(selectedRoot == root && queriedGroups == [inheritedGroup],
             "journal must use the runtime-selected group without probing a fixed fallback")
+        #if canImport(Darwin)
+        setenv("LC_V3_INHERITED_APP_GROUP", inheritedGroup, 1)
+        defer { unsetenv("LC_V3_INHERITED_APP_GROUP") }
+        queriedGroups.removeAll()
+        let launchRoot = try V3OperationRecoveryJournal.resolvedRoot(containerRoot: nil,
+            resolveContainer: { group in
+                queriedGroups.append(group)
+                return group == inheritedGroup ? root : nil
+            })
+        precondition(launchRoot == root && queriedGroups == [inheritedGroup],
+            "the real resolver must honor LiveProcess's validated inherited group")
+        #endif
         let groupFacts = V3OperationRecoveryJournal.appGroupDiagnostic(
             selectedGroup: inheritedGroup, inheritedGroup: inheritedGroup,
             signedEntitled: true, resolveContainer: { $0 == inheritedGroup ? root : nil })

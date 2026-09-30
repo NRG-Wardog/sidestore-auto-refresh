@@ -319,12 +319,12 @@ private enum V3OperationRecoveryJournal {
     private static let components = ["Library", "Application Support", "LiveContainer"]
     private static let fileName = "operation-recovery.plist"
 
-    // SideStore's existing Bundle hook resolves to LCSharedUtils.appGroupID.
-    // It follows the group validated at LiveProcess launch, including a
-    // device-signer suffix or an AltStore group when that is the shared owner.
+    // LiveProcess validates the host-selected group against its own sandbox
+    // before SideStore boots. LCSharedUtils honors that same inherited group;
+    // the Bundle hook is the fallback for launches without an inherited ID.
     private static func runtimeGroup() -> String? {
         #if canImport(Darwin)
-        return Bundle.main.altstoreAppGroup
+        return processEnvironment("LC_V3_INHERITED_APP_GROUP") ?? Bundle.main.altstoreAppGroup
         #else
         return nil
         #endif
@@ -397,9 +397,9 @@ private enum V3OperationRecoveryJournal {
                                  FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0)
                              }) throws -> URL {
         if let containerRoot { return containerRoot }
-        // SideStore's identity hook returns LiveContainer's validated, inherited
-        // runtime group. A fixed build-time group may not be entitled after the
-        // combined app is signed for a device.
+        // A fixed build-time group may not be entitled after the combined app
+        // is signed for a device. Never silently switch groups after a failed
+        // lookup: that could make an unresolved recovery record disappear.
         guard let group = selectedGroup(), !group.isEmpty,
               let container = resolveContainer(group) else {
             throw V3RecoveryStorageFailure(.storageUnavailable, sourceStep: "appGroup")
