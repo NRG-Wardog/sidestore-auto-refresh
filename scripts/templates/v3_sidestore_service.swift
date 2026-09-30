@@ -351,14 +351,25 @@ private enum V3OperationRecoveryJournal {
         let selected = runtimeGroup()
         // LiveProcess records these process-local facts before LC swaps its
         // UserDefaults implementation during embedded SideStore bootstrap.
-        let inherited = ProcessInfo.processInfo.environment["LC_V3_INHERITED_APP_GROUP"]
-        let entitlementValue = ProcessInfo.processInfo.environment["LC_V3_INHERITED_GROUP_ENTITLED"]
+        let inherited = processEnvironment("LC_V3_INHERITED_APP_GROUP")
+        let entitlementValue = processEnvironment("LC_V3_INHERITED_GROUP_ENTITLED")
         let signed: Bool? = selected != nil && selected == inherited
             ? (entitlementValue == "1" ? true : entitlementValue == "0" ? false : nil) : nil
         return appGroupDiagnostic(selectedGroup: selected, inheritedGroup: inherited,
                                   signedEntitled: signed) {
             FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0)
         }
+    }
+
+    private static func processEnvironment(_ name: String) -> String? {
+        #if canImport(Darwin)
+        return name.withCString { key in
+            guard let value = getenv(key) else { return nil }
+            return String(cString: value)
+        }
+        #else
+        return nil
+        #endif
     }
 
     private static func recordURL(containerRoot container: URL) throws -> URL {
