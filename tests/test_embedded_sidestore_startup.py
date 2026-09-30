@@ -58,6 +58,7 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
         for source, target in (
             (side / "SideStore/Core/Auth/AuthManager.swift", self.side / "SideStore/Core/Auth/AuthManager.swift"),
             (live / "SideStoreSupport" / "SideStoreHooks.m", self.live / "SideStoreSupport" / "SideStoreHooks.m"),
+            (live / "SideStoreSupport" / "XPCClient.m", self.live / "SideStoreSupport" / "XPCClient.m"),
             (live / "LiveContainer" / "LCBootstrap.m", self.live / "LiveContainer" / "LCBootstrap.m"),
             (side / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift",
              self.side / "AltStore" / "Core" / "Model" / "DatabaseManager" / "DatabaseManager.swift"),
@@ -67,6 +68,7 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
             target.write_bytes(subprocess.check_output([
                 "git", "-C", str(source_root), "show", "HEAD:" + source.relative_to(source_root).as_posix()]))
         self.original_auth = self.text(self.side / "SideStore/Core/Auth/AuthManager.swift")
+        self.original_xpc_client = self.text(self.live / "SideStoreSupport" / "XPCClient.m")
 
     def text(self, path: Path) -> str:
         return path.read_text(encoding="utf-8")
@@ -84,8 +86,45 @@ class EmbeddedSideStoreStartupTests(unittest.TestCase):
         self.assertIn("PrivClass(Source) == nil", hooks)
         self.assertIn("hooks_deferred", hooks)
         self.assertIn("static dispatch_once_t onceToken", hooks)
-        self.assertIn('?: [NSMutableArray array]', hooks)
-        self.assertIn('Return to LiveContainer', hooks)
+        self.assertIn("REMOVE_NON_LIVE_SIDESTORE_UI_V1", hooks)
+        for removed_ui_symbol in (
+            "SideStoreMyAppsViewController_orig_viewDidload",
+            "SideStoreMyAppsViewController_hook_viewDidload",
+            "SideStoreMyAppsViewController_hook_escapeButtonTapped",
+            "SSVersionWindows",
+            "SSSceneObserver",
+            "SSInstallVersionWindow",
+            "PassthroughWindow",
+            "UISceneDidActivateNotification",
+            "escapeButtonTapped:",
+        ):
+            self.assertNotIn(removed_ui_symbol, hooks)
+
+        # These hooks feed SideStore identity/source behavior and the LiveProcess
+        # refresh + notification bridge; the UI cleanup must leave them intact.
+        for retained_backend_symbol in (
+            "hook_appbundleIdentifier",
+            "hook_storeAppBundleIdentifier",
+            "hook_altstoreAppGroup",
+            "hook_activeBundle",
+            "hook_baseAltStoreAppGroupID",
+            "SideStoreSource_hook_altStoreSourceURL",
+            "installSideStoreNotificationHooks",
+            "lc_addNotificationRequest:",
+            "lc_removePendingNotificationRequestsWithIdentifiers:",
+            "lc_getNotificationSettingsWithCompletionHandler:",
+            "LiveProcessSideStoreHandler",
+        ):
+            self.assertIn(retained_backend_symbol, hooks)
+        xpc_client = self.text(self.live / "SideStoreSupport" / "XPCClient.m")
+        self.assertEqual(xpc_client, self.original_xpc_client)
+        self.assertIn("installSideStoreHooks();", xpc_client)
+        self.assertIn("if(!NSUserDefaults.isLiveProcess) return;", xpc_client)
+        self.assertIn("installSideStoreNotificationHooks();", xpc_client)
+        self.assertLess(xpc_client.index("installSideStoreHooks();"),
+                        xpc_client.index("if(!NSUserDefaults.isLiveProcess) return;"))
+        self.assertLess(xpc_client.index("if(!NSUserDefaults.isLiveProcess) return;"),
+                        xpc_client.index("installSideStoreNotificationHooks();"))
         auth = self.text(self.side / "SideStore/Core/Auth/AuthManager.swift")
         self.assertEqual(auth, self.original_auth, "Never patch upstream authentication behavior")
         self.assertIn('coalesce(key: "apple_auth_session")', auth)
