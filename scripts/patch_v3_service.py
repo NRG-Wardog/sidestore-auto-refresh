@@ -2657,13 +2657,37 @@ static void V3InitializeUIKitFixes(void) {
     edit(live, "MultitaskSupport/AppSceneViewController.m", forward_selected_app_group)
     def apply_inherited_app_group(s):
         s = replace(s, '#import "../SideStoreSupport/XPCServer.h"',
-            '#import "../SideStoreSupport/XPCServer.h"\n#import "../LiveContainer/LCAppGroupSelectionPolicy.h"')
+            '#import "../SideStoreSupport/XPCServer.h"\n#import "../LiveContainer/LCAppGroupSelectionPolicy.h"\n#import "../LiveContainer/FoundationPrivate.h"')
         return replace(s,
             '    NSUserDefaults *lcUserDefaults = NSUserDefaults.standardUserDefaults;\n',
             '    NSUserDefaults *lcUserDefaults = NSUserDefaults.standardUserDefaults;\n'
             '    NSString *inheritedGroupID = LCValidatedAppGroupID(appInfo[@"lcAppGroupID"], ^BOOL(NSString *groupID) {\n'
             '        return [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:groupID] != nil;\n'
             '    });\n'
+            '    // Probe the extension process signature, not the framework Info.plist.\n'
+            '    // Only a Boolean is retained; no entitlement list or container path is logged.\n'
+            '    [lcUserDefaults removeObjectForKey:@"LCInheritedAppGroupEntitled"];\n'
+            '    unsetenv("LC_V3_INHERITED_APP_GROUP");\n'
+            '    unsetenv("LC_V3_INHERITED_GROUP_ENTITLED");\n'
+            '    if (inheritedGroupID) {\n'
+            '        setenv("LC_V3_INHERITED_APP_GROUP", inheritedGroupID.UTF8String, 1);\n'
+            '        void *task = SecTaskCreateFromSelf(NULL);\n'
+            '        if (task) {\n'
+            '            CFErrorRef entitlementError = NULL;\n'
+            '            CFTypeRef groups = SecTaskCopyValueForEntitlement(task,\n'
+            '                CFSTR("com.apple.security.application-groups"), &entitlementError);\n'
+            '            CFRelease(task);\n'
+            '            if (groups && CFGetTypeID(groups) == CFArrayGetTypeID()) {\n'
+            '                BOOL entitled = CFArrayContainsValue((CFArrayRef)groups,\n'
+            '                    CFRangeMake(0, CFArrayGetCount((CFArrayRef)groups)),\n'
+            '                    (__bridge const void *)inheritedGroupID);\n'
+            '                [lcUserDefaults setBool:entitled forKey:@"LCInheritedAppGroupEntitled"];\n'
+            '                setenv("LC_V3_INHERITED_GROUP_ENTITLED", entitled ? "1" : "0", 1);\n'
+            '            }\n'
+            '            if (groups) CFRelease(groups);\n'
+            '            if (entitlementError) CFRelease(entitlementError);\n'
+            '        }\n'
+            '    }\n'
             '    if (inheritedGroupID) {\n'
             '        [lcUserDefaults setObject:inheritedGroupID forKey:@"LCInheritedAppGroupID"];\n'
             '    } else {\n'

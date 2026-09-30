@@ -663,6 +663,26 @@ def has_required_livecontainer_groups(groups) -> bool:
     return REQUIRED_LIVECONTAINER_GROUPS.issubset(set(groups or []))
 
 
+def verify_service_app_group_ownership(host_groups, live_process_groups,
+                                       configured_groups) -> list[str]:
+    """The SideStore service runs in LiveProcess, not in its framework signature.
+
+    LC forwards any host-selected, container-resolving group to LiveProcess.
+    Every group the host can select must therefore be entitled in that process
+    as well. Info.plist declarations alone do not grant container access.
+    """
+    host = set(host_groups or [])
+    service = set(live_process_groups or [])
+    configured = set(configured_groups or [])
+    if not has_required_livecontainer_groups(host) or not has_required_livecontainer_groups(service):
+        raise ValueError("host and LiveProcess must both be entitled for the shared App Groups")
+    if not configured or not configured.issubset(host & service):
+        raise ValueError("runtime configured App Group is not entitled in both host and LiveProcess")
+    if host != service:
+        raise ValueError("host-selectable App Groups differ from LiveProcess service entitlements")
+    return sorted(host)
+
+
 def archive_size_report(infos, executable_paths: set[str]) -> dict:
     files = [info for info in infos if not info.is_dir()]
     executable_paths = set(executable_paths)
@@ -1023,18 +1043,15 @@ def verify(ipa: Path, provenance_path: Path, product: str,
             if product_info.get("LCBuildRunURL") != info.get("LCBuildRunURL"):
                 raise ValueError("host and embedded SideStore build run URLs differ")
         host_groups = (host.get("signing") or {}).get("xml_entitlements") or {}
-        if not has_required_livecontainer_groups(
-                host_groups.get("com.apple.security.application-groups", [])):
-            raise ValueError("host SideStore/AltStore App Group entitlements are incomplete")
-
         live_process_path = BASE + "/PlugIns/LiveProcess.appex"
         live_process = package_bundles.get(live_process_path)
         if not live_process or not live_process.get("executable_present"):
             raise ValueError("LiveProcess extension or executable is missing")
         live_process_groups = (live_process.get("signing") or {}).get("xml_entitlements") or {}
-        if not has_required_livecontainer_groups(
-                live_process_groups.get("com.apple.security.application-groups", [])):
-            raise ValueError("LiveProcess SideStore/AltStore App Group entitlements are incomplete")
+        service_app_groups = verify_service_app_group_ownership(
+            host_groups.get("com.apple.security.application-groups", []),
+            live_process_groups.get("com.apple.security.application-groups", []),
+            info.get("ALTAppGroups", []))
         shared_keychain_group = verify_shared_secret_handoff_group(
             host_groups.get("keychain-access-groups"),
             live_process_groups.get("keychain-access-groups"))
@@ -1166,6 +1183,7 @@ def verify(ipa: Path, provenance_path: Path, product: str,
         "app_group": REQUIRED_GROUP,
         "secret_handoff_keychain_group": shared_keychain_group,
         "livecontainer_app_groups": sorted(REQUIRED_LIVECONTAINER_GROUPS),
+        "sidestore_service_process_app_groups": service_app_groups,
         "url_schemes": sorted(REQUIRED_SCHEMES),
         "background_identifiers": sorted(REQUIRED_BACKGROUND_IDS),
         "host_background_modes": sorted(REQUIRED_BACKGROUND_MODES),

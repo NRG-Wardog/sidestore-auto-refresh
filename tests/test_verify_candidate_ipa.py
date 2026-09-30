@@ -710,6 +710,21 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
             {verify_module.REQUIRED_GROUP}),
             "a SideStore-only entitlement cannot preserve an AltStore-origin LC container selection")
 
+    def test_exact_runtime_service_process_must_share_every_selectable_group(self):
+        groups = sorted(verify_module.REQUIRED_LIVECONTAINER_GROUPS)
+        self.assertEqual(verify_module.verify_service_app_group_ownership(
+            groups, groups, [verify_module.REQUIRED_GROUP]), groups)
+        with self.assertRaisesRegex(ValueError, "runtime configured App Group"):
+            verify_module.verify_service_app_group_ownership(
+                groups, groups, ["group.example.unentitled"])
+        with self.assertRaisesRegex(ValueError, "differ from LiveProcess"):
+            verify_module.verify_service_app_group_ownership(
+                groups + ["group.example.hostOnly"], groups,
+                [verify_module.REQUIRED_GROUP])
+        with self.assertRaisesRegex(ValueError, "shared App Groups"):
+            verify_module.verify_service_app_group_ownership(
+                groups, [verify_module.REQUIRED_GROUP], [verify_module.REQUIRED_GROUP])
+
     def test_host_and_liveprocess_must_share_the_dedicated_keychain_handoff_group(self):
         group = "AAAAA11111.com.kdt.livecontainer.shared"
         self.assertEqual(verify_module.verify_shared_secret_handoff_group([group], [group]), group)

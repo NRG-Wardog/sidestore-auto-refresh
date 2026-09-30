@@ -1992,9 +1992,23 @@ final class V3SideStoreStatusStore: ObservableObject {
         recoveryStorageClearEligible = present && eligible &&
             ["malformedRecord", "incompatibleRecord"].contains(kind)
         let native = CombinedFailure.safeDiagnosticUnderlying(domain: domain, code: code)
+        var appGroupLine = ""
+        if let group = snapshot["recoveryAppGroup"] as? [String: Any],
+           let hash = group["groupHash"] as? String,
+           (hash == "none" || (hash.count == 12 && hash.utf8.allSatisfy {
+               (48...57).contains($0) || (97...102).contains($0)
+           })),
+           let source = group["selectionSource"] as? String,
+           ["none", "inherited", "runtimeSelected"].contains(source),
+           let entitled = group["signedEntitled"] as? String,
+           ["yes", "no", "unknown"].contains(entitled),
+           let resolves = V3ServiceBridge.strictBool(group["containerResolves"]) {
+            appGroupLine = " group_hash=\(hash) group_selection_source=\(source) " +
+                "signed_group_entitled=\(entitled) group_container_resolves=\(resolves)"
+        }
         recoveryStorageDiagnostics = "schema=1 operation=status stage=persistence " +
             "recovery_storage_kind=\(kind) source_step=\(step) record_present=\(present) clear_eligible=\(recoveryStorageClearEligible) " +
-            "underlying_domain=\(native.domain) underlying_code=\(native.code) retryable=\(retryable)"
+            "underlying_domain=\(native.domain) underlying_code=\(native.code) retryable=\(retryable)" + appGroupLine
     }
 
     private func applyFullRecoveryEvidence(_ snapshot: [String: Any]) {

@@ -51,8 +51,8 @@ def patch_hooks(path: Path) -> None:
         "\n    \n\n}\n#pragma clang diagnostic pop\n",
         "\n"
         "        NSBundle *hostBundle = NSUserDefaults.lcMainBundle;\n"
-        "        NSLog(@\"[SIDESTORE_STARTUP] EMBEDDED_SIDESTORE_STARTUP_FIX_V1 hooks_installed host_bundle=%@ host_path=%@ app_group=%@\",\n"
-        "              hostBundle.bundleIdentifier, hostBundle.bundlePath, LCSharedUtils.appGroupID);\n"
+        "        NSLog(@\"[SIDESTORE_STARTUP] EMBEDDED_SIDESTORE_STARTUP_FIX_V1 hooks_installed host_bundle=%@ app_group_resolved=%d\",\n"
+        "              hostBundle.bundleIdentifier, LCSharedUtils.appGroupPath != nil);\n"
         "    });\n"
         "}\n"
         "#pragma clang diagnostic pop\n",
@@ -175,16 +175,16 @@ def patch_database(path: Path) -> None:
                 let profileURL = activeBundle.provisioningProfileURL
                 let requestedAppGroup = Bundle.main.altstoreAppGroup ?? "nil"
                 let appGroupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: requestedAppGroup)
-                debugLog("[SIDESTORE_STARTUP] EMBEDDED_SIDESTORE_STARTUP_FIX_V1 main_bundle=\\(Bundle.main.bundleIdentifier ?? "nil") active_bundle=\\(activeBundle.bundleIdentifier ?? "nil") active_path=\\(activeBundleURL.path) store_bundle=\\(Bundle.Info.storeAppBundleIdentifier) app_bundle=\\(Bundle.Info.appbundleIdentifier) profile_path=\\(profileURL.path) profile_exists=\\(FileManager.default.fileExists(atPath: profileURL.path)) app_group=\\(requestedAppGroup) app_group_path=\\(appGroupURL?.path ?? "nil")")
+                debugLog("[SIDESTORE_STARTUP] EMBEDDED_SIDESTORE_STARTUP_FIX_V1 main_bundle=\\(Bundle.main.bundleIdentifier ?? "nil") active_bundle=\\(activeBundle.bundleIdentifier ?? "nil") store_bundle=\\(Bundle.Info.storeAppBundleIdentifier) app_bundle=\\(Bundle.Info.appbundleIdentifier) profile_exists=\\(FileManager.default.fileExists(atPath: profileURL.path)) app_group_resolved=\\(appGroupURL != nil)")
 
                 guard let localAppBundle = ALTApplication(fileURL: activeBundleURL) else {
-                    completionHandler(.failure(ALTError.invalidApp(reason: "Unable to read the active LiveContainer application bundle at \\(activeBundleURL.path).")))
+                    completionHandler(.failure(ALTError.invalidApp(reason: "Unable to read the active LiveContainer application bundle.")))
                     return
                 }
 
                 #if !targetEnvironment(simulator)
                 guard localAppBundle.provisioningProfile != nil else {
-                    completionHandler(.failure(ALTError.invalidApp(reason: "The active LiveContainer bundle has no readable provisioning profile at \\(profileURL.path).")))
+                    completionHandler(.failure(ALTError.invalidApp(reason: "The active LiveContainer bundle has no readable provisioning profile.")))
                     return
                 }
                 #endif
