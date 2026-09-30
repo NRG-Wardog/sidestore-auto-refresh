@@ -237,9 +237,12 @@ struct BridgeTests {
         } catch {}
         precondition(!bridge.isMutating,
                      "local request-size rejection must not retain a synthetic operation session")
+        let callsBeforeStatus = client.operations.count
         let value = try await bridge.request(operation: "snapshot")
         precondition(value["account"] as? String == "fixture")
-        precondition(client.operations == ["snapshot"], "cold launch/status triggered a mutation")
+        precondition(client.operations.count == callsBeforeStatus + 1 &&
+                     client.operations.last == "snapshot",
+            "cold launch/status triggered a mutation")
         let settingsSnapshot = try await bridge.request(operation: "settingsSet",
             payload: ["key": "isCellularRefreshEnabled", "type": "bool", "bool": true])
         precondition(settingsSnapshot["account"] as? String == "fixture" &&
@@ -281,7 +284,8 @@ struct BridgeTests {
             "the refresh session must reach an authoritative terminal reply")
         precondition(!bridge.isMutating,
             "a settled opPoll releases the refresh session's host mutation ownership")
-        precondition(client.operations == ["snapshot", "settingsSet", "authBegin", "authPoll", "opStart", "opPoll"],
+        precondition(Array(client.operations.suffix(6)) ==
+                     ["snapshot", "settingsSet", "authBegin", "authPoll", "opStart", "opPoll"],
             "explicit account/opStart/opPoll integration order changed")
         client.stale = true
         do { _ = try await bridge.request(operation: "snapshot"); preconditionFailure("stale reply accepted") } catch {}

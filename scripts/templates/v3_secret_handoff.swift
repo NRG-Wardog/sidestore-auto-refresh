@@ -55,16 +55,16 @@ enum V3AppGroupProcessLock {
         let path = directory.appendingPathComponent("keychain-transaction.lock").path
         let descriptor = open(path, O_CREAT | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else {
-            onFailure?("open", NSPOSIXErrorDomain, errno)
+            onFailure?("open", NSPOSIXErrorDomain, Int(errno))
             throw V3SecretHandoffError.unavailable
         }
         defer { _ = close(descriptor) }
         guard fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else {
-            onFailure?("permissions", NSPOSIXErrorDomain, errno)
+            onFailure?("permissions", NSPOSIXErrorDomain, Int(errno))
             throw V3SecretHandoffError.unavailable
         }
         guard flock(descriptor, LOCK_EX) == 0 else {
-            onFailure?("flock", NSPOSIXErrorDomain, errno)
+            onFailure?("flock", NSPOSIXErrorDomain, Int(errno))
             throw V3SecretHandoffError.unavailable
         }
         defer { _ = flock(descriptor, LOCK_UN) }

@@ -242,13 +242,13 @@ struct OperationRecoveryJournalHarness {
             "recovery diagnostics cannot contain a private path or provider text")
         let correlatedID = UUID().uuidString
         let lockEnvelope = V3RecoveryStorageFailure(.lockUnavailable,
-            underlying: NSError(domain: NSPOSIXErrorDomain, code: EBUSY),
+            underlying: NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY)),
             sourceStep: "flock").combined(operation: "recoveryDiscardUnreadable", id: correlatedID)
         let decodedEnvelope = CombinedFailure.decode(lockEnvelope.wire, expectedID: correlatedID)
         precondition(decodedEnvelope?.operation == "recovery" &&
                      decodedEnvelope?.safeCause == .recoveryLockUnavailable &&
                      decodedEnvelope?.underlyingDomain == NSPOSIXErrorDomain &&
-                     decodedEnvelope?.underlyingCode == EBUSY && decodedEnvelope?.retryable == true,
+                     decodedEnvelope?.underlyingCode == Int(EBUSY) && decodedEnvelope?.retryable == true,
             "typed lock failure must survive the structured service wire")
         let missing = root.appendingPathComponent("missing-before-clear", isDirectory: true)
         let absentCleared = try V3OperationRecoveryJournal.discardUnreadableAfterDeviceCheck(

@@ -531,7 +531,9 @@ enum V3ServiceReadinessReply: Equatable {
         "pairingFilePreparationFailed", "authAttemptNotDispatched",
         "authProvisioningRetryNotDispatched", "authSessionUnavailable",
         "authResponseCapacityUnavailable", "operationPersistenceFailed", "keychainSignOutFailed",
-        "keychainSignOutOutcomeUnknown"
+        "keychainSignOutOutcomeUnknown", "recoveryMalformedRecord",
+        "recoveryIncompatibleRecord", "recoveryStorageUnavailable",
+        "recoveryLockUnavailable", "recoveryReadFailure", "recoveryDeleteFailure"
     ]
     static let knownSourceStepValues: Set<String> = [
         "provisioningProfileFetch", "certificateValidation", "localCodeSigning",
