@@ -81,6 +81,14 @@ REMOVED_SIDESTORE_UI_SYMBOLS = (
     "ErrorDetailsViewController", "ErrorLogTableViewCell", "ErrorLogViewController",
 )
 
+# The generated transport-only backend retains the ConnectionConfig type name.
+# These class-qualified members belong only to the retired SwiftUI model and
+# remain visible in the pre-headless release binary even under Release linking.
+RETIRED_CONNECTION_CONFIG_MEMBERS = (
+    "formattedTunnelIface", "formattedTunnelPeer", "overrideIPStorage",
+    "remoteServerIPStorage", "tunnelPeerActive",
+)
+
 
 CPU_TYPE_ARM64 = 0x0100000C
 MIB = 1024 * 1024
@@ -758,8 +766,13 @@ def find_legacy_side_store_intent_info_keys(info: dict) -> list[str]:
 
 
 def find_legacy_side_store_ui_symbols(executable: bytes) -> list[str]:
-    return [name for name in REMOVED_SIDESTORE_UI_SYMBOLS
-            if contains_side_store_swift_type(executable, name)]
+    found = [name for name in REMOVED_SIDESTORE_UI_SYMBOLS
+             if contains_side_store_swift_type(executable, name)]
+    for member in RETIRED_CONNECTION_CONFIG_MEMBERS:
+        if any(f"{len(module)}{module}16ConnectionConfigC{len(member)}{member}".encode("utf-8")
+               in executable for module in ("SideStore", "AltStore")):
+            found.append("ConnectionConfig." + member)
+    return found
 
 
 def contains_side_store_swift_type(executable: bytes, name: str) -> bool:

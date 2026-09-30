@@ -99,6 +99,12 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
                 self.assertNotIn("ConnectionConfig", symbols)
                 verify_module.verify_no_excluded_side_store_ui(
                     b"$s9SideStore16ConnectionConfigC", symbols)
+                legacy_member = b"$s9SideStore16ConnectionConfigC20formattedTunnelIfaceSSSgvg"
+                self.assertIn("ConnectionConfig.formattedTunnelIface",
+                              verify_module.find_legacy_side_store_ui_symbols(legacy_member))
+                with self.assertRaisesRegex(ValueError, "ConnectionConfig.formattedTunnelIface"):
+                    verify_module.verify_no_excluded_side_store_ui(
+                        b"$s9SideStore16ConnectionConfigC\x00" + legacy_member, symbols)
                 backend.write_text("import SwiftUI\nfinal class ConnectionConfig {}\n", encoding="utf-8")
                 with self.assertRaisesRegex(ValueError, "generated backend ConnectionConfig differs"):
                     verify_module.excluded_side_store_view_type_names(
