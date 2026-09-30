@@ -58,15 +58,20 @@ int main(void) {
             expect([hostFallback isEqualToString:@"group.com.SideStore.SideStore"],
                    "the packaged fallback ranks the SideStore group first");
 
-            /* An inherited but inaccessible group is rejected, and it never
-             * falls through to the packaged entitlement: switching groups would
-             * move the shared store underneath the other process. */
-            gAltStoreAvailable = NO;
-            expect(LCValidatedAppGroupID(hostSelection, availability) == nil,
-                   "an inherited but inaccessible group must be rejected");
-            expect(LCResolvedAppGroupID(hostSelection, hostPackaged, availability) == nil,
-                   "an inaccessible selected group must not fall back to a packaged entitlement");
-            gAltStoreAvailable = YES;
+/* An inherited but inaccessible group is rejected, and it never
+         * falls through to the packaged entitlement: switching groups would
+         * move the shared store underneath the other process. Make the group
+         * under test inaccessible rather than some other one. */
+        gAltStoreAvailable = NO;
+        expect(LCValidatedAppGroupID(@"group.com.rileytestut.AltStore", availability) == nil,
+               "an inherited but inaccessible group must be rejected");
+        expect(LCResolvedAppGroupID(@"group.com.rileytestut.AltStore", hostPackaged, availability) == nil,
+               "an inaccessible selected group must not fall back to a packaged entitlement");
+        gAltStoreAvailable = YES;
+        gPackagedAvailable = NO;
+        expect(LCValidatedAppGroupID(@"group.com.SideStore.SideStore.TESTTEAM", availability) == nil,
+               "an inaccessible team-suffixed group must be rejected");
+        gPackagedAvailable = YES;
 
             /* A malformed or path-shaped launch value is never a group. */
             for (id malformed in @[@"", @" group.com.SideStore", @"group.com.SideStore ",

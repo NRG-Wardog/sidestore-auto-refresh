@@ -1144,7 +1144,9 @@ import Foundation
                 text=True, encoding="utf-8")
             self.assertIn("var isResignActive: Bool { get }", pipeline_protocol)
             self.assertIn("handler.preflightChecksHandler.isResignActive == true", pipeline_runner)
-            self.assertIn("Handlers/PresenterProvider.swift", service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES)
+            # PresenterProvider is declared in SideStore/Handlers, so it can only
+            # be excluded through the SideStore target's own exception set.
+            self.assertIn("Handlers/PresenterProvider.swift", service.HEADLESS_SIDESTORE_HANDLER_UI_FILES)
 
             step_source = (side / "SideStore/Core/Operations/OperationStepDefinition.swift").read_text(encoding="utf-8")
             refresh_steps = step_source[step_source.index("static let refresh:"):
@@ -1172,6 +1174,12 @@ import Foundation
             membership = side_store_target_exception[member_start:member_end]
             for path in service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES:
                 self.assertIn(f'"{path}"', membership)
+            side_store_module_exception = project[project.index("A8EECF492F4B195000F2436D"):]
+            handler_start = side_store_module_exception.index("membershipExceptions = (")
+            handler_end = side_store_module_exception.index(");", handler_start)
+            handler_membership = side_store_module_exception[handler_start:handler_end]
+            for path in service.HEADLESS_SIDESTORE_HANDLER_UI_FILES:
+                self.assertIn(f'"{path}"', handler_membership)
 
             intent = (side / "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift").read_text(encoding="utf-8")
             widget = (side / "AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift").read_text(encoding="utf-8")

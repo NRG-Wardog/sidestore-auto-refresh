@@ -105,7 +105,6 @@ final class HarnessContainerFileManager: FileManager {
         return root
     }
 }
-V3SharedAppGroup.containerFileManager = HarnessContainerFileManager()
 '''
             shared_group = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8")
             swift = shared_group + "\n" + HARNESS_FILE_MANAGER + r'''
@@ -150,6 +149,8 @@ defaults.set("safe-run-id", forKey: "liveContainerAutoRefreshExpectedRunID")
 let harness = Harness()
 let providerError = NSError(domain: "private.invalid/token=SECRET_TOKEN", code: 73,
     userInfo: [NSLocalizedDescriptionKey: "failed at /private/user/path?access_token=SECRET_TOKEN"])
+V3SharedAppGroup.containerFileManager = HarnessContainerFileManager()
+V3SharedAppGroup.publishRuntimeGroup(V3SharedAppGroup.packagedGroup)
 harness.persist(providerError)
 let manifest = defaults.dictionary(forKey: manifestKey)!
 let rows = manifest["results"] as! [[String: Any]]
@@ -390,7 +391,6 @@ final class HarnessContainerFileManager: FileManager {
         return root
     }
 }
-V3SharedAppGroup.containerFileManager = HarnessContainerFileManager()
 '''
             shared_group = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text()
             swift = shared_group + "\n" + HARNESS_FILE_MANAGER + "\n" + wire + "\n" + failure + "\n" + primitives + "\n" + context + r'''
@@ -427,6 +427,8 @@ enum StoreApp { static let altstoreAppID = "fixture.host" }
 }
 @main struct Test {
     @MainActor static func main() throws {
+        V3SharedAppGroup.containerFileManager = HarnessContainerFileManager()
+        V3SharedAppGroup.publishRuntimeGroup(V3SharedAppGroup.packagedGroup)
         let defaults = UserDefaults(suiteName: testSuite)!
         defer { defaults.removePersistentDomain(forName: testSuite) }
         let run = UUID().uuidString

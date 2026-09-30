@@ -23,6 +23,11 @@ extension LiveContainerAutoRefreshScheduler {
         // Before any store access: every key below is cross-process state, and
         // the runner has no App Group entitlement to resolve one.
         HarnessContainerFileManager.install()
+        // This executable's own Info.plist declares no ALTAppGroups, so with
+        // nothing published the resolver has no group and correctly reports an
+        // unavailable shared store. Publish one, which is what the host does
+        // before the scheduler ever runs.
+        V3SharedAppGroup.publishRuntimeGroup(V3SharedAppGroup.packagedGroup)
         clearTestState()
         UNUserNotificationCenter.shared.settings = UNNotificationSettings(authorizationStatus: .denied)
         await LiveContainerAutoRefreshScheduler.requestNotificationPermissionFromUserAction()
