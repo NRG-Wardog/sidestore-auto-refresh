@@ -39,6 +39,7 @@ struct OperationRecoveryJournalHarness {
 
         try testNonInstallSchemaAndTerminalRemoval(root: root)
         try testUnreadableJournalRequiresDeviceConfirmedRepair(root: root)
+        try testTypedRecoveryStorageAndIdempotentDiscard(root: root)
         try testRefreshAdmissionSurvivesServiceRecreation(root: root)
         try testPreparedCancellationAndDispatchedProtection(root: root)
         try testStagedIPATokenPersistsUntilSettledTerminal(root: root)
@@ -210,6 +211,136 @@ struct OperationRecoveryJournalHarness {
         precondition(cleared && !FileManager.default.fileExists(atPath: url.path))
         let empty = try V3OperationRecoveryJournal.current(containerRoot: root)
         precondition(empty == nil)
+    }
+
+    private static func failure(at root: URL) throws -> V3RecoveryStorageFailure {
+        do {
+            _ = try V3OperationRecoveryJournal.currentState(containerRoot: root)
+            fatalError("expected a typed recovery storage failure")
+        } catch let failure as V3RecoveryStorageFailure {
+            return failure
+        }
+    }
+
+    private static func put(_ bytes: Data, in root: URL) throws -> URL {
+        let url = recordURL(root: root)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try bytes.write(to: url, options: .atomic)
+        return url
+    }
+
+    private static func testTypedRecoveryStorageAndIdempotentDiscard(root: URL) throws {
+        let privateError = NSError(domain: "file:///private/token=secret", code: 42,
+            userInfo: [NSLocalizedDescriptionKey: "PRIVATE_JOURNAL_PATH_AND_SECRET"])
+        let safe = V3RecoveryStorageFailure(.readFailure, underlying: privateError,
+            recordPresent: true).snapshotValue
+        precondition(safe["underlyingDomain"] as? String == "redacted" &&
+                     safe["underlyingCode"] as? Int == 0 &&
+                     !String(describing: safe).contains("PRIVATE_JOURNAL_PATH_AND_SECRET") &&
+                     !String(describing: safe).contains("file:///private"),
+            "recovery diagnostics cannot contain a private path or provider text")
+        let correlatedID = UUID().uuidString
+        let lockEnvelope = V3RecoveryStorageFailure(.lockUnavailable,
+            underlying: NSError(domain: NSPOSIXErrorDomain, code: EBUSY),
+            sourceStep: "flock").combined(operation: "recoveryDiscardUnreadable", id: correlatedID)
+        let decodedEnvelope = CombinedFailure.decode(lockEnvelope.wire, expectedID: correlatedID)
+        precondition(decodedEnvelope?.operation == "recovery" &&
+                     decodedEnvelope?.safeCause == .recoveryLockUnavailable &&
+                     decodedEnvelope?.underlyingDomain == NSPOSIXErrorDomain &&
+                     decodedEnvelope?.underlyingCode == EBUSY && decodedEnvelope?.retryable == true,
+            "typed lock failure must survive the structured service wire")
+        let missing = root.appendingPathComponent("missing-before-clear", isDirectory: true)
+        let absentCleared = try V3OperationRecoveryJournal.discardUnreadableAfterDeviceCheck(
+            userConfirmed: true, containerRoot: missing)
+        precondition(absentCleared,
+            "a record already absent before clear is successfully cleared")
+
+        do {
+            _ = try V3OperationRecoveryJournal.resolvedRoot(containerRoot: nil,
+                resolveContainer: { _ in nil })
+            fatalError("missing App Group must not look like malformed bytes")
+        } catch let failure as V3RecoveryStorageFailure {
+            precondition(failure.kind == .storageUnavailable && !failure.clearEligible)
+        }
+
+        let malformed = root.appendingPathComponent("malformed-classified", isDirectory: true)
+        let malformedURL = try put(Data([0, 1, 2]), in: malformed)
+        let malformedFailure = try failure(at: malformed)
+        precondition(malformedFailure.kind == .malformedRecord && malformedFailure.clearEligible)
+        do {
+            _ = try V3OperationRecoveryJournal.discardUnreadableAfterDeviceCheck(
+                userConfirmed: true, containerRoot: malformed,
+                deleteRecord: { url in
+                    try FileManager.default.removeItem(at: url)
+                    throw NSError(domain: NSCocoaErrorDomain, code: 4)
+                })
+            precondition(!FileManager.default.fileExists(atPath: malformedURL.path),
+                "disappearing record must be treated as cleared")
+        }
+
+        let incompatible = root.appendingPathComponent("incompatible-schema", isDirectory: true)
+        let future = try PropertyListSerialization.data(fromPropertyList:
+            ["version": 3, "recordType": "future"], format: .binary, options: 0)
+        _ = try put(future, in: incompatible)
+        let incompatibleFailure = try failure(at: incompatible)
+        precondition(incompatibleFailure.kind == .incompatibleRecord && incompatibleFailure.clearEligible)
+        let incompatibleCleared = try V3OperationRecoveryJournal.discardUnreadableAfterDeviceCheck(
+            userConfirmed: true, containerRoot: incompatible)
+        precondition(incompatibleCleared)
+
+        let denied = root.appendingPathComponent("delete-denied", isDirectory: true)
+        let deniedURL = try put(Data([0, 1, 2]), in: denied)
+        do {
+            _ = try V3OperationRecoveryJournal.discardUnreadableAfterDeviceCheck(
+                userConfirmed: true, containerRoot: denied,
+                deleteRecord: { _ in throw NSError(domain: NSCocoaErrorDomain, code: 257) })
+            fatalError("delete denial must remain a typed failure")
+        } catch let failure as V3RecoveryStorageFailure {
+            precondition(failure.kind == .deleteFailure &&
+                         failure.underlyingDomain == NSCocoaErrorDomain && failure.underlyingCode == 257)
+            precondition(FileManager.default.fileExists(atPath: deniedURL.path))
+        }
+
+        let unreadable = root.appendingPathComponent("read-failed", isDirectory: true)
+        let unreadableURL = recordURL(root: unreadable)
+        try FileManager.default.createDirectory(at: unreadableURL,
+            withIntermediateDirectories: true)
+        let readFailure = try failure(at: unreadable)
+        precondition(readFailure.kind == .readFailure && !readFailure.clearEligible)
+        do {
+            _ = try V3OperationRecoveryJournal.discardUnreadableAfterDeviceCheck(
+                userConfirmed: true, containerRoot: unreadable)
+            fatalError("an unclassified read failure must never authorize deletion")
+        } catch let failure as V3RecoveryStorageFailure {
+            precondition(failure.kind == .readFailure)
+        }
+
+        let blockedLock = root.appendingPathComponent("lock-unavailable", isDirectory: true)
+        let lockDirectory = recordURL(root: blockedLock).deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: lockDirectory.appendingPathComponent("keychain-transaction.lock"),
+            withIntermediateDirectories: true)
+        let lockFailure = try failure(at: blockedLock)
+        precondition(lockFailure.kind == .lockUnavailable && lockFailure.kind.retryable &&
+                     lockFailure.sourceStep == "open" &&
+                     lockFailure.underlyingDomain == NSPOSIXErrorDomain &&
+                     lockFailure.underlyingCode != 0 && !lockFailure.clearEligible)
+
+        let legacy = root.appendingPathComponent("legacy-v2", isDirectory: true)
+        let legacyRecord = V3DirectMutationRecoveryRecord(requestID: UUID().uuidString,
+            operation: "settingsSet", phase: .unknown, serviceInstanceID: UUID().uuidString,
+            settingsKey: "textInputSideJITServerurl", settingsType: "string",
+            settingsValueDigest: String(repeating: "a", count: 64))!
+        let legacyData = try PropertyListSerialization.data(fromPropertyList:
+            legacyRecord.propertyListRepresentation, format: .binary, options: 0)
+        _ = try put(legacyData, in: legacy)
+        guard case .directMutation(let restored)? = try V3OperationRecoveryJournal.currentState(
+            containerRoot: legacy) else { fatalError("previous RC v2 record must remain readable") }
+        precondition(restored.settingsValueDigest == legacyRecord.settingsValueDigest)
+        let legacyDiscarded = try V3OperationRecoveryJournal.discardUnreadableAfterDeviceCheck(
+            userConfirmed: true, containerRoot: legacy)
+        precondition(!legacyDiscarded,
+            "a valid prior-RC direct record cannot be discarded as corrupt")
     }
 
     private static func verifyRefreshInFreshProcess(root: URL, runID: String) throws {

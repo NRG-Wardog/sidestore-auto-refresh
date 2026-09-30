@@ -165,7 +165,9 @@ struct DirectMutationRecoveryHarness {
             _ = try V3OperationRecoveryJournal.reserve(sessionID: "60000000-0000-4000-8000-000000000006",
                 kind: "delete", containerRoot: root)
             fatalError("one-slot lease admitted conflicting operation recovery")
-        } catch is V3SecretHandoffError { }
+        } catch let failure as V3RecoveryStorageFailure {
+            try expect(failure.kind == .incompatibleRecord && failure.clearEligible)
+        }
         try expect(try V3OperationRecoveryJournal.direct(containerRoot: root)?.requestID == requestID)
     }
 

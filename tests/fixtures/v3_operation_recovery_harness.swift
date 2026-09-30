@@ -127,11 +127,25 @@ struct OperationRecoveryHarness {
             "device check cannot delete a valid operation journal")
         let unreadableConfirmed = V3ServiceRecoveryAdmissionPolicy.decide(
             operation: "recoveryDiscardUnreadable", target: "", payload: ["userConfirmed": true],
-            operationSessionID: nil, recovery: nil, recoveryReadFailed: true, refreshOwnerLost: false)
+            operationSessionID: nil, recovery: nil, recoveryReadFailed: true,
+            recoveryDiscardable: true, refreshOwnerLost: false)
         precondition(unreadableConfirmed.recoveryControl && !unreadableConfirmed.blocksMutation)
+        let storageUnavailable = V3ServiceRecoveryAdmissionPolicy.decide(
+            operation: "recoveryDiscardUnreadable", target: "", payload: ["userConfirmed": true],
+            operationSessionID: nil, recovery: nil, recoveryReadFailed: true,
+            recoveryDiscardable: false, refreshOwnerLost: false)
+        precondition(!storageUnavailable.recoveryControl && storageUnavailable.blocksMutation,
+            "storage or lock failure cannot authorize destructive recovery")
+        let disappeared = V3ServiceRecoveryAdmissionPolicy.decide(
+            operation: "recoveryDiscardUnreadable", target: "", payload: ["userConfirmed": true],
+            operationSessionID: nil, recovery: nil, recoveryReadFailed: false,
+            refreshOwnerLost: false)
+        precondition(disappeared.recoveryControl && !disappeared.blocksMutation,
+            "a record that disappeared after inspection is an idempotent clear")
         let unreadableUnconfirmed = V3ServiceRecoveryAdmissionPolicy.decide(
             operation: "recoveryDiscardUnreadable", target: "", payload: ["userConfirmed": false],
-            operationSessionID: nil, recovery: nil, recoveryReadFailed: true, refreshOwnerLost: false)
+            operationSessionID: nil, recovery: nil, recoveryReadFailed: true,
+            recoveryDiscardable: true, refreshOwnerLost: false)
         precondition(!unreadableUnconfirmed.recoveryControl && unreadableUnconfirmed.blocksMutation)
 
         let deadline = Date().addingTimeInterval(30)

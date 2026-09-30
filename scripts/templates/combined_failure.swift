@@ -206,6 +206,9 @@ public struct CombinedFailure: Error, LocalizedError {
         case keychainSignOutFailed
         case keychainSignOutOutcomeUnknown
         case operationPersistenceFailed
+        case recoveryMalformedRecord, recoveryIncompatibleRecord
+        case recoveryStorageUnavailable, recoveryLockUnavailable
+        case recoveryReadFailure, recoveryDeleteFailure
 
         fileprivate var inferredRetryable: Bool? {
             switch self {
@@ -274,6 +277,11 @@ public struct CombinedFailure: Error, LocalizedError {
                 return true
             case .operationPersistenceFailed:
                 return false
+            case .recoveryMalformedRecord, .recoveryIncompatibleRecord:
+                return false
+            case .recoveryStorageUnavailable, .recoveryLockUnavailable,
+                 .recoveryReadFailure, .recoveryDeleteFailure:
+                return true
             }
         }
     }
@@ -319,6 +327,7 @@ public struct CombinedFailure: Error, LocalizedError {
                           "authBegin": "signIn", "authPoll": "signIn", "authRespond": "signIn", "authCancel": "signIn",
                           "authRetryProvisioning": "signIn",
                           "opStart": "command", "opPoll": "command", "opAnswer": "command", "opCancel": "command",
+                          "recoveryDiscardUnreadable": "recovery",
                           "sourcePreview": "source", "sourceAddConfirmed": "source", "sourceRemoveConfirmed": "source"][operation] ?? operation
         self.operation = Self.operations.contains(normalized) ? normalized : "command"
         self.stage = stage; self.code = code
@@ -333,7 +342,7 @@ public struct CombinedFailure: Error, LocalizedError {
         self.sourceStep = sourceStep
         self.retryable = retryable ?? self.safeCause?.inferredRetryable
     }
-    private static let operations: Set<String> = ["connect", "status", "command", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit", "pairingImportData", "anisetteList", "anisetteReset", "anisetteSync"]
+    private static let operations: Set<String> = ["connect", "status", "command", "recovery", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit", "pairingImportData", "anisetteList", "anisetteReset", "anisetteSync"]
     private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "kCFErrorDomainCFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError"]
     private static let verificationDomains: Set<String> = ["ALTServerErrorDomain", "ALTErrorDomain", "IdeviceGatewayError", "DeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy"]
 
@@ -493,6 +502,12 @@ public struct CombinedFailure: Error, LocalizedError {
             case .keychainSignOutFailed: return "SideStore could not confirm removal of the saved Apple sign-in data. Sign Out stopped, and any partial changes were rolled back."
             case .keychainSignOutOutcomeUnknown: return "SideStore could not confirm the Sign Out outcome. Reload Account & Signing to reconcile which Apple account is active before continuing."
             case .operationPersistenceFailed: return "The device operation may have completed, but SideStore could not confirm that its updated app state was saved."
+            case .recoveryMalformedRecord: return "SideStore found a malformed recovery record. Changes remain paused."
+            case .recoveryIncompatibleRecord: return "SideStore found a recovery record from an incompatible schema. Changes remain paused."
+            case .recoveryStorageUnavailable: return "SideStore cannot access its shared recovery storage. It has not identified a corrupt record."
+            case .recoveryLockUnavailable: return "SideStore could not acquire its recovery storage lock."
+            case .recoveryReadFailure: return "SideStore could not read the recovery file. Its contents have not been classified."
+            case .recoveryDeleteFailure: return "SideStore could not delete and confirm removal of the recovery record."
             }
         }
         switch stage {
@@ -724,6 +739,16 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Reload Account & Signing to reconcile which Apple account is active before continuing. Do not assume Sign Out completed."
             case .operationPersistenceFailed:
                 return "Reload installed app status and verify the device before starting another mutation. Do not repeat this operation until its state is known."
+            case .recoveryMalformedRecord, .recoveryIncompatibleRecord:
+                return "Confirm no SideStore operation remains active on the device before clearing this saved record."
+            case .recoveryStorageUnavailable:
+                return "Keep changes paused. Check that the combined app can access its shared App Group; copy Diagnostics for support. Clearing a record cannot repair unavailable storage."
+            case .recoveryLockUnavailable:
+                return "Keep changes paused and allow the active SideStore process to finish. Copy Diagnostics if the lock stays unavailable."
+            case .recoveryReadFailure:
+                return "Keep changes paused. Check device storage access and copy Diagnostics; do not clear an unclassified record."
+            case .recoveryDeleteFailure:
+                return "Keep changes paused and copy Diagnostics. The record was not confirmed removed."
             }
         }
         switch stage {

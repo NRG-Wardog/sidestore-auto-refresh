@@ -57,6 +57,10 @@ private struct V3DirectMutationRecoveryRecord {
     let settingsType: String?
     let settingsBool: Bool?
     let settingsInt: Int?
+    // Accepted for records written by earlier v3.0.3 candidates. New writes
+    // omit this field, but retaining it prevents an upgrade from making a
+    // valid unresolved request look corrupt.
+    let settingsValueDigest: String?
     let terminalOutcome: String?
 
     // Scope classification: certSetActive/certDelete are local desired-state
@@ -98,6 +102,7 @@ private struct V3DirectMutationRecoveryRecord {
           identityStampDigest: String? = nil,
           settingsKey: String? = nil,
           settingsType: String? = nil, settingsBool: Bool? = nil, settingsInt: Int? = nil,
+          settingsValueDigest: String? = nil,
           terminalOutcome: String? = nil) {
         guard UUID(uuidString: requestID)?.uuidString == requestID,
               Self.allowedOperations.contains(operation),
@@ -107,19 +112,20 @@ private struct V3DirectMutationRecoveryRecord {
               identityStampDigest.map({ $0.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil }) ?? true,
               settingsKey.map({ !$0.isEmpty && $0.utf8.count <= 256 }) ?? true,
               settingsType.map({ ["bool", "int", "string"].contains($0) }) ?? true,
+              settingsValueDigest.map({ $0.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil }) ?? true,
               terminalOutcome.map({ ["completed", "createdAndStored", "remoteCreatedLocalStorageUnverified"].contains($0) }) ?? true else {
             return nil
         }
         if operation == "settingsSet" {
             guard settingsKey != nil, settingsType != nil else { return nil }
             switch settingsType {
-            case "bool": guard settingsBool != nil, settingsInt == nil else { return nil }
-            case "int": guard settingsInt != nil, settingsBool == nil else { return nil }
+            case "bool": guard settingsBool != nil, settingsInt == nil, settingsValueDigest == nil else { return nil }
+            case "int": guard settingsInt != nil, settingsBool == nil, settingsValueDigest == nil else { return nil }
             case "string": guard settingsBool == nil, settingsInt == nil else { return nil }
             default: return nil
             }
         } else if settingsKey != nil || settingsType != nil || settingsBool != nil ||
-                    settingsInt != nil {
+                    settingsInt != nil || settingsValueDigest != nil {
             return nil
         }
         if operation != "certRevoke", (teamDigest != nil || identityStampDigest != nil) { return nil }
@@ -139,6 +145,7 @@ private struct V3DirectMutationRecoveryRecord {
         self.settingsType = settingsType
         self.settingsBool = settingsBool
         self.settingsInt = settingsInt
+        self.settingsValueDigest = settingsValueDigest
         self.terminalOutcome = terminalOutcome
     }
 
@@ -153,6 +160,7 @@ private struct V3DirectMutationRecoveryRecord {
         if let settingsType { value["settingsType"] = settingsType }
         if let settingsBool { value["settingsBool"] = settingsBool }
         if let settingsInt { value["settingsInt"] = settingsInt }
+        if let settingsValueDigest { value["settingsValueDigest"] = settingsValueDigest }
         if let terminalOutcome { value["terminalOutcome"] = terminalOutcome }
         return value
     }
@@ -169,7 +177,7 @@ private struct V3DirectMutationRecoveryRecord {
               let serviceInstanceID = plist["serviceInstanceID"] as? String else { return nil }
         let allowed: Set<String> = ["version", "recordType", "requestID", "operation", "phase",
             "serviceInstanceID", "targetDigest", "settingsKey", "settingsType", "settingsBool",
-            "settingsInt", "terminalOutcome", "teamDigest", "identityStampDigest"]
+            "settingsInt", "settingsValueDigest", "terminalOutcome", "teamDigest", "identityStampDigest"]
         guard Set(plist.keys).isSubset(of: allowed),
               (plist["targetDigest"] == nil || plist["targetDigest"] is String),
               (plist["teamDigest"] == nil || plist["teamDigest"] is String),
@@ -178,6 +186,7 @@ private struct V3DirectMutationRecoveryRecord {
               (plist["settingsType"] == nil || plist["settingsType"] is String),
               (plist["settingsBool"] == nil || V3WireContract.strictBool(plist["settingsBool"]) != nil),
               (plist["settingsInt"] == nil || V3WireContract.strictInt(plist["settingsInt"]) != nil),
+              (plist["settingsValueDigest"] == nil || plist["settingsValueDigest"] is String),
               (plist["terminalOutcome"] == nil || plist["terminalOutcome"] is String) else { return nil }
         return V3DirectMutationRecoveryRecord(requestID: requestID, operation: operation,
             phase: phase, serviceInstanceID: serviceInstanceID,
@@ -188,6 +197,7 @@ private struct V3DirectMutationRecoveryRecord {
             settingsType: plist["settingsType"] as? String,
             settingsBool: V3WireContract.strictBool(plist["settingsBool"]),
             settingsInt: V3WireContract.strictInt(plist["settingsInt"]),
+            settingsValueDigest: plist["settingsValueDigest"] as? String,
             terminalOutcome: plist["terminalOutcome"] as? String)
     }
 
@@ -198,7 +208,8 @@ private struct V3DirectMutationRecoveryRecord {
             targetDigest: targetDigest, teamDigest: teamDigest,
             identityStampDigest: identityStampDigest,
             settingsKey: settingsKey, settingsType: settingsType,
-            settingsBool: settingsBool, settingsInt: settingsInt, terminalOutcome: terminalOutcome)
+            settingsBool: settingsBool, settingsInt: settingsInt,
+            settingsValueDigest: settingsValueDigest, terminalOutcome: terminalOutcome)
     }
 }
 
@@ -233,6 +244,77 @@ private enum V3ServiceRecoveryFileRecord {
     case directMutation(V3DirectMutationRecoveryRecord)
 }
 
+// Only safe OS domain/code pairs leave the service. No path, plist contents,
+// account identifier, or arbitrary NSError text is retained in this error.
+private struct V3RecoveryStorageFailure: Error {
+    enum Kind: String {
+        case malformedRecord, incompatibleRecord, storageUnavailable
+        case lockUnavailable, readFailure, deleteFailure
+
+        var retryable: Bool {
+            switch self {
+            case .malformedRecord, .incompatibleRecord: return false
+            case .storageUnavailable, .lockUnavailable, .readFailure, .deleteFailure: return true
+            }
+        }
+
+        var safeCause: CombinedFailure.SafeCause {
+            switch self {
+            case .malformedRecord: return .recoveryMalformedRecord
+            case .incompatibleRecord: return .recoveryIncompatibleRecord
+            case .storageUnavailable: return .recoveryStorageUnavailable
+            case .lockUnavailable: return .recoveryLockUnavailable
+            case .readFailure: return .recoveryReadFailure
+            case .deleteFailure: return .recoveryDeleteFailure
+            }
+        }
+    }
+
+    let kind: Kind
+    let underlyingDomain: String
+    let underlyingCode: Int
+    let recordPresent: Bool
+    let deletionPossible: Bool
+    let sourceStep: String
+
+    init(_ kind: Kind, underlying: Error? = nil, recordPresent: Bool = false,
+         deletionPossible: Bool = false, sourceStep: String = "unknown") {
+        self.kind = kind
+        let native = underlying as NSError?
+        if let native, [NSCocoaErrorDomain, NSPOSIXErrorDomain].contains(native.domain) {
+            underlyingDomain = native.domain
+            underlyingCode = native.code
+        } else {
+            underlyingDomain = native == nil ? "none" : "redacted"
+            underlyingCode = 0
+        }
+        self.recordPresent = recordPresent
+        self.deletionPossible = deletionPossible
+        self.sourceStep = sourceStep
+    }
+
+    var isMalformedOrIncompatible: Bool {
+        kind == .malformedRecord || kind == .incompatibleRecord
+    }
+
+    var clearEligible: Bool { isMalformedOrIncompatible && recordPresent && deletionPossible }
+
+    var snapshotValue: [String: Any] {
+        ["kind": kind.rawValue, "recordPresent": recordPresent,
+         "clearEligible": clearEligible, "underlyingDomain": underlyingDomain,
+         "underlyingCode": underlyingCode, "retryable": kind.retryable,
+         "sourceStep": sourceStep]
+    }
+
+    func combined(operation: String, id: String) -> CombinedFailure {
+        let native: Error? = underlyingDomain == "none" || underlyingDomain == "redacted"
+            ? nil : NSError(domain: underlyingDomain, code: underlyingCode)
+        return CombinedFailure(operation: operation, stage: .persistence,
+            code: kind == .storageUnavailable || kind == .lockUnavailable ? .unavailable : .failed,
+            id: id, underlying: native, retryable: kind.retryable, safeCause: kind.safeCause)
+    }
+}
+
 private enum V3OperationRecoveryJournal {
     private static let components = ["Library", "Application Support", "LiveContainer"]
     private static let fileName = "operation-recovery.plist"
@@ -244,7 +326,7 @@ private enum V3OperationRecoveryJournal {
             forSecurityApplicationGroupIdentifier: V3IPAStaging.sideStoreAppGroupIdentifier) {
             container = sharedContainer
         } else {
-            throw V3SecretHandoffError.unavailable
+            throw V3RecoveryStorageFailure(.storageUnavailable, sourceStep: "appGroup")
         }
         let directory = components.reduce(container.standardizedFileURL) {
             $0.appendingPathComponent($1, isDirectory: true)
@@ -255,61 +337,148 @@ private enum V3OperationRecoveryJournal {
             let values = try directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
             guard values.isDirectory == true, values.isSymbolicLink != true,
                   directory.resolvingSymlinksInPath().standardizedFileURL == directory else {
-                throw V3SecretHandoffError.unavailable
+                throw V3RecoveryStorageFailure(.storageUnavailable, sourceStep: "directory")
             }
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-        } catch { throw V3SecretHandoffError.unavailable }
+        } catch let failure as V3RecoveryStorageFailure { throw failure }
+          catch { throw V3RecoveryStorageFailure(.storageUnavailable, underlying: error,
+                                                sourceStep: "directory") }
         return directory.appendingPathComponent(fileName, isDirectory: false)
     }
 
+    static func resolvedRoot(containerRoot: URL?,
+                             resolveContainer: (String) -> URL? = {
+                                 FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0)
+                             }) throws -> URL {
+        if let containerRoot { return containerRoot }
+        guard let container = resolveContainer(V3IPAStaging.sideStoreAppGroupIdentifier) else {
+            throw V3RecoveryStorageFailure(.storageUnavailable, sourceStep: "appGroup")
+        }
+        return container
+    }
+
     private static func withLease<T>(containerRoot: URL?, _ body: (URL) throws -> T) throws -> T {
-        try V3AppGroupProcessLock.withLock(containerRoot: containerRoot) {
-            try body(recordURL(containerRoot: containerRoot))
+        let root = try resolvedRoot(containerRoot: containerRoot)
+        var acquired = false
+        var failedStep = "unknown"
+        var failedDomain = "none"
+        var failedCode = 0
+        do {
+            return try V3AppGroupProcessLock.withLock(containerRoot: root,
+                onFailure: { step, domain, code in
+                    failedStep = step; failedDomain = domain; failedCode = code
+                }) {
+                acquired = true
+                return try body(recordURL(containerRoot: root))
+            }
+        } catch let failure as V3RecoveryStorageFailure {
+            throw failure
+        } catch {
+            let native: Error? = failedDomain == "none" || failedDomain == "redacted"
+                ? nil : NSError(domain: failedDomain, code: failedCode)
+            throw V3RecoveryStorageFailure(acquired || failedStep == "directory"
+                                           ? .storageUnavailable : .lockUnavailable,
+                                           underlying: native ?? error, sourceStep: failedStep)
         }
     }
 
+    private static func isMissingFile(_ error: Error) -> Bool {
+        let native = error as NSError
+        return (native.domain == NSCocoaErrorDomain && [4, 260].contains(native.code)) ||
+            (native.domain == NSPOSIXErrorDomain && native.code == ENOENT)
+    }
+
+    private static func canDelete(_ url: URL) -> Bool {
+        FileManager.default.isWritableFile(atPath: url.deletingLastPathComponent().path)
+    }
+
     private static func readState(_ url: URL) throws -> V3ServiceRecoveryFileRecord? {
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let values: URLResourceValues
         do {
-            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-            guard values.isRegularFile == true, values.isSymbolicLink != true,
-                  url.resolvingSymlinksInPath().standardizedFileURL == url.standardizedFileURL else {
-                throw V3SecretHandoffError.malformed
+            values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        } catch {
+            if isMissingFile(error) { return nil }
+            throw V3RecoveryStorageFailure(.readFailure, underlying: error, sourceStep: "metadata")
+        }
+        guard values.isRegularFile == true, values.isSymbolicLink != true,
+              url.resolvingSymlinksInPath().standardizedFileURL == url.standardizedFileURL else {
+            throw V3RecoveryStorageFailure(.readFailure, recordPresent: true, sourceStep: "fileType")
+        }
+        let data: Data
+        do { data = try Data(contentsOf: url) }
+        catch {
+            if isMissingFile(error) { return nil }
+            throw V3RecoveryStorageFailure(.readFailure, underlying: error,
+                                           recordPresent: true, sourceStep: "readData")
+        }
+        let deletionPossible = canDelete(url)
+        guard !data.isEmpty, data.count <= 4096,
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
+              let fields = plist as? [String: Any] else {
+            throw V3RecoveryStorageFailure(.malformedRecord, recordPresent: true,
+                                           deletionPossible: deletionPossible, sourceStep: "parse")
+        }
+        guard let version = fields["version"] as? NSNumber,
+              CFGetTypeID(version) != CFBooleanGetTypeID() else {
+            throw V3RecoveryStorageFailure(.malformedRecord, recordPresent: true,
+                                           deletionPossible: deletionPossible, sourceStep: "schema")
+        }
+        switch version.intValue {
+        case 1:
+            let allowed: Set<String> = ["version", "session", "kind", "phase", "ipa"]
+            guard Set(fields.keys).isSubset(of: allowed) else {
+                throw V3RecoveryStorageFailure(.incompatibleRecord, recordPresent: true,
+                                               deletionPossible: deletionPossible)
             }
-            let data = try Data(contentsOf: url)
-            guard data.count <= 4096,
-                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) else {
-                throw V3SecretHandoffError.malformed
+            guard let operation = V3OperationRecoveryRecord.decodePropertyList(fields) else {
+                throw V3RecoveryStorageFailure(.malformedRecord, recordPresent: true,
+                                               deletionPossible: deletionPossible)
             }
-            if let direct = V3DirectMutationRecoveryRecord.decode(plist) {
-                return .directMutation(direct)
+            return .operation(operation)
+        case 2:
+            let allowed: Set<String> = ["version", "recordType", "requestID", "operation", "phase",
+                "serviceInstanceID", "targetDigest", "settingsKey", "settingsType", "settingsBool",
+                "settingsInt", "settingsValueDigest", "terminalOutcome", "teamDigest", "identityStampDigest"]
+            guard fields["recordType"] as? String == "directMutation",
+                  Set(fields.keys).isSubset(of: allowed) else {
+                throw V3RecoveryStorageFailure(.incompatibleRecord, recordPresent: true,
+                                               deletionPossible: deletionPossible)
             }
-            if let operation = V3OperationRecoveryRecord.decodePropertyList(plist) {
-                return .operation(operation)
+            guard let direct = V3DirectMutationRecoveryRecord.decode(fields) else {
+                throw V3RecoveryStorageFailure(.malformedRecord, recordPresent: true,
+                                               deletionPossible: deletionPossible)
             }
-            throw V3SecretHandoffError.malformed
-        } catch { throw V3SecretHandoffError.malformed }
+            return .directMutation(direct)
+        default:
+            throw V3RecoveryStorageFailure(.incompatibleRecord, recordPresent: true,
+                                           deletionPossible: deletionPossible)
+        }
     }
 
     private static func read(_ url: URL) throws -> V3OperationRecoveryLease {
         switch try readState(url) {
         case nil: return V3OperationRecoveryLease()
         case .operation(let record): return V3OperationRecoveryLease(record: record)
-        case .directMutation: throw V3SecretHandoffError.malformed
+        case .directMutation: throw V3RecoveryStorageFailure(.incompatibleRecord, recordPresent: true)
         }
     }
 
     private static func write(_ lease: V3OperationRecoveryLease, to url: URL) throws {
         guard let record = lease.record else {
-            if FileManager.default.fileExists(atPath: url.path) {
+            if try readState(url) != nil {
                 do { try FileManager.default.removeItem(at: url) }
-                catch { throw V3SecretHandoffError.unavailable }
+                catch {
+                    if !isMissingFile(error) {
+                        throw V3RecoveryStorageFailure(.deleteFailure, underlying: error,
+                                                       recordPresent: true)
+                    }
+                }
             }
             return
         }
         do {
             try writePropertyList(record.propertyListRepresentation, to: url)
-        } catch { throw V3SecretHandoffError.unavailable }
+        } catch { throw V3RecoveryStorageFailure(.storageUnavailable, underlying: error) }
     }
 
     static func current(containerRoot: URL? = nil) throws -> V3OperationRecoveryRecord? {
@@ -322,14 +491,32 @@ private enum V3OperationRecoveryJournal {
 
     @discardableResult
     static func discardUnreadableAfterDeviceCheck(userConfirmed: Bool,
-                                                   containerRoot: URL? = nil) throws -> Bool {
+                                                   containerRoot: URL? = nil,
+                                                   deleteRecord: (URL) throws -> Void = {
+                                                       try FileManager.default.removeItem(at: $0)
+                                                   }) throws -> Bool {
         guard userConfirmed else { return false }
         return try withLease(containerRoot: containerRoot) { url in
             do {
-                _ = try readState(url)
-                return false
-            } catch {
-                try FileManager.default.removeItem(at: url)
+                guard try readState(url) != nil else { return true }
+                return false // A valid operation or direct mutation still owns it.
+            } catch let failure as V3RecoveryStorageFailure {
+                guard failure.isMalformedOrIncompatible else { throw failure }
+                guard failure.clearEligible else {
+                    throw V3RecoveryStorageFailure(.deleteFailure, recordPresent: true)
+                }
+                do { try deleteRecord(url) }
+                catch {
+                    if !isMissingFile(error) {
+                        throw V3RecoveryStorageFailure(.deleteFailure, underlying: error,
+                                                       recordPresent: true)
+                    }
+                }
+                // Prove absence under the same process-shared lock before
+                // releasing any host or service recovery ownership.
+                guard try readState(url) == nil else {
+                    throw V3RecoveryStorageFailure(.deleteFailure, recordPresent: true)
+                }
                 return true
             }
         }
@@ -794,6 +981,7 @@ final class V3SideStoreService: NSObject {
         let recoveryRecord: V3OperationRecoveryRecord?
         var directRecoveryRecord: V3DirectMutationRecoveryRecord?
         let recoveryReadFailed: Bool
+        let recoveryStorageFailure: V3RecoveryStorageFailure?
         do {
             switch try V3OperationRecoveryJournal.currentState() {
             case .operation(let value): recoveryRecord = value
@@ -804,7 +992,26 @@ final class V3SideStoreService: NSObject {
             case nil: recoveryRecord = nil
             }
             recoveryReadFailed = false
-        } catch { recoveryRecord = nil; directRecoveryRecord = nil; recoveryReadFailed = true }
+            recoveryStorageFailure = nil
+        } catch let failure as V3RecoveryStorageFailure {
+            recoveryRecord = nil; directRecoveryRecord = nil; recoveryReadFailed = true
+            recoveryStorageFailure = failure
+        } catch {
+            recoveryRecord = nil; directRecoveryRecord = nil; recoveryReadFailed = true
+            recoveryStorageFailure = V3RecoveryStorageFailure(.readFailure, underlying: error)
+        }
+        if mutation, let failure = recoveryStorageFailure, !failure.clearEligible {
+            let refusal = operation == "recoveryDiscardUnreadable" && failure.isMalformedOrIncompatible
+                ? V3RecoveryStorageFailure(.deleteFailure, recordPresent: true) : failure
+            var response: [String: Any] = ["version": 1, "id": id, "error": "failed",
+                "failure": refusal.combined(operation: operation, id: id).wire]
+            if ["opStart", "authBegin", "authRetryProvisioning"].contains(operation) {
+                response["operationNotDispatched"] = true
+            }
+            _ = V3DirectMutationPreDispatchReplyPolicy.annotate(request: request, response: &response)
+            reply(encode(response, operation: operation))
+            return
+        }
         let directRecoveryControl = directRecoveryRecord?.requestID == target &&
             ["directRecoveryInspect", "directRecoveryReconcile"].contains(operation)
         if ["directRecoveryInspect", "directRecoveryReconcile"].contains(operation),
@@ -828,6 +1035,7 @@ final class V3SideStoreService: NSObject {
         let recoveryDecision = V3ServiceRecoveryAdmissionPolicy.decide(operation: operation,
             target: target, payload: payload, operationSessionID: operationSessionID,
             recovery: recoveryRecord, recoveryReadFailed: recoveryReadFailed,
+            recoveryDiscardable: recoveryStorageFailure?.clearEligible == true,
             refreshOwnerLost: refreshAdmission.ownerLost)
         let policyOperationMutationActive = V3ServiceMutationAdmissionPolicy.hasConflictingOperationMutation(
             operation: operation, target: target,
@@ -1511,9 +1719,12 @@ final class V3SideStoreService: NSObject {
             }
             do {
                 guard try V3OperationRecoveryJournal.discardUnreadableAfterDeviceCheck(userConfirmed: true) else {
-                    throw ServiceError.invalidRequest
+                    throw CombinedFailure(operation: operation, stage: .persistence,
+                        code: .busy, id: id, retryable: false, safeCause: .operationInProgress)
                 }
-            } catch { throw ServiceError.busy }
+            } catch let failure as V3RecoveryStorageFailure {
+                throw failure.combined(operation: operation, id: id)
+            }
             if refreshAdmission.ownerLost, let runID = refreshAdmission.runID {
                 _ = refreshAdmission.release(runID: runID)
             }
@@ -1974,6 +2185,7 @@ final class V3SideStoreService: NSObject {
         let operationRecovery: V3OperationRecoveryRecord?
         var directRecoveryRecord: V3DirectMutationRecoveryRecord?
         let recoveryJournalUnreadable: Bool
+        let recoveryStorageFailure: V3RecoveryStorageFailure?
         do {
             switch try V3OperationRecoveryJournal.currentState() {
             case .operation(let value): operationRecovery = value
@@ -1984,7 +2196,14 @@ final class V3SideStoreService: NSObject {
             case nil: operationRecovery = nil
             }
             recoveryJournalUnreadable = false
-        } catch { operationRecovery = nil; recoveryJournalUnreadable = true }
+            recoveryStorageFailure = nil
+        } catch let failure as V3RecoveryStorageFailure {
+            operationRecovery = nil; recoveryJournalUnreadable = true
+            recoveryStorageFailure = failure
+        } catch {
+            operationRecovery = nil; recoveryJournalUnreadable = true
+            recoveryStorageFailure = V3RecoveryStorageFailure(.readFailure, underlying: error)
+        }
         let activeMutation = mutationID != nil || activeAuthenticationSessionID != nil ||
             V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive
         var response: [String: Any] = ["updatedAt": Date(), "busy": mutationID != nil ||
@@ -2028,6 +2247,9 @@ final class V3SideStoreService: NSObject {
                              "idleTimeoutDisabled": UserDefaults.standard.isIdleTimeoutDisableEnabled,
                              "responseCachingDisabled": UserDefaults.standard.responseCachingDisabled,
                              "verboseOperations": UserDefaults.standard.isVerboseOperationsLoggingEnabled]]
+        if let recoveryStorageFailure {
+            response["recoveryStorageFailure"] = recoveryStorageFailure.snapshotValue
+        }
         if let activeSessionID = activeAuthenticationSessionID {
             response["authenticationSessionID"] = activeSessionID
         }

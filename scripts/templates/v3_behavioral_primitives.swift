@@ -350,6 +350,35 @@ enum V3StatusReplyCommitPolicy {
     }
 }
 
+enum V3RecoveryOnlySnapshotPolicy {
+    static func mayApplyFullStatus(busy: Bool, activeMutation: Bool,
+                                   recoveryHold: Bool, hasTypedRecoveryEvidence: Bool) -> Bool {
+        busy && !activeMutation && recoveryHold && hasTypedRecoveryEvidence
+    }
+}
+
+enum V3RecoveryStoragePresentationPolicy {
+    static func mayOfferClear(connected: Bool, unresolved: Bool, kind: String?,
+                              serverClearEligible: Bool) -> Bool {
+        connected && unresolved && serverClearEligible &&
+            ["malformedRecord", "incompatibleRecord"].contains(kind ?? "")
+    }
+
+    static func confirmsCleared(snapshotApplied: Bool, unreadable: Bool,
+                                operationRecovery: Bool, directRecovery: Bool,
+                                refreshRecovery: Bool) -> Bool {
+        snapshotApplied && !unreadable && !operationRecovery && !directRecovery && !refreshRecovery
+    }
+}
+
+enum V3RecoveryClearHostAdmissionPolicy {
+    static func permits(operation: String, target: String, userConfirmed: Bool,
+                        recoveryHold: Bool, otherMutationActive: Bool) -> Bool {
+        operation == "recoveryDiscardUnreadable" && target.isEmpty && userConfirmed &&
+            recoveryHold && !otherMutationActive
+    }
+}
+
 enum V3StatusRecoveryEvidencePolicy {
     static func mayApply(busySnapshot: Bool, activeMutation: Bool?,
                          hasDurableRecoveryEvidence: Bool) -> Bool {
@@ -5179,7 +5208,8 @@ enum V3ServiceRecoveryAdmissionPolicy {
 
     static func decide(operation: String, target: String, payload: [String: Any],
                        operationSessionID: String?, recovery: V3OperationRecoveryRecord?,
-                       recoveryReadFailed: Bool, refreshOwnerLost: Bool) -> V3ServiceRecoveryAdmissionDecision {
+                       recoveryReadFailed: Bool, recoveryDiscardable: Bool = false,
+                       refreshOwnerLost: Bool) -> V3ServiceRecoveryAdmissionDecision {
         let refreshRecordMatches = recovery?.kind == "refreshAll" && recovery?.sessionID == target
         let refreshTerminalState = payload["state"] as? String
         let hasRefreshTerminal = ["completed", "failed", "notDispatched"].contains(refreshTerminalState ?? "")
@@ -5192,7 +5222,7 @@ enum V3ServiceRecoveryAdmissionPolicy {
             ((operation == "refreshAdmissionEnd" && hasRefreshTerminal) ||
              (operation == "refreshAdmissionReconcile" && userConfirmed))
         let unreadableRecoveryControl = operation == "recoveryDiscardUnreadable" &&
-            recoveryReadFailed && recovery == nil && userConfirmed
+            recovery == nil && userConfirmed && (!recoveryReadFailed || recoveryDiscardable)
         let recoveryControl = operationControl || refreshControl || unreadableRecoveryControl
         let matchingPreparedStart = operation == "opStart" && recovery?.kind != "refreshAll" &&
             operationSessionID == recovery?.sessionID && payload["kind"] as? String == recovery?.kind &&
@@ -5203,7 +5233,7 @@ enum V3ServiceRecoveryAdmissionPolicy {
         let blocksMutation = (recoveryReadFailed && !unreadableRecoveryControl) ||
             (recovery != nil && !recoveryControl && !matchingPreparedStart && !matchingPreparedReservation)
         let unreadableRefreshRelease = operation == "recoveryDiscardUnreadable" &&
-            recoveryReadFailed && refreshOwnerLost && userConfirmed
+            unreadableRecoveryControl && refreshOwnerLost
         let refreshRelease = unreadableRefreshRelease || (refreshRecordMatches &&
             ((operation == "refreshAdmissionEnd" && hasRefreshTerminal) ||
              (operation == "refreshAdmissionReconcile" && refreshOwnerLost && userConfirmed)))

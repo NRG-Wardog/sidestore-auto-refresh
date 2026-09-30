@@ -10,7 +10,9 @@ import Glibc
 /// Advisory process-shared lock for operations that must coordinate between
 /// the LiveContainer app and its embedded service process. NSLock is process local.
 enum V3AppGroupProcessLock {
-    static func withLock<T>(containerRoot: URL? = nil, _ operation: () throws -> T) throws -> T {
+    static func withLock<T>(containerRoot: URL? = nil,
+                            onFailure: ((String, String, Int) -> Void)? = nil,
+                            _ operation: () throws -> T) throws -> T {
         #if canImport(Darwin)
         let container: URL
         if let containerRoot { container = containerRoot }
@@ -20,12 +22,16 @@ enum V3AppGroupProcessLock {
             // depending on SideStore's app-target-only Bundle extension.
             guard let sharedContainer = FileManager.default.containerURL(
                     forSecurityApplicationGroupIdentifier: "group.com.SideStore.SideStore") else {
+                onFailure?("appGroup", "none", 0)
                 throw V3SecretHandoffError.unavailable
             }
             container = sharedContainer
         }
         #elseif canImport(Glibc)
-        guard let containerRoot else { throw V3SecretHandoffError.unavailable }
+        guard let containerRoot else {
+            onFailure?("appGroup", "none", 0)
+            throw V3SecretHandoffError.unavailable
+        }
         let container = containerRoot
         #else
         throw V3SecretHandoffError.unavailable
@@ -40,13 +46,27 @@ enum V3AppGroupProcessLock {
                   directory.resolvingSymlinksInPath().standardizedFileURL == directory else {
                 throw V3SecretHandoffError.unavailable
             }
-        } catch { throw V3SecretHandoffError.unavailable }
+        } catch {
+            let native = error as NSError
+            let safe = [NSCocoaErrorDomain, NSPOSIXErrorDomain].contains(native.domain)
+            onFailure?("directory", safe ? native.domain : "redacted", safe ? native.code : 0)
+            throw V3SecretHandoffError.unavailable
+        }
         let path = directory.appendingPathComponent("keychain-transaction.lock").path
         let descriptor = open(path, O_CREAT | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
-        guard descriptor >= 0 else { throw V3SecretHandoffError.unavailable }
+        guard descriptor >= 0 else {
+            onFailure?("open", NSPOSIXErrorDomain, errno)
+            throw V3SecretHandoffError.unavailable
+        }
         defer { _ = close(descriptor) }
-        guard fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else { throw V3SecretHandoffError.unavailable }
-        guard flock(descriptor, LOCK_EX) == 0 else { throw V3SecretHandoffError.unavailable }
+        guard fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else {
+            onFailure?("permissions", NSPOSIXErrorDomain, errno)
+            throw V3SecretHandoffError.unavailable
+        }
+        guard flock(descriptor, LOCK_EX) == 0 else {
+            onFailure?("flock", NSPOSIXErrorDomain, errno)
+            throw V3SecretHandoffError.unavailable
+        }
         defer { _ = flock(descriptor, LOCK_UN) }
         return try operation()
     }
