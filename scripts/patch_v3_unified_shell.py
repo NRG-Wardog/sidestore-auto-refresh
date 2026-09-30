@@ -89,7 +89,7 @@ def patch_host(root: Path) -> None:
     text = shared.read_text(encoding="utf-8")
     if "case home" not in text:
         text = replace_once(text, "public enum LCTabIdentifier: Hashable {\n    case sources\n    case apps\n    case tweaks\n    case settings\n}",
-                            "public enum LCTabIdentifier: Hashable {\n    case home\n    case sources\n    case apps\n    case refresh\n    case tweaks\n    case settings\n}", "tab identifiers")
+                            "public enum LCTabIdentifier: Hashable {\n    case home\n    case sources\n    case apps\n    case settings\n}", "tab identifiers")
         text = replace_once(text,
                             '    @Published var selectedTab: LCTabIdentifier = .apps',
                             '    @Published var selectedTab: LCTabIdentifier = LCLaunchTab.resolve(LCUtils.appGroupUserDefault.string(forKey: LCLaunchTab.storageKey)) == .apps ? .apps : .home',

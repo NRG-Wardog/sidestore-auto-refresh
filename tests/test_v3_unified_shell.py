@@ -151,6 +151,9 @@ class V3UnifiedShellTests(unittest.TestCase):
             self.assertIn('"Views/LCAltStoreSourcesView.swift"', project)
             self.assertIn('"LCAltStoreSourceURLs"', shell,
                 "source URL migration remains readable after the obsolete screen is excluded")
+            shared = (live / "LiveContainerSwiftUI/Utilities/Shared.swift").read_text()
+            self.assertNotIn("case refresh", shared)
+            self.assertNotIn("case tweaks", shared)
             self.assertIn("struct V3UnifiedShell", shell)
             self.assertIn(".tag(LCTabIdentifier.home)", shell)
             self.assertNotIn(".tag(LCTabIdentifier.refresh)", shell)
