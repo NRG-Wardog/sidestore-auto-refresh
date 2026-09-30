@@ -516,12 +516,11 @@ def verify(texts):
         if f"self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];" not in decorated:
             raise ValueError("Return visibility transition missing: " + state)
     # The SideStore-only escape hook that used to carry a second copy of the
-    # direct-return diagnostic was removed with the rest of that UI. Reject it
-    # here rather than quietly relying on another patcher having removed it.
-    for removed in ("SideStoreMyAppsViewController_hook_escapeButtonTapped",
-                    "SideStoreMyAppsViewController_orig_viewDidload"):
-        if removed in hooks:
-            raise ValueError("retired SideStore UI hook returned: " + removed)
+    # direct-return diagnostic is removed by the startup patcher, which runs
+    # after this one. Its presence is therefore not an error here; this patcher
+    # simply never reads it for anything but writing the file back unchanged.
+    if DIRECT_CONTROL.strip() in hooks or DIRECT_RUNTIME.strip() in hooks:
+        raise ValueError("the direct return control must not be duplicated into SideStore hooks")
 
 
 def patch(root):

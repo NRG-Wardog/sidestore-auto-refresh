@@ -149,7 +149,6 @@ class GuestReturnTests(unittest.TestCase):
                       "the hook removal must stay anchored to the swizzle it removes")
         for removed in ("SideStoreMyAppsViewController_hook_escapeButtonTapped",
                         "SideStoreMyAppsViewController_orig_viewDidload"):
-            self.assertIn(removed, source, "the retired hook must stay rejected")
             self.assertNotIn(removed, module.DIRECT_CONTROL + module.DIRECT_RUNTIME + module.METHODS,
                              "the shipped return control must not reintroduce the removed hook")
         self.assertNotIn("hooks = replace(hooks", source,
