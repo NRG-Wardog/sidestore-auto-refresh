@@ -1634,6 +1634,9 @@ import Foundation
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
         self.assertIn("SideStore/Core/Anisette", workflow)
         self.assertIn("AltStore/Managing Apps/AppManager.swift", workflow)
+        auth_allowlist = workflow[workflow.index("expected_auth=$(printf"):workflow.index('test "$actual_auth" = "$expected_auth"')]
+        self.assertIn("'SideStore/Core/Auth/DeveloperPortalProxy.swift'", auth_allowlist)
+        self.assertIn("'SideStore/Core/Auth/AuthManager.swift'", auth_allowlist)
         self.assertIn("--verify-headless-ui-adapters", workflow)
         self.assertIn("--verify-sign-in-operation", workflow)
         self.assertIn('"$EMBEDDED_SIDESTORE_REF"', workflow)

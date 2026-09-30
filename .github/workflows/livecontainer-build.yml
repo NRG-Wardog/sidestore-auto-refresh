@@ -268,7 +268,8 @@ jobs:
           git -C work/EmbeddedSideStore diff --exit-code -- SideStore/Core/Anisette
           expected_auth=$(printf '%s\n' \
             'AltStore/Managing Apps/AppManager.swift' \
-            'SideStore/Core/Auth/AuthManager.swift' | sort)
+            'SideStore/Core/Auth/AuthManager.swift' \
+            'SideStore/Core/Auth/DeveloperPortalProxy.swift' | sort)
           actual_auth=$(git -C work/EmbeddedSideStore diff --name-only -- \
             'AltStore/Managing Apps/AppManager.swift' SideStore/Core/Auth | sort)
           test "$actual_auth" = "$expected_auth"
