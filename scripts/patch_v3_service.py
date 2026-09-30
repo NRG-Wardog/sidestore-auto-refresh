@@ -109,6 +109,12 @@ HEADLESS_SIDESTORE_AUX_UI_FILES = (
 HEADLESS_SIDESTORE_PIPELINE_UI_FILES = (
     "Managing Apps/AppExtensionView.swift",
     "Permissions/ReviewPermissionsViewController.swift",
+)
+# These live in the SideStore module, not AltStore, so they are excluded through
+# the SideStore target's membership exceptions. PresenterProvider is a typealias
+# in SideStore/Handlers used only by the PipelineHandler this patch rewrites, so
+# excluding its declaration leaves the headless target with no dangling use.
+HEADLESS_SIDESTORE_HANDLER_UI_FILES = (
     "Handlers/PresenterProvider.swift",
 )
 
@@ -372,10 +378,11 @@ def headless_project(text):
 		};'''
     view_exclusions = "".join(f'\t\t\t\t"{path}",\n'
                                for path in HEADLESS_SIDESTORE_VIEW_FILES + HEADLESS_SIDESTORE_AUX_UI_FILES)
+    handler_exclusions = "".join(f'\t\t\t\t"{path}",\n' for path in HEADLESS_SIDESTORE_HANDLER_UI_FILES)
     headless_side_store_source_exception = replace(
         headless_side_store_source_exception,
         '\t\t\t\t"Handlers/SignInFlowHandler.swift",\n',
-        '\t\t\t\t"Handlers/SignInFlowHandler.swift",\n' + view_exclusions)
+        '\t\t\t\t"Handlers/SignInFlowHandler.swift",\n' + view_exclusions + handler_exclusions)
     text = replace(text, side_store_source_exception, headless_side_store_source_exception)
     # Starscream has no source references. MarkdownKit and Nuke are used only
     # by excluded legacy UI/cache code; the backend clears the old cache folder

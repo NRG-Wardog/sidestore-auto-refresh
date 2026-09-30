@@ -117,7 +117,8 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
 
     def test_pipeline_ui_types_are_discovered_from_production_patch_file_list(self):
         side_files = (patch_v3_service.HEADLESS_SIDESTORE_VIEW_FILES +
-                      patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES)
+                      patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES +
+                      patch_v3_service.HEADLESS_SIDESTORE_HANDLER_UI_FILES)
         pipeline_files = patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES
         source_by_path = {
             "AltStore/Managing Apps/AppExtensionView.swift": "struct AppExtensionView {}",
@@ -143,6 +144,19 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
 
         self.assertEqual(found, ["AppExtensionView", "ReviewPermissionsViewController"])
 
+    def test_every_excluded_source_resolves_to_its_own_module_root(self):
+        # The AltStore and SideStore modules are separate synchronized groups,
+        # so an exclusion is only effective under the root that really holds the
+        # file. PresenterProvider is declared in SideStore/Handlers, so listing
+        # it as AltStore would silently exclude nothing and keep the typealias
+        # compiled into the headless target.
+        self.assertEqual(
+            [relative for relative in patch_v3_service.HEADLESS_SIDESTORE_HANDLER_UI_FILES],
+            ["Handlers/PresenterProvider.swift"])
+        for relative in patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES:
+            self.assertNotIn("Handlers/", relative,
+                             "a SideStore handler is not an AltStore pipeline view")
+
     def test_exact_pinned_source_inventory_resolves_both_pipeline_ui_files(self):
         side_source_value = os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
         if not side_source_value:
@@ -155,7 +169,8 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
         found = verify_module.excluded_side_store_view_type_names(
             side_source,
             patch_v3_service.HEADLESS_SIDESTORE_VIEW_FILES +
-            patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES,
+            patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES +
+            patch_v3_service.HEADLESS_SIDESTORE_HANDLER_UI_FILES,
             source_ref=pinned,
             additional_source_roots={
                 "AltStore": patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES})
@@ -242,7 +257,8 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
                 passed_files = inventory_check.call_args.args[1]
                 self.assertEqual(passed_files,
                                  patch_v3_service.HEADLESS_SIDESTORE_VIEW_FILES +
-                                 patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES)
+                                 patch_v3_service.HEADLESS_SIDESTORE_AUX_UI_FILES +
+                                 patch_v3_service.HEADLESS_SIDESTORE_HANDLER_UI_FILES)
                 self.assertEqual(inventory_check.call_args.kwargs["additional_source_roots"], {
                     "AltStore": patch_v3_service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES})
 

@@ -20,6 +20,9 @@ extension LiveContainerAutoRefreshScheduler {
         UIApplication.shared.openedURLs = []
     }
     static func exercise() async {
+        // Before any store access: every key below is cross-process state, and
+        // the runner has no App Group entitlement to resolve one.
+        HarnessContainerFileManager.install()
         clearTestState()
         UNUserNotificationCenter.shared.settings = UNNotificationSettings(authorizationStatus: .denied)
         await LiveContainerAutoRefreshScheduler.requestNotificationPermissionFromUserAction()

@@ -76,7 +76,12 @@ enum V3SharedAppGroup {
     }
 
     static func isPackagedSideStoreGroup(_ group: String) -> Bool {
-        guard group == packagedGroup || group.hasPrefix(packagedGroup + ".") else { return false }
+        // The plain packaged name ranks as itself. Without this early return the
+        // suffix below would be taken from a string one character longer than
+        // this one, and the exact name would rank as an ordinary entry, putting
+        // a foreign group ahead of the packaged one.
+        if group == packagedGroup { return true }
+        guard group.hasPrefix(packagedGroup + ".") else { return false }
         let suffix = group.dropFirst(packagedGroup.count + 1)
         return !suffix.isEmpty && suffix.utf8.allSatisfy {
             (UInt8(ascii: "0")...UInt8(ascii: "9")).contains($0) ||
@@ -121,6 +126,13 @@ enum V3SharedAppGroup {
     /// move the shared store underneath the other process.
     /// LC_RULE_PACKAGED_FALLBACK_ONLY: with no runtime group at all, the
     /// packaged entitlement is the only fallback.
+    /// The platform's own answer to "can this process open that group".
+    /// Production leaves this at `.default`. The behavioral harnesses substitute
+    /// one, because a macOS runner has no App Group entitlement and would
+    /// otherwise resolve every group as unavailable and be unable to exercise
+    /// any of the code that depends on the shared store actually existing.
+    static var containerFileManager: FileManager = .default
+
     static func identity(selectedGroup: String? = nil,
                          inheritedGroup: String? = nil,
                          usesEnvironment: Bool = true,
@@ -152,9 +164,10 @@ enum V3SharedAppGroup {
     }
 
     static func runtimeIdentity(selectedGroup: String? = nil, bundle: Bundle = .main,
-                                fileManager: FileManager = .default) -> Identity? {
-        identity(selectedGroup: selectedGroup, bundleInfo: bundle.infoDictionary ?? [:]) {
-            fileManager.containerURL(forSecurityApplicationGroupIdentifier: $0)
+                                fileManager: FileManager? = nil) -> Identity? {
+        let resolver = fileManager ?? containerFileManager
+        return identity(selectedGroup: selectedGroup, bundleInfo: bundle.infoDictionary ?? [:]) {
+            resolver.containerURL(forSecurityApplicationGroupIdentifier: $0)
         }
     }
 

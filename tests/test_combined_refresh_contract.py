@@ -87,7 +87,29 @@ class CombinedRefreshContractTests(unittest.TestCase):
             compiler = shutil.which("swiftc")
             if not compiler:
                 self.skipTest("requires Swift; generated-source checks above passed")
-            swift = r'''import Foundation
+            HARNESS_FILE_MANAGER = r'''
+
+/// A macOS runner has no App Group entitlement, so the real container lookup
+/// reports every group unavailable and the refresh helpers would correctly
+/// refuse. This answers the same question with a real directory.
+final class HarnessContainerFileManager: FileManager {
+    static var roots: [String: URL] = [:]
+    override func containerURL(forSecurityApplicationGroupIdentifier identifier: String) -> URL? {
+        if let existing = HarnessContainerFileManager.roots[identifier] { return existing }
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("v3-harness-store-\(getpid())", isDirectory: true)
+            .appendingPathComponent(identifier.replacingOccurrences(of: "/", with: "_"),
+                                    isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        HarnessContainerFileManager.roots[identifier] = root
+        return root
+    }
+}
+V3SharedAppGroup.containerFileManager = HarnessContainerFileManager()
+'''
+            shared_group = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8")
+            swift = shared_group + "\n" + HARNESS_FILE_MANAGER + r'''
+import Foundation
 enum AutomaticRefreshEvent { case failed }
 enum AutomaticRefreshFailureCategory: String {
     case unknown
@@ -347,7 +369,31 @@ print("standalone manifest privacy PASS")
             classifier_start = runtime.index("enum V3HeadlessPairingFailure {")
             classifier_end = runtime.index("\n// V3_HEADLESS_RUNTIME_V1", classifier_start)
             pairing_classifier = runtime[classifier_start:classifier_end]
-            swift = wire + "\n" + failure + "\n" + primitives + "\n" + context + r'''
+            # The refresh helpers resolve their store through V3SharedAppGroup,
+            # so the shared identity has to be in the program for this to be the
+            # production code path rather than a rewritten one.
+            HARNESS_FILE_MANAGER = r'''
+
+/// A macOS runner has no App Group entitlement, so the real container lookup
+/// reports every group unavailable and the refresh helpers would correctly
+/// refuse. This answers the same question with a real directory.
+final class HarnessContainerFileManager: FileManager {
+    static var roots: [String: URL] = [:]
+    override func containerURL(forSecurityApplicationGroupIdentifier identifier: String) -> URL? {
+        if let existing = HarnessContainerFileManager.roots[identifier] { return existing }
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("v3-harness-store-\(getpid())", isDirectory: true)
+            .appendingPathComponent(identifier.replacingOccurrences(of: "/", with: "_"),
+                                    isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        HarnessContainerFileManager.roots[identifier] = root
+        return root
+    }
+}
+V3SharedAppGroup.containerFileManager = HarnessContainerFileManager()
+'''
+            shared_group = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text()
+            swift = shared_group + "\n" + HARNESS_FILE_MANAGER + "\n" + wire + "\n" + failure + "\n" + primitives + "\n" + context + r'''
 enum OperationError: Error {
     case invalidPairingFile(reason: String)
     case other

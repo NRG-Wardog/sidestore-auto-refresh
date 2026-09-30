@@ -979,6 +979,9 @@ import Foundation
              "Views/Settings/LCSettingsView.swift", "Views/Settings/LCMultiLCManagementView.swift",
              "Utilities/Shared.swift", "Utilities/LCUtilsExtensions.swift", "App/LiveContainerSwiftUIApp.swift", "App/AppDelegate.swift")] +
             ["MultitaskSupport/AppSceneViewController." + suffix for suffix in ("h", "m")] +
+            # The host patch excludes a retired view from the production target
+            # through the project file, so the fixture has to carry it.
+            ["LiveContainer.xcodeproj/project.pbxproj"] +
             ["LiveContainer/LCBootstrap.m", "LiveContainer/LCSharedUtils.m", "LiveProcess/main.m",
              "ShareExtension/ShareExtensionViewModel.swift", "LaunchAppExtension/LaunchAppExtension.swift"],
             ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",

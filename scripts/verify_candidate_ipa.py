@@ -21,6 +21,7 @@ from audit_ipa_signing import inventory
 from package_livecontainer_combined import verify_shared_secret_handoff_group
 from patch_v3_service import (HEADLESS_BACKEND_CONNECTION_CONFIG,
                               HEADLESS_SIDESTORE_AUX_UI_FILES,
+                              HEADLESS_SIDESTORE_HANDLER_UI_FILES,
                               HEADLESS_SIDESTORE_PIPELINE_UI_FILES,
                               HEADLESS_SIDESTORE_VIEW_FILES, PINS as SOURCE_PINS)
 
@@ -1019,7 +1020,9 @@ def verify(ipa: Path, provenance_path: Path, product: str,
             raise ValueError("embedded SideStore still contains legacy app intent code: "
                              + ", ".join(legacy_intents))
         headless_view_symbols = excluded_side_store_view_type_names(
-            side_source, HEADLESS_SIDESTORE_VIEW_FILES + HEADLESS_SIDESTORE_AUX_UI_FILES,
+            side_source,
+            HEADLESS_SIDESTORE_VIEW_FILES + HEADLESS_SIDESTORE_AUX_UI_FILES +
+            HEADLESS_SIDESTORE_HANDLER_UI_FILES,
             source_ref=SOURCE_PINS[1],
             additional_source_roots={"AltStore": HEADLESS_SIDESTORE_PIPELINE_UI_FILES})
         verify_no_excluded_side_store_ui(side_store_executable_data, headless_view_symbols)

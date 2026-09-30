@@ -1,6 +1,27 @@
 // Test doubles for the OS APIs. These verify our Swift types and coordinator
 // behavior, NOT iOS delivery, transport, signing, or physical-device execution.
 import Foundation
+
+/// A macOS runner has no App Group entitlement, so the real container lookup
+/// reports every group unavailable and the scheduler would correctly refuse to
+/// run anything. This answers the same question with a real directory, so the
+/// harness exercises the shared-store path the app actually takes on device.
+final class HarnessContainerFileManager: FileManager {
+    static var roots: [String: URL] = [:]
+    static func install() {
+        V3SharedAppGroup.containerFileManager = HarnessContainerFileManager()
+    }
+    override func containerURL(forSecurityApplicationGroupIdentifier identifier: String) -> URL? {
+        if let existing = HarnessContainerFileManager.roots[identifier] { return existing }
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("v3-harness-store-\(getpid())", isDirectory: true)
+            .appendingPathComponent(identifier.replacingOccurrences(of: "/", with: "_"),
+                                    isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        HarnessContainerFileManager.roots[identifier] = root
+        return root
+    }
+}
 @MainActor enum LiveContainerNetworkPreflight {
     static var error: Error?
     static var checks = 0
