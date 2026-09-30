@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 46
+PATCH_VERSION = 47
 BACKEND_CONNECTION_CONFIG_MANIFEST_KEY = "generated:SideStore/Core/DeviceApi/ConnectionConfig.swift"
 HEADLESS_ANISETTE_MODELS_MANIFEST_KEY = "generated:AltStore/Settings/AnisetteServerModels.swift"
 HEADLESS_ANISETTE_UI_SOURCE = "AltStore/Settings/AnisetteServerList.swift"
@@ -92,6 +92,7 @@ HEADLESS_SIDESTORE_AUX_UI_FILES = (
 HEADLESS_SIDESTORE_PIPELINE_UI_FILES = (
     "Managing Apps/AppExtensionView.swift",
     "Permissions/ReviewPermissionsViewController.swift",
+    "Handlers/PresenterProvider.swift",
 )
 
 HEADLESS_BACKEND_CONNECTION_CONFIG = '''// V3_HEADLESS_BACKEND_CONNECTION_CONFIG_V1: backend-owned transport configuration.
@@ -704,6 +705,76 @@ def headless_app_open(text):
     return text
 
 
+def headless_sidestore_app_ui(text):
+    """Strip the remaining standalone SideStore appearance and Patreon UI hooks."""
+    marker = "V3_HEADLESS_SIDESTORE_APP_UI_REMOVED_V1"
+    if marker in text:
+        if any(token in text for token in (
+                "UIStackView.appearance(whenContainedInInstancesOf:",
+                "stackViewAppearance.spacing",
+                "openPatreonSettingsDeepLinkNotification",
+                "setTintColor()")):
+            raise SystemExit("v3 service: legacy SideStore appearance or Patreon UI remains")
+        return text
+
+    appearance_hack = '''        // navigation bar buttons spacing is too much (so hack it to use minimal spacing)
+        // this is swift-5 specific behavior and might change
+        // https://stackoverflow.com/a/64988363/11971304
+        //
+        // Warning: this affects all screens through out the app, and basically overrides storyboard
+        let stackViewAppearance = UIStackView.appearance(whenContainedInInstancesOf: [UINavigationBar.self])
+        stackViewAppearance.spacing = -8        // adjust as needed
+''' + " " * 8 + "\n"
+    if text.count(appearance_hack) != 1:
+        raise SystemExit("v3 service: SideStore navigation appearance hook changed")
+    text = replace(text, appearance_hack, "")
+    patreon_notification = ('    nonisolated static let openPatreonSettingsDeepLinkNotification = '
+                            'Notification.Name(Bundle.Info.appbundleIdentifier + '
+                            '".OpenPatreonSettingsDeepLinkNotification")\n')
+    if text.count(patreon_notification) != 1:
+        raise SystemExit("v3 service: dead Patreon notification declaration changed")
+    text = replace(text, patreon_notification, "")
+    text = replace(text, "        self.setTintColor()\n", "")
+    text = replace_swift_function(text, "    func setTintColor()", "", "legacy tint-color hook")
+    if any(token in text for token in (
+            "UIStackView.appearance(whenContainedInInstancesOf:",
+            "stackViewAppearance.spacing",
+            "openPatreonSettingsDeepLinkNotification",
+            "setTintColor()")):
+        raise SystemExit("v3 service: legacy SideStore appearance or Patreon UI remains")
+    # Record the transformation without retaining an executable UI symbol.
+    return text + "\n// " + marker + ": generated service has no standalone navigation appearance or Patreon UI.\n"
+
+
+def headless_lc_tab_view(text):
+    marker = "V3_HEADLESS_LC_TAB_ROUTING_REMOVED_V1"
+    if marker in text:
+        if "dispatchURL" in text:
+            raise SystemExit("v3 service: obsolete LCTabView URL dispatcher remains")
+        return text
+    text = replace(text,
+        "        .onOpenURL { url in\n            dispatchURL(url: url)\n        }",
+        "        // " + marker + ": URL routing belongs to V3UnifiedShell.")
+    text = replace_swift_function(text, "    func dispatchURL(url: URL)", "",
+                                  "obsolete LCTabView URL dispatcher")
+    if "dispatchURL" in text:
+        raise SystemExit("v3 service: obsolete LCTabView URL dispatcher remains")
+    return text
+
+
+def headless_open_sidestore_helper(text):
+    marker = "V3_HEADLESS_OPEN_SIDESTORE_HELPER_REMOVED_V1"
+    if marker in text:
+        if "static func openSideStore(" in text:
+            raise SystemExit("v3 service: obsolete LCUtils SideStore launcher remains")
+        return text
+    signature = "    static func openSideStore(delegate: LCAppModelDelegate? = nil, urlStr: String? = nil)"
+    if text.count(signature) != 1:
+        raise SystemExit("v3 service: LCUtils SideStore launcher changed")
+    text = replace_swift_function(text, signature, "", "obsolete LCUtils SideStore launcher")
+    return text + "\n// " + marker + ": callers route through the unified host.\n"
+
+
 def extract_swift_declaration(source, signature):
     start = source.index(signature)
     opening = source.index("{", start)
@@ -792,6 +863,7 @@ def headless_sidestore_app_delegate(text):
     text = headless_background_fetch(text)
     text = headless_app_intent_routing(text)
     text = headless_app_open(text)
+    text = headless_sidestore_app_ui(text)
     text = headless_nuke_app_delegate(text)
     text = patch_crash_log_privacy(text)
     return text + (TEMPLATES / "v3_wire_contract.swift").read_text(encoding="utf-8") + \
@@ -905,6 +977,8 @@ def headless_app_manager_ui(text):
         if ("AuthManager.shared.signIn(\n                    presentingViewController:" in text
                 or "import Intents\n" in text
                 or "ResignAltStoreViewController" in text
+                or "presenterProvider:" in text
+                or "isResignActive:" in text
                 or deactivate_wrapper_signature in text
                 or "self.deactivateApps(for: appBundle" in text
                 or deactivate_wrapper_marker not in text
@@ -923,8 +997,15 @@ def headless_app_manager_ui(text):
         raise SystemExit("v3 service: AppManager sign-in wrapper no longer targets AuthManager")
     text = text[:start] + "    // " + marker + ": interactive sign-in is owned by the LiveContainer host.\n" + text[end:]
     text = replace(text,
-        "isResignActive: presentingViewController is ResignAltStoreViewController",
-        "isResignActive: false")
+        '''return PipelineHandler(
+            isResignActive: presentingViewController is ResignAltStoreViewController,
+            presenterProvider: { [weak presentingViewController] in
+                presentingViewController?.presentedViewController ?? presentingViewController
+            }
+        )''',
+        "return PipelineHandler()")
+    if "presenterProvider:" in text or "isResignActive:" in text:
+        raise SystemExit("v3 service: AppManager PipelineHandler presenter state remains")
     if "ResignAltStoreViewController" in text:
         raise SystemExit("v3 service: legacy resign presenter still reaches AppManager")
     text = replace(text, "        let nsError = error as NSError",
@@ -1418,7 +1499,43 @@ def headless_pipeline_handler(text):
     // ''' + decisions_marker + ''': preserve the validated corrected group without UI.
     return .correctAndProceed(correctedGroup)
 }''',
+        "func requestBackgroundSuspension() async":
+            '''func requestBackgroundSuspension() async {
+    // ''' + decisions_marker + ''': suspension is controlled by the host lifecycle.
+}''',
     }
+
+    presenter_marker = "V3_HEADLESS_PIPELINE_PRESENTER_REMOVED_V1"
+    presenter_block = '''    let isResignActive: Bool
+    private let presenterProvider: PresenterProvider?
+''' + " " * 4 + '''
+    init(
+        isResignActive: Bool = false,
+        presenterProvider: PresenterProvider? = nil
+    ) {
+        self.isResignActive = isResignActive
+        self.presenterProvider = presenterProvider
+    }
+
+    @MainActor
+    private var isPresenterAvailable: Bool {
+        return self.activePresenter != nil
+    }
+
+    @MainActor
+    private var activePresenter: UIViewController? {
+        return self.presenterProvider?()
+    }
+    '''
+    if presenter_marker not in text:
+        if text.count(presenter_block) != 1:
+            raise SystemExit("v3 service: PipelineHandler presenter state changed")
+        text = replace(text, presenter_block,
+                       "    let isResignActive = false\n\n    // " +
+                       presenter_marker + ": headless operations never request resign suspension.")
+    elif (text.count("    let isResignActive = false\n") != 1 or
+          any(token in text for token in ("presenterProvider", "activePresenter", "isPresenterAvailable"))):
+        raise SystemExit("v3 service: legacy PipelineHandler presenter state remains")
 
     def declaration(source, signature):
         if source.count(signature) != 1:
@@ -1442,6 +1559,10 @@ def headless_pipeline_handler(text):
                 raise SystemExit("v3 service: headless PipelineHandler UI decisions drifted")
         if "AppExtensionViewHostingController" in text or "ReviewPermissionsViewController" in text:
             raise SystemExit("v3 service: removed PipelineHandler UI controller reference remains")
+        if (text.count("    let isResignActive = false\n") != 1 or any(token in text for token in (
+                "isResignActive:", "presenterProvider", "activePresenter", "isPresenterAvailable",
+                "UIAlertController", "Finish Refresh", "presentingViewController"))):
+            raise SystemExit("v3 service: legacy PipelineHandler presenter state remains")
         return text
 
     patched = text
@@ -1450,6 +1571,10 @@ def headless_pipeline_handler(text):
                                          "headless PipelineHandler UI decision")
     if "AppExtensionViewHostingController" in patched or "ReviewPermissionsViewController" in patched:
         raise SystemExit("v3 service: removed PipelineHandler UI controller reference remains")
+    if (patched.count("    let isResignActive = false\n") != 1 or any(token in patched for token in (
+            "isResignActive:", "presenterProvider", "activePresenter", "isPresenterAvailable",
+            "UIAlertController", "Finish Refresh", "presentingViewController"))):
+        raise SystemExit("v3 service: legacy PipelineHandler presenter state remains")
     return patched
 
 
@@ -2393,7 +2518,7 @@ def patch(live, side):
         start = s.index("        TabView(selection: $sharedModel.selectedTab) {")
         end = s.index("        .downloadAlert", start)
         s = s[:start] + "        content\n" + s[end:]
-        return replace(s, "        .onOpenURL { url in\n            dispatchURL(url: url)\n        }", "        // URL routing belongs to V3UnifiedTabs.")
+        return headless_lc_tab_view(s)
     edit(live, "LiveContainerSwiftUI/Views/LCTabView.swift", lifecycle)
 
     edit(live, "SideStoreSupport/XPCServer.h", lambda s: replace(s, "@protocol RefreshClient\n", '''@protocol RefreshClient
@@ -2554,7 +2679,8 @@ def patch(live, side):
                 _ = try await V3ServiceBridge.shared.request(operation: "jit", target: identifier)
                 onServerMessage?("SideStore completed the JIT request.")
             } catch { onServerMessage?(error.localizedDescription) }''' + s[end:]
-    edit(live, "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift", guest_jit)
+    edit(live, "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift",
+         lambda s: headless_open_sidestore_helper(guest_jit(s)))
     edit(live, "LiveContainer/LCBootstrap.m", lambda s: replace(s,
         '    if([lcUserDefaults boolForKey:@"LCOpenSideStore"] || [selectedApp isEqualToString:@"builtinSideStore"]) {',
         '''    // V3_COMMAND_PATCH_V1: upgrade old startup selection into unified navigation.
@@ -2584,12 +2710,15 @@ def patch(live, side):
     # A service-owned blank presenter replaces the legacy tab controller. Auth and
     # operation confirmation controllers render remotely within the host sheet.
     def scene_delegate(s):
-        s = replace(s,
-            '        guard let _ = (scene as? UIWindowScene) else { return }',
-            '''        guard let windowScene = scene as? UIWindowScene else { return }
-        // V3_HEADLESS_SERVICE_V2: no window, tab bar, presenter, or visible UI
-        // in a service scene. The process executes headless backend commands.
-        _ = windowScene''')
+        cast = '        guard let _ = (scene as? UIWindowScene) else { return }\n'
+        cast_marker = "V3_HEADLESS_SCENE_WINDOW_CAST_REMOVED_V1"
+        if cast_marker in s:
+            if "scene as? UIWindowScene" in s or "windowScene" in s:
+                raise SystemExit("v3 service: SceneDelegate no-op window cast remains")
+        else:
+            if s.count(cast) != 1:
+                raise SystemExit("v3 service: SceneDelegate no-op window cast changed")
+            s = replace(s, cast, "        // " + cast_marker + ": service scenes have no window setup.\n")
         return headless_scene_open(redact_external_url_logs(s, "AltStore/SceneDelegate.swift"))
     edit(side, "AltStore/SceneDelegate.swift", scene_delegate)
     edit(side, "SideStore/DeepLinks/URLHandler.swift", headless_url_handler)

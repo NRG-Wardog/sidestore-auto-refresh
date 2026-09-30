@@ -754,12 +754,66 @@ import Foundation
         self.assertNotIn("self.window?.tintColor", patched)
         self.assertIn("appBackupDidFinish", patched)
         self.assertEqual(service.headless_app_open(patched), patched)
+        generated_app = service.headless_sidestore_app_ui(original)
+        self.assertNotIn("UIStackView.appearance(whenContainedInInstancesOf:", generated_app)
+        self.assertNotIn("stackViewAppearance.spacing", generated_app)
+        self.assertNotIn("openPatreonSettingsDeepLinkNotification", generated_app)
+        self.assertNotIn("setTintColor()", generated_app)
+        self.assertEqual(service.headless_sidestore_app_ui(generated_app), generated_app)
         scene = (Path(side) if side else ROOT / ".audit/v3-side-upstream") / "AltStore/SceneDelegate.swift"
         scene_patched = service.headless_scene_open(scene.read_text(encoding="utf-8"))
         self.assertNotIn("pendingImportIPAURL", scene_patched)
         self.assertNotIn("    var window: UIWindow?", scene_patched)
         self.assertNotIn("exportPairingFile", scene_patched)
         self.assertEqual(service.headless_scene_open(scene_patched), scene_patched)
+
+    def test_dead_livecontainer_url_helpers_are_removed_after_unified_routing(self):
+        live = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
+        live_source = Path(live) if live else ROOT.parent / "v3-live"
+        tab_path = live_source / "LiveContainerSwiftUI/Views/LCTabView.swift"
+        utils_path = live_source / "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift"
+        if not tab_path.is_file() or not utils_path.is_file():
+            self.skipTest("Pinned LiveContainer source unavailable")
+
+        tab = service.headless_lc_tab_view(tab_path.read_text(encoding="utf-8"))
+        self.assertNotIn("dispatchURL", tab)
+        self.assertIn("V3_HEADLESS_LC_TAB_ROUTING_REMOVED_V1: URL routing belongs to V3UnifiedShell", tab)
+        self.assertEqual(service.headless_lc_tab_view(tab), tab)
+
+        utils = service.headless_open_sidestore_helper(utils_path.read_text(encoding="utf-8"))
+        self.assertNotIn("static func openSideStore(", utils)
+        self.assertIn("V3_HEADLESS_OPEN_SIDESTORE_HELPER_REMOVED_V1", utils)
+        self.assertEqual(service.headless_open_sidestore_helper(utils), utils)
+
+        refs = subprocess.check_output([
+            "git", "-C", str(live_source), "grep", "-n", "-F", "LCUtils.openSideStore(",
+            service.PINS[0], "--", "*.swift"], text=True, encoding="utf-8").splitlines()
+        self.assertEqual(len(refs), 3, "all pinned callers are patched by the service builder")
+        if os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE"):
+            with tempfile.TemporaryDirectory() as name:
+                roots = self.fixture(Path(name))
+                self.apply(roots)
+                app_list = (roots[0] / "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift").read_text(encoding="utf-8")
+                multi_lc = (roots[0] / "LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift").read_text(encoding="utf-8")
+                generated_utils = (roots[0] / "LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift").read_text(encoding="utf-8")
+                self.assertNotIn("LCUtils.openSideStore(", app_list + multi_lc + generated_utils)
+                self.assertNotIn("func dispatchURL(url: URL)",
+                                 (roots[0] / "LiveContainerSwiftUI/Views/LCTabView.swift").read_text(encoding="utf-8"))
+
+    def test_app_manager_pipeline_factory_drops_presenter_closure(self):
+        source = pinned_sidestore_source()
+        if source is None:
+            self.skipTest("Pinned SideStore source unavailable")
+        app_manager = subprocess.check_output([
+            "git", "-C", str(source), "show",
+            service.PINS[1] + ":AltStore/Managing Apps/AppManager.swift"],
+            text=True, encoding="utf-8")
+        generated = service.headless_app_manager_ui(app_manager)
+        self.assertIn("return PipelineHandler()", generated)
+        self.assertNotIn("presenterProvider:", generated)
+        self.assertNotIn("isResignActive:", generated)
+        self.assertNotIn("ResignAltStoreViewController", generated)
+        self.assertEqual(service.headless_app_manager_ui(generated), generated)
 
     def test_headless_removal_emits_clean_pinned_source_diff(self):
         side = pinned_sidestore_source()
@@ -1066,7 +1120,28 @@ import Foundation
             self.assertIn("return false", pipeline[pipeline.index("func resolveUnsupportediOSVersion("):])
             self.assertIn("return (initialBundleID, true)", pipeline)
             self.assertIn("return .correctAndProceed(correctedGroup)", pipeline)
+            self.assertNotIn("presenterProvider", pipeline)
+            self.assertNotIn("activePresenter", pipeline)
+            self.assertNotIn("UIAlertController", pipeline)
+            self.assertNotIn("Finish Refresh", pipeline)
+            self.assertIn("let isResignActive = false", pipeline)
+            self.assertIn("func requestBackgroundSuspension() async", pipeline)
+            self.assertIn("suspension is controlled by the host lifecycle", pipeline)
+            self.assertIn("func suspendToHomeScreen() async", pipeline)
+            self.assertIn("func isAppInForeground() async -> Bool", pipeline)
             self.assertEqual(service.headless_pipeline_handler(pipeline), pipeline)
+
+            pipeline_protocol = subprocess.check_output([
+                "git", "-C", os.environ["EMBEDDED_SIDESTORE_TEST_SOURCE"], "show",
+                service.PINS[1] + ":SideStore/Core/Operations/PipelineExecutionHandler.swift"],
+                text=True, encoding="utf-8")
+            pipeline_runner = subprocess.check_output([
+                "git", "-C", os.environ["EMBEDDED_SIDESTORE_TEST_SOURCE"], "show",
+                service.PINS[1] + ":SideStore/Core/Operations/PipelineRunner.swift"],
+                text=True, encoding="utf-8")
+            self.assertIn("var isResignActive: Bool { get }", pipeline_protocol)
+            self.assertIn("handler.preflightChecksHandler.isResignActive == true", pipeline_runner)
+            self.assertIn("Handlers/PresenterProvider.swift", service.HEADLESS_SIDESTORE_PIPELINE_UI_FILES)
 
             step_source = (side / "SideStore/Core/Operations/OperationStepDefinition.swift").read_text(encoding="utf-8")
             refresh_steps = step_source[step_source.index("static let refresh:"):
@@ -1175,10 +1250,9 @@ import Foundation
             self.assertIn('"Components/NavigationBar.swift"', project[member_start:member_end])
             self.assertIn('"Extensions/INInteraction+AltStore.swift"', project[member_start:member_end])
             manager = (roots[1] / "AltStore/Managing Apps/AppManager.swift").read_text(encoding="utf-8")
-            self.assertIn("isResignActive: false,", manager)
-            self.assertIn("presenterProvider:", manager)
-            self.assertNotIn("isResignActive: false //", manager,
-                             "the generated backend call must preserve the argument separator")
+            self.assertIn("return PipelineHandler()", manager)
+            self.assertNotIn("presenterProvider:", manager)
+            self.assertNotIn("isResignActive:", manager)
             self.apply(roots)
             self.assertEqual(first, self.snapshot(directory))
             path = roots[0] / "SideStoreSupport/XPCClient.m"
@@ -1599,6 +1673,8 @@ import Foundation
             self.assertNotIn("self.fetchSources", app_delegate)
             self.assertIn("completionHandler(.noData)", app_delegate)
             scene_delegate = (side / "AltStore/SceneDelegate.swift").read_text(encoding="utf-8")
+            self.assertNotIn("scene as? UIWindowScene", scene_delegate)
+            self.assertNotIn("windowScene", scene_delegate)
             url_handler = (side / "SideStore/DeepLinks/URLHandler.swift").read_text(encoding="utf-8")
             for generated in (app_delegate, scene_delegate, url_handler):
                 for line in generated.splitlines():
