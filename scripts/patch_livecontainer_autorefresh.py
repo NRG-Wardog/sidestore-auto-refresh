@@ -315,7 +315,10 @@ def verify(root: Path) -> None:
     # The quarantine store must never be an App Group suite: a quarantined write
     # that landed in the real group would look like a successful shared write.
     quarantine = shared_group[shared_group.index("static func quarantinedUserDefaults()"):]
-    self_line = quarantine[:quarantine.index("\n    }\n")]
+    end = quarantine.find("\n    }\n")
+    if end < 0:
+        die("the quarantined read store declaration could not be located")
+    self_line = quarantine[:end]
     if "com.kdt.livecontainer.v3.quarantined-shared-store" not in self_line:
         die("the quarantined read store must use a private suite name")
     if "group." in self_line:

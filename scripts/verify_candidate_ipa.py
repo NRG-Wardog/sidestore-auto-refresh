@@ -664,12 +664,18 @@ def has_required_livecontainer_groups(groups) -> bool:
 
 
 def verify_service_app_group_ownership(host_groups, live_process_groups,
-                                       configured_groups) -> list[str]:
+                                       configured_groups, live_process_configured_groups) -> list[str]:
     """The SideStore service runs in LiveProcess, not in its framework signature.
 
     LC forwards any host-selected, container-resolving group to LiveProcess.
     Every group the host can select must therefore be entitled in that process
     as well. Info.plist declarations alone do not grant container access.
+
+    Both processes also keep a packaged ALTAppGroups list as the fallback for a
+    launch that published no group. If the two lists ranked different groups, a
+    launch without a published group would put the host and the service in two
+    different shared stores, so each list must itself be entitled in both
+    processes.
     """
     host = set(host_groups or [])
     service = set(live_process_groups or [])
@@ -680,6 +686,9 @@ def verify_service_app_group_ownership(host_groups, live_process_groups,
         raise ValueError("runtime configured App Group is not entitled in both host and LiveProcess")
     if host != service:
         raise ValueError("host-selectable App Groups differ from LiveProcess service entitlements")
+    service_configured = set(live_process_configured_groups or ())
+    if not service_configured or not service_configured.issubset(host & service):
+        raise ValueError("LiveProcess packaged App Group fallback is not entitled in both processes")
     return sorted(host)
 
 
@@ -1051,7 +1060,8 @@ def verify(ipa: Path, provenance_path: Path, product: str,
         service_app_groups = verify_service_app_group_ownership(
             host_groups.get("com.apple.security.application-groups", []),
             live_process_groups.get("com.apple.security.application-groups", []),
-            info.get("ALTAppGroups", []))
+            info.get("ALTAppGroups", []),
+            (live_process.get("info") or {}).get("ALTAppGroups", []))
         shared_keychain_group = verify_shared_secret_handoff_group(
             host_groups.get("keychain-access-groups"),
             live_process_groups.get("keychain-access-groups"))

@@ -78,12 +78,12 @@ static inline int LCAppGroupIDIsWellFormed(const char *bytes, size_t length) {
         if (!LCAppGroupRuleIsVisibleASCII(current) || LCAppGroupRuleIsReserved(current)) {
             return 0;
         }
-        if (previous == (unsigned char)'.' && current == (unsigned char)'.') {
+        if (previous == (unsigned char)'.' && current == (unsigned char)'.') { /* LC_RULE_GROUP_NO_TRAVERSAL */
             return 0; /* LC_RULE_GROUP_NO_TRAVERSAL */
         }
         previous = current;
     }
-    if ((unsigned char)bytes[0] == (unsigned char)'.') {
+    if ((unsigned char)bytes[0] == (unsigned char)'.') { /* LC_RULE_GROUP_NO_TRAVERSAL */
         return 0; /* LC_RULE_GROUP_NO_TRAVERSAL */
     }
     return 1;
@@ -128,8 +128,9 @@ static inline const char *LCAppGroupFirstWellFormed(const char * const *candidat
 
 /* The packaged group, or the team-suffixed variant a re-signer writes. This is
  * the ranking LC_RULE_PACKAGED_FALLBACK_ONLY uses; it is the same predicate as
- * isPackagedSideStoreGroup in v3_shared_app_group.swift and
- * LCIsPackagedSideStoreGroup in LCAppGroupSelectionPolicy.h. */
+ * isPackagedSideStoreGroup in v3_shared_app_group.swift, and
+ * LCAppGroupOrderPackaged is the same ordering the Swift identity resolver and
+ * LCResolvedAppGroupID build. */
 static inline int LCAppGroupIsPackagedSideStoreGroup(const char *candidate) {
     static const char base[] = LC_APP_GROUP_PACKAGED_PREFIX;
     const size_t baseLength = sizeof(base) - 1;
@@ -156,22 +157,48 @@ static inline int LCAppGroupIsPackagedSideStoreGroup(const char *candidate) {
     return 1;
 }
 
-/* LC_RULE_PACKAGED_FALLBACK_ONLY: the packaged SideStore group first, then the
- * first well-formed entry. */
-static inline const char *LCAppGroupFirstPackagedGroup(const char * const *candidates,
-                                                       size_t count) {
-    size_t index;
-    if (candidates == NULL) {
-        return NULL;
+/* LC_RULE_PACKAGED_FALLBACK_ONLY, step one: the order a packaged entitlement
+ * list is tried in. The SideStore group and its team-suffixed variants come
+ * first, then the remaining well-formed entries. Nothing here knows about
+ * availability: this is the order, not the choice. */
+static inline size_t LCAppGroupOrderPackaged(const char * const *candidates,
+                                             size_t count,
+                                             const char **ordered,
+                                             size_t orderedCapacity) {
+    size_t index, written = 0;
+    if (candidates == NULL || ordered == NULL) {
+        return 0;
     }
-    for (index = 0; index < count; index++) {
+    for (index = 0; index < count && written < orderedCapacity; index++) {
         const char *candidate = candidates[index];
-        if (candidate != NULL && LCAppGroupIsPackagedSideStoreGroup(candidate) &&
-            LCAppGroupIDIsWellFormed(candidate, strlen(candidate))) {
-            return candidate;
+        if (candidate == NULL || !LCAppGroupIDIsWellFormed(candidate, strlen(candidate))) {
+            continue;
+        }
+        if (LCAppGroupIsPackagedSideStoreGroup(candidate)) {
+            ordered[written++] = candidate;
         }
     }
-    return LCAppGroupFirstWellFormed(candidates, count);
+    for (index = 0; index < count && written < orderedCapacity; index++) {
+        const char *candidate = candidates[index];
+        if (candidate == NULL || !LCAppGroupIDIsWellFormed(candidate, strlen(candidate))) {
+            continue;
+        }
+        if (!LCAppGroupIsPackagedSideStoreGroup(candidate)) {
+            ordered[written++] = candidate;
+        }
+    }
+    return written;
+}
+
+/* LC_RULE_PACKAGED_FALLBACK_ONLY, step two: the first entry in that order. A
+ * caller that also has to prove the container opens walks the same order with
+ * its own availability check; this is the shortcut for a caller that does not. */
+static inline const char *LCAppGroupFirstPackagedGroup(const char * const *candidates,
+                                                       size_t count) {
+    const char *ordered[64];
+    size_t written = LCAppGroupOrderPackaged(candidates, count, ordered,
+                                             sizeof(ordered) / sizeof(ordered[0]));
+    return written == 0 ? NULL : ordered[0];
 }
 
 #endif /* LC_APP_GROUP_IDENTITY_RULES_H */

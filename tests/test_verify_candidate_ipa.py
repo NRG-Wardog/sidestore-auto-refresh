@@ -1,4 +1,5 @@
 import importlib.util
+import inspect
 import hashlib
 import json
 import os
@@ -713,17 +714,41 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
     def test_exact_runtime_service_process_must_share_every_selectable_group(self):
         groups = sorted(verify_module.REQUIRED_LIVECONTAINER_GROUPS)
         self.assertEqual(verify_module.verify_service_app_group_ownership(
-            groups, groups, [verify_module.REQUIRED_GROUP]), groups)
+            groups, groups, [verify_module.REQUIRED_GROUP],
+            [verify_module.REQUIRED_GROUP]), groups)
         with self.assertRaisesRegex(ValueError, "runtime configured App Group"):
             verify_module.verify_service_app_group_ownership(
-                groups, groups, ["group.example.unentitled"])
+                groups, groups, ["group.example.unentitled"],
+                [verify_module.REQUIRED_GROUP])
         with self.assertRaisesRegex(ValueError, "differ from LiveProcess"):
             verify_module.verify_service_app_group_ownership(
                 groups + ["group.example.hostOnly"], groups,
-                [verify_module.REQUIRED_GROUP])
+                [verify_module.REQUIRED_GROUP], [verify_module.REQUIRED_GROUP])
         with self.assertRaisesRegex(ValueError, "shared App Groups"):
             verify_module.verify_service_app_group_ownership(
-                groups, [verify_module.REQUIRED_GROUP], [verify_module.REQUIRED_GROUP])
+                groups, [verify_module.REQUIRED_GROUP], [verify_module.REQUIRED_GROUP],
+                [verify_module.REQUIRED_GROUP])
+
+    def test_the_service_packaged_fallback_must_be_entitled_in_both_processes(self):
+        # The host forwards its selection, so the service usually inherits it.
+        # A launch that publishes nothing instead falls back to each process's
+        # own Info.plist list, which is Bundle.main inside LiveProcess: an
+        # unentitled or absent list there would split the shared store exactly
+        # when the forwarded key is missing.
+        groups = sorted(verify_module.REQUIRED_LIVECONTAINER_GROUPS)
+        self.assertEqual(verify_module.verify_service_app_group_ownership(
+            groups, groups, [verify_module.REQUIRED_GROUP],
+            [verify_module.REQUIRED_GROUP]), groups)
+        with self.assertRaisesRegex(ValueError, "LiveProcess packaged App Group fallback"):
+            verify_module.verify_service_app_group_ownership(
+                groups, groups, [verify_module.REQUIRED_GROUP], [])
+        with self.assertRaisesRegex(ValueError, "LiveProcess packaged App Group fallback"):
+            verify_module.verify_service_app_group_ownership(
+                groups, groups, [verify_module.REQUIRED_GROUP],
+                ["group.example.packagedOnly"])
+        # The verification must read the extension's own plist, not the host's.
+        source = inspect.getsource(verify_module.verify)
+        self.assertIn('(live_process.get("info") or {}).get("ALTAppGroups", [])', source)
 
     def test_host_and_liveprocess_must_share_the_dedicated_keychain_handoff_group(self):
         group = "AAAAA11111.com.kdt.livecontainer.shared"

@@ -1,10 +1,13 @@
 from pathlib import Path
+import plistlib
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from package_livecontainer_combined import (
     adapt,
+    share_packaged_app_groups,
     verify_host_intent_runtime_symbols,
     verify_shared_secret_handoff_group,
     verify_side_store_intent_runtime_symbols,
@@ -29,6 +32,37 @@ class CombinedPackagingTests(unittest.TestCase):
         self.assertEqual(verify_shared_secret_handoff_group([group], [group]), group)
         with self.assertRaisesRegex(ValueError, "dedicated entitled Keychain group"):
             verify_shared_secret_handoff_group(["group.com.SideStore.SideStore"], [group])
+
+    def test_every_extension_gets_the_hosts_packaged_app_group_fallback(self):
+        # The service resolves the shared store from Bundle.main, which inside
+        # LiveProcess is the extension. Only the host declares ALTAppGroups, so
+        # a launch that published no group would have ranked an empty list there
+        # while the host ranked its own: two different stores, silently.
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / 'LiveContainer.app'
+            (app / 'PlugIns' / 'LiveProcess.appex').mkdir(parents=True)
+            (app / 'PlugIns' / 'ShareExtension.appex').mkdir(parents=True)
+            (app / 'PlugIns' / 'Broken.appex').mkdir(parents=True)
+            packaged = ['group.com.SideStore.SideStore']
+            (app / 'Info.plist').write_bytes(plistlib.dumps({'ALTAppGroups': packaged}))
+            for extension in ('LiveProcess', 'ShareExtension'):
+                (app / 'PlugIns' / (extension + '.appex') / 'Info.plist').write_bytes(
+                    plistlib.dumps({'CFBundleIdentifier': extension}))
+            share_packaged_app_groups(app)
+            for extension in ('LiveProcess', 'ShareExtension'):
+                info = plistlib.loads((app / 'PlugIns' / (extension + '.appex') / 'Info.plist').read_bytes())
+                self.assertEqual(info['ALTAppGroups'], packaged, extension)
+                self.assertEqual(info['CFBundleIdentifier'], extension, 'the plist must be preserved')
+            # It runs again on every packaging pass and must be idempotent.
+            before = (app / 'PlugIns' / 'LiveProcess.appex' / 'Info.plist').read_bytes()
+            share_packaged_app_groups(app)
+            self.assertEqual((app / 'PlugIns' / 'LiveProcess.appex' / 'Info.plist').read_bytes(), before)
+            # An extension with no plist is left for the build, not invented.
+            self.assertFalse((app / 'PlugIns' / 'Broken.appex' / 'Info.plist').exists())
+            # A host with no fallback has nothing to share, which must fail.
+            (app / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': 'host'}))
+            with self.assertRaisesRegex(ValueError, "declares no packaged App Group fallback"):
+                share_packaged_app_groups(app)
 
     def test_upstream_adapter_retains_transformations(self):
         script = '''brew install ldid

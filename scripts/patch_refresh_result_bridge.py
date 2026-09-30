@@ -116,7 +116,7 @@ def patch(root: Path):
     signature = "mangledTypeName:(NSString *)mangledTypeName"
     header = replace(header, signature + ";", signature + " refreshRunID:(NSString* _Nullable)refreshRunID;")
     objc = replace(objc, signature + " {", signature + " refreshRunID:(NSString* _Nullable)refreshRunID {")
-    objc = replace(objc, "    [self performRefreshForRealWithIdentifier:", '''    // V3_RUNTIME_SHARED_REFRESH_STORE_V1: the run ID, the previous verification
+    objc = replace(objc, "    [self performRefreshForRealWithIdentifier:", f'''    // V3_RUNTIME_SHARED_REFRESH_STORE_V1: the run ID, the previous verification
     // manifest and the host-handoff record form the host/service contract, so
     // they are cleared and stamped in the one runtime App Group the host
     // published. A fixed suite name would clear a store the embedded service
@@ -125,22 +125,22 @@ def patch(root: Path):
     // the process's own domain when the suite is not a group this build is
     // entitled to, so the container is proven openable first. Otherwise the
     // stamps would land where the service can never read them.
-    const char *runtimeAppGroup = getenv(RUNTIME_APP_GROUP_ENV_KEY);
+    const char *runtimeAppGroup = getenv("{RUNTIME_APP_GROUP_ENV_KEY}");
     NSString *runtimeAppGroupID = (runtimeAppGroup != NULL && runtimeAppGroup[0] != '\\0')
         ? [NSString stringWithUTF8String:runtimeAppGroup] : nil;
     BOOL runtimeAppGroupOpenable = runtimeAppGroupID.length > 0 &&
         [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:runtimeAppGroupID] != nil;
     NSUserDefaults *defaults = runtimeAppGroupOpenable
         ? [[NSUserDefaults alloc] initWithSuiteName:runtimeAppGroupID] : nil;
-    if (defaults == nil) {
+    if (defaults == nil) {{
         NSLog(@"[LIVE_CONTAINER_REFRESH] RESULT_STORE_UNAVAILABLE reason=runtime_app_group_unresolved");
-    } else {
+    }} else {{
         [defaults removeObjectForKey:@"liveContainerAutoRefreshVerification"];
         [defaults removeObjectForKey:@"liveContainerAutoRefreshHostHandoff"];
         [defaults removeObjectForKey:@"liveContainerAutoRefreshHostHandoffRunID"];
         if (refreshRunID.length) [defaults setObject:refreshRunID forKey:@"liveContainerAutoRefreshExpectedRunID"];
         else [defaults removeObjectForKey:@"liveContainerAutoRefreshExpectedRunID"];
-    }
+    }}
     [self performRefreshForRealWithIdentifier:''')
     host = replace(host, "client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName)", 'client.refreshAllApps(withIdentifier: identifier, mangledTypeName: mangledName, refreshRunID: V3SharedAppGroup.sharedUserDefaults()?.string(forKey: "liveContainerAutoRefreshExpectedRunID"))')
     host = replace(host, "    func finish(_ error: String?) {", HOST + "\n    func finish(_ error: String?) {")

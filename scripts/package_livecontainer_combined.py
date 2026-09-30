@@ -106,6 +106,33 @@ def prepare_entitlements(root, app):
         entitlement = root / 'tmp' / (info['CFBundleExecutable'] + '.entitlements')
         entitlement.write_bytes(plistlib.dumps(plistlib.loads(xml.encode())))
         subprocess.run(['ldid', '-S' + str(entitlement), str(bundle / info['CFBundleExecutable'])], check=True)
+    share_packaged_app_groups(app)
+
+
+def share_packaged_app_groups(app):
+    """Give every extension the host's packaged App Group fallback list.
+
+    The host and the embedded service each resolve the shared store from their
+    OWN Bundle.main. When the host publishes its selection the service inherits
+    it and the fallback never runs, but a launch that published nothing would
+    have the host rank its Info.plist ALTAppGroups while the service, running in
+    LiveProcess, ranked an empty list and reported no shared store at all. The
+    same list in both processes makes the fallback agree, and it is only a
+    preference: the ranking still requires the group to be entitled, which
+    prepare_entitlements signs in.
+    """
+    host_info = plistlib.loads((app / 'Info.plist').read_bytes())
+    packaged = host_info.get('ALTAppGroups')
+    if not isinstance(packaged, list) or not packaged:
+        raise ValueError('the host declares no packaged App Group fallback')
+    for extension in sorted(p for p in app.glob('PlugIns/*.appex')
+                            if (p / 'Info.plist').exists()):
+        path = extension / 'Info.plist'
+        info = plistlib.loads(path.read_bytes())
+        if info.get('ALTAppGroups') == packaged:
+            continue
+        info['ALTAppGroups'] = packaged
+        path.write_bytes(plistlib.dumps(info, sort_keys=False))
 
 
 def verify(path, side_product=None):
@@ -177,6 +204,12 @@ def verify(path, side_product=None):
         assert bundle['signing']['xml_entitlements'].get('com.apple.security.application-groups')
     assert bundles[base]['signing']['xml_entitlements'].get('keychain-access-groups')
     assert host['ALTAppGroups'] == ['group.com.SideStore.SideStore']
+    for extension, suffix in [('LiveProcess', 'LiveProcess'), ('ShareExtension', 'ShareExtension'),
+                              ('LaunchAppExtension', 'LaunchAppExtension'), ('LiveWidgetExtension', 'LiveWidget')]:
+        # Every extension resolves the same packaged fallback list as the host,
+        # so a launch that published no group cannot split the shared store.
+        assert bundles[base + '/PlugIns/' + extension + '.appex']['info']['ALTAppGroups'] == host['ALTAppGroups'], \
+            extension + ' packaged App Group fallback differs from the host'
     schemes = {s for entry in host['CFBundleURLTypes'] for s in entry['CFBundleURLSchemes']}
     assert {'livecontainer', 'sidestore', 'sidestore-com.kdt.livecontainer'} <= schemes
     assert {'RefreshAllIntent', 'ViewAppIntent'} <= set(host['INIntentsSupported'])

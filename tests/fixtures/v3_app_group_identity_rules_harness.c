@@ -25,10 +25,19 @@ static int selection(int runtimeSupplied, int runtimeAvailable, int packagedAvai
     return LCAppGroupSelectionSourceFor(runtimeSupplied, runtimeAvailable, packagedAvailable);
 }
 
+/* Whether this process can open a packaged entry. The packaged SideStore group
+ * and its team-suffixed variants are separately controllable, because a
+ * re-signed build can lose exactly those while keeping the rest. */
+static int gPackagedOpenable = 1;
+
+static int isPackagedOpenable(const char *groupID) {
+    return LCAppGroupIsPackagedSideStoreGroup(groupID) ? gPackagedOpenable : 1;
+}
+
 /* Resolve the identifier this process would actually use, mirroring the Swift
- * identity resolver exactly: a runtime group is authoritative, the packaged list
- * is ranked only when nothing was published, and an unusable runtime group never
- * falls through. */
+ * identity resolver and the Objective-C wrapper exactly: a runtime group is
+ * authoritative, the packaged list is ranked by the rule set and then walked for
+ * an openable entry, and an unusable runtime group never falls through. */
 static const char *resolve(const char *runtimeGroup, int runtimeAvailable,
                            const char *const *packaged, size_t packagedCount) {
     int source = selection(runtimeGroup != NULL, runtimeGroup != NULL ? runtimeAvailable : 0,
@@ -39,7 +48,15 @@ static const char *resolve(const char *runtimeGroup, int runtimeAvailable,
     if (source == LCAppGroupSelectionRuntimeGroup) {
         return LCAppGroupIDIsWellFormed(runtimeGroup, strlen(runtimeGroup)) ? runtimeGroup : NULL;
     }
-    return LCAppGroupFirstPackagedGroup(packaged, packagedCount);
+    const char *ordered[64];
+    size_t written = LCAppGroupOrderPackaged(packaged, packagedCount, ordered,
+                                             sizeof(ordered) / sizeof(ordered[0]));
+    for (size_t index = 0; index < written; index++) {
+        if (isPackagedOpenable(ordered[index])) {
+            return ordered[index];
+        }
+    }
+    return NULL;
 }
 
 int main(void) {
@@ -133,7 +150,43 @@ int main(void) {
                "an empty packaged list must be unavailable");
     }
 
-    /* 7. Nothing malformed, path-shaped or unbounded reaches a container
+    /* 7. The packaged order the rule set produces, and the availability walk the
+     *    wrappers add on top of it. The order is the SideStore group and its
+     *    team-suffixed variants first, then the remaining well-formed entries;
+     *    malformed entries never appear. The order is the rule, and which ranked
+     *    entry this process uses is the walk. */
+    {
+        const char *const mixed[] = {"/etc/passwd", altStore, "..", suffixed, packaged, ""};
+        const char *ordered[8];
+        size_t written = LCAppGroupOrderPackaged(mixed, 6, ordered, 8);
+        size_t index;
+        expect(written == 3, "the packaged order contains exactly the three well-formed entries");
+        expect(written > 0 && strcmp(ordered[0], suffixed) == 0,
+               "the packaged order ranks the team-suffixed SideStore group first");
+        expect(written > 1 && strcmp(ordered[1], packaged) == 0,
+               "the packaged order ranks the plain SideStore group before other entries");
+        expect(written > 2 && strcmp(ordered[2], altStore) == 0,
+               "an AltStore-owned entry ranks after the SideStore ones but is still used");
+        for (index = 0; index < written; index++) {
+            expect(LCAppGroupIDIsWellFormed(ordered[index], strlen(ordered[index])) == 1,
+                   "a malformed entry never reaches the packaged order");
+        }
+        expect(strcmp(LCAppGroupFirstPackagedGroup(mixed, 6), suffixed) == 0,
+               "the packaged shortcut returns the head of the order");
+        /* The walk: an unopenable top entry falls through to the next openable
+         * one, which is why the wrappers walk the order instead of taking it. */
+        gPackagedOpenable = 1;
+        expect(strcmp(resolve(NULL, 0, mixed, 6), suffixed) == 0,
+               "an openable top packaged entry is used");
+        gPackagedOpenable = 0;
+        expect(strcmp(resolve(NULL, 0, mixed, 6), altStore) == 0,
+               "an unopenable top packaged entry falls through to the next openable one");
+        expect(resolve(NULL, 0, packagedOnly, 1) == NULL,
+               "a packaged list with nothing openable is an unavailable shared store");
+        gPackagedOpenable = 1;
+    }
+
+    /* 8. Nothing malformed, path-shaped or unbounded reaches a container
      *    lookup, a UserDefaults suite name or a lock path. */
     {
         char longGroup[LC_APP_GROUP_IDENTIFIER_MAX_LENGTH + 8];

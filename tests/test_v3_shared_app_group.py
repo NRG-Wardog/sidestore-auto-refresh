@@ -78,7 +78,8 @@ class AppGroupIdentityRuleExecutionTests(unittest.TestCase):
                      "4. An unavailable runtime group fails",
                      "5. Conflicting Info.plist vs explicit runtime group",
                      "6. Cross-process lock ownership",
-                     "7. Nothing malformed"):
+                     "7. The packaged order the rule set produces",
+                     "8. Nothing malformed"):
             self.assertIn(case, harness)
         for label in ("suffixed group must be well formed",
                       "a team-suffixed group must rank as the packaged group",
@@ -103,7 +104,16 @@ class AppGroupIdentityRuleExecutionTests(unittest.TestCase):
                       "an over-long identifier must be rejected",
                       "the maximum permitted length must still be accepted",
                       "a null identifier must be rejected",
-                      "the packaged scan must skip malformed entries"):
+                      "the packaged scan must skip malformed entries",
+                      "the packaged order contains exactly the three well-formed entries",
+                      "the packaged order ranks the team-suffixed SideStore group first",
+                      "the packaged order ranks the plain SideStore group before other entries",
+                      "an AltStore-owned entry ranks after the SideStore ones but is still used",
+                      "a malformed entry never reaches the packaged order",
+                      "the packaged shortcut returns the head of the order",
+                      "an openable top packaged entry is used",
+                      "an unopenable top packaged entry falls through to the next openable one",
+                      "a packaged list with nothing openable is an unavailable shared store"):
             self.assertIn(f'"{label}"', harness)
         # The parity case must not be two calls with identical arguments, which
         # cannot fail; it models two processes with different packaged lists.
@@ -160,9 +170,19 @@ class AppGroupRuleParityTests(unittest.TestCase):
         self.assertIn("LCAppGroupSelectionSourceFor", code)
         self.assertIn("LCAppGroupFirstPackagedGroup", code)
         self.assertIn("LCAppGroupIsPackagedSideStoreGroup(candidate)", code)
-        ranking = code[code.index("static inline const char *LCAppGroupFirstPackagedGroup("):]
-        self.assertIn("return LCAppGroupFirstWellFormed(candidates, count);", ranking,
-                      "the packaged ranking must fall back to the first well-formed entry")
+        # The rule set produces the ORDER; the wrappers walk it for an openable
+        # entry. Both halves must exist, or a caller has to re-rank by hand.
+        self.assertIn("static inline size_t LCAppGroupOrderPackaged(", code)
+        self.assertIn("static inline const char *LCAppGroupFirstPackagedGroup(", code)
+        shortcut = code[code.index("static inline const char *LCAppGroupFirstPackagedGroup("):]
+        self.assertIn("return written == 0 ? NULL : ordered[0];", shortcut,
+                      "the packaged shortcut must return the head of the order")
+        order = code[code.index("static inline size_t LCAppGroupOrderPackaged("):
+                           code.index("static inline const char *LCAppGroupFirstPackagedGroup(")]
+        self.assertEqual(order.count("ordered[written++] = candidate;"), 2,
+                         "the order must have a SideStore pass and a remaining-entries pass")
+        self.assertIn("if (LCAppGroupIsPackagedSideStoreGroup(candidate)) {", order)
+        self.assertIn("if (!LCAppGroupIsPackagedSideStoreGroup(candidate)) {", order)
 
     def test_swift_shape_rules_match_the_c_shape_rules(self):
         shared = SHARED.read_text(encoding="utf-8")
@@ -183,8 +203,12 @@ class AppGroupRuleParityTests(unittest.TestCase):
         selection = SELECTION.read_text(encoding="utf-8")
         self.assertIn("LCAppGroupIDIsWellFormed(utf8, strlen(utf8))", selection)
         self.assertNotIn("groupID.length", selection)
-        self.assertIn("LCAppGroupFirstPackagedGroup(candidates, count)", selection)
+        # The wrapper asks the rule set for the order and walks it, rather
+        # than re-ranking or taking only the head.
+        self.assertIn("LCAppGroupOrderPackaged((const char *const *)candidates, count,", selection)
+        self.assertIn("for (size_t index = 0; index < written && resolved == nil; index++) {", selection)
         self.assertNotIn("LCIsPackagedSideStoreGroup", selection)
+        self.assertNotIn("LCAppGroupFirstPackagedGroup", selection)
 
     def test_swift_precedence_matches_the_c_precedence(self):
         shared = SHARED.read_text(encoding="utf-8")
@@ -200,8 +224,14 @@ class AppGroupRuleParityTests(unittest.TestCase):
         # The packaged list is reached only when nothing was published, and the
         # ranking the C rule set implements is the same one.
         self.assertIn('(bundleInfo["ALTAppGroups"] as? [String])', code)
-        self.assertIn("wellFormed.first(where: isPackagedSideStoreGroup) ?? wellFormed.first", code)
-        self.assertIn("let containerRoot = resolveContainer(identifier) else { return nil }\n        return Identity(identifier: identifier, containerRoot: containerRoot, source: .packaged)", code)
+        # The same two steps the rule set performs: its order, then the first
+        # entry this process can open. A packaged list is a preference, not
+        # proof of entitlement.
+        self.assertIn("let ordered = wellFormed.filter(isPackagedSideStoreGroup) +", code)
+        self.assertIn("wellFormed.filter { !isPackagedSideStoreGroup($0) }", code)
+        self.assertIn("for identifier in ordered {", code)
+        self.assertIn("if let containerRoot = resolveContainer(identifier) {", code)
+        self.assertIn("source: .packaged)", code)
 
     def test_c_precedence_function_keeps_explicit_wins_and_fails_closed(self):
         rules = RULES.read_text(encoding="utf-8")
@@ -512,7 +542,9 @@ class TemplateInstallationTests(unittest.TestCase):
     def test_the_environment_key_has_one_source_of_truth(self):
         # Generated Objective-C cannot see the Swift constant, so the name is
         # repeated in two emitters. Both derive it from the authoritative
-        # template, so a rename cannot leave half the contract on the old key.
+        # template, so a rename cannot leave half the contract on the old key,
+        # and the derived value must actually reach the emitted source rather
+        # than the Python name that produced it.
         key = re.search(r'static let runtimeGroupEnvironmentKey = "([A-Za-z0-9_]+)"',
                         SHARED.read_text(encoding="utf-8")).group(1)
         for script in ("patch_v3_service.py", "patch_refresh_result_bridge.py"):
@@ -520,8 +552,6 @@ class TemplateInstallationTests(unittest.TestCase):
             self.assertIn("def runtime_app_group_environment_key()", source, script)
             self.assertIn("RUNTIME_APP_GROUP_ENV_KEY = runtime_app_group_environment_key()", source, script)
             self.assertNotIn(f'"{key}"', source, script)
-            # The producer and the consumer must both use the derived name.
-            self.assertIn("RUNTIME_APP_GROUP_ENV_KEY", source, script)
         # Nothing else may hardcode it.
         for path in sorted((ROOT / "scripts").glob("*.py")):
             self.assertNotIn(f'"{key}"', path.read_text(encoding="utf-8"),
@@ -530,6 +560,25 @@ class TemplateInstallationTests(unittest.TestCase):
         # through the one Swift constant, never a literal.
         for template in (KEYCHAIN, SERVICE):
             self.assertNotIn(f'"{key}"', template.read_text(encoding="utf-8"))
+        # The emitted Objective-C must carry the key as a string literal. An
+        # f-string that forgot to interpolate would leave the Python identifier
+        # in the generated source, which compiles as an undeclared identifier.
+        import importlib.util
+
+        for script, expected in (("patch_refresh_result_bridge.py", f'getenv("{key}")'),
+                                 ("patch_v3_service.py", f'unsetenv("{key}")')):
+            spec = importlib.util.spec_from_file_location(
+                "emitter_" + script[:-3], ROOT / "scripts" / script)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            self.assertEqual(module.RUNTIME_APP_GROUP_ENV_KEY, key, script)
+        bridge = (ROOT / "scripts/patch_refresh_result_bridge.py").read_text(encoding="utf-8")
+        self.assertIn(f'getenv("{{RUNTIME_APP_GROUP_ENV_KEY}}")', bridge,
+                      "the bridge must interpolate the derived key into the emitted getenv call")
+        service = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
+        self.assertIn("f'    unsetenv(\"{RUNTIME_APP_GROUP_ENV_KEY}\");\\n'", service)
+        self.assertIn("f'        setenv(\"{RUNTIME_APP_GROUP_ENV_KEY}\", inheritedGroupID.UTF8String, 1);\\n'",
+                      service)
 
     def test_typed_recoverable_failure_exists_for_the_shared_store(self):
         shared = SHARED.read_text(encoding="utf-8")

@@ -96,12 +96,11 @@ enum V3SharedAppGroup {
 
     /// Publish this process's own selection so the embedded service resolves the
     /// identical group. Only a group this process can actually open is published:
-    /// the packaging verifier requires the host and LiveProcess to carry the same
-    /// App Group entitlements, so an openable group is openable in the service
-    /// too. Publishing a group that cannot be opened would leave the service
-    /// choosing a different one on its own, which is the split this exists to
+    /// if the service could not open what the host published, it would clear the
+    /// key and choose its own packaged fallback, which is the split this exists to
     /// prevent. Publishing nothing leaves both processes on their packaged
-    /// fallback, which the same verifier constrains to the same group set.
+    /// fallback, which LCAppGroupOrderPackaged ranks identically and which the
+    /// packaging verifier constrains to groups both processes are entitled for.
     static func publishRuntimeGroup(_ group: String?) {
         #if canImport(Darwin)
         unsetenv(runtimeGroupEnvironmentKey)
@@ -138,9 +137,18 @@ enum V3SharedAppGroup {
         let configured = (bundleInfo["ALTAppGroups"] as? [String]) ??
             (bundleInfo["ALTAppGroups"] as? String).map { [$0] } ?? []
         let wellFormed = configured.compactMap(wellFormedIdentifier)
-        guard let identifier = wellFormed.first(where: isPackagedSideStoreGroup) ?? wellFormed.first,
-              let containerRoot = resolveContainer(identifier) else { return nil }
-        return Identity(identifier: identifier, containerRoot: containerRoot, source: .packaged)
+        // LC_RULE_PACKAGED_FALLBACK_ONLY, in the same two steps the C rule set
+        // uses: the rule set's order, then the first entry this process can
+        // actually open. A packaged list is a preference, not proof of
+        // entitlement, so an unopenable top entry falls through to the next one.
+        let ordered = wellFormed.filter(isPackagedSideStoreGroup) +
+            wellFormed.filter { !isPackagedSideStoreGroup($0) }
+        for identifier in ordered {
+            if let containerRoot = resolveContainer(identifier) {
+                return Identity(identifier: identifier, containerRoot: containerRoot, source: .packaged)
+            }
+        }
+        return nil
     }
 
     static func runtimeIdentity(selectedGroup: String? = nil, bundle: Bundle = .main,

@@ -42,22 +42,31 @@ static inline NSString *LCResolvedAppGroupID(id selectedGroup,
         // LC_RULE_EXPLICIT_WINS, LC_RULE_EXPLICIT_FAIL_CLOSED
         return LCValidatedAppGroupID(selectedGroup, isAvailable);
     }
-    // LC_RULE_PACKAGED_FALLBACK_ONLY
+    // LC_RULE_PACKAGED_FALLBACK_ONLY. The rule set produces the order; this loop
+    // decides which ranked entry this process can actually open. A packaged list
+    // is a preference, not proof of entitlement, so an unopenable top entry falls
+    // through to the next one instead of reporting no shared store at all.
     size_t count = (size_t)packagedGroups.count;
     if (count == 0) {
         return nil;
     }
-    const char *const *candidates = (const char *const *)calloc(count, sizeof(char *));
+    const char **candidates = (const char **)calloc(count, sizeof(char *));
     if (candidates == NULL) {
         return nil;
     }
     for (NSUInteger index = 0; index < packagedGroups.count; index++) {
-        candidates[index] = [packagedGroups[index] UTF8String];
+        id candidate = packagedGroups[index];
+        // A malformed ALTAppGroups entry must not reach a UTF8 conversion.
+        candidates[index] = [candidate isKindOfClass:NSString.class]
+            ? [(NSString *)candidate UTF8String] : NULL;
     }
-    const char *ranked = LCAppGroupFirstPackagedGroup(candidates, count);
-    free((void *)candidates);
-    if (ranked == NULL) {
-        return nil;
+    const char *ordered[64];
+    size_t written = LCAppGroupOrderPackaged((const char *const *)candidates, count,
+                                             ordered, sizeof(ordered) / sizeof(ordered[0]));
+    NSString *resolved = nil;
+    for (size_t index = 0; index < written && resolved == nil; index++) {
+        resolved = LCValidatedAppGroupID([NSString stringWithUTF8String:ordered[index]], isAvailable);
     }
-    return LCValidatedAppGroupID([NSString stringWithUTF8String:ranked], isAvailable);
+    free(candidates);
+    return resolved;
 }
