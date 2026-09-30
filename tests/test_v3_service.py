@@ -717,7 +717,7 @@ import Foundation
         self.assertNotIn("defaults.set(", shared_files)
         self.assertNotIn("set(payload", shared_files)
         self.assertNotIn("V3IPAStaging", shared_files)
-        self.assertIn("V3IPAStaging.sideStoreContainerRoot()", host)
+        self.assertIn("V3IPAStaging.sideStoreContainerRoot(selectedGroup: LCSharedUtils.appGroupID())", host)
         self.assertIn("V3IPAStaging.sideStoreContainerRoot()", service_runtime)
         self.assertNotIn("V3SharedFile.", host + service_runtime)
 

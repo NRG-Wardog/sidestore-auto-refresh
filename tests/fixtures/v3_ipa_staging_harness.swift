@@ -43,6 +43,32 @@ struct IPAStagingHarness {
             resolveContainer: { _ in root }) == nil,
             "the IPA staging resolver must reject a non-SideStore group")
 
+        let signedGroup = "group.com.SideStore.SideStore.TESTTEAM"
+        var selectedGroups: [String] = []
+        let signedHostRoot = V3IPAStaging.sideStoreContainerRoot(bundleInfo:
+            ["ALTAppGroups": [signedGroup]], selectedGroup: signedGroup) { group in
+                selectedGroups.append(group); return group == signedGroup ? root : nil
+            }
+        let signedServiceRoot = V3IPAStaging.sideStoreContainerRoot(bundleInfo:
+            ["ALTAppGroups": [V3IPAStaging.sideStoreAppGroupIdentifier]],
+            selectedGroup: signedGroup) { group in
+                selectedGroups.append(group); return group == signedGroup ? root : nil
+            }
+        precondition(signedHostRoot == root && signedServiceRoot == root &&
+                     selectedGroups == [signedGroup, signedGroup],
+            "re-signed host and embedded service must stage and resolve in one entitled group")
+        let fallbackSignedRoot = V3IPAStaging.sideStoreContainerRoot(bundleInfo:
+            ["ALTAppGroups": [signedGroup]], resolveContainer: { $0 == signedGroup ? root : nil })
+        precondition(fallbackSignedRoot == root,
+            "a signer-rewritten ALTAppGroups value remains usable without a launch handoff")
+        selectedGroups.removeAll()
+        let inheritedAltRoot = V3IPAStaging.sideStoreContainerRoot(bundleInfo:
+            ["ALTAppGroups": [signedGroup]], selectedGroup: cachedLiveContainerGroup) { group in
+                selectedGroups.append(group); return group == cachedLiveContainerGroup ? root : nil
+            }
+        precondition(inheritedAltRoot == root && selectedGroups == [cachedLiveContainerGroup],
+            "an explicitly validated LC group wins over a conflicting Info.plist fallback")
+
         // The asCopy picker URL disappears after the immediate staging copy.
         let picked = pickedDirectory.appendingPathComponent("known-valid.ipa")
         let bytes = Data([0x50, 0x4b, 0x03, 0x04, 0x01, 0x02, 0x03])

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 
 // IPA bytes live only in a private directory inside the shared App Group.
 // XPC carries a canonical UUID token; the service derives every path itself.
@@ -7,24 +10,43 @@ enum V3IPAStaging {
     static let sideStoreAppGroupIdentifier = "group.com.SideStore.SideStore"
     static let orphanRetention: TimeInterval = 24 * 60 * 60
 
+    private static func isSideStoreGroup(_ group: String) -> Bool {
+        group == sideStoreAppGroupIdentifier ||
+            (group.hasPrefix(sideStoreAppGroupIdentifier + ".") &&
+             !group.dropFirst(sideStoreAppGroupIdentifier.count + 1).isEmpty &&
+             group.dropFirst(sideStoreAppGroupIdentifier.count + 1).utf8.allSatisfy {
+                 (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0)
+             })
+    }
+
+    private static func inheritedRuntimeGroup() -> String? {
+        #if canImport(Darwin)
+        guard let value = getenv("LC_V3_INHERITED_APP_GROUP") else { return nil }
+        return String(cString: value)
+        #else
+        return nil
+        #endif
+    }
+
     static func sideStoreContainerRoot(bundleInfo: [String: Any],
+                                       selectedGroup: String? = nil,
                                        resolveContainer: (String) -> URL?) -> URL? {
-        let group: String
-        if let groups = bundleInfo["ALTAppGroups"] as? [String],
-           groups.contains(sideStoreAppGroupIdentifier) {
-            group = sideStoreAppGroupIdentifier
-        } else if let singleGroup = bundleInfo["ALTAppGroups"] as? String {
-            group = singleGroup
-        } else {
-            return nil
-        }
-        guard group == sideStoreAppGroupIdentifier else { return nil }
+        // The host passes LC's selected group. LiveProcess uses its validated
+        // inherited group. Info.plist is only a fallback for older launches;
+        // it is not proof of entitlement by itself.
+        let configured = (bundleInfo["ALTAppGroups"] as? [String]) ??
+            (bundleInfo["ALTAppGroups"] as? String).map { [$0] } ?? []
+        let group = selectedGroup.flatMap { $0.isEmpty ? nil : $0 } ??
+            configured.first(where: isSideStoreGroup)
+        guard let group else { return nil }
         return resolveContainer(group)
     }
 
     static func sideStoreContainerRoot(bundle: Bundle = .main,
-                                       fileManager: FileManager = .default) -> URL? {
-        sideStoreContainerRoot(bundleInfo: bundle.infoDictionary ?? [:]) { group in
+                                       fileManager: FileManager = .default,
+                                       selectedGroup: String? = nil) -> URL? {
+        sideStoreContainerRoot(bundleInfo: bundle.infoDictionary ?? [:],
+                               selectedGroup: selectedGroup ?? inheritedRuntimeGroup()) { group in
             fileManager.containerURL(forSecurityApplicationGroupIdentifier: group)
         }
     }

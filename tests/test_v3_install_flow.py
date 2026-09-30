@@ -58,7 +58,7 @@ class InstallFirstAttemptTests(unittest.TestCase):
         self.assertIn("static func sideStoreContainerRoot", staging)
         self.assertIn('bundleInfo["ALTAppGroups"]', staging)
         self.assertIn('"group.com.SideStore.SideStore"', staging)
-        self.assertIn("V3IPAStaging.sideStoreContainerRoot()", host)
+        self.assertIn("V3IPAStaging.sideStoreContainerRoot(selectedGroup: LCSharedUtils.appGroupID())", host)
         self.assertIn("V3IPAStaging.sideStoreContainerRoot()", runtime_source)
         self.assertNotIn("LCSharedUtils.appGroupPath()", host[host.index("func cleanupOrphanedStagedIPAs"):host.index("private func drainInstallPresentation")])
         harness = (ROOT / "tests/fixtures/v3_ipa_staging_harness.swift").read_text(encoding="utf-8")

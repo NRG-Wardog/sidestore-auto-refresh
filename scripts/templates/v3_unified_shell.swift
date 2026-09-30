@@ -1040,7 +1040,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             V3SecretHandoff.cleanupExpiredItems()
             V3SharedFileRecord.removeLegacyDefaultsRecords(LCUtils.appGroupUserDefault)
         }
-        if let containerRoot = V3IPAStaging.sideStoreContainerRoot() {
+        if let containerRoot = V3IPAStaging.sideStoreContainerRoot(selectedGroup: LCSharedUtils.appGroupID()) {
             Task.detached(priority: .utility) {
                 _ = V3SharedFileRecord.sweep(containerRoot: containerRoot)
             }
@@ -2182,7 +2182,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             self.error = "The selected file is empty or too large to hand to the SideStore service."
             return nil
         }
-        guard let containerRoot = V3IPAStaging.sideStoreContainerRoot() else {
+        guard let containerRoot = V3IPAStaging.sideStoreContainerRoot(selectedGroup: LCSharedUtils.appGroupID()) else {
             self.error = "The SideStore shared file container is unavailable. Check Connection and try again."
             return nil
         }
@@ -2196,7 +2196,7 @@ final class V3SideStoreStatusStore: ObservableObject {
         return token
     }
     func discardSharedFile(_ token: String) {
-        guard let containerRoot = V3IPAStaging.sideStoreContainerRoot() else { return }
+        guard let containerRoot = V3IPAStaging.sideStoreContainerRoot(selectedGroup: LCSharedUtils.appGroupID()) else { return }
         V3SharedFileRecord.discard(token, containerRoot: containerRoot)
     }
     func beginInstallPicker() {
@@ -2285,7 +2285,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
 
     func cleanupOrphanedStagedIPAs() async {
-        guard let container = V3IPAStaging.sideStoreContainerRoot() else { return }
+        guard let container = V3IPAStaging.sideStoreContainerRoot(selectedGroup: LCSharedUtils.appGroupID()) else { return }
         var protectedTokens = Set<String>()
         if let token = unresolvedOperationRecovery?.stagedIPAToken {
             protectedTokens.insert(token)
@@ -2316,7 +2316,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     private func stageIPA(_ url: URL, attemptID: UUID, bookmark: Data?, title: String,
                           waitsForPickerDismissal: Bool) -> String? {
         do {
-            guard let container = V3IPAStaging.sideStoreContainerRoot() else {
+            guard let container = V3IPAStaging.sideStoreContainerRoot(selectedGroup: LCSharedUtils.appGroupID()) else {
                 throw CombinedIPAFileError(.fileAccess)
             }
             let token = try V3IPAStaging.stage(sourceURL: url, bookmark: bookmark, containerRoot: container)
@@ -2500,7 +2500,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             // local fallback only when no backend can still use the token. It
             // never accepts or constructs a caller path.
             do {
-                guard let container = V3IPAStaging.sideStoreContainerRoot() else {
+                guard let container = V3IPAStaging.sideStoreContainerRoot(selectedGroup: LCSharedUtils.appGroupID()) else {
                     throw CombinedIPAFileError(.fileAccess)
                 }
                 try V3IPAStaging.cleanup(token: token, containerRoot: container)
