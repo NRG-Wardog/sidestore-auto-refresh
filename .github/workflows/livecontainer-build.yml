@@ -126,6 +126,12 @@ jobs:
             python3 builder/scripts/patch_v3_unified_shell.py work/LiveContainer work/EmbeddedSideStore
             python3 builder/scripts/patch_v3_service.py work/LiveContainer work/EmbeddedSideStore
             python3 builder/scripts/patch_v3_service.py work/LiveContainer work/EmbeddedSideStore
+            # Verify the exact pinned headless transforms before later overlays
+            # intentionally append their own backend code to AppDelegate.
+            python3 builder/scripts/patch_v3_service.py --verify-headless-ui-adapters \
+              work/EmbeddedSideStore "$EMBEDDED_SIDESTORE_REF"
+            python3 builder/scripts/patch_v3_service.py --verify-sign-in-operation \
+              work/EmbeddedSideStore "$EMBEDDED_SIDESTORE_REF"
             swiftc -frontend -parse work/LiveContainer/MultitaskSupport/MultitaskAppWindow.swift
             swiftc -frontend -parse work/LiveContainer/MultitaskSupport/MultitaskDockView.swift
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Models/AppLayoutStyle.swift
@@ -273,10 +279,6 @@ jobs:
           actual_auth=$(git -C work/EmbeddedSideStore diff --name-only -- \
             'AltStore/Managing Apps/AppManager.swift' SideStore/Core/Auth | sort)
           test "$actual_auth" = "$expected_auth"
-          python3 builder/scripts/patch_v3_service.py --verify-headless-ui-adapters \
-            work/EmbeddedSideStore "$EMBEDDED_SIDESTORE_REF"
-          python3 builder/scripts/patch_v3_service.py --verify-sign-in-operation \
-            work/EmbeddedSideStore "$EMBEDDED_SIDESTORE_REF"
           SIDESIGN=work/EmbeddedSideStore/Dependencies/SideSign
           SIDESTORE=work/EmbeddedSideStore
           python3 builder/scripts/patch_sidesign_privacy.py "$SIDESIGN" "$SIDESTORE"

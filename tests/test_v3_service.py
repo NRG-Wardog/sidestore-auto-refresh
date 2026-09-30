@@ -1639,6 +1639,10 @@ import Foundation
         self.assertIn("'SideStore/Core/Auth/AuthManager.swift'", auth_allowlist)
         self.assertIn("--verify-headless-ui-adapters", workflow)
         self.assertIn("--verify-sign-in-operation", workflow)
+        self.assertEqual(workflow.count("--verify-headless-ui-adapters"), 1)
+        self.assertLess(workflow.index("--verify-headless-ui-adapters"),
+                        workflow.index("patch_combined_service_startup.py work/LiveContainer work/EmbeddedSideStore v3"),
+                        "exact headless verification must precede the combined AppDelegate overlay")
         self.assertIn('"$EMBEDDED_SIDESTORE_REF"', workflow)
         patcher = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
         self.assertIn('"--verify-headless-ui-adapters"', patcher)
