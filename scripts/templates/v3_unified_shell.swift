@@ -333,23 +333,29 @@ struct V3UnifiedTabs: View {
                 .padding(.top, 4)
             } else if status.unresolvedRecoveryJournalUnreadable {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("SideStore paused changes because its recovery record cannot be read")
+                    Text(status.recoveryStorageTitle)
                         .font(.subheadline.weight(.semibold))
-                    Text("Check the device before clearing this record. An earlier install, update, refresh, or delete may still be running.")
+                    Text(status.recoveryStorageGuidance)
                         .font(.caption)
-                    Button("I checked; no SideStore operation is running") {
-                        showUnreadableRecoveryDeviceCheck = true
+                    if status.canDiscardUnreadableRecovery {
+                        Button("I checked; no SideStore operation is running") {
+                            showUnreadableRecoveryDeviceCheck = true
+                        }
+                        .font(.caption.weight(.semibold))
+                        .confirmationDialog("Clear the unreadable recovery record?",
+                            isPresented: $showUnreadableRecoveryDeviceCheck, titleVisibility: .visible) {
+                            Button("Clear after device check", role: .destructive) {
+                                status.discardUnreadableRecoveryAfterDeviceCheck()
+                            }
+                            Button("Keep waiting", role: .cancel) {}
+                        } message: {
+                            Text("Only continue after confirming the device is no longer installing, updating, refreshing, or deleting an app.")
+                        }
+                    }
+                    Button("Copy Diagnostics") {
+                        UIPasteboard.general.string = status.recoveryStorageDiagnostics
                     }
                     .font(.caption.weight(.semibold))
-                    .confirmationDialog("Clear the unreadable recovery record?",
-                        isPresented: $showUnreadableRecoveryDeviceCheck, titleVisibility: .visible) {
-                        Button("Clear after device check", role: .destructive) {
-                            status.discardUnreadableRecoveryAfterDeviceCheck()
-                        }
-                        Button("Keep waiting", role: .cancel) {}
-                    } message: {
-                        Text("Only continue after confirming the device is no longer installing, updating, refreshing, or deleting an app.")
-                    }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1258,6 +1264,34 @@ final class V3SideStoreStatusStore: ObservableObject {
     @Published private(set) var unresolvedOperationRecovery: V3OperationRecoveryRecord?
     @Published private(set) var unresolvedRefreshRecoveryRunID: String?
     @Published private(set) var unresolvedRecoveryJournalUnreadable = false
+    @Published private(set) var recoveryStorageKind: String?
+    @Published private(set) var recoveryStorageClearEligible = false
+    @Published private(set) var recoveryStorageDiagnostics = "schema=1 operation=status stage=persistence recovery_storage_kind=unknown"
+
+    var canDiscardUnreadableRecovery: Bool {
+        V3RecoveryStoragePresentationPolicy.mayOfferClear(
+            connected: connected, unresolved: unresolvedRecoveryJournalUnreadable,
+            kind: recoveryStorageKind, serverClearEligible: recoveryStorageClearEligible)
+    }
+
+    var recoveryStorageTitle: String {
+        switch recoveryStorageKind {
+        case "malformedRecord": return "SideStore paused changes because its recovery record is malformed"
+        case "incompatibleRecord": return "SideStore paused changes because its recovery record uses an incompatible format"
+        case "storageUnavailable": return "SideStore cannot access shared recovery storage"
+        case "lockUnavailable": return "SideStore cannot acquire its recovery storage lock"
+        case "readFailure": return "SideStore could not read recovery storage"
+        case "deleteFailure": return "SideStore could not remove its recovery record"
+        default: return "SideStore recovery status is uncertain"
+        }
+    }
+
+    var recoveryStorageGuidance: String {
+        if canDiscardUnreadableRecovery {
+            return "Check the device before clearing this saved record. An earlier operation may still be running."
+        }
+        return "Changes remain paused. This is not proof of a corrupt record. Check shared storage and service status; copy Diagnostics."
+    }
     @Published private(set) var unresolvedDirectRecovery: V3HostDirectRecoveryRecord?
     @Published private(set) var directRecoveryPostcondition: V3DirectRecoveryPostcondition?
     @Published private(set) var directRecoveryInspecting = false
@@ -1405,21 +1439,32 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
 
     func discardUnreadableRecoveryAfterDeviceCheck() {
-        guard unresolvedRecoveryJournalUnreadable else { return }
+        guard canDiscardUnreadableRecovery else { return }
         Task {
             do {
                 let reply = try await V3ServiceBridge.shared.request(
                     operation: "recoveryDiscardUnreadable", payload: ["userConfirmed": true])
                 guard V3ServiceBridge.strictBool(reply["discardedUnreadable"]) == true else {
-                    throw CombinedFailure(operation: "command", stage: .command,
+                    throw CombinedFailure(operation: "status", stage: .persistence,
                         code: .staleResult, id: UUID().uuidString, retryable: false)
                 }
-                unresolvedRecoveryJournalUnreadable = false
-                notice = "The unreadable recovery record was cleared after your device check."
+                // The service reread under its lock, then this independent
+                // authoritative snapshot must confirm the host hold is gone.
+                let outcome = await reloadAndWait()
+                guard V3RecoveryStoragePresentationPolicy.confirmsCleared(
+                    snapshotApplied: outcome == .applied,
+                    unreadable: unresolvedRecoveryJournalUnreadable,
+                    operationRecovery: unresolvedOperationRecovery != nil,
+                    directRecovery: unresolvedDirectRecovery != nil,
+                    refreshRecovery: unresolvedRefreshRecoveryRunID != nil) else {
+                    throw CombinedFailure(operation: "status", stage: .persistence,
+                        code: .staleResult, id: UUID().uuidString, retryable: true,
+                        safeCause: .recoveryReadFailure)
+                }
+                notice = "The recovery record is absent and SideStore status was verified."
                 await cleanupOrphanedStagedIPAs()
-                reload()
             } catch {
-                self.error = "SideStore could not clear its unreadable recovery record. Keep operations paused and try reloading status."
+                present(error)
             }
         }
     }
@@ -1878,6 +1923,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     private func acceptRecoveryEvidence(_ snapshot: [String: Any]) -> Bool {
         guard V3ServiceBridge.shared.statusReplyMayApplyRecoveryEvidence(snapshot) else { return false }
         V3ServiceBridge.shared.setHostRecoveryHold(true)
+        observeRecoveryStorageFailure(snapshot)
         let recoveryHold = V3ServiceBridge.strictBool(snapshot["recoveryHold"]) == true
         var foundValidEvidence = false
         if snapshot.keys.contains("operationRecovery"),
@@ -1924,7 +1970,35 @@ final class V3SideStoreStatusStore: ObservableObject {
         return true
     }
 
+    private func observeRecoveryStorageFailure(_ snapshot: [String: Any]) {
+        let known: Set<String> = ["malformedRecord", "incompatibleRecord", "storageUnavailable",
+                                  "lockUnavailable", "readFailure", "deleteFailure"]
+        let knownSteps: Set<String> = ["unknown", "appGroup", "directory", "open", "permissions",
+                                       "flock", "metadata", "fileType", "readData", "parse", "schema"]
+        guard let details = snapshot["recoveryStorageFailure"] as? [String: Any],
+              let kind = details["kind"] as? String, known.contains(kind),
+              let step = details["sourceStep"] as? String, knownSteps.contains(step),
+              let present = V3ServiceBridge.strictBool(details["recordPresent"]),
+              let eligible = V3ServiceBridge.strictBool(details["clearEligible"]),
+              let retryable = V3ServiceBridge.strictBool(details["retryable"]),
+              let domain = details["underlyingDomain"] as? String,
+              let code = V3ServiceBridge.strictInt(details["underlyingCode"]) else {
+            recoveryStorageKind = nil
+            recoveryStorageClearEligible = false
+            recoveryStorageDiagnostics = "schema=1 operation=status stage=persistence recovery_storage_kind=unknown"
+            return
+        }
+        recoveryStorageKind = kind
+        recoveryStorageClearEligible = present && eligible &&
+            ["malformedRecord", "incompatibleRecord"].contains(kind)
+        let native = CombinedFailure.safeDiagnosticUnderlying(domain: domain, code: code)
+        recoveryStorageDiagnostics = "schema=1 operation=status stage=persistence " +
+            "recovery_storage_kind=\(kind) source_step=\(step) record_present=\(present) clear_eligible=\(recoveryStorageClearEligible) " +
+            "underlying_domain=\(native.domain) underlying_code=\(native.code) retryable=\(retryable)"
+    }
+
     private func applyFullRecoveryEvidence(_ snapshot: [String: Any]) {
+        observeRecoveryStorageFailure(snapshot)
         let recoveryHold = V3ServiceBridge.strictBool(snapshot["recoveryHold"]) == true
         var foundValidEvidence = false
         var unreadable = V3ServiceBridge.strictBool(snapshot["recoveryJournalUnreadable"]) == true

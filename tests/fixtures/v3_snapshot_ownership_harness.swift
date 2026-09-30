@@ -664,9 +664,9 @@ struct SnapshotOwnershipHarness {
                 currentServiceEpoch: authority.serviceEpoch, currentServiceInstanceID: "pid-101",
                 busySnapshot: true), "busy=true cannot satisfy reloadAndWait")
 
-            // A v1 durable operation hold can make a cold-relaunch snapshot
-            // busy. Its current-ticket recovery fields may publish the recovery
-            // banner without accepting account/app state or satisfying waiters.
+            // A durable recovery hold can make a cold-relaunch snapshot busy
+            // while no mutation is active. That current service snapshot must
+            // still publish its account/team facts; the hold blocks writes.
             let recoveryTicket = authority.begin(ownerID: "snapshot:recovery", revision: authority.revision,
                 serviceInstanceID: "pid-101", kind: .snapshot)!
             let recoveryReply: [String: Any] = [
@@ -676,15 +676,74 @@ struct SnapshotOwnershipHarness {
             ]
             precondition(authority.complete(recoveryTicket, outcome: .committed),
                 "the busy cold-relaunch reply has a correlated completion")
-            precondition(!V3StatusReplyCommitPolicy.mayApply(recoveryTicket, authority: authority,
-                currentServiceEpoch: authority.serviceEpoch, currentServiceInstanceID: "pid-101",
-                busySnapshot: true), "the recovery-only path still cannot satisfy a reload waiter")
+            let recoveryOnly = V3RecoveryOnlySnapshotPolicy.mayApplyFullStatus(
+                busy: true, activeMutation: false, recoveryHold: true,
+                hasTypedRecoveryEvidence: true)
+            precondition(recoveryOnly &&
+                V3StatusReplyCommitPolicy.mayApply(recoveryTicket, authority: authority,
+                    currentServiceEpoch: authority.serviceEpoch, currentServiceInstanceID: "pid-101",
+                    busySnapshot: !recoveryOnly),
+                "a correlated recovery-only snapshot must publish current status facts")
+            precondition(!V3RecoveryOnlySnapshotPolicy.mayApplyFullStatus(
+                busy: true, activeMutation: true, recoveryHold: true,
+                hasTypedRecoveryEvidence: true) &&
+                !V3RecoveryOnlySnapshotPolicy.mayApplyFullStatus(
+                    busy: true, activeMutation: false, recoveryHold: false,
+                    hasTypedRecoveryEvidence: true) &&
+                !V3RecoveryOnlySnapshotPolicy.mayApplyFullStatus(
+                    busy: true, activeMutation: false, recoveryHold: true,
+                    hasTypedRecoveryEvidence: false),
+                "a mutation or unproven hold cannot authorize a busy full snapshot")
+            precondition(V3RecoveryStoragePresentationPolicy.mayOfferClear(
+                connected: true, unresolved: true, kind: "malformedRecord",
+                serverClearEligible: true) &&
+                V3RecoveryStoragePresentationPolicy.mayOfferClear(
+                    connected: true, unresolved: true, kind: "incompatibleRecord",
+                    serverClearEligible: true),
+                "only an inspected malformed or incompatible record may offer manual clear")
+            for kind in ["storageUnavailable", "lockUnavailable", "readFailure", "deleteFailure"] {
+                precondition(!V3RecoveryStoragePresentationPolicy.mayOfferClear(
+                    connected: true, unresolved: true, kind: kind,
+                    serverClearEligible: true),
+                    "\(kind) cannot offer a destructive record clear")
+            }
+            precondition(!V3RecoveryStoragePresentationPolicy.mayOfferClear(
+                connected: false, unresolved: true, kind: "malformedRecord",
+                serverClearEligible: true) &&
+                !V3RecoveryStoragePresentationPolicy.mayOfferClear(
+                    connected: true, unresolved: true, kind: "malformedRecord",
+                    serverClearEligible: false),
+                "a disconnected service or unconfirmed delete access cannot offer clear")
+            precondition(V3RecoveryStoragePresentationPolicy.confirmsCleared(
+                snapshotApplied: true, unreadable: false, operationRecovery: false,
+                directRecovery: false, refreshRecovery: false) &&
+                !V3RecoveryStoragePresentationPolicy.confirmsCleared(
+                    snapshotApplied: false, unreadable: false, operationRecovery: false,
+                    directRecovery: false, refreshRecovery: false) &&
+                !V3RecoveryStoragePresentationPolicy.confirmsCleared(
+                    snapshotApplied: true, unreadable: false, operationRecovery: true,
+                    directRecovery: false, refreshRecovery: false),
+                "the host clears its hold only after an authoritative empty snapshot")
+            precondition(V3RecoveryClearHostAdmissionPolicy.permits(
+                operation: "recoveryDiscardUnreadable", target: "", userConfirmed: true,
+                recoveryHold: true, otherMutationActive: false),
+                "a confirmed clear must reach SideStore when the recovery hold is the only blocker")
+            precondition(!V3RecoveryClearHostAdmissionPolicy.permits(
+                operation: "recoveryDiscardUnreadable", target: "", userConfirmed: false,
+                recoveryHold: true, otherMutationActive: false) &&
+                !V3RecoveryClearHostAdmissionPolicy.permits(
+                    operation: "recoveryDiscardUnreadable", target: "", userConfirmed: true,
+                    recoveryHold: true, otherMutationActive: true) &&
+                !V3RecoveryClearHostAdmissionPolicy.permits(
+                    operation: "delete", target: "", userConfirmed: true,
+                    recoveryHold: true, otherMutationActive: false),
+                "recovery control must not bypass an active mutation or missing confirmation")
             precondition(V3StatusRecoveryEvidencePolicy.hasRecoveryEvidence(recoveryReply) &&
                 V3StatusRecoveryEvidencePolicy.mayApply(busySnapshot: true, activeMutation: nil,
                     hasDurableRecoveryEvidence: true) &&
                 V3StatusReplyCommitPolicy.mayApply(recoveryTicket, authority: authority,
                     currentServiceEpoch: authority.serviceEpoch, currentServiceInstanceID: "pid-101"),
-                "current-ticket v1 recovery evidence remains available while status rows stay stale")
+                "current-ticket recovery evidence remains available to the fallback path")
 
             // Cancellation acknowledgement has no transition in this policy:
             // the lease remains exclusive until the original callback or an

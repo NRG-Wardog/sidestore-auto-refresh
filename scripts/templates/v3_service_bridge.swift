@@ -513,7 +513,14 @@ public final class V3ServiceBridge {
             // snapshot. Missing or malformed fields cannot authorize a commit.
             guard V3WireContract.strictBool(reply["activeMutation"]) != nil,
                   V3WireContract.strictBool(reply["recoveryHold"]) != nil else { return false }
-            busyValue = typedBusy
+            let recoveryOnly = V3RecoveryOnlySnapshotPolicy.mayApplyFullStatus(
+                busy: typedBusy,
+                activeMutation: V3WireContract.strictBool(reply["activeMutation"]) == true,
+                recoveryHold: V3WireContract.strictBool(reply["recoveryHold"]) == true,
+                hasTypedRecoveryEvidence: reply["operationRecovery"] != nil ||
+                    reply["directRecovery"] != nil || reply["refreshRecovery"] != nil ||
+                    reply["recoveryStorageFailure"] != nil)
+            busyValue = typedBusy && !recoveryOnly
         } else {
             busyValue = false
         }
@@ -649,6 +656,14 @@ public final class V3ServiceBridge {
         let explicitDirectRecoveryControl = operation == "directRecoveryReconcile" &&
             UUID(uuidString: target)?.uuidString == target &&
             directRecoveryTerminalAck != directRecoveryUserCheck
+        let explicitUnreadableRecoveryControl = V3RecoveryClearHostAdmissionPolicy.permits(
+            operation: operation, target: target,
+            userConfirmed: V3WireContract.strictBool(payload?["userConfirmed"]) == true,
+            recoveryHold: hostRecoveryHoldActive,
+            otherMutationActive: authSessionOwnership.hasActiveSession() || activeMutation != nil ||
+                !activeOperationSessions.isEmpty || !cancellationRecovery.isEmpty ||
+                statusWriteAuthority.hasActiveWrite || statusWriteAuthority.hasUnresolvedMutation ||
+                RefreshHandler.shared.v3RefreshToken != nil)
         let scopedAuthSessionControl = ["authRespond", "authCancel"].contains(operation) &&
             authSessionOwnership.owns(target)
         let mutation = !V3WireContract.readOperations.contains(operation) ||
@@ -662,6 +677,7 @@ public final class V3ServiceBridge {
             userConfirmedReconciliation: V3WireContract.strictBool(payload?["userConfirmed"]) == true)
         if mutation {
             guard scopedSessionControl || explicitRecoveryConfirmation || explicitDirectRecoveryControl ||
+                    explicitUnreadableRecoveryControl ||
                     scopedAuthSessionControl || scopedRefreshAdmissionControl ||
                     (!isMutating && RefreshHandler.shared.v3RefreshToken == nil) else {
                 if ["authBegin", "authRetryProvisioning"].contains(operation) {

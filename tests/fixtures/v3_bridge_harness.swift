@@ -10,6 +10,7 @@ final class FakeClient {
     var rejectOperationStart = false
     var badVersionOperationStart = false
     var omitOutcomeUnknown = false
+    var recoveryStorageFailure = false
     var replies: [() -> Void] = []
     var cancellations = 0
     var operations: [String] = []
@@ -28,7 +29,7 @@ final class FakeClient {
         let operationResult: [String: Any]
         switch operation {
         case "snapshot":
-            operationResult = snapshotResult(busy: false)
+            operationResult = snapshotResult(busy: recoveryStorageFailure)
         case "authBegin":
             operationResult = ["session": payload["session"] as? String ?? "", "state": "working"]
         case "authPoll":
@@ -76,7 +77,10 @@ final class FakeClient {
         if hold { replies.append { reply(encoded) } } else { reply(encoded) }
     }
     private func snapshotResult(busy: Bool) -> [String: Any] {
-        ["updatedAt": Date(), "busy": busy, "recoveryJournalUnreadable": false,
+        var value: [String: Any] = ["updatedAt": Date(), "busy": busy,
+         "activeMutation": false, "recoveryHold": recoveryStorageFailure,
+         "recoveryJournalUnreadable": recoveryStorageFailure,
+         "identityStamp": "fixture-identity", "identityStable": true,
          "account": "fixture", "authenticated": false, "activeAccountPresent": false,
          "activeTeamPresent": false, "activeCertificatePresent": false,
          "authenticationActive": false, "provisioningIncomplete": false,
@@ -86,6 +90,13 @@ final class FakeClient {
          "installedApps": [], "sources": [],
          "settings": ["betaUpdates": false, "idleTimeoutDisabled": false,
                       "responseCachingDisabled": false, "verboseOperations": false]]
+        if recoveryStorageFailure {
+            value["recoveryStorageFailure"] = ["kind": "storageUnavailable",
+                "sourceStep": "appGroup", "recordPresent": false,
+                "clearEligible": false, "underlyingDomain": "none",
+                "underlyingCode": 0, "retryable": true] as [String: Any]
+        }
+        return value
     }
     func flush() { let old = replies; replies = []; old.forEach { $0() } }
 }
@@ -183,6 +194,27 @@ struct BridgeTests {
         async let b: Void = bridge.connect()
         _ = try await (a, b)
         precondition(handler.connects == 1, "launch must be coalesced")
+        bridge.setHostRecoveryHold(true)
+        client.recoveryStorageFailure = true
+        let recoverySnapshot = try await bridge.request(operation: "snapshot")
+        precondition(bridge.statusReplyMayApply(recoverySnapshot) &&
+                     recoverySnapshot["account"] as? String == "fixture",
+            "a current recovery-only busy snapshot must still publish connection and account facts")
+        client.recoveryStorageFailure = false
+        let requestsBeforeRecovery = client.requests.count
+        do {
+            _ = try await bridge.request(operation: "signOut")
+            preconditionFailure("a recovery hold admitted an unrelated device mutation")
+        } catch {}
+        precondition(client.requests.count == requestsBeforeRecovery,
+            "the unrelated mutation must be rejected before XPC dispatch")
+        _ = try await bridge.request(operation: "recoveryDiscardUnreadable",
+            payload: ["userConfirmed": true])
+        precondition(client.requests.last?["operation"] as? String == "recoveryDiscardUnreadable" &&
+                     bridge.isMutating,
+            "the confirmed hold-only clear must reach XPC and retain the host hold pending snapshot")
+        bridge.setHostRecoveryHold(false)
+        precondition(!bridge.isMutating, "the confirmed control reply releases only its own request lease")
         let invalidStartSession = UUID().uuidString
         // Deliberate local property-list serialization failure. The operation
         // fields are valid so NSNull is the only reason this never dispatches.
