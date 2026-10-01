@@ -301,10 +301,14 @@ struct SecretHandoffTypedDiagnosticsHarness {
         expect(line.count < 220, "the safe line is one short line")
 
         // 12. The user-facing text never implies Apple rejected the password.
-        let message = CombinedFailure.SafeCause.secretHandoffUnavailable.safeMessage
-        expect(message.contains("never sent to Apple"), "the message says the response never reached Apple")
-        let recovery = CombinedFailure.SafeCause.secretHandoffUnavailable.recovery
-        expect(recovery.lowercased().contains("re-sign") || recovery.lowercased().contains("reinstall"),
+        // The message and the recovery are properties of the failure, not of its
+        // cause, so read them off a real classified failure.
+        let classified = V3SecretHandoffFailurePolicy.failure(denied!, operation: "authRespond",
+                                                              id: "corr")
+        expect(classified.safeMessage.contains("never sent to Apple"),
+               "the message says the response never reached Apple")
+        let recovery = classified.recovery.lowercased()
+        expect(recovery.contains("re-sign") || recovery.contains("reinstall"),
                "the recovery names the action that can fix it")
 
         if failures == 0 {

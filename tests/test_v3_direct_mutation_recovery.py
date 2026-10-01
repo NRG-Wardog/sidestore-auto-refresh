@@ -91,8 +91,8 @@ class V3DirectMutationRecoveryTests(unittest.TestCase):
         # Slices come from one shared helper: index arithmetic repeated across
         # harnesses broke each of them once when a declaration gained an access
         # level.
-        lock = handoff_slices.lock(handoff)
-        error = handoff_slices.error_blocks(handoff)
+        lock = handoff_slices.lock(handoff) + handoff_slices.without_policy(handoff)
+        error = ""
         journal_start = service.index("private enum V3DirectMutationRecoveryPhase:")
         journal_end = service.index("\n// V3_NATIVE_CALLBACK_GATE_V1", journal_start)
         injected_imports = (
