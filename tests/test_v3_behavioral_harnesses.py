@@ -232,6 +232,37 @@ enum V3SetupReloadOutcomeHarness {
         self.compile_and_run(wire + "\n" + failure + "\n" + helper + "\n" + harness,
                              "V3_AUTH_OWNERSHIP_RECONCILIATION_PASS")
 
+    def test_secret_handoff_failures_are_typed_and_never_blamed_on_apple(self):
+        # The device symptom was authRespond reporting signIn/authentication/
+        # failed with safe_cause=unknown. That is not an Apple failure: the
+        # response never left the device. This drives the real diagnostics,
+        # taxonomy and classification policy against an injected Keychain,
+        # including the re-sign shape where the extension lacks the main app's
+        # shared group.
+        shared = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        fixture = (ROOT / "tests/fixtures/v3_secret_handoff_typed_diagnostics_harness.swift").read_text(
+            encoding="utf-8")
+
+        def block(start_marker, end_marker):
+            first = shared.index(start_marker)
+            return shared[first:shared.index(end_marker, first)]
+
+        # The harness models the Keychain transport rather than calling Security,
+        # so it composes with the parts that decide and report, not with the
+        # SecItem calls themselves.
+        subject = (block("public enum V3SecretHandoffFailure",
+                         "public enum V3SecretHandoffFailurePolicy")
+                   + block("public enum V3SecretHandoffFailurePolicy",
+                           "public enum V3SecretHandoffError")
+                   + block("public enum V3SecretHandoffError",
+                           "/// Serializes the full shared-Keychain"))
+        self.assertIn("case keychainExplicitGroupUnauthorized", subject)
+        self.assertIn("safeCause: .secretHandoffUnavailable", subject)
+        self.compile_and_run("import Foundation\nimport Security\n" + failure + "\n" + subject
+                             + "\n" + fixture,
+                             "V3_SECRET_HANDOFF_TYPED_DIAGNOSTICS_PASS")
+
     def test_auth_prompt_submission_ownership_preserves_the_real_tap_order(self):
         # The view must not claim the submission transition the parent admits on.
         # The real V3PromptSection.respond method is injected verbatim, so this

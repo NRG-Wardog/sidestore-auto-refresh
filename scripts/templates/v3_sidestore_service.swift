@@ -1370,6 +1370,17 @@ final class V3SideStoreService: NSObject {
                 } else if operation == "catalog" {
                     response["failure"] = CombinedFailure(operation: "catalog", stage: .catalog, code: .failed,
                         id: id, underlying: error, safeCause: .catalogUnavailable, sourceStep: .catalogRead).wire
+                } else if let handoffError = error as? V3SecretHandoffError,
+                          V3SecretHandoffFailurePolicy.applies(to: operation) {
+                    // V3_SECRET_HANDOFF_FAILURE_TYPED_V1: the response never
+                    // reached Apple, so this must not be reported as an
+                    // authentication failure. It is a transport failure of the
+                    // secure channel between the two signed processes, it belongs
+                    // to persistence rather than authentication, and its OSStatus
+                    // distinguishes an unauthorized group from an absent item.
+                    V3SecretHandoffTrace.emit(handoffError.diagnostics)
+                    response["failure"] = V3SecretHandoffFailurePolicy.failure(
+                        handoffError, operation: operation, id: id).wire
                 } else if let structuredFailure = error as? CombinedFailure {
                     // V3_WIRE_FAILURE_CORRELATION_V1: preserve the typed cause
                     // but correlate the reply to this XPC request, not to the
@@ -1751,10 +1762,21 @@ final class V3SideStoreService: NSObject {
                   let promptID = payload["prompt"] as? String else {
                 throw ServiceError.invalidRequest
             }
+            // V3_SECRET_HANDOFF_FAILURE_TYPED_V1: the handoff boundary is the
+            // only place that can say whether the response reached the prompt
+            // handler. Emit it before consuming, so a failure names the step.
+            V3SecretHandoffTrace.emit(V3SecretHandoffDiagnostics(
+                role: V3SecretHandoffRole.service, operation: "authRespond",
+                tokenWellFormed: V3SecretHandoff.isValidToken(secretToken)))
             let answer = try V3SecretHandoff.consumeStringDictionary(secretToken)
             guard let reply = V3HeadlessRuntime.shared.auth.respond(id: target, promptID: promptID, answer: answer) else {
                 throw ServiceError.invalidRequest
             }
+            // Only now is the response in SideSign's hands. Nothing before this
+            // line involved Apple.
+            V3SecretHandoffTrace.emit(V3SecretHandoffDiagnostics(
+                role: V3SecretHandoffRole.service, operation: "authDelivered",
+                groupDiscovered: true, tokenWellFormed: true))
             return reply
         case "authCancel":
             guard await V3HeadlessRuntime.shared.auth.cancelAndWait(id: target) else { throw ServiceError.invalidRequest }

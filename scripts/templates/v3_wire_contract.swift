@@ -534,7 +534,7 @@ enum V3ServiceReadinessReply: Equatable {
         "keychainSignOutOutcomeUnknown", "recoveryMalformedRecord",
         "recoveryIncompatibleRecord", "recoveryStorageUnavailable",
 "recoveryLockUnavailable", "recoveryReadFailure", "recoveryDeleteFailure",
-        "sharedStoreUnavailable"
+        "sharedStoreUnavailable", "secretHandoffUnavailable"
     ]
     static let knownSourceStepValues: Set<String> = [
         "provisioningProfileFetch", "certificateValidation", "localCodeSigning",

@@ -13,6 +13,7 @@ enum V3AppGroupProcessLock {
     static func withLock<T>(containerRoot: URL? = nil,
                             selectedGroup: String? = nil,
                             onFailure: ((String, String, Int) -> Void)? = nil,
+                            diagnostics: V3SecretHandoffDiagnostics? = nil,
                             _ operation: () throws -> T) throws -> T {
         #if canImport(Darwin)
         let container: URL
@@ -27,7 +28,7 @@ enum V3AppGroupProcessLock {
             // use, so the two processes take the same lock file.
             guard let shared = V3SharedAppGroup.runtimeIdentity(selectedGroup: selectedGroup) else {
                 onFailure?("appGroup", "none", 0)
-                throw V3SecretHandoffError.unavailable
+                throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock")
             }
             container = shared.containerRoot
         }
@@ -35,11 +36,11 @@ enum V3AppGroupProcessLock {
         #elseif canImport(Glibc)
         guard let containerRoot else {
             onFailure?("appGroup", "none", 0)
-            throw V3SecretHandoffError.unavailable
+            throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock")
         }
         let container = containerRoot
         #else
-        throw V3SecretHandoffError.unavailable
+        throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock")
         #endif
         let directory = ["Library", "Application Support", "LiveContainer"].reduce(
             container.standardizedFileURL) { $0.appendingPathComponent($1, isDirectory: true) }.standardizedFileURL
@@ -49,48 +50,274 @@ enum V3AppGroupProcessLock {
             let values = try directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
             guard values.isDirectory == true, values.isSymbolicLink != true,
                   directory.resolvingSymlinksInPath().standardizedFileURL == directory else {
-                throw V3SecretHandoffError.unavailable
+                throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock")
             }
         } catch {
             let native = error as NSError
             let safe = [NSCocoaErrorDomain, NSPOSIXErrorDomain].contains(native.domain)
             onFailure?("directory", safe ? native.domain : "redacted", safe ? native.code : 0)
-            throw V3SecretHandoffError.unavailable
+            throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock",
+                       osStatus: safe ? Int32(native.code) : 0)
         }
         let path = directory.appendingPathComponent("keychain-transaction.lock").path
         let descriptor = open(path, O_CREAT | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else {
             onFailure?("open", NSPOSIXErrorDomain, Int(errno))
-            throw V3SecretHandoffError.unavailable
+            throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock",
+                       osStatus: Int32(errno))
         }
         defer { _ = close(descriptor) }
         guard fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else {
             onFailure?("permissions", NSPOSIXErrorDomain, Int(errno))
-            throw V3SecretHandoffError.unavailable
+            throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock",
+                       osStatus: Int32(errno))
         }
         guard flock(descriptor, LOCK_EX) == 0 else {
             onFailure?("flock", NSPOSIXErrorDomain, Int(errno))
-            throw V3SecretHandoffError.unavailable
+            throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock",
+                       osStatus: Int32(errno))
         }
         defer { _ = flock(descriptor, LOCK_UN) }
         return try operation()
     }
 }
 
-enum V3SecretHandoffError: Error, LocalizedError {
-    case unavailable
+/// Why a secure handoff did not complete, at the granularity that tells an
+/// engineer where to look without revealing anything sensitive.
+///
+/// Every case carries only an OSStatus integer, booleans, and a role. No case
+/// carries an Apple ID, a password, a token, Keychain item data, or an access
+/// group string, because this value reaches a device log.
+public enum V3SecretHandoffFailure: String, Sendable {
+    /// The process-shared App Group lock could not be taken, so the two
+    /// processes could not serialize this transaction.
+    case appGroupLockUnavailable
+    /// This process could not read back which Keychain access group it owns, so
+    /// the shared group could not be derived from its own entitlement.
+    case keychainGroupDiscoveryFailed
+    /// The derived shared group was refused by the Keychain: this process is not
+    /// entitled to it. This is the shape a re-sign produces when the group is
+    /// granted to the main app but not to its extensions.
+    case keychainExplicitGroupUnauthorized
+    /// The item was absent when it should have been present.
+    case keychainItemNotFound
+    /// Reading the item failed for a reason other than absence.
+    case keychainReadFailed
+    /// The one-time take could not delete the item after reading it.
+    case keychainDeleteFailed
+    /// The record existed but its lifetime had elapsed.
+    case tokenExpired
+    /// The record could not be decoded, or the token was not canonical.
+    case tokenMalformed
+    /// The outstanding-item budget was exhausted.
+    case capacity
+    /// The transaction lock is held but the shared group could not be resolved.
+    case sharedGroupUnavailable
+}
+
+/// Privacy-safe evidence for one handoff step. Safe to log.
+public struct V3SecretHandoffDiagnostics: Sendable, Equatable {
+    /// "host" or "service".
+    public var role: String
+    public var operation: String
+    public var failure: V3SecretHandoffFailure?
+    /// Raw OSStatus, or 0 when the failure was not an OS call. Integer only.
+    public var osStatus: Int32
+    /// Whether this process could discover its own default access group.
+    public var groupDiscovered: Bool
+    /// Whether the token was a canonical UUID. Never the token itself.
+    public var tokenWellFormed: Bool
+
+    public init(role: String, operation: String, failure: V3SecretHandoffFailure? = nil,
+                osStatus: Int32 = 0, groupDiscovered: Bool = false,
+                tokenWellFormed: Bool = false) {
+        self.role = role
+        self.operation = operation
+        self.failure = failure
+        self.osStatus = osStatus
+        self.groupDiscovered = groupDiscovered
+        self.tokenWellFormed = tokenWellFormed
+    }
+
+    /// A single line with no secret material. Group names are deliberately
+    /// absent: they embed the team identifier and were previously reported
+    /// only as a boolean elsewhere.
+    public var safeLine: String {
+        var parts = ["handoff=1", "role=\(role)", "op=\(operation)"]
+        parts.append("group_discovered=\(groupDiscovered)")
+        parts.append("token_well_formed=\(tokenWellFormed)")
+        if let failure { parts.append("cause=\(failure.rawValue)") }
+        else { parts.append("cause=none") }
+        parts.append("osstatus=\(osStatus)")
+        return parts.joined(separator: " ")
+    }
+}
+
+/// Emits one privacy-safe line per handoff step. Replaces the previous
+/// `onFailure` callback, which carried an untyped domain string.
+public enum V3SecretHandoffTrace {
+    /// Set to false only by tests that assert on the absence of output.
+    public static var isEnabled = true
+
+    public static func emit(_ diagnostics: V3SecretHandoffDiagnostics) {
+        guard isEnabled else { return }
+        NSLog("[V3_SECRET_HANDOFF] %@", diagnostics.safeLine)
+    }
+}
+
+/// Decides whether a thrown handoff error is reported as a secure-transport
+/// failure rather than as whatever the surrounding operation was doing.
+///
+/// An authRespond that fails here never reached Apple. Reporting it as
+/// signIn/authentication/failed tells the user their password was rejected,
+/// which is false and sends them to change a password that never failed.
+public enum V3SecretHandoffFailurePolicy {
+    /// Operations whose payload crosses the secure channel first.
+    public static let handoffCarryingOperations: Set<String> = [
+        "authRespond", "opAnswer", "accountExport", "accountImport",
+        "certCreate", "devPortalLogin"]
+
+    public static func applies(to operation: String) -> Bool {
+        handoffCarryingOperations.contains(operation)
+    }
+
+    /// The stage a handoff failure belongs to. Persistence, not authentication:
+    /// the response is intact and the channel is what is broken.
+    public static func stage(for operation: String) -> CombinedFailure.Stage { .persistence }
+
+    /// Distinguishes a transient channel problem from one that needs a re-sign.
+    public static func code(for failure: V3SecretHandoffFailure) -> CombinedFailure.Code {
+        switch failure {
+        case .appGroupLockUnavailable, .keychainReadFailed, .keychainDeleteFailed, .capacity:
+            return .busy
+        case .keychainGroupDiscoveryFailed, .keychainExplicitGroupUnauthorized,
+             .keychainItemNotFound, .tokenExpired, .tokenMalformed, .sharedGroupUnavailable:
+            return .unavailable
+        }
+    }
+
+    /// Only a transient cause may be retried. Retrying cannot grant an access
+    /// group or recreate an item the service is entitled to read.
+    public static func isRetryable(_ failure: V3SecretHandoffFailure) -> Bool {
+        switch failure {
+        case .appGroupLockUnavailable, .keychainReadFailed, .keychainDeleteFailed, .capacity:
+            return true
+        case .keychainGroupDiscoveryFailed, .keychainExplicitGroupUnauthorized,
+             .keychainItemNotFound, .tokenExpired, .tokenMalformed, .sharedGroupUnavailable:
+            return false
+        }
+    }
+
+    public static func failure(_ error: V3SecretHandoffError, operation: String,
+                               id: String) -> CombinedFailure {
+        let reason = error.failure
+        // The OSStatus is evidence and is safe: an integer from the Keychain.
+        // The group name is never included, because it embeds the team id.
+        let underlying = NSError(domain: "V3SecretHandoff", code: Int(error.osStatusValue))
+        return CombinedFailure(operation: operation, stage: stage(for: operation),
+            code: code(for: reason), id: id, underlying: underlying,
+            retryable: isRetryable(reason), safeCause: .secretHandoffUnavailable)
+    }
+}
+
+/// Which side of the handoff is running. Injected so the same binary reports
+/// honestly in the host, the SideStoreSupport framework and the service.
+public enum V3SecretHandoffRole {
+    public static let host = "host"
+    public static let service = "service"
+    /// The role of the running process, detected rather than declared. The host
+    /// bundle identifier is the only one that is not the embedded service, and
+    /// it is read from the process's own identity rather than passed in, so a
+    /// call site cannot mislabel it.
+    public static var current: String = resolve()
+
+    static func resolve(bundle: Bundle = .main) -> String {
+        bundle.bundleIdentifier?.hasSuffix(".LiveProcess") == true ? service : host
+    }
+}
+
+public enum V3SecretHandoffError: Error, LocalizedError {
+    case unavailable(V3SecretHandoffFailure, osStatus: Int32 = 0, groupDiscovered: Bool = false,
+                     tokenWellFormed: Bool = false)
     case invalidToken
     case expired
     case malformed
     case capacity
 
-    var errorDescription: String? {
+    /// The OSStatus behind this error, or 0 when there was no OS call.
+    public var osStatusValue: Int32 {
+        if case .unavailable(_, let osStatus, _, _) = self { return osStatus }
+        return 0
+    }
+
+    public var failure: V3SecretHandoffFailure {
         switch self {
-        case .unavailable: return "Secure response storage is unavailable."
+        case .unavailable(let reason, _, _, _): return reason
+        case .invalidToken: return .tokenMalformed
+        case .expired: return .tokenExpired
+        case .malformed: return .tokenMalformed
+        case .capacity: return .capacity
+        }
+    }
+
+    /// The safe line for this error, so every call site reports identically.
+    public var diagnostics: V3SecretHandoffDiagnostics {
+        switch self {
+        case .unavailable(let reason, let osStatus, let groupDiscovered, let tokenWellFormed):
+            return V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                operation: "consume", failure: reason, osStatus: osStatus,
+                groupDiscovered: groupDiscovered, tokenWellFormed: tokenWellFormed)
+        case .invalidToken:
+            return V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                operation: "consume", failure: .tokenMalformed, tokenWellFormed: false)
+        case .expired:
+            return V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                operation: "consume", failure: .tokenExpired, tokenWellFormed: true)
+        case .malformed:
+            return V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                operation: "consume", failure: .tokenMalformed, tokenWellFormed: true)
+        case .capacity:
+            return V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                operation: "store", failure: .capacity)
+        }
+    }
+
+    public var errorDescription: String? {
+        switch self {
+        case .unavailable(let reason, _, _, _): return reason.userFacingMessage
         case .invalidToken: return "The secure response reference is invalid."
         case .expired: return "The secure response expired before SideStore received it."
         case .malformed: return "The secure response could not be read."
         case .capacity: return "Secure response storage is busy."
+        }
+    }
+}
+
+extension V3SecretHandoffFailure {
+    /// What the user is told. This never implies Apple rejected anything: the
+    /// response never reached Apple when the handoff failed.
+    var userFacingMessage: String {
+        switch self {
+        case .appGroupLockUnavailable:
+            return "The secure channel to the embedded service could not be locked. Try again."
+        case .keychainGroupDiscoveryFailed:
+            return "This build's secure storage group could not be identified. Reinstall or re-sign the app."
+        case .keychainExplicitGroupUnauthorized:
+            return "This build's secure storage group is not available to every part of the app, so the response could not be delivered. Re-sign the app so its extensions share the secure group."
+        case .keychainItemNotFound:
+            return "The secure response was already used or is no longer present. Enter it again."
+        case .keychainReadFailed:
+            return "The secure response could not be read from secure storage. Try again."
+        case .keychainDeleteFailed:
+            return "The secure response could not be cleared from secure storage. Try again."
+        case .tokenExpired:
+            return "The secure response expired before SideStore received it. Enter it again."
+        case .tokenMalformed:
+            return "The secure response could not be decoded. Enter it again."
+        case .capacity:
+            return "Secure response storage is busy. Try again."
+        case .sharedGroupUnavailable:
+            return "The shared App Group is unavailable, so the secure channel is unavailable."
         }
     }
 }
@@ -108,6 +335,28 @@ enum V3SecretHandoffStoreAdmission {
             }
             return try insert()
         }
+    }
+}
+
+extension V3SecretHandoffError {
+    /// Builds a typed handoff failure and reports it once, so no call site has
+    /// to remember to emit.
+    static func fail(_ reason: V3SecretHandoffFailure,
+                     as base: V3SecretHandoffDiagnostics?,
+                     operation: String,
+                     osStatus: Int32 = 0, groupDiscovered: Bool = false,
+                     tokenWellFormed: Bool = false) -> V3SecretHandoffError {
+        var resolved = base ?? V3SecretHandoffDiagnostics(
+            role: V3SecretHandoffRole.current, operation: operation)
+        resolved.operation = operation
+        resolved.failure = reason
+        resolved.osStatus = osStatus
+        if groupDiscovered { resolved.groupDiscovered = true }
+        if tokenWellFormed { resolved.tokenWellFormed = true }
+        V3SecretHandoffTrace.emit(resolved)
+        return .unavailable(reason, osStatus: osStatus,
+                            groupDiscovered: resolved.groupDiscovered,
+                            tokenWellFormed: resolved.tokenWellFormed)
     }
 }
 
@@ -473,13 +722,28 @@ enum V3SecretHandoff {
                 query[kSecValueData as String] = record
                 query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
                 let status = SecItemAdd(query as CFDictionary, nil)
-                guard status == errSecSuccess else { throw V3SecretHandoffError.unavailable }
+                guard status == errSecSuccess else {
+                    let reason: V3SecretHandoffFailure = status == errSecMissingEntitlement
+                        ? .keychainExplicitGroupUnauthorized : .keychainReadFailed
+                    throw V3SecretHandoffError.fail(reason,
+                        as: V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                            operation: "secretStore", groupDiscovered: true, tokenWellFormed: true),
+                        operation: "secretStore", osStatus: status,
+                        groupDiscovered: true, tokenWellFormed: true)
+                }
+                V3SecretHandoffTrace.emit(V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                    operation: "secretStore", failure: nil, groupDiscovered: true, tokenWellFormed: true))
                 return token
             })
     }
 
     private static func consume(_ token: String, kind: String, selectedGroup: String? = nil) throws -> Data {
-        guard isValidToken(token) else { throw V3SecretHandoffError.invalidToken }
+        let wellFormed = isValidToken(token)
+        guard wellFormed else {
+            let error = V3SecretHandoffError.invalidToken
+            V3SecretHandoffTrace.emit(error.diagnostics)
+            throw error
+        }
         // The process-shared advisory lock surrounds both copy and delete.
         // This makes competing patched processes serialize the one-time take;
         // NSLock alone cannot coordinate separate app/service processes.
@@ -489,6 +753,8 @@ enum V3SecretHandoff {
     }
 
     private static func consumeLocked(_ token: String, kind: String) throws -> Data {
+        // Any failure below reports itself, so a caller that only logs the
+        // returned error still gets the step that failed.
         let group = try sharedKeychainAccessGroup()
         var query = itemQuery(token, group: group)
         query[kSecReturnData as String] = true
@@ -496,15 +762,31 @@ enum V3SecretHandoff {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let record = result as? Data else {
-            throw status == errSecItemNotFound ? V3SecretHandoffError.expired : V3SecretHandoffError.unavailable
+            let reason: V3SecretHandoffFailure = status == errSecItemNotFound
+                ? .keychainItemNotFound : (status == errSecMissingEntitlement
+                  ? .keychainExplicitGroupUnauthorized : .keychainReadFailed)
+            throw V3SecretHandoffError.fail(reason,
+                as: V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                    operation: "secretLookup", groupDiscovered: true, tokenWellFormed: true),
+                operation: "secretLookup", osStatus: status, groupDiscovered: true, tokenWellFormed: true)
         }
         let deleteStatus = SecItemDelete(itemQuery(token, group: group) as CFDictionary)
         guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
-            throw V3SecretHandoffError.unavailable
+            throw V3SecretHandoffError.fail(.keychainDeleteFailed,
+                as: V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                    operation: "secretLookup", groupDiscovered: true, tokenWellFormed: true),
+                operation: "secretLookup", osStatus: Int32(deleteStatus),
+                groupDiscovered: true, tokenWellFormed: true)
         }
         guard let payload = V3SecretHandoffRecord.decode(record, expectedKind: kind, now: Date()) else {
-            throw V3SecretHandoffError.expired
+            let error = V3SecretHandoffError.expired
+            V3SecretHandoffTrace.emit(V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                operation: "secretDecode", failure: .tokenExpired,
+                groupDiscovered: true, tokenWellFormed: true))
+            throw error
         }
+        V3SecretHandoffTrace.emit(V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+            operation: "secretDecode", failure: nil, groupDiscovered: true, tokenWellFormed: true))
         return payload
     }
 
@@ -512,10 +794,42 @@ enum V3SecretHandoff {
         // SecTask entitlement APIs are not exposed by the iOS SDK. Ask the
         // public Keychain API which default access group this signed process
         // owns, then verify the derived shared group with an explicit add.
-        let defaultGroup = try probeAccessGroup()
-        guard let group = V3SharedKeychainAccessGroupPolicy.sharedGroup(fromDefaultGroup: defaultGroup),
-              try probeAccessGroup(explicitGroup: group) == group else {
-            throw V3SecretHandoffError.unavailable
+        //
+        // The two steps fail for different reasons and must stay distinguishable.
+        // Discovery uses this process's own default group and therefore always
+        // succeeds for a signed process. The explicit probe is the one that a
+        // re-sign breaks when the shared group is granted to the main app but
+        // not to its extensions, which is the shape of the reported failure.
+        let defaultGroup: String
+        do {
+            defaultGroup = try probeAccessGroup()
+        } catch let error as V3SecretHandoffError {
+            throw V3SecretHandoffError.fail(.keychainGroupDiscoveryFailed, as: error.diagnostics,
+                                            operation: "groupDiscovery", osStatus: error.osStatusValue)
+        }
+        guard let group = V3SharedKeychainAccessGroupPolicy.sharedGroup(fromDefaultGroup: defaultGroup) else {
+            throw V3SecretHandoffError.fail(.keychainGroupDiscoveryFailed,
+                as: V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                    operation: "groupDiscovery", groupDiscovered: true),
+                operation: "groupDiscovery")
+        }
+        do {
+            let verified = try probeAccessGroup(explicitGroup: group)
+            guard verified == group else {
+                throw V3SecretHandoffError.fail(.keychainExplicitGroupUnauthorized,
+                    as: V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                        operation: "groupAuthorize", groupDiscovered: true),
+                    operation: "groupAuthorize", osStatus: Int32(errSecParam))
+            }
+        } catch let error as V3SecretHandoffError {
+            // errSecMissingEntitlement is the signature of a group this process
+            // was never granted. Report it as such rather than as a generic
+            // read failure, because the two need different fixes.
+            let reason: V3SecretHandoffFailure =
+                error.osStatusValue == errSecMissingEntitlement || error.osStatusValue == errSecNoAccessForItem
+                ? .keychainExplicitGroupUnauthorized : .keychainGroupDiscoveryFailed
+            throw V3SecretHandoffError.fail(reason, as: error.diagnostics,
+                operation: "groupAuthorize", osStatus: error.osStatusValue, groupDiscovered: true)
         }
         return group
     }
@@ -544,11 +858,22 @@ enum V3SecretHandoff {
         }
         var result: CFTypeRef?
         let status = SecItemAdd(item as CFDictionary, &result)
-        guard status == errSecSuccess else { throw V3SecretHandoffError.unavailable }
+        guard status == errSecSuccess else {
+            let reason: V3SecretHandoffFailure = explicitGroup != nil && status == errSecMissingEntitlement
+                ? .keychainExplicitGroupUnauthorized
+                : (explicitGroup == nil ? .keychainGroupDiscoveryFailed : .keychainReadFailed)
+            throw V3SecretHandoffError.fail(reason,
+                as: V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                    operation: "groupProbe", groupDiscovered: explicitGroup == nil),
+                operation: "groupProbe", osStatus: status, groupDiscovered: explicitGroup == nil)
+        }
         let group = (result as? [String: Any])?[kSecAttrAccessGroup as String] as? String
         let deleteStatus = SecItemDelete(deletion as CFDictionary)
         guard deleteStatus == errSecSuccess, let group else {
-            throw V3SecretHandoffError.unavailable
+            throw V3SecretHandoffError.fail(.keychainDeleteFailed,
+                as: V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                    operation: "groupProbe", groupDiscovered: true),
+                operation: "groupProbe", osStatus: Int32(deleteStatus), groupDiscovered: true)
         }
         return group
     }
@@ -569,10 +894,20 @@ enum V3SecretHandoff {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return [] }
-        guard status == errSecSuccess else { throw V3SecretHandoffError.unavailable }
+        guard status == errSecSuccess else {
+            let reason: V3SecretHandoffFailure = status == errSecMissingEntitlement
+                ? .keychainExplicitGroupUnauthorized : .keychainReadFailed
+            throw V3SecretHandoffError.fail(reason,
+                as: V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                    operation: "secretList", groupDiscovered: true),
+                operation: "secretList", osStatus: status, groupDiscovered: true)
+        }
         if let rows = result as? [[String: Any]] { return rows }
         if let row = result as? [String: Any] { return [row] }
-        throw V3SecretHandoffError.unavailable
+        throw V3SecretHandoffError.fail(.keychainReadFailed,
+            as: V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                operation: "secretList", groupDiscovered: true),
+            operation: "secretList", groupDiscovered: true)
     }
 
     private static func removeExpiredItems(group: String, rows: [[String: Any]], now: Date) throws -> Int {
@@ -583,7 +918,11 @@ enum V3SecretHandoff {
                   createdAt <= now, now.timeIntervalSince(createdAt) <= V3SecretHandoffRecord.lifetime else {
                 let status = SecItemDelete(itemQuery(token, group: group) as CFDictionary)
                 guard status == errSecSuccess || status == errSecItemNotFound else {
-                    throw V3SecretHandoffError.unavailable
+                    throw V3SecretHandoffError.fail(.keychainDeleteFailed,
+                        as: V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
+                            operation: "secretSweep", groupDiscovered: true, tokenWellFormed: true),
+                        operation: "secretSweep", osStatus: Int32(status),
+                        groupDiscovered: true, tokenWellFormed: true)
                 }
                 continue
             }

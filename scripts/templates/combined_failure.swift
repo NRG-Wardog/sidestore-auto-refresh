@@ -188,6 +188,12 @@ public struct CombinedFailure: Error, LocalizedError {
         // cannot be opened the run is refused rather than written somewhere the
         // other process cannot see, and retrying after a reinstall can succeed.
         case sharedStoreUnavailable
+        // V3_SECRET_HANDOFF_FAILURE_TYPED_V1: the secure channel between the two
+        // signed processes failed. The payload never reached Apple, so this is
+        // not an authentication failure and must not be reported as one. It is
+        // retryable only when the cause is transient; an unauthorized or missing
+        // access group needs a different re-sign, not another attempt.
+        case secretHandoffUnavailable
         case staleRefreshAttempt
         case knownSourcePolicyNetworkFailure
         case knownSourcePolicyInvalidResponse
@@ -250,6 +256,10 @@ public struct CombinedFailure: Error, LocalizedError {
                 return true
             case .sharedStoreUnavailable:
                 return true
+            // Retrying the same answer cannot grant an access group or recreate
+            // an absent item. Only a transient read or lock failure may repeat.
+            case .secretHandoffUnavailable:
+                return false
             case .staleRefreshAttempt:
                 return false
             case .knownSourcePolicyInvalidResponse:
@@ -493,6 +503,9 @@ public struct CombinedFailure: Error, LocalizedError {
             case .operationInProgress: return "Another SideStore operation is still active."
             case .responseCapacityUnavailable: return "SideStore cannot safely accept another state-changing request yet."
             case .sharedStoreUnavailable: return "LiveContainer could not open the shared store that its refresh state and the embedded SideStore service both use."
+    // V3_SECRET_HANDOFF_FAILURE_TYPED_V1: say plainly that the response never
+    // left the device, so an Apple password is never implicated.
+    case .secretHandoffUnavailable: return "Your response could not be delivered to the embedded service through the secure channel, so it was never sent to Apple. This is not an authentication failure."
             case .staleRefreshAttempt: return "This refresh request belonged to an expired scheduler run and was not started."
             case .knownSourcePolicyNetworkFailure: return "SideStore could not update its own known-source safety list."
             case .knownSourcePolicyInvalidResponse: return "SideStore could not read its own known-source safety list."
@@ -703,6 +716,11 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Wait for SideStore to release earlier request results, check the current state, then retry this action."
             case .sharedStoreUnavailable:
                 return "Relaunch LiveContainer after reinstalling or re-signing it. Nothing was written to a private store, and the next launch can retry this run."
+            // V3_SECRET_HANDOFF_FAILURE_TYPED_V1: the recovery is a re-sign that
+            // grants every part of the app the same secure group, not another
+            // attempt with the same password.
+            case .secretHandoffUnavailable:
+                return "Your response never left this device, so no Apple password was sent. Re-sign or reinstall LiveContainer so its embedded service shares the app's secure storage group, then submit the response again."
             case .staleRefreshAttempt:
                 return "Return to Refresh and start a new refresh. This stale request did not reach SideStore or the device."
             case .knownSourcePolicyNetworkFailure:

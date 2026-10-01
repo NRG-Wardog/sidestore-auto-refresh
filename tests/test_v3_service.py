@@ -669,7 +669,18 @@ import Foundation
         self.assertIn("kSecAttrAccessibleWhenUnlockedThisDeviceOnly", handoff)
         self.assertIn("V3SecretHandoffRecord.lifetime", handoff)
         self.assertIn("sharedGroup(fromDefaultGroup: defaultGroup)", handoff)
-        self.assertIn("probeAccessGroup(explicitGroup: group) == group", handoff)
+        # The explicit probe must still gate the derived group, and its refusal
+        # must now be reported as an authorization failure rather than a generic
+        # read failure: that distinction is the whole point of the typed error.
+        self.assertIn("probeAccessGroup(explicitGroup: group)", handoff)
+        self.assertIn("verified == group", handoff)
+        self.assertIn("keychainExplicitGroupUnauthorized", handoff)
+        self.assertIn("errSecMissingEntitlement", handoff)
+        # A handoff failure must never be reported as an Apple authentication
+        # failure, because the response never reached Apple.
+        self.assertIn("V3SecretHandoffFailurePolicy", service_template)
+        self.assertIn("safeCause: .secretHandoffUnavailable",
+                      (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8"))
         shared_keychain = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text(encoding="utf-8")
         self.assertIn("V3SecretHandoff.sharedKeychainAccessGroup()", shared_keychain)
         self.assertNotIn("accessGroup: appGroup", shared_keychain)
