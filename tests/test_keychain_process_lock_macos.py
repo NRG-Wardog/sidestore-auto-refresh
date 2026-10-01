@@ -43,6 +43,7 @@ class ProductionProcessLockTests(unittest.TestCase):
         # The lock reports its failures through the real typed taxonomy, so the
         # harness compiles that instead of a stub: a stub would let the lock's
         # reporting drift without this test noticing.
+        fixture = (ROOT / "tests/fixtures/keychain_process_lock_harness.swift").read_text(encoding="utf-8")
         handoff_lock = handoff_slices.lock(handoff)
         typed_handoff = handoff_slices.without_policy(handoff)
         source = "\n".join([

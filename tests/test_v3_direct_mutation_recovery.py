@@ -109,7 +109,7 @@ class V3DirectMutationRecoveryTests(unittest.TestCase):
             main.write_text(
                 injected_imports + wire + "\n" + failure + "\n" + primitives + "\n" + shared + "\n" +
                 "enum V3IPAStaging { static let sideStoreAppGroupIdentifier = \"group.com.SideStore.SideStore\" }\n" +
-                handoff[lock_start:lock_end] + "\n" + handoff[error_start:error_end] + "\n" +
+                lock + "\n" + error + "\n" +
                 service[journal_start:journal_end] + "\n" + fixture,
                 encoding="utf-8",
             )

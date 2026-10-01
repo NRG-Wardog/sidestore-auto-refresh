@@ -44,8 +44,6 @@ class V3OperationRecoveryTests(unittest.TestCase):
         error = handoff_slices.error_blocks(handoff)
         journal_start = service.index("private enum V3DirectMutationRecoveryPhase:")
         journal_end = service.index("\n// V3_NATIVE_CALLBACK_GATE_V1", journal_start)
-        lock = handoff[lock_start:lock_end]
-        error = handoff[error_start:error_end]
         journal = service[journal_start:journal_end]
         settings_start = runtime.index("    static let boolSettings:")
         settings_end = runtime.index("\n\n    static func settingsGet()", settings_start)

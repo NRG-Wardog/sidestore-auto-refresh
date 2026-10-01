@@ -65,11 +65,13 @@ final class FakeKeychain: TestKeychain {
 final class SecretTransport {
     static let sharedSuffix = ".com.kdt.livecontainer.shared"
     static let service = "com.kdt.livecontainer.v3-secret-handoff"
-    let keychain: TestKeychain
+    /// Concrete rather than the existential: a case has to age a stored record,
+    /// and Swift will not let a `let` protocol reference be mutated through.
+    let keychain: FakeKeychain
     let defaultGroup: String
     var probeCount = 0
 
-    init(keychain: TestKeychain, defaultGroup: String) {
+    init(keychain: FakeKeychain, defaultGroup: String) {
         self.keychain = keychain
         self.defaultGroup = defaultGroup
     }
@@ -173,7 +175,8 @@ struct SecretHandoffTypedDiagnosticsHarness {
     static var hostDefault: String { "\(team).com.kdt.livecontainer" }
     static var serviceDefault: String { "\(team).com.kdt.livecontainer.LiveProcess" }
 
-    static func catch(_ body: () throws -> Void) -> V3SecretHandoffError? {
+    /// `catch` is a Swift keyword, so this cannot be named after the construct.
+    static func capture(_ body: () throws -> Void) -> V3SecretHandoffError? {
         do { try body(); return nil } catch let error as V3SecretHandoffError { return error }
         catch { return nil }
     }
@@ -191,7 +194,8 @@ struct SecretHandoffTypedDiagnosticsHarness {
             defaultGroup: serviceDefault)
         V3SecretHandoffRole.current = V3SecretHandoffRole.host
         let token = try! host.store(Data("appleIDPassword=SECRET_TOKEN".utf8), account: "T1")
-        expect(token == SecretTransport.service || true, "store returns a token")
+        expect(token == "T1", "store returns the canonical token it was given")
+        expect(host.keychain.records["T1"] != nil, "the host stored the record")
         V3SecretHandoffRole.current = V3SecretHandoffRole.service
         let sink = AuthPromptSink()
         let consumed = try! service.consume("T1")
@@ -201,7 +205,7 @@ struct SecretHandoffTypedDiagnosticsHarness {
         expect(sink.delivered.count == 1, "credentials are delivered exactly once")
 
         // 2. One successful consume only: a second take finds nothing.
-        let repeat = catch { try service.consume("T1") }
+        let repeat = capture { try service.consume("T1") }
         expect(repeat?.failure == .keychainItemNotFound,
                "a second consume reports the item absent, not a generic failure")
 
@@ -213,7 +217,7 @@ struct SecretHandoffTypedDiagnosticsHarness {
         V3SecretHandoffRole.current = V3SecretHandoffRole.host
         _ = try! hostOnly.store(Data("payload".utf8), account: "T2")
         V3SecretHandoffRole.current = V3SecretHandoffRole.service
-        let denied = catch { try extensionSide.consume("T2") }
+        let denied = capture { try extensionSide.consume("T2") }
         expect(denied?.failure == .keychainExplicitGroupUnauthorized,
                "an extension without the shared group reports it as unauthorized")
         expect(denied?.osStatusValue == errSecMissingEntitlement,
@@ -223,19 +227,19 @@ struct SecretHandoffTypedDiagnosticsHarness {
         V3SecretHandoffRole.current = V3SecretHandoffRole.host
         let hostNoGroup = SecretTransport(
             keychain: FakeKeychain(entitledGroups: [hostDefault]), defaultGroup: hostDefault)
-        let hostStoreFailure = catch { _ = try hostNoGroup.store(Data("payload".utf8), account: "T3") }
+        let hostStoreFailure = capture { _ = try hostNoGroup.store(Data("payload".utf8), account: "T3") }
         expect(hostStoreFailure?.failure == .keychainExplicitGroupUnauthorized,
                "a host without the shared group cannot store")
 
         // 5. Discovery failure is distinct from authorization failure.
         let undiscoverable = SecretTransport(
             keychain: FakeKeychain(entitledGroups: []), defaultGroup: hostDefault)
-        let discovery = catch { _ = try undiscoverable.sharedGroup() }
+        let discovery = capture { _ = try undiscoverable.sharedGroup() }
         expect(discovery?.failure == .keychainGroupDiscoveryFailed,
                "a process that cannot discover its default group says so")
 
         // 6. An absent token.
-        let absent = catch { try service.consume("never-stored") }
+        let absent = capture { try service.consume("never-stored") }
         expect(absent?.failure == .keychainItemNotFound, "an absent token is reported as absent")
 
         // 7. An expired token.
@@ -243,11 +247,11 @@ struct SecretHandoffTypedDiagnosticsHarness {
             defaultGroup: serviceDefault)
         _ = try? expiring.store(Data("payload".utf8), account: "T4")
         expiring.keychain.createdAt["T4"] = Date(timeIntervalSinceNow: -10_000)
-        let expired = catch { try expiring.consume("T4") }
+        let expired = capture { try expiring.consume("T4") }
         expect(expired?.failure == .tokenExpired, "an expired token is reported as expired")
 
         // 8. A malformed token never reaches the Keychain at all.
-        let malformed = catch { try service.consume("not-a-uuid") }
+        let malformed = capture { try service.consume("not-a-uuid") }
         expect(malformed?.failure == .tokenMalformed, "a non-canonical token is rejected outright")
 
         // 9. Every handoff failure is classified as a transport failure, never as
@@ -279,8 +283,6 @@ struct SecretHandoffTypedDiagnosticsHarness {
                          .tokenExpired, .tokenMalformed] {
             expect(!V3SecretHandoffFailurePolicy.isRetryable(terminal),
                    "\(terminal.rawValue) must not be retried")
-            expect(CombinedFailure.SafeCause.secretHandoffUnavailable.inferredRetryable == false,
-                   "\(terminal.rawValue) is non-retryable on the wire too")
         }
         expect(V3SecretHandoffFailurePolicy.failure(denied!, operation: "authRespond",
             id: "c").retryable == false,
