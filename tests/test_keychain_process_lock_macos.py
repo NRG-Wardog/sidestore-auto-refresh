@@ -40,10 +40,25 @@ class ProductionProcessLockTests(unittest.TestCase):
         # harness compiles the real resolver rather than a stand-in.
         shared_identity = extract_type(shared, "enum V3SharedAppGroup {")
         fixture = (ROOT / "tests/fixtures/keychain_process_lock_harness.swift").read_text(encoding="utf-8")
+
+        def block(start_marker, end_marker):
+            first = handoff.index(start_marker)
+            return handoff[first:handoff.index(end_marker, first)]
+
+        # The lock reports its failures through the real typed taxonomy, so the
+        # harness compiles that instead of a stub: a stub would let the lock's
+        # reporting drift without this test noticing.
+        typed_handoff = "\n".join([
+            block("public enum V3SecretHandoffFailure",
+                  "public enum V3SecretHandoffFailurePolicy"),
+            block("public enum V3SecretHandoffFailurePolicy", "public enum V3SecretHandoffError"),
+            block("public enum V3SecretHandoffError", "/// Serializes the full shared-Keychain"),
+            block("extension V3SecretHandoffError {\n    /// Builds a typed handoff failure",
+                  "enum V3SecretHandoffRecord {"),
+        ])
         source = "\n".join([
             "import Foundation", "import Darwin",
-            "enum V3SecretHandoffError: Error { case unavailable }",
-            shared_identity, embedded_lock, handoff_lock, fixture,
+            typed_handoff, shared_identity, embedded_lock, handoff_lock, fixture,
         ])
         cls.temp = tempfile.TemporaryDirectory(prefix="lc-process-lock-")
         cls.addClassCleanup(cls.temp.cleanup)
