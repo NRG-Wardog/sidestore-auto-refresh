@@ -23,10 +23,16 @@ final class FakeKeychain: TestKeychain {
     /// Groups this process is entitled to. An extension after a re-sign may not
     /// hold the main app's shared group; that is the reported failure.
     var entitledGroups: Set<String>
+    /// The group an add without an explicit group lands in, which is how the
+    /// platform answers group discovery.
+    var defaultGroup: String
     var records: [String: Data] = [:]
     var createdAt: [String: Date] = [:]
 
-    init(entitledGroups: Set<String>) { self.entitledGroups = entitledGroups }
+    init(entitledGroups: Set<String>, defaultGroup: String) {
+        self.entitledGroups = entitledGroups
+        self.defaultGroup = defaultGroup
+    }
 
     private func authorized(_ group: String?) -> Bool {
         guard let group else { return true }          // the default group always works
@@ -37,8 +43,7 @@ final class FakeKeychain: TestKeychain {
         guard authorized(accessGroup) else { return (errSecMissingEntitlement, nil) }
         records[account] = Data([0xA5])
         createdAt[account] = Date()
-        let effective = accessGroup ?? "DEFAULT-\(service)"
-        return (errSecSuccess, effective)
+        return (errSecSuccess, accessGroup ?? defaultGroup)
     }
 
     func copy(accessGroup: String?, service: String, account: String) -> (OSStatus, Data?) {
@@ -188,10 +193,10 @@ struct SecretHandoffTypedDiagnosticsHarness {
 
         // 1. Both processes entitled: the happy path, exactly one delivery.
         let entitledBoth: Set<String> = [sharedGroup, hostDefault, serviceDefault]
-        let host = SecretTransport(keychain: FakeKeychain(entitledGroups: entitledBoth),
-            defaultGroup: hostDefault)
-        let service = SecretTransport(keychain: FakeKeychain(entitledGroups: entitledBoth),
-            defaultGroup: serviceDefault)
+        let host = SecretTransport(keychain: FakeKeychain(entitledGroups: entitledBoth,
+            defaultGroup: hostDefault), defaultGroup: hostDefault)
+        let service = SecretTransport(keychain: FakeKeychain(entitledGroups: entitledBoth,
+            defaultGroup: serviceDefault), defaultGroup: serviceDefault)
         V3SecretHandoffRole.current = V3SecretHandoffRole.host
         let token = try! host.store(Data("appleIDPassword=SECRET_TOKEN".utf8), account: "T1")
         expect(token == "T1", "store returns the canonical token it was given")
@@ -210,10 +215,11 @@ struct SecretHandoffTypedDiagnosticsHarness {
                "a second consume reports the item absent, not a generic failure")
 
         // 3. The re-sign shape: the extension lacks the main app's shared group.
-        let hostOnly = SecretTransport(keychain: FakeKeychain(entitledGroups: [sharedGroup, hostDefault]),
-            defaultGroup: hostDefault)
+        let hostOnly = SecretTransport(keychain: FakeKeychain(entitledGroups: [sharedGroup, hostDefault],
+            defaultGroup: hostDefault), defaultGroup: hostDefault)
         let extensionSide = SecretTransport(
-            keychain: FakeKeychain(entitledGroups: [serviceDefault]), defaultGroup: serviceDefault)
+            keychain: FakeKeychain(entitledGroups: [serviceDefault],
+                defaultGroup: serviceDefault), defaultGroup: serviceDefault)
         V3SecretHandoffRole.current = V3SecretHandoffRole.host
         _ = try! hostOnly.store(Data("payload".utf8), account: "T2")
         V3SecretHandoffRole.current = V3SecretHandoffRole.service
@@ -226,14 +232,16 @@ struct SecretHandoffTypedDiagnosticsHarness {
         // 4. Host lacking the group fails symmetrically.
         V3SecretHandoffRole.current = V3SecretHandoffRole.host
         let hostNoGroup = SecretTransport(
-            keychain: FakeKeychain(entitledGroups: [hostDefault]), defaultGroup: hostDefault)
+            keychain: FakeKeychain(entitledGroups: [hostDefault],
+                defaultGroup: hostDefault), defaultGroup: hostDefault)
         let hostStoreFailure = capture { _ = try hostNoGroup.store(Data("payload".utf8), account: "T3") }
         expect(hostStoreFailure?.failure == .keychainExplicitGroupUnauthorized,
                "a host without the shared group cannot store")
 
         // 5. Discovery failure is distinct from authorization failure.
         let undiscoverable = SecretTransport(
-            keychain: FakeKeychain(entitledGroups: []), defaultGroup: hostDefault)
+            keychain: FakeKeychain(entitledGroups: [],
+                defaultGroup: hostDefault), defaultGroup: hostDefault)
         let discovery = capture { _ = try undiscoverable.sharedGroup() }
         expect(discovery?.failure == .keychainGroupDiscoveryFailed,
                "a process that cannot discover its default group says so")
@@ -243,8 +251,8 @@ struct SecretHandoffTypedDiagnosticsHarness {
         expect(absent?.failure == .keychainItemNotFound, "an absent token is reported as absent")
 
         // 7. An expired token.
-        let expiring = SecretTransport(keychain: FakeKeychain(entitledGroups: entitledBoth),
-            defaultGroup: serviceDefault)
+        let expiring = SecretTransport(keychain: FakeKeychain(entitledGroups: entitledBoth,
+            defaultGroup: serviceDefault), defaultGroup: serviceDefault)
         _ = try? expiring.store(Data("payload".utf8), account: "T4")
         expiring.keychain.createdAt["T4"] = Date(timeIntervalSinceNow: -10_000)
         let expired = capture { try expiring.consume("T4") }

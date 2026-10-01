@@ -708,17 +708,25 @@ private enum V3OperationRecoveryJournal {
     private static func writeEmpty(to url: URL) throws {
         if FileManager.default.fileExists(atPath: url.path) {
             do { try FileManager.default.removeItem(at: url) }
-            catch { throw V3SecretHandoffError.unavailable }
+            catch { throw V3SecretHandoffError.unavailable(.sharedGroupUnavailable,
+                osStatus: Int32((error as NSError).code)) }
         }
     }
 
     private static func writePropertyList(_ value: [String: Any], to url: URL) throws {
         do {
             let data = try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
-            guard data.count <= 4096 else { throw V3SecretHandoffError.unavailable }
+            guard data.count <= 4096 else {
+                throw V3SecretHandoffError.unavailable(.sharedGroupUnavailable)
+            }
             try data.write(to: url, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        } catch { throw V3SecretHandoffError.unavailable }
+        } catch let failure as V3SecretHandoffError {
+            throw failure
+        } catch {
+            throw V3SecretHandoffError.unavailable(.sharedGroupUnavailable,
+                osStatus: Int32((error as NSError).code))
+        }
     }
 
     static func beginDispatch(sessionID: String, kind: String, stagedIPAToken: String? = nil,

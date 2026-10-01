@@ -144,7 +144,7 @@ struct SecretHandoffCapacityProcessHarness {
                     try mark(root, "checked-\(label)")
                     if label == "A" {
                         guard waitFor(root.appendingPathComponent("release-A"), timeout: 8) else {
-                            throw V3SecretHandoffError.unavailable
+                            throw V3SecretHandoffError.unavailable(.appGroupLockUnavailable)
                         }
                     }
                     return count
@@ -166,7 +166,7 @@ struct SecretHandoffCapacityProcessHarness {
         try V3AppGroupProcessLock.withLock(containerRoot: root) {
             try mark(root, "consume-entered")
             guard waitFor(root.appendingPathComponent("release-consume"), timeout: 8) else {
-                throw V3SecretHandoffError.unavailable
+                throw V3SecretHandoffError.unavailable(.appGroupLockUnavailable)
             }
             let records = try FileManager.default.contentsOfDirectory(at: itemDirectory(root),
                 includingPropertiesForKeys: nil).filter { $0.pathExtension == "record" }
