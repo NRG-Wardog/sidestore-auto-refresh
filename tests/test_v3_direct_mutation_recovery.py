@@ -2,7 +2,10 @@
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import handoff_slices
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,10 +88,11 @@ class V3DirectMutationRecoveryTests(unittest.TestCase):
         primitives = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         fixture = (ROOT / "tests/fixtures/v3_direct_mutation_recovery_harness.swift").read_text(encoding="utf-8")
 
-        lock_start = handoff.index("enum V3AppGroupProcessLock {")
-        lock_end = handoff.index("\nenum V3SecretHandoffError", lock_start)
-        error_start = lock_end + 1
-        error_end = handoff.index("\n/// Serializes the full shared-Keychain", error_start)
+        # Slices come from one shared helper: index arithmetic repeated across
+        # harnesses broke each of them once when a declaration gained an access
+        # level.
+        lock = handoff_slices.lock(handoff)
+        error = handoff_slices.error_blocks(handoff)
         journal_start = service.index("private enum V3DirectMutationRecoveryPhase:")
         journal_end = service.index("\n// V3_NATIVE_CALLBACK_GATE_V1", journal_start)
         injected_imports = (

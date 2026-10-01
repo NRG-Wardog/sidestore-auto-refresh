@@ -4,6 +4,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import handoff_slices
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,29 +37,14 @@ class ProductionProcessLockTests(unittest.TestCase):
         handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
         shared = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8")
         embedded_lock = extract_type(keychain, "private enum LCSharedKeychainFileLock {")
-        handoff_lock = extract_type(handoff, "enum V3AppGroupProcessLock {")
         # Both production lock helpers resolve the same shared identity, so the
         # harness compiles the real resolver rather than a stand-in.
         shared_identity = extract_type(shared, "enum V3SharedAppGroup {")
-        fixture = (ROOT / "tests/fixtures/keychain_process_lock_harness.swift").read_text(encoding="utf-8")
-
-        def block(start_marker, end_marker):
-            first = handoff.index(start_marker)
-            return handoff[first:handoff.index(end_marker, first)]
-
         # The lock reports its failures through the real typed taxonomy, so the
         # harness compiles that instead of a stub: a stub would let the lock's
         # reporting drift without this test noticing.
-        typed_handoff = "\n".join([
-            block("public enum V3SecretHandoffFailure",
-                  "public enum V3SecretHandoffFailurePolicy"),
-            # The classification policy builds CombinedFailures and belongs to
-            # the service, not to this lock. Take the role helper around it.
-            block("/// Which side of the handoff is running.", "public enum V3SecretHandoffError"),
-            block("public enum V3SecretHandoffError", "/// Serializes the full shared-Keychain"),
-            block("extension V3SecretHandoffError {\n    /// Builds a typed handoff failure",
-                  "enum V3SecretHandoffRecord {"),
-        ])
+        handoff_lock = handoff_slices.lock(handoff)
+        typed_handoff = handoff_slices.without_policy(handoff)
         source = "\n".join([
             "import Foundation", "import Darwin",
             typed_handoff, shared_identity, embedded_lock, handoff_lock, fixture,

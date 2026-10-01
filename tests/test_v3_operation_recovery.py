@@ -2,7 +2,10 @@
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import handoff_slices
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,13 +37,11 @@ class V3OperationRecoveryTests(unittest.TestCase):
         handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
-        lock_start = handoff.index("enum V3AppGroupProcessLock {")
-        lock_end = handoff.index("\nenum V3SecretHandoffError", lock_start)
-        error_start = lock_end + 1
-        error_end = handoff.index("\nenum V3SecretHandoffRecord", error_start)
-        # The journal decodes both v1 operation records and v2 direct records.
-        # Compile the complete production recovery declaration block so these
-        # references resolve to the same implementations used by the service.
+        # Slices come from one shared helper: index arithmetic repeated across
+        # harnesses broke each of them once when a declaration gained an access
+        # level.
+        lock = handoff_slices.lock(handoff)
+        error = handoff_slices.error_blocks(handoff)
         journal_start = service.index("private enum V3DirectMutationRecoveryPhase:")
         journal_end = service.index("\n// V3_NATIVE_CALLBACK_GATE_V1", journal_start)
         lock = handoff[lock_start:lock_end]

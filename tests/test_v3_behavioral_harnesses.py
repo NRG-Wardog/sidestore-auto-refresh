@@ -7,6 +7,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import handoff_slices
 
 ROOT = Path(__file__).resolve().parents[1]
 SWIFTC = shutil.which("swiftc")
