@@ -51,7 +51,9 @@ class ProductionProcessLockTests(unittest.TestCase):
         typed_handoff = "\n".join([
             block("public enum V3SecretHandoffFailure",
                   "public enum V3SecretHandoffFailurePolicy"),
-            block("public enum V3SecretHandoffFailurePolicy", "public enum V3SecretHandoffError"),
+            # The classification policy builds CombinedFailures and belongs to
+            # the service, not to this lock. Take the role helper around it.
+            block("/// Which side of the handoff is running.", "public enum V3SecretHandoffError"),
             block("public enum V3SecretHandoffError", "/// Serializes the full shared-Keychain"),
             block("extension V3SecretHandoffError {\n    /// Builds a typed handoff failure",
                   "enum V3SecretHandoffRecord {"),
