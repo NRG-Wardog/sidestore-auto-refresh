@@ -123,7 +123,7 @@ final class SecretTransport {
 
     /// Exactly one successful consume per token.
     func consume(_ token: String) throws -> Data {
-        guard V3SecretHandoff.isValidToken(token) else {
+        guard V3TokenValidator.isValidToken(token) else {
             throw V3SecretHandoffError.fail(.tokenMalformed, as: nil, operation: "secretLookup")
         }
         let group = try sharedGroup()

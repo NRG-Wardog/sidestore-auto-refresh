@@ -19,57 +19,16 @@ ERROR_DECLARATION = "public enum V3SecretHandoffError"
 ADMISSION_COMMENT = "/// Serializes the full shared-Keychain"
 FAIL_EXTENSION = "extension V3SecretHandoffError {\n    /// Builds a typed handoff failure"
 RECORD_DECLARATION = "enum V3SecretHandoffRecord {"
-TOKEN_DECLARATION = "enum V3SecretHandoff {"
-TOKEN_STORE_MEMBER = "    static func storeString("
-
-
-def _block(source: str, start_marker: str, end_marker: str) -> str:
-    start = source.index(start_marker)
-    return source[start:source.index(end_marker, start)]
-
-
-def lock(source: str) -> str:
-    """Just the process-shared lock type."""
-    start = source.index(LOCK_DECLARATION)
-    return source[start:source.index(FAILURE_DECLARATION, start)]
-
-
-def typed_blocks(source: str) -> str:
-    """The failure taxonomy, diagnostics, trace and role, without the policy.
-
-    The classification policy builds CombinedFailures, so harnesses that do not
-    compile the service leave it out. `with_policy` adds it back.
-    """
-    return "\n".join([
-        _block(source, FAILURE_DECLARATION, POLICY_DECLARATION),
-        _block(source, ROLE_COMMENT, ERROR_DECLARATION),
-    ])
-
-
-def error_blocks(source: str) -> str:
-    """The error type, its user-facing text and the typed failure constructor."""
-    return "\n".join([
-        _block(source, ERROR_DECLARATION, ADMISSION_COMMENT),
-        _block(source, FAIL_EXTENSION, RECORD_DECLARATION),
-    ])
-
-
-def policy_block(source: str) -> str:
-    """The classification policy, which needs CombinedFailure."""
-    return _block(source, POLICY_DECLARATION, ROLE_COMMENT)
-
-
-def without_policy(source: str) -> str:
-    """Everything a lock harness composes with: taxonomy plus error, no policy."""
-    return "\n".join([typed_blocks(source), error_blocks(source)])
+TOKEN_MEMBER = "    static func isValidToken("
 
 
 def token_validator(source: str) -> str:
-    """The canonical-token gate, without the SecItem bodies that follow it.
+    """The canonical-token gate on its own.
 
-    A malformed token must be rejected before it is ever used as an account, so a
-    harness that models the transport needs this exact predicate rather than its
-    own idea of what a token looks like.
+    It lives inside an enum whose closing brace is hundreds of lines below it, so
+    slicing the enclosing type would leave a brace open. A harness only needs the
+    predicate, wrapped in a type of its own so it is valid at file scope.
     """
-    start = source.index(TOKEN_DECLARATION)
-    return source[start:source.index(TOKEN_STORE_MEMBER, start)]
+    start = source.index(TOKEN_MEMBER)
+    member = source[start:source.index("\n    }\n", start) + len("\n    }\n")]
+    return "enum V3TokenValidator {\n" + member + "}\n"
