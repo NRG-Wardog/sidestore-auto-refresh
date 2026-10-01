@@ -4344,7 +4344,13 @@ struct V3OperationSheet: View {
         }
     }
     private func answerPrompt(id: String, answer: [String: String]) async {
-        guard !id.isEmpty, let session = attempt.sessionID else { return }
+        // The operation store owns this transition, and it must claim it before
+        // the request, not only once the reply says the response is pending. The
+        // view used to set this flag, so between the tap and the reply a second
+        // tap could dispatch a second opAnswer for one prompt.
+        guard !promptSubmitting, !id.isEmpty, prompt?["id"] as? String == id,
+              let session = attempt.sessionID else { return }
+        promptSubmitting = true
         let generation = attempt.generation
         do {
             let secretToken = try V3SecretHandoff.storeStringDictionary(answer)
@@ -4352,13 +4358,23 @@ struct V3OperationSheet: View {
             let reply = try await V3ServiceBridge.shared.request(operation: "opAnswer", target: session,
                 payload: ["prompt": id, "secretToken": secretToken])
             guard attempt.matches(generation: generation, sessionID: session),
-                  reply["session"] as? String == session else { return }
+                  reply["session"] as? String == session else {
+                promptSubmitting = false
+                return
+            }
             if V3ServiceBridge.strictBool(reply["responsePending"]) == true {
-                guard prompt?["id"] as? String == id else { return }
-                promptSubmitting = true
+                // The service has the answer but no authoritative transition yet.
+                // Hold the claim; a stale prompt or a superseded attempt must not
+                // leave it held forever.
+                guard prompt?["id"] as? String == id,
+                      attempt.matches(generation: generation, sessionID: session) else {
+                    promptSubmitting = false
+                    return
+                }
                 message = "Your response is being processed..."
                 return
             }
+            promptSubmitting = false
             apply(reply, generation: generation, sessionID: session)
         } catch {
             guard attempt.matches(generation: generation, sessionID: session) else { return }
@@ -4893,7 +4909,6 @@ struct V3PromptSection: View {
     private func loadFields() {
         fields = [:]
         selected = []
-        isSubmitting = false
         for field in fieldDefs { fields[field["key"] ?? ""] = field["value"] ?? "" }
     }
     private func twoFactorOption(_ option: [String: String]) -> some View {
@@ -4943,8 +4958,16 @@ struct V3PromptSection: View {
         respond(answer)
     }
     private func respond(_ answer: [String: String]) {
+        // The view does not own this transition. Both call sites pass the parent
+        // store's own submission flag as the binding, and the parent admits the
+        // answer through that same flag: the auth store requires `!isSubmitting`
+        // before it will dispatch, and the operation store sends opAnswer
+        // unconditionally. Setting the flag here therefore ran admission against
+        // state the tap itself had just created, so every answer was refused and
+        // nothing was dispatched. This guard still stops a repeat tap within one
+        // runloop, where the parent has not been able to update the binding yet;
+        // the authoritative transition belongs to the parent alone.
         guard !isSubmitting else { return }
-        isSubmitting = true
         onAnswer(answer)
     }
 }

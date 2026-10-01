@@ -232,6 +232,25 @@ enum V3SetupReloadOutcomeHarness {
         self.compile_and_run(wire + "\n" + failure + "\n" + helper + "\n" + harness,
                              "V3_AUTH_OWNERSHIP_RECONCILIATION_PASS")
 
+    def test_auth_prompt_submission_ownership_preserves_the_real_tap_order(self):
+        # The view must not claim the submission transition the parent admits on.
+        # The real V3PromptSection.respond method is injected verbatim, so this
+        # fails if the view ever writes the parent's flag again.
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        start = shell.index("    private func respond(_ answer: [String: String]) {")
+        end = shell.index("\n    }\n", start) + len("\n    }\n")
+        respond = shell[start:end]
+        self.assertNotIn("isSubmitting =", respond,
+                         "the view must not own the submission transition")
+        helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
+        failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
+        fixture = (ROOT / "tests/fixtures/v3_auth_prompt_ownership_harness.swift").read_text(
+            encoding="utf-8")
+        self.assertIn("        // RESPOND_SLICE", fixture)
+        fixture = fixture.replace("        // RESPOND_SLICE", respond.rstrip())
+        self.compile_and_run(failure + "\n" + helper + "\n" + fixture,
+                             "V3_AUTH_PROMPT_OWNERSHIP_PASS")
+
     def test_operation_pipeline_phase_and_progress_invariants_execute(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
