@@ -28,7 +28,7 @@ enum V3AppGroupProcessLock {
             // use, so the two processes take the same lock file.
             guard let shared = V3SharedAppGroup.runtimeIdentity(selectedGroup: selectedGroup) else {
                 onFailure?("appGroup", "none", 0)
-                throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock")
+                throw V3SecretHandoffError.fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock")
             }
             container = shared.containerRoot
         }
@@ -36,11 +36,11 @@ enum V3AppGroupProcessLock {
         #elseif canImport(Glibc)
         guard let containerRoot else {
             onFailure?("appGroup", "none", 0)
-            throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock")
+            throw V3SecretHandoffError.fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock")
         }
         let container = containerRoot
         #else
-        throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock")
+        throw V3SecretHandoffError.fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock")
         #endif
         let directory = ["Library", "Application Support", "LiveContainer"].reduce(
             container.standardizedFileURL) { $0.appendingPathComponent($1, isDirectory: true) }.standardizedFileURL
@@ -50,31 +50,31 @@ enum V3AppGroupProcessLock {
             let values = try directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
             guard values.isDirectory == true, values.isSymbolicLink != true,
                   directory.resolvingSymlinksInPath().standardizedFileURL == directory else {
-                throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock")
+                throw V3SecretHandoffError.fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock")
             }
         } catch {
             let native = error as NSError
             let safe = [NSCocoaErrorDomain, NSPOSIXErrorDomain].contains(native.domain)
             onFailure?("directory", safe ? native.domain : "redacted", safe ? native.code : 0)
-            throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock",
+            throw V3SecretHandoffError.fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock",
                        osStatus: safe ? Int32(native.code) : 0)
         }
         let path = directory.appendingPathComponent("keychain-transaction.lock").path
         let descriptor = open(path, O_CREAT | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else {
             onFailure?("open", NSPOSIXErrorDomain, Int(errno))
-            throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock",
+            throw V3SecretHandoffError.fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock",
                        osStatus: Int32(errno))
         }
         defer { _ = close(descriptor) }
         guard fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else {
             onFailure?("permissions", NSPOSIXErrorDomain, Int(errno))
-            throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock",
+            throw V3SecretHandoffError.fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock",
                        osStatus: Int32(errno))
         }
         guard flock(descriptor, LOCK_EX) == 0 else {
             onFailure?("flock", NSPOSIXErrorDomain, Int(errno))
-            throw fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock",
+            throw V3SecretHandoffError.fail(.appGroupLockUnavailable, as: diagnostics, operation: "lock",
                        osStatus: Int32(errno))
         }
         defer { _ = flock(descriptor, LOCK_UN) }
