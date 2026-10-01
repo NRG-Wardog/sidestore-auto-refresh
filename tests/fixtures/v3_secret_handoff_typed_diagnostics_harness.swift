@@ -232,6 +232,8 @@ struct SecretHandoffTypedDiagnosticsHarness {
         expect(hostStoreFailure?.failure == .keychainExplicitGroupUnauthorized,
                "a host without the shared group cannot store")
 
+        V3SecretHandoffRole.current = V3SecretHandoffRole.service
+
         // 5. Discovery failure is distinct from authorization failure.
         let undiscoverable = SecretTransport(device: DeviceKeychain(),
             entitledGroups: [], defaultGroup: hostDefault)
@@ -248,7 +250,7 @@ struct SecretHandoffTypedDiagnosticsHarness {
         // 7. An expired token is swept, so it cannot be consumed as present.
         let expiring = SecretTransport(device: DeviceKeychain(), entitledGroups: both,
             defaultGroup: serviceDefault)
-        let stale = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        let stale = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
         _ = try? expiring.store(Data("payload".utf8), token: stale)
         expiring.device.createdAt[stale] = Date(timeIntervalSinceNow: -10_000)
         let expired = capture { _ = try expiring.consume(stale) }
@@ -271,8 +273,13 @@ struct SecretHandoffTypedDiagnosticsHarness {
                    "\(operation) reports the secure-transport cause")
             expect(failure.stage == .persistence,
                    "\(operation) reports persistence, not authentication")
-            expect(failure.operation == operation,
-                   "\(operation) keeps its own operation identity")
+            // CombinedFailure normalizes to a canonical identity so the UI can
+            // still group these under the operation the user started.
+            let canonical = ["authRespond": "signIn", "opAnswer": "command",
+                             "accountExport": "command", "accountImport": "command",
+                             "certCreate": "command", "devPortalLogin": "command"]
+            expect(failure.operation == canonical[operation],
+                   "\(operation) normalizes to \(canonical[operation] ?? "?")")
             expect(failure.code == .unavailable,
                    "\(operation) is unavailable, not busy")
         }
