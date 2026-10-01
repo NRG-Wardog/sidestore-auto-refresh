@@ -312,6 +312,18 @@ enum V3SetupReloadOutcomeHarness {
         harness = (ROOT / "tests/fixtures/v3_ipa_staging_harness.swift").read_text(encoding="utf-8")
         self.compile_and_run(failure + "\n" + shared + "\n" + helper + "\n" + harness, "V3_IPA_STAGING_PASS")
 
+    def test_dedicated_embedded_sidestore_launch_forwards_the_runtime_app_group(self):
+        # This service runs inside LiveProcess, so without the group in the
+        # extension payload it resolves nothing from its own Info.plist, which a
+        # re-sign leaves pointing at groups it is no longer entitled for.
+        shared = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8")
+        handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        payload = handler[:handler.index("@MainActor\nclass RefreshHandler")]
+        harness = (ROOT / "tests/fixtures/v3_embedded_sidestore_launch_payload_harness.swift").read_text(
+            encoding="utf-8")
+        self.compile_and_run(shared + "\n" + payload + "\n" + harness,
+                             "V3_EMBEDDED_SIDESTORE_LAUNCH_PASS")
+
     def test_prompt_cancellation_and_duplicate_answers_execute(self):
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
         begin = runtime.index("enum V3PromptAnswerDisposition:")

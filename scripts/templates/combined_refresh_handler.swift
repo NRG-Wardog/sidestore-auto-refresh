@@ -62,6 +62,34 @@ enum V3RefreshAdmissionFailureResolution: Equatable {
     }
 }
 
+/// Builds the extension payload for the dedicated embedded-SideStore launch.
+///
+/// The normal guest launch is not the only way LiveProcess starts: this launch
+/// hosts the embedded SideStore service itself, and that service runs every
+/// cross-process store from inside LiveProcess. Without the selected group in
+/// this payload LiveProcess publishes nothing, and its own Info.plist fallback
+/// is what a re-sign leaves behind: iLoader rewrites ALTAppGroups on the main
+/// bundle and signs extensions from regenerated provisioning profiles, so after
+/// a re-sign LiveProcess is entitled to `group.com.SideStore.SideStore.<TEAM>`
+/// while its Info.plist still lists the pre-resign `group.com.SideStore.SideStore`,
+/// which it can no longer open.
+///
+/// The group therefore comes from the one resolver, already validated for this
+/// process, and is the same value the guest launch forwards. There is no second
+/// selection policy here: an unopenable identity yields no key at all, and
+/// LiveProcess then resolves nothing rather than a different store.
+enum V3EmbeddedSideStoreLaunchPayload {
+    static let appGroupKey = "lcAppGroupID"
+
+    static func userInfo(bookmark: Data, endpoint: Any,
+                         identity: V3SharedAppGroup.Identity?) -> [String: Any] {
+        var userInfo: [String: Any] = [
+            "selected": "builtinSideStore", "bookmarks": [bookmark], "endpoint": endpoint]
+        if let identity { userInfo[appGroupKey] = identity.identifier }
+        return userInfo
+    }
+}
+
 @MainActor
 class RefreshHandler: NSObject {
     static let shared = RefreshHandler()
@@ -161,7 +189,9 @@ class RefreshHandler: NSObject {
         }
         self.listener = listener
         let item = NSExtensionItem()
-        item.userInfo = ["selected": "builtinSideStore", "bookmarks": [bookmark], "endpoint": listener.endpoint]
+        item.userInfo = V3EmbeddedSideStoreLaunchPayload.userInfo(
+            bookmark: bookmark, endpoint: listener.endpoint,
+            identity: V3SharedAppGroup.runtimeIdentity())
         ext.setRequestCancellationBlock { [weak self] _, error in
             Task { @MainActor in self?.failed(id, stage: .extensionLaunch, underlying: error) }
         }

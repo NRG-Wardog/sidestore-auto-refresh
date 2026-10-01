@@ -29,8 +29,19 @@ static int selection(int runtimeSupplied, int runtimeAvailable, int packagedAvai
  * and its team-suffixed variants are separately controllable, because a
  * re-signed build can lose exactly those while keeping the rest. */
 static int gPackagedOpenable = 1;
+/* After a re-sign the entitled set is whatever the regenerated profiles grant,
+ * which can exclude every name an extension's own Info.plist still lists. */
+static const char *const *gEntitledOnly = NULL;
+static size_t gEntitledCount = 0;
 
 static int isPackagedOpenable(const char *groupID) {
+    if (gEntitledOnly != NULL) {
+        size_t index;
+        for (index = 0; index < gEntitledCount; index++) {
+            if (strcmp(gEntitledOnly[index], groupID) == 0) return 1;
+        }
+        return 0;
+    }
     return LCAppGroupIsPackagedSideStoreGroup(groupID) ? gPackagedOpenable : 1;
 }
 
@@ -186,7 +197,49 @@ int main(void) {
         gPackagedOpenable = 1;
     }
 
-    /* 8. Nothing malformed, path-shaped or unbounded reaches a container
+    /* 9. The re-sign shape. iLoader creates group.com.SideStore.SideStore.<TEAM>
+     *    for the combined app, assigns it to the extension app IDs, regenerates
+     *    the profiles and signs the extension from those entitlements, and
+     *    rewrites ALTAppGroups on the MAIN bundle only. So an extension is
+     *    entitled to the team group while its own Info.plist still lists the
+     *    pre-resign names. The host forwards the team group; the extension must
+     *    use it even though neither packaged name would open. */
+    {
+        const char *teamGroup = "group.com.SideStore.SideStore.TESTTEAM";
+        const char *stalePackaged[] = {"group.com.SideStore.SideStore",
+                                       "group.com.rileytestut.AltStore"};
+        /* The regenerated profiles grant exactly one group to this process. */
+        const char *entitled[] = {teamGroup};
+        gEntitledOnly = entitled;
+        gEntitledCount = 1;
+        expect(resolve(NULL, 0, stalePackaged, 2) == NULL,
+               "a stale packaged list resolves to nothing after a re-sign");
+        expect(resolve(teamGroup, 1, stalePackaged, 2) != NULL
+                   && strcmp(resolve(teamGroup, 1, stalePackaged, 2), teamGroup) == 0,
+               "an inherited team group resolves even when the packaged list is stale");
+        /* An AltStore-owned inherited group is equally authoritative, and still
+         * resolves when this process is entitled to it. */
+        {
+            const char *altStoreEntitled[] = {teamGroup, altStore};
+            gEntitledOnly = altStoreEntitled;
+            gEntitledCount = 2;
+            expect(resolve(altStore, 1, stalePackaged, 2) != NULL
+                       && strcmp(resolve(altStore, 1, stalePackaged, 2), altStore) == 0,
+                   "an AltStore-owned inherited group is authoritative too");
+            gEntitledOnly = entitled;
+            gEntitledCount = 1;
+        }
+        /* An openable packaged list cannot outrank an inherited group. */
+        gPackagedOpenable = 1;
+        expect(resolve(teamGroup, 1, stalePackaged, 2) != NULL
+                   && strcmp(resolve(teamGroup, 1, stalePackaged, 2), teamGroup) == 0,
+               "an openable packaged list still cannot outrank an inherited group");
+        gEntitledOnly = NULL;
+        gEntitledCount = 0;
+        gPackagedOpenable = 0;
+    }
+
+    /* 10. Nothing malformed, path-shaped or unbounded reaches a container
      *    lookup, a UserDefaults suite name or a lock path. */
     {
         char longGroup[LC_APP_GROUP_IDENTIFIER_MAX_LENGTH + 8];

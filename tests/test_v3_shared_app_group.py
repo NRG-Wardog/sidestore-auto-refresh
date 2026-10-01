@@ -28,6 +28,7 @@ SHARED = TEMPLATES / "v3_shared_app_group.swift"
 STAGING = TEMPLATES / "v3_ipa_staging.swift"
 HANDOFF = TEMPLATES / "v3_secret_handoff.swift"
 KEYCHAIN = TEMPLATES / "embedded_shared_keychain.swift"
+HANDLER = TEMPLATES / "combined_refresh_handler.swift"
 SERVICE = TEMPLATES / "v3_sidestore_service.swift"
 SCHEDULER = TEMPLATES / "livecontainer_refresh_scheduler.swift"
 SETTINGS = TEMPLATES / "livecontainer_refresh_settings.swift"
@@ -79,7 +80,8 @@ class AppGroupIdentityRuleExecutionTests(unittest.TestCase):
                      "5. Conflicting Info.plist vs explicit runtime group",
                      "6. Cross-process lock ownership",
                      "7. The packaged order the rule set produces",
-                     "8. Nothing malformed"):
+                     "9. The re-sign shape",
+                     "10. Nothing malformed"):
             self.assertIn(case, harness)
         for label in ("suffixed group must be well formed",
                       "a team-suffixed group must rank as the packaged group",
@@ -113,7 +115,11 @@ class AppGroupIdentityRuleExecutionTests(unittest.TestCase):
                       "the packaged shortcut returns the head of the order",
                       "an openable top packaged entry is used",
                       "an unopenable top packaged entry falls through to the next openable one",
-                      "a packaged list with nothing openable is an unavailable shared store"):
+                      "a packaged list with nothing openable is an unavailable shared store",
+                      "a stale packaged list resolves to nothing after a re-sign",
+                      "an inherited team group resolves even when the packaged list is stale",
+                      "an AltStore-owned inherited group is authoritative too",
+                      "an openable packaged list still cannot outrank an inherited group"):
             self.assertIn(f'"{label}"', harness)
         # The parity case must not be two calls with identical arguments, which
         # cannot fail; it models two processes with different packaged lists.
@@ -122,6 +128,50 @@ class AppGroupIdentityRuleExecutionTests(unittest.TestCase):
         self.assertIn("servicePackaged", parity)
         self.assertNotEqual(parity.count("resolve(altStore, 1, both, 2)"), 2,
                             "the parity case compares two different packaged lists")
+
+
+class DedicatedEmbeddedSideStoreLaunchTests(unittest.TestCase):
+    """The dedicated service launch is a second way LiveProcess starts.
+
+    That service runs inside LiveProcess, where Bundle.main is LiveProcess.appex.
+    A re-sign rewrites ALTAppGroups on the main bundle and signs extensions from
+    regenerated provisioning profiles, so LiveProcess is entitled to the
+    team-suffixed group while its Info.plist still lists the pre-resign names.
+    Without the group in this payload the service resolves nothing, which is the
+    reported storageUnavailable with group_selection_source=none.
+    """
+
+    def test_the_launch_payload_is_built_through_the_one_resolver(self):
+        handler = HANDLER.read_text(encoding="utf-8")
+        self.assertIn("enum V3EmbeddedSideStoreLaunchPayload {", handler)
+        self.assertIn('static let appGroupKey = "lcAppGroupID"', handler)
+        self.assertIn("userInfo[appGroupKey] = identity.identifier", handler)
+        launch = handler[handler.index("private func launchEmbeddedSideStore("):]
+        launch = launch[:launch.index("\n    private func ")]
+        self.assertIn("V3EmbeddedSideStoreLaunchPayload.userInfo(", launch)
+        self.assertIn("identity: V3SharedAppGroup.runtimeIdentity()", launch)
+        self.assertNotIn("lcAppGroupID", launch,
+                         "the launch must not build the key itself")
+        self.assertNotIn("group.com.SideStore.SideStore", launch,
+                         "the launch must not name a group")
+        payload = handler[handler.index("enum V3EmbeddedSideStoreLaunchPayload {"):
+                          handler.index("@MainActor\nclass RefreshHandler")]
+        for forbidden in ("LCSharedUtils.appGroupID", "ALTAppGroups",
+                          "UserDefaults(suiteName:", "UserDefaults.standard"):
+            self.assertNotIn(forbidden, payload,
+                             "the payload builder must not resolve a group by itself")
+
+    def test_the_guest_and_dedicated_launches_use_the_same_key(self):
+        service = (ROOT / "scripts/patch_v3_service.py").read_text(encoding="utf-8")
+        self.assertIn('@"lcAppGroupID"', service,
+                      "LiveProcess still reads the key the host sends")
+        self.assertIn('forKey:@"lcAppGroupID"', service,
+                      "the guest launch still forwards the key")
+        self.assertIn("setenv(", service, "LiveProcess still publishes the resolved group")
+        self.assertIn("unsetenv(", service,
+                      "LiveProcess must clear a stale key when no group was forwarded")
+        handler = HANDLER.read_text(encoding="utf-8")
+        self.assertEqual(handler.count('static let appGroupKey = "lcAppGroupID"'), 1)
 
 
 class AppGroupRuleParityTests(unittest.TestCase):
