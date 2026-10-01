@@ -242,6 +242,9 @@ enum V3SetupReloadOutcomeHarness {
         respond = shell[start:end]
         self.assertNotIn("isSubmitting =", respond,
                          "the view must not own the submission transition")
+        # `private` keeps the method unreachable from the harness's driver; the
+        # body itself is unchanged, only its access level is narrowed.
+        respond = respond.replace("private func respond(", "func respond(", 1)
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         fixture = (ROOT / "tests/fixtures/v3_auth_prompt_ownership_harness.swift").read_text(
