@@ -22,6 +22,47 @@ RECORD_DECLARATION = "enum V3SecretHandoffRecord {"
 TOKEN_MEMBER = "    static func isValidToken("
 
 
+def _block(source: str, start_marker: str, end_marker: str) -> str:
+    start = source.index(start_marker)
+    return source[start:source.index(end_marker, start)]
+
+
+def lock(source: str) -> str:
+    """Just the process-shared lock type."""
+    start = source.index(LOCK_DECLARATION)
+    return source[start:source.index(FAILURE_DECLARATION, start)]
+
+
+def typed_blocks(source: str) -> str:
+    """The failure taxonomy, diagnostics, trace and role, without the policy.
+
+    The classification policy builds CombinedFailures, so harnesses that do not
+    compile the service leave it out. `with_policy` adds it back.
+    """
+    return "\n".join([
+        _block(source, FAILURE_DECLARATION, POLICY_DECLARATION),
+        _block(source, ROLE_COMMENT, ERROR_DECLARATION),
+    ])
+
+
+def error_blocks(source: str) -> str:
+    """The error type, its user-facing text and the typed failure constructor."""
+    return "\n".join([
+        _block(source, ERROR_DECLARATION, ADMISSION_COMMENT),
+        _block(source, FAIL_EXTENSION, RECORD_DECLARATION),
+    ])
+
+
+def policy_block(source: str) -> str:
+    """The classification policy, which needs CombinedFailure."""
+    return _block(source, POLICY_DECLARATION, ROLE_COMMENT)
+
+
+def without_policy(source: str) -> str:
+    """Everything a lock harness composes with: taxonomy plus error, no policy."""
+    return "\n".join([typed_blocks(source), error_blocks(source)])
+
+
 def token_validator(source: str) -> str:
     """The canonical-token gate on its own.
 
