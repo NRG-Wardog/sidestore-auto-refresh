@@ -19,6 +19,8 @@ ERROR_DECLARATION = "public enum V3SecretHandoffError"
 ADMISSION_COMMENT = "/// Serializes the full shared-Keychain"
 FAIL_EXTENSION = "extension V3SecretHandoffError {\n    /// Builds a typed handoff failure"
 RECORD_DECLARATION = "enum V3SecretHandoffRecord {"
+TOKEN_DECLARATION = "enum V3SecretHandoff {"
+TOKEN_STORE_MEMBER = "    static func storeString("
 
 
 def _block(source: str, start_marker: str, end_marker: str) -> str:
@@ -60,3 +62,14 @@ def policy_block(source: str) -> str:
 def without_policy(source: str) -> str:
     """Everything a lock harness composes with: taxonomy plus error, no policy."""
     return "\n".join([typed_blocks(source), error_blocks(source)])
+
+
+def token_validator(source: str) -> str:
+    """The canonical-token gate, without the SecItem bodies that follow it.
+
+    A malformed token must be rejected before it is ever used as an account, so a
+    harness that models the transport needs this exact predicate rather than its
+    own idea of what a token looks like.
+    """
+    start = source.index(TOKEN_DECLARATION)
+    return source[start:source.index(TOKEN_STORE_MEMBER, start)]

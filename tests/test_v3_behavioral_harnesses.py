@@ -250,7 +250,8 @@ enum V3SetupReloadOutcomeHarness {
         # so it composes with the parts that decide and report, not with the
         # SecItem calls themselves. The boundaries come from the shared helper.
         subject = (handoff_slices.typed_blocks(shared) + handoff_slices.policy_block(shared)
-                   + handoff_slices.error_blocks(shared))
+                   + handoff_slices.error_blocks(shared)
+                   + handoff_slices.token_validator(shared))
         self.assertIn("case keychainExplicitGroupUnauthorized", subject)
         self.assertIn("safeCause: .secretHandoffUnavailable", subject)
         self.compile_and_run("import Foundation\nimport Security\n" + failure + "\n" + subject
