@@ -318,7 +318,8 @@ enum V3SetupReloadOutcomeHarness {
         # re-sign leaves pointing at groups it is no longer entitled for.
         shared = (ROOT / "scripts/templates/v3_shared_app_group.swift").read_text(encoding="utf-8")
         handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
-        payload = handler[:handler.index("@MainActor\nclass RefreshHandler")]
+        payload = handler[handler.index("enum V3EmbeddedSideStoreLaunchPayload {"):
+                          handler.index("private final class CombinedServiceCallbacks")]
         harness = (ROOT / "tests/fixtures/v3_embedded_sidestore_launch_payload_harness.swift").read_text(
             encoding="utf-8")
         self.compile_and_run(shared + "\n" + payload + "\n" + harness,

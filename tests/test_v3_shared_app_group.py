@@ -155,7 +155,7 @@ class DedicatedEmbeddedSideStoreLaunchTests(unittest.TestCase):
         self.assertNotIn("group.com.SideStore.SideStore", launch,
                          "the launch must not name a group")
         payload = handler[handler.index("enum V3EmbeddedSideStoreLaunchPayload {"):
-                          handler.index("@MainActor\nclass RefreshHandler")]
+                          handler.index("private final class CombinedServiceCallbacks")]
         for forbidden in ("LCSharedUtils.appGroupID", "ALTAppGroups",
                           "UserDefaults(suiteName:", "UserDefaults.standard"):
             self.assertNotIn(forbidden, payload,
