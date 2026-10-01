@@ -17,7 +17,8 @@ struct AuthPromptSubmissionOwnershipHarness {
     static var failures = 0
     static func expect(_ condition: Bool, _ label: String) {
         if !condition {
-            print("V3_AUTH_PROMPT_OWNERSHIP_FAIL \(label)")
+            FileHandle.standardError.write(
+                Data("V3_AUTH_PROMPT_OWNERSHIP_FAIL \(label)\n".utf8))
             failures += 1
         }
     }
@@ -68,10 +69,14 @@ struct AuthPromptSubmissionOwnershipHarness {
         return store
     }
 
+    /// The view is constructed for one rendered prompt, and its closure answers
+    /// for that prompt. The real call site does the same: it reads prompt["id"]
+    /// at render time and passes it down.
     static func view(_ store: AuthStore) -> PromptSectionModel {
         let model = PromptSectionModel()
+        let renderedPromptID = store.currentPromptID ?? ""
         model.isSubmitting = store.promptSubmitting
-        model.onAnswer = { answer in store.answer(promptID: store.currentPromptID ?? "", answer: answer) }
+        model.onAnswer = { answer in store.answer(promptID: renderedPromptID, answer: answer) }
         return model
     }
 
@@ -177,7 +182,8 @@ struct AuthPromptSubmissionOwnershipHarness {
         if failures == 0 {
             print("V3_AUTH_PROMPT_OWNERSHIP_PASS")
         } else {
-            print("V3_AUTH_PROMPT_OWNERSHIP_FAILURES=\(failures)")
+            FileHandle.standardError.write(
+                Data("V3_AUTH_PROMPT_OWNERSHIP_FAILURES=\(failures)\n".utf8))
             exit(1)
         }
     }
