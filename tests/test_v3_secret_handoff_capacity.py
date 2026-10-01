@@ -4,6 +4,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import handoff_slices
 import unittest
 
 
@@ -72,7 +74,11 @@ class SecretHandoffCapacityContractTests(unittest.TestCase):
             "import Darwin",
             "extension Bundle { var altstoreAppGroup: String? { nil } }",
             extract_type(SHARED.read_text(encoding="utf-8"), "enum V3SharedAppGroup {"),
-            extract_type(source, "enum V3SecretHandoffError: Error, LocalizedError {"),
+            # The error type and the lock both reference the typed taxonomy, so
+            # the boundaries come from the shared helper rather than from an
+            # access-level-sensitive declaration line.
+            handoff_slices.typed_blocks(source),
+            handoff_slices.error_blocks(source),
             extract_type(source, "enum V3AppGroupProcessLock {"),
             extract_type(source, "enum V3SecretHandoffRecord {"),
             extract_type(source, "enum V3SecretHandoffStoreAdmission {"),

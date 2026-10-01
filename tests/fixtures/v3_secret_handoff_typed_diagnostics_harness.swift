@@ -119,13 +119,16 @@ final class SecretTransport {
         return shared
     }
 
+    /// Returns the token, which is what the caller transports. The group is an
+    /// internal detail and is never part of the return value.
+    @discardableResult
     func store(_ payload: Data, account: String) throws -> String {
-        let group = try sharedGroup()
+        _ = try sharedGroup()
         keychain.records[account] = payload
         keychain.createdAt[account] = Date()
         V3SecretHandoffTrace.emit(V3SecretHandoffDiagnostics(role: V3SecretHandoffRole.current,
             operation: "secretStore", groupDiscovered: true, tokenWellFormed: true))
-        return group
+        return account
     }
 
     /// Exactly one successful consume per token.
@@ -199,18 +202,18 @@ struct SecretHandoffTypedDiagnosticsHarness {
             defaultGroup: serviceDefault), defaultGroup: serviceDefault)
         V3SecretHandoffRole.current = V3SecretHandoffRole.host
         let token = try! host.store(Data("appleIDPassword=SECRET_TOKEN".utf8), account: "T1")
-        expect(token == "T1", "store returns the canonical token it was given")
+        expect(token == "T1", "store returns the token it was given, not the group")
         expect(host.keychain.records["T1"] != nil, "the host stored the record")
         V3SecretHandoffRole.current = V3SecretHandoffRole.service
         let sink = AuthPromptSink()
-        let consumed = try! service.consume("T1")
+        let consumed = try service.consume(token)
         expect(String(decoding: consumed, as: UTF8.self).contains("SECRET_TOKEN"),
                "the service receives the exact payload")
         sink.respond(answer: ["appleIDPassword": "SECRET_TOKEN"])
         expect(sink.delivered.count == 1, "credentials are delivered exactly once")
 
         // 2. One successful consume only: a second take finds nothing.
-        let secondTake = capture { try service.consume("T1") }
+        let secondTake = capture { _ = try service.consume("T1") }
         expect(secondTake?.failure == .keychainItemNotFound,
                "a second consume reports the item absent, not a generic failure")
 
