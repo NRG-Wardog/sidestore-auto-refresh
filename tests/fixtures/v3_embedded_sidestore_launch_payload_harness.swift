@@ -115,14 +115,24 @@ struct EmbeddedSideStoreLaunchPayloadHarness {
         // 6. A missing or unopenable selected group fails closed: no key is
         //    forwarded, so LiveProcess inherits nothing rather than a store of
         //    another process's choosing.
-        expect(forwarded(launch(nil, bundleInfo: hostBundleInfo)) == nil,
-               "an unresolved selection forwards no group")
-        expect(hostResolve("group.com.example.unentitled", bundleInfo: hostBundleInfo) == nil,
-               "an unopenable selected group resolves to nothing")
         expect(forwarded(launch("group.com.example.unentitled", bundleInfo: hostBundleInfo)) == nil,
                "an unopenable selected group forwards no group")
         expect(hostResolve("group.com.SideStore.SideStore/../other", bundleInfo: hostBundleInfo) == nil,
                "a path-shaped selection resolves to nothing")
+        // A host with no resolvable group at all forwards nothing. After a re-sign
+        // the host's own ALTAppGroups does resolve, which is why this is the
+        // separate case rather than the selected-group one above.
+        let unusableHostInfo: [String: Any] = ["ALTAppGroups": [stalePackaged]]
+        expect(hostResolve(nil, bundleInfo: unusableHostInfo) == nil,
+               "a host whose packaged list is unentitled resolves nothing")
+        expect(forwarded(launch(nil, bundleInfo: unusableHostInfo)) == nil,
+               "a host with no resolvable group forwards no group")
+        // And the positive counterpart: the re-signed host resolves the team group
+        // from its own plist even with no explicit selection.
+        expect(hostResolve(nil, bundleInfo: hostBundleInfo)?.identifier == resignedGroup,
+               "the re-signed host resolves the team group from its own ALTAppGroups")
+        expect(forwarded(launch(nil, bundleInfo: hostBundleInfo)) == resignedGroup,
+               "a host that resolved its packaged fallback still forwards it")
 
         // 7. The packaged fallback is used only when nothing was published. In the
         //    re-signed extension neither pre-resign name is entitled.
