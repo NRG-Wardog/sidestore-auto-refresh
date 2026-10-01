@@ -306,10 +306,12 @@ struct SecretHandoffTypedDiagnosticsHarness {
         let line = denied!.diagnostics.safeLine
         for required in ["handoff=1", "role=service", "op=consume",
                          "cause=keychainExplicitGroupUnauthorized",
-                         "group_discovered=true", "token_well_formed=true",
+                         "group_discovered=true", "token_well_formed=false",
                          "osstatus=-34018"] {
             expect(line.contains(required), "the safe line carries \(required)")
         }
+        expect(line.contains("token_well_formed=false"),
+               "the group is refused before the token is used, and says so")
         for forbidden in ["SECRET_TOKEN", "appleID", "password", team,
                           "com.kdt.livecontainer", "66666666"] {
             expect(!line.contains(forbidden), "the safe line never contains \(forbidden)")
