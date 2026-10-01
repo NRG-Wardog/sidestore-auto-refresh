@@ -246,19 +246,11 @@ enum V3SetupReloadOutcomeHarness {
         fixture = (ROOT / "tests/fixtures/v3_secret_handoff_typed_diagnostics_harness.swift").read_text(
             encoding="utf-8")
 
-        def block(start_marker, end_marker):
-            first = shared.index(start_marker)
-            return shared[first:shared.index(end_marker, first)]
-
         # The harness models the Keychain transport rather than calling Security,
         # so it composes with the parts that decide and report, not with the
-        # SecItem calls themselves.
-        subject = (block("public enum V3SecretHandoffFailure",
-                         "public enum V3SecretHandoffFailurePolicy")
-                   + block("public enum V3SecretHandoffFailurePolicy",
-                           "public enum V3SecretHandoffError")
-                   + block("public enum V3SecretHandoffError",
-                           "/// Serializes the full shared-Keychain"))
+        # SecItem calls themselves. The boundaries come from the shared helper.
+        subject = (handoff_slices.typed_blocks(shared) + handoff_slices.policy_block(shared)
+                   + handoff_slices.error_blocks(shared))
         self.assertIn("case keychainExplicitGroupUnauthorized", subject)
         self.assertIn("safeCause: .secretHandoffUnavailable", subject)
         self.compile_and_run("import Foundation\nimport Security\n" + failure + "\n" + subject

@@ -205,8 +205,8 @@ struct SecretHandoffTypedDiagnosticsHarness {
         expect(sink.delivered.count == 1, "credentials are delivered exactly once")
 
         // 2. One successful consume only: a second take finds nothing.
-        let repeat = capture { try service.consume("T1") }
-        expect(repeat?.failure == .keychainItemNotFound,
+        let secondTake = capture { try service.consume("T1") }
+        expect(secondTake?.failure == .keychainItemNotFound,
                "a second consume reports the item absent, not a generic failure")
 
         // 3. The re-sign shape: the extension lacks the main app's shared group.
