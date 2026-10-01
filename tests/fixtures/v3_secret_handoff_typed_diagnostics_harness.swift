@@ -206,7 +206,7 @@ struct SecretHandoffTypedDiagnosticsHarness {
         expect(host.keychain.records["T1"] != nil, "the host stored the record")
         V3SecretHandoffRole.current = V3SecretHandoffRole.service
         let sink = AuthPromptSink()
-        let consumed = try service.consume(token)
+        let consumed = try! service.consume(token)
         expect(String(decoding: consumed, as: UTF8.self).contains("SECRET_TOKEN"),
                "the service receives the exact payload")
         sink.respond(answer: ["appleIDPassword": "SECRET_TOKEN"])
@@ -226,7 +226,7 @@ struct SecretHandoffTypedDiagnosticsHarness {
         V3SecretHandoffRole.current = V3SecretHandoffRole.host
         _ = try! hostOnly.store(Data("payload".utf8), account: "T2")
         V3SecretHandoffRole.current = V3SecretHandoffRole.service
-        let denied = capture { try extensionSide.consume("T2") }
+        let denied = capture { _ = try extensionSide.consume("T2") }
         expect(denied?.failure == .keychainExplicitGroupUnauthorized,
                "an extension without the shared group reports it as unauthorized")
         expect(denied?.osStatusValue == errSecMissingEntitlement,
@@ -250,7 +250,7 @@ struct SecretHandoffTypedDiagnosticsHarness {
                "a process that cannot discover its default group says so")
 
         // 6. An absent token.
-        let absent = capture { try service.consume("never-stored") }
+        let absent = capture { _ = try service.consume("never-stored") }
         expect(absent?.failure == .keychainItemNotFound, "an absent token is reported as absent")
 
         // 7. An expired token.
@@ -258,11 +258,11 @@ struct SecretHandoffTypedDiagnosticsHarness {
             defaultGroup: serviceDefault), defaultGroup: serviceDefault)
         _ = try? expiring.store(Data("payload".utf8), account: "T4")
         expiring.keychain.createdAt["T4"] = Date(timeIntervalSinceNow: -10_000)
-        let expired = capture { try expiring.consume("T4") }
+        let expired = capture { _ = try expiring.consume("T4") }
         expect(expired?.failure == .tokenExpired, "an expired token is reported as expired")
 
         // 8. A malformed token never reaches the Keychain at all.
-        let malformed = capture { try service.consume("not-a-uuid") }
+        let malformed = capture { _ = try service.consume("not-a-uuid") }
         expect(malformed?.failure == .tokenMalformed, "a non-canonical token is rejected outright")
 
         // 9. Every handoff failure is classified as a transport failure, never as
