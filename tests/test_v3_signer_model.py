@@ -90,17 +90,27 @@ class SignerModelTests(unittest.TestCase):
         self.assertNotIn(shared, extension.effective_groups)
 
     def test_the_pre_resign_bundle_grants_the_extension_the_group_the_resign_removes(self):
-        """The trap: package verification must not certify on this."""
-        if not UPSTREAM.exists():
-            self.skipTest("upstream LiveProcess entitlements are not vendored")
-        upstream = UPSTREAM.read_text(encoding="utf-8")
-        preresign = re.findall(r"([A-Z0-9]{10}\.com\.kdt\.livecontainer\.shared(?:\.\d+)?)", upstream)
-        self.assertTrue(preresign, "upstream grants the shared groups pre-resign")
-        self.assertIn(UPSTREAM.name, "LiveProcess.entitlements")
-        # After the re-sign none of them survive in the extension.
-        after = ILoaderSignerModel(is_root=False, profile_groups=[]).effective_groups
-        for group in preresign:
-            self.assertNotIn(group, after)
+        """The trap: package verification must not certify on this.
+
+        Our own packager deliberately hands LiveProcess.appex an entitlement file
+        that lists the 128 shared Keychain groups, so the pre-resign IPA claims a
+        sharing arrangement that the re-sign then removes. Verification that reads
+        those pre-resign entitlements would certify a build the device rejects.
+        """
+        packager = (ROOT / "scripts/package_livecontainer_combined.py").read_text(encoding="utf-8")
+        self.assertIn("'PlugIns/LiveProcess.appex': 'LiveProcess/LiveProcess.entitlements'",
+                      packager,
+                      "the pre-resign build grants the extension the shared group file")
+        # The claim only holds if the file lists the shared groups; when the
+        # upstream tree is vendored, check that directly rather than assuming.
+        if UPSTREAM.exists():
+            preresign = re.findall(
+                r"[A-Z0-9]{10}\.com\.kdt\.livecontainer\.shared(?:\.\d+)?",
+                UPSTREAM.read_text(encoding="utf-8"))
+            self.assertEqual(len(preresign), 128)
+            after = ILoaderSignerModel(is_root=False, profile_groups=[]).effective_groups
+            for group in preresign:
+                self.assertNotIn(group, after)
 
     def test_a_host_and_service_that_derive_the_same_group_can_still_not_share_it(self):
         """Derivation equality is not entitlement. This is the exact device bug."""
