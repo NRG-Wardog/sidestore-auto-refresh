@@ -2527,7 +2527,10 @@ print("V3 wire contract PASS")
 ''')
             executable = directory / "wire-tests"
             subprocess.run([compiler, str(program), "-o", str(executable)], check=True, capture_output=True, text=True)
-            result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
+            # Surface the child's own output: a trapping precondition reports
+            # nothing under check=True, so a failure named itself nowhere.
+            result = subprocess.run([str(executable)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("PASS", result.stdout)
 
     def test_headless_wire_contract_accepts_payload_and_session_ops(self):

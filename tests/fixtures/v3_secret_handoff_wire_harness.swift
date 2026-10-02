@@ -162,6 +162,7 @@ struct SecretHandoffWireHarness {
         precondition(V3WireContract.encodeRequest(outboundRawSecret, now: now) == nil,
             "a password outside the answer carrier is rejected before the request crosses")
         var nestedUnderAnswer = request
+        print("wire: carrier bounded checks")
         nestedUnderAnswer["payload"] = ["prompt": "credentials-prompt",
                                         "answer": ["nested": ["password": "private-password"]]]
         precondition(V3WireContract.encodeRequest(nestedUnderAnswer, now: now) == nil,
@@ -291,6 +292,7 @@ struct SecretHandoffWireHarness {
             fromPropertyList: operationCancel, format: .binary, options: 0)
         precondition(V3WireContract.decodeRequest(malformedOperationCancelBytes, now: now) == nil,
             "session-scoped cancellation rejects non-boolean values")
+        print("wire: sidesign schema")
         var sideSignConfig = request
         sideSignConfig["operation"] = "sidesignSet"
         sideSignConfig["target"] = ""
@@ -324,6 +326,7 @@ struct SecretHandoffWireHarness {
         precondition(V3WireContract.decodeRequest(legacyBytes, now: now) == nil,
             "a credential outside the answer carrier is rejected by the XPC plist contract")
 
+        print("wire: export schema")
         var backupExport = request
         backupExport["operation"] = "accountExport"
         backupExport["target"] = ""
