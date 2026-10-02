@@ -289,8 +289,14 @@ enum V3WireContract {
             default: return false
             }
         case "sidesignSet":
-            return Set(payload.keys) == Set(["config"]) &&
-                (payload["config"] as? String)?.utf8.count ?? 0 <= 8192
+            // SideSign headers are user configuration and legitimately contain an
+            // Authorization header, so their text is not content-scanned. The
+            // bound that matters is the size cap.
+            guard Set(payload.keys) == Set(["config"]),
+                  let config = payload["config"] as? String, config.utf8.count <= 8192 else {
+                return false
+            }
+            return true
         default:
             // Every unlisted operation is payloadless. New payload-bearing
             // commands must add an explicit schema before crossing XPC.

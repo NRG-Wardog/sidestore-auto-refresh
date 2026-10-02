@@ -2514,9 +2514,14 @@ setting["payload"] = ["key": "isBetaUpdatesEnabled", "type": "bool", "bool": 1]
 precondition(V3WireContract.decodeRequest(encode(setting), now: now) == nil)
 var sideSignConfig = valid; sideSignConfig["operation"] = "sidesignSet"
 sideSignConfig["target"] = ""
-sideSignConfig["payload"] = ["secretToken": UUID().uuidString]
+sideSignConfig["payload"] = ["config": "{\"anthropic\":\"value\"}"]
 precondition(V3WireContract.decodeRequest(encode(sideSignConfig), now: now) != nil)
+sideSignConfig["payload"] = ["secretToken": UUID().uuidString]
+precondition(V3WireContract.decodeRequest(encode(sideSignConfig), now: now) == nil)
 sideSignConfig["payload"] = ["config": "{\"Authorization\":\"Bearer SECRET\"}"]
+precondition(V3WireContract.decodeRequest(encode(sideSignConfig), now: now) != nil,
+    "a configured SideSign Authorization header is configuration, not a credential field")
+sideSignConfig["payload"] = ["config": String(repeating: "x", count: 8193)]
 precondition(V3WireContract.decodeRequest(encode(sideSignConfig), now: now) == nil)
 var legacySetting = valid; legacySetting["operation"] = "setSetting"; legacySetting["target"] = "betaUpdates"
 legacySetting["value"] = true
