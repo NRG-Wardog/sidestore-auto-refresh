@@ -2624,18 +2624,37 @@ var legacyValue = base("snapshot")
 legacyValue["target"] = ""
 legacyValue["value"] = true
 precondition(V3WireContract.decodeRequest(encode(legacyValue), now: now) == nil)
+// The answer is carried by the request. A verification code is the same class
+// of short-lived single-use secret as the password and travels the same way.
 for operation in ["authRespond", "opAnswer"] {
-    var safe = base(operation); safe["payload"] = ["prompt": "p1", "secretToken": UUID().uuidString]
-    precondition(V3WireContract.decodeRequest(encode(safe), now: now) != nil, operation)
-    var raw = base(operation); raw["payload"] = ["prompt": "p1", "answer": ["verificationCode": "123456"]]
-    precondition(V3WireContract.decodeRequest(encode(raw), now: now) == nil, operation)
+    var credentials = base(operation)
+    credentials["payload"] = ["prompt": "p1", "answer": ["appleID": "user@example.com",
+                                                          "password": "pw"]]
+    precondition(V3WireContract.decodeRequest(encode(credentials), now: now) != nil, operation)
+    var twoFactor = base(operation)
+    twoFactor["payload"] = ["prompt": "p1", "answer": ["action": "code", "code": "123456"]]
+    precondition(V3WireContract.decodeRequest(encode(twoFactor), now: now) != nil,
+        "\(operation) carries a verification code the same way")
+    // The carrier stays flat and bounded, and nothing else may ride with it.
+    var nested = base(operation)
+    nested["payload"] = ["prompt": "p1", "answer": ["nested": ["password": "pw"]]]
+    precondition(V3WireContract.decodeRequest(encode(nested), now: now) == nil, operation)
+    var oversized = base(operation)
+    oversized["payload"] = ["prompt": "p1", "answer": ["password": String(repeating: "x", count: 4097)]]
+    precondition(V3WireContract.decodeRequest(encode(oversized), now: now) == nil, operation)
+    var extra = base(operation)
+    extra["payload"] = ["prompt": "p1", "answer": ["password": "pw"], "password": "pw"]
+    precondition(V3WireContract.decodeRequest(encode(extra), now: now) == nil, operation)
+    var retired = base(operation)
+    retired["payload"] = ["prompt": "p1", "secretToken": UUID().uuidString]
+    precondition(V3WireContract.decodeRequest(encode(retired), now: now) == nil, operation)
 }
 var export = base("accountExport"); export["target"] = ""
-export["payload"] = ["secretToken": UUID().uuidString, "includeApple": false]
+export["payload"] = ["answer": ["password": "backup passphrase"], "includeApple": false]
 precondition(V3WireContract.decodeRequest(encode(export), now: now) != nil)
 export["payload"] = ["password": "backup passphrase", "includeApple": false]
 precondition(V3WireContract.decodeRequest(encode(export), now: now) == nil)
-var backupImport = base("accountImport"); backupImport["payload"] = ["secretToken": UUID().uuidString]
+var backupImport = base("accountImport"); backupImport["payload"] = ["answer": ["password": "pw"]]
 precondition(V3WireContract.decodeRequest(encode(backupImport), now: now) != nil)
 backupImport["payload"] = ["password": "backup passphrase"]
 precondition(V3WireContract.decodeRequest(encode(backupImport), now: now) == nil)
