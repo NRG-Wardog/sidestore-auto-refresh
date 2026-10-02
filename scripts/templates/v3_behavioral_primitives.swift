@@ -4930,9 +4930,9 @@ enum V3AuthTerminalFailureActionPolicy {
 enum V3AuthRepairURLPolicy {
     static let safeMessage = "Apple needs account attention before sign-in can continue."
 
-    static func promptField(urlToken: String) -> [String: String] {
-        ["key": "urlToken", "label": "Open Apple Account Repair",
-         "secure": "false", "value": urlToken]
+    static func promptField(url: String) -> [String: String] {
+        ["key": "url", "label": "Open Apple Account Repair",
+         "secure": "false", "value": url]
     }
 
     static func openableURL(_ rawValue: String) -> URL? {

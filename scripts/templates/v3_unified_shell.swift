@@ -4353,10 +4353,8 @@ struct V3OperationSheet: View {
         promptSubmitting = true
         let generation = attempt.generation
         do {
-            let secretToken = try V3SecretHandoff.storeStringDictionary(answer)
-            defer { V3SecretHandoff.discard(secretToken) }
             let reply = try await V3ServiceBridge.shared.request(operation: "opAnswer", target: session,
-                payload: ["prompt": id, "secretToken": secretToken])
+                payload: ["prompt": id, "answer": answer])
             guard attempt.matches(generation: generation, sessionID: session),
                   reply["session"] as? String == session else {
                 promptSubmitting = false
@@ -4944,9 +4942,7 @@ struct V3PromptSection: View {
     private func loadRepairURL() async {
         repairURL = nil
         guard kind == "accountRepair",
-              let token = fieldDefs.first(where: { $0["key"] == "urlToken" })?["value"],
-              V3SecretHandoff.isValidToken(token),
-              let rawURL = try? V3SecretHandoff.consumeString(token) else { return }
+              let rawURL = fieldDefs.first(where: { $0["key"] == "url" })?["value"] else { return }
         repairURL = V3AuthRepairURLPolicy.openableURL(rawURL)
     }
     private func toggle(_ id: String) {
@@ -6227,10 +6223,8 @@ final class V3AuthStore: ObservableObject {
         }
         Task {
             do {
-                let secretToken = try V3SecretHandoff.storeStringDictionary(answer)
-                defer { V3SecretHandoff.discard(secretToken) }
                 let reply = try await V3ServiceBridge.shared.request(operation: "authRespond", target: session,
-                    payload: ["prompt": promptID, "secretToken": secretToken])
+                    payload: ["prompt": promptID, "answer": answer])
                 if V3ServiceBridge.strictBool(reply["responsePending"]) == true {
                     let replyRevision = V3ServiceBridge.strictInt(reply["revision"])
                     let replyPromptID = (reply["prompt"] as? [String: Any])?["id"] as? String
@@ -7774,11 +7768,11 @@ struct V3SideSignView: View {
         notice = ""
         defer { busy = false }
         do {
-            let secretToken = try V3SecretHandoff.storeString(config)
-            defer { V3SecretHandoff.discard(secretToken) }
             let reply = try await V3ServiceBridge.shared.request(operation: "sidesignSet",
-                payload: ["secretToken": secretToken])
-            let savedConfig = try consumeConfigToken(in: reply)
+                payload: ["config": submittedConfig])
+            guard let savedConfig = reply["config"] as? String, savedConfig.utf8.count <= 8192 else {
+                throw V3SecretHandoffError.malformed
+            }
             guard mayApply(owner, capturedEditorRevision: capturedRevision),
                   config == submittedConfig else {
                 reportStaleMutationIfDraftChanged(from: submittedConfig,
@@ -7897,9 +7891,10 @@ struct V3SideSignView: View {
     }
 
     private func consumeConfigToken(in reply: [String: Any]) throws -> String {
-        guard let token = reply["secretToken"] as? String else { throw V3SecretHandoffError.malformed }
-        defer { V3SecretHandoff.discard(token) }
-        return try V3SecretHandoff.consumeString(token)
+        guard let config = reply["config"] as? String, config.utf8.count <= 8192 else {
+            throw V3SecretHandoffError.malformed
+        }
+        return config
     }
 }
 
@@ -8392,10 +8387,8 @@ struct V3BackupsView: View {
         exportBusy = true
         defer { exportBusy = false }
         do {
-            let secretToken = try V3SecretHandoff.storeString(exportPassword)
-            defer { V3SecretHandoff.discard(secretToken) }
             let reply = try await V3ServiceBridge.shared.request(operation: "accountExport",
-                payload: ["secretToken": secretToken, "includeApple": includeApple])
+                payload: ["answer": ["password": exportPassword], "includeApple": includeApple])
             guard let encoded = reply["backup"] as? String,
                   let data = Data(base64Encoded: encoded) else {
                 throw NSError(domain: "V3Backups", code: 1,
@@ -8416,14 +8409,8 @@ struct V3BackupsView: View {
             let data = try await V3SharedFileInput.readBoundedAsync(url)
             guard let token = await status.stageSharedFile(data, purpose: "accountImport") else { return }
             defer { status.discardSharedFile(token) }
-            let secretToken: String
-            do { secretToken = try V3SecretHandoff.storeString(importPassword) }
-            catch {
-                throw error
-            }
-            defer { V3SecretHandoff.discard(secretToken) }
             let reply = try await V3ServiceBridge.shared.request(operation: "accountImport", target: token,
-                payload: ["secretToken": secretToken])
+                payload: ["answer": ["password": importPassword]])
             importedEmail = reply["email"] as? String ?? ""
             message = ""
             status.reload()

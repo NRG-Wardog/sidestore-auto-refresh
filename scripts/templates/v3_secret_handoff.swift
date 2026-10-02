@@ -834,6 +834,24 @@ enum V3SecretHandoff {
         return group
     }
 
+    /// The one group name both processes would derive if they were entitled to
+    /// the same group. Exposed so callers can report which scope they selected
+    /// without ever logging the identifier itself.
+    static var sharedKeychainGroupName: String {
+        V3SharedKeychainAccessGroupPolicy.sharedGroup(fromDefaultGroup: "AAAAAAAAAA.x") ?? ""
+    }
+
+    /// This process's own default Keychain access group.
+    ///
+    /// A signer that re-signs this bundle grants the shared group to the root
+    /// bundle only, so the service extension can never be entitled to it. The
+    /// embedded SideStore runs in exactly one process, which makes its own
+    /// default group a legitimate owner of its credentials rather than a
+    /// fallback that leaks them.
+    static func processDefaultKeychainAccessGroup() throws -> String {
+        try probeAccessGroup()
+    }
+
     private static func probeAccessGroup(explicitGroup: String? = nil) throws -> String {
         let service = "com.kdt.livecontainer.v3-access-group-probe"
         let account = UUID().uuidString

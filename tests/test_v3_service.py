@@ -650,55 +650,78 @@ import Foundation
         self.assertNotIn("status.reload()", remove)
         self.assertNotIn("status.reload()", pairing)
 
-    def test_credentials_codes_and_backup_passphrases_use_secure_handoff_tokens(self):
+    def test_credentials_cross_the_command_channel_and_never_a_shared_keychain_group(self):
+        """A re-signer grants the shared Keychain group to the root bundle only.
+
+        The embedded SideStore runs in the service extension, so an answer routed
+        through a shared access group could never be read back. It therefore
+        travels in the request that already carries the prompt id, and no
+        credential may be written to shared storage on the way.
+        """
         host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
         service_template = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         handoff = (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8")
+        shared_keychain = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text(encoding="utf-8")
+
         for operation in ("authRespond", "opAnswer"):
             self.assertIn(f'operation: "{operation}"', host)
-            self.assertNotIn('"answer": answer', host)
-        self.assertIn("V3SecretHandoff.storeStringDictionary(answer)", host)
-        self.assertIn("V3SecretHandoff.storeString(exportPassword)", host)
-        self.assertIn("V3SecretHandoff.storeString(importPassword)", host)
-        self.assertNotIn('payload: ["password": exportPassword', host)
-        self.assertNotIn('payload: ["password": importPassword', host)
-        self.assertIn("V3SecretHandoff.consumeStringDictionary(secretToken)", service_template)
-        self.assertIn("V3SecretHandoff.consumeString(secretToken)", service_template)
-        self.assertNotIn('payload["password"]', service_template)
-        self.assertNotIn('payload["answer"]', service_template)
-        self.assertIn("kSecAttrAccessibleWhenUnlockedThisDeviceOnly", handoff)
-        self.assertIn("V3SecretHandoffRecord.lifetime", handoff)
-        self.assertIn("sharedGroup(fromDefaultGroup: defaultGroup)", handoff)
-        # The explicit probe must still gate the derived group, and its refusal
-        # must now be reported as an authorization failure rather than a generic
-        # read failure: that distinction is the whole point of the typed error.
-        self.assertIn("probeAccessGroup(explicitGroup: group)", handoff)
-        self.assertIn("verified == group", handoff)
+            self.assertIn(f'payload: ["prompt": ', host)
+        # The answer is the payload, not an opaque reference to one.
+        self.assertIn('payload: ["prompt": promptID, "answer": answer]', host)
+        self.assertIn('payload: ["prompt": id, "answer": answer]', host)
+        self.assertIn('payload: ["answer": ["password": exportPassword]', host)
+        self.assertIn('payload: ["answer": ["password": importPassword]', host)
+        self.assertIn('payload["answer"] as? [String: String]', service_template)
+        # No credential may be staged in shared storage on either side.
+        for stale in ("V3SecretHandoff.storeStringDictionary", "V3SecretHandoff.storeString(",
+                      "V3SecretHandoff.consumeStringDictionary", "V3SecretHandoff.consumeString(",
+                      "V3SecretHandoff.discard("):
+            self.assertNotIn(stale, host)
+            self.assertNotIn(stale, service_template)
+        self.assertNotIn("secretToken", host)
+        self.assertNotIn("secretToken", service_template)
+        # One-shot delivery is now the service's own prompt state, keyed by the
+        # prompt id that rides in the same request.
+        self.assertIn("V3HeadlessRuntime.shared.auth.respond(id: target, promptID: promptID, answer: answer)",
+                      service_template)
+        self.assertIn("V3HeadlessRuntime.shared.operations.answer(id: target, promptID: promptID, answer: answer)",
+                      service_template)
+        # The taxonomy and the Apple-blame guard stay: a transport failure must
+        # never be reported as an Apple authentication failure.
         self.assertIn("keychainExplicitGroupUnauthorized", handoff)
         self.assertIn("errSecMissingEntitlement", handoff)
-        # A handoff failure must never be reported as an Apple authentication
-        # failure, because the response never reached Apple.
         self.assertIn("V3SecretHandoffFailurePolicy", service_template)
-        self.assertIn("safeCause: .secretHandoffUnavailable",
-                      (ROOT / "scripts/templates/v3_secret_handoff.swift").read_text(encoding="utf-8"))
-        shared_keychain = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text(encoding="utf-8")
+        self.assertIn("safeCause: .secretHandoffUnavailable", handoff)
+        # SideStore persists into the shared group when the signer grants it, and
+        # into its own entitled default group when the signer does not.
         self.assertIn("V3SecretHandoff.sharedKeychainAccessGroup()", shared_keychain)
+        self.assertIn("V3SecretHandoff.processDefaultKeychainAccessGroup()", shared_keychain)
         self.assertNotIn("accessGroup: appGroup", shared_keychain)
 
-    def test_sidesign_headers_use_one_time_secret_tokens_not_raw_json(self):
+    def test_sidesign_headers_travel_in_the_request_and_the_reply(self):
+        """SideSign headers are configuration, not credentials.
+
+        They were staged as one-time tokens in the shared Keychain group, which
+        is unreadable from the service under any re-signer. They now travel as a
+        bounded request field and come back as a bounded reply field.
+        """
         wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text(encoding="utf-8")
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
         host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
-        self.assertIn('Set(payload.keys) == Set(["secretToken"])', wire)
-        self.assertIn("V3SecretHandoff.consumeString(secretToken)", service)
-        self.assertIn("V3BackendCommands.sidesignConfigToken()", service)
-        self.assertIn("V3BackendCommands.sidesignExportToken()", service)
-        self.assertIn('payload: ["secretToken": secretToken]', host)
-        self.assertIn("V3SecretHandoff.storeString(config)", host)
-        self.assertIn("let config = try await sidesignJSON()", runtime)
-        self.assertIn("return try V3SecretHandoff.storeString(config)", runtime)
-        self.assertNotIn('payload: ["config": config]', host)
+        self.assertIn('case "sidesignSet":', wire)
+        self.assertIn('Set(payload.keys) == Set(["config"])', wire)
+        self.assertIn("V3BackendCommands.sidesignConfigText()", service)
+        self.assertIn("V3BackendCommands.sidesignExportText()", service)
+        self.assertIn("V3BackendCommands.sidesignSet(config: config)", service)
+        self.assertIn('payload: ["config": submittedConfig]', host)
+        self.assertIn("static func sidesignSet(config json: String)", runtime)
+        self.assertIn("try await sidesignJSON()", runtime)
+        for stale in ("sidesignConfigToken", "sidesignExportToken",
+                      "V3SecretHandoff.storeString(config)", "V3SecretHandoff.consumeString(token)"):
+            self.assertNotIn(stale, runtime)
+            self.assertNotIn(stale, service)
+            self.assertNotIn(stale, host)
 
     def test_anisette_server_selection_reloads_authoritative_active_state(self):
         host = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")

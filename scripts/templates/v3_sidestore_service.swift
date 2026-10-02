@@ -1766,17 +1766,18 @@ final class V3SideStoreService: NSObject {
             }
             return reply
         case "authRespond":
-            guard let secretToken = payload["secretToken"] as? String,
-                  let promptID = payload["prompt"] as? String else {
+            guard let promptID = payload["prompt"] as? String,
+                  let answer = payload["answer"] as? [String: String] else {
                 throw ServiceError.invalidRequest
             }
-            // V3_SECRET_HANDOFF_FAILURE_TYPED_V1: the handoff boundary is the
-            // only place that can say whether the response reached the prompt
-            // handler. Emit it before consuming, so a failure names the step.
+            // The answer arrives in this request. It is not written to a shared
+            // Keychain group first, because no signer that re-signs this bundle
+            // grants that group to this extension, so it could never be read
+            // back. `promptID` is what makes delivery one-shot: `respond` accepts
+            // an answer only for the prompt this session currently holds.
             V3SecretHandoffTrace.emit(V3SecretHandoffDiagnostics(
                 role: V3SecretHandoffRole.service, operation: "authRespond",
-                tokenWellFormed: V3SecretHandoff.isValidToken(secretToken)))
-            let answer = try V3SecretHandoff.consumeStringDictionary(secretToken)
+                tokenWellFormed: !answer.isEmpty))
             guard let reply = V3HeadlessRuntime.shared.auth.respond(id: target, promptID: promptID, answer: answer) else {
                 throw ServiceError.invalidRequest
             }
@@ -1856,11 +1857,10 @@ final class V3SideStoreService: NSObject {
             settleOperationRecoveryIfTerminal(reply, requestedSessionID: target)
             return reply
         case "opAnswer":
-            guard let secretToken = payload["secretToken"] as? String,
-                  let promptID = payload["prompt"] as? String else {
+            guard let promptID = payload["prompt"] as? String,
+                  let answer = payload["answer"] as? [String: String] else {
                 throw ServiceError.invalidRequest
             }
-            let answer = try V3SecretHandoff.consumeStringDictionary(secretToken)
             guard let reply = V3HeadlessRuntime.shared.operations.answer(id: target, promptID: promptID, answer: answer) else {
                 throw ServiceError.invalidRequest
             }
@@ -2013,29 +2013,28 @@ final class V3SideStoreService: NSObject {
             _ = try await AnisetteServersManager.shared.syncWithRemote()
             return ["servers": await V3BackendCommands.anisetteList()]
         case "sidesignGet":
-            return ["secretToken": try await V3BackendCommands.sidesignConfigToken()]
+            return ["config": try await V3BackendCommands.sidesignConfigText()]
         case "sidesignSet":
-            guard let secretToken = payload["secretToken"] as? String else { throw ServiceError.invalidRequest }
-            try await V3BackendCommands.sidesignSet(token: secretToken)
-            return ["secretToken": try await V3BackendCommands.sidesignConfigToken()]
+            guard let config = payload["config"] as? String else { throw ServiceError.invalidRequest }
+            try await V3BackendCommands.sidesignSet(config: config)
+            return ["config": try await V3BackendCommands.sidesignConfigText()]
         case "sidesignReset":
             _ = SideSignConfigManager.shared.resetToDefaults()
-            return ["secretToken": try await V3BackendCommands.sidesignConfigToken()]
+            return ["config": try await V3BackendCommands.sidesignConfigText()]
         case "sidesignImport":
             try await V3BackendCommands.sidesignImport(token: target)
-            return ["secretToken": try await V3BackendCommands.sidesignConfigToken()]
+            return ["config": try await V3BackendCommands.sidesignConfigText()]
         case "sidesignExport":
-            return ["secretToken": try await V3BackendCommands.sidesignExportToken()]
+            return ["config": try await V3BackendCommands.sidesignExportText()]
         case "logTail":
             return V3BackendCommands.logTail()
         case "healthSnapshot":
             return await V3BackendCommands.health()
         case "accountExport":
-            guard let secretToken = payload["secretToken"] as? String else {
+            guard let answer = payload["answer"] as? [String: String],
+                  let password = answer["password"], !password.isEmpty else {
                 throw ServiceError.invalidRequest
             }
-            let password = try V3SecretHandoff.consumeString(secretToken)
-            guard !password.isEmpty else { throw ServiceError.invalidRequest }
             let includeApple: Bool
             if let rawIncludeApple = payload["includeApple"] {
                 guard let parsedIncludeApple = V3WireContract.strictBool(rawIncludeApple) else {
@@ -2047,8 +2046,8 @@ final class V3SideStoreService: NSObject {
             }
             return ["backup": try V3BackendCommands.accountExport(password: password, includeApplePassword: includeApple)]
         case "accountImport":
-            guard let secretToken = payload["secretToken"] as? String else { throw ServiceError.invalidRequest }
-            let password = try V3SecretHandoff.consumeString(secretToken)
+            guard let answer = payload["answer"] as? [String: String],
+                  let password = answer["password"], !password.isEmpty else { throw ServiceError.invalidRequest }
             AuthManager.shared.v3BeginIdentityTransition()
             defer { AuthManager.shared.v3CompleteIdentityTransition() }
             return try V3BackendCommands.accountImport(token: target, password: password)

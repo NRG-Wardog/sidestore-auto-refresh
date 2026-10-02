@@ -1205,12 +1205,10 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
 
     func accountRepair(url: URL, message: String) async -> AccountRepairDecision {
         _ = message // Provider text may contain account-specific content; never send it to the host.
-        let fields: [[String: String]]
-        if let urlToken = try? V3SecretHandoff.storeString(url.absoluteString) {
-            fields = [V3AuthRepairURLPolicy.promptField(urlToken: urlToken)]
-        } else {
-            fields = []
-        }
+        // The repair URL is not a credential and the prompt descriptor already
+        // reaches the host over the same command channel, so it travels in the
+        // field value. `openableURL` re-validates it before anything opens it.
+        let fields = [V3AuthRepairURLPolicy.promptField(url: url.absoluteString)]
         do {
             let answer = try await ask(kind: "accountRepair", title: "Account Attention Needed",
                                        message: V3AuthRepairURLPolicy.safeMessage,
@@ -2593,13 +2591,14 @@ enum V3BackendCommands {
         return text
     }
 
-    static func sidesignConfigToken() async throws -> String {
-        let config = try await sidesignJSON()
-        return try V3SecretHandoff.storeString(config)
+    // The SideSign configuration is not a credential, so it travels in the
+    // reply rather than through a shared-storage token that no re-signer lets
+    // this extension read back.
+    static func sidesignConfigText() async throws -> String {
+        try await sidesignJSON()
     }
 
-    static func sidesignSet(token: String) async throws {
-        let json = try V3SecretHandoff.consumeString(token)
+    static func sidesignSet(config json: String) async throws {
         guard let data = json.data(using: .utf8),
               let config = try? JSONDecoder().decode(SideSignHeaders.self, from: data) else {
             throw V3SideStoreServiceError.invalidRequest
@@ -2615,12 +2614,12 @@ enum V3BackendCommands {
         await SideSignConfigManager.shared.saveConfig(config)
     }
 
-    static func sidesignExportToken() async throws -> String {
+    static func sidesignExportText() async throws -> String {
         guard let data = await SideSignConfigManager.shared.exportConfigData(),
               let text = String(data: data, encoding: .utf8), text.utf8.count <= 8192 else {
             throw V3SideStoreServiceError.invalidRequest
         }
-        return try V3SecretHandoff.storeString(text)
+        return text
     }
 
     static func consumeSharedFile(token: String, purpose: String) throws -> Data {

@@ -181,9 +181,40 @@ enum V3WireContract {
         "recoveryDiscardUnreadable", "directRecoveryReconcile"
     ]
 
+    /// The one request key that may carry a credential, and only for the
+    /// operations that declare it below.
+    ///
+    /// The answer used to cross as an opaque Keychain token in a shared access
+    /// group. No signer that re-signs this bundle grants that group to the
+    /// service extension, so the token could never be read back: the handoff was
+    /// structurally impossible rather than flaky. The answer now travels in the
+    /// request itself, over the one channel the two signed peers already share,
+    /// so there is no shared-storage copy of the credential to protect at all.
+    ///
+    /// This key is the ONLY exemption from the raw-secret sweep. Rejecting any
+    /// nested value is what keeps the exemption from becoming a hole.
+    private static let credentialAnswerKey = "answer"
+
+    private static let credentialAnswerOperations: Set<String> = [
+        "authRespond", "opAnswer", "accountExport", "accountImport"
+    ]
+
+    /// A flat, strictly bounded string map. Nothing can nest inside it, so the
+    /// sweep's exemption can never carry a subtree past `containsRawSecretField`.
+    private static func credentialAnswerIsBounded(_ value: Any?) -> Bool {
+        guard let map = value as? [String: String], !map.isEmpty, map.count <= 32 else { return false }
+        return map.allSatisfy { key, text in
+            !key.isEmpty && key.utf8.count <= 64 && text.utf8.count <= 4096
+        }
+    }
+
     private static func acceptsPayload(operation: String, target: String,
                                        payload: [String: Any], now: Date) -> Bool {
-        guard !containsRawSecretField(payload) else { return false }
+        // Skipped by exact key, and only where an operation declares it. Every
+        // other key is still swept, at every depth.
+        let skipping: Set<String> = credentialAnswerOperations.contains(operation)
+            ? [credentialAnswerKey] : []
+        guard !containsRawSecretField(payload, skipping: skipping) else { return false }
         switch operation {
         case "snapshot":
             return Set(payload.keys) == Set(["readinessOnly"]) &&
@@ -201,17 +232,21 @@ enum V3WireContract {
                   let scope = payload["scope"] as? String else { return false }
             return cancellationScopes.contains(scope)
         case "authRespond", "opAnswer":
-            guard Set(payload.keys) == Set(["prompt", "secretToken"]),
+            // The prompt id is what makes this one-shot: the service accepts an
+            // answer only for the prompt it currently holds, and only once. The
+            // token that used to sit here added no property the service did not
+            // already enforce, and could not be read back under any signer.
+            guard Set(payload.keys) == Set(["prompt", credentialAnswerKey]),
                   let prompt = payload["prompt"] as? String, !prompt.isEmpty, prompt.utf8.count <= 256,
-                  canonicalSecretToken(payload["secretToken"]) else { return false }
+                  credentialAnswerIsBounded(payload[credentialAnswerKey]) else { return false }
             return true
         case "accountExport":
-            guard Set(payload.keys) == Set(["secretToken", "includeApple"]),
-                  canonicalSecretToken(payload["secretToken"]),
-                  strictBool(payload["includeApple"]) != nil else { return false }
-            return true
+            return Set(payload.keys) == Set(["includeApple", credentialAnswerKey]) &&
+                strictBool(payload["includeApple"]) != nil &&
+                credentialAnswerIsBounded(payload[credentialAnswerKey])
         case "accountImport":
-            return Set(payload.keys) == Set(["secretToken"]) && canonicalSecretToken(payload["secretToken"])
+            return Set(payload.keys) == Set([credentialAnswerKey]) &&
+                credentialAnswerIsBounded(payload[credentialAnswerKey])
         case "opStart":
             guard Set(payload.keys) == Set(["kind", "target", "session"]),
                   let kind = payload["kind"] as? String, !kind.isEmpty, kind.utf8.count <= 128,
@@ -254,8 +289,8 @@ enum V3WireContract {
             default: return false
             }
         case "sidesignSet":
-            return Set(payload.keys) == Set(["secretToken"]) &&
-                canonicalSecretToken(payload["secretToken"])
+            return Set(payload.keys) == Set(["config"]) &&
+                (payload["config"] as? String)?.utf8.count ?? 0 <= 8192
         default:
             // Every unlisted operation is payloadless. New payload-bearing
             // commands must add an explicit schema before crossing XPC.
@@ -314,12 +349,16 @@ enum V3WireContract {
         "authorization", "cookie", "dsid", "phoneid", "phonenumber", "secret", "token", "udid"
     ]
 
-    private static func containsRawSecretField(_ value: Any) -> Bool {
+    private static func containsRawSecretField(_ value: Any, skipping: Set<String> = []) -> Bool {
         var pending: [Any] = [value]
         while let current = pending.popLast() {
             if let dictionary = current as? [String: Any] {
                 for (key, nested) in dictionary {
                     let normalized = key.lowercased().filter { $0.isLetter || $0.isNumber }
+                    // Matched before the fragment sweep, and the subtree is not
+                    // traversed. Its shape is bounded separately, in
+                    // `credentialAnswerIsBounded`.
+                    if skipping.contains(normalized) { continue }
                     // This UUID is a non-secret, one-time capability allowed
                     // only by the exact schemas validated below.
                     let opaqueHandoffToken = normalized == "secrettoken"

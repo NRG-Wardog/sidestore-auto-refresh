@@ -200,14 +200,19 @@ fileprivate enum LCEmbeddedSharedKeychain {
         // packaged declaration is only a fallback for a launch that published
         // nothing, and it is not proof that the process is entitled to it.
         let appGroup = V3SharedAppGroup.runtimeIdentity()?.identifier
-        let keychainGroup = try? V3SecretHandoff.sharedKeychainAccessGroup()
-        // The normal identity hooks must already have run. Do not quietly
-        // persist new credentials into an unshared, process-private namespace.
+        // Prefer the shared group, which a signer that also grants it to the
+        // extension makes available to both processes. A re-signer grants it to
+        // the root bundle only, so the extension falls back to its own default
+        // group: it runs the embedded SideStore and no other process reads this
+        // namespace, so it is the credential owner rather than a leak.
+        let keychainGroup = (try? V3SecretHandoff.sharedKeychainAccessGroup())
+            ?? (try? V3SecretHandoff.processDefaultKeychainAccessGroup())
+        // The normal identity hooks must already have run.
         if service == "com.kdt.livecontainer", let appGroup, !appGroup.isEmpty,
            let keychainGroup, !keychainGroup.isEmpty {
             installedGroup = keychainGroup
             installedAppGroup = appGroup
-            debugLog("[LC_KEYCHAIN] SHARED_GROUP_SELECTED service=\(service) keychain_group=livecontainer.shared")
+            debugLog("[LC_KEYCHAIN] GROUP_SELECTED service=\(service) scope=\(keychainGroup == V3SecretHandoff.sharedKeychainGroupName ? \"shared\" : \"process\")")
             return KeychainAccess.Keychain(service: service, accessGroup: keychainGroup)
                 .accessibility(.afterFirstUnlock).synchronizable(true)
         }

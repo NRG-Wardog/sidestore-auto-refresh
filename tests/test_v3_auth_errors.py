@@ -484,13 +484,16 @@ class V3AuthErrorTests(unittest.TestCase):
         start = text.index("func accountRepair(url: URL, message: String)")
         end = text.index("func handleSignInResult", start)
         repair = text[start:end]
-        self.assertIn("V3SecretHandoff.storeString(url.absoluteString)", repair)
-        self.assertIn("V3AuthRepairURLPolicy.promptField(urlToken: urlToken)", repair)
+        # The repair URL is not a credential. It travels in the prompt field,
+        # which already reaches the host on the command channel, instead of
+        # through a shared Keychain group that no re-signer grants to this
+        # extension.
+        self.assertNotIn("V3SecretHandoff.storeString", repair)
+        self.assertIn("V3AuthRepairURLPolicy.promptField(url: url.absoluteString)", repair)
         self.assertIn("message: V3AuthRepairURLPolicy.safeMessage", repair)
-        self.assertNotIn('"value": url.absoluteString', repair)
         host = shell()
-        self.assertIn("V3SecretHandoff.consumeString(token)", host)
-        self.assertIn('field["key"] == "urlToken"', host)
+        self.assertNotIn("V3SecretHandoff.consumeString", host)
+        self.assertIn('field["key"] == "url"', host)
         self.assertIn("if let repairURL {", host)
 
     def test_no_automatic_retry(self):
