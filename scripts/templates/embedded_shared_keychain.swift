@@ -212,7 +212,8 @@ fileprivate enum LCEmbeddedSharedKeychain {
            let keychainGroup, !keychainGroup.isEmpty {
             installedGroup = keychainGroup
             installedAppGroup = appGroup
-            debugLog("[LC_KEYCHAIN] GROUP_SELECTED service=\(service) scope=\(keychainGroup == V3SecretHandoff.sharedKeychainGroupName ? \"shared\" : \"process\")")
+            let scope = keychainGroup == V3SecretHandoff.sharedKeychainGroupName ? "shared" : "process"
+            debugLog("[LC_KEYCHAIN] GROUP_SELECTED service=\(service) scope=\(scope)")
             return KeychainAccess.Keychain(service: service, accessGroup: keychainGroup)
                 .accessibility(.afterFirstUnlock).synchronizable(true)
         }
