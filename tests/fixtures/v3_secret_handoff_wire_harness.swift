@@ -300,9 +300,23 @@ struct SecretHandoffWireHarness {
         sideSignConfig["payload"] = ["secretToken": token]
         precondition(V3WireContract.encodeRequest(sideSignConfig, now: now) == nil,
             "the retired Keychain-token shape is no longer accepted")
-        sideSignConfig["payload"] = ["config": "{\"Authorization\":\"Bearer PRIVATE_TOKEN\"}"]
+        // An undeclared key is still refused. The old token shape and this are
+        // both refused because `config` is the only key this schema declares.
+        sideSignConfig["payload"] = ["config": "{\"anthropic\":\"value\"}", "extra": "x"]
         precondition(V3WireContract.encodeRequest(sideSignConfig, now: now) == nil,
-            "header JSON cannot bypass the raw-secret outbound wire guard")
+            "an undeclared field cannot ride along with the configuration")
+        sideSignConfig["payload"] = ["secretToken": token]
+        precondition(V3WireContract.encodeRequest(sideSignConfig, now: now) == nil,
+            "a retired token reference cannot ride along either")
+        // SideSign headers are user-supplied configuration that legitimately
+        // contains an Authorization header, so their text is deliberately not
+        // content-scanned. The bound that matters is the size cap.
+        sideSignConfig["payload"] = ["config": "{\"Authorization\":\"Bearer PRIVATE_TOKEN\"}"]
+        precondition(V3WireContract.encodeRequest(sideSignConfig, now: now) != nil,
+            "a configured SideSign header is configuration, not a credential field")
+        sideSignConfig["payload"] = ["config": String(repeating: "x", count: 8193)]
+        precondition(V3WireContract.encodeRequest(sideSignConfig, now: now) == nil,
+            "an oversized configuration is refused")
 
         var legacyAnswer = request
         legacyAnswer["payload"] = secretAnswer
