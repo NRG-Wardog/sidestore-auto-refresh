@@ -282,7 +282,7 @@ struct DirectMutationRecoveryHarness {
         let token = "70000000-0000-4000-8000-000000000007"
         let secret = "80000000-0000-4000-8000-000000000008"
         let request = ["operation": "accountImport", "target": token,
-            "payload": ["secretToken": secret]] as [String: Any]
+            "payload": ["answer": ["value": secret]]] as [String: Any]
         precondition(V3DirectMutationRecoveryRecord.isEligible(request: request))
         try expect(try V3OperationRecoveryJournal.reserveDirect(request: request,
             requestID: requestID, serviceInstanceID: oldInstance, containerRoot: root))

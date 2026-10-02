@@ -294,24 +294,31 @@ struct SecretHandoffWireHarness {
         var sideSignConfig = request
         sideSignConfig["operation"] = "sidesignSet"
         sideSignConfig["target"] = ""
-        sideSignConfig["payload"] = ["secretToken": token]
+        sideSignConfig["payload"] = ["config": "{\"anthropic\":\"value\"}"]
         precondition(V3WireContract.encodeRequest(sideSignConfig, now: now) != nil,
-            "SideSign configuration crosses XPC only as a one-time Keychain reference")
+            "SideSign configuration travels as a bounded request field")
+        sideSignConfig["payload"] = ["secretToken": token]
+        precondition(V3WireContract.encodeRequest(sideSignConfig, now: now) == nil,
+            "the retired Keychain-token shape is no longer accepted")
         sideSignConfig["payload"] = ["config": "{\"Authorization\":\"Bearer PRIVATE_TOKEN\"}"]
         precondition(V3WireContract.encodeRequest(sideSignConfig, now: now) == nil,
             "header JSON cannot bypass the raw-secret outbound wire guard")
 
         var legacyAnswer = request
-        legacyAnswer["payload"] = ["prompt": "credentials-prompt", "answer": secretAnswer]
+        legacyAnswer["payload"] = secretAnswer
         let legacyBytes = try PropertyListSerialization.data(fromPropertyList: legacyAnswer, format: .binary, options: 0)
         precondition(V3WireContract.decodeRequest(legacyBytes, now: now) == nil,
-            "raw credentials and one-time codes must be rejected by the XPC plist contract")
+            "a credential outside the answer carrier is rejected by the XPC plist contract")
 
         var backupExport = request
         backupExport["operation"] = "accountExport"
         backupExport["target"] = ""
-        backupExport["payload"] = ["secretToken": token, "includeApple": false]
+        backupExport["payload"] = ["answer": ["password": "private-backup-passphrase"],
+                                   "includeApple": false]
         let exportBytes = try PropertyListSerialization.data(fromPropertyList: backupExport, format: .binary, options: 0)
+        precondition(V3WireContract.decodeRequest(exportBytes, now: now) != nil,
+            "the export passphrase travels in the answer carrier")
+        backupExport["payload"] = ["secretToken": token, "includeApple": false]
         precondition(V3WireContract.decodeRequest(exportBytes, now: now) != nil)
         backupExport["payload"] = ["password": "private-backup-passphrase", "includeApple": false]
         let rawBackupBytes = try PropertyListSerialization.data(fromPropertyList: backupExport, format: .binary, options: 0)
