@@ -2560,12 +2560,12 @@ for operation in ["authBegin", "authRetryProvisioning", "authPoll", "authRespond
         request["payload"] = ["kind": "installSharedIPA", "target": UUID().uuidString.lowercased(),
                               "session": UUID().uuidString]
     } else if operation == "authRespond" || operation == "opAnswer" {
-        request["payload"] = ["prompt": "prompt-1", "secretToken": UUID().uuidString]
+        request["payload"] = ["prompt": "prompt-1", "answer": ["password": "pw"]]
     } else if operation == "accountExport" {
         request["target"] = ""
-        request["payload"] = ["secretToken": UUID().uuidString, "includeApple": false]
+        request["payload"] = ["answer": ["password": "pw"], "includeApple": false]
     } else if operation == "accountImport" {
-        request["payload"] = ["secretToken": UUID().uuidString]
+        request["payload"] = ["answer": ["password": "pw"]]
     } else if operation == "sourcePreview" || operation == "sourceAddConfirmed" {
         request["target"] = "https://example.invalid/source.json"
     } else if operation == "ipaActiveTokens" {
