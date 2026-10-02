@@ -333,7 +333,10 @@ struct SecretHandoffWireHarness {
         precondition(V3WireContract.decodeRequest(exportBytes, now: now) != nil,
             "the export passphrase travels in the answer carrier")
         backupExport["payload"] = ["secretToken": token, "includeApple": false]
-        precondition(V3WireContract.decodeRequest(exportBytes, now: now) != nil)
+        let retiredExportBytes = try PropertyListSerialization.data(
+            fromPropertyList: backupExport, format: .binary, options: 0)
+        precondition(V3WireContract.decodeRequest(retiredExportBytes, now: now) == nil,
+            "the retired token shape is refused for an export too")
         backupExport["payload"] = ["password": "private-backup-passphrase", "includeApple": false]
         let rawBackupBytes = try PropertyListSerialization.data(fromPropertyList: backupExport, format: .binary, options: 0)
         precondition(V3WireContract.decodeRequest(rawBackupBytes, now: now) == nil,
