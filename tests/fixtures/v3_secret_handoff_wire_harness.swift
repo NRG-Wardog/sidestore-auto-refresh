@@ -123,15 +123,18 @@ struct SecretHandoffWireHarness {
         let token = UUID().uuidString
         let requestID = UUID().uuidString
         let sessionID = UUID().uuidString
+        // The answer travels in the request. A re-signer never grants the shared
+        // Keychain group to the service extension, so a token reference could
+        // never be read back: this contract must carry the answer itself.
         let request: [String: Any] = ["version": 1, "id": requestID, "operation": "authRespond",
             "target": sessionID, "deadline": now.addingTimeInterval(30),
-            "payload": ["prompt": "credentials-prompt", "secretToken": token]]
+            "payload": ["prompt": "credentials-prompt",
+                        "answer": ["appleID": "user@example.com", "password": "private-password"]]]
         let requestData = try PropertyListSerialization.data(fromPropertyList: request, format: .binary, options: 0)
-        precondition(requestData.range(of: Data("private-password".utf8)) == nil &&
-                     requestData.range(of: Data("123456".utf8)) == nil,
-            "the serialized request must contain the opaque token, never the secret fields")
+        precondition(requestData.range(of: Data("private-password".utf8)) != nil,
+            "the credential is carried by the request the two signed peers exchange")
         let decoded = V3WireContract.decodeRequest(requestData, now: now)
-        precondition(decoded != nil, "the service accepts a token reference for sensitive prompt answers")
+        precondition(decoded != nil, "the service accepts the answer for a sensitive prompt")
         precondition(V3WireContract.encodeRequest(request, now: now) != nil,
             "the host and service share the same validated request contract")
         let replayFingerprint = V3RequestReplayPolicy.fingerprint(requestData)
@@ -141,7 +144,8 @@ struct SecretHandoffWireHarness {
             incomingRequestData: requestData),
             "an identical in-flight request may be recognized as a duplicate")
         var reusedIDForDifferentAction = request
-        reusedIDForDifferentAction["payload"] = ["prompt": "different-prompt", "secretToken": token]
+        reusedIDForDifferentAction["payload"] = ["prompt": "different-prompt",
+                                                 "answer": ["password": "private-password"]]
         let differentActionData = try PropertyListSerialization.data(
             fromPropertyList: reusedIDForDifferentAction, format: .binary, options: 0)
         precondition(V3WireContract.decodeRequest(differentActionData, now: now) != nil &&
@@ -151,10 +155,30 @@ struct SecretHandoffWireHarness {
         precondition(!V3RequestReplayPolicy.matchesInFlight(cachedFingerprint: replayFingerprint,
             incomingRequestData: differentActionData),
             "a different in-flight action reusing an ID must be rejected before cancel dispatch")
+        // Only the declared `answer` key is exempt from the sweep, and only for
+        // the operations that declare it.
         var outboundRawSecret = request
         outboundRawSecret["payload"] = ["prompt": "credentials-prompt", "password": "private-password"]
         precondition(V3WireContract.encodeRequest(outboundRawSecret, now: now) == nil,
-            "the host rejects raw passwords before the request can cross XPC")
+            "a password outside the answer carrier is rejected before the request crosses")
+        var nestedUnderAnswer = request
+        nestedUnderAnswer["payload"] = ["prompt": "credentials-prompt",
+                                        "answer": ["nested": ["password": "private-password"]]]
+        precondition(V3WireContract.encodeRequest(nestedUnderAnswer, now: now) == nil,
+            "the answer carrier stays flat, so the sweep's exemption is not a hole")
+        var oversizedAnswer = request
+        oversizedAnswer["payload"] = ["prompt": "credentials-prompt",
+                                      "answer": ["password": String(repeating: "x", count: 4097)]]
+        precondition(V3WireContract.encodeRequest(oversizedAnswer, now: now) == nil,
+            "an oversized answer is rejected")
+        var answerOnUnrelatedOperation = request
+        answerOnUnrelatedOperation["operation"] = "authBegin"
+        answerOnUnrelatedOperation["target"] = sessionID
+        answerOnUnrelatedOperation["payload"] = ["session": sessionID,
+            "sessionDeadline": now.addingTimeInterval(30),
+            "answer": ["password": "private-password"]]
+        precondition(V3WireContract.encodeRequest(answerOnUnrelatedOperation, now: now) == nil,
+            "the exemption does not extend to operations that do not declare it")
 
         var unrelatedOperationWithNestedPassword = request
         unrelatedOperationWithNestedPassword["operation"] = "snapshot"

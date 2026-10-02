@@ -756,8 +756,8 @@ struct AuthOwnershipReconciliationHarness {
         precondition(V3AuthRepairURLPolicy.openableURL("https://apple.com.attacker.invalid/") == nil)
         precondition(V3AuthRepairURLPolicy.openableURL("https://user:pass@apple.com/") == nil)
         let repairToken = UUID().uuidString
-        let repairField = V3AuthRepairURLPolicy.promptField(urlToken: repairToken)
-        precondition(repairField["key"] as? String == "urlToken" &&
+        let repairField = V3AuthRepairURLPolicy.promptField(url: repairToken)
+        precondition(repairField["key"] as? String == "url" &&
                      repairField["value"] as? String == repairToken &&
                      repairField["label"] as? String == "Open Apple Account Repair")
         precondition(V3AuthRepairURLPolicy.safeMessage ==

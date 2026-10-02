@@ -47,6 +47,9 @@ import Glibc
 enum Store {
     static var group: String? = "group.example.shared"
     static var keychainGroup = "TEAM.com.kdt.livecontainer.shared"
+ // A re-signer grants the shared group to the root bundle only, so the extension
+ // falls back to the default group it is always entitled to.
+ static var processKeychainGroup = "TEAM.com.kdt.livecontainer.LiveProcess"
     static var processGroup = "TEAM.host.default"
     static var data: [String: [String: Data]] = [:]
     static var failure = 0
@@ -75,9 +78,16 @@ enum V3AppGroupProcessLock {
     }
 }
 enum V3SecretHandoff {
+    static let sharedKeychainGroupName = "TEAM.com.kdt.livecontainer.shared"
     static func sharedKeychainAccessGroup() throws -> String {
         guard !Store.keychainGroup.isEmpty else { throw NSError(domain: NSOSStatusErrorDomain, code: -34018) }
         return Store.keychainGroup
+    }
+    static func processDefaultKeychainAccessGroup() throws -> String {
+        guard !Store.processKeychainGroup.isEmpty else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: -34018)
+        }
+        return Store.processKeychainGroup
     }
 }
 // The credential migration resolves the same runtime App Group identity the
