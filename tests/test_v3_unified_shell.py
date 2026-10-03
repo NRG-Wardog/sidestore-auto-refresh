@@ -117,15 +117,25 @@ struct LCTweaksView: View {
 
 
 class V3UnifiedShellTests(unittest.TestCase):
-    def test_builtin_certificate_import_scopes_both_queries_to_current_shared_group(self):
+    def test_builtin_certificate_import_uses_bounded_service_export_and_owned_callback(self):
         with tempfile.TemporaryDirectory() as directory:
             live, side = fixture(Path(directory))
             patch.patch(live, side)
             settings = (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text()
-            self.assertIn("V3_SHARED_KEYCHAIN_GROUP_SCOPE_V1", settings)
-            self.assertIn("V3SecretHandoff.sharedKeychainAccessGroup()", settings)
-            self.assertEqual(settings.count("kSecAttrAccessGroup as String: sharedKeychainGroup"), 2)
-            self.assertIn('errorInfo = "The shared SideStore signing certificate is unavailable in this app build."', settings)
+            importer = settings[settings.index("func importCertificateFromSideStore() async {"):
+                               settings.index("private func v3CompleteSideStoreCertificateImport")]
+            self.assertIn("V3_SERVICE_CERTIFICATE_EXPORT_V1", importer)
+            self.assertIn('operation: "certExportActive"', importer)
+            self.assertIn('operation: "healthSnapshot"', importer)
+            self.assertIn("Set(reply.keys) == Set([\"data\", \"password\", \"teamIdentifier\", \"identitySHA256\"])", importer)
+            self.assertIn("data.count <= 1_048_576", importer)
+            self.assertIn("password.utf8.count <= 512", importer)
+            self.assertIn("LCUtils.getCertTeamId(withKeyData: data, password: password) == team", importer)
+            self.assertIn("v3CompleteSideStoreCertificateImport(certificateData: data, password: password,", importer)
+            self.assertNotIn("SecItemCopyMatching", importer)
+            self.assertNotIn("sharedKeychainAccessGroup", importer)
+            self.assertIn("V3CertificateImportOwnership.consume(requestID)", settings)
+            self.assertIn('Notification.Name("V3CanonicalJITLessCertificateUpdated")', settings)
 
     def test_navigation_anchor_drift_fails_without_partial_writes(self):
         with tempfile.TemporaryDirectory() as directory:

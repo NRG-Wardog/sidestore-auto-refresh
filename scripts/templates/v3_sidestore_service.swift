@@ -1,6 +1,7 @@
 
 // V3_SIDESTORE_COMMAND_SERVICE_V1
-// Compiled only into SideStore. No managed objects or credentials cross XPC.
+// Compiled only into SideStore. No managed objects cross XPC. Only allow-listed
+// transient secrets cross, including explicit bounded active-certificate export.
 // V3_HEADLESS_SERVICE_V2: headless backend. This file owns the command gate,
 // snapshots, and non-interactive reads. All interactive work runs through
 // V3HeadlessRuntime sessions; no window, presenter, or visible UI exists here.
@@ -28,6 +29,26 @@ enum V3CertificateCreateAdapter {
         guard !expectedSerial.isEmpty, let parsedSerial, !parsedSerial.isEmpty,
               expectedSerial == parsedSerial else { return false }
         return enumeratedSerials.contains(expectedSerial)
+    }
+}
+
+// V3_ACTIVE_CERTIFICATE_EXPORT_V1: export only the upstream active certificate
+// tuple to the host's explicit, request-owned import flow. This does not read or
+// write another Keychain group and never places private material in diagnostics.
+enum V3ActiveCertificateExportAdapter {
+    static let maximumP12Bytes = 1_048_576
+    static let maximumPasswordBytes = 512
+
+    static func response(p12Data: Data, password: String, teamIdentifier: String,
+                         identitySHA256: String) -> [String: Any]? {
+        guard !p12Data.isEmpty, p12Data.count <= maximumP12Bytes,
+              !password.isEmpty, password.utf8.count <= maximumPasswordBytes,
+              !teamIdentifier.isEmpty, teamIdentifier.utf8.count <= 64,
+              identitySHA256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
+            return nil
+        }
+        return ["data": p12Data, "password": password,
+                "teamIdentifier": teamIdentifier, "identitySHA256": identitySHA256]
     }
 }
 
@@ -1260,7 +1281,7 @@ final class V3SideStoreService: NSObject {
                 case "catalog": stage = .catalog
                 case "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning", "accountExport", "accountImport": stage = .authentication
                 case "opStart", "opPoll", "opAnswer", "opCancel": stage = .command
-                case "certList", "certSetActive", "certDelete", "certPortalList", "certRevoke", "certCreate": stage = .signing
+                case "certList", "certExportActive", "certSetActive", "certDelete", "certPortalList", "certRevoke", "certCreate": stage = .signing
                 case "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles", "syncAppIDs": stage = .authentication
                 case "sourcePreview", "sourceAddConfirmed", "sourceRemoveConfirmed", "refreshSources": stage = .source
                 default: stage = .command
@@ -1906,6 +1927,40 @@ final class V3SideStoreService: NSObject {
             return ["tokens": Array(Set(tokens)).sorted().prefix(512).map { $0 }]
         case "certList":
             return ["certificates": V3BackendCommands.certificates()]
+        case "certExportActive":
+            let auth = AuthManager.shared
+            guard auth.v3IdentityIsStable, !V3HeadlessRuntime.shared.auth.hasActiveSession else {
+                throw ServiceError.notFound
+            }
+            let capturedStamp = auth.v3IdentityStamp
+            let authSnapshot = auth.authenticationSnapshot
+            guard authSnapshot?.isAuthenticated == true,
+                  let account = DatabaseManager.shared.activeAccount(),
+                  let teamRecord = DatabaseManager.shared.activeTeam(),
+                  teamRecord.account?.identifier == account.identifier,
+                  V3AuthIdentityBindingPolicy.mayUseTeam(
+                    sessionOwner: authSnapshot?.appleIDEmailAddress,
+                    teamOwner: account.appleID) else { throw ServiceError.notFound }
+            let team = teamRecord.identifier
+            guard !team.isEmpty else { throw ServiceError.notFound }
+            guard let active = CertificateManager.shared.activeCertificate,
+                  let der = active.certificate.x509.data,
+                  let password = active.password else { throw ServiceError.notFound }
+            let fingerprint = SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
+            guard let exported = V3ActiveCertificateExportAdapter.response(
+                      p12Data: active.p12Data, password: password,
+                      teamIdentifier: team, identitySHA256: fingerprint),
+                  auth.v3IdentityIsStable, auth.v3IdentityStamp == capturedStamp,
+                  !V3HeadlessRuntime.shared.auth.hasActiveSession,
+                  let current = CertificateManager.shared.activeCertificate,
+                  current.p12Data == active.p12Data, current.password == active.password,
+                  current.certificate.x509.data == der,
+                  DatabaseManager.shared.activeTeam()?.identifier == team,
+                  DatabaseManager.shared.activeAccount()?.identifier == account.identifier,
+                  DatabaseManager.shared.activeTeam()?.account?.identifier == account.identifier else {
+                throw ServiceError.notFound
+            }
+            return exported
         case "certSetActive":
             guard let certificate = CertificateManager.shared.getLocalCertificate(serialNumber: target) else {
                 throw ServiceError.notFound

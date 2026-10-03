@@ -108,7 +108,7 @@ enum V3WireContract {
         "opStart", "opPoll", "opAnswer", "opCancel", "opRecoveryPrepare", "opRecoveryReconcile",
         "refreshAdmissionReconcile", "recoveryDiscardUnreadable", "directRecoveryInspect",
         "directRecoveryReconcile", "ipaCleanup", "ipaActiveTokens",
-        "certList", "certSetActive", "certDelete", "certPortalList", "certRevoke", "certCreate",
+        "certList", "certExportActive", "certSetActive", "certDelete", "certPortalList", "certRevoke", "certCreate",
         "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles",
         "sourcePreview", "sourceAddConfirmed", "sourceRemoveConfirmed",
         "pairingImportData", "settingsGet", "settingsSet",
@@ -116,7 +116,7 @@ enum V3WireContract {
         "sidesignGet", "sidesignSet", "sidesignReset", "sidesignImport", "sidesignExport",
         "logTail", "healthSnapshot", "accountExport", "accountImport"]
     static let readOperations: Set<String> = ["snapshot", "catalog", "appIcon",
-        "authPoll", "opPoll", "opCancel", "ipaCleanup", "ipaActiveTokens", "authCancel", "certList", "certPortalList",
+        "authPoll", "opPoll", "opCancel", "ipaCleanup", "ipaActiveTokens", "authCancel", "certList", "certExportActive", "certPortalList",
         "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles",
         "sourcePreview", "settingsGet",
         "anisetteList", "sidesignGet", "sidesignExport", "logTail", "healthSnapshot",
@@ -137,7 +137,7 @@ enum V3WireContract {
             "snapshot", "opStart", "accountExport", "ipaActiveTokens", "refreshSources", "signOut",
             "syncAppIDs", "clearCache", "settingsGet", "settingsSet", "sidesignGet", "sidesignSet",
             "sidesignReset", "sidesignExport", "anisetteList", "anisetteReset", "anisetteSync",
-            "healthSnapshot", "logTail", "certList", "certPortalList", "certCreate", "opRecoveryPrepare",
+            "healthSnapshot", "logTail", "certList", "certExportActive", "certPortalList", "certCreate", "opRecoveryPrepare",
             "recoveryDiscardUnreadable",
             "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles"
         ]
@@ -502,7 +502,7 @@ struct V3MutationReplyCacheBudget {
     }
 
     static func shouldCacheResponse(operation: String) -> Bool {
-        !["authRespond", "opAnswer"].contains(operation)
+        !["authRespond", "opAnswer", "certExportActive"].contains(operation)
     }
 
     static func minimumAvailableRepliesToAdmit(operation: String) -> Int {

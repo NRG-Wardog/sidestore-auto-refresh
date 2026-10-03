@@ -2486,13 +2486,23 @@ def verify_canonical_jitless_certificate_importer(live):
         "V3CertificateImportOwnership.begin()",
         "V3CertificateImportOwnership.isActive(requestID)",
         "V3CertificateImportOwnership.cancel(requestID)",
-        "v3SharedSideStoreKeychainAccessGroup()",
+        "V3_SERVICE_CERTIFICATE_EXPORT_V1",
+        'operation: "certExportActive"',
+        'Set(reply.keys) == Set(["data", "password", "teamIdentifier", "identitySHA256"])',
+        "data.count <= 1_048_576",
+        "password.utf8.count <= 512",
+        "LCUtils.getCertTeamId(withKeyData: data, password: password) == team",
+        'operation: "healthSnapshot"',
+        'current["certificateIdentitySHA256"] as? String == fingerprint',
+        "v3CompleteSideStoreCertificateImport(certificateData: data, password: password,",
         "Embedded SideStore is unavailable in this LiveContainer build.",
     )
     if any(token not in importer for token in required):
         raise SystemExit("v3 service: canonical JIT-Less certificate importer is incomplete")
     if "storeScheme" in importer or "UIApplication.shared.open(url)" in importer:
         raise SystemExit("v3 service: canonical JIT-Less importer still launches a second app")
+    if any(token in importer for token in ("SecItemCopyMatching", "sharedKeychainAccessGroup", "kSecAttrAccessGroup")):
+        raise SystemExit("v3 service: canonical JIT-Less importer still reads a host Keychain group")
 
 
 def patch(live, side):

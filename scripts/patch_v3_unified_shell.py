@@ -119,41 +119,60 @@ def patch_host(root: Path) -> None:
 
     settings = root / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"
     text = settings.read_text(encoding="utf-8")
-    if "V3_SHARED_KEYCHAIN_GROUP_SCOPE_V1" not in text:
-        if "import Security" not in text:
-            text = replace_once(text, "import Foundation\n", "import Foundation\nimport Security\n",
-                "canonical JIT-Less keychain query Security import")
-        text = replace_once(text,
-            '    func importCertificateFromSideStore() async {\n'
-            '        if UserDefaults.sideStoreExist() {\n'
-            '            if let ans = await certificateImportFromBuiltInSideStoreAlert.open(), ans {\n'
-            '                let query: [String: Any] = [',
-            '    // V3_SHARED_KEYCHAIN_GROUP_SCOPE_V1: select the current embedded SideStore\n'
-            '    // credential group explicitly; stale legacy-group copies must not win a\n'
-            '    // kSecMatchLimitOne query after migration.\n'
-            '    private func v3SharedSideStoreKeychainAccessGroup() -> String? {\n'
-            '        return try? V3SecretHandoff.sharedKeychainAccessGroup()\n'
-            '    }\n'
-            '    func importCertificateFromSideStore() async {\n'
-            '        if UserDefaults.sideStoreExist() {\n'
-            '            if let ans = await certificateImportFromBuiltInSideStoreAlert.open(), ans {\n'
-            '                guard let sharedKeychainGroup = v3SharedSideStoreKeychainAccessGroup() else {\n'
-            '                    errorInfo = "The shared SideStore signing certificate is unavailable in this app build."\n'
-            '                    errorShow = true\n'
-            '                    return\n'
-            '                }\n'
-            '                let query: [String: Any] = [',
-            "canonical built-in certificate query scope")
-        old_group_query = (
-            '                    kSecAttrService as String: "com.kdt.livecontainer",\n'
-            '                    kSecAttrSynchronizable as String: kSecAttrSynchronizableAny')
-        new_group_query = (
-            '                    kSecAttrService as String: "com.kdt.livecontainer",\n'
-            '                    kSecAttrAccessGroup as String: sharedKeychainGroup,\n'
-            '                    kSecAttrSynchronizable as String: kSecAttrSynchronizableAny')
-        if text.count(old_group_query) != 2:
-            die("canonical built-in certificate importer: expected certificate and password queries")
-        text = text.replace(old_group_query, new_group_query)
+    if "V3_SERVICE_CERTIFICATE_EXPORT_V1" not in text:
+        start = text.index('    func importCertificateFromSideStore() async {')
+        end = text.index('    func onSideStoreCertificateCallback(', start)
+        replacement = '''    // V3_SERVICE_CERTIFICATE_EXPORT_V1: only the SideStore process can read its
+    // active Keychain group. The returned PKCS#12 is transient and enters the
+    // existing explicitly-confirmed, request-owned callback path.
+    func importCertificateFromSideStore() async {
+        // V3_SERVICE_CERTIFICATE_EXPORT_V1
+        let requestID = V3CertificateImportOwnership.begin()
+        if UserDefaults.sideStoreExist() {
+            guard let accepted = await certificateImportFromBuiltInSideStoreAlert.open(), accepted else {
+                _ = V3CertificateImportOwnership.cancel(requestID)
+                return
+            }
+            guard V3CertificateImportOwnership.isActive(requestID) else { return }
+
+            do {
+                let reply = try await V3ServiceBridge.shared.request(operation: "certExportActive")
+                guard V3CertificateImportOwnership.isActive(requestID),
+                      Set(reply.keys) == Set(["data", "password", "teamIdentifier", "identitySHA256"]),
+                      let data = reply["data"] as? Data, !data.isEmpty, data.count <= 1_048_576,
+                      let password = reply["password"] as? String,
+                      !password.isEmpty, password.utf8.count <= 512,
+                      let team = reply["teamIdentifier"] as? String,
+                      !team.isEmpty, team.utf8.count <= 64,
+                      let fingerprint = reply["identitySHA256"] as? String,
+                      fingerprint.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+                      LCUtils.getCertTeamId(withKeyData: data, password: password) == team else {
+                    throw NSError(domain: "V3CertificateImport", code: 2)
+                }
+                let status = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
+                guard V3CertificateImportOwnership.isActive(requestID),
+                      let current = status["certificateState"] as? [String: Any],
+                      V3ServiceBridge.strictBool(current["active"]) == true,
+                      current["team"] as? String == team,
+                      current["certificateIdentitySHA256"] as? String == fingerprint else {
+                    throw NSError(domain: "V3CertificateImport", code: 3)
+                }
+                v3CompleteSideStoreCertificateImport(certificateData: data, password: password,
+                    requestID: requestID)
+            } catch {
+                _ = V3CertificateImportOwnership.cancel(requestID)
+                errorInfo = "The active SideStore certificate could not be imported. Check Certificates and try again."
+                errorShow = true
+            }
+        } else {
+            _ = V3CertificateImportOwnership.cancel(requestID)
+            errorInfo = "Embedded SideStore is unavailable in this LiveContainer build."
+            errorShow = true
+        }
+    }
+
+'''
+        text = text[:start] + replacement + text[end:]
     if "V3_CANONICAL_JITLESS_ROUTE_V1" not in text:
         text = replace_once(
             text,
@@ -170,58 +189,6 @@ def patch_host(root: Path) -> None:
             '        certificateDataFound = true\n    }',
             '        certificateDataFound = true\n        NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated"), object: nil)\n    }',
             "canonical JIT-Less import completion event")
-        text = replace_once(
-            text,
-            '    func importCertificateFromSideStore() async {\n        if UserDefaults.sideStoreExist() {',
-            '    func importCertificateFromSideStore() async {\n'
-            '        let requestID = V3CertificateImportOwnership.begin()\n'
-            '        if UserDefaults.sideStoreExist() {',
-            "canonical certificate import request ownership")
-        text = replace_once(
-            text,
-            '            if let ans = await certificateImportFromBuiltInSideStoreAlert.open(), ans {\n                guard let sharedKeychainGroup = v3SharedSideStoreKeychainAccessGroup() else {',
-            '            if let ans = await certificateImportFromBuiltInSideStoreAlert.open(), ans {\n                guard V3CertificateImportOwnership.isActive(requestID) else { return }\n                guard let sharedKeychainGroup = v3SharedSideStoreKeychainAccessGroup() else {',
-            "canonical built-in import ownership after await")
-        built_in_callback = '                onSideStoreCertificateCallback(certificateData: data, password: password)\n'
-        if built_in_callback in text:
-            text = replace_once(
-                text,
-                built_in_callback,
-                '                v3CompleteSideStoreCertificateImport(certificateData: data, password: password, requestID: requestID)\n',
-                "canonical built-in import completion ownership")
-        cancellation_suffix = (
-            ' else {\n'
-            '                // A decline or dismissal cancels this exact prompt.\n'
-            '                _ = V3CertificateImportOwnership.cancel(requestID)\n'
-            '                return\n'
-            '            }\n'
-            '        }\n'
-            '        // A missing embedded SideStore is an invalid combined product.\n'
-            '        _ = V3CertificateImportOwnership.cancel(requestID)\n'
-            '        errorInfo = "Embedded SideStore is unavailable in this LiveContainer build."\n'
-            '        errorShow = true')
-        with_return = '                return\n            }\n        }'
-        without_return = '            }\n        }'
-        if text.count(with_return) == 1:
-            text = text.replace(
-                with_return,
-                '                return\n            }' + cancellation_suffix,
-                1)
-        elif text.count(without_return) == 1:
-            text = text.replace(
-                without_return,
-                '            }' + cancellation_suffix,
-                1)
-        else:
-            die("canonical built-in confirmation cancellation anchor changed")
-        fallback_start = '        let storeScheme'
-        fallback_end = '        await UIApplication.shared.open(url)\n'
-        if text.count(fallback_start) == 1 and text.count(fallback_end) == 1:
-            start = text.index(fallback_start)
-            end = text.index(fallback_end, start) + len(fallback_end)
-            text = text[:start] + text[end:]
-        elif text.count(fallback_start) != 0 or text.count(fallback_end) != 0:
-            die("canonical combined JIT-Less importer fallback anchors changed")
         callback_signature = '    func onSideStoreCertificateCallback(certificateData: Data, password: String) {'
         if callback_signature in text:
             text = replace_once(
@@ -234,6 +201,15 @@ def patch_host(root: Path) -> None:
                 '    }\n'
                 '    func onSideStoreCertificateCallback(certificateData: Data, password: String) {',
                 "canonical certificate callback ownership gate")
+        external_callback = '                onSideStoreCertificateCallback(certificateData: certData, password: password)'
+        if external_callback in text:
+            text = replace_once(
+                text,
+                external_callback,
+                '                guard let requestID = queryItems["request_id"],\n'
+                '                      V3CertificateImportOwnership.isActive(requestID) else { return }\n'
+                '                v3CompleteSideStoreCertificateImport(certificateData: certData, password: password, requestID: requestID)',
+                "canonical callback requires exact live request id")
         removal_anchor = '        LCUtils.appGroupUserDefault.set(nil, forKey: "LCCertificateData")'
         if removal_anchor in text:
             text = replace_once(
@@ -248,13 +224,6 @@ def patch_host(root: Path) -> None:
                 removal_tail,
                 '        UserDefaults.standard.set(nil, forKey: "LCAppGroupID")\n        NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated"), object: nil)\n    }',
                 "certificate removal readiness invalidation")
-        external_callback = '                onSideStoreCertificateCallback(certificateData: certData, password: password)'
-        if external_callback in text:
-            text = replace_once(
-                text,
-                external_callback,
-                '                guard let requestID = queryItems["request_id"],\n                      V3CertificateImportOwnership.isActive(requestID) else { return }\n                v3CompleteSideStoreCertificateImport(certificateData: certData, password: password, requestID: requestID)',
-                "canonical callback requires exact live request id")
     # The programmatic route is required, but a NavigationLink placed as a Form
     # child is a List row participant: SwiftUI still allocates a row and its
     # minimum height for it, so the user sees a blank cell. Upstream uses this
@@ -399,22 +368,25 @@ def verify(live: Path, side: Path) -> None:
                   "v3OpenJITLessDiagnose = true", "V3CanonicalJITLessCertificateUpdated"):
         if token not in settings_source:
             die(f"canonical LiveContainer JIT-Less route is missing {token}")
-    for token in ("V3_SHARED_KEYCHAIN_GROUP_SCOPE_V1",
-                  "V3SecretHandoff.sharedKeychainAccessGroup()",
-                  "kSecAttrAccessGroup as String: sharedKeychainGroup"):
-        if token not in settings_source:
-            die(f"canonical JIT-Less importer is missing {token}")
-    if settings_source.count("kSecAttrAccessGroup as String: sharedKeychainGroup") != 2:
-        die("canonical JIT-Less importer must scope both certificate and password queries")
     importer_start = settings_source.index("func importCertificateFromSideStore() async {")
     importer_end = settings_source.index("private func v3CompleteSideStoreCertificateImport", importer_start)
     importer = settings_source[importer_start:importer_end]
     for token in ("V3CertificateImportOwnership.begin()",
                   "V3CertificateImportOwnership.isActive(requestID)",
                   "V3CertificateImportOwnership.cancel(requestID)",
+                  "V3_SERVICE_CERTIFICATE_EXPORT_V1",
+                  'operation: "certExportActive"',
+                  'Set(reply.keys) == Set(["data", "password", "teamIdentifier", "identitySHA256"])',
+                  "data.count <= 1_048_576", "password.utf8.count <= 512",
+                  "LCUtils.getCertTeamId(withKeyData: data, password: password) == team",
+                  'operation: "healthSnapshot"',
+                  'current["certificateIdentitySHA256"] as? String == fingerprint',
+                  "v3CompleteSideStoreCertificateImport(certificateData: data, password: password,",
                   "Embedded SideStore is unavailable in this LiveContainer build."):
         if token not in importer:
-            die(f"canonical JIT-Less importer is missing cancellation contract {token}")
+            die(f"canonical JIT-Less importer is missing {token}")
+    if any(token in importer for token in ("SecItemCopyMatching", "sharedKeychainAccessGroup", "kSecAttrAccessGroup")):
+        die("canonical JIT-Less importer still reads a host Keychain group")
     if "storeScheme" in importer or "UIApplication.shared.open(url)" in importer:
         die("canonical combined JIT-Less importer still launches a second app")
     if "static func cancel(_ requestID:" not in settings_source:
