@@ -40,6 +40,8 @@ class CertificateImportRuntimeTests(unittest.TestCase):
             _ = V3CertificateImportOwnership.cancel(id)
         }
     }
+    func beginNewCertificateImportOwner() -> String { V3CertificateImportOwnership.begin() }
+    func ownsCertificateImport(_ id: String) -> Bool { V3CertificateImportOwnership.isActive(id) }
 '''
         prelude = r'''
 import Foundation
@@ -66,15 +68,16 @@ extension UserDefaults {
     var statusReply: [String: Any] = [:]
     var operations: [String] = []
     var afterCertificateReply: (@MainActor () -> Void)?
+    var afterHealthReply: (@MainActor () -> Void)?
 
     func request(operation: String) async throws -> [String: Any] {
         operations.append(operation)
         if operation == "certExportActive" {
-            let result = try certificateResult.get()
+            let result = certificateResult
             afterCertificateReply?()
-            return result
+            return try result.get()
         }
-        if operation == "healthSnapshot" { return statusReply }
+        if operation == "healthSnapshot" { afterHealthReply?(); return statusReply }
         throw ImportHarnessFailure.unavailable
     }
 
@@ -114,6 +117,7 @@ enum LCUtils {
     test.resetCertificateImportOwner()
     V3ServiceBridge.shared.operations = []
     V3ServiceBridge.shared.afterCertificateReply = nil
+    V3ServiceBridge.shared.afterHealthReply = nil
     if let certificate {
         V3ServiceBridge.shared.certificateResult = .success(certificate)
     } else {
@@ -180,6 +184,23 @@ enum LCUtils {
         await cancelledAfterReceipt.importCertificateFromSideStore()
         precondition(V3ServiceBridge.shared.operations == ["certExportActive"])
         precondition(cancelledAfterReceipt.committed.isEmpty)
+        precondition(!cancelledAfterReceipt.errorShow, "cancelled import must not alter error UI")
+
+        for boundary in ["exportError", "healthReply", "supersededExport"] {
+            let stale = ImporterHarness()
+            reset(stale, certificate: boundary == "exportError" ? nil : certificateReply())
+            var newerRequest: String?
+            let invalidate: @MainActor () -> Void = {
+                if boundary == "supersededExport" { newerRequest = stale.beginNewCertificateImportOwner() }
+                else { stale.cancelCurrentCertificateImportOwner() }
+            }
+            if boundary == "healthReply" { V3ServiceBridge.shared.afterHealthReply = invalidate }
+            else { V3ServiceBridge.shared.afterCertificateReply = invalidate }
+            await stale.importCertificateFromSideStore()
+            precondition(stale.committed.isEmpty && !stale.errorShow,
+                "late export/health failure must not mutate cancelled or newer UI")
+            if let newerRequest { precondition(stale.ownsCertificateImport(newerRequest)) }
+        }
 
         // Parser/team mismatch is rejected before status read; fingerprint mismatch
         // is rejected against the current SideStore identity after one status read.
@@ -217,6 +238,18 @@ enum LCUtils {
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("CERTIFICATE_IMPORT_RUNTIME_PASS", result.stdout)
+            mutant = source_text.replace(
+                "guard V3CertificateImportOwnership.cancel(requestID) else { return }",
+                "_ = V3CertificateImportOwnership.cancel(requestID)")
+            self.assertNotEqual(mutant, source_text)
+            source.write_text(mutant, encoding="utf-8")
+            built_mutant = subprocess.run([shutil.which("swiftc"), "-parse-as-library",
+                                           str(source), "-o", str(executable)],
+                                          capture_output=True, text=True)
+            self.assertEqual(built_mutant.returncode, 0, built_mutant.stderr)
+            failed_mutant = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(failed_mutant.returncode, 0,
+                "removing current-owner failure admission must break the stale-error invariant")
 
 
 if __name__ == "__main__":

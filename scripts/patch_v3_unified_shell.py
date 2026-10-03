@@ -164,7 +164,7 @@ def patch_host(root: Path) -> None:
                 v3CompleteSideStoreCertificateImport(certificateData: data, password: password,
                     requestID: requestID)
             } catch {
-                _ = V3CertificateImportOwnership.cancel(requestID)
+                guard V3CertificateImportOwnership.cancel(requestID) else { return }
                 errorInfo = "The active SideStore certificate could not be imported. Check Certificates and try again."
                 errorShow = true
             }
