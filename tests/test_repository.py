@@ -163,7 +163,8 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("patch_shared_keychain(staged)", contract)
         self.assertLess(contract.index("patch_shared_keychain(staged)"),
                         contract.index("_patch_verified(staged)", contract.index("patch_shared_keychain(staged)")))
-        self.assertIn("[LC_KEYCHAIN] SHARED_GROUP_SELECTED", contract)
+        self.assertIn("[LC_KEYCHAIN] GROUP_SELECTED", contract)
+        self.assertIn("verify_keychain_selection_contract", contract)
 
     def test_upstream_ipsec_anchor_preserves_original_punctuation(self):
         source = (SCRIPTS / "patch_sidestore_integration.py").read_text(encoding="utf-8")

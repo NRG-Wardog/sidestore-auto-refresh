@@ -201,8 +201,8 @@ fileprivate enum LCEmbeddedSharedKeychain {
         // nothing, and it is not proof that the process is entitled to it.
         let appGroup = V3SharedAppGroup.runtimeIdentity()?.identifier
         // Prefer the shared group, which a signer that also grants it to the
-        // extension makes available to both processes. A re-signer grants it to
-        // the root bundle only, so the extension falls back to its own default
+        // extension makes available to both processes. If a re-signer grants it
+        // to the root bundle only, the extension falls back to its own default
         // group: it runs the embedded SideStore and no other process reads this
         // namespace, so it is the credential owner rather than a leak.
         let keychainGroup = (try? V3SecretHandoff.sharedKeychainAccessGroup())

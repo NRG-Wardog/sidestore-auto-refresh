@@ -1792,9 +1792,8 @@ final class V3SideStoreService: NSObject {
                 throw ServiceError.invalidRequest
             }
             // The answer arrives in this request. It is not written to a shared
-            // Keychain group first, because no signer that re-signs this bundle
-            // grants that group to this extension, so it could never be read
-            // back. `promptID` is what makes delivery one-shot: `respond` accepts
+            // Keychain group first: the extension may not be entitled to the
+            // host's group after re-signing. `promptID` makes delivery one-shot: `respond` accepts
             // an answer only for the prompt this session currently holds.
             V3SecretHandoffTrace.emit(V3SecretHandoffDiagnostics(
                 role: V3SecretHandoffRole.service, operation: "authRespond",

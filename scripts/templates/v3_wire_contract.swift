@@ -185,10 +185,9 @@ enum V3WireContract {
     /// operations that declare it below.
     ///
     /// The answer used to cross as an opaque Keychain token in a shared access
-    /// group. No signer that re-signs this bundle grants that group to the
-    /// service extension, so the token could never be read back: the handoff was
-    /// structurally impossible rather than flaky. The answer now travels in the
-    /// request itself, over the one channel the two signed peers already share,
+    /// group. Re-signing can leave the service extension without that group,
+    /// making the token inaccessible even when the host can write it. The
+    /// answer now travels in the request itself, over the peer-validated channel,
     /// so there is no shared-storage copy of the credential to protect at all.
     ///
     /// This key is the ONLY exemption from the raw-secret sweep. Rejecting any
