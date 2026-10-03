@@ -13,6 +13,45 @@ from unittest.mock import patch as mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import patch_combined_service_startup as startup
+import patch_v3_service as service_patch
+
+
+def _matching_swift_brace(text, open_brace):
+    """Return the offset after a Swift brace block, ignoring strings/comments."""
+    depth = 0
+    index = open_brace
+    state = "code"
+    block_depth = 0
+    while index < len(text):
+        char = text[index]
+        following = text[index + 1] if index + 1 < len(text) else ""
+        if state == "line_comment":
+            if char == "\n": state = "code"
+        elif state == "block_comment":
+            if char == "/" and following == "*":
+                block_depth += 1; index += 1
+            elif char == "*" and following == "/":
+                block_depth -= 1; index += 1
+                if block_depth == 0: state = "code"
+        elif state == "string":
+            if char == "\\": index += 1
+            elif char == '"': state = "code"
+        else:
+            if char == "/" and following == "/":
+                state = "line_comment"; index += 1
+            elif char == "/" and following == "*":
+                state = "block_comment"; block_depth = 1; index += 1
+            elif char == '"': state = "string"
+            elif char == "{": depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0: return index + 1
+        index += 1
+    raise AssertionError("unbalanced Swift brace block")
+
+
+def _without_imports(text):
+    return "\n".join(line for line in text.splitlines() if not line.startswith("import "))
 
 
 class ExecutableStartupTests(unittest.TestCase):
@@ -440,88 +479,116 @@ class ReadinessRegressionTests(unittest.TestCase):
         self.assertIn("await headlessHandler.recordPipelinePhase(step,", generated_v3)
         self.assertIn("downloadUsesNetwork: downloadingApp.url?.isFileURL == false", generated_v3)
 
-    def test_generated_pinned_sidesign_errors_keep_typed_signing_semantics(self):
+    def test_generated_pinned_portal_failures_preserve_request_owned_signing_context(self):
         compiler = shutil.which("swiftc")
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
         side_sign = os.getenv("SIDESIGN_TEST_SOURCE")
         embedded = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
         if not side_sign or not embedded:
             self.skipTest("pinned SideSign and SideStore sources are supplied by macOS CI")
-        errors_path = Path(side_sign) / "Sources/Models/Errors.swift"
-        pinned_errors = errors_path.read_text(encoding="utf-8")
-        self.assertIn("public enum ServerError", pinned_errors)
-        self.assertIn("case underlyingError(code: Int, message: String)", pinned_errors)
-        self.assertIn("public enum DeveloperPortalError", pinned_errors)
-        enum_start = pinned_errors.index("public enum DeveloperPortalError")
-        enum_end = pinned_errors.index("public enum SignerError", enum_start)
-        actual_side_sign_types = pinned_errors[enum_start:enum_end]
+        side_sign_ref = subprocess.check_output(["git", "-C", side_sign, "rev-parse", "HEAD"], text=True).strip()
+        self.assertEqual(side_sign_ref, "a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d")
+        side_store_ref = subprocess.check_output(["git", "-C", embedded, "rev-parse", "HEAD"], text=True).strip()
+        self.assertEqual(side_store_ref, startup.PINS[1])
 
-        original_pipeline = subprocess.check_output([
+        errors_text = (Path(side_sign) / "Sources/Models/Errors.swift").read_text(encoding="utf-8")
+        error_start = errors_text.index("public enum DeveloperPortalError")
+        error_end = errors_text.index("public enum SignerError", error_start)
+        actual_side_sign_errors = errors_text[error_start:error_end]
+
+        response_text = (Path(side_sign) / "Sources/Models/DeveloperPortalResponses.swift").read_text(encoding="utf-8")
+        status_start = response_text.index("struct DeveloperPortalStatusResponse:")
+        status_open = response_text.index("{", status_start)
+        status_end = _matching_swift_brace(response_text, status_open)
+        actual_status_response = response_text[status_start:status_end]
+
+        constants_text = (Path(side_sign) / "Sources/Constants.swift").read_text(encoding="utf-8")
+        codes_start = constants_text.index("public enum DeveloperPortalResultCodes {")
+        codes_open = constants_text.index("{", codes_start)
+        actual_result_codes = constants_text[codes_start:_matching_swift_brace(constants_text, codes_open)]
+
+        api_text = (Path(side_sign) / "Sources/DeveloperPortal/DeveloperPortalAPI.swift").read_text(encoding="utf-8")
+        patched_api = startup.patch_sidesign_portal_observer(api_text)
+        status_parser = "if let status = (try? PropertyListDecoder().decode(DeveloperPortalStatusResponse.self, from: data))"
+        parser_position = patched_api.index(status_parser)
+        response_position = patched_api.rfind("let httpResponse = response as? HTTPURLResponse", 0, parser_position)
+        self.assertGreaterEqual(response_position, 0)
+        status_code_end = patched_api.index("\n", patched_api.index("let statusCode = httpResponse?.statusCode ?? 0", response_position)) + 1
+        actual_http_observer = patched_api[response_position:status_code_end]
+        parser_open = patched_api.index("{", parser_position)
+        actual_status_decoder = patched_api[parser_position:_matching_swift_brace(patched_api, parser_open)]
+        self.assertIn("SideSignPortalDiagnostics.responseObserver?(httpResponse?.statusCode)", actual_http_observer)
+        self.assertIn("SideSignPortalDiagnostics.safeProviderCode(firstError.code)", actual_status_decoder)
+        self.assertIn('"ENTITY_ERROR.ATTRIBUTE.INVALID"', startup.SIDESIGN_PORTAL_OBSERVER)
+        self.assertIn("guard let value, known.contains(value) else { return nil }", startup.SIDESIGN_PORTAL_OBSERVER)
+        self.assertIn("ServerError.underlyingError(code: -1, message: detail)", actual_status_decoder)
+        self.assertIn("ServerError.underlyingError(code: code, message: message)", actual_status_decoder)
+        self.assertIn("lcSafeSigningCause(error, portalResponse: portalResponse)", startup.SIGNING_CAUSE_HELPER)
+
+        original_proxy = subprocess.check_output([
             "git", "-C", embedded, "show",
-            startup.PINS[1] + ":SideStore/Core/Operations/PipelineExecutor.swift"], text=True)
-        generated_pipeline = startup.patch_pipeline_executor(original_pipeline)
-        self.assertIn("lcSafeSigningCause(error)", generated_pipeline)
-        self.assertIn('sourceStep = "provisioningProfileFetch"', generated_pipeline)
-        self.assertIn("V3_PIPELINE_PHASE_REPORTING_V1", generated_pipeline)
-        self.assertIn("await headlessHandler.recordPipelinePhase(step,", generated_pipeline)
-        self.assertIn("downloadUsesNetwork: downloadingApp.url?.isFileURL == false", generated_pipeline)
-        original_runner = subprocess.check_output([
-            "git", "-C", embedded, "show",
-            startup.PINS[1] + ":SideStore/Core/Operations/PipelineRunner.swift"], text=True)
-        generated_runner = startup.patch_pipeline_runner(original_runner)
-        self.assertIn("V3_PROGRESS_BASELINE_FIX_V1", generated_runner)
-        self.assertIn("group.progress.completedUnitCount = 0", generated_runner)
-        self.assertNotIn("group.progress.completedUnitCount = 1", generated_runner)
-        helper = generated_pipeline[generated_pipeline.index("// LC_SIGNING_CAUSE_CLASSIFIER_V1"):]
-        failure_model = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
-        behavioral_model = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
-        wire_model = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
-        failure_model = "\n".join(line for line in failure_model.splitlines()
-                                    if not line.startswith("import "))
-        behavioral_model = "\n".join(line for line in behavioral_model.splitlines()
-                                       if not line.startswith("import "))
-        source = wire_model + """
-import Foundation
-import CoreFoundation
-enum Constants { static let defaultAccountRepairMessage = "" }
-""" + actual_side_sign_types + failure_model + behavioral_model + """
-@main struct SigningCauseTest {
-    static func main() {
-        precondition(lcSafeSigningCause(URLError(.networkConnectionLost)) == "signingNetworkConnectionLost")
-        precondition(lcSafeSigningCause(ServerError.underlyingError(code: -1005, message: "provider")) == "developerPortalRejectedRequest")
-        precondition(lcSafeSigningCause(DeveloperPortalError.certificateDoesNotExist(serial: "private")) == "certificateUnavailable")
-        precondition(lcSafeSigningCause(DeveloperPortalError.provisioningProfileDoesNotExist(identifier: "private")) == "provisioningProfileUnavailable")
-        precondition(lcSafeSigningCause(NSError(domain: "redacted", code: -1005)) == "unknownSigningCause",
-                     "numeric -1005 alone was classified as a network failure")
-        let runID = UUID().uuidString
-        let providerCause = lcSafeSigningCause(ServerError.underlyingError(code: -1005, message: "private response"))
-        let wrapped = NSError(domain: "PrivateSideSignDomain", code: -1005, userInfo: [
-            "LCStructuredFailureStageV1": "signing",
-            "LCStructuredFailureCauseV1": providerCause,
-            "LCStructuredFailureSourceV1": "provisioningProfileFetch",
-            NSUnderlyingErrorKey: NSError(domain: "PrivateProviderDomain", code: -1005)
-        ])
-        let captured = CombinedFailure.capture(wrapped, operation: "install", stage: .installation, id: runID)
-        let bridged = CombinedFailure.decode(captured.wire, expectedID: runID)!
-        let details = V3OperationFailureDetails(bridged)
-        precondition(bridged.stage == .signing && bridged.safeCause == .developerPortalRejectedRequest)
-        precondition(bridged.sourceStep == .provisioningProfileFetch && bridged.underlyingDomain == "redacted")
-        precondition(bridged.technicalDetails.contains("underlying_code=unknown") &&
-                     details.recoveryDestination == "certificates")
-        print("PINNED_SIDESIGN_TYPED_SIGNING_CAUSE_PASS")
-    }
-}
-""" + helper
+            startup.PINS[1] + ":SideStore/Core/Auth/DeveloperPortalProxy.swift"], text=True)
+        generated_proxy = service_patch.patch_developer_portal_proxy(original_proxy)
+        method_start = generated_proxy.index("public func addAppID(name:")
+        method_open = generated_proxy.index("{", method_start)
+        actual_add_app_id = generated_proxy[method_start:_matching_swift_brace(generated_proxy, method_open)]
+        self.assertIn('sourceStep: "appIDRegistration"', actual_add_app_id)
+        self.assertIn("ALTAppleAPI.shared.addAppID", actual_add_app_id)
+
+        failure_model = _without_imports((ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8"))
+        behavioral_model = _without_imports((ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
+        template = (ROOT / "tests/fixtures/v3_portal_failure_harness.swift").read_text(encoding="utf-8")
+
+        def build_source(*, mutate_server_code=False, mutate_source_step=False):
+            signing_helper = startup.SIGNING_CAUSE_HELPER
+            if mutate_server_code:
+                original = 'context["server_code"] = code == -1 ? "unknown" : String(code)'
+                self.assertEqual(signing_helper.count(original), 1)
+                signing_helper = signing_helper.replace(original, "// targeted mutation: server_code omitted", 1)
+            generated_method = actual_add_app_id
+            if mutate_source_step:
+                original = 'sourceStep: "appIDRegistration"'
+                self.assertEqual(generated_method.count(original), 1)
+                generated_method = generated_method.replace(original, 'sourceStep: "appIDLookup"', 1)
+            replacements = {
+                "$SIDESIGN_ERROR_TYPES$": actual_side_sign_errors,
+                "$DEVELOPER_PORTAL_STATUS_RESPONSE$": actual_status_response,
+                "$DEVELOPER_PORTAL_RESULT_CODES$": actual_result_codes,
+                "$PORTAL_OBSERVER$": startup.SIDESIGN_PORTAL_OBSERVER,
+                "$COMBINED_FAILURE$": failure_model,
+                "$BEHAVIORAL_POLICIES$": behavioral_model,
+                "$SIGNING_CAUSE_HELPER$": signing_helper,
+                "$ACTUAL_HTTP_OBSERVER_AND_STATUS_DECODER$": actual_http_observer + actual_status_decoder,
+                "$ACTUAL_PATCHED_ADD_APP_ID_METHOD$": generated_method,
+                "$ACTUAL_PIPELINE_FAILURE_HANDLER$": startup.PIPELINE_FAILURE_HANDLER,
+            }
+            result = template
+            for marker, value in replacements.items():
+                self.assertEqual(result.count(marker), 1, f"fixture placeholder drift: {marker}")
+                result = result.replace(marker, value, 1)
+            return result
+
         with tempfile.TemporaryDirectory() as directory:
-            swift = Path(directory) / "main.swift"
-            executable = Path(directory) / "signing-cause"
-            swift.write_text(source, encoding="utf-8")
-            built = subprocess.run([compiler, "-parse-as-library", str(swift), "-o", str(executable)],
-                                   capture_output=True, text=True)
-            self.assertEqual(built.returncode, 0, built.stderr)
-            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=15)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("PINNED_SIDESIGN_TYPED_SIGNING_CAUSE_PASS", result.stdout)
+            directory = Path(directory)
+
+            def execute(label, source, expect_success):
+                swift = directory / f"{label}.swift"
+                executable = directory / label
+                swift.write_text(source, encoding="utf-8")
+                built = subprocess.run([compiler, "-parse-as-library", str(swift), "-o", str(executable)],
+                                       capture_output=True, text=True)
+                self.assertEqual(built.returncode, 0, f"{label} did not compile:\n{built.stderr}")
+                result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+                if expect_success:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("PINNED_PORTAL_FAILURE_CONTEXT_PASS", result.stdout)
+                else:
+                    self.assertNotEqual(result.returncode, 0,
+                        f"{label} mutation did not fail the behavioral harness")
+
+            execute("portal-failure", build_source(), True)
+            execute("portal-failure-no-server-code", build_source(mutate_server_code=True), False)
+            execute("portal-failure-wrong-source-step", build_source(mutate_source_step=True), False)
 
     def test_structured_failures_are_preserved_not_rewrapped(self):
         handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
