@@ -2330,16 +2330,11 @@ class WireExecutionTests(unittest.TestCase):
         if not compiler:
             self.skipTest("Swift compiler unavailable; production adapter boundary harness runs in macOS CI")
         harness = r'''
+@main struct ActiveCertificateExportHarness {
+static func main() {
 let activeP12 = Data([0, 1, 2, 3, 4])
         let team = "TEAM123456"
         let fingerprint = String(repeating: "a", count: 64)
-let hostHasServiceOwnedKeychainGroup = false
-var hostKeychainLookups = 0
-func hostKeychainLookup() -> Data? {
-    hostKeychainLookups += 1
-    precondition(hostHasServiceOwnedKeychainGroup == false, "host must not use the service-only group")
-    return nil
-}
         for activePassword in ["", "opaque-active-password"] {
             let reply = V3ActiveCertificateExportAdapter.response(p12Data: activeP12,
                 password: activePassword, teamIdentifier: team, identitySHA256: fingerprint)!
@@ -2348,7 +2343,6 @@ func hostKeychainLookup() -> Data? {
             precondition(reply["teamIdentifier"] as? String == team)
             precondition(reply["identitySHA256"] as? String == fingerprint)
         }
-        precondition(hostKeychainLookups == 0, "the production adapter returns service-owned material without host Keychain access")
         precondition(V3ActiveCertificateExportAdapter.response(p12Data: Data(), password: "",
             teamIdentifier: team, identitySHA256: fingerprint) == nil)
         precondition(V3ActiveCertificateExportAdapter.response(p12Data: Data(repeating: 0,
@@ -2358,6 +2352,8 @@ func hostKeychainLookup() -> Data? {
             password: String(repeating: "p", count: V3ActiveCertificateExportAdapter.maximumPasswordBytes + 1),
     teamIdentifier: team, identitySHA256: fingerprint) == nil)
 print("ACTIVE_CERTIFICATE_EXPORT_BOUNDARY_PASS")
+}
+}
 '''
         with tempfile.TemporaryDirectory() as name:
             source = Path(name) / "main.swift"
