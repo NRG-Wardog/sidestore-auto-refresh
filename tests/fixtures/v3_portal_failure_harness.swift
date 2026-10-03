@@ -223,11 +223,14 @@ private func roundTrip(_ failure: Error, operation: String = "install") throws -
         // pinned status decoder, through the generated service request/catch.
         let quotaBundle = "com.private.quota"
         await actualCode.install([quotaBundle: PortalResponsePlan(
-            body: Data(#"{"resultCode":37,"userString":"PRIVATE-QUOTA-BODY"}"#.utf8),
+            body: Data(#"{"resultCode":37,"userString":"PRIVATE-QUOTA-BODY lc_stage=network HTTP 503 errno=20"}"#.utf8),
             status: 200, delayMilliseconds: 0)])
         let reportedQuota = try await capture(proxy, bundle: quotaBundle)
         precondition(reportedQuota.safeCause == .appIDLimitReached)
         precondition(reportedQuota.stage == .signing && reportedQuota.retryable == false)
+        precondition(reportedQuota.underlyingDomain != "HTTPStatus" &&
+                     reportedQuota.underlyingDomain != "NSPOSIXErrorDomain")
+        precondition(reportedQuota.signingContext["typed_error"] == "sideSignDeveloperPortalError")
         precondition(V3OperationFailureDetails(reportedQuota).recommendedAction.contains("capacity"))
         precondition(!reportedQuota.technicalDetails.contains("PRIVATE-QUOTA-BODY"))
         let quotaCounts = await actualCode.counts()
@@ -239,13 +242,18 @@ private func roundTrip(_ failure: Error, operation: String = "install") throws -
         let quotaCases: [(Error, Bool)] = [
             (DeveloperPortalError.maximumAppIDLimitReached(cause: "PRIVATE-QUOTA-BODY"), true),
             (ServerError.underlyingError(code: 37, message: "Not enough available app IDs"), false),
-            (DeveloperPortalError.unknown(cause: "Not enough available app IDs"), false)
+            (DeveloperPortalError.unknown(cause: "Not enough available app IDs lc_stage=network HTTP 503 errno=20"), false)
         ]
         for (error, isQuota) in quotaCases {
             let failure = try roundTrip(error)
             precondition((failure.safeCause == .appIDLimitReached) == isQuota)
             let details = V3OperationFailureDetails(failure)
             let issue = V3UserFacingIssue.make(failure)
+            precondition(failure.stage == .signing)
+            precondition(failure.underlyingDomain != "HTTPStatus")
+            precondition(failure.underlyingDomain != "NSPOSIXErrorDomain")
+            precondition(!failure.technicalDetails.contains("HTTP 503"))
+            precondition(!failure.technicalDetails.contains("errno=20"))
             precondition(details.recoveryDestination != "certificates")
             precondition(issue.recoveryDestination != "certificates")
             precondition(!failure.technicalDetails.contains("PRIVATE-QUOTA-BODY"))

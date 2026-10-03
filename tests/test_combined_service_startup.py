@@ -543,8 +543,12 @@ class ReadinessRegressionTests(unittest.TestCase):
         behavioral_model = _without_imports((ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
         template = (ROOT / "tests/fixtures/v3_portal_failure_harness.swift").read_text(encoding="utf-8")
 
-        def build_source(*, mutate_server_code=False, mutate_source_step=False, mutate_quota=False):
+        def build_source(*, mutate_server_code=False, mutate_source_step=False, mutate_quota=False, mutate_portal_type=False):
             signing_helper = startup.SIGNING_CAUSE_HELPER
+            if mutate_portal_type:
+                original = 'if error is DeveloperPortalError { context["typed_error"] = "sideSignDeveloperPortalError" }'
+                self.assertEqual(signing_helper.count(original), 1)
+                signing_helper = signing_helper.replace(original, "// targeted mutation: portal type lost", 1)
             if mutate_quota:
                 original = 'case .maximumAppIDLimitReached: return "appIDLimitReached"'
                 self.assertEqual(signing_helper.count(original), 1)
@@ -600,6 +604,7 @@ class ReadinessRegressionTests(unittest.TestCase):
             execute("portal-failure-no-server-code", build_source(mutate_server_code=True), False)
             execute("portal-failure-wrong-source-step", build_source(mutate_source_step=True), False)
             execute("portal-failure-no-quota", build_source(mutate_quota=True), False)
+            execute("portal-failure-no-portal-type", build_source(mutate_portal_type=True), False)
 
     def test_structured_failures_are_preserved_not_rewrapped(self):
         handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")

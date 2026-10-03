@@ -141,6 +141,9 @@ func lcStructuredSigningFailure(_ error: Error, stage: String, sourceStep: Strin
     if let sourceStep { info["LCStructuredFailureSourceV1"] = sourceStep }
     var context = facts
     if stage == "signing" { info["LCStructuredFailureCauseV1"] = lcSafeSigningCause(error, portalResponse: portalResponse) }
+    // Associated provider descriptions are not transport/stage evidence.
+    // Reuse the wire boundary's existing typed-body guard for portal enums too.
+    if error is DeveloperPortalError { context["typed_error"] = "sideSignDeveloperPortalError" }
     if let server = error as? ServerError {
         switch server {
         case .underlyingError(let code, _):
