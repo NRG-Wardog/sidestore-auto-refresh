@@ -218,9 +218,9 @@ enum ProvisioningExtensionIdentityHarness {
 
     static func runPinnedRegression(contextTarget: String, installedApp: InstalledApp?,
                                     expectedParentID: String,
-                                    expectPreferredParentMatch: Bool) async throws {
+                                    expectPreferredParentMatch: Bool, appendTeamID: Bool = true) async throws {
         let operation = reset(installedApp: installedApp, contextTarget: contextTarget,
-                              appendTeamID: true)
+                              appendTeamID: appendTeamID)
         let team = ALTTeam(identifier: teamID, name: "Personal Team")
         let parent = ALTApplication(bundleIdentifier: mainBundleID, name: "Spotify")
         _ = try await operation.provisionAndFetchProfilePinned(
@@ -296,7 +296,7 @@ enum ProvisioningExtensionIdentityHarness {
             installedApp: InstalledApp(customBundleIdentifier: nil,
                 resignedBundleIdentifier: "com.other.app." + teamID, team: personalTeam),
             expectedParentID: "com.example.customspotify",
-            expectPreferredParentMatch: false)
+            expectPreferredParentMatch: false, appendTeamID: false)
 
         // A saved same-team custom parent matches the exact InstalledApp query.
         // The generated method keeps that parent ID and appends each IPA suffix.
