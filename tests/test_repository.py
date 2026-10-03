@@ -20,6 +20,7 @@ REQUIRED_SCRIPTS = {
     "adapt_sidestore_070_signing.py",
 }
 LIVE_CONTAINER_SCRIPTS = {
+    "patch_lc_certificate_observation.py",
     "patch_livecontainer_autorefresh.py",
     "patch_embedded_sidestore_startup.py",
     "patch_v3_unified_shell.py",
