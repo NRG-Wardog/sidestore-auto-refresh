@@ -841,6 +841,9 @@ public final class V3ServiceBridge {
                    let session = operationSessionID,
                    let sessionDeadline = requestPayload["sessionDeadline"] as? Date {
                     authSessionOwnership.register(sessionID: session, deadline: sessionDeadline)
+                    promptSessionServiceIDs = promptSessionServiceIDs.filter {
+                        activeOperationSessions.contains($0.key) || authSessionOwnership.owns($0.key)
+                    }
                     promptSessionServiceIDs[session] = RefreshHandler.shared.v3ServiceIdentity
                 }
                 statusDispatchedRequestIDs.insert(id)
