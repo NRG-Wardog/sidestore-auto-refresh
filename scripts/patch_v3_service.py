@@ -2461,6 +2461,34 @@ def patch_developer_portal_proxy(text):
         if depth != 0:
             raise SystemExit("v3 service: unmatched portal API call")
         call = text[start:end]
+        # Decorate only errors from the actual upstream portal invocation, after
+        # existing account/session/team admission. No request or retry changes.
+        method = text[start + len(needle):open_paren].strip()
+        portal_steps = {
+            "fetchAppIDs": "appIDLookup", "addAppID": "appIDRegistration",
+            "updateAppID": "appIDCapabilitiesUpdate", "fetchAppGroups": "appGroupLookup",
+            "addAppGroup": "appGroupRegistration", "assign": "appGroupAssignment",
+            "downloadProvisioningProfile": "provisioningProfileRetrieval",
+            "createProvisioningProfile": "provisioningProfileCreation",
+            "updateProvisioningProfile": "provisioningProfileUpdate",
+        }
+        if method in portal_steps:
+            args = "teamID: team.identifier, generation: context.generation"
+            if method == "addAppID": args += ", bundleID: bundleIdentifier"
+            elif method in {"updateAppID", "assign", "createProvisioningProfile"}:
+                args += ", bundleID: appID.bundleIdentifier"
+            elif method == "downloadProvisioningProfile" and "for: appID" in call:
+                args += ", bundleID: appID.bundleIdentifier"
+            if method == "updateAppID":
+                args += ", features: Dictionary(uniqueKeysWithValues: appID.features.map { ($0.key.rawValue, $0.value) })"
+            if method == "assign": args += ", groupCount: groups.count"
+            elif method == "addAppGroup": args += ", groupCount: 1, groupID: groupIdentifier"
+            if method == "downloadProvisioningProfile":
+                args += ', profileMode: ' + ('isTeamProfile ? "team" : "manual"' if "for: appID" in call else '"manual"')
+            elif method in {"createProvisioningProfile", "updateProvisioningProfile"}:
+                args += ', profileMode: "manual"'
+            call = ('try await lcPortalSigningRequest(sourceStep: "' + portal_steps[method] +
+                    '", facts: lcPortalSigningContext(' + args + ')) { ' + call + ' }')
         wrapped.append("try await self.awaitBound(context) { " + call + " }")
         offset = end
     text = "".join(wrapped) + bootstrap_marker + auth_bootstrap

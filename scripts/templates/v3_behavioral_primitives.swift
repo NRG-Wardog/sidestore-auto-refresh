@@ -2745,11 +2745,8 @@ struct V3UserFacingIssue: Equatable {
             }
             if stage == CombinedFailure.Stage.authentication.rawValue { return "signIn" }
             if stage == CombinedFailure.Stage.filePreparation.rawValue { return "ipa" }
-            if sourceStep == CombinedFailure.SourceStep.provisioningProfileFetch.rawValue
-                || sourceStep == CombinedFailure.SourceStep.certificateValidation.rawValue
-                || safeCause == CombinedFailure.SafeCause.certificateUnavailable.rawValue
-                || safeCause == CombinedFailure.SafeCause.provisioningProfileUnavailable.rawValue
-                || stage == CombinedFailure.Stage.signing.rawValue {
+            if sourceStep == CombinedFailure.SourceStep.certificateValidation.rawValue
+                || safeCause == CombinedFailure.SafeCause.certificateUnavailable.rawValue {
                 return "certificates"
             }
             if operation == "source" || sourceStep == CombinedFailure.SourceStep.manifestParsing.rawValue
@@ -3656,12 +3653,8 @@ struct V3OperationFailureDetails {
            safeCause == CombinedFailure.SafeCause.localDevVPNUnavailable.rawValue {
             return "connection"
         }
-        if sourceStep == CombinedFailure.SourceStep.provisioningProfileFetch.rawValue {
-            return "certificates"
-        }
         if sourceStep == CombinedFailure.SourceStep.certificateValidation.rawValue ||
-           safeCause == CombinedFailure.SafeCause.certificateUnavailable.rawValue ||
-           safeCause == CombinedFailure.SafeCause.provisioningProfileUnavailable.rawValue {
+           safeCause == CombinedFailure.SafeCause.certificateUnavailable.rawValue {
             return "certificates"
         }
         return nil

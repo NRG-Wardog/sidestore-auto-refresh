@@ -305,8 +305,25 @@ public struct CombinedFailure: Error, LocalizedError {
 
     public enum SourceStep: String, CaseIterable {
         case provisioningProfileFetch, certificateValidation, localCodeSigning
+        case appIDLookup, appIDRegistration, appIDCapabilitiesUpdate
+        case appGroupLookup, appGroupRegistration, appGroupAssignment
+        case provisioningProfileRetrieval, provisioningProfileCreation, provisioningProfileUpdate
         case sourceDownload, manifestParsing, sourceValidation, knownSourcePolicyFetch,
              knownSourcePolicyParsing, catalogRead
+        var portalUserLabel: String? {
+            switch self {
+            case .appIDLookup: return "while looking up app identifiers"
+            case .appIDRegistration: return "while registering an app identifier"
+            case .appIDCapabilitiesUpdate: return "while updating the app's capabilities"
+            case .appGroupLookup: return "while looking up app groups"
+            case .appGroupRegistration: return "while registering an app group"
+            case .appGroupAssignment: return "while assigning the app's groups"
+            case .provisioningProfileRetrieval: return "while retrieving a provisioning profile"
+            case .provisioningProfileCreation: return "while creating a provisioning profile"
+            case .provisioningProfileUpdate: return "while updating a provisioning profile"
+            default: return nil
+            }
+        }
     }
 
     public enum Stage: String, CaseIterable {
@@ -329,6 +346,7 @@ public struct CombinedFailure: Error, LocalizedError {
     public let underlyingCode: Int
     public let safeCause: SafeCause?
     public let sourceStep: SourceStep?
+    public let signingContext: [String: String]
     public let retryable: Bool?
     // V3_CATALOG_OPERATION_CONTEXT_V1: host-only request context. It records
     // which request was waiting when a failure occurred before the service
@@ -338,7 +356,7 @@ public struct CombinedFailure: Error, LocalizedError {
     public var requestContext: String?
     public init(operation: String, stage: Stage, code: Code = .failed, id: String,
                 underlying: Error? = nil, retryable: Bool? = nil, safeCause: SafeCause? = nil,
-                sourceStep: SourceStep? = nil) {
+                sourceStep: SourceStep? = nil, signingContext: [String: String] = [:]) {
         let normalized = ["snapshot": "status", "refreshApp": "refresh", "refreshAdmissionBegin": "refresh", "refreshAdmissionEnd": "refresh", "installURL": "install", "installSharedIPA": "install",
                           "addSource": "source", "removeSource": "source", "refreshSources": "source", "syncAppIDs": "signIn",
                           "authBegin": "signIn", "authPoll": "signIn", "authRespond": "signIn", "authCancel": "signIn",
@@ -357,11 +375,68 @@ public struct CombinedFailure: Error, LocalizedError {
             ? SafeCause.sourceAddBusy : nil
         self.safeCause = safeCause ?? inferredSourceAddBusy
         self.sourceStep = sourceStep
+        self.signingContext = Self.validatedSigningContext(signingContext) ?? [:]
         self.retryable = retryable ?? self.safeCause?.inferredRetryable
     }
     private static let operations: Set<String> = ["connect", "status", "command", "recovery", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit", "pairingImportData", "anisetteList", "anisetteReset", "anisetteSync"]
     private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "kCFErrorDomainCFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError"]
     private static let verificationDomains: Set<String> = ["ALTServerErrorDomain", "ALTErrorDomain", "IdeviceGatewayError", "DeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy"]
+
+    /// Only observations from the request/operation context are allowed here.
+    /// Never accept provider messages, tokens, account names or device IDs.
+    public static let signingCapabilityNames: Set<String> = [
+        "APG3427HIY", "IAD53UNK2F", "gameCenter", "inAppPurchase", "push",
+        "associatedDomains", "dataProtection", "siri", "applePay", "vpn", "networkExtensions",
+        "multipath", "hotspot", "nfc", "classKit", "autoFillCredentialProvider",
+        "accessWiFiInformation", "wirelessAccessoryConfiguration", "increasedMemoryLimit",
+        "extendedVirtualAddressing", "increasedDebuggingMemoryLimit"
+    ]
+    public static func validatedSigningContext(_ value: [String: String]) -> [String: String]? {
+        guard value.count <= 20 else { return nil }
+        for (key, text) in value {
+            guard text.utf8.count <= 512 else { return nil }
+            switch key {
+            case "team_sha256", "requested_bundle_sha256", "requested_app_group_sha256", "capabilities_sha256", "signing_certificate_serial_sha256":
+                guard text.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else { return nil }
+            case "provisioning_bundle_sha256":
+                guard text.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else { return nil }
+            case "session_generation", "capability_count", "app_group_count", "extension_count":
+                guard !text.isEmpty, text.utf8.count <= 20,
+                      text.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }), UInt64(text) != nil else { return nil }
+            case "capability_names", "enabled_capability_names":
+                let names = text.isEmpty ? [] : text.components(separatedBy: ",")
+                guard names.count <= 32, Set(names).isSubset(of: signingCapabilityNames),
+                      Set(names).count == names.count else { return nil }
+            case "server_code":
+                guard text == "unknown" || (text.utf8.count <= 20 && Int(text).map({ String($0) }) == text) else { return nil }
+            case "http_status":
+                guard text == "unavailable" || Int(text).map({ (100...599).contains($0) && String($0) == text }) == true else { return nil }
+            case "provider_code":
+                guard ["unavailable", "ENTITY_ERROR", "ENTITY_ERROR.INVALID", "ENTITY_ERROR.ATTRIBUTE.INVALID",
+                    "ENTITY_ERROR.ATTRIBUTE.REQUIRED", "ENTITY_ERROR.ATTRIBUTE.UNKNOWN",
+                    "ENTITY_ERROR.RELATIONSHIP.INVALID", "ENTITY_ERROR.RELATIONSHIP.INVALID_NOT_ALLOWED",
+                    "ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE", "FORBIDDEN_ERROR", "NOT_FOUND",
+                    "PARAMETER_ERROR.INVALID", "PARAMETER_ERROR.REQUIRED", "RATE_LIMIT_EXCEEDED",
+                    "SERVICE_UNAVAILABLE", "UNEXPECTED_ERROR", "UNKNOWN_ERROR"].contains(text) else { return nil }
+            case "account_binding", "team_binding":
+                guard text == "verified" else { return nil }
+            case "signing_certificate_present":
+                guard text == "true" || text == "false" else { return nil }
+            case "preferred_parent_id_match":
+                guard text == "true" || text == "false" else { return nil }
+            case "provisioning_bundle_role":
+                guard text == "main" || text == "extension" else { return nil }
+            case "profile_mode":
+                guard text == "team" || text == "manual" else { return nil }
+            case "device_registration":
+                guard text == "unobserved" else { return nil }
+            case "typed_error":
+                guard ["sideSignServerReportedError", "sideSignBadResponse", "sideSignInvalidResponse", "sideSignMissingKey"].contains(text) else { return nil }
+            default: return nil
+            }
+        }
+        return value
+    }
 
     /// Copyable diagnostics may include a native code only when its domain is
     /// in the same fixed allowlist used by structured failures. Arbitrary NSError
@@ -481,7 +556,8 @@ public struct CombinedFailure: Error, LocalizedError {
             case .signingNetworkConnectionLost: return "The connection to the provisioning service was interrupted during signing."
             case .signingNetworkTimedOut: return "The provisioning service did not respond during signing."
             case .signingNetworkUnavailable: return "The signing flow could not reach the provisioning service."
-            case .developerPortalRejectedRequest: return "Apple's Developer Portal rejected a provisioning request during signing."
+            case .developerPortalRejectedRequest:
+                return "Apple's developer service reported an error \(sourceStep?.portalUserLabel ?? "while preparing the app's provisioning data")."
             case .developerPortalInvalidResponse: return "The provisioning service returned an invalid response during signing."
             case .provisioningProfileUnavailable: return "A required provisioning profile is not available for this app."
             case .certificateUnavailable: return "The selected signing certificate is not available."
@@ -565,7 +641,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case .signing:
             switch sourceStep {
             case .provisioningProfileFetch:
-                return "SideStore could not retrieve the provisioning profile required for signing. The exact underlying cause could not be safely identified."
+                return "SideStore could not prepare provisioning data for signing. The exact failed request could not be safely identified."
             case .certificateValidation:
                 return "SideStore could not validate the signing certificate. The exact underlying cause could not be safely identified."
             case .localCodeSigning:
@@ -677,15 +753,17 @@ public struct CombinedFailure: Error, LocalizedError {
             case .signingNetworkConnectionLost, .signingNetworkTimedOut, .signingNetworkUnavailable:
                 return "Your current connection may still be healthy. Retry once. If this happens again, open Connection Settings."
             case .developerPortalRejectedRequest, .developerPortalInvalidResponse:
-                return "Check Account & Signing and Certificates. If it repeats, keep these diagnostics for support before retrying."
-            case .provisioningProfileUnavailable, .certificateUnavailable:
-                return "Open Certificates and select or create a current signing certificate/profile before retrying."
+                return "Copy Diagnostics, including the failed request step and server code. The correct recovery action is not yet known."
+            case .provisioningProfileUnavailable:
+                return "The requested provisioning profile was unavailable. Keep the diagnostics before trying the install again."
+            case .certificateUnavailable:
+                return "Open Certificates and inspect the selected signing certificate before retrying."
             case .wifiUnavailable:
                 return "Restore Wi-Fi, then start a new refresh."
             case .localDevVPNUnavailable:
                 return "Restore LocalDevVPN, then start a new refresh."
             case .unknownSigningCause:
-                return "Check Account & Signing and Certificates. The exact underlying cause was not safely identified; keep these diagnostics before trying again."
+                return "The exact underlying cause was not safely identified. Copy Diagnostics before trying this action again."
             case .sourceNetworkFailure:
                 return "Check the network connection and retry the source request."
             case .sourceInvalidManifest:
@@ -822,7 +900,8 @@ public struct CombinedFailure: Error, LocalizedError {
     }
     public var technicalDetails: String {
         let displayedUnderlyingCode = underlyingDomain == "redacted" ? "unknown" : String(underlyingCode)
-        return "schema=1 operation=\(operation) stage=\(stage.rawValue) code=\(code.rawValue) correlation=\(correlationID) underlying_domain=\(underlyingDomain) underlying_code=\(displayedUnderlyingCode) retryable=\(retryable.map(String.init) ?? "unknown") source_step=\(sourceStep?.rawValue ?? "unknown") safe_cause=\(safeCause?.rawValue ?? "unknown")" + installVerdict + requestContextSuffix
+        let signingDetails = signingContext.sorted(by: { $0.key < $1.key }).map { " \($0.key)=\($0.value)" }.joined()
+        return "schema=1 operation=\(operation) stage=\(stage.rawValue) code=\(code.rawValue) correlation=\(correlationID) underlying_domain=\(underlyingDomain) underlying_code=\(displayedUnderlyingCode) retryable=\(retryable.map(String.init) ?? "unknown") source_step=\(sourceStep?.rawValue ?? "unknown") safe_cause=\(safeCause?.rawValue ?? "unknown")" + signingDetails + installVerdict + requestContextSuffix
     }
     // Appended only when present, so every existing diagnostic stays
     // byte-identical.
@@ -859,7 +938,7 @@ public struct CombinedFailure: Error, LocalizedError {
     public func correlating(to id: String) -> CombinedFailure {
         CombinedFailure(operation: operation, stage: stage, code: code, id: id,
             underlying: NSError(domain: underlyingDomain, code: underlyingCode),
-            retryable: retryable, safeCause: safeCause, sourceStep: sourceStep)
+            retryable: retryable, safeCause: safeCause, sourceStep: sourceStep, signingContext: signingContext)
     }
     public var wire: [String: Any] {
         let safeUnderlying = Self.safeWireUnderlying(domain: underlyingDomain, code: underlyingCode)
@@ -868,6 +947,7 @@ public struct CombinedFailure: Error, LocalizedError {
             "underlyingCode": safeUnderlying.code]
         if let safeCause { result["safeCause"] = safeCause.rawValue }
         if let sourceStep { result["sourceStep"] = sourceStep.rawValue }
+        if !signingContext.isEmpty { result["signingContext"] = signingContext }
         if let retryable { result["retryable"] = retryable }
         return result
     }
@@ -882,7 +962,7 @@ public struct CombinedFailure: Error, LocalizedError {
         return decode(value, expectedID: expectedID)
     }
     public static func decode(_ value: [String: Any], expectedID: String) -> CombinedFailure? {
-        guard Set(value.keys).isSubset(of: ["version", "operation", "stage", "code", "correlationID", "underlyingDomain", "underlyingCode", "retryable", "safeCause", "sourceStep"]),
+        guard Set(value.keys).isSubset(of: ["version", "operation", "stage", "code", "correlationID", "underlyingDomain", "underlyingCode", "retryable", "safeCause", "sourceStep", "signingContext"]),
               Self.strictInteger(value["version"]) == 1,
               Self.uuidCorrelationMatches(value["correlationID"] as? String, expectedID: expectedID),
               let operation = value["operation"] as? String, operations.contains(operation),
@@ -900,12 +980,18 @@ public struct CombinedFailure: Error, LocalizedError {
             guard let stepName = rawStep as? String, let step = SourceStep(rawValue: stepName) else { return nil }
             sourceStep = step
         } else { sourceStep = nil }
+        let signingContext: [String: String]
+        if let raw = value["signingContext"] {
+            guard let fields = raw as? [String: String],
+                  let validated = Self.validatedSigningContext(fields) else { return nil }
+            signingContext = validated
+        } else { signingContext = [:] }
         if let retry = value["retryable"] {
             guard let bool = retry as? NSNumber, CFGetTypeID(bool) == CFBooleanGetTypeID() else { return nil }
         }
         return CombinedFailure(operation: operation, stage: stage, code: code, id: expectedID,
             underlying: NSError(domain: domain, code: number), retryable: value["retryable"] as? Bool,
-            safeCause: safeCause, sourceStep: sourceStep)
+            safeCause: safeCause, sourceStep: sourceStep, signingContext: signingContext)
     }
 
     private static func strictInteger(_ value: Any?) -> Int? {
@@ -985,6 +1071,7 @@ public struct CombinedFailure: Error, LocalizedError {
         var nativeDomain: String?
         var safeCause: SafeCause?
         var sourceStep: SourceStep?
+        var signingContext: [String: String] = [:]
         var ppqLocked = false
         var explicitStageMarker = false
         // Only an allowlisted stage is inspected locally. No arbitrary userInfo is serialized.
@@ -995,7 +1082,8 @@ public struct CombinedFailure: Error, LocalizedError {
                let found = Stage(rawValue: name) {
                 resolved = found
                 explicitStageMarker = true
-            } else if let token = tokens.first(where: { $0.hasPrefix("lc_stage=") }),
+            } else if signingContext["typed_error"]?.hasPrefix("sideSign") != true,
+                      let token = tokens.first(where: { $0.hasPrefix("lc_stage=") }),
                       let found = Stage(rawValue: String(token.dropFirst(9))) {
                 resolved = found
                 explicitStageMarker = true
@@ -1011,6 +1099,10 @@ public struct CombinedFailure: Error, LocalizedError {
             if let name = cause.userInfo["LCStructuredFailureSourceV1"] as? String,
                let found = SourceStep(rawValue: name) {
                 sourceStep = found
+            }
+            if let fields = cause.userInfo["LCStructuredSigningContextV1"] as? [String: String],
+               let safeFields = Self.validatedSigningContext(fields) {
+                signingContext.merge(safeFields) { _, deeper in deeper }
             }
             // Domain-specific classification. Only map a numeric code to a
             // stage when the (domain, code) pair has an established meaning.
@@ -1081,6 +1173,9 @@ public struct CombinedFailure: Error, LocalizedError {
             // gateway error.
             for (index, token) in tokens.enumerated() {
                 guard !ppqLocked else { continue }
+                // A provider body is not evidence of an HTTP status or errno.
+                // Typed SideSign code evidence was captured before NSError bridging.
+                if signingContext["typed_error"]?.hasPrefix("sideSign") == true { continue }
                 if token.hasPrefix("lc_native_code="), let code = Int(token.dropFirst(15)) {
                     nativeCode = code
                     if ["MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError"].contains(cause.domain) {
@@ -1121,7 +1216,8 @@ public struct CombinedFailure: Error, LocalizedError {
         }
         return CombinedFailure(operation: operation, stage: resolved,
             code: resolvedCode, id: id,
-            underlying: underlying, retryable: resolvedRetryable, safeCause: safeCause, sourceStep: sourceStep)
+            underlying: underlying, retryable: resolvedRetryable, safeCause: safeCause,
+            sourceStep: sourceStep, signingContext: signingContext)
     }
 }
 

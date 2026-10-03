@@ -569,6 +569,9 @@ REQUIRED_GENERATED_EMBEDDED_SOURCES = {
     "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
     ".combined-refresh-contract.json",
     "Dependencies/minimuxer/DeviceGateway/idevice/IdeviceGateway.swift",
+    "Dependencies/SideSign/Sources/DeveloperPortal/DeveloperPortalAPI.swift",
+    "SideStore/Core/Auth/DeveloperPortalProxy.swift",
+    "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift",
 }
 
 

@@ -703,6 +703,9 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
                         "--ipa", str(ipa), "--output", str(output), "--source", str(host_build),
                         "--side-source", str(side_build), str(host_build), str(side_build)]
                 sys.argv = argv
+                source_before = {(str(base), path.relative_to(base).as_posix()): path.read_bytes()
+                                 for base in (host_build, side_build)
+                                 for path in base.rglob("*") if path.is_file()}
                 evidence_module.main()
                 first = {path.relative_to(output).as_posix(): path.read_bytes()
                          for path in output.rglob("*") if path.is_file()}
@@ -712,6 +715,11 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
                           for path in output.rglob("*") if path.is_file()}
                 self.assertEqual(first, second)
                 self.assertNotIn("generated/stale.swift", second)
+                source_after = {(str(base), path.relative_to(base).as_posix()): path.read_bytes()
+                                for base in (host_build, side_build)
+                                for path in base.rglob("*") if path.is_file()}
+                self.assertEqual(source_before, source_after,
+                                 "collecting provenance must never modify the prepared source/build inputs")
                 provenance = json.loads(second["candidate-provenance.json"])
                 self.assertEqual(provenance["framework_cpu_subtypes"], {
                     "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore": 0,

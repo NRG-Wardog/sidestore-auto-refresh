@@ -13,10 +13,44 @@ OUTPUTS = {(0, name) for name in ("SideStoreSupport/SideStore.swift", "LiveConta
     "SideStoreSupport/SideStoreClient.swift", "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift")} | {
     (1, "AltStore/AppDelegate.swift"), (1, "SideStore/Core/Operations/PipelineExecutor.swift"),
     (1, "SideStore/Core/Operations/PipelineRunner.swift")}
+V3_OUTPUTS = OUTPUTS | {(1, "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift")}
+
+SIDESIGN_PORTAL_OBSERVER = '''
+// LC_PORTAL_RESPONSE_OBSERVER_V1: scalar-only, task-scoped observation. Requests,
+// response parsing and the original thrown SideSign error remain unchanged.
+public enum SideSignPortalDiagnostics {
+    @TaskLocal public static var responseObserver: (@Sendable (Int?, String?) -> Void)? = nil
+    public static func safeProviderCode(_ value: String?) -> String? {
+        let known: Set<String> = ["ENTITY_ERROR", "ENTITY_ERROR.INVALID", "ENTITY_ERROR.ATTRIBUTE.INVALID",
+            "ENTITY_ERROR.ATTRIBUTE.REQUIRED", "ENTITY_ERROR.ATTRIBUTE.UNKNOWN",
+            "ENTITY_ERROR.RELATIONSHIP.INVALID", "ENTITY_ERROR.RELATIONSHIP.INVALID_NOT_ALLOWED",
+            "ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE", "FORBIDDEN_ERROR", "NOT_FOUND",
+            "PARAMETER_ERROR.INVALID", "PARAMETER_ERROR.REQUIRED", "RATE_LIMIT_EXCEEDED",
+            "SERVICE_UNAVAILABLE", "UNEXPECTED_ERROR", "UNKNOWN_ERROR"]
+        guard let value, known.contains(value) else { return nil }
+        return value
+    }
+}
+'''
+
+def patch_sidesign_portal_observer(text):
+    if "LC_PORTAL_RESPONSE_OBSERVER_V1" in text:
+        if text.count("SideSignPortalDiagnostics.responseObserver?(httpResponse?.statusCode, nil)") != 2 or text.count("SideSignPortalDiagnostics.safeProviderCode(firstError.code)") != 2 or SIDESIGN_PORTAL_OBSERVER.strip() not in text:
+            raise SystemExit("SideSign portal observer is incomplete")
+        return text
+    anchor = "        let httpResponse = response as? HTTPURLResponse"
+    if text.count(anchor) != 2:
+        raise SystemExit("pinned SideSign HTTP response anchors changed")
+    text = text.replace(anchor, anchor + "\n        SideSignPortalDiagnostics.responseObserver?(httpResponse?.statusCode, nil)")
+    error_anchor = "            if let errors = status.errors, let firstError = errors.first, let detail = firstError.detail {"
+    if text.count(error_anchor) != 2:
+        raise SystemExit("pinned SideSign structured error anchors changed")
+    return text.replace(error_anchor, error_anchor + "\n                SideSignPortalDiagnostics.responseObserver?(httpResponse?.statusCode, SideSignPortalDiagnostics.safeProviderCode(firstError.code))") + SIDESIGN_PORTAL_OBSERVER
 
 SIGNING_CAUSE_HELPER = '''
+import CryptoKit
 // LC_SIGNING_CAUSE_CLASSIFIER_V1: only typed upstream errors gain a semantic cause.
-func lcSafeSigningCause(_ error: Error) -> String {
+func lcSafeSigningCause(_ error: Error, portalResponse: Bool = false) -> String {
     if let urlError = error as? URLError {
         switch urlError.code {
         case .networkConnectionLost: return "signingNetworkConnectionLost"
@@ -38,9 +72,9 @@ func lcSafeSigningCause(_ error: Error) -> String {
     }
     if let serverError = error as? ServerError {
         switch serverError {
-        case .underlyingError: return "developerPortalRejectedRequest"
+        case .underlyingError: return portalResponse ? "developerPortalRejectedRequest" : "unknownSigningCause"
         case .badServerResponse, .invalidResponseFormat, .missingKey:
-            return "developerPortalInvalidResponse"
+            return portalResponse ? "developerPortalInvalidResponse" : "unknownSigningCause"
         }
     }
     if let portalError = error as? DeveloperPortalError {
@@ -52,9 +86,120 @@ func lcSafeSigningCause(_ error: Error) -> String {
     }
     return "unknownSigningCause"
 }
+
+func lcSigningHash(_ value: String) -> String {
+    SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+}
+
+private final class LCSigningHTTPObservation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var status: Int?
+    private var providerCode: String?
+    func record(_ value: Int?, code: String?) {
+        lock.lock(); defer { lock.unlock() }
+        status = value.flatMap { (100...599).contains($0) ? $0 : nil }
+        providerCode = SideSignPortalDiagnostics.safeProviderCode(code)
+    }
+    func snapshot() -> (status: Int?, providerCode: String?) {
+        lock.lock(); defer { lock.unlock() }
+        return (status, providerCode)
+    }
+}
+
+// Request facts are captured before calling the existing upstream API. No shared
+// last-step state: parallel extension failures retain their own request identity.
+func lcPortalSigningContext(teamID: String, generation: UInt64,
+                            bundleID: String? = nil, features: [String: String]? = nil,
+                            groupCount: Int? = nil, groupID: String? = nil, profileMode: String? = nil) -> [String: String] {
+    var facts = ["account_binding": "verified", "team_binding": "verified",
+                 "team_sha256": lcSigningHash(teamID), "session_generation": String(generation)]
+    if let bundleID { facts["requested_bundle_sha256"] = lcSigningHash(bundleID) }
+    if let features {
+        facts["capability_count"] = String(features.count)
+        facts["capabilities_sha256"] = lcSigningHash(features.sorted { $0.key < $1.key }
+            .map { $0.key + "=" + $0.value }.joined(separator: "\\n"))
+        facts["capability_names"] = features.keys.filter { CombinedFailure.signingCapabilityNames.contains($0) }.sorted().joined(separator: ",")
+        facts["enabled_capability_names"] = features.filter { CombinedFailure.signingCapabilityNames.contains($0.key) && $0.value == "true" }.keys.sorted().joined(separator: ",")
+    }
+    if let groupCount { facts["app_group_count"] = String(groupCount) }
+    if let groupID { facts["requested_app_group_sha256"] = lcSigningHash(groupID) }
+    if let profileMode {
+        facts["profile_mode"] = profileMode
+        // The team-profile endpoint chooses devices server-side. Do not claim
+        // that a saved device or a UI certificate was explicitly sent to it.
+        facts["device_registration"] = "unobserved"
+    }
+    return facts
+}
+
+func lcStructuredSigningFailure(_ error: Error, stage: String, sourceStep: String?,
+                                facts: [String: String] = [:], portalResponse: Bool = false) -> NSError {
+    let native = error as NSError
+    var info: [String: Any] = ["LCStructuredFailureStageV1": stage,
+        NSUnderlyingErrorKey: native, NSLocalizedDescriptionKey: "SideStore could not complete this pipeline step."]
+    if let sourceStep { info["LCStructuredFailureSourceV1"] = sourceStep }
+    var context = facts
+    if stage == "signing" { info["LCStructuredFailureCauseV1"] = lcSafeSigningCause(error, portalResponse: portalResponse) }
+    if let server = error as? ServerError {
+        switch server {
+        case .underlyingError(let code, _):
+            context["typed_error"] = "sideSignServerReportedError"
+            // -1 is SideSign's sentinel for a detail-only response, not an
+            // observed numeric Apple result code. NSError's ordinal is never used.
+            context["server_code"] = code == -1 ? "unknown" : String(code)
+        case .badServerResponse: context["typed_error"] = "sideSignBadResponse"
+        case .invalidResponseFormat: context["typed_error"] = "sideSignInvalidResponse"
+        case .missingKey: context["typed_error"] = "sideSignMissingKey"
+        }
+        if context["http_status"] == nil { context["http_status"] = "unavailable" }
+    }
+    if let prior = native.userInfo["LCStructuredSigningContextV1"] as? [String: String] {
+        context.merge(prior) { _, requestFact in requestFact }
+    }
+    for key in ["LCStructuredFailureStageV1", "LCStructuredFailureSourceV1", "LCStructuredFailureCauseV1"] {
+        if let prior = native.userInfo[key] as? String { info[key] = prior }
+    }
+    if let safe = CombinedFailure.validatedSigningContext(context), !safe.isEmpty {
+        info["LCStructuredSigningContextV1"] = safe
+    }
+    return NSError(domain: native.domain, code: native.code, userInfo: info)
+}
+
+func lcPortalSigningRequest<T>(sourceStep: String, facts: [String: String],
+                               operation: () async throws -> T) async throws -> T {
+    let observation = LCSigningHTTPObservation()
+    do {
+        return try await SideSignPortalDiagnostics.$responseObserver.withValue({ observation.record($0, code: $1) }) {
+            try await operation()
+        }
+    }
+    catch let server as ServerError {
+        var observed = facts
+        let response = observation.snapshot()
+        observed["http_status"] = response.status.map { String($0) } ?? "unavailable"
+        observed["provider_code"] = response.providerCode ?? "unavailable"
+        // Keep business handling of other typed upstream errors unchanged.
+        throw lcStructuredSigningFailure(server, stage: "signing", sourceStep: sourceStep,
+                                         facts: observed, portalResponse: true)
+    }
+}
+
+func lcProvisioningBundleRequest<T>(role: String, originalBundleID: String, preferredParentMatch: Bool,
+                                    operation: () async throws -> T) async throws -> T {
+    do { return try await operation() }
+    catch {
+        guard (error as? ServerError) != nil ||
+              (error as NSError).userInfo["LCStructuredSigningContextV1"] != nil else { throw error }
+        throw lcStructuredSigningFailure(error, stage: "signing", sourceStep: "provisioningProfileFetch",
+            facts: ["provisioning_bundle_role": role,
+                    "provisioning_bundle_sha256": lcSigningHash(originalBundleID),
+                    "preferred_parent_id_match": String(preferredParentMatch)])
+    }
+}
 '''
 
 PIPELINE_FAILURE_HANDLER = r'''            result = error
+            if error is CancellationError { throw error }
             // LC_STRUCTURED_FAILURE_V1: preserve step responsibility and the underlying error.
             var stage: String
             switch step {
@@ -78,14 +223,15 @@ PIPELINE_FAILURE_HANDLER = r'''            result = error
                 default: break
                 }
             }
-            let safeCause = stage == "signing" ? lcSafeSigningCause(error) : nil
-            let native = error as NSError
-            var failureInfo: [String: Any] = ["LCStructuredFailureStageV1": stage,
-                NSUnderlyingErrorKey: native, NSLocalizedDescriptionKey: native.localizedDescription]
-            if let safeCause { failureInfo["LCStructuredFailureCauseV1"] = safeCause }
-            if let sourceStep { failureInfo["LCStructuredFailureSourceV1"] = sourceStep }
-            throw NSError(domain: native.domain, code: native.code,
-                userInfo: failureInfo)'''
+            var facts: [String: String] = [:]
+            if stage == "signing" {
+                facts["extension_count"] = String(context.targetAppBundle?.appExtensions.count ?? 0)
+                facts["signing_certificate_present"] = context.targetSigningCertificate == nil ? "false" : "true"
+                if let certificate = context.targetSigningCertificate {
+                    facts["signing_certificate_serial_sha256"] = lcSigningHash(certificate.serialNumber)
+                }
+            }
+            throw lcStructuredSigningFailure(error, stage: stage, sourceStep: sourceStep, facts: facts)'''
 
 
 def replace(text, old, new):
@@ -105,8 +251,55 @@ def patch_pipeline_executor(text, product="v3"):
         }
         do {
             switch step {''')
+    helper = SIGNING_CAUSE_HELPER
+    if product != "v3":
+        # The legacy product has no identity-bound v3 proxy/HTTP observer.
+        helper = helper[:helper.index("\nfunc lcPortalSigningRequest")]
     return replace(text, "            result = error\n            throw error",
-                   PIPELINE_FAILURE_HANDLER) + SIGNING_CAUSE_HELPER
+                   PIPELINE_FAILURE_HANDLER) + helper
+
+
+def patch_provisioning_profile_requests(text):
+    """Focused parent/extension identity backport, retaining the upstream pipeline."""
+    marker = "LC_PROVISIONING_PARENT_ID_UPSTREAM_V1"
+    if marker in text:
+        raise SystemExit("provisioning parent ID backport already applied")
+    start = text.index("        let preferredBundleID = await self.getPreferredBundleID", text.index("private func provisionAndFetchProfile"))
+    end = text.index("        let preferredName: String", start)
+    # Exact parentID/suffix algorithm from SideStore develop 0dd743f75afc358b0ba4a002feb5f19474492371.
+    # Keeping the optional lookup result also permits a truthful failure observation.
+    replacement = '''        // LC_PROVISIONING_PARENT_ID_UPSTREAM_V1
+        let preferredBundleID = await self.getPreferredBundleID(for: targetAppBundle, team: team)
+        let parentID: String
+        if let preferredBundleID {
+            parentID = preferredBundleID
+        } else if self.context.appendTeamID {
+            parentID = "\\(self.context.targetBundleIdentifier).\\(team.identifier)"
+        } else {
+            parentID = self.context.targetBundleIdentifier
+        }
+
+        let bundleID: String
+        if let parentAppBundle {
+            guard targetAppBundle.bundleIdentifier.hasPrefix(parentAppBundle.bundleIdentifier + ".") else {
+                throw OperationError.invalidApp(reason: "Extension bundle ID does not start with its parent bundle ID.")
+            }
+            let suffix = String(targetAppBundle.bundleIdentifier.dropFirst(parentAppBundle.bundleIdentifier.count))
+            bundleID = parentID + suffix
+        } else {
+            bundleID = parentID
+        }
+
+        return try await lcProvisioningBundleRequest(
+            role: parentAppBundle == nil ? "main" : "extension",
+            originalBundleID: targetAppBundle.bundleIdentifier,
+            preferredParentMatch: preferredBundleID != nil
+        ) {
+'''
+    text = text[:start] + replacement + text[end:]
+    # The existing App ID/features/groups/profile calls remain inside this
+    # observation scope, with the existing explicit team and operation context.
+    return replace(text, "        return profile\n    }\n}", "        return profile\n        }\n    }\n}")
 
 
 def patch_pipeline_runner(text):
@@ -121,6 +314,7 @@ def patch_pipeline_runner(text):
 def patch(live, side, product):
     if product not in ("v2", "v3"):
         raise SystemExit("expected v2 or v3")
+    expected_outputs = V3_OUTPUTS if product == "v3" else OUTPUTS
     for root, pin in zip((live, side), PINS):
         if subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip() != pin:
             raise SystemExit("combined startup requires pinned source")
@@ -137,8 +331,8 @@ def patch(live, side, product):
         previous = json.loads(manifest.read_text())
         if previous["templates"] != templates or previous["product"] != product:
             raise SystemExit("combined startup templates changed; use fresh pinned sources")
-        if (previous.get("pins") != list(PINS) or len(previous["files"]) != len(OUTPUTS)
-                or {(i, name) for i, name, _ in previous["files"]} != OUTPUTS):
+        if (previous.get("pins") != list(PINS) or len(previous["files"]) != len(expected_outputs)
+                or {(i, name) for i, name, _ in previous["files"]} != expected_outputs):
             raise SystemExit("combined startup manifest source/output drift")
         for index, relative, digest in previous["files"]:
             if hashlib.sha256(((live, side)[index] / relative).read_bytes()).hexdigest() != digest:
@@ -315,6 +509,9 @@ void LCLaunchServiceExtension(NSExtension *extension, NSExtensionItem *item, voi
     edit(side, "SideStore/Core/Operations/PipelineExecutor.swift",
          lambda s: patch_pipeline_executor(s, product))
     edit(side, "SideStore/Core/Operations/PipelineRunner.swift", patch_pipeline_runner)
+    if product == "v3":
+        edit(side, "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift",
+             patch_provisioning_profile_requests)
     edit(live, "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift", lambda s: replace(s,
         "                if sharedModel.developerMode {", '''                Section("Build Candidate") {
                     Text("Product: " + (Bundle.main.object(forInfoDictionaryKey: "LCProductLine") as? String ?? "unknown"))
@@ -385,8 +582,15 @@ private func lcTransportFailureStage(_ message: String) -> String {
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--portal":
+        root = Path(sys.argv[2]).resolve()
+        if subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip() != "a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d":
+            raise SystemExit("portal diagnostics require the pinned SideSign revision")
+        target = root / "Sources/DeveloperPortal/DeveloperPortalAPI.swift"
+        target.write_bytes(patch_sidesign_portal_observer(target.read_text(encoding="utf-8")).encode())
+        raise SystemExit(0)
     if len(sys.argv) == 3 and sys.argv[1] == "--transport":
         patch_transport(Path(sys.argv[2]).resolve())
         raise SystemExit(0)
-    if len(sys.argv) != 4: raise SystemExit("usage: patch_combined_service_startup.py LIVE SIDE v2|v3")
+    if len(sys.argv) != 4: raise SystemExit("usage: patch_combined_service_startup.py LIVE SIDE v2|v3 | --portal SIDESIGN")
     patch(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve(), sys.argv[3])

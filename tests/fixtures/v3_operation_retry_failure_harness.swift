@@ -58,11 +58,14 @@ struct OperationRetryFailureHarness {
             id: UUID().uuidString, safeCause: .developerPortalRejectedRequest,
             sourceStep: .provisioningProfileFetch)
         let portalDetails = V3OperationFailureDetails(portalFailure)
-        precondition(portalDetails.whatHappened.contains("Developer Portal rejected"))
-        precondition(portalDetails.recoveryDestination == "certificates",
-                     "a provisioning failure must not send the user to credentials")
-        precondition(portalDetails.recommendedAction.contains("Certificates"))
+        precondition(portalDetails.whatHappened.contains("developer service"))
+        precondition(portalDetails.recoveryDestination == nil,
+                     "a broad provisioning failure must not claim a certificate remedy")
+        precondition(portalDetails.recommendedAction.contains("Copy Diagnostics"))
         precondition(portalDetails.retryDisposition == .unknown)
+        let missingCertificate = V3OperationFailureDetails(CombinedFailure(operation: "install", stage: .signing,
+            id: UUID().uuidString, safeCause: .certificateUnavailable))
+        precondition(missingCertificate.recoveryDestination == "certificates")
 
         let fileFailure = CombinedFailure(operation: "install", stage: .filePreparation,
             code: .invalidPackage, id: UUID().uuidString, retryable: false)

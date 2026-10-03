@@ -286,6 +286,8 @@ jobs:
           python3 builder/scripts/patch_sidesign_privacy.py "$SIDESIGN" "$SIDESTORE"
           python3 builder/scripts/patch_sidesign_2fa_state.py "$SIDESIGN"
           python3 builder/scripts/patch_sidesign_2fa_state.py "$SIDESIGN"
+          python3 builder/scripts/patch_combined_service_startup.py --portal "$SIDESIGN"
+          python3 builder/scripts/patch_combined_service_startup.py --portal "$SIDESIGN"
           git -C "$SIDESIGN" diff --check
           expected_sidesign=$(printf '%s\n' \
             'Sources/DeveloperPortal/Authentication.swift' \

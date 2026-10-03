@@ -582,6 +582,9 @@ enum V3ServiceReadinessReply: Equatable {
     ]
     static let knownSourceStepValues: Set<String> = [
         "provisioningProfileFetch", "certificateValidation", "localCodeSigning",
+        "appIDLookup", "appIDRegistration", "appIDCapabilitiesUpdate",
+        "appGroupLookup", "appGroupRegistration", "appGroupAssignment",
+        "provisioningProfileRetrieval", "provisioningProfileCreation", "provisioningProfileUpdate",
         "sourceDownload", "manifestParsing", "sourceValidation", "knownSourcePolicyFetch",
         "knownSourcePolicyParsing", "catalogRead"
     ]
@@ -624,10 +627,17 @@ enum V3ServiceReadinessReply: Equatable {
                 guard let value = raw as? String, Self.knownSourceStepValues.contains(value) else { return .invalid }
                 sourceStep = value
             } else { sourceStep = nil }
-            let failure = V3ServiceReadinessFailure(operation: operation, stage: stage, code: code,
+            var failure = V3ServiceReadinessFailure(operation: operation, stage: stage, code: code,
                 correlationID: requestID, underlyingDomain: domain, underlyingCode: underlyingCode,
                 safeCause: safeCause, sourceStep: sourceStep,
                 retryable: retryable)
+            if let raw = envelope["signingContext"] {
+                guard let fields = raw as? [String: String], fields.count <= 20,
+                      fields.allSatisfy({ $0.key.utf8.count <= 64 && $0.value.utf8.count <= 512 }) else { return .invalid }
+                // The typed CombinedFailure boundary validates the fixed keys
+                // and values before any diagnostic publication.
+                failure.signingContext = fields
+            }
             if ["snapshot", "status"].contains(failure.operation) && failure.stage == "serviceReadiness" &&
                failure.code == "notReady" && failure.retryable == true {
                 return .notReady
@@ -651,4 +661,5 @@ struct V3ServiceReadinessFailure: Equatable {
     let safeCause: String?
     let sourceStep: String?
     let retryable: Bool?
+    var signingContext: [String: String] = [:]
 }

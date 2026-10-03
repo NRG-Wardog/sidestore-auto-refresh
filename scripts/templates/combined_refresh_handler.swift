@@ -27,7 +27,8 @@ enum V3ServiceReadinessProbeState: Equatable {
 extension V3ServiceReadinessFailure {
     func combinedFailure(id: String, operation overrideOperation: String? = nil) -> CombinedFailure {
         guard let resolvedStage = CombinedFailure.Stage(rawValue: stage),
-              let resolvedCode = CombinedFailure.Code(rawValue: code) else {
+              let resolvedCode = CombinedFailure.Code(rawValue: code),
+              let validatedContext = CombinedFailure.validatedSigningContext(signingContext) else {
             return CombinedFailure(operation: "connect", stage: .serviceReadiness,
                 code: .invalidResponse, id: id)
         }
@@ -35,7 +36,7 @@ extension V3ServiceReadinessFailure {
         let resolvedStep = sourceStep.flatMap(CombinedFailure.SourceStep.init(rawValue:))
         return CombinedFailure(operation: overrideOperation ?? operation, stage: resolvedStage, code: resolvedCode, id: id,
             underlying: NSError(domain: underlyingDomain, code: underlyingCode), retryable: retryable,
-            safeCause: resolvedCause, sourceStep: resolvedStep)
+            safeCause: resolvedCause, sourceStep: resolvedStep, signingContext: validatedContext)
     }
 }
 
