@@ -32,6 +32,8 @@ final class FakeClient {
             operationResult = snapshotResult(busy: recoveryStorageFailure)
         case "authBegin":
             operationResult = ["session": payload["session"] as? String ?? "", "state": "working"]
+        case "authRespond":
+            operationResult = ["session": target, "state": "working"]
         case "authPoll":
             operationResult = ["session": target, "state": "completed", "authenticated": true]
         case "authCancel":
@@ -105,6 +107,7 @@ final class FakeClient {
 final class RefreshHandler {
     static let shared = RefreshHandler()
     var sideStorePid: Int32 = 123
+    var v3ServiceIdentity: UUID? = UUID()
     var v3RefreshToken: UUID?
     var v3RefreshAdmissionRunID: String?
     var client: FakeClient? = FakeClient()

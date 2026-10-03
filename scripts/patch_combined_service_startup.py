@@ -271,7 +271,9 @@ NSData * _Nullable LCCreateServiceBookmark(NSURL * _Nonnull url, NSError * _Null
 void LCLaunchServiceExtension(NSExtension * _Nonnull extension, NSExtensionItem * _Nonnull item,
     void (^ _Nonnull completion)(NSUUID * _Nullable identifier, NSError * _Nullable error));
 ''')
-    edit(live, "SideStoreSupport/XPCServer.m", lambda s: '#import "../LiveContainer/FoundationPrivate.h"\n#import "../LiveContainer/LCContainerStorage.h"\n' + s + '''
+    edit(live, "SideStoreSupport/XPCServer.m", lambda s: '#import "../LiveContainer/FoundationPrivate.h"\n#import "../LiveContainer/LCContainerStorage.h"\n' + replace(s,
+        '    [newConnection resume];',
+        '    // V3_XPC_PEER_ADMISSION_V1: RefreshHandler resumes only the launched extension peer.') + '''
 BOOL LCPrepareServiceStorage(NSURL *url, NSError **error) {
     return LCPrepareContainerDirectories(url.path, error);
 }

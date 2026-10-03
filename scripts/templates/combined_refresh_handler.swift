@@ -75,6 +75,7 @@ class RefreshHandler: NSObject {
     private var extensionProcess: NSExtension?
     private var listener: NSXPCListener?
     private var connection: NSXPCConnection?
+    private var pendingPeerConnections: [NSXPCConnection] = []
     private var launchID: UUID?
     private var refreshRunID: String?
     private var refreshContinuation: CheckedContinuation<Void, Error>?
@@ -190,11 +191,21 @@ class RefreshHandler: NSObject {
                 self.sideStorePid = pid
                 NSLog("[V3_SERVICE_START] PROCESS_LAUNCHED id=%@ pid=%d", id.uuidString, pid)
                 self.service.signal(.launched, attempt: id)
+                self.confirmLaunchedPeer(id)
             }
         }
     }
     fileprivate func accepted(_ incoming: NSXPCConnection, id: UUID) {
         guard launchID == id, connection == nil else { incoming.invalidate(); return }
+        // The endpoint is a private launch capability, but possession alone
+        // does not prove that its holder is the extension we launched. Keep
+        // incoming connections suspended until NSExtension supplies that PID.
+        guard sideStorePid > 0 else {
+            guard pendingPeerConnections.count < 8 else { incoming.invalidate(); return }
+            pendingPeerConnections.append(incoming)
+            return
+        }
+        guard incoming.processIdentifier == sideStorePid else { incoming.invalidate(); return }
         NSLog("[V3_SERVICE_START] XPC_CONNECTED id=%@", id.uuidString)
         connection = incoming
         incoming.remoteObjectInterface = NSXPCInterface(with: RefreshClient.self)
@@ -204,7 +215,17 @@ class RefreshHandler: NSObject {
         incoming.invalidationHandler = { [weak self] in Task { @MainActor in self?.failed(id, stage: .xpcConnection, code: .interrupted) } }
         incoming.interruptionHandler = incoming.invalidationHandler
         guard client != nil else { failed(id, stage: .xpcConnection); return }
+        incoming.resume()
         service.signal(.connected, attempt: id)
+    }
+    private func confirmLaunchedPeer(_ id: UUID) {
+        guard launchID == id, sideStorePid > 0 else { return }
+        let candidates = pendingPeerConnections
+        pendingPeerConnections.removeAll()
+        for candidate in candidates { accepted(candidate, id: id) }
+    }
+    var v3ServiceIdentity: UUID? {
+        service.isReady && connection != nil && sideStorePid > 0 ? launchID : nil
     }
     fileprivate func applicationReady(_ id: UUID) {
         // finishedLaunching may be repeated; one readiness probe owns this launch.
@@ -243,6 +264,8 @@ class RefreshHandler: NSObject {
         if launchRequestPending == id { retiringRequestPending = id; launchRequestPending = nil }
         readinessTask?.cancel(); readinessTask = nil
         listener?.invalidate(); listener = nil
+        for candidate in pendingPeerConnections { candidate.invalidate() }
+        pendingPeerConnections.removeAll()
         connection?.invalidate(); connection = nil; client = nil
         retiringProcess = extensionProcess; retiringPID = sideStorePid
         extensionProcess?._kill(15)

@@ -86,6 +86,7 @@ final class AuthLeaseFakeClient {
 final class RefreshHandler {
     static let shared = RefreshHandler()
     var sideStorePid: Int32 = 321
+    var v3ServiceIdentity: UUID? = UUID()
     var v3RefreshToken: UUID?
     var v3RefreshAdmissionRunID: String?
     var client: AuthLeaseFakeClient? = AuthLeaseFakeClient()

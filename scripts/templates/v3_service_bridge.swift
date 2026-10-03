@@ -178,6 +178,7 @@ public final class V3ServiceBridge {
     private let cancellationGrace: TimeInterval
     private var activeMutation: String?
     private var authSessionOwnership = V3AuthSessionOwnership()
+    private var promptSessionServiceIDs: [String: UUID] = [:]
     private var statusWriteAuthority = V3StatusWriteAuthority()
     private var hostRecoveryHoldActive = false
     private struct StatusLeaseWaiter {
@@ -556,6 +557,7 @@ public final class V3ServiceBridge {
     public func confirmAuthSessionUnavailable(sessionID: String) {
         guard UUID(uuidString: sessionID)?.uuidString == sessionID else { return }
         authSessionOwnership.clear(sessionID: sessionID)
+        promptSessionServiceIDs.removeValue(forKey: sessionID)
         reconcileAuthStatusOwner(sessionID: sessionID)
     }
     /// A validated service snapshot can retire a host owner when it proves
@@ -637,6 +639,18 @@ public final class V3ServiceBridge {
     public func request(operation: String, target: String = "", cursor: Int? = nil,
                         payload: [String: Any]? = nil, requestDeadline: Date? = nil) async throws -> [String: Any] {
         try Task.checkCancellation()
+        if ["authCancel", "opCancel"].contains(operation) {
+            promptSessionServiceIDs.removeValue(forKey: target)
+        }
+        let deliversPromptAnswer = ["authRespond", "opAnswer"].contains(operation)
+        let answerServiceID = deliversPromptAnswer ? promptSessionServiceIDs[target] : nil
+        if deliversPromptAnswer {
+            guard let answerServiceID,
+                  RefreshHandler.shared.v3ServiceIdentity == answerServiceID else {
+                throw CombinedFailure(operation: operation, stage: .xpcConnection,
+                    code: .staleResult, id: UUID().uuidString, retryable: false)
+            }
+        }
         if ["authBegin", "authRetryProvisioning", "signOut", "accountImport"].contains(operation) {
             NotificationCenter.default.post(name: Notification.Name("V3AuthIdentityTransition"), object: nil)
         }
@@ -761,6 +775,19 @@ public final class V3ServiceBridge {
         }
         let isBoundedSessionCreation = ["authBegin", "authRetryProvisioning",
             "refreshAdmissionBegin", "refreshAdmissionEnd"].contains(operation)
+        // Connecting may suspend or replace the service. An interactive answer
+        // belongs only to the instance that created its session; never carry it
+        // into the replacement, even when the old mutation owner is unresolved.
+        try Task.checkCancellation()
+        if deliversPromptAnswer {
+            guard answerServiceID == RefreshHandler.shared.v3ServiceIdentity,
+                  answerServiceID == promptSessionServiceIDs[target],
+                  (operation == "authRespond" ? authSessionOwnership.owns(target) :
+                    activeOperationSessions.contains(target)) else {
+                throw CombinedFailure(operation: operation, stage: .xpcConnection,
+                    code: .staleResult, id: id, retryable: false)
+            }
+        }
         let configuredTimeout = (V3WireContract.readOperations.contains(operation) || operation == "opCancel" ||
             isBoundedSessionCreation) ? readTimeout : commandTimeout
         let timeout = requestDeadline.map { min(configuredTimeout, max(0, $0.timeIntervalSinceNow)) }
@@ -808,11 +835,13 @@ public final class V3ServiceBridge {
                     activeOperationSessions.insert(session)
                     knownOperationSessions[session] = Date()
                     pruneKnownOperationSessions()
+                    promptSessionServiceIDs[session] = RefreshHandler.shared.v3ServiceIdentity
                 }
                 if ["authBegin", "authRetryProvisioning"].contains(operation),
                    let session = operationSessionID,
                    let sessionDeadline = requestPayload["sessionDeadline"] as? Date {
                     authSessionOwnership.register(sessionID: session, deadline: sessionDeadline)
+                    promptSessionServiceIDs[session] = RefreshHandler.shared.v3ServiceIdentity
                 }
                 statusDispatchedRequestIDs.insert(id)
                 client.v3Execute(data) { response in
@@ -883,6 +912,13 @@ public final class V3ServiceBridge {
             monitorOperationSessionIfNeeded(operation: operation, sessionID: operationSessionID)
             throw error
         }
+        if deliversPromptAnswer {
+            guard answerServiceID == promptSessionServiceIDs[target],
+                  answerServiceID == RefreshHandler.shared.v3ServiceIdentity else {
+                throw CombinedFailure(operation: operation, stage: .xpcConnection,
+                    code: .staleResult, id: id, retryable: false)
+            }
+        }
         // V3_RESPONSE_CLASSIFICATION_CARRIER_V1: the reply classification is a
         // pure function so the exact production path can be executed against a
         // real service fallback envelope, rather than only asserted in source
@@ -900,12 +936,14 @@ public final class V3ServiceBridge {
                 activeOperationSessions.remove(sessionID)
                 uncertainOperationSessions.remove(sessionID)
                 knownOperationSessions.removeValue(forKey: sessionID)
+                promptSessionServiceIDs.removeValue(forKey: sessionID)
                 operationMonitors.removeValue(forKey: sessionID)?.cancel()
             } else if ["authBegin", "authRetryProvisioning"].contains(operation),
                       let sessionID = operationSessionID,
                       V3NotDispatchedReplyPolicy.confirms(response, requestID: id,
                           maximumBytes: V3WireContract.responseLimit) {
                 authSessionOwnership.clear(sessionID: sessionID)
+                promptSessionServiceIDs.removeValue(forKey: sessionID)
             } else {
                 monitorOperationSessionIfNeeded(operation: operation, sessionID: operationSessionID)
             }
@@ -935,6 +973,7 @@ public final class V3ServiceBridge {
     }
 
     public func disconnected() {
+        promptSessionServiceIDs.removeAll()
         if let retired = statusWriteAuthority.retireService() {
             if retired.kind == .snapshot {
                 for requestID in Array(statusLeaseByRequestID.keys) where
@@ -1020,6 +1059,7 @@ public final class V3ServiceBridge {
         let backendSettled = !outcomeUnknown &&
             V3WireContract.strictBool(result["backendSettled"]) == true
         if backendSettled {
+            promptSessionServiceIDs.removeValue(forKey: sessionID)
             activeOperationSessions.remove(sessionID)
             uncertainOperationSessions.remove(sessionID)
             operationMonitors.removeValue(forKey: sessionID)?.cancel()
@@ -1036,6 +1076,9 @@ public final class V3ServiceBridge {
         authSessionOwnership.observe(operation: operation, sessionID: sessionID,
                                      replySessionID: result["session"] as? String,
                                      state: result["state"] as? String)
+        if !authSessionOwnership.owns(sessionID) {
+            promptSessionServiceIDs.removeValue(forKey: sessionID)
+        }
     }
 
     private func monitorOperationSessionIfNeeded(operation: String, sessionID: String?) {
@@ -1069,6 +1112,7 @@ public final class V3ServiceBridge {
         }.sorted { $0.value < $1.value }
         for (id, _) in settled.prefix(max(0, knownOperationSessions.count - 256)) {
             knownOperationSessions.removeValue(forKey: id)
+            promptSessionServiceIDs.removeValue(forKey: id)
         }
     }
 

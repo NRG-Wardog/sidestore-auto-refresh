@@ -40,6 +40,7 @@ class ExecutableStartupTests(unittest.TestCase):
     var service: Owner { self }
     enum Signal { case launched }; enum Stage { case extensionLaunch }
     func signal(_ signal: Signal, attempt: UUID) { signals += 1 }
+    func confirmLaunchedPeer(_ id: UUID) {}
     func failed(_ id: UUID, stage: Stage, underlying: Error? = nil) { failures += 1 }
     func launch(_ id: UUID) {
         launchID = id; launchRequestPending = id
