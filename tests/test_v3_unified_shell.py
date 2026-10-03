@@ -122,6 +122,7 @@ class V3UnifiedShellTests(unittest.TestCase):
             live, side = fixture(Path(directory))
             patch.patch(live, side)
             settings = (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text()
+            self.assertIn("import SideStoreSupport\n", settings)
             importer = settings[settings.index("func importCertificateFromSideStore() async {"):
                                settings.index("private func v3CompleteSideStoreCertificateImport")]
             self.assertIn("V3_SERVICE_CERTIFICATE_EXPORT_V1", importer)

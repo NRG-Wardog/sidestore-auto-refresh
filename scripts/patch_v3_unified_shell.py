@@ -119,6 +119,10 @@ def patch_host(root: Path) -> None:
 
     settings = root / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"
     text = settings.read_text(encoding="utf-8")
+    if "import SideStoreSupport\n" not in text:
+        text = replace_once(text, "import Foundation\n",
+                            "import Foundation\nimport SideStoreSupport\n",
+                            "canonical certificate import service module")
     if "V3_SERVICE_CERTIFICATE_EXPORT_V1" not in text:
         start = text.index('    func importCertificateFromSideStore() async {')
         end = text.index('    func onSideStoreCertificateCallback(', start)
@@ -364,6 +368,8 @@ def verify(live: Path, side: Path) -> None:
     if "V3_UNIFIED_SHELL_V1: SideStore is reached through unified tabs." not in app_list:
         die("legacy SideStore launch button removal marker is missing from the Apps screen")
     settings_source = (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text(encoding="utf-8")
+    if "import SideStoreSupport\n" not in settings_source:
+        die("canonical certificate importer cannot see its service module")
     for token in ("V3_CANONICAL_JITLESS_ROUTE_V1", "importCertificateFromSideStore()",
                   "v3OpenJITLessDiagnose = true", "V3CanonicalJITLessCertificateUpdated"):
         if token not in settings_source:
