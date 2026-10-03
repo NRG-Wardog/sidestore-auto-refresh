@@ -29,8 +29,16 @@ struct PasswordAlert {
     }
 }
 
+final class RecordingAppGroupDefaults: @unchecked Sendable {
+    var willWrite: ((String) -> Void)?
+    func set(_ value: Any?, forKey key: String) {
+        willWrite?(key)
+        UserDefaults.standard.set(value, forKey: key)
+    }
+}
+
 enum LCUtils {
-    static let appGroupUserDefault = UserDefaults.standard
+    static let appGroupUserDefault = RecordingAppGroupDefaults()
     static func getCertTeamId(withKeyData data: Data, password: String) -> String? {
         !data.isEmpty && password == "valid-password" ? "TEAM-123" : nil
     }
@@ -53,7 +61,37 @@ final class ImportSettingsHarness {
 
     init(scenario: ImportScenario) { self.scenario = scenario }
 
+$IMPORT_OWNERSHIP_HELPER$
+    func beginPendingImport() -> String { V3CertificateImportOwnership.begin() }
+    func isPendingImportActive(_ requestID: String) -> Bool {
+        V3CertificateImportOwnership.isActive(requestID)
+    }
+
 $MANUAL_IMPORT_FUNCTION$
+}
+
+final class LeaseWriteRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private let settings: ImportSettingsHarness
+    private let requestID: String
+    private var activeAtCertificateWrite: Bool?
+
+    init(settings: ImportSettingsHarness, requestID: String) {
+        self.settings = settings
+        self.requestID = requestID
+    }
+
+    func record(_ key: String) {
+        guard key == "LCCertificateData" else { return }
+        let active = settings.isPendingImportActive(requestID)
+        lock.lock(); defer { lock.unlock() }
+        activeAtCertificateWrite = active
+    }
+
+    func snapshot() -> Bool? {
+        lock.lock(); defer { lock.unlock() }
+        return activeAtCertificateWrite
+    }
 }
 
 final class ImportEventRecorder: @unchecked Sendable {
@@ -83,7 +121,8 @@ final class ImportEventRecorder: @unchecked Sendable {
     static func main() async throws {
         let mode = CommandLine.arguments[1]
         let defaults = UserDefaults.standard
-        for key in ["LCCertificateData", "LCCertificatePassword", "LCCertificateUpdateDate", "LCAppGroupID"] {
+        for key in ["LCCertificateData", "LCCertificatePassword", "LCCertificateUpdateDate", "LCAppGroupID",
+                    "V3PendingCertificateImportRequestID", "V3PendingCertificateImportExpiry"] {
             defaults.removeObject(forKey: key)
         }
         let inputURL = URL(fileURLWithPath: CommandLine.arguments[2])
@@ -93,6 +132,9 @@ final class ImportEventRecorder: @unchecked Sendable {
                 ? inputURL.appendingPathComponent("missing.p12")
                 : inputURL)
         let settings = ImportSettingsHarness(scenario: scenario)
+        let pendingRequestID = settings.beginPendingImport()
+        let leaseWrites = LeaseWriteRecorder(settings: settings, requestID: pendingRequestID)
+        LCUtils.appGroupUserDefault.willWrite = { key in leaseWrites.record(key) }
         let recorder = ImportEventRecorder()
         let token = NotificationCenter.default.addObserver(
             forName: Notification.Name("V3CanonicalJITLessCertificateUpdated"),
@@ -105,6 +147,10 @@ final class ImportEventRecorder: @unchecked Sendable {
         let observed = recorder.snapshot()
         precondition(observed.count == (expectedSuccess ? 1 : 0), "event count for \(mode)")
         precondition(settings.certificateDataFound == expectedSuccess, "state for \(mode)")
+        precondition(settings.isPendingImportActive(pendingRequestID) == !expectedSuccess,
+            "pending request state for \(mode)")
+        precondition(leaseWrites.snapshot() == (expectedSuccess ? false : nil),
+            "pending request was not invalidated before certificate write for \(mode)")
         if expectedSuccess {
             precondition(defaults.data(forKey: "LCCertificateData") == Data("CERTIFICATE-BYTES".utf8))
             precondition(defaults.string(forKey: "LCCertificatePassword") == "valid-password")

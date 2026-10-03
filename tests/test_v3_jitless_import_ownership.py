@@ -194,7 +194,12 @@ class JITLessImportOwnershipTests(unittest.TestCase):
                                self.settings.index("func importCertificateFromSideStore() async {")]
         event = 'NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated"), object: nil)'
         self.assertEqual(manual.count(patch.MANUAL_JITLESS_IMPORT_EVENT_MARKER), 1)
+        self.assertEqual(manual.count(patch.MANUAL_JITLESS_IMPORT_INVALIDATION_MARKER), 1)
         self.assertEqual(manual.count(event), 1)
+        self.assertLess(manual.index("getCertTeamId(withKeyData: certificateData"),
+                        manual.index("V3CertificateImportOwnership.invalidate()"))
+        self.assertLess(manual.index("V3CertificateImportOwnership.invalidate()"),
+                        manual.index('forKey: "LCCertificateData"'))
         self.assertLess(manual.index('forKey: "LCCertificateData"'), manual.index(event))
         self.assertLess(manual.index('forKey: "LCCertificatePassword"'), manual.index(event))
         self.assertLess(manual.index('forKey: "LCAppGroupID"'), manual.index(event))
@@ -215,9 +220,12 @@ class JITLessImportOwnershipTests(unittest.TestCase):
         generated = patch.patch_manual_certificate_import_notification(original)
         method = swift_function(generated, "func importCertificate() async {")
         self.assertIn(patch.MANUAL_JITLESS_IMPORT_EVENT_MARKER, method)
+        self.assertIn(patch.MANUAL_JITLESS_IMPORT_INVALIDATION_MARKER, method)
         harness_template = (ROOT / "tests/fixtures/v3_jitless_manual_import_behavior_harness.swift").read_text(encoding="utf-8")
         self.assertEqual(harness_template.count("$MANUAL_IMPORT_FUNCTION$"), 1)
-        harness = harness_template.replace("$MANUAL_IMPORT_FUNCTION$", method)
+        self.assertEqual(harness_template.count("$IMPORT_OWNERSHIP_HELPER$"), 1)
+        harness = harness_template.replace("$IMPORT_OWNERSHIP_HELPER$", patch.IMPORT_OWNERSHIP_SWIFT)
+        harness = harness.replace("$MANUAL_IMPORT_FUNCTION$", method)
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             source = directory / "manual-import.swift"

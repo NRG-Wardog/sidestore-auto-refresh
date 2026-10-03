@@ -160,7 +160,12 @@ class V3UnifiedShellTests(unittest.TestCase):
             group_write = 'UserDefaults.standard.set(LCSharedUtils.appGroupID(), forKey: "LCAppGroupID")'
             event = 'NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated"), object: nil)'
             self.assertEqual(manual.count(patch.MANUAL_JITLESS_IMPORT_EVENT_MARKER), 1)
+            self.assertEqual(manual.count(patch.MANUAL_JITLESS_IMPORT_INVALIDATION_MARKER), 1)
             self.assertEqual(manual.count(event), 1)
+            self.assertLess(manual.index("getCertTeamId(withKeyData: certificateData"),
+                            manual.index("V3CertificateImportOwnership.invalidate()"))
+            self.assertLess(manual.index("V3CertificateImportOwnership.invalidate()"),
+                            manual.index('forKey: "LCCertificateData"'))
             self.assertLess(manual.index(group_write), manual.index(event))
 
     def test_navigation_anchor_drift_fails_without_partial_writes(self):
@@ -185,6 +190,7 @@ class V3UnifiedShellTests(unittest.TestCase):
             manual = settings[settings.index("func importCertificate() async {"):
                              settings.index("func importCertificateFromSideStore() async {")]
             self.assertEqual(manual.count(patch.MANUAL_JITLESS_IMPORT_EVENT_MARKER), 1)
+            self.assertEqual(manual.count(patch.MANUAL_JITLESS_IMPORT_INVALIDATION_MARKER), 1)
             self.assertEqual(manual.count("Notification.Name(\"V3CanonicalJITLessCertificateUpdated\")"), 1)
             shell = (live / "LiveContainerSwiftUI/Views/V3UnifiedShell.swift").read_text()
             project = (live / "LiveContainer.xcodeproj/project.pbxproj").read_text()

@@ -20,21 +20,42 @@ BEHAVIOR_TEMPLATE = Path(__file__).with_name("templates") / "v3_behavioral_primi
 IPA_STAGING_TEMPLATE = Path(__file__).with_name("templates") / "v3_ipa_staging.swift"
 SECRET_HANDOFF_TEMPLATE = Path(__file__).with_name("templates") / "v3_secret_handoff.swift"
 MANUAL_JITLESS_IMPORT_EVENT_MARKER = "V3_CANONICAL_JITLESS_MANUAL_IMPORT_EVENT_V1"
+MANUAL_JITLESS_IMPORT_INVALIDATION_MARKER = "V3_CANONICAL_JITLESS_MANUAL_IMPORT_INVALIDATES_PENDING_V1"
 
 
 def patch_manual_certificate_import_notification(text: str) -> str:
     """Invalidate JIT-Less observations after the canonical manual writer succeeds."""
+    start_marker = "    func importCertificate() async {"
+    end_marker = "    func importCertificateFromSideStore() async {"
+    start = text.find(start_marker)
+    end = text.find(end_marker, start + len(start_marker)) if start >= 0 else -1
+    if start < 0 or end < 0:
+        die("manual certificate import function anchors changed")
+    manual = text[start:end]
+
+    invalidation_anchor = '        LCUtils.appGroupUserDefault.set(certificateData, forKey: "LCCertificateData")'
+    invalidation = ("        // " + MANUAL_JITLESS_IMPORT_INVALIDATION_MARKER +
+                    "\n        V3CertificateImportOwnership.invalidate()\n")
+    if MANUAL_JITLESS_IMPORT_INVALIDATION_MARKER in manual:
+        if manual.count(MANUAL_JITLESS_IMPORT_INVALIDATION_MARKER) != 1 or (invalidation + invalidation_anchor) not in manual:
+            die("manual certificate import request invalidation marker or placement drifted")
+    else:
+        if manual.count(invalidation_anchor) != 1:
+            die("manual certificate import data writer anchor changed")
+        manual = manual.replace(invalidation_anchor, invalidation + invalidation_anchor, 1)
+
     anchor = '        UserDefaults.standard.set(LCSharedUtils.appGroupID(), forKey: "LCAppGroupID")'
     event = 'NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated"), object: nil)'
     insertion = (anchor + '\n        // ' + MANUAL_JITLESS_IMPORT_EVENT_MARKER +
                  '\n        ' + event)
-    if MANUAL_JITLESS_IMPORT_EVENT_MARKER in text:
-        if text.count(MANUAL_JITLESS_IMPORT_EVENT_MARKER) != 1 or insertion not in text:
+    if MANUAL_JITLESS_IMPORT_EVENT_MARKER in manual:
+        if manual.count(MANUAL_JITLESS_IMPORT_EVENT_MARKER) != 1 or insertion not in manual:
             die("manual certificate import event marker or placement drifted")
-        return text
-    if text.count(anchor) != 1:
+        return text[:start] + manual + text[end:]
+    if manual.count(anchor) != 1:
         die("manual certificate import app-group writer anchor changed")
-    return text.replace(anchor, insertion, 1)
+    manual = manual.replace(anchor, insertion, 1)
+    return text[:start] + manual + text[end:]
 
 IMPORT_OWNERSHIP_SWIFT = '''    // V3_CERTIFICATE_IMPORT_OWNERSHIP_V1: persist only a short-lived opaque request id.
     private enum V3CertificateImportOwnership {
