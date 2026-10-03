@@ -63,6 +63,12 @@ not be automatically replayed.
   Swift. The gate now checks stable link markers; a native `-O` test executes the
   actual production diagnostic for both scopes. Runtime Keychain logic is
   unchanged. Windows full regression there passed 895 tests with 131 skips.
+- Run `37127345437` at `14bb8d40` was green with 909 native tests and no skips.
+  Download verification then found that artifact upload omitted three hidden
+  patch records listed in provenance. The debug upload now includes hidden files
+  only within the bounded collected evidence directory. CI downloads both IPA
+  and evidence and runs the production verifier again after upload, so green
+  requires a complete deliverable rather than only complete runner-local files.
 
 Changing signer namespaces can make old shared-Keychain items inaccessible to the
 service even though those items are retained. Explicit reauthentication/reimport

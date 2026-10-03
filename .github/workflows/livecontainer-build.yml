@@ -404,5 +404,31 @@ jobs:
         with:
           name: combined-v3-debug-evidence
           path: artifacts/debug-evidence
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 90
+
+      - name: Download uploaded candidate for delivery verification
+        uses: actions/download-artifact@v4
+        with:
+          name: LiveContainer-SideStore-v3.0.3-rc-IPA
+          path: artifacts/downloaded-ipa
+
+      - name: Download uploaded source and symbol evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: combined-v3-debug-evidence
+          path: artifacts/downloaded-debug-evidence
+
+      - name: Verify the actual uploaded candidate and evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 builder/scripts/verify_candidate_ipa.py \
+            --ipa artifacts/downloaded-ipa/LiveContainer-SideStore-v3.0.3-rc.ipa \
+            --provenance artifacts/downloaded-debug-evidence/candidate-provenance.json \
+            --product v3.0.3-rc \
+            --side-source work/EmbeddedSideStore \
+            --builder-commit "$GITHUB_SHA" \
+            --build-run-url "https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --output artifacts/downloaded-candidate-verification.json
