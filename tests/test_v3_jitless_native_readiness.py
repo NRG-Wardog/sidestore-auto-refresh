@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import json
 import shutil
 import subprocess
 import tempfile
@@ -10,6 +12,11 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 LEGACY_READER_COMMIT = "4ef8f978af2e16b8a41f611f48f99a17aa5a066a"
+LEGACY_FIXTURE_PATH = ROOT / "tests/fixtures/v3_jitless_legacy_4ef_source.swift"
+LEGACY_FIXTURE_METADATA_PATH = ROOT / "tests/fixtures/v3_jitless_legacy_4ef_source.json"
+LEGACY_FIXTURE_SHA256 = "5a0e5bb09d8186ea2926dc2e054c8654d31a070118e8449194517b8073d7fb6e"
+LEGACY_SOURCE_GIT_BLOB_SHA1 = "3829b114db836c76979e959cdfd893227edef956"
+LEGACY_SOURCE_SHA256 = "ac30ff087c8c03080d0734517e130e42c19dd05d32de60cad9f58f8ba5de1cf1"
 SHELL_PATH = "scripts/templates/v3_unified_shell.swift"
 PRIMITIVES_PATH = "scripts/templates/v3_behavioral_primitives.swift"
 HARNESS_PATH = ROOT / "tests/fixtures/v3_jitless_native_readiness_harness.swift"
@@ -20,24 +27,28 @@ def current_shell() -> str:
     local = (ROOT / SHELL_PATH).read_text(encoding="utf-8")
     if "LCUtils.certificateFacts(withKeyData:" in local:
         return local
-
-    # The isolated test worktree is based before the in-flight production
-    # template edit. Local integration can use the sibling production worktree;
-    # merged CI reads the repository-local template above.
-    development_copy = ROOT.parents[0] / "v3r77-provisioning" / SHELL_PATH
-    if development_copy.is_file():
-        newer = development_copy.read_text(encoding="utf-8")
-        if "LCUtils.certificateFacts(withKeyData:" in newer:
-            return newer
     raise AssertionError("the native-facts V3JITLessStatusReader is missing")
 
 
 def legacy_shell() -> str:
-    return subprocess.check_output(
-        ["git", "-C", str(ROOT), "show", f"{LEGACY_READER_COMMIT}:{SHELL_PATH}"],
-        text=True,
-        encoding="utf-8",
-    )
+    metadata = json.loads(LEGACY_FIXTURE_METADATA_PATH.read_text(encoding="utf-8"))
+    expected_metadata = {
+        "origin_commit": LEGACY_READER_COMMIT,
+        "origin_path": SHELL_PATH,
+        "origin_git_blob_sha1": LEGACY_SOURCE_GIT_BLOB_SHA1,
+        "origin_source_sha256": LEGACY_SOURCE_SHA256,
+        "fixture_path": "tests/fixtures/v3_jitless_legacy_4ef_source.swift",
+        "fixture_sha256": LEGACY_FIXTURE_SHA256,
+    }
+    for field, expected in expected_metadata.items():
+        if metadata.get(field) != expected:
+            raise AssertionError(f"legacy source fixture provenance mismatch: {field}")
+
+    fixture_bytes = LEGACY_FIXTURE_PATH.read_bytes()
+    normalized_fixture = fixture_bytes.replace(b"\r\n", b"\n")
+    if hashlib.sha256(normalized_fixture).hexdigest() != LEGACY_FIXTURE_SHA256:
+        raise AssertionError("legacy source fixture bytes do not match their pinned hash")
+    return fixture_bytes.decode("utf-8")
 
 
 def swift_declaration(source: str, signature: str) -> str:
@@ -191,6 +202,16 @@ def compile_harness(source: str, directory: Path, name: str) -> tuple[Path, subp
 
 
 class JITLessNativeReadinessTests(unittest.TestCase):
+    def test_legacy_fixture_provenance_and_old_harness_extract_without_git_history(self):
+        old = generated_harness(legacy_shell())
+        self.assertIn("SecPKCS12Import", old)
+        self.assertIn("LCUtils.getCertTeamId(withKeyData: data, password: password)", old)
+        self.assertIn("status.invalidateSetupFacts()", old)
+        old_handler = setup_revision_slices(legacy_shell(),
+            (ROOT / PRIMITIVES_PATH).read_text(encoding="utf-8"))[2]
+        self.assertGreater(old_handler.index("status.invalidateSetupFacts()"),
+                           old_handler.index("Task {"))
+
     def test_production_types_policy_and_reader_are_extracted(self):
         source = generated_harness(current_shell())
         self.assertIn("LCUtils.certificateFacts(withKeyData: data, password: password)", source)
