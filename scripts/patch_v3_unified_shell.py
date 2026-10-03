@@ -141,7 +141,7 @@ def patch_host(root: Path) -> None:
                       Set(reply.keys) == Set(["data", "password", "teamIdentifier", "identitySHA256"]),
                       let data = reply["data"] as? Data, !data.isEmpty, data.count <= 1_048_576,
                       let password = reply["password"] as? String,
-                      !password.isEmpty, password.utf8.count <= 512,
+                      password.utf8.count <= 512,
                       let team = reply["teamIdentifier"] as? String,
                       !team.isEmpty, team.utf8.count <= 64,
                       let fingerprint = reply["identitySHA256"] as? String,

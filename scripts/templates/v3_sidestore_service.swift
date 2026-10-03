@@ -42,7 +42,7 @@ enum V3ActiveCertificateExportAdapter {
     static func response(p12Data: Data, password: String, teamIdentifier: String,
                          identitySHA256: String) -> [String: Any]? {
         guard !p12Data.isEmpty, p12Data.count <= maximumP12Bytes,
-              !password.isEmpty, password.utf8.count <= maximumPasswordBytes,
+              password.utf8.count <= maximumPasswordBytes,
               !teamIdentifier.isEmpty, teamIdentifier.utf8.count <= 64,
               identitySHA256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
             return nil
@@ -1943,8 +1943,10 @@ final class V3SideStoreService: NSObject {
             let team = teamRecord.identifier
             guard !team.isEmpty else { throw ServiceError.notFound }
             guard let active = CertificateManager.shared.activeCertificate,
-                  let der = active.certificate.x509.data,
-                  let password = active.password else { throw ServiceError.notFound }
+                  let der = active.certificate.x509.data else { throw ServiceError.notFound }
+            // Upstream supports both password-protected and unencrypted P12s.
+            // The host's existing parser accepts an empty passphrase for the latter.
+            let password = active.password ?? ""
             let fingerprint = SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
             guard let exported = V3ActiveCertificateExportAdapter.response(
                       p12Data: active.p12Data, password: password,

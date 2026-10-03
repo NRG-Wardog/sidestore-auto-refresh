@@ -2292,6 +2292,7 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         self.assertIn("CertificateManager.shared.activeCertificate", service)
         self.assertIn("active.p12Data", service)
         self.assertIn("active.password", service)
+        self.assertIn('let password = active.password ?? ""', service)
         self.assertIn("teamRecord.account?.identifier == account.identifier", service)
         self.assertIn("V3AuthIdentityBindingPolicy.mayUseTeam(", service)
         self.assertIn("current.certificate.x509.data == der", service)
@@ -2302,6 +2303,7 @@ class RefreshAdmissionTemplateTests(unittest.TestCase):
         importer = shell_patch[shell_patch.index("V3_SERVICE_CERTIFICATE_EXPORT_V1"):]
         self.assertIn('operation: "certExportActive"', importer)
         self.assertIn("LCUtils.getCertTeamId(withKeyData: data, password: password) == team", importer)
+        self.assertNotIn("!password.isEmpty", importer)
         self.assertIn('operation: "healthSnapshot"', importer)
         self.assertIn('"certExportActive"', wire[wire.index("static let readOperations"):])
 
@@ -2329,9 +2331,8 @@ class WireExecutionTests(unittest.TestCase):
             self.skipTest("Swift compiler unavailable; production adapter boundary harness runs in macOS CI")
         harness = r'''
 let activeP12 = Data([0, 1, 2, 3, 4])
-let activePassword = "opaque-active-password"
-let team = "TEAM123456"
-let fingerprint = String(repeating: "a", count: 64)
+        let team = "TEAM123456"
+        let fingerprint = String(repeating: "a", count: 64)
 let hostHasServiceOwnedKeychainGroup = false
 var hostKeychainLookups = 0
 func hostKeychainLookup() -> Data? {
@@ -2339,20 +2340,22 @@ func hostKeychainLookup() -> Data? {
     precondition(hostHasServiceOwnedKeychainGroup == false, "host must not use the service-only group")
     return nil
 }
-let reply = V3ActiveCertificateExportAdapter.response(p12Data: activeP12,
-    password: activePassword, teamIdentifier: team, identitySHA256: fingerprint)!
-precondition(reply["data"] as? Data == activeP12)
-precondition(reply["password"] as? String == activePassword)
-precondition(reply["teamIdentifier"] as? String == team)
-precondition(reply["identitySHA256"] as? String == fingerprint)
-precondition(hostKeychainLookups == 0, "the production adapter returns service-owned material without host Keychain access")
-precondition(V3ActiveCertificateExportAdapter.response(p12Data: Data(), password: activePassword,
-    teamIdentifier: team, identitySHA256: fingerprint) == nil)
-precondition(V3ActiveCertificateExportAdapter.response(p12Data: Data(repeating: 0,
-    count: V3ActiveCertificateExportAdapter.maximumP12Bytes + 1), password: activePassword,
-    teamIdentifier: team, identitySHA256: fingerprint) == nil)
-precondition(V3ActiveCertificateExportAdapter.response(p12Data: activeP12,
-    password: String(repeating: "p", count: V3ActiveCertificateExportAdapter.maximumPasswordBytes + 1),
+        for activePassword in ["", "opaque-active-password"] {
+            let reply = V3ActiveCertificateExportAdapter.response(p12Data: activeP12,
+                password: activePassword, teamIdentifier: team, identitySHA256: fingerprint)!
+            precondition(reply["data"] as? Data == activeP12)
+            precondition(reply["password"] as? String == activePassword)
+            precondition(reply["teamIdentifier"] as? String == team)
+            precondition(reply["identitySHA256"] as? String == fingerprint)
+        }
+        precondition(hostKeychainLookups == 0, "the production adapter returns service-owned material without host Keychain access")
+        precondition(V3ActiveCertificateExportAdapter.response(p12Data: Data(), password: "",
+            teamIdentifier: team, identitySHA256: fingerprint) == nil)
+        precondition(V3ActiveCertificateExportAdapter.response(p12Data: Data(repeating: 0,
+            count: V3ActiveCertificateExportAdapter.maximumP12Bytes + 1), password: "",
+            teamIdentifier: team, identitySHA256: fingerprint) == nil)
+        precondition(V3ActiveCertificateExportAdapter.response(p12Data: activeP12,
+            password: String(repeating: "p", count: V3ActiveCertificateExportAdapter.maximumPasswordBytes + 1),
     teamIdentifier: team, identitySHA256: fingerprint) == nil)
 print("ACTIVE_CERTIFICATE_EXPORT_BOUNDARY_PASS")
 '''
