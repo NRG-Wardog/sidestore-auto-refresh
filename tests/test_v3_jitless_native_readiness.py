@@ -71,6 +71,49 @@ def swift_declaration(source: str, signature: str) -> str:
     raise AssertionError(f"unterminated production Swift declaration: {signature}")
 
 
+def swift_closure_body(source: str, signature: str) -> str:
+    start = source.find(signature)
+    if start < 0:
+        raise AssertionError(f"production root notification closure missing: {signature}")
+    opening = source.find("{ _ in", start)
+    if opening < 0:
+        raise AssertionError("root notification closure signature changed")
+
+    depth = 0
+    in_string = False
+    escaped = False
+    index = opening
+    while index < len(source):
+        character = source[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            index += 1
+            continue
+        if source.startswith("//", index):
+            newline = source.find("\n", index + 2)
+            index = len(source) if newline < 0 else newline + 1
+            continue
+        if character == '"':
+            in_string = True
+        elif character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth == 0:
+                body = source[opening + len("{ _ in"):index]
+                return body
+        index += 1
+    raise AssertionError("unterminated production root notification closure")
+
+
+ROOT_CERT_EVENT = '.onReceive(NotificationCenter.default.publisher(for: Notification.Name("V3CanonicalJITLessCertificateUpdated"))) { _ in'
+
+
 def production_slices(shell: str, behavior: str) -> list[str]:
     slices = [
         swift_declaration(behavior, "enum V3StatusSeverity:"),
@@ -96,13 +139,42 @@ def production_slices(shell: str, behavior: str) -> list[str]:
     return slices
 
 
-def generated_harness(shell: str) -> str:
+def setup_revision_slices(shell: str, behavior: str) -> tuple[list[str], list[str], str]:
+    facts = [
+        swift_declaration(shell, "struct V3SetupReadinessObservation: Equatable"),
+        swift_declaration(shell, "enum V3SetupReadinessObservationPolicy"),
+        swift_declaration(behavior, "enum V3SetupSnapshotOutcome:"),
+        swift_declaration(behavior, "enum V3SetupReloadRecomputePolicy"),
+    ]
+    methods = [
+        swift_declaration(shell, "    func beginSetupFactObservation() -> UInt64"),
+        swift_declaration(shell, "    func isSetupFactRevisionCurrent(_ revision: UInt64) -> Bool"),
+        swift_declaration(shell, "    func invalidateSetupFacts()"),
+        swift_declaration(shell, "    func recordJITLessReadiness(_ readiness: V3JITLessReadiness"),
+    ]
+    handler = swift_closure_body(shell, ROOT_CERT_EVENT)
+    return facts, methods, handler
+
+
+def generated_harness(shell: str, handler_shell: str | None = None) -> str:
     behavior = (ROOT / PRIMITIVES_PATH).read_text(encoding="utf-8")
     fixture = HARNESS_PATH.read_text(encoding="utf-8")
-    anchor = "// {{PRODUCTION_READINESS_SLICES}}"
-    if fixture.count(anchor) != 1:
-        raise AssertionError("production readiness slice anchor changed")
-    return fixture.replace(anchor, "\n\n".join(production_slices(shell, behavior)))
+    replacements = {
+        "// {{PRODUCTION_READINESS_SLICES}}": "\n\n".join(production_slices(shell, behavior)),
+        "// {{PRODUCTION_SETUP_REVISION_SLICES}}": "\n\n".join(
+            setup_revision_slices(shell, behavior)[0]),
+        "// {{PRODUCTION_SETUP_REVISION_METHODS}}": "\n\n".join(
+            setup_revision_slices(shell, behavior)[1]),
+        "// {{PRODUCTION_CERTIFICATE_UPDATE_HANDLER}}": setup_revision_slices(
+            handler_shell or shell, behavior)[2],
+    }
+    for anchor, replacement in replacements.items():
+        if fixture.count(anchor) != 1:
+            raise AssertionError(f"harness production slice anchor changed: {anchor}")
+        fixture = fixture.replace(anchor, replacement)
+    if "{{PRODUCTION_" in fixture:
+        raise AssertionError("a production shell declaration was not inserted into the harness")
+    return fixture
 
 
 def compile_harness(source: str, directory: Path, name: str) -> tuple[Path, subprocess.CompletedProcess[str]]:
@@ -125,7 +197,12 @@ class JITLessNativeReadinessTests(unittest.TestCase):
         self.assertIn("LCUtils.validateCertificate", source)
         self.assertIn("V3JITLessReadinessPolicy.evaluate", source)
         self.assertIn("V3JITLessPresentation.present", source)
+        self.assertIn("V3SetupReadinessObservationPolicy.mayApplyFreshObservation", source)
+        self.assertIn("Task {", source)
         self.assertNotIn("SecPKCS12Import", source)
+        handler = setup_revision_slices(current_shell(),
+            (ROOT / PRIMITIVES_PATH).read_text(encoding="utf-8"))[2]
+        self.assertLess(handler.index("status.invalidateSetupFacts()"), handler.index("Task {"))
 
     def test_native_facts_cases_pass_and_old_security_reader_fails_behaviorally(self):
         if not SWIFTC:
@@ -157,6 +234,47 @@ class JITLessNativeReadinessTests(unittest.TestCase):
             self.assertNotEqual(0, old_run.returncode,
                                 "the Security-based reader unexpectedly accepted native facts")
             self.assertIn("NATIVE_FACTS_MATCH_DID_NOT_REACH_READY", old_run.stderr)
+
+    def test_root_certificate_notification_invalidates_before_its_reload_task(self):
+        if not SWIFTC:
+            self.skipTest("swiftc unavailable; root race harness runs in macOS CI")
+        current = generated_harness(current_shell())
+        old_handler = generated_harness(current_shell(), handler_shell=legacy_shell())
+        self.assertIn("status.invalidateSetupFacts()", current)
+        handler = setup_revision_slices(current_shell(),
+            (ROOT / PRIMITIVES_PATH).read_text(encoding="utf-8"))[2]
+        self.assertLess(handler.index("status.invalidateSetupFacts()"), handler.index("Task {"))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            current_file = directory / "current-root-handler.swift"
+            current_binary = directory / "current-root-handler"
+            current_file.write_text(current, encoding="utf-8")
+            compiled = subprocess.run(
+                [SWIFTC, "-swift-version", "5", "-D", "V3_ROOT_HANDLER_ONLY",
+                 "-parse-as-library", str(current_file), "-o", str(current_binary)],
+                capture_output=True, text=True, timeout=90)
+            self.assertEqual(0, compiled.returncode, compiled.stdout + compiled.stderr)
+            result = subprocess.run([str(current_binary)], capture_output=True,
+                                    text=True, timeout=30)
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            self.assertIn("V3_JITLESS_ROOT_INVALIDATION_PASS", result.stdout)
+
+            old_file = directory / "old-root-handler.swift"
+            old_binary = directory / "old-root-handler"
+            old_file.write_text(old_handler, encoding="utf-8")
+            old_compiled = subprocess.run(
+                [SWIFTC, "-swift-version", "5", "-D", "V3_ROOT_HANDLER_ONLY",
+                 "-parse-as-library", str(old_file), "-o", str(old_binary)],
+                capture_output=True, text=True, timeout=90)
+            self.assertEqual(0, old_compiled.returncode,
+                             old_compiled.stdout + old_compiled.stderr)
+            old_result = subprocess.run([str(old_binary)], capture_output=True,
+                                        text=True, timeout=30)
+            self.assertNotEqual(0, old_result.returncode,
+                                "the pre-fix handler unexpectedly invalidated synchronously")
+            self.assertIn("certificate notification must invalidate before scheduling its reload task",
+                          old_result.stderr)
 
 
 if __name__ == "__main__":

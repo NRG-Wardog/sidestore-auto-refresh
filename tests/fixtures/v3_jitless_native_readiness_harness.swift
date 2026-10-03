@@ -65,6 +65,60 @@ enum LCSharedUtils {
 
 // {{PRODUCTION_READINESS_SLICES}}
 
+// {{PRODUCTION_SETUP_REVISION_SLICES}}
+
+struct MockReloadOutcome {
+    let setupSnapshotOutcome: V3SetupSnapshotOutcome
+}
+
+@MainActor
+final class MockJITLessStatusStore {
+    private enum SetupFactObservation {
+        case pending, observed, deferred
+    }
+
+    private var setupFactRevision: UInt64 = 0
+    private var setupFactObservation: SetupFactObservation = .pending
+    private var setupFactLastAttemptAt: Date?
+    var wifiAvailable: Bool?
+    var jitlessReadinessObservation: V3SetupReadinessObservation?
+    var jitlessReadiness: V3JITLessReadiness?
+    var jitlessActiveCertificateAvailable: Bool?
+    var returnToSetupAfterJITLess = false
+    var setupPresented = false
+    var notice: String?
+    private(set) var reloadEntered = false
+    private var reloadContinuation: CheckedContinuation<MockReloadOutcome, Never>?
+
+    // {{PRODUCTION_SETUP_REVISION_METHODS}}
+
+    func reloadAndWait() async -> MockReloadOutcome {
+        await withCheckedContinuation { continuation in
+            reloadEntered = true
+            reloadContinuation = continuation
+        }
+    }
+
+    func resolveReload(_ outcome: V3SetupSnapshotOutcome) {
+        guard let continuation = reloadContinuation else {
+            fatalError("controlled reload was not started")
+        }
+        reloadContinuation = nil
+        continuation.resume(returning: MockReloadOutcome(setupSnapshotOutcome: outcome))
+    }
+}
+
+@MainActor
+final class MockJITLessRootObserver {
+    let status: MockJITLessStatusStore
+
+    init(status: MockJITLessStatusStore) { self.status = status }
+
+    func certificateUpdated() {
+        // {{PRODUCTION_CERTIFICATE_UPDATE_HANDLER}}
+    }
+}
+
 @main
 enum V3JITLessNativeReadinessHarness {
     static let opaqueDataSecurityRejects = Data("native-boundary-accepted-fixture".utf8)
@@ -89,6 +143,12 @@ enum V3JITLessNativeReadinessHarness {
     }
 
     static func main() async {
+        #if V3_ROOT_HANDLER_ONLY
+        await certificateNotificationInvalidatesBeforeSchedulingReload()
+        print("V3_JITLESS_ROOT_INVALIDATION_PASS")
+        return
+        #endif
+
         // New reader: a copy accepted by LC's native facts API reaches the real
         // production identity/policy path and compares the certificate DER hash.
         NativeCertificateObservation.reset(data: opaqueDataSecurityRejects,
@@ -159,6 +219,39 @@ enum V3JITLessNativeReadinessHarness {
                      malformedFacts.readiness == .unknown,
                      "malformed native facts cannot claim readiness or a missing copy")
 
+        await certificateNotificationInvalidatesBeforeSchedulingReload()
+
         print("V3_JITLESS_NATIVE_READINESS_PASS")
+    }
+
+    @MainActor
+    static func certificateNotificationInvalidatesBeforeSchedulingReload() async {
+        let status = MockJITLessStatusStore()
+        let previousRevision = status.beginSetupFactObservation()
+        status.recordJITLessReadiness(.certificateImported,
+            activeCertificateAvailable: true, revision: previousRevision)
+        status.returnToSetupAfterJITLess = true
+
+        // This calls the actual root notification closure extracted from the
+        // production shell. No yield occurs until after its synchronous prefix.
+        MockJITLessRootObserver(status: status).certificateUpdated()
+        precondition(!status.isSetupFactRevisionCurrent(previousRevision),
+                     "certificate notification must invalidate before scheduling its reload task")
+
+        // A previously queued validation result is stale as soon as the handler
+        // returns, even though reloadAndWait remains suspended at its boundary.
+        status.recordJITLessReadiness(.ready, activeCertificateAvailable: true,
+                                      revision: previousRevision)
+        precondition(status.jitlessReadiness == nil &&
+                     status.jitlessReadinessObservation == nil,
+                     "a pre-write native result cannot overwrite invalidated setup facts")
+
+        for _ in 0..<1000 where !status.reloadEntered { await Task.yield() }
+        precondition(status.reloadEntered && !status.setupPresented,
+                     "Setup stays closed while the authoritative reload is pending")
+        status.resolveReload(.applied)
+        for _ in 0..<1000 where !status.setupPresented { await Task.yield() }
+        precondition(status.setupPresented && !status.returnToSetupAfterJITLess,
+                     "Setup reopens only after the awaited snapshot is applied")
     }
 }
