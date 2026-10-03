@@ -3,7 +3,7 @@
 Checkpoint: 2026-10-03. Resumed from clean `codex/v3r62-recovery` at
 `1be7970350c6e7b4b282ffbb5059c81d35f7a9fd`. Work continues in isolated
 `codex/v3r76-stabilization`. The workspace-root checkout is stale and untouched.
-The matching CI run `37018361730` failed. Last green CI is `36862426586` at
+At resume, matching CI run `37018361730` failed. The last green then was `36862426586` at
 `475362603783fa44f8766480230d72f935a4ce41`; that predates transient XPC answers.
 
 ## Completion ledger
@@ -33,3 +33,33 @@ device acceptance is history, not proof for this candidate. CI green is not devi
 verification. Keep credentials out of persistent request caches, logs, defaults,
 environment variables, diagnostics, and ordinary files; interactive answers must
 not be automatically replayed.
+
+## Implemented in this completion pass
+
+- The transient answer replacement was already present at resume (`b770835c`).
+  v3.0.2 also sent the answer on the command channel; ownership/cancellation guards
+  added since then are retained.
+- Added OS peer PID admission against the actual NSExtension launch PID. Incoming
+  connections remain suspended until admitted, in either launch callback order.
+- Bound prompt sessions to the creating launch UUID, invalidated bindings on
+  cancellation/disconnect, and rejected late replies or sends to replacement
+  services. Bindings and pending peers have bounded cleanup.
+- Repaired package checks that required the retired Keychain answer consumer and
+  old Keychain diagnostic marker. Link markers remain package checks, not runtime
+  evidence.
+- Explicit LC certificate import now reads the existing SideStore active material
+  through a bounded, noncached service reply and uses LC's existing parser and
+  request-owned import callback. Both protected and unencrypted P12s are supported.
+- Windows regression against clean pinned source plus initialized nested
+  dependencies: 894 tests, 130 platform-dependent skips, successful. The initial
+  source-backed run failed with missing dependencies and one stale repository
+  assertion; both causes were corrected. Swift execution still requires macOS CI.
+- Complete prepared-source pipeline applied twice successfully from fresh pins;
+  composed SignInOperation verification passed; final Dead10ccFix has both required
+  background observers. Exact-commit Xcode build/package remains the next gate.
+
+Changing signer namespaces can make old shared-Keychain items inaccessible to the
+service even though those items are retained. Explicit reauthentication/reimport
+may be needed; this pass does not move auth into the host or erase inaccessible
+user data. Real iLoader entitlements, Apple auth/2FA, refresh after relaunch,
+JIT-Less signatures, and guest lifecycle remain device/external acceptance items.
