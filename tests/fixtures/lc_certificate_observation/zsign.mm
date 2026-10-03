@@ -7,11 +7,11 @@
     const char* strPKeyFileData = (const char*)[cert bytes];
 
     strPassword = [pass cStringUsingEncoding:NSUTF8StringEncoding];
-    
+
     ZLog::logs.clear();
 
     __block ZSignAsset zSignAsset;
-    
+
     if (!zSignAsset.InitSimple(strPKeyFileData, (int)[cert length], nil, 0, strPassword)) {
         ZLog::logs.clear();
         return nil;

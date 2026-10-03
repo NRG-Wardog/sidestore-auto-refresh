@@ -12,7 +12,8 @@ static int gCheckCertCalls = 0;
 static int gCheckCertReturn = 1;
 static NSData *gCertificateData = nil;
 static NSString *gPassword = nil;
-static dispatch_semaphore_t gCheckCertCallbackGate = nil;
+static dispatch_semaphore_t gCheckCertCallbackRelease = nil;
+static dispatch_semaphore_t gCheckCertCallbackDone = nil;
 
 static Class TestClassFromString(NSString *name) {
     if (!gClassAvailable || ![name isEqualToString:@"ZSigner"]) return Nil;
@@ -51,8 +52,9 @@ completionHandler:(void (^)(int, NSDate *, NSString *, NSString *))completionHan
     ++gCheckCertCalls;
     const int returnedStatus = gCheckCertReturn;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-        dispatch_semaphore_wait(gCheckCertCallbackGate, DISPATCH_TIME_FOREVER);
+        dispatch_semaphore_wait(gCheckCertCallbackRelease, DISPATCH_TIME_FOREVER);
         completionHandler(returnedStatus, nil, @"TEAM123456", nil);
+        dispatch_semaphore_signal(gCheckCertCallbackDone);
     });
     return returnedStatus;
 }
@@ -132,8 +134,38 @@ int main(int argc, const char *argv[]) {
         if (!require(missingClassReturn == -6 && missingClassCalls == 1 && missingClassStatus == 2,
                      @"missing native class must callback once with unavailable and return -6")) return 10;
 
+        // Missing inputs are rejected by the actual wrapper before loader/class
+        // or validator dispatch; both public callback paths must settle once.
+        gClassAvailable = YES;
+        gCheckCertCalls = 0;
+        gCertificateData = nil;
+        gPassword = @"native-fixture-pass";
+        __block int nilDataCalls = 0;
+        __block int nilDataStatus = -99;
+        int nilDataReturn = [LCUtils validateCertificateWithCompletionHandler:
+            ^(int status, NSDate *, NSString *, NSString *) {
+                ++nilDataCalls; nilDataStatus = status;
+            }];
+        if (!require(nilDataReturn == -6 && nilDataCalls == 1 && nilDataStatus == 2 &&
+                     gCheckCertCalls == 0,
+                     @"nil certificate must callback once without calling ZSigner validation")) return 14;
+
+        gCertificateData = first;
+        gPassword = nil;
+        __block int nilPasswordCalls = 0;
+        __block int nilPasswordStatus = -99;
+        int nilPasswordReturn = [LCUtils validateCertificateWithCompletionHandler:
+            ^(int status, NSDate *, NSString *, NSString *) {
+                ++nilPasswordCalls; nilPasswordStatus = status;
+            }];
+        if (!require(nilPasswordReturn == -6 && nilPasswordCalls == 1 && nilPasswordStatus == 2 &&
+                     gCheckCertCalls == 0,
+                     @"nil password must callback once without calling ZSigner validation")) return 15;
+
         gClassAvailable = YES;
         gLoaderFails = YES;
+        gCertificateData = first;
+        gPassword = @"native-fixture-pass";
         __block int loaderCalls = 0;
         __block int loaderStatus = -99;
         int loaderReturn = [LCUtils validateCertificateWithCompletionHandler:
@@ -145,18 +177,20 @@ int main(int argc, const char *argv[]) {
 
         gLoaderFails = NO;
         gCheckCertCalls = 0;
-        gCheckCertCallbackGate = dispatch_semaphore_create(0);
+        gCheckCertCallbackRelease = dispatch_semaphore_create(0);
+        gCheckCertCallbackDone = dispatch_semaphore_create(0);
         __block int validationCalls = 0;
         __block int validationStatus = -99;
         int validationReturn = [LCUtils validateCertificateWithCompletionHandler:
             ^(int status, NSDate *, NSString *, NSString *) {
                 ++validationCalls; validationStatus = status;
-                dispatch_semaphore_signal(gCheckCertCallbackGate);
             }];
         if (!require(validationReturn == 1 && gCheckCertCalls == 1,
                      @"wrapper must return the existing ZSigner validation result")) return 12;
-        dispatch_semaphore_signal(gCheckCertCallbackGate);
-        if (dispatch_semaphore_wait(gCheckCertCallbackGate,
+        // Keep the mocked checker callback parked until the production wrapper
+        // has returned, then wait on a distinct completion signal.
+        dispatch_semaphore_signal(gCheckCertCallbackRelease);
+        if (dispatch_semaphore_wait(gCheckCertCallbackDone,
                 dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC)) != 0 ||
             !require(validationCalls == 1 && validationStatus == 1,
                      @"asynchronous native validation callback must pass through exactly once")) return 13;
