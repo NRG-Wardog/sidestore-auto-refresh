@@ -23,26 +23,56 @@ BACKGROUND_SPEC.loader.exec_module(background)
 
 
 class CombinedRefreshContractTests(unittest.TestCase):
-    def test_package_verifier_accepts_current_keychain_scope_diagnostics(self):
-        patch.verify_keychain_selection_contract(
-            b"[LC_KEYCHAIN] GROUP_SELECTED service=storage scope=shared\x00"
-            b"LCSharedKeychainReadyV1")
-        patch.verify_keychain_selection_contract(
-            b"[LC_KEYCHAIN] GROUP_SELECTED service=storage scope=process\x00"
-            b"LCSharedKeychainReadyV1")
+    def test_package_verifier_does_not_require_interpolation_fragments_in_binary(self):
+        # Optimized Swift can encode short fragments as instruction immediates.
+        # Link checks must not assume that a binary contains a rendered log line.
+        for diagnostic in (b"[LC_KEYCHAIN] GROUP_SELECTED service=storage scope=shared",
+                           b"[LC_KEYCHAIN] GROUP_SELECTED service=storage scope=process",
+                           b"[LC_KEYCHAIN] GROUP_SELECTED service="):
+            with self.subTest(diagnostic=diagnostic):
+                patch.verify_keychain_selection_contract(
+                    diagnostic + b"\x00LCSharedKeychainReadyV1")
 
-    def test_package_verifier_requires_selection_scope_and_migration_markers(self):
+    def test_package_verifier_requires_selection_and_migration_markers(self):
         cases = (
             (b"[LC_KEYCHAIN] SHARED_GROUP_SELECTED scope=shared\x00LCSharedKeychainReadyV1",
-             "Keychain selection scope diagnostics missing"),
-            (b"[LC_KEYCHAIN] GROUP_SELECTED service=storage\x00LCSharedKeychainReadyV1",
-             "Keychain selection scope diagnostics missing"),
+             "Keychain selection diagnostic missing"),
             (b"[LC_KEYCHAIN] GROUP_SELECTED service=storage scope=shared",
              "Legacy Keychain migration contract missing"),
         )
         for executable, expected in cases:
             with self.subTest(expected=expected), self.assertRaisesRegex(ValueError, expected):
                 patch.verify_keychain_selection_contract(executable)
+
+    @unittest.skipUnless(shutil.which("swiftc"), "optimized Swift diagnostic executes on macOS CI")
+    def test_optimized_production_diagnostic_emits_scope_and_passes_link_gate(self):
+        template = (ROOT / "scripts/templates/embedded_shared_keychain.swift").read_text()
+        diagnostic = next(line.strip() for line in template.splitlines()
+                          if 'debugLog("[LC_KEYCHAIN] GROUP_SELECTED' in line)
+        # Exercise the shipped interpolation, rather than concatenating an
+        # imaginary complete diagnostic into a mock executable.
+        source = '''import Foundation
+func debugLog(_ text: @autoclosure () -> String) { print(text()) }
+let service = CommandLine.arguments[1]
+for scope in ["shared", "process"] {
+''' + diagnostic + '''
+}
+print("LCSharedKeychainReadyV1")
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            swift = root / "diagnostic.swift"
+            executable = root / "diagnostic"
+            swift.write_text(source)
+            subprocess.run([shutil.which("swiftc"), "-O", str(swift), "-o", str(executable)],
+                           check=True, capture_output=True, text=True, timeout=60)
+            output = subprocess.run([str(executable), "storage"], check=True,
+                                    capture_output=True, text=True, timeout=10).stdout.splitlines()
+            self.assertEqual(output, [
+                "[LC_KEYCHAIN] GROUP_SELECTED service=storage scope=shared",
+                "[LC_KEYCHAIN] GROUP_SELECTED service=storage scope=process",
+                "LCSharedKeychainReadyV1"])
+            patch.verify_keychain_selection_contract(executable.read_bytes())
 
     def test_standalone_manifest_persists_only_safe_failure_fields(self):
         original = r'''    private let refreshIdentifier: String = UUID().uuidString

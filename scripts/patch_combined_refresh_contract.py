@@ -194,14 +194,15 @@ def verify_ipa(path: Path) -> dict:
 
 
 def verify_keychain_selection_contract(executable: bytes) -> None:
-    """Check linked diagnostics for shared-group selection and process fallback.
+    """Check stable link markers, not the layout of interpolated Swift strings.
 
-    GROUP_SELECTED plus the emitted scope field describes either entitled
-    shared-group selection or the process-default fallback. It does not claim
-    that a shared group was selected on a particular device.
+    The runtime diagnostic emits the selected scope, but Swift may encode its
+    short `` scope=`` fragment as an immediate rather than a contiguous string
+    in an optimized executable. The long prefix and migration key are link
+    evidence only; they do not prove selection on a particular device.
     """
-    if b"[LC_KEYCHAIN] GROUP_SELECTED" not in executable or b"scope=" not in executable:
-        raise ValueError("Keychain selection scope diagnostics missing from embedded executable")
+    if b"[LC_KEYCHAIN] GROUP_SELECTED" not in executable:
+        raise ValueError("Keychain selection diagnostic missing from embedded executable")
     if b"LCSharedKeychainReadyV1" not in executable:
         raise ValueError("Legacy Keychain migration contract missing")
 

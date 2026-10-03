@@ -57,6 +57,12 @@ not be automatically replayed.
 - Complete prepared-source pipeline applied twice successfully from fresh pins;
   composed SignInOperation verification passed; final Dead10ccFix has both required
   background observers. Exact-commit Xcode build/package remains the next gate.
+- At `7ae63020`, macOS native tests, layout, host/SideStore builds and transport
+  tests passed; run `37125093685` failed the package gate's assumption that the
+  short interpolated `scope=` log fragment must appear contiguously in optimized
+  Swift. The gate now checks stable link markers; a native `-O` test executes the
+  actual production diagnostic for both scopes. Runtime Keychain logic is
+  unchanged. Windows full regression there passed 895 tests with 131 skips.
 
 Changing signer namespaces can make old shared-Keychain items inaccessible to the
 service even though those items are retained. Explicit reauthentication/reimport
