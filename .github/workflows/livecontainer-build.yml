@@ -124,6 +124,8 @@ jobs:
             python3 builder/scripts/patch_app_layout.py --v3-grid work/LiveContainer
             python3 builder/scripts/patch_v3_unified_shell.py work/LiveContainer work/EmbeddedSideStore
             python3 builder/scripts/patch_v3_unified_shell.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_lc_certificate_observation.py work/LiveContainer
+            python3 builder/scripts/patch_lc_certificate_observation.py work/LiveContainer
             python3 builder/scripts/patch_v3_service.py work/LiveContainer work/EmbeddedSideStore
             python3 builder/scripts/patch_v3_service.py work/LiveContainer work/EmbeddedSideStore
             swiftc -frontend -parse work/LiveContainer/MultitaskSupport/MultitaskAppWindow.swift
@@ -201,6 +203,16 @@ jobs:
           if ! command -v ldid >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install ldid; fi
           if ! command -v bindgen >/dev/null 2>&1; then cargo install --locked bindgen-cli --version 0.72.1; fi
           rustup target add aarch64-apple-ios
+
+      - name: Execute canonical LiveContainer certificate observation regression
+        env:
+          LIVE_CONTAINER_TEST_SOURCE: ${{ github.workspace }}/work/LiveContainer
+          REQUIRE_LC_CERTIFICATE_NATIVE_TESTS: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install openssl@3
+          python3 -m unittest discover -s builder/tests -p test_lc_certificate_observation.py -v
 
       - name: Apply focused CoreDevice transport patches
         run: |

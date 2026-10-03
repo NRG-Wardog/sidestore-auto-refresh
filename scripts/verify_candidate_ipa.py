@@ -549,6 +549,10 @@ def preflight_archive(archive, ipa_size_bytes: int, limits: dict | None = None):
 
 
 REQUIRED_GENERATED_HOST_SOURCES = {
+    'ZSign/zsigner.h',
+    'ZSign/zsign.mm',
+    'LiveContainerSwiftUI/Utilities/LCUtils.h',
+    'LiveContainerSwiftUI/Utilities/LCUtils.m',
     "SideStoreSupport/SideStore.swift", "SideStoreSupport/SideStoreClient.swift",
     "SideStoreSupport/XPCServer.m", "SideStoreSupport/XPCServer.h",
     "LiveContainer/LCBootstrap.m", "LiveContainer/LCContainerStorage.h",
@@ -582,6 +586,10 @@ def verify_generated_source_evidence(evidence_root: Path, hashes: dict,
         required.difference_update({
             "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
             "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
+            'ZSign/zsigner.h',
+            'ZSign/zsign.mm',
+            'LiveContainerSwiftUI/Utilities/LCUtils.h',
+            'LiveContainerSwiftUI/Utilities/LCUtils.m',
         })
     required.update("embedded/" + name for name in REQUIRED_GENERATED_EMBEDDED_SOURCES)
     if set(hashes) != required:

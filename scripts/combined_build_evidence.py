@@ -30,6 +30,10 @@ HOST_SOURCE_PATHS = [
     '.lc-app-layout.json', '.combined-service-startup.json',
 ]
 V3_HOST_SOURCE_PATHS = [
+    'ZSign/zsigner.h',
+    'ZSign/zsign.mm',
+    'LiveContainerSwiftUI/Utilities/LCUtils.h',
+    'LiveContainerSwiftUI/Utilities/LCUtils.m',
     'LiveContainerSwiftUI/Views/V3UnifiedShell.swift',
     'LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift',
 ]

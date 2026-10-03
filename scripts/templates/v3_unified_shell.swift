@@ -202,8 +202,9 @@ struct V3UnifiedTabs: View {
             // authoritative state. The snapshot is awaited before Setup is
             // reopened, so the assistant never recomputes JIT-Less from the
             // pre-import snapshot.
+            // Invalidate before yielding: an older callback may already be queued.
+            status.invalidateSetupFacts()
             Task {
-                status.invalidateSetupFacts()
                 let outcome = await status.reloadAndWait()
                 guard V3SetupReloadRecomputePolicy.mayRecompute(
                     outcome: outcome.setupSnapshotOutcome) else {
@@ -8044,7 +8045,7 @@ private enum V3JITLessStatusReader {
         }
         let state = V3JITLessReadinessPolicy.evaluate(
             osMajor: osMajor,
-            hasCopy: data != nil && password != nil && facts != nil,
+            hasCopy: data != nil && password != nil,
             activeCertificateExists: active,
             activeCertificateStatus: activeStatus,
             identitiesMatch: identitiesMatch,
@@ -8060,20 +8061,12 @@ private enum V3JITLessStatusReader {
     }
 
     static func parse(_ data: Data, password: String) -> V3PKCS12CertificateFacts? {
-        var importedItems: CFArray?
-        let options = [kSecImportExportPassphrase as String: password] as CFDictionary
-        guard SecPKCS12Import(data as CFData, options, &importedItems) == errSecSuccess,
-              let item = (importedItems as? [[String: Any]])?.first,
-              let identityValue = item[kSecImportItemIdentity as String] else { return nil }
-        let identityObject = identityValue as AnyObject
-        guard CFGetTypeID(identityObject as CFTypeRef) == SecIdentityGetTypeID() else { return nil }
-        let identity = unsafeBitCast(identityObject, to: SecIdentity.self)
-        var certificate: SecCertificate?
-        guard SecIdentityCopyCertificate(identity, &certificate) == errSecSuccess,
-              let certificate,
-              let team = LCUtils.getCertTeamId(withKeyData: data, password: password) else { return nil }
-        let der = SecCertificateCopyData(certificate) as Data
-        let fingerprint = SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
+        // Observe the same native parser that canonical LC import and Diagnose
+        // use. Security's independent PKCS#12 acceptance is not a prerequisite.
+        guard let facts = LCUtils.certificateFacts(withKeyData: data, password: password),
+              let team = facts["teamIdentifier"], !team.isEmpty,
+              let fingerprint = facts["identitySHA256"],
+              fingerprint.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else { return nil }
         return V3PKCS12CertificateFacts(teamIdentifier: team, identitySHA256: fingerprint)
     }
 
