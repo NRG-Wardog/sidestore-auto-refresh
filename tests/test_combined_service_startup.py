@@ -507,6 +507,10 @@ class ReadinessRegressionTests(unittest.TestCase):
         codes_open = constants_text.index("{", codes_start)
         actual_result_codes = constants_text[codes_start:_matching_swift_brace(constants_text, codes_open)]
 
+        app_ids_text = (Path(side_sign) / "Sources/DeveloperPortal/AppIDs.swift").read_text(encoding="utf-8")
+        handler_open = app_ids_text.index("{", app_ids_text.index("resultCodeHandler: {"))
+        actual_app_id_result_handler = app_ids_text[handler_open:_matching_swift_brace(app_ids_text, handler_open)]
+
         api_text = (Path(side_sign) / "Sources/DeveloperPortal/DeveloperPortalAPI.swift").read_text(encoding="utf-8")
         patched_api = startup.patch_sidesign_portal_observer(api_text)
         status_parser = "if let status = (try? PropertyListDecoder().decode(DeveloperPortalStatusResponse.self, from: data))"
@@ -539,8 +543,12 @@ class ReadinessRegressionTests(unittest.TestCase):
         behavioral_model = _without_imports((ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
         template = (ROOT / "tests/fixtures/v3_portal_failure_harness.swift").read_text(encoding="utf-8")
 
-        def build_source(*, mutate_server_code=False, mutate_source_step=False):
+        def build_source(*, mutate_server_code=False, mutate_source_step=False, mutate_quota=False):
             signing_helper = startup.SIGNING_CAUSE_HELPER
+            if mutate_quota:
+                original = 'case .maximumAppIDLimitReached: return "appIDLimitReached"'
+                self.assertEqual(signing_helper.count(original), 1)
+                signing_helper = signing_helper.replace(original, "// targeted mutation: typed quota lost", 1)
             if mutate_server_code:
                 original = 'context["server_code"] = code == -1 ? "unknown" : String(code)'
                 self.assertEqual(signing_helper.count(original), 1)
@@ -555,6 +563,7 @@ class ReadinessRegressionTests(unittest.TestCase):
                 "$DEVELOPER_PORTAL_STATUS_RESPONSE$": actual_status_response,
                 "$DEVELOPER_PORTAL_RESULT_CODES$": actual_result_codes,
                 "$PORTAL_OBSERVER$": startup.SIDESIGN_PORTAL_OBSERVER,
+                "$ACTUAL_APP_ID_RESULT_HANDLER$": actual_app_id_result_handler,
                 "$COMBINED_FAILURE$": failure_model,
                 "$BEHAVIORAL_POLICIES$": behavioral_model,
                 "$SIGNING_CAUSE_HELPER$": signing_helper,
@@ -590,6 +599,7 @@ class ReadinessRegressionTests(unittest.TestCase):
             execute("portal-failure", build_source(), True)
             execute("portal-failure-no-server-code", build_source(mutate_server_code=True), False)
             execute("portal-failure-wrong-source-step", build_source(mutate_source_step=True), False)
+            execute("portal-failure-no-quota", build_source(mutate_quota=True), False)
 
     def test_structured_failures_are_preserved_not_rewrapped(self):
         handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")

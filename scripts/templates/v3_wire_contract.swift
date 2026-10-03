@@ -562,7 +562,7 @@ enum V3ServiceReadinessReply: Equatable {
         "anisetteServerUnavailable", "anisetteServerRejected", "anisetteRequestTimedOut",
         "anisetteRateLimited", "anisetteInvalidResponse", "anisetteUnknownFailure",
         "signingNetworkConnectionLost", "signingNetworkTimedOut", "signingNetworkUnavailable",
-        "developerPortalRejectedRequest", "developerPortalInvalidResponse",
+        "developerPortalRejectedRequest", "developerPortalInvalidResponse", "appIDLimitReached",
         "provisioningProfileUnavailable", "certificateUnavailable", "wifiUnavailable",
         "localDevVPNUnavailable", "unknownSigningCause", "sourceNetworkFailure",
         "sourceInvalidManifest", "sourcePersistenceUnverified", "sourceInvalidURL",

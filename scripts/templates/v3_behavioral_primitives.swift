@@ -3673,6 +3673,7 @@ struct V3OperationFailureDetails {
     }
 
     var recommendedAction: String {
+        if safeCause == CombinedFailure.SafeCause.appIDLimitReached.rawValue { return whatToDo }
         if safeCause == CombinedFailure.SafeCause.responseEncodingFailed.rawValue {
             return "Copy Diagnostics and report that the service could not encode its response. Repeating the same request will not help."
         }

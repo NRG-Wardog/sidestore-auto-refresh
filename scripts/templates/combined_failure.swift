@@ -163,6 +163,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case signingNetworkTimedOut
         case signingNetworkUnavailable
         case developerPortalRejectedRequest
+        case appIDLimitReached
         case developerPortalInvalidResponse
         case provisioningProfileUnavailable
         case certificateUnavailable
@@ -235,7 +236,7 @@ public struct CombinedFailure: Error, LocalizedError {
                 return false
             case .anisetteInvalidResponse, .anisetteUnknownFailure:
                 return nil
-            case .provisioningProfileUnavailable, .certificateUnavailable:
+            case .appIDLimitReached, .provisioningProfileUnavailable, .certificateUnavailable:
                 return false
             case .developerPortalRejectedRequest, .developerPortalInvalidResponse:
                 return nil
@@ -558,6 +559,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .signingNetworkUnavailable: return "The signing flow could not reach the provisioning service."
             case .developerPortalRejectedRequest:
                 return "Apple's developer service reported an error \(sourceStep?.portalUserLabel ?? "while preparing the app's provisioning data")."
+            case .appIDLimitReached: return "Apple reported that the selected developer team has reached its App ID limit."
             case .developerPortalInvalidResponse: return "The provisioning service returned an invalid response during signing."
             case .provisioningProfileUnavailable: return "A required provisioning profile is not available for this app."
             case .certificateUnavailable: return "The selected signing certificate is not available."
@@ -754,6 +756,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Your current connection may still be healthy. Retry once. If this happens again, open Connection Settings."
             case .developerPortalRejectedRequest, .developerPortalInvalidResponse:
                 return "Copy Diagnostics, including the failed request step and server code. The correct recovery action is not yet known."
+            case .appIDLimitReached:
+                return "Check App IDs for the selected team and retry when capacity is available. Repeating the install immediately or changing certificates will not free an App ID slot."
             case .provisioningProfileUnavailable:
                 return "The requested provisioning profile was unavailable. Keep the diagnostics before trying the install again."
             case .certificateUnavailable:

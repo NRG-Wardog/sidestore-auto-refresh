@@ -430,7 +430,7 @@ func v3ProvisioningGuidance(_ error: DeveloperPortalError) -> (message: String, 
                 "Recreate the App ID or sync app data before retrying.")
     case .maximumAppIDLimitReached:
         return ("The Apple Developer account has reached its App ID limit.",
-                "Remove an unused App ID before retrying.")
+                "Check App IDs for the selected team and retry when capacity is available. Changing certificates will not free an App ID slot.")
     case .invalidAppGroup:
         return ("An app group value was rejected as invalid.",
                 "Fix the app group configuration before retrying.")
@@ -560,7 +560,7 @@ func v3OperationErrorGuidance(_ error: OperationError) -> (message: String, hint
                 "Review the app identifier and team under Account and Signing, then retry provisioning.")
     case .maximumAppIDLimitReached:
         return ("The Apple Developer account has reached its App ID limit.",
-                "Remove an unused App ID before retrying.")
+                "Check App IDs for the selected team and retry when capacity is available. Changing certificates will not free an App ID slot.")
 
     // Timing.
     case .timedOut:

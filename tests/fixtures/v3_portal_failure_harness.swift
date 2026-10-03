@@ -12,7 +12,7 @@ $BEHAVIORAL_POLICIES$
 $SIGNING_CAUSE_HELPER$
 
 private func debugLog(_ text: String) {}
-private let resultCodeHandler: ((Int, String) -> Error?)? = nil
+private let resultCodeHandler: ((Int, String) -> Error?)? = $ACTUAL_APP_ID_RESULT_HANDLER$
 
 private func dispatchActualSideSignStatus(data: Data, response: URLResponse) throws {
 $ACTUAL_HTTP_OBSERVER_AND_STATUS_DECODER$
@@ -219,6 +219,43 @@ private func roundTrip(_ failure: Error, operation: String = "install") throws -
         let typedIssue = V3UserFacingIssue.make(typed)
         precondition(typedDetails.recoveryDestination == "certificates")
         precondition(typedIssue.recoveryDestination == "certificates")
+        // Execute the pinned addAppID result-code handler inside the actual
+        // pinned status decoder, through the generated service request/catch.
+        let quotaBundle = "com.private.quota"
+        await actualCode.install([quotaBundle: PortalResponsePlan(
+            body: Data(#"{"resultCode":37,"userString":"PRIVATE-QUOTA-BODY"}"#.utf8),
+            status: 200, delayMilliseconds: 0)])
+        let reportedQuota = try await capture(proxy, bundle: quotaBundle)
+        precondition(reportedQuota.safeCause == .appIDLimitReached)
+        precondition(reportedQuota.stage == .signing && reportedQuota.retryable == false)
+        precondition(V3OperationFailureDetails(reportedQuota).recommendedAction.contains("capacity"))
+        precondition(!reportedQuota.technicalDetails.contains("PRIVATE-QUOTA-BODY"))
+        let quotaCounts = await actualCode.counts()
+        precondition(quotaCounts[quotaBundle] == 1)
+
+        // Real pinned typed errors, the generated pipeline catch, plist bridge,
+        // and both production UI policies must preserve the quota distinction.
+        // A generic server code/message is deliberately not treated as quota.
+        let quotaCases: [(Error, Bool)] = [
+            (DeveloperPortalError.maximumAppIDLimitReached(cause: "PRIVATE-QUOTA-BODY"), true),
+            (ServerError.underlyingError(code: 37, message: "Not enough available app IDs"), false),
+            (DeveloperPortalError.unknown(cause: "Not enough available app IDs"), false)
+        ]
+        for (error, isQuota) in quotaCases {
+            let failure = try roundTrip(error)
+            precondition((failure.safeCause == .appIDLimitReached) == isQuota)
+            let details = V3OperationFailureDetails(failure)
+            let issue = V3UserFacingIssue.make(failure)
+            precondition(details.recoveryDestination != "certificates")
+            precondition(issue.recoveryDestination != "certificates")
+            precondition(!failure.technicalDetails.contains("PRIVATE-QUOTA-BODY"))
+            if isQuota {
+                precondition(details.whatHappened.contains("App ID limit"))
+                precondition(details.recommendedAction.contains("capacity"))
+                precondition(failure.retryable == false)
+                precondition(details.retryDisposition == .blocked)
+            }
+        }
         print("PINNED_PORTAL_FAILURE_CONTEXT_PASS")
     }
 

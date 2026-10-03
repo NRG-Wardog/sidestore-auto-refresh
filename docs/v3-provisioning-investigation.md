@@ -44,3 +44,7 @@ Device install remains open. No publication or issue closure.
 - New production-code regressions replace the fabricated-NSError test. The provenance collector now behaviorally proves it leaves prepared inputs unchanged instead of banning read-only source references.
 
 This is a corrective/diagnostic candidate. Actual install acceptance still requires the same f830089f...d75fea IPA attempt and its resulting exact request/code, or successful installation. Do not claim a primary device cause solely from a code-level conditional defect.
+
+## Later App ID capacity evidence
+
+The user subsequently reported iLoader refusing a new attempt with one App ID required and zero available. UnifiedLCSS had not exposed that explanation. This establishes current iLoader capacity evidence, not the exact cause of the earlier lossy SideStore failure. The adapter now preserves pinned SideSign `DeveloperPortalError.maximumAppIDLimitReached` as `appIDLimitReached`. It neither infers quota from provider text/bridged ordinals nor invents available/required counts. Immediate retries are blocked; guidance concerns team App ID capacity, without certificate replacement or destructive troubleshooting. The source/registration/provisioning operations remain upstream-owned.

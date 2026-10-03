@@ -79,6 +79,7 @@ func lcSafeSigningCause(_ error: Error, portalResponse: Bool = false) -> String 
     }
     if let portalError = error as? DeveloperPortalError {
         switch portalError {
+        case .maximumAppIDLimitReached: return "appIDLimitReached"
         case .provisioningProfileDoesNotExist: return "provisioningProfileUnavailable"
         case .certificateDoesNotExist: return "certificateUnavailable"
         default: break
