@@ -31,6 +31,24 @@ def fixture(root: Path) -> Tuple[Path, Path]:
     (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").write_text('''import Foundation
 struct Settings {
     @State private var certificateDataFound = false
+    func importCertificate() async {
+        guard let doImport = await certificateImportAlert.open(), doImport else { return }
+        guard let certificateURL = await certificateImportFileAlert.open() else { return }
+        guard let certificatePassword = await certificateImportPasswordAlert.open() else { return }
+        let certificateData: Data
+        do { certificateData = try Data(contentsOf: certificateURL) }
+        catch { errorInfo = error.localizedDescription; errorShow = true; return }
+        guard let _ = LCUtils.getCertTeamId(withKeyData: certificateData, password: certificatePassword) else {
+            errorInfo = "lc.settings.invalidCertError".loc
+            errorShow = true
+            return
+        }
+        LCUtils.appGroupUserDefault.set(certificateData, forKey: "LCCertificateData")
+        LCUtils.appGroupUserDefault.set(certificatePassword, forKey: "LCCertificatePassword")
+        LCUtils.appGroupUserDefault.set(NSDate.now, forKey: "LCCertificateUpdateDate")
+        certificateDataFound = true
+        UserDefaults.standard.set(LCSharedUtils.appGroupID(), forKey: "LCAppGroupID")
+    }
     var body: some View {
         NavigationView {
             Form {
@@ -137,6 +155,13 @@ class V3UnifiedShellTests(unittest.TestCase):
             self.assertNotIn("sharedKeychainAccessGroup", importer)
             self.assertIn("V3CertificateImportOwnership.consume(requestID)", settings)
             self.assertIn('Notification.Name("V3CanonicalJITLessCertificateUpdated")', settings)
+            manual = settings[settings.index("func importCertificate() async {"):
+                             settings.index("func importCertificateFromSideStore() async {")]
+            group_write = 'UserDefaults.standard.set(LCSharedUtils.appGroupID(), forKey: "LCAppGroupID")'
+            event = 'NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated"), object: nil)'
+            self.assertEqual(manual.count(patch.MANUAL_JITLESS_IMPORT_EVENT_MARKER), 1)
+            self.assertEqual(manual.count(event), 1)
+            self.assertLess(manual.index(group_write), manual.index(event))
 
     def test_navigation_anchor_drift_fails_without_partial_writes(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -156,6 +181,11 @@ class V3UnifiedShellTests(unittest.TestCase):
             first = {p.relative_to(Path(directory)): p.read_bytes() for p in Path(directory).rglob("*") if p.is_file()}
             patch.patch(live, side)
             self.assertEqual(first, {p.relative_to(Path(directory)): p.read_bytes() for p in Path(directory).rglob("*") if p.is_file()})
+            settings = (live / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift").read_text()
+            manual = settings[settings.index("func importCertificate() async {"):
+                             settings.index("func importCertificateFromSideStore() async {")]
+            self.assertEqual(manual.count(patch.MANUAL_JITLESS_IMPORT_EVENT_MARKER), 1)
+            self.assertEqual(manual.count("Notification.Name(\"V3CanonicalJITLessCertificateUpdated\")"), 1)
             shell = (live / "LiveContainerSwiftUI/Views/V3UnifiedShell.swift").read_text()
             project = (live / "LiveContainer.xcodeproj/project.pbxproj").read_text()
             self.assertIn("V3_LEGACY_SOURCES_UI_EXCLUDED_V1", project)

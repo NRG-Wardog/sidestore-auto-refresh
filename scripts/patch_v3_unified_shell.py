@@ -19,6 +19,22 @@ INTENT_TEMPLATE = Path(__file__).with_name("templates") / "v3_setup_intent.swift
 BEHAVIOR_TEMPLATE = Path(__file__).with_name("templates") / "v3_behavioral_primitives.swift"
 IPA_STAGING_TEMPLATE = Path(__file__).with_name("templates") / "v3_ipa_staging.swift"
 SECRET_HANDOFF_TEMPLATE = Path(__file__).with_name("templates") / "v3_secret_handoff.swift"
+MANUAL_JITLESS_IMPORT_EVENT_MARKER = "V3_CANONICAL_JITLESS_MANUAL_IMPORT_EVENT_V1"
+
+
+def patch_manual_certificate_import_notification(text: str) -> str:
+    """Invalidate JIT-Less observations after the canonical manual writer succeeds."""
+    anchor = '        UserDefaults.standard.set(LCSharedUtils.appGroupID(), forKey: "LCAppGroupID")'
+    event = 'NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated"), object: nil)'
+    insertion = (anchor + '\n        // ' + MANUAL_JITLESS_IMPORT_EVENT_MARKER +
+                 '\n        ' + event)
+    if MANUAL_JITLESS_IMPORT_EVENT_MARKER in text:
+        if text.count(MANUAL_JITLESS_IMPORT_EVENT_MARKER) != 1 or insertion not in text:
+            die("manual certificate import event marker or placement drifted")
+        return text
+    if text.count(anchor) != 1:
+        die("manual certificate import app-group writer anchor changed")
+    return text.replace(anchor, insertion, 1)
 
 IMPORT_OWNERSHIP_SWIFT = '''    // V3_CERTIFICATE_IMPORT_OWNERSHIP_V1: persist only a short-lived opaque request id.
     private enum V3CertificateImportOwnership {
@@ -119,6 +135,7 @@ def patch_host(root: Path) -> None:
 
     settings = root / "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"
     text = settings.read_text(encoding="utf-8")
+    text = patch_manual_certificate_import_notification(text)
     if "import SideStoreSupport\n" not in text:
         text = replace_once(text, "import Foundation\n",
                             "import Foundation\nimport SideStoreSupport\n",

@@ -1,6 +1,7 @@
 """Regression coverage for one-use ownership of canonical JIT-Less imports."""
 from pathlib import Path
 import importlib.util
+import os
 import shutil
 import subprocess
 import tempfile
@@ -25,6 +26,24 @@ def generated_settings(root: Path) -> str:
 struct Settings {
     @State private var certificateDataFound = false
     func v3SharedSideStoreKeychainAccessGroup() -> String? { return "group" }
+    func importCertificate() async {
+        guard let doImport = await certificateImportAlert.open(), doImport else { return }
+        guard let certificateURL = await certificateImportFileAlert.open() else { return }
+        guard let certificatePassword = await certificateImportPasswordAlert.open() else { return }
+        let certificateData: Data
+        do { certificateData = try Data(contentsOf: certificateURL) }
+        catch { errorInfo = error.localizedDescription; errorShow = true; return }
+        guard let _ = LCUtils.getCertTeamId(withKeyData: certificateData, password: certificatePassword) else {
+            errorInfo = "lc.settings.invalidCertError".loc
+            errorShow = true
+            return
+        }
+        LCUtils.appGroupUserDefault.set(certificateData, forKey: "LCCertificateData")
+        LCUtils.appGroupUserDefault.set(certificatePassword, forKey: "LCCertificatePassword")
+        LCUtils.appGroupUserDefault.set(NSDate.now, forKey: "LCCertificateUpdateDate")
+        certificateDataFound = true
+        UserDefaults.standard.set(LCSharedUtils.appGroupID(), forKey: "LCAppGroupID")
+    }
     func importCertificateFromSideStore() async {
         if UserDefaults.sideStoreExist() {
             if let ans = await certificateImportFromBuiltInSideStoreAlert.open(), ans {
@@ -89,7 +108,43 @@ struct Settings {
 }
 ''', encoding="utf-8")
     patch.patch(live, side)
+    first = settings.read_text(encoding="utf-8")
+    patch.patch(live, side)
+    if settings.read_text(encoding="utf-8") != first:
+        raise AssertionError("v3 shell patch changed generated settings on its second application")
     return settings.read_text(encoding="utf-8")
+
+
+def swift_function(text: str, signature: str) -> str:
+    start = text.index(signature)
+    opening = text.index("{", start)
+    depth = 0
+    state = "code"
+    block_depth = 0
+    index = opening
+    while index < len(text):
+        char = text[index]
+        following = text[index + 1] if index + 1 < len(text) else ""
+        if state == "line_comment":
+            if char == "\n": state = "code"
+        elif state == "block_comment":
+            if char == "/" and following == "*": block_depth += 1; index += 1
+            elif char == "*" and following == "/":
+                block_depth -= 1; index += 1
+                if block_depth == 0: state = "code"
+        elif state == "string":
+            if char == "\\": index += 1
+            elif char == '"': state = "code"
+        else:
+            if char == "/" and following == "/": state = "line_comment"; index += 1
+            elif char == "/" and following == "*": state = "block_comment"; block_depth = 1; index += 1
+            elif char == '"': state = "string"
+            elif char == "{": depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0: return text[start:index + 1]
+        index += 1
+    raise AssertionError(f"unbalanced Swift function: {signature}")
 
 
 class JITLessImportOwnershipTests(unittest.TestCase):
@@ -133,6 +188,48 @@ class JITLessImportOwnershipTests(unittest.TestCase):
         self.assertLess(removal.index("V3CertificateImportOwnership.invalidate()"), removal.index('forKey: "LCCertificateData"'))
         self.assertLess(removal.index('forKey: "LCAppGroupID"'), removal.index('V3CanonicalJITLessCertificateUpdated"'))
         self.assertIn('NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated")', removal)
+
+    def test_manual_import_notification_is_one_post_after_canonical_state_writes(self):
+        manual = self.settings[self.settings.index("func importCertificate() async {"):
+                               self.settings.index("func importCertificateFromSideStore() async {")]
+        event = 'NotificationCenter.default.post(name: Notification.Name("V3CanonicalJITLessCertificateUpdated"), object: nil)'
+        self.assertEqual(manual.count(patch.MANUAL_JITLESS_IMPORT_EVENT_MARKER), 1)
+        self.assertEqual(manual.count(event), 1)
+        self.assertLess(manual.index('forKey: "LCCertificateData"'), manual.index(event))
+        self.assertLess(manual.index('forKey: "LCCertificatePassword"'), manual.index(event))
+        self.assertLess(manual.index('forKey: "LCAppGroupID"'), manual.index(event))
+
+    @unittest.skipUnless(shutil.which("swiftc"), "swiftc unavailable; production extraction harness runs on macOS CI")
+    def test_pinned_manual_import_success_and_failures_drive_canonical_observation(self):
+        live = os.environ.get("LIVE_CONTAINER_TEST_SOURCE")
+        if not live:
+            self.skipTest("pinned LiveContainer source is supplied by macOS CI")
+        import sys
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import patch_v3_service
+        pin = patch_v3_service.PINS[0]
+        original = subprocess.check_output([
+            "git", "-C", live, "show",
+            f"{pin}:LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift"],
+            text=True, encoding="utf-8")
+        generated = patch.patch_manual_certificate_import_notification(original)
+        method = swift_function(generated, "func importCertificate() async {")
+        self.assertIn(patch.MANUAL_JITLESS_IMPORT_EVENT_MARKER, method)
+        harness_template = (ROOT / "tests/fixtures/v3_jitless_manual_import_behavior_harness.swift").read_text(encoding="utf-8")
+        self.assertEqual(harness_template.count("$MANUAL_IMPORT_FUNCTION$"), 1)
+        harness = harness_template.replace("$MANUAL_IMPORT_FUNCTION$", method)
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            source = directory / "manual-import.swift"
+            binary = directory / "manual-import"
+            source.write_text(harness, encoding="utf-8")
+            built = subprocess.run([shutil.which("swiftc"), "-parse-as-library", str(source), "-o", str(binary)],
+                                   capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, f"pinned import harness did not compile:\n{built.stderr}")
+            for mode in ("success", "cancel-import", "cancel-file", "cancel-password", "file-error", "validation-fail"):
+                result = subprocess.run([str(binary), mode, str(directory / f"{mode}.p12")],
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, f"{mode} import contract failed:\n{result.stderr}")
 
     def test_tokenless_callback_is_rejected_and_legacy_writer_stays_three_keys(self):
         route = self.settings[self.settings.index("func handleURL(url:"):
