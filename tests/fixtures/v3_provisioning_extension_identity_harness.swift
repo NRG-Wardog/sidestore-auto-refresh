@@ -14,6 +14,7 @@ struct ALTApplication {
 
 struct ALTAppID {
     let bundleIdentifier: String
+    let identifier = "test-app-id"
 }
 
 struct ALTProvisioningProfile {

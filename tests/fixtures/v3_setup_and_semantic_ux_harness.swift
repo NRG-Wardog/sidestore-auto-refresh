@@ -155,10 +155,13 @@ struct SetupAndSemanticUXHarness {
                      signInCapacity.primaryAction == .openAccount &&
                      signInCapacity.retryDisposition == .prerequisite,
             "a rejected auth start preserves the response-capacity prerequisite without blaming a connection")
-        // A signing failure is a certificate problem, so it offers Certificates.
-        let certFailure = issue("command", "signing")
+        // A broad signing failure does not establish a certificate remedy.
+        let genericSigning = issue("command", "signing")
+        precondition(genericSigning.primaryAction != .openCertificates)
+        precondition(genericSigning.recoveryDestination == nil)
+        let certFailure = issue("command", "signing", CombinedFailure.SafeCause.certificateUnavailable.rawValue)
         precondition(certFailure.primaryAction == .openCertificates,
-                     "a signing failure must offer Certificates")
+                     "a typed certificate failure must offer Certificates")
         precondition(certFailure.recoveryDestination == "certificates")
         let authFailure = issue("signIn", "authentication")
         precondition(authFailure.primaryAction == .openAccount,
