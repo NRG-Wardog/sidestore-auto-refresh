@@ -247,7 +247,12 @@ private func roundTrip(_ failure: Error, operation: String = "install") throws -
 
     private static func addAndClassify(_ proxy: DeveloperPortalProxyHarness,
                                        bundle: String) async throws -> ALTAppID {
-        do { return try await proxy.addAppID(name: "private display name", bundleIdentifier: bundle) }
+        do {
+            return try await lcProvisioningBundleRequest(role: "extension", originalBundleID: bundle,
+                                                         preferredParentMatch: true) {
+                try await proxy.addAppID(name: "private display name", bundleIdentifier: bundle)
+            }
+        }
         catch { try pipelineFailure(error, step: .resignApp) }
     }
 
@@ -266,6 +271,9 @@ private func roundTrip(_ failure: Error, operation: String = "install") throws -
         precondition(failure.signingContext["account_binding"] == "verified")
         precondition(failure.signingContext["team_binding"] == "verified")
         precondition(failure.signingContext["requested_bundle_sha256"] == lcSigningHash(bundle))
+        precondition(failure.signingContext["provisioning_bundle_role"] == "extension")
+        precondition(failure.signingContext["provisioning_bundle_sha256"] == lcSigningHash(bundle))
+        precondition(failure.signingContext["preferred_parent_id_match"] == "true")
         precondition(details.recoveryDestination == nil)
         precondition(issue.recoveryDestination == nil)
         let safe = failure.technicalDetails + " " + issue.technicalDetails
