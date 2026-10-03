@@ -218,10 +218,13 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
                 archive.writestr(ipa_info_path, plistlib.dumps(host_info))
                 archive.writestr(side_store_path,
                                  thin_arm64_macho() +
-                                 b"com.kdt.livecontainer.v3-secret-handoff")
+                                 b"V3SideStoreService\x00execute:reply:\x00authRespond")
                 archive.writestr(host_code_path,
                                  thin_arm64_macho() +
-                                 b"com.kdt.livecontainer.v3-secret-handoff")
+                                 b"authRespond")
+                archive.writestr(
+                    verify_module.BASE + "/Frameworks/SideStoreSupport.framework/SideStoreSupport",
+                    thin_arm64_macho() + b"v3Execute:reply:")
             with zipfile.ZipFile(clean_ipa) as archive:
                 clean_framework_executable = archive.read(side_store_path)
             verify_module.verify_no_excluded_side_store_ui(
@@ -238,11 +241,14 @@ class ExcludedSideStorePipelineUITests(unittest.TestCase):
                     archive.writestr(ipa_info_path, plistlib.dumps(host_info))
                     archive.writestr(side_store_path,
                                      thin_arm64_macho() +
-                                     b"com.kdt.livecontainer.v3-secret-handoff\x00" +
+                                     b"V3SideStoreService\x00execute:reply:\x00authRespond\x00" +
                                      encoded_symbol)
                     archive.writestr(host_code_path,
                                      thin_arm64_macho() +
-                                     b"com.kdt.livecontainer.v3-secret-handoff")
+                                     b"authRespond")
+                    archive.writestr(
+                        verify_module.BASE + "/Frameworks/SideStoreSupport.framework/SideStoreSupport",
+                        thin_arm64_macho() + b"v3Execute:reply:")
 
                 with mock.patch.object(verify_module, "inventory", return_value={"bundles": bundles}), \
                         mock.patch.object(verify_module.subprocess, "check_output",

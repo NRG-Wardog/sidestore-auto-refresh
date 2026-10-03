@@ -23,6 +23,27 @@ BACKGROUND_SPEC.loader.exec_module(background)
 
 
 class CombinedRefreshContractTests(unittest.TestCase):
+    def test_package_verifier_accepts_current_keychain_scope_diagnostics(self):
+        patch.verify_keychain_selection_contract(
+            b"[LC_KEYCHAIN] GROUP_SELECTED service=storage scope=shared\x00"
+            b"LCSharedKeychainReadyV1")
+        patch.verify_keychain_selection_contract(
+            b"[LC_KEYCHAIN] GROUP_SELECTED service=storage scope=process\x00"
+            b"LCSharedKeychainReadyV1")
+
+    def test_package_verifier_requires_selection_scope_and_migration_markers(self):
+        cases = (
+            (b"[LC_KEYCHAIN] SHARED_GROUP_SELECTED scope=shared\x00LCSharedKeychainReadyV1",
+             "Keychain selection scope diagnostics missing"),
+            (b"[LC_KEYCHAIN] GROUP_SELECTED service=storage\x00LCSharedKeychainReadyV1",
+             "Keychain selection scope diagnostics missing"),
+            (b"[LC_KEYCHAIN] GROUP_SELECTED service=storage scope=shared",
+             "Legacy Keychain migration contract missing"),
+        )
+        for executable, expected in cases:
+            with self.subTest(expected=expected), self.assertRaisesRegex(ValueError, expected):
+                patch.verify_keychain_selection_contract(executable)
+
     def test_standalone_manifest_persists_only_safe_failure_fields(self):
         original = r'''    private let refreshIdentifier: String = UUID().uuidString
     private var runningApplications: Set<String> = []

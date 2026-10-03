@@ -18,7 +18,8 @@ import uuid
 import zipfile
 
 from audit_ipa_signing import inventory
-from package_livecontainer_combined import verify_shared_secret_handoff_group
+from package_livecontainer_combined import (verify_shared_secret_handoff_group,
+                                            verify_auth_answer_transport)
 from patch_v3_service import (HEADLESS_BACKEND_CONNECTION_CONFIG,
                               HEADLESS_SIDESTORE_AUX_UI_FILES,
                               HEADLESS_SIDESTORE_HANDLER_UI_FILES,
@@ -1012,9 +1013,11 @@ def verify(ipa: Path, provenance_path: Path, product: str,
         side_store_executable = side_store_path + "/" + side_store_info["CFBundleExecutable"]
         side_store_executable_data = archive.read(side_store_executable)
         host_code = archive.read(BASE + "/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI")
-        if b"com.kdt.livecontainer.v3-secret-handoff" not in host_code or \
-                b"com.kdt.livecontainer.v3-secret-handoff" not in side_store_executable_data:
-            raise ValueError("host and embedded service secure secret-handoff code is missing")
+        support_path = BASE + "/Frameworks/SideStoreSupport.framework"
+        support_bundle = package_bundles[support_path]
+        support_executable = support_path + "/" + support_bundle["info"]["CFBundleExecutable"]
+        support_code = archive.read(support_executable)
+        verify_auth_answer_transport(host_code, side_store_executable_data, support_code)
         legacy_intents = find_legacy_side_store_intent_symbols(side_store_executable_data)
         if legacy_intents:
             raise ValueError("embedded SideStore still contains legacy app intent code: "

@@ -9,12 +9,27 @@ from package_livecontainer_combined import (
     adapt,
     share_packaged_app_groups,
     verify_host_intent_runtime_symbols,
+    verify_auth_answer_transport,
     verify_shared_secret_handoff_group,
     verify_side_store_intent_runtime_symbols,
 )
 
 
 class CombinedPackagingTests(unittest.TestCase):
+    def test_auth_answer_route_and_both_xpc_endpoints_are_required(self):
+        host = b"authRespond"
+        service = b"V3SideStoreService\x00execute:reply:\x00authRespond"
+        endpoint = b"v3Execute:reply:"
+        verify_auth_answer_transport(host, service, endpoint)
+        for missing in (b"V3SideStoreService", b"execute:reply:", b"authRespond"):
+            with self.subTest(missing=missing), self.assertRaisesRegex(
+                    ValueError, "current auth answer dispatcher markers"):
+                verify_auth_answer_transport(host, service.replace(missing, b""), endpoint)
+        with self.assertRaisesRegex(ValueError, "host auth answer request route"):
+            verify_auth_answer_transport(b"", service, endpoint)
+        with self.assertRaisesRegex(ValueError, "XPC command endpoint"):
+            verify_auth_answer_transport(host, service, b"")
+
     def test_backend_keeps_only_the_runtime_symbols_required_by_host_intents(self):
         verify_side_store_intent_runtime_symbols(
             b"9SideStore20RefreshAllAppsIntentV\x009SideStore26RefreshAllAppsWidgetIntentV")

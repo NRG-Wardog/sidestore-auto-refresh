@@ -19,6 +19,11 @@ REQUIRED_HOST_INTENT_SYMBOLS = (
     b"16SideStoreSupport20RefreshAllAppsIntentV",
     b"16SideStoreSupport26RefreshAllAppsWidgetIntentV",
 )
+REQUIRED_SIDESTORE_AUTH_ANSWER_MARKERS = (
+    b"V3SideStoreService",
+    b"execute:reply:",
+    b"authRespond",
+)
 
 
 def verify_side_store_intent_runtime_symbols(executable):
@@ -33,6 +38,25 @@ def verify_host_intent_runtime_symbols(executable):
                if symbol not in executable]
     if missing:
         raise ValueError("SideStoreSupport is missing metadata-targeted App Intent wrappers: " + ", ".join(missing))
+
+
+def verify_auth_answer_transport(host_executable, side_executable, support_executable):
+    """Require linked auth request route, service dispatcher, and XPC endpoint.
+
+    These archive markers only establish that the expected entry points and
+    operation route are present in the images. Source-backed contract tests
+    verify that the route validates and forwards the bounded answer; marker
+    presence alone is not runtime evidence.
+    """
+    if b"authRespond" not in host_executable:
+        raise ValueError("host auth answer request route is missing")
+    missing_service = [marker.decode("ascii") for marker in REQUIRED_SIDESTORE_AUTH_ANSWER_MARKERS
+                       if marker not in side_executable]
+    if missing_service:
+        raise ValueError("embedded SideStore is missing current auth answer dispatcher markers: "
+                         + ", ".join(missing_service))
+    if b"v3Execute:reply:" not in support_executable:
+        raise ValueError("XPC command endpoint is missing")
 
 
 def verify_shared_secret_handoff_group(host_groups, live_process_groups):
@@ -158,7 +182,6 @@ def verify(path, side_product=None):
         host_code = archive.read(base + '/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI')
         assert b'liveContainerAutoRefresh' in host_code, 'Host automation missing'
         assert b'V3_UNIFIED_SHELL_V1' in host_code, 'Unified v3 host shell missing'
-        assert b'V3SideStoreService' in executable, 'SideStore command service missing'
         assert b'v3SideStoreStatusSnapshot' not in executable, 'Retired status publisher remains'
         assert b'lcReturnToHost' in host_code, 'Guest return action missing from host binary'
         assert b'LCReturnControlPosition' in host_code, 'Movable return control missing'
@@ -166,10 +189,7 @@ def verify(path, side_product=None):
         bootstrap_code = archive.read(base + '/Frameworks/LiveContainerShared.framework/LiveContainerShared')
         support_code = archive.read(base + '/Frameworks/SideStoreSupport.framework/SideStoreSupport')
         verify_host_intent_runtime_symbols(support_code)
-        assert b'v3Execute:reply:' in support_code, 'XPC command endpoint missing'
-        assert b'com.kdt.livecontainer.v3-secret-handoff' in host_code, 'host secure secret handoff missing'
-        assert b'com.kdt.livecontainer.v3-secret-handoff' in executable, 'SideStore secure secret consumer missing'
-        assert b'execute:reply:' in executable, 'SideStore command dispatcher missing'
+        verify_auth_answer_transport(host_code, executable, support_code)
         assert b'Import Pairing File' in host_code, 'Unified pairing setup missing'
         for code in (host_code, bootstrap_code):
             assert b'CONTROL_COLLAPSED' in code and b'CONTROL_RESTORED' in code, 'Restorable Return control missing'

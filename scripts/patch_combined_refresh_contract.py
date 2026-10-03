@@ -158,8 +158,7 @@ def verify_ipa(path: Path) -> dict:
         assert tuple(map(int, info.get("MinimumOSVersion", "999").split("."))) <= (15, 0, 0)
         embedded = archive.read(base + "/Frameworks/SideStoreApp.framework/SideStore")
         assert b"LiveContainerRefreshManifestV2" in embedded, "Incomplete-result verification contract not embedded"
-        assert b"[LC_KEYCHAIN] SHARED_GROUP_SELECTED" in embedded, "Shared Keychain route missing from embedded executable"
-        assert b"LCSharedKeychainReadyV1" in embedded, "Legacy Keychain migration contract missing"
+        verify_keychain_selection_contract(embedded)
         for name in archive.namelist():
             if name.endswith("/"):
                 continue
@@ -192,6 +191,19 @@ def verify_ipa(path: Path) -> dict:
     output = path.with_suffix(".runtime-verification.json")
     output.write_text(json.dumps(result, indent=2) + "\n")
     return result
+
+
+def verify_keychain_selection_contract(executable: bytes) -> None:
+    """Check linked diagnostics for shared-group selection and process fallback.
+
+    GROUP_SELECTED plus the emitted scope field describes either entitled
+    shared-group selection or the process-default fallback. It does not claim
+    that a shared group was selected on a particular device.
+    """
+    if b"[LC_KEYCHAIN] GROUP_SELECTED" not in executable or b"scope=" not in executable:
+        raise ValueError("Keychain selection scope diagnostics missing from embedded executable")
+    if b"LCSharedKeychainReadyV1" not in executable:
+        raise ValueError("Legacy Keychain migration contract missing")
 
 
 if __name__ == "__main__":
