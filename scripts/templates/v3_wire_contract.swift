@@ -634,7 +634,7 @@ enum V3ServiceReadinessReply: Equatable {
             if let raw = envelope["signingContext"] {
                 guard let fields = raw as? [String: String], fields.count <= 20,
                       fields.allSatisfy({ $0.key.utf8.count <= 64 && $0.value.utf8.count <= 512 }) else { return .invalid }
-                // The typed CombinedFailure boundary validates the fixed keys
+                // The typed failure boundary validates the fixed keys
                 // and values before any diagnostic publication.
                 failure.signingContext = fields
             }

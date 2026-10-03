@@ -25,26 +25,15 @@ def load_module(path: Path, name: str):
 
 
 def startup_patcher():
-    local = ROOT / "scripts/patch_combined_service_startup.py"
-    module = load_module(local, "patch_combined_service_startup")
-    if hasattr(module, "patch_provisioning_profile_requests"):
-        return module
-
-    # During isolated development the test-only worktree can precede the
-    # production helper worktree. CI and the merged branch use the local module.
-    development_copy = ROOT.parents[0] / "v3r77-provisioning/scripts/patch_combined_service_startup.py"
-    if development_copy.is_file():
-        candidate = load_module(development_copy, "patch_combined_service_startup_development")
-        if hasattr(candidate, "patch_provisioning_profile_requests"):
-            return candidate
-    raise AssertionError("production patch_provisioning_profile_requests helper is missing")
+    module = load_module(ROOT / "scripts/patch_combined_service_startup.py", "patch_combined_service_startup")
+    if not hasattr(module, "patch_provisioning_profile_requests"):
+        raise AssertionError("local production provisioning patch helper is missing")
+    return module
 
 
-def source_checkout() -> Path:
-    configured = os.environ.get("SIDESTORE_TEST_SOURCE")
-    if configured:
-        return Path(configured)
-    return ROOT.parents[0] / "v3r76-test-side"
+def source_checkout() -> Path | None:
+    configured = os.environ.get("SIDESTORE_TEST_SOURCE") or os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
+    return Path(configured) if configured else None
 
 
 def pinned_source(checkout: Path, reference: str) -> str:
@@ -118,7 +107,7 @@ def harness_source(checkout: Path) -> tuple[str, str, str]:
 class ProvisioningExtensionIdentityTests(unittest.TestCase):
     def test_production_generator_extracts_full_pinned_and_generated_methods(self):
         checkout = source_checkout()
-        if not checkout.is_dir():
+        if checkout is None or not checkout.is_dir():
             self.skipTest("Pinned SideStore checkout unavailable; set SIDESTORE_TEST_SOURCE in macOS CI")
         patcher = startup_patcher()
         revision = subprocess.check_output(
@@ -143,7 +132,7 @@ class ProvisioningExtensionIdentityTests(unittest.TestCase):
         if not compiler:
             self.skipTest("swiftc unavailable; execute production Swift harness in macOS CI")
         checkout = source_checkout()
-        if not checkout.is_dir():
+        if checkout is None or not checkout.is_dir():
             self.skipTest("Pinned SideStore checkout unavailable; set SIDESTORE_TEST_SOURCE in macOS CI")
 
         patcher = startup_patcher()

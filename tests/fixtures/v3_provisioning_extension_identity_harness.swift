@@ -277,6 +277,16 @@ enum ProvisioningExtensionIdentityHarness {
                 resignedBundleIdentifier: "com.other.app." + teamID, team: personalTeam),
             expectedParentID: mainBundleID + "." + teamID,
             expectPreferredParentMatch: false)
+        // A normal previously managed app is not enough: its resigned ID does
+        // not match the unsuffixed input in the actual lookup predicate.
+        let normalSavedApp = InstalledApp(customBundleIdentifier: nil,
+            resignedBundleIdentifier: mainBundleID + "." + teamID, team: personalTeam)
+        try await runGeneratedPipeline(contextTarget: mainBundleID, appendTeamID: true,
+            installedApp: normalSavedApp, expectedParentID: mainBundleID + "." + teamID,
+            expectPreferredMatch: false)
+        try await runPinnedRegression(contextTarget: mainBundleID,
+            installedApp: normalSavedApp, expectedParentID: mainBundleID + "." + teamID,
+            expectPreferredParentMatch: false)
 
         try await runGeneratedPipeline(contextTarget: "com.example.customspotify", appendTeamID: false,
             installedApp: nil, expectedParentID: "com.example.customspotify",

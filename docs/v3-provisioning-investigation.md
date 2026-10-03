@@ -30,3 +30,17 @@ Current upstream SideSign Profiles/DeveloperPortalAPI/Errors files match the pin
 4. For added per-call annotations, test concurrent/reordered failures, cancellation, unknown errors and no private body leakage; annotations belong to their invocation.
 
 Device install remains open. No publication or issue closure.
+
+## Implemented candidate changes
+
+- Narrow upstream backport from SideStore develop 0dd743f75afc358b0ba4a002feb5f19474492371: a preferred *parent* identifier never replaces an extension identifier; extension suffixes are preserved and non-descendant identifiers fail before registration. This is a proven conditional code defect. The reported device's matching saved/custom identifier is not yet established, so this is not claimed as its confirmed root cause.
+- The user clarified that Spotify had previously been SideStore-managed but was not installed at the failing attempt. That does not establish whether the exact lookup predicate matched a retained record.
+- The actual earlier working builder f3dd4538 uses the same LC/SS/SideSign pins as06fbefc1; its makeInstallDriver also calls the same canonical .install pipeline. No pin change is blamed.
+- Bound DeveloperPortalProxy calls now annotate only ServerError from the actual upstream API body, after account/session/team admission. App ID lookup/register/capabilities, group lookup/register/assignment and profile retrieval/create/update retain their own source steps. Other upstream error types and requests remain unchanged.
+- A small task-scoped scalar observer in pinned SideSign retains actual HTTP status and only finite-allowlisted machine error codes. It does not alter request construction, response parsing or original error types. Each invocation owns its observation; parallel extension requests cannot share a last-error slot.
+- The associated integer is preserved separately as server_code; SideSign's -1 sentinel becomes unknown. NSError ordinals are not misrepresented. Typed raw provider strings cannot override structured stages or manufacture HTTP/errno diagnostics.
+- Context contains only checked-binding flags, generation, hashes, counts, known capability names, role and preferred-parent-match evidence. It excludes account names, tokens, private keys, device identifiers and raw bodies. The pipeline records the operation's certificate serial hash, not a later UI selection; team-profile requests explicitly leave device registration unobserved.
+- Generic provisioning/signing failures have no certificate-specific recovery route. Explicit missing-certificate or certificate-validation evidence retains inspection navigation. No speculative revoke/create/sign-out/data-deletion action was added.
+- New production-code regressions replace the fabricated-NSError test. The provenance collector now behaviorally proves it leaves prepared inputs unchanged instead of banning read-only source references.
+
+This is a corrective/diagnostic candidate. Actual install acceptance still requires the same f830089f...d75fea IPA attempt and its resulting exact request/code, or successful installation. Do not claim a primary device cause solely from a code-level conditional defect.

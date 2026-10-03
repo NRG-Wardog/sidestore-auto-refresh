@@ -517,7 +517,7 @@ class ReadinessRegressionTests(unittest.TestCase):
         actual_http_observer = patched_api[response_position:status_code_end]
         parser_open = patched_api.index("{", parser_position)
         actual_status_decoder = patched_api[parser_position:_matching_swift_brace(patched_api, parser_open)]
-        self.assertIn("SideSignPortalDiagnostics.responseObserver?(httpResponse?.statusCode)", actual_http_observer)
+        self.assertIn("SideSignPortalDiagnostics.responseObserver?(httpResponse?.statusCode, nil)", actual_http_observer)
         self.assertIn("SideSignPortalDiagnostics.safeProviderCode(firstError.code)", actual_status_decoder)
         self.assertIn('"ENTITY_ERROR.ATTRIBUTE.INVALID"', startup.SIDESIGN_PORTAL_OBSERVER)
         self.assertIn("guard let value, known.contains(value) else { return nil }", startup.SIDESIGN_PORTAL_OBSERVER)
@@ -566,7 +566,8 @@ class ReadinessRegressionTests(unittest.TestCase):
             for marker, value in replacements.items():
                 self.assertEqual(result.count(marker), 1, f"fixture placeholder drift: {marker}")
                 result = result.replace(marker, value, 1)
-            return result
+            wire_model = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
+            return wire_model + "\n" + result
 
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)

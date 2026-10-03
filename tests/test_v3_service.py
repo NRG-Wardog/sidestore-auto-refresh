@@ -1037,6 +1037,7 @@ import Foundation
              "SideStore/Core/Auth/AuthManager.swift", "SideStore/Handlers/SignInFlowHandler.swift",
              "SideStore/Core/Operations/PipelineExecutor.swift",
              "SideStore/Core/Operations/PipelineRunner.swift",
+             "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift",
              "SideStore/Core/Auth/DeveloperPortalProxy.swift",
              "SideStore/Core/Certificates/CertificateManager.swift",
              "SideStore/Core/Certificates/OCSPValidator.swift",
