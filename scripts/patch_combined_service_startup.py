@@ -517,7 +517,10 @@ NSData *LCCreateServiceBookmark(NSURL *url, NSError **error) {
 }
 void LCLaunchServiceExtension(NSExtension *extension, NSExtensionItem *item, void (^completion)(NSUUID *, NSError *)) {
     [extension beginExtensionRequestWithInputItems:@[item] completion:^(NSUUID *identifier) {
-        completion(identifier, identifier ? nil : [NSError errorWithDomain:NSCocoaErrorDomain code:NSExecutableLoadError userInfo:nil]);
+        // The private API reports only an identifier. Nil means no identifier
+        // was observed; it does not establish why extension startup failed.
+        NSError *error = identifier ? nil : [NSError errorWithDomain:@"io.sidestore.LiveContainer.ExtensionLaunch" code:1 userInfo:nil];
+        completion(identifier, error);
     }];
 }
 ''')

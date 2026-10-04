@@ -85,6 +85,9 @@ class RefreshHandler: NSObject {
     private var retiringPID: Int32 = 0
     private var launchRequestPending: UUID?
     private var retiringRequestPending: UUID?
+    private var launchRequestIdentifierObserved = false
+    private var launchApplicationReadyObserved = false
+    private var launchPeerPIDRejected = false
     private lazy var service: CombinedServiceConnection = CombinedServiceConnection(dependencies: .init(
         resolveHost: {
             guard !UserDefaults.isSideStore(), !UserDefaults.isLiveProcess() else {
@@ -141,16 +144,45 @@ class RefreshHandler: NSObject {
         try await service.ensureConnected()
     }
     private func discoverExtension() throws {
-        guard let bundle = UserDefaults.lcMainBundle(),
-              let url = bundle.builtInPlugInsURL?.appendingPathComponent("LiveProcess.appex"),
-              let liveProcess = Bundle(url: url), let identifier = liveProcess.bundleIdentifier,
-              let executable = liveProcess.executableURL,
-              FileManager.default.fileExists(atPath: executable.path) else {
-            throw CombinedFailure(operation: "connect", stage: .extensionDiscovery, code: .unavailable, id: service.attemptID?.uuidString ?? UUID().uuidString, retryable: false)
+        let id = service.attemptID?.uuidString ?? UUID().uuidString
+        guard let bundle = UserDefaults.lcMainBundle() else {
+            throw CombinedFailure.LaunchContext.launchFailure(stage: .extensionDiscovery, code: .unavailable,
+                id: id, sourceStep: .hostBundleUnavailable, retryable: false)
         }
-        extensionProcess = try NSExtension(identifier: identifier)
+        guard let pluginsURL = bundle.builtInPlugInsURL else {
+            throw CombinedFailure.LaunchContext.launchFailure(stage: .extensionDiscovery, code: .unavailable,
+                id: id, sourceStep: .missingPluginDirectory, retryable: false)
+        }
+        let url = pluginsURL.appendingPathComponent("LiveProcess.appex", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw CombinedFailure.LaunchContext.launchFailure(stage: .extensionDiscovery, code: .unavailable,
+                id: id, sourceStep: .liveProcessBundleMissing, retryable: false)
+        }
+        guard let liveProcess = Bundle(url: url) else {
+            throw CombinedFailure.LaunchContext.launchFailure(stage: .extensionDiscovery, code: .unavailable,
+                id: id, sourceStep: .liveProcessBundleUnreadable, retryable: false)
+        }
+        guard let identifier = liveProcess.bundleIdentifier else {
+            throw CombinedFailure.LaunchContext.launchFailure(stage: .extensionDiscovery, code: .unavailable,
+                id: id, sourceStep: .bundleIdentifierMissing, retryable: false)
+        }
+        guard let executable = liveProcess.executableURL else {
+            throw CombinedFailure.LaunchContext.launchFailure(stage: .extensionDiscovery, code: .unavailable,
+                id: id, sourceStep: .executableMetadataMissing, retryable: false)
+        }
+        guard FileManager.default.fileExists(atPath: executable.path) else {
+            throw CombinedFailure.LaunchContext.launchFailure(stage: .extensionDiscovery, code: .unavailable,
+                id: id, sourceStep: .executableFileMissing, retryable: false)
+        }
+        do {
+            extensionProcess = try NSExtension(identifier: identifier)
+        } catch {
+            throw CombinedFailure.LaunchContext.launchFailure(error, stage: .extensionDiscovery,
+                id: id, sourceStep: .extensionFactory, retryable: false)
+        }
         guard extensionProcess != nil else {
-            throw NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
+            throw CombinedFailure.LaunchContext.launchFailure(stage: .extensionDiscovery, code: .unsupported,
+                id: id, sourceStep: .extensionFactoryNil, retryable: false)
         }
     }
     private func launchEmbeddedSideStore(id: UUID, bookmark: Data) throws {
@@ -159,7 +191,9 @@ class RefreshHandler: NSObject {
         NSLog("[V3_SERVICE_START] PROCESS_LAUNCH_BEGIN id=%@", id.uuidString)
         let callbacks = CombinedServiceCallbacks(owner: self, identity: id)
         guard let listener = startAnonymousListener(callbacks) else {
-            throw CombinedFailure(operation: "connect", stage: .xpcConnection, code: .unavailable, id: id.uuidString, retryable: true)
+            throw CombinedFailure.LaunchContext.launchFailure(stage: .xpcConnection, code: .unavailable,
+                id: id.uuidString, sourceStep: .listenerCreation, requestIdentifierObserved: false,
+                pidObserved: false, xpcAccepted: false, retryable: true)
         }
         self.listener = listener
         let item = NSExtensionItem()
@@ -167,11 +201,16 @@ class RefreshHandler: NSObject {
             bookmark: bookmark, endpoint: listener.endpoint,
             identity: V3SharedAppGroup.runtimeIdentity())
         ext.setRequestCancellationBlock { [weak self] _, error in
-            Task { @MainActor in self?.failed(id, stage: .extensionLaunch, underlying: error) }
+            Task { @MainActor in self?.failed(id, stage: .extensionLaunch, underlying: error,
+                launchSourceStep: .requestCancellation) }
         }
         ext.setRequestInterruptionBlock { [weak self] _ in
-            Task { @MainActor in self?.failed(id, stage: .extensionLaunch, code: .interrupted) }
+            Task { @MainActor in self?.failed(id, stage: .extensionLaunch, code: .interrupted,
+                launchSourceStep: .requestInterruption) }
         }
+        launchRequestIdentifierObserved = false
+        launchApplicationReadyObserved = false
+        launchPeerPIDRejected = false
         launchRequestPending = id
         LCLaunchServiceExtension(ext, item) { [weak self] uuid, error in
             Task { @MainActor in
@@ -186,9 +225,19 @@ class RefreshHandler: NSObject {
                 }
                 guard self.launchRequestPending == id else { return }
                 self.launchRequestPending = nil
-                guard error == nil, let uuid else { self.failed(id, stage: .extensionLaunch, underlying: error); return }
+                self.launchRequestIdentifierObserved = uuid != nil
+                guard error == nil, let uuid else {
+                    let step: CombinedFailure.LaunchContext.Step = uuid == nil ? .requestCallbackNoIdentifier : .requestCallbackError
+                    self.failed(id, stage: .extensionLaunch, underlying: error,
+                        launchSourceStep: step, requestIdentifierObserved: uuid != nil)
+                    return
+                }
                 let pid = ext.pid(forRequestIdentifier: uuid)
-                guard pid > 0 else { self.failed(id, stage: .extensionLaunch); return }
+                guard pid > 0 else {
+                    self.failed(id, stage: .extensionLaunch, launchSourceStep: .processIdentifierUnavailable,
+                        requestIdentifierObserved: true, pidObserved: false)
+                    return
+                }
                 self.sideStorePid = pid
                 NSLog("[V3_SERVICE_START] PROCESS_LAUNCHED id=%@ pid=%d", id.uuidString, pid)
                 self.service.signal(.launched, attempt: id)
@@ -206,14 +255,20 @@ class RefreshHandler: NSObject {
             pendingPeerConnections.append(incoming)
             return
         }
-        guard incoming.processIdentifier == sideStorePid else { incoming.invalidate(); return }
+        guard incoming.processIdentifier == sideStorePid else {
+            launchPeerPIDRejected = true
+            incoming.invalidate()
+            return
+        }
         NSLog("[V3_SERVICE_START] XPC_CONNECTED id=%@", id.uuidString)
         connection = incoming
         incoming.remoteObjectInterface = NSXPCInterface(with: RefreshClient.self)
         client = incoming.remoteObjectProxyWithErrorHandler { [weak self] error in
-            Task { @MainActor in self?.failed(id, stage: .xpcConnection, underlying: error) }
+            Task { @MainActor in self?.failed(id, stage: .xpcConnection, underlying: error,
+                launchSourceStep: .xpcRemoteObjectError) }
         } as? RefreshClient
-        incoming.invalidationHandler = { [weak self] in Task { @MainActor in self?.failed(id, stage: .xpcConnection, code: .interrupted) } }
+        incoming.invalidationHandler = { [weak self] in Task { @MainActor in self?.failed(id, stage: .xpcConnection,
+            code: .interrupted, launchSourceStep: .xpcInvalidation) } }
         incoming.interruptionHandler = incoming.invalidationHandler
         guard client != nil else { failed(id, stage: .xpcConnection); return }
         incoming.resume()
@@ -231,6 +286,7 @@ class RefreshHandler: NSObject {
     fileprivate func applicationReady(_ id: UUID) {
         // finishedLaunching may be repeated; one readiness probe owns this launch.
         guard launchID == id, readinessTask == nil else { return }
+        launchApplicationReadyObserved = true
         NSLog("[V3_SERVICE_START] APPLICATION_READY id=%@", id.uuidString)
         readinessTask = Task { @MainActor in
             do {
@@ -239,21 +295,32 @@ class RefreshHandler: NSObject {
                 service.signal(.ready, attempt: id)
             } catch {
                 guard !Task.isCancelled, launchID == id else { return }
-                failed(id, stage: .serviceReadiness, underlying: error)
+                failed(id, stage: .serviceReadiness, underlying: error,
+                    launchSourceStep: .readinessProbe)
             }
         }
     }
     private func awaitServiceReady(_ id: UUID) async throws {
         /*SERVICE_PROBE*/
     }
-    fileprivate func failed(_ id: UUID, stage: CombinedFailure.Stage, code: CombinedFailure.Code = .failed, underlying: Error? = nil) {
+    fileprivate func failed(_ id: UUID, stage: CombinedFailure.Stage, code: CombinedFailure.Code = .failed,
+                            underlying: Error? = nil, launchSourceStep: CombinedFailure.LaunchContext.Step? = nil,
+                            requestIdentifierObserved: Bool? = nil, pidObserved: Bool? = nil) {
         guard launchID == id || service.attemptID == id else { return }
         // Never double-wrap: an already structured failure (e.g. the readiness
         // probe's timedOut/invalidResponse) keeps its stage, code, retryable
         // flag and correlation ID instead of degrading to failed/redacted.
+        let context: CombinedFailure.LaunchContext? = (refreshContinuation == nil &&
+            [.extensionDiscovery, .extensionLaunch, .xpcConnection, .serviceReadiness].contains(stage))
+            ? CombinedFailure.LaunchContext(error: underlying, sourceStep: launchSourceStep ?? .unknown,
+                stage: stage, requestIdentifierObserved: requestIdentifierObserved ?? launchRequestIdentifierObserved,
+                pidObserved: pidObserved ?? (sideStorePid > 0), xpcAccepted: connection != nil,
+                applicationReadyObserved: launchApplicationReadyObserved,
+                peerPIDRejected: launchPeerPIDRejected) : nil
         let failure = CombinedFailure.preserving(underlying, operation: refreshContinuation == nil ? "connect" : "refresh",
             stage: stage, code: code, id: refreshRunID ?? id.uuidString,
-            retryable: refreshContinuation == nil && code == .interrupted ? true : nil)
+            retryable: refreshContinuation == nil && code == .interrupted ? true : nil,
+            launchContext: context)
         NSLog("[V3_SERVICE_START] START_FAILED id=%@ stage=%@ code=%@", id.uuidString, failure.stage.rawValue, failure.code.rawValue)
         finishRefreshContinuation(.failure(failure))
         service.fail(id, failure)

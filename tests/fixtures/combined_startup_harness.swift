@@ -110,6 +110,90 @@ struct StartupTests {
             bad = failure.wire; bad["version"] = true
             precondition(CombinedFailure.decode(bad, expectedID: id) == nil)
         }
+
+        // Launch diagnostics exercise the exact CombinedFailure helper used by
+        // the host adapter. The nil-ID bridge marker is project-owned and must
+        // stay distinct from a genuine Cocoa executable-load error.
+        let noIdentifier = NSError(domain: CombinedFailure.LaunchContext.bridgeErrorDomain,
+            code: CombinedFailure.LaunchContext.bridgeNoIdentifierCode,
+            userInfo: [NSFilePathErrorKey: "/private/customer/data"])
+        let noIdentifierFailure = CombinedFailure.LaunchContext.launchFailure(noIdentifier,
+            stage: .extensionLaunch, id: id, sourceStep: .requestCallbackNoIdentifier,
+            requestIdentifierObserved: false, pidObserved: false, xpcAccepted: false)
+        precondition(noIdentifierFailure.underlyingDomain == CombinedFailure.LaunchContext.bridgeErrorDomain &&
+                     noIdentifierFailure.underlyingCode == 1)
+        precondition(noIdentifierFailure.launchContext?.kind == .unknown)
+        precondition(noIdentifierFailure.technicalDetails.contains("launch_error_chain=io.sidestore.LiveContainer.ExtensionLaunch:1"))
+        precondition(noIdentifierFailure.localizedDescription.contains("launch_role=host"))
+        precondition(noIdentifierFailure.localizedDescription.contains("launch_source_step=requestCallbackNoIdentifier"))
+        precondition(!noIdentifierFailure.localizedDescription.contains("3587"))
+        precondition(!noIdentifierFailure.localizedDescription.contains("/private"))
+        precondition(noIdentifierFailure.wire["launchContext"] == nil, "host-only details entered the service wire")
+        precondition(noIdentifierFailure.correlating(to: UUID().uuidString).launchContext == noIdentifierFailure.launchContext)
+        precondition(CombinedFailure.preserving(noIdentifierFailure, operation: "connect",
+            stage: .extensionLaunch, id: id).launchContext == noIdentifierFailure.launchContext)
+
+        let cocoaLoad = NSError(domain: NSCocoaErrorDomain, code: NSExecutableLoadError)
+        let realLoadContext = CombinedFailure.LaunchContext(error: cocoaLoad,
+            sourceStep: .requestCancellation, stage: .extensionLaunch)
+        precondition(realLoadContext.kind == .executableLoadFailure)
+        precondition(realLoadContext.errorChain == [.init(domain: NSCocoaErrorDomain, code: NSExecutableLoadError)])
+
+        let innerLoad = NSError(domain: NSCocoaErrorDomain, code: NSExecutableLoadError)
+        let outerThree = NSError(domain: NSCocoaErrorDomain, code: 3,
+            userInfo: [NSUnderlyingErrorKey: innerLoad, NSFilePathErrorKey: "/private/wrapper"])
+        let outerContext = CombinedFailure.LaunchContext(error: outerThree,
+            sourceStep: .requestCancellation, stage: .extensionLaunch)
+        precondition(outerContext.errorChain.map(\.code) == [3, NSExecutableLoadError])
+        precondition(outerContext.kind == .executableLoadFailure)
+        let innerThree = NSError(domain: NSCocoaErrorDomain, code: 3)
+        let outerLoad = NSError(domain: NSCocoaErrorDomain, code: NSExecutableLoadError,
+            userInfo: [NSUnderlyingErrorKey: innerThree])
+        let reverseContext = CombinedFailure.LaunchContext(error: outerLoad,
+            sourceStep: .requestCancellation, stage: .extensionLaunch)
+        precondition(reverseContext.errorChain.map(\.code) == [NSExecutableLoadError, 3])
+        precondition(reverseContext.technicalDetails.contains("NSCocoaErrorDomain:3587>NSCocoaErrorDomain:3"))
+
+        let noMetadataContext = CombinedFailure.LaunchContext(error: NSError(domain: NSCocoaErrorDomain, code: 3),
+            sourceStep: .extensionFactory, stage: .extensionDiscovery)
+        precondition(noMetadataContext.kind == .unknown)
+        let missingPlugin = CombinedFailure.LaunchContext(sourceStep: .liveProcessBundleMissing,
+            stage: .extensionDiscovery)
+        precondition(missingPlugin.kind == .extensionNotFound)
+        let missingExecutable = CombinedFailure.LaunchContext(sourceStep: .executableFileMissing,
+            stage: .extensionDiscovery)
+        precondition(missingExecutable.kind == .executableLoadFailure)
+
+        let timeoutFailure = CombinedFailure(operation: "connect", stage: .xpcConnection,
+            code: .timedOut, id: id)
+        precondition(timeoutFailure.launchContext?.sourceStep == .startupTimeout)
+        precondition(timeoutFailure.launchContext?.kind == .unknown)
+        precondition(timeoutFailure.launchContext?.pidObserved == "yes")
+        precondition(timeoutFailure.launchContext?.xpcAccepted == "no")
+        let peerFailure = CombinedFailure.LaunchContext.launchFailure(NSError(domain: "Private.Peer.Domain", code: 9),
+            stage: .xpcConnection, id: id, sourceStep: .xpcRemoteObjectError,
+            requestIdentifierObserved: true, pidObserved: true, xpcAccepted: true,
+            peerPIDRejected: true)
+        precondition(peerFailure.launchContext?.kind == .xpcConnectionFailure)
+        precondition(peerFailure.technicalDetails.contains("launch_peer_pid_rejected=yes"))
+
+        var deep: NSError = NSError(domain: "Private.Path.Domain", code: 99,
+            userInfo: [NSFilePathErrorKey: "/private/leaf"])
+        for code in stride(from: 5, through: 1, by: -1) {
+            deep = NSError(domain: NSCocoaErrorDomain, code: code,
+                userInfo: [NSUnderlyingErrorKey: deep, NSFilePathErrorKey: "/private/\(code)"])
+        }
+        let boundedContext = CombinedFailure.LaunchContext(error: deep,
+            sourceStep: .unknown, stage: .extensionLaunch)
+        precondition(boundedContext.errorChain.count == 5)
+        precondition(boundedContext.errorChain.map(\.code) == [1, 2, 3, 4, 5])
+        precondition(boundedContext.technicalDetails.contains("redacted:unknown"))
+        precondition(!boundedContext.technicalDetails.contains("Private.Path.Domain"))
+        precondition(!boundedContext.technicalDetails.contains("/private"))
+
+        let ordinary = CombinedFailure(operation: "refresh", stage: .serviceReadiness,
+            id: id, underlying: outerThree)
+        precondition(ordinary.launchContext == nil && !ordinary.technicalDetails.contains("launch_role"))
         precondition(!f.events.contains("refresh") && !f.events.contains("signIn"), "connecting invoked a mutation")
         let unsafe: [String: Any] = ["liveContainerAutoRefreshVerification": ["run_id": id, "expected_ids": ["test.app"],
             "password": "SECRET", "results": [["bundle_id": "test.app", "success": false, "token": "SECRET",

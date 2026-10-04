@@ -149,6 +149,146 @@ public enum CombinedVerification {
 
 // LC_STRUCTURED_FAILURE_V1: fixed vocabulary, no arbitrary userInfo/descriptions on the wire.
 public struct CombinedFailure: Error, LocalizedError {
+    public struct LaunchContext: Equatable {
+        public static let bridgeErrorDomain = "io.sidestore.LiveContainer.ExtensionLaunch"
+        public static let bridgeNoIdentifierCode = 1
+        public enum Step: String {
+            case hostBundleUnavailable, missingPluginDirectory, liveProcessBundleMissing, liveProcessBundleUnreadable
+            case bundleIdentifierMissing, executableMetadataMissing, executableFileMissing
+            case extensionFactory, extensionFactoryNil, listenerCreation
+            case requestCallbackNoIdentifier, requestCancellation, requestInterruption
+            case requestCallbackError, processIdentifierUnavailable, xpcRemoteObjectError
+            case xpcInvalidation, xpcPeerRejected, readinessProbe, startupTimeout, unknown
+        }
+        public enum Kind: String {
+            case extensionNotFound = "extension_not_found"
+            case executableLoadFailure = "executable_load_failure"
+            case signatureOrEntitlementRejection = "signature_or_entitlement_rejection"
+            case dependencyLoadFailure = "dependency_load_failure"
+            case bootstrapFailure = "bootstrap_failure"
+            case xpcConnectionFailure = "xpc_connection_failure"
+            case unknown
+        }
+        public struct Cause: Equatable {
+            public let domain: String
+            public let code: Int?
+        }
+
+        public let role: String
+        public let osVersion: String
+        public let runtimeArchitecture: String
+        public let sourceStep: Step
+        public let kind: Kind
+        public let requestIdentifierObserved: String
+        public let pidObserved: String
+        public let xpcAccepted: String
+        public let applicationReadyObserved: String
+        public let peerPIDRejected: Bool
+        public let errorChain: [Cause]
+
+        public init(error: Error? = nil, sourceStep: Step, stage: Stage,
+                    requestIdentifierObserved: Bool? = nil, pidObserved: Bool? = nil,
+                    xpcAccepted: Bool? = nil, applicationReadyObserved: Bool? = nil,
+                    peerPIDRejected: Bool = false) {
+            role = "host"
+            let version = ProcessInfo.processInfo.operatingSystemVersion
+            osVersion = "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
+            #if arch(arm64e)
+            runtimeArchitecture = "arm64e"
+            #elseif arch(arm64)
+            runtimeArchitecture = "arm64"
+            #elseif arch(x86_64)
+            runtimeArchitecture = "x86_64"
+            #elseif arch(i386)
+            runtimeArchitecture = "i386"
+            #else
+            runtimeArchitecture = "unknown"
+            #endif
+            self.sourceStep = sourceStep
+            self.peerPIDRejected = peerPIDRejected
+
+            let requestObserved: Bool? = stage == .xpcConnection || stage == .serviceReadiness ? true : nil
+            let inferredPID: Bool? = stage == .xpcConnection || stage == .serviceReadiness ? true : nil
+            let inferredXPC: Bool? = stage == .xpcConnection ? false : stage == .serviceReadiness ? true : nil
+            self.requestIdentifierObserved = Self.observation(requestIdentifierObserved ?? requestObserved)
+            self.pidObserved = Self.observation(pidObserved ?? inferredPID)
+            self.xpcAccepted = Self.observation(xpcAccepted ?? inferredXPC)
+            self.applicationReadyObserved = Self.observation(applicationReadyObserved)
+
+            let causes = Self.safeErrorChain(error)
+            errorChain = causes
+            kind = Self.classify(sourceStep: sourceStep, errorChain: causes)
+        }
+
+        public var technicalDetails: String {
+            let causes = errorChain.map { cause in
+                cause.code.map { "\(cause.domain):\($0)" } ?? "\(cause.domain):unknown"
+            }.joined(separator: ">")
+            return " launch_role=\(role) launch_os=\(osVersion) launch_arch=\(runtimeArchitecture)" +
+                " launch_source_step=\(sourceStep.rawValue) launch_failure_kind=\(kind.rawValue)" +
+                " launch_request_id_observed=\(requestIdentifierObserved) launch_pid_observed=\(pidObserved)" +
+                " launch_xpc_accepted=\(xpcAccepted) launch_application_ready=\(applicationReadyObserved)" +
+                " launch_peer_pid_rejected=\(peerPIDRejected ? "yes" : "no") launch_error_chain=\(causes.isEmpty ? "none" : causes)"
+        }
+
+        private static func observation(_ value: Bool?) -> String {
+            guard let value else { return "unknown" }
+            return value ? "yes" : "no"
+        }
+
+        private static func safeErrorChain(_ error: Error?) -> [Cause] {
+            if let known = error as? CombinedFailure {
+                if let context = known.launchContext { return context.errorChain }
+                guard known.underlyingDomain != "none" || known.underlyingCode != 0 else { return [] }
+                let safe = CombinedFailure.safeDiagnosticUnderlying(domain: known.underlyingDomain, code: known.underlyingCode)
+                return [Cause(domain: safe.domain, code: safe.code == "unknown" ? nil : known.underlyingCode)]
+            }
+            guard var current = error as NSError? else { return [] }
+            var result: [Cause] = []
+            var seen = Set<ObjectIdentifier>()
+            for _ in 0..<5 {
+                let identity = ObjectIdentifier(current)
+                guard seen.insert(identity).inserted else { break }
+                let safe = CombinedFailure.safeDiagnosticUnderlying(domain: current.domain, code: current.code)
+                result.append(Cause(domain: safe.domain, code: safe.code == "unknown" ? nil : current.code))
+                guard let next = current.userInfo[NSUnderlyingErrorKey] as? NSError else { break }
+                current = next
+            }
+            return result
+        }
+
+        private static func classify(sourceStep: Step, errorChain: [Cause]) -> Kind {
+            switch sourceStep {
+            case .missingPluginDirectory, .liveProcessBundleMissing:
+                return .extensionNotFound
+            case .executableFileMissing:
+                return .executableLoadFailure
+            case .listenerCreation, .xpcRemoteObjectError, .xpcInvalidation:
+                return .xpcConnectionFailure
+            case .requestCancellation:
+                if errorChain.contains(where: { $0.domain == NSCocoaErrorDomain && $0.code == NSExecutableLoadError }) {
+                    return .executableLoadFailure
+                }
+            default:
+                break
+            }
+            return .unknown
+        }
+
+        public static func launchFailure(_ error: Error? = nil, stage: Stage, code: Code = .failed,
+                                         id: String, sourceStep: Step,
+                                         requestIdentifierObserved: Bool? = nil, pidObserved: Bool? = nil,
+                                         xpcAccepted: Bool? = nil, applicationReadyObserved: Bool? = nil,
+                                         peerPIDRejected: Bool = false, retryable: Bool? = nil) -> CombinedFailure {
+            let context = LaunchContext(error: error, sourceStep: sourceStep, stage: stage,
+                requestIdentifierObserved: requestIdentifierObserved, pidObserved: pidObserved,
+                xpcAccepted: xpcAccepted, applicationReadyObserved: applicationReadyObserved,
+                peerPIDRejected: peerPIDRejected)
+            return CombinedFailure(operation: "connect", stage: stage, code: code, id: id,
+                underlying: error, retryable: retryable, launchContext: context)
+        }
+    }
+
     public enum SafeCause: String, CaseIterable {
         case networkConnectionLost
         case networkTimedOut
@@ -355,9 +495,13 @@ public struct CombinedFailure: Error, LocalizedError {
     // failure is a connection problem. It is appended to the copied technical
     // line only and is never part of the wire envelope.
     public var requestContext: String?
+    // Host-only extension startup details. This is intentionally omitted from
+    // the service wire envelope and appended only to copied technical details.
+    public let launchContext: LaunchContext?
     public init(operation: String, stage: Stage, code: Code = .failed, id: String,
                 underlying: Error? = nil, retryable: Bool? = nil, safeCause: SafeCause? = nil,
-                sourceStep: SourceStep? = nil, signingContext: [String: String] = [:]) {
+                sourceStep: SourceStep? = nil, signingContext: [String: String] = [:],
+                launchContext: LaunchContext? = nil) {
         let normalized = ["snapshot": "status", "refreshApp": "refresh", "refreshAdmissionBegin": "refresh", "refreshAdmissionEnd": "refresh", "installURL": "install", "installSharedIPA": "install",
                           "addSource": "source", "removeSource": "source", "refreshSources": "source", "syncAppIDs": "signIn",
                           "authBegin": "signIn", "authPoll": "signIn", "authRespond": "signIn", "authCancel": "signIn",
@@ -378,9 +522,21 @@ public struct CombinedFailure: Error, LocalizedError {
         self.sourceStep = sourceStep
         self.signingContext = Self.validatedSigningContext(signingContext) ?? [:]
         self.retryable = retryable ?? self.safeCause?.inferredRetryable
+        if let launchContext {
+            self.launchContext = launchContext
+        } else if normalized == "connect" && [.extensionDiscovery, .extensionLaunch, .xpcConnection, .serviceReadiness].contains(stage) {
+            let timeout = code == .timedOut
+            let native = underlying as NSError?
+            let source: LaunchContext.Step = native?.domain == LaunchContext.bridgeErrorDomain && native?.code == LaunchContext.bridgeNoIdentifierCode
+                ? .requestCallbackNoIdentifier : timeout ? .startupTimeout : .unknown
+            self.launchContext = LaunchContext(error: underlying,
+                sourceStep: source, stage: stage)
+        } else {
+            self.launchContext = nil
+        }
     }
     private static let operations: Set<String> = ["connect", "status", "command", "recovery", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit", "pairingImportData", "anisetteList", "anisetteReset", "anisetteSync"]
-    private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "kCFErrorDomainCFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError"]
+    private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "kCFErrorDomainCFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError", "io.sidestore.LiveContainer.ExtensionLaunch"]
     private static let verificationDomains: Set<String> = ["ALTServerErrorDomain", "ALTErrorDomain", "IdeviceGatewayError", "DeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy"]
 
     /// Only observations from the request/operation context are allowed here.
@@ -905,7 +1061,7 @@ public struct CombinedFailure: Error, LocalizedError {
     public var technicalDetails: String {
         let displayedUnderlyingCode = underlyingDomain == "redacted" ? "unknown" : String(underlyingCode)
         let signingDetails = signingContext.sorted(by: { $0.key < $1.key }).map { " \($0.key)=\($0.value)" }.joined()
-        return "schema=1 operation=\(operation) stage=\(stage.rawValue) code=\(code.rawValue) correlation=\(correlationID) underlying_domain=\(underlyingDomain) underlying_code=\(displayedUnderlyingCode) retryable=\(retryable.map(String.init) ?? "unknown") source_step=\(sourceStep?.rawValue ?? "unknown") safe_cause=\(safeCause?.rawValue ?? "unknown")" + signingDetails + installVerdict + requestContextSuffix
+        return "schema=1 operation=\(operation) stage=\(stage.rawValue) code=\(code.rawValue) correlation=\(correlationID) underlying_domain=\(underlyingDomain) underlying_code=\(displayedUnderlyingCode) retryable=\(retryable.map(String.init) ?? "unknown") source_step=\(sourceStep?.rawValue ?? "unknown") safe_cause=\(safeCause?.rawValue ?? "unknown")" + signingDetails + installVerdict + requestContextSuffix + (launchContext?.technicalDetails ?? "")
     }
     // Appended only when present, so every existing diagnostic stays
     // byte-identical.
@@ -942,7 +1098,8 @@ public struct CombinedFailure: Error, LocalizedError {
     public func correlating(to id: String) -> CombinedFailure {
         CombinedFailure(operation: operation, stage: stage, code: code, id: id,
             underlying: NSError(domain: underlyingDomain, code: underlyingCode),
-            retryable: retryable, safeCause: safeCause, sourceStep: sourceStep, signingContext: signingContext)
+            retryable: retryable, safeCause: safeCause, sourceStep: sourceStep, signingContext: signingContext,
+            launchContext: launchContext)
     }
     public var wire: [String: Any] {
         let safeUnderlying = Self.safeWireUnderlying(domain: underlyingDomain, code: underlyingCode)
@@ -1012,9 +1169,18 @@ public struct CombinedFailure: Error, LocalizedError {
         return Int(exactly: number.int64Value)
     }
 
-    public static func preserving(_ error: Error?, operation: String, stage: Stage, code: Code = .failed, id: String, retryable: Bool? = nil) -> CombinedFailure {
+    public static func preserving(_ error: Error?, operation: String, stage: Stage, code: Code = .failed, id: String, retryable: Bool? = nil,
+                                  launchContext: LaunchContext? = nil) -> CombinedFailure {
         if let known = error as? CombinedFailure {
-            return known
+            guard let launchContext, known.launchContext == nil else { return known }
+            return CombinedFailure(operation: known.operation, stage: known.stage, code: known.code,
+                id: known.correlationID, underlying: NSError(domain: known.underlyingDomain, code: known.underlyingCode),
+                retryable: known.retryable, safeCause: known.safeCause, sourceStep: known.sourceStep,
+                signingContext: known.signingContext, launchContext: launchContext)
+        }
+        if let launchContext {
+            return CombinedFailure(operation: operation, stage: stage, code: code, id: id,
+                underlying: error, retryable: retryable, launchContext: launchContext)
         }
         return CombinedFailure(operation: operation, stage: stage, code: code, id: id, underlying: error, retryable: retryable)
     }
