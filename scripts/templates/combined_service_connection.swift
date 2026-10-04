@@ -54,7 +54,12 @@ final class CombinedServiceConnection {
             }
             try dependencies.launch(id, bookmark)
         } catch {
-            fail(id, CombinedFailure.capture(error, operation: "connect", stage: stage, id: id.uuidString))
+            if let known = error as? CombinedFailure {
+                fail(id, known)
+            } else {
+                fail(id, CombinedFailure.capture(error, operation: "connect", stage: stage, id: id.uuidString),
+                    launchSourceError: error)
+            }
         }
     }
     func signal(_ signal: Signal, attempt id: UUID) {
@@ -71,17 +76,42 @@ final class CombinedServiceConnection {
             all.forEach { $0.resume() }
         }
     }
-    func fail(_ id: UUID, _ error: CombinedFailure) {
+    func fail(_ id: UUID, _ error: CombinedFailure, launchSourceError: Error? = nil,
+              launchSourceStep: CombinedFailure.LaunchContext.Step? = nil) {
         guard attemptID == id else { return }
+        let launchStages: Set<CombinedFailure.Stage> = [.extensionDiscovery, .extensionLaunch, .xpcConnection, .serviceReadiness]
+        let context: CombinedFailure.LaunchContext?
+        if let launchSourceStep {
+            context = CombinedFailure.LaunchContext(error: launchSourceError,
+                sourceStep: launchSourceStep,
+                requestIdentifierObserved: launched ? true : nil,
+                pidObserved: launched ? true : nil,
+                xpcAccepted: connected ? true : nil,
+                applicationReadyObserved: ready ? true : nil)
+        } else if error.launchContext == nil, error.operation == "connect", launchStages.contains(error.stage) {
+            let source: CombinedFailure.LaunchContext.Step = error.code == .timedOut ? .startupTimeout
+                : (error.code == .cancelled || error.code == .interrupted) ? .connectionStopped : .unknown
+            context = CombinedFailure.LaunchContext(error: launchSourceError ?? error,
+                sourceStep: source,
+                requestIdentifierObserved: launched ? true : nil,
+                pidObserved: launched ? true : nil,
+                xpcAccepted: connected ? true : nil,
+                applicationReadyObserved: ready ? true : nil)
+        } else {
+            context = nil
+        }
+        let failure = CombinedFailure.preserving(error, operation: error.operation, stage: error.stage,
+            code: error.code, id: error.correlationID, retryable: error.retryable,
+            launchContext: context)
         attemptID = nil; isReady = false; deadline?.cancel(); deadline = nil
         let all = Array(waiters.values); waiters.removeAll()
         dependencies.retire(id)
-        all.forEach { $0.resume(throwing: error) }
-        onFailure?(error)
+        all.forEach { $0.resume(throwing: failure) }
+        onFailure?(failure)
     }
     func stop(code: CombinedFailure.Code = .interrupted) {
         guard let id = attemptID else { return }
-        fail(id, CombinedFailure(operation: "connect", stage: .xpcConnection, code: code, id: id.uuidString, retryable: true))
+        fail(id, CombinedFailure(operation: "connect", stage: stage, code: code, id: id.uuidString, retryable: true))
     }
     private func cancel(_ waiter: UUID) {
         waiters.removeValue(forKey: waiter)?.resume(throwing: CancellationError())

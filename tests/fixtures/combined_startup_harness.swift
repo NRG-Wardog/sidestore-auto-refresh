@@ -48,6 +48,12 @@ struct StartupTests {
                 precondition(failure.stage == stage && failure.underlyingCode == 513)
                 precondition(!failure.localizedDescription.contains("SECRET"))
                 precondition(!failure.localizedDescription.contains("/private"))
+                if stage == .extensionDiscovery {
+                    precondition(failure.launchContext?.sourceStep == .unknown)
+                    precondition(failure.launchContext?.errorChain == [.init(domain: NSCocoaErrorDomain, code: 513)])
+                    precondition(failure.launchContext?.requestIdentifierObserved == "unknown" &&
+                                 failure.launchContext?.pidObserved == "unknown")
+                }
             }
             precondition(!f.connection.isReady && f.connection.attemptID == nil)
             f.failAt = nil
@@ -76,7 +82,27 @@ struct StartupTests {
         await wait { timeout.launches == 1 }
         timeout.connection.signal(.launched, attempt: timeout.connection.attemptID!)
         do { try await hung.value; preconditionFailure("XPC timeout swallowed") }
-        catch let failure as CombinedFailure { precondition(failure.code == .timedOut && failure.stage == .xpcConnection) }
+        catch let failure as CombinedFailure {
+            precondition(failure.code == .timedOut && failure.stage == .xpcConnection)
+            precondition(failure.launchContext?.sourceStep == .startupTimeout)
+            precondition(failure.launchContext?.requestIdentifierObserved == "yes" && failure.launchContext?.pidObserved == "yes")
+            precondition(failure.launchContext?.xpcAccepted == "unknown" && failure.launchContext?.peerPIDRejected == "unknown")
+            precondition(failure.localizedDescription.contains("launch_observer_role=host"))
+            precondition(failure.localizedDescription.contains("launch_target_role=LiveProcess"))
+        }
+        let stopBeforeCallback = StartupFixture()
+        let cancelledLaunch = Task { try await stopBeforeCallback.connection.ensureConnected() }
+        await wait { stopBeforeCallback.launches == 1 }
+        stopBeforeCallback.connection.stop(code: .cancelled)
+        do { try await cancelledLaunch.value; preconditionFailure("startup cancellation swallowed") }
+        catch let failure as CombinedFailure {
+            precondition(failure.stage == .extensionLaunch && failure.code == .cancelled)
+            precondition(failure.launchContext?.sourceStep == .connectionStopped)
+            precondition(failure.launchContext?.requestIdentifierObserved == "unknown")
+            precondition(failure.launchContext?.pidObserved == "unknown")
+            precondition(failure.launchContext?.xpcAccepted == "unknown")
+            precondition(failure.launchContext?.peerPIDRejected == "unknown")
+        }
         let cancel = StartupFixture()
         let abandoned = Task { try await cancel.connection.ensureConnected() }
         await wait { cancel.launches == 1 }
@@ -119,23 +145,28 @@ struct StartupTests {
             userInfo: [NSFilePathErrorKey: "/private/customer/data"])
         let noIdentifierFailure = CombinedFailure.LaunchContext.launchFailure(noIdentifier,
             stage: .extensionLaunch, id: id, sourceStep: .requestCallbackNoIdentifier,
-            requestIdentifierObserved: false, pidObserved: false, xpcAccepted: false)
+            requestIdentifierObserved: false)
         precondition(noIdentifierFailure.underlyingDomain == CombinedFailure.LaunchContext.bridgeErrorDomain &&
                      noIdentifierFailure.underlyingCode == 1)
         precondition(noIdentifierFailure.launchContext?.kind == .unknown)
+        precondition(noIdentifierFailure.launchContext?.pidObserved == "unknown" &&
+                     noIdentifierFailure.launchContext?.xpcAccepted == "unknown")
         precondition(noIdentifierFailure.technicalDetails.contains("launch_error_chain=io.sidestore.LiveContainer.ExtensionLaunch:1"))
-        precondition(noIdentifierFailure.localizedDescription.contains("launch_role=host"))
+        precondition(noIdentifierFailure.localizedDescription.contains("launch_observer_role=host"))
+        precondition(noIdentifierFailure.localizedDescription.contains("launch_target_role=LiveProcess"))
         precondition(noIdentifierFailure.localizedDescription.contains("launch_source_step=requestCallbackNoIdentifier"))
         precondition(!noIdentifierFailure.localizedDescription.contains("3587"))
         precondition(!noIdentifierFailure.localizedDescription.contains("/private"))
         precondition(noIdentifierFailure.wire["launchContext"] == nil, "host-only details entered the service wire")
+        precondition(CombinedFailure.decode(noIdentifierFailure.wire, expectedID: id)?.launchContext == nil,
+            "a structured wire decode fabricated host observations")
         precondition(noIdentifierFailure.correlating(to: UUID().uuidString).launchContext == noIdentifierFailure.launchContext)
         precondition(CombinedFailure.preserving(noIdentifierFailure, operation: "connect",
             stage: .extensionLaunch, id: id).launchContext == noIdentifierFailure.launchContext)
 
         let cocoaLoad = NSError(domain: NSCocoaErrorDomain, code: NSExecutableLoadError)
         let realLoadContext = CombinedFailure.LaunchContext(error: cocoaLoad,
-            sourceStep: .requestCancellation, stage: .extensionLaunch)
+            sourceStep: .requestCancellation)
         precondition(realLoadContext.kind == .executableLoadFailure)
         precondition(realLoadContext.errorChain == [.init(domain: NSCocoaErrorDomain, code: NSExecutableLoadError)])
 
@@ -143,39 +174,51 @@ struct StartupTests {
         let outerThree = NSError(domain: NSCocoaErrorDomain, code: 3,
             userInfo: [NSUnderlyingErrorKey: innerLoad, NSFilePathErrorKey: "/private/wrapper"])
         let outerContext = CombinedFailure.LaunchContext(error: outerThree,
-            sourceStep: .requestCancellation, stage: .extensionLaunch)
+            sourceStep: .requestCancellation)
         precondition(outerContext.errorChain.map(\.code) == [3, NSExecutableLoadError])
         precondition(outerContext.kind == .executableLoadFailure)
         let innerThree = NSError(domain: NSCocoaErrorDomain, code: 3)
         let outerLoad = NSError(domain: NSCocoaErrorDomain, code: NSExecutableLoadError,
             userInfo: [NSUnderlyingErrorKey: innerThree])
         let reverseContext = CombinedFailure.LaunchContext(error: outerLoad,
-            sourceStep: .requestCancellation, stage: .extensionLaunch)
+            sourceStep: .requestCancellation)
         precondition(reverseContext.errorChain.map(\.code) == [NSExecutableLoadError, 3])
         precondition(reverseContext.technicalDetails.contains("NSCocoaErrorDomain:3587>NSCocoaErrorDomain:3"))
 
         let noMetadataContext = CombinedFailure.LaunchContext(error: NSError(domain: NSCocoaErrorDomain, code: 3),
-            sourceStep: .extensionFactory, stage: .extensionDiscovery)
+            sourceStep: .extensionFactory)
         precondition(noMetadataContext.kind == .unknown)
-        let missingPlugin = CombinedFailure.LaunchContext(sourceStep: .liveProcessBundleMissing,
-            stage: .extensionDiscovery)
+        let missingPlugin = CombinedFailure.LaunchContext(sourceStep: .liveProcessBundleMissing)
         precondition(missingPlugin.kind == .extensionNotFound)
-        let missingExecutable = CombinedFailure.LaunchContext(sourceStep: .executableFileMissing,
-            stage: .extensionDiscovery)
+        let missingExecutable = CombinedFailure.LaunchContext(sourceStep: .executableFileMissing)
         precondition(missingExecutable.kind == .executableLoadFailure)
 
         let timeoutFailure = CombinedFailure(operation: "connect", stage: .xpcConnection,
             code: .timedOut, id: id)
-        precondition(timeoutFailure.launchContext?.sourceStep == .startupTimeout)
-        precondition(timeoutFailure.launchContext?.kind == .unknown)
-        precondition(timeoutFailure.launchContext?.pidObserved == "yes")
-        precondition(timeoutFailure.launchContext?.xpcAccepted == "no")
+        precondition(timeoutFailure.launchContext == nil, "generic construction inferred host observations")
         let peerFailure = CombinedFailure.LaunchContext.launchFailure(NSError(domain: "Private.Peer.Domain", code: 9),
             stage: .xpcConnection, id: id, sourceStep: .xpcRemoteObjectError,
             requestIdentifierObserved: true, pidObserved: true, xpcAccepted: true,
             peerPIDRejected: true)
         precondition(peerFailure.launchContext?.kind == .xpcConnectionFailure)
         precondition(peerFailure.technicalDetails.contains("launch_peer_pid_rejected=yes"))
+        let noPeerObservation = CombinedFailure.LaunchContext(sourceStep: .startupTimeout)
+        precondition(noPeerObservation.peerPIDRejected == "unknown")
+
+        let priorContext = CombinedFailure.LaunchContext(error: outerThree, sourceStep: .requestCallbackError)
+        let priorFailure = CombinedFailure.LaunchContext.launchFailure(outerThree,
+            stage: .serviceReadiness, id: id, sourceStep: .requestCallbackError,
+            requestIdentifierObserved: true, pidObserved: true, xpcAccepted: true)
+        let readinessOwner = CombinedFailure.LaunchContext(error: NSError(domain: NSCocoaErrorDomain, code: 3),
+            sourceStep: .readinessProbe,
+            requestIdentifierObserved: true, pidObserved: true, xpcAccepted: true,
+            applicationReadyObserved: true)
+        let enriched = CombinedFailure.preserving(priorFailure, operation: "connect",
+            stage: .serviceReadiness, id: id, launchContext: readinessOwner)
+        precondition(enriched.launchContext?.sourceStep == .readinessProbe)
+        precondition(enriched.launchContext?.applicationReadyObserved == "yes")
+        precondition(enriched.launchContext?.errorChain == priorContext.errorChain,
+            "owner observations discarded the existing safe cause chain")
 
         var deep: NSError = NSError(domain: "Private.Path.Domain", code: 99,
             userInfo: [NSFilePathErrorKey: "/private/leaf"])
@@ -184,7 +227,7 @@ struct StartupTests {
                 userInfo: [NSUnderlyingErrorKey: deep, NSFilePathErrorKey: "/private/\(code)"])
         }
         let boundedContext = CombinedFailure.LaunchContext(error: deep,
-            sourceStep: .unknown, stage: .extensionLaunch)
+            sourceStep: .unknown)
         precondition(boundedContext.errorChain.count == 5)
         precondition(boundedContext.errorChain.map(\.code) == [1, 2, 3, 4, 5])
         precondition(boundedContext.technicalDetails.contains("redacted:unknown"))
@@ -193,7 +236,7 @@ struct StartupTests {
 
         let ordinary = CombinedFailure(operation: "refresh", stage: .serviceReadiness,
             id: id, underlying: outerThree)
-        precondition(ordinary.launchContext == nil && !ordinary.technicalDetails.contains("launch_role"))
+        precondition(ordinary.launchContext == nil && !ordinary.technicalDetails.contains("launch_observer_role"))
         precondition(!f.events.contains("refresh") && !f.events.contains("signIn"), "connecting invoked a mutation")
         let unsafe: [String: Any] = ["liveContainerAutoRefreshVerification": ["run_id": id, "expected_ids": ["test.app"],
             "password": "SECRET", "results": [["bundle_id": "test.app", "success": false, "token": "SECRET",

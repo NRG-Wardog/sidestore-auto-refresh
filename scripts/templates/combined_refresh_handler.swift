@@ -85,9 +85,11 @@ class RefreshHandler: NSObject {
     private var retiringPID: Int32 = 0
     private var launchRequestPending: UUID?
     private var retiringRequestPending: UUID?
-    private var launchRequestIdentifierObserved = false
-    private var launchApplicationReadyObserved = false
-    private var launchPeerPIDRejected = false
+    private var launchRequestIdentifierObserved: Bool?
+    private var launchPIDObserved: Bool?
+    private var launchXPCAccepted: Bool?
+    private var launchApplicationReadyObserved: Bool?
+    private var launchPeerPIDRejected: Bool?
     private lazy var service: CombinedServiceConnection = CombinedServiceConnection(dependencies: .init(
         resolveHost: {
             guard !UserDefaults.isSideStore(), !UserDefaults.isLiveProcess() else {
@@ -208,9 +210,11 @@ class RefreshHandler: NSObject {
             Task { @MainActor in self?.failed(id, stage: .extensionLaunch, code: .interrupted,
                 launchSourceStep: .requestInterruption) }
         }
-        launchRequestIdentifierObserved = false
-        launchApplicationReadyObserved = false
-        launchPeerPIDRejected = false
+        launchRequestIdentifierObserved = nil
+        launchPIDObserved = nil
+        launchXPCAccepted = nil
+        launchApplicationReadyObserved = nil
+        launchPeerPIDRejected = nil
         launchRequestPending = id
         LCLaunchServiceExtension(ext, item) { [weak self] uuid, error in
             Task { @MainActor in
@@ -234,11 +238,13 @@ class RefreshHandler: NSObject {
                 }
                 let pid = ext.pid(forRequestIdentifier: uuid)
                 guard pid > 0 else {
+                    self.launchPIDObserved = false
                     self.failed(id, stage: .extensionLaunch, launchSourceStep: .processIdentifierUnavailable,
                         requestIdentifierObserved: true, pidObserved: false)
                     return
                 }
                 self.sideStorePid = pid
+                self.launchPIDObserved = true
                 NSLog("[V3_SERVICE_START] PROCESS_LAUNCHED id=%@ pid=%d", id.uuidString, pid)
                 self.service.signal(.launched, attempt: id)
                 self.confirmLaunchedPeer(id)
@@ -260,6 +266,7 @@ class RefreshHandler: NSObject {
             incoming.invalidate()
             return
         }
+        launchXPCAccepted = true
         NSLog("[V3_SERVICE_START] XPC_CONNECTED id=%@", id.uuidString)
         connection = incoming
         incoming.remoteObjectInterface = NSXPCInterface(with: RefreshClient.self)
@@ -270,7 +277,10 @@ class RefreshHandler: NSObject {
         incoming.invalidationHandler = { [weak self] in Task { @MainActor in self?.failed(id, stage: .xpcConnection,
             code: .interrupted, launchSourceStep: .xpcInvalidation) } }
         incoming.interruptionHandler = incoming.invalidationHandler
-        guard client != nil else { failed(id, stage: .xpcConnection); return }
+        guard client != nil else {
+            failed(id, stage: .xpcConnection, launchSourceStep: .xpcRemoteObjectError)
+            return
+        }
         incoming.resume()
         service.signal(.connected, attempt: id)
     }
@@ -313,8 +323,8 @@ class RefreshHandler: NSObject {
         let context: CombinedFailure.LaunchContext? = (refreshContinuation == nil &&
             [.extensionDiscovery, .extensionLaunch, .xpcConnection, .serviceReadiness].contains(stage))
             ? CombinedFailure.LaunchContext(error: underlying, sourceStep: launchSourceStep ?? .unknown,
-                stage: stage, requestIdentifierObserved: requestIdentifierObserved ?? launchRequestIdentifierObserved,
-                pidObserved: pidObserved ?? (sideStorePid > 0), xpcAccepted: connection != nil,
+                requestIdentifierObserved: requestIdentifierObserved ?? launchRequestIdentifierObserved,
+                pidObserved: pidObserved ?? launchPIDObserved, xpcAccepted: launchXPCAccepted,
                 applicationReadyObserved: launchApplicationReadyObserved,
                 peerPIDRejected: launchPeerPIDRejected) : nil
         let failure = CombinedFailure.preserving(underlying, operation: refreshContinuation == nil ? "connect" : "refresh",

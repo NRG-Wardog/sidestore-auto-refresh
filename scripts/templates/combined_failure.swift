@@ -158,7 +158,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case extensionFactory, extensionFactoryNil, listenerCreation
             case requestCallbackNoIdentifier, requestCancellation, requestInterruption
             case requestCallbackError, processIdentifierUnavailable, xpcRemoteObjectError
-            case xpcInvalidation, xpcPeerRejected, readinessProbe, startupTimeout, unknown
+            case xpcInvalidation, xpcPeerRejected, readinessProbe, startupTimeout, connectionStopped, unknown
         }
         public enum Kind: String {
             case extensionNotFound = "extension_not_found"
@@ -174,7 +174,8 @@ public struct CombinedFailure: Error, LocalizedError {
             public let code: Int?
         }
 
-        public let role: String
+        public let observerRole: String
+        public let targetRole: String
         public let osVersion: String
         public let runtimeArchitecture: String
         public let sourceStep: Step
@@ -183,14 +184,15 @@ public struct CombinedFailure: Error, LocalizedError {
         public let pidObserved: String
         public let xpcAccepted: String
         public let applicationReadyObserved: String
-        public let peerPIDRejected: Bool
-        public let errorChain: [Cause]
+        public let peerPIDRejected: String
+        public private(set) var errorChain: [Cause]
 
-        public init(error: Error? = nil, sourceStep: Step, stage: Stage,
+        public init(error: Error? = nil, sourceStep: Step,
                     requestIdentifierObserved: Bool? = nil, pidObserved: Bool? = nil,
                     xpcAccepted: Bool? = nil, applicationReadyObserved: Bool? = nil,
-                    peerPIDRejected: Bool = false) {
-            role = "host"
+                    peerPIDRejected: Bool? = nil) {
+            observerRole = "host"
+            targetRole = "LiveProcess"
             let version = ProcessInfo.processInfo.operatingSystemVersion
             osVersion = "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
             #if arch(arm64e)
@@ -205,15 +207,12 @@ public struct CombinedFailure: Error, LocalizedError {
             runtimeArchitecture = "unknown"
             #endif
             self.sourceStep = sourceStep
-            self.peerPIDRejected = peerPIDRejected
 
-            let requestObserved: Bool? = stage == .xpcConnection || stage == .serviceReadiness ? true : nil
-            let inferredPID: Bool? = stage == .xpcConnection || stage == .serviceReadiness ? true : nil
-            let inferredXPC: Bool? = stage == .xpcConnection ? false : stage == .serviceReadiness ? true : nil
-            self.requestIdentifierObserved = Self.observation(requestIdentifierObserved ?? requestObserved)
-            self.pidObserved = Self.observation(pidObserved ?? inferredPID)
-            self.xpcAccepted = Self.observation(xpcAccepted ?? inferredXPC)
+            self.requestIdentifierObserved = Self.observation(requestIdentifierObserved)
+            self.pidObserved = Self.observation(pidObserved)
+            self.xpcAccepted = Self.observation(xpcAccepted)
             self.applicationReadyObserved = Self.observation(applicationReadyObserved)
+            self.peerPIDRejected = Self.observation(peerPIDRejected)
 
             let causes = Self.safeErrorChain(error)
             errorChain = causes
@@ -224,16 +223,34 @@ public struct CombinedFailure: Error, LocalizedError {
             let causes = errorChain.map { cause in
                 cause.code.map { "\(cause.domain):\($0)" } ?? "\(cause.domain):unknown"
             }.joined(separator: ">")
-            return " launch_role=\(role) launch_os=\(osVersion) launch_arch=\(runtimeArchitecture)" +
+            return " launch_observer_role=\(observerRole) launch_target_role=\(targetRole) launch_os=\(osVersion) launch_arch=\(runtimeArchitecture)" +
                 " launch_source_step=\(sourceStep.rawValue) launch_failure_kind=\(kind.rawValue)" +
                 " launch_request_id_observed=\(requestIdentifierObserved) launch_pid_observed=\(pidObserved)" +
                 " launch_xpc_accepted=\(xpcAccepted) launch_application_ready=\(applicationReadyObserved)" +
-                " launch_peer_pid_rejected=\(peerPIDRejected ? "yes" : "no") launch_error_chain=\(causes.isEmpty ? "none" : causes)"
+                " launch_peer_pid_rejected=\(peerPIDRejected) launch_error_chain=\(causes.isEmpty ? "none" : causes)"
         }
 
         private static func observation(_ value: Bool?) -> String {
             guard let value else { return "unknown" }
             return value ? "yes" : "no"
+        }
+
+        public func retainingErrorChain(from prior: LaunchContext?) -> LaunchContext {
+            guard let prior, !prior.errorChain.isEmpty else { return self }
+            guard !errorChain.isEmpty else {
+                var enriched = self
+                enriched.errorChain = prior.errorChain
+                return enriched
+            }
+            let limit = min(errorChain.count, prior.errorChain.count)
+            let overlap = (0...limit).reversed().first { count in
+                Array(errorChain.suffix(count)) == Array(prior.errorChain.prefix(count))
+            } ?? 0
+            let combined = Array((errorChain + Array(prior.errorChain.dropFirst(overlap))).prefix(5))
+            guard combined != errorChain else { return self }
+            var enriched = self
+            enriched.errorChain = combined
+            return enriched
         }
 
         private static func safeErrorChain(_ error: Error?) -> [Cause] {
@@ -279,8 +296,8 @@ public struct CombinedFailure: Error, LocalizedError {
                                          id: String, sourceStep: Step,
                                          requestIdentifierObserved: Bool? = nil, pidObserved: Bool? = nil,
                                          xpcAccepted: Bool? = nil, applicationReadyObserved: Bool? = nil,
-                                         peerPIDRejected: Bool = false, retryable: Bool? = nil) -> CombinedFailure {
-            let context = LaunchContext(error: error, sourceStep: sourceStep, stage: stage,
+                                         peerPIDRejected: Bool? = nil, retryable: Bool? = nil) -> CombinedFailure {
+            let context = LaunchContext(error: error, sourceStep: sourceStep,
                 requestIdentifierObserved: requestIdentifierObserved, pidObserved: pidObserved,
                 xpcAccepted: xpcAccepted, applicationReadyObserved: applicationReadyObserved,
                 peerPIDRejected: peerPIDRejected)
@@ -522,18 +539,8 @@ public struct CombinedFailure: Error, LocalizedError {
         self.sourceStep = sourceStep
         self.signingContext = Self.validatedSigningContext(signingContext) ?? [:]
         self.retryable = retryable ?? self.safeCause?.inferredRetryable
-        if let launchContext {
-            self.launchContext = launchContext
-        } else if normalized == "connect" && [.extensionDiscovery, .extensionLaunch, .xpcConnection, .serviceReadiness].contains(stage) {
-            let timeout = code == .timedOut
-            let native = underlying as NSError?
-            let source: LaunchContext.Step = native?.domain == LaunchContext.bridgeErrorDomain && native?.code == LaunchContext.bridgeNoIdentifierCode
-                ? .requestCallbackNoIdentifier : timeout ? .startupTimeout : .unknown
-            self.launchContext = LaunchContext(error: underlying,
-                sourceStep: source, stage: stage)
-        } else {
-            self.launchContext = nil
-        }
+        let launchStages: Set<Stage> = [.extensionDiscovery, .extensionLaunch, .xpcConnection, .serviceReadiness]
+        self.launchContext = normalized == "connect" && launchStages.contains(stage) ? launchContext : nil
     }
     private static let operations: Set<String> = ["connect", "status", "command", "recovery", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit", "pairingImportData", "anisetteList", "anisetteReset", "anisetteSync"]
     private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "kCFErrorDomainCFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError", "io.sidestore.LiveContainer.ExtensionLaunch"]
@@ -1172,11 +1179,12 @@ public struct CombinedFailure: Error, LocalizedError {
     public static func preserving(_ error: Error?, operation: String, stage: Stage, code: Code = .failed, id: String, retryable: Bool? = nil,
                                   launchContext: LaunchContext? = nil) -> CombinedFailure {
         if let known = error as? CombinedFailure {
-            guard let launchContext, known.launchContext == nil else { return known }
+            guard let launchContext else { return known }
+            let retainedContext = launchContext.retainingErrorChain(from: known.launchContext)
             return CombinedFailure(operation: known.operation, stage: known.stage, code: known.code,
                 id: known.correlationID, underlying: NSError(domain: known.underlyingDomain, code: known.underlyingCode),
                 retryable: known.retryable, safeCause: known.safeCause, sourceStep: known.sourceStep,
-                signingContext: known.signingContext, launchContext: launchContext)
+                signingContext: known.signingContext, launchContext: retainedContext)
         }
         if let launchContext {
             return CombinedFailure(operation: operation, stage: stage, code: code, id: id,
