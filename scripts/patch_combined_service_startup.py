@@ -20,6 +20,7 @@ SIDESIGN_PORTAL_OBSERVER = '''
 // response parsing and the original thrown SideSign error remain unchanged.
 public enum SideSignPortalDiagnostics {
     @TaskLocal public static var responseObserver: (@Sendable (Int?, String?) -> Void)? = nil
+    @TaskLocal public static var resultCodeObserver: (@Sendable (Int) -> Void)? = nil
     public static func safeProviderCode(_ value: String?) -> String? {
         let known: Set<String> = ["ENTITY_ERROR", "ENTITY_ERROR.INVALID", "ENTITY_ERROR.ATTRIBUTE.INVALID",
             "ENTITY_ERROR.ATTRIBUTE.REQUIRED", "ENTITY_ERROR.ATTRIBUTE.UNKNOWN",
@@ -35,7 +36,7 @@ public enum SideSignPortalDiagnostics {
 
 def patch_sidesign_portal_observer(text):
     if "LC_PORTAL_RESPONSE_OBSERVER_V1" in text:
-        if text.count("SideSignPortalDiagnostics.responseObserver?(httpResponse?.statusCode, nil)") != 2 or text.count("SideSignPortalDiagnostics.safeProviderCode(firstError.code)") != 2 or SIDESIGN_PORTAL_OBSERVER.strip() not in text:
+        if text.count("SideSignPortalDiagnostics.resultCodeObserver?(code)") != 2 or text.count("SideSignPortalDiagnostics.responseObserver?(httpResponse?.statusCode, nil)") != 2 or text.count("SideSignPortalDiagnostics.safeProviderCode(firstError.code)") != 2 or SIDESIGN_PORTAL_OBSERVER.strip() not in text:
             raise SystemExit("SideSign portal observer is incomplete")
         return text
     anchor = "        let httpResponse = response as? HTTPURLResponse"
@@ -45,7 +46,23 @@ def patch_sidesign_portal_observer(text):
     error_anchor = "            if let errors = status.errors, let firstError = errors.first, let detail = firstError.detail {"
     if text.count(error_anchor) != 2:
         raise SystemExit("pinned SideSign structured error anchors changed")
+    code_anchor = "            if let code = status.resultCode, code != DeveloperPortalResultCodes.success {"
+    if text.count(code_anchor) != 2:
+        raise SystemExit("pinned SideSign numeric result anchors changed")
+    text = text.replace(code_anchor, code_anchor + "\n                SideSignPortalDiagnostics.resultCodeObserver?(code)")
     return text.replace(error_anchor, error_anchor + "\n                SideSignPortalDiagnostics.responseObserver?(httpResponse?.statusCode, SideSignPortalDiagnostics.safeProviderCode(firstError.code))") + SIDESIGN_PORTAL_OBSERVER
+
+def patch_sidesign_app_id_limit(text):
+    # Physical appIDRegistration result + upstream AltSign's registration map.
+    # Preserve SideSign's legacy37 and all other result handling unchanged.
+    before = "                case DeveloperPortalResultCodes.maximumAppIDLimitReached:"
+    after = "                case DeveloperPortalResultCodes.maximumAppIDLimitReached, 9120: // LC_APP_ID_LIMIT_9120_V1"
+    if text.count(after) == 1:
+        return text
+    if "LC_APP_ID_LIMIT_9120_V1" in text or text.count(before) != 1:
+        raise ValueError("pinned SideSign App ID limit mapping changed")
+    return text.replace(before, after, 1)
+
 
 SIGNING_CAUSE_HELPER = '''
 import CryptoKit
@@ -96,14 +113,19 @@ private final class LCSigningHTTPObservation: @unchecked Sendable {
     private let lock = NSLock()
     private var status: Int?
     private var providerCode: String?
+    private var resultCode: Int?
     func record(_ value: Int?, code: String?) {
         lock.lock(); defer { lock.unlock() }
         status = value.flatMap { (100...599).contains($0) ? $0 : nil }
         providerCode = SideSignPortalDiagnostics.safeProviderCode(code)
     }
-    func snapshot() -> (status: Int?, providerCode: String?) {
+    func recordResultCode(_ code: Int) {
         lock.lock(); defer { lock.unlock() }
-        return (status, providerCode)
+        resultCode = code
+    }
+    func snapshot() -> (status: Int?, providerCode: String?, resultCode: Int?) {
+        lock.lock(); defer { lock.unlock() }
+        return (status, providerCode, resultCode)
     }
 }
 
@@ -174,8 +196,23 @@ func lcPortalSigningRequest<T>(sourceStep: String, facts: [String: String],
     let observation = LCSigningHTTPObservation()
     do {
         return try await SideSignPortalDiagnostics.$responseObserver.withValue({ observation.record($0, code: $1) }) {
-            try await operation()
+            try await SideSignPortalDiagnostics.$resultCodeObserver.withValue({ observation.recordResultCode($0) }) {
+                try await operation()
+            }
         }
+    }
+    catch let portal as DeveloperPortalError {
+        // Only annotate the proven App ID capacity result; leave other typed
+        // upstream business handling unchanged.
+        guard sourceStep == "appIDRegistration",
+              case .maximumAppIDLimitReached = portal else { throw portal }
+        let response = observation.snapshot()
+        var observed = facts
+        observed["http_status"] = response.status.map { String($0) } ?? "unavailable"
+        observed["provider_code"] = response.providerCode ?? "unavailable"
+        observed["server_code"] = response.resultCode.map { String($0) } ?? "unknown"
+        throw lcStructuredSigningFailure(portal, stage: "signing", sourceStep: sourceStep,
+                                         facts: observed, portalResponse: true)
     }
     catch let server as ServerError {
         var observed = facts
@@ -591,7 +628,11 @@ if __name__ == "__main__":
         if subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip() != "a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d":
             raise SystemExit("portal diagnostics require the pinned SideSign revision")
         target = root / "Sources/DeveloperPortal/DeveloperPortalAPI.swift"
-        target.write_bytes(patch_sidesign_portal_observer(target.read_text(encoding="utf-8")).encode())
+        app_ids = root / "Sources/DeveloperPortal/AppIDs.swift"
+        api_text = patch_sidesign_portal_observer(target.read_text(encoding="utf-8"))
+        app_ids_text = patch_sidesign_app_id_limit(app_ids.read_text(encoding="utf-8"))
+        target.write_bytes(api_text.encode())
+        app_ids.write_bytes(app_ids_text.encode())
         raise SystemExit(0)
     if len(sys.argv) == 3 and sys.argv[1] == "--transport":
         patch_transport(Path(sys.argv[2]).resolve())

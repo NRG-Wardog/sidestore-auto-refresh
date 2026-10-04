@@ -221,12 +221,18 @@ private func roundTrip(_ failure: Error, operation: String = "install") throws -
         precondition(typedIssue.recoveryDestination == "certificates")
         // Execute the pinned addAppID result-code handler inside the actual
         // pinned status decoder, through the generated service request/catch.
+        for resultCode in [37, 9120] {
         let quotaBundle = "com.private.quota"
         await actualCode.install([quotaBundle: PortalResponsePlan(
-            body: Data(#"{"resultCode":37,"userString":"PRIVATE-QUOTA-BODY lc_stage=network HTTP 503 errno=20"}"#.utf8),
+            body: try JSONSerialization.data(withJSONObject: ["resultCode": resultCode,
+                "userString": "PRIVATE-QUOTA-BODY lc_stage=network HTTP 503 errno=20"]),
             status: 200, delayMilliseconds: 0)])
         let reportedQuota = try await capture(proxy, bundle: quotaBundle)
         precondition(reportedQuota.safeCause == .appIDLimitReached)
+        precondition(reportedQuota.safeCause != .developerPortalRejectedRequest)
+        precondition(reportedQuota.sourceStep == .appIDRegistration)
+        precondition(reportedQuota.signingContext["server_code"] == String(resultCode))
+        precondition(reportedQuota.signingContext["http_status"] == "200")
         precondition(reportedQuota.stage == .signing && reportedQuota.retryable == false)
         precondition(reportedQuota.underlyingDomain != "HTTPStatus" &&
                      reportedQuota.underlyingDomain != "NSPOSIXErrorDomain")
@@ -235,6 +241,11 @@ private func roundTrip(_ failure: Error, operation: String = "install") throws -
         precondition(!reportedQuota.technicalDetails.contains("PRIVATE-QUOTA-BODY"))
         let quotaCounts = await actualCode.counts()
         precondition(quotaCounts[quotaBundle] == 1)
+        precondition(V3OperationFailureDetails(reportedQuota).whatHappened.contains("App ID limit reached"))
+        precondition(V3OperationFailureDetails(reportedQuota).recommendedAction.contains("extensions"))
+        precondition(V3OperationFailureDetails(reportedQuota).recoveryDestination != "certificates")
+        precondition(V3OperationFailureDetails(reportedQuota).retryDisposition == .blocked)
+        }
 
         // Real pinned typed errors, the generated pipeline catch, plist bridge,
         // and both production UI policies must preserve the quota distinction.
@@ -242,6 +253,7 @@ private func roundTrip(_ failure: Error, operation: String = "install") throws -
         let quotaCases: [(Error, Bool)] = [
             (DeveloperPortalError.maximumAppIDLimitReached(cause: "PRIVATE-QUOTA-BODY"), true),
             (ServerError.underlyingError(code: 37, message: "Not enough available app IDs"), false),
+            (ServerError.underlyingError(code: 9120, message: "Not enough available app IDs"), false),
             (DeveloperPortalError.unknown(cause: "Not enough available app IDs lc_stage=network HTTP 503 errno=20"), false)
         ]
         for (error, isQuota) in quotaCases {

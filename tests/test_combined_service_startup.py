@@ -508,6 +508,8 @@ class ReadinessRegressionTests(unittest.TestCase):
         actual_result_codes = constants_text[codes_start:_matching_swift_brace(constants_text, codes_open)]
 
         app_ids_text = (Path(side_sign) / "Sources/DeveloperPortal/AppIDs.swift").read_text(encoding="utf-8")
+        app_ids_text = startup.patch_sidesign_app_id_limit(app_ids_text)
+        self.assertEqual(startup.patch_sidesign_app_id_limit(app_ids_text), app_ids_text)
         handler_open = app_ids_text.index("{", app_ids_text.index("resultCodeHandler: {"))
         actual_app_id_result_handler = app_ids_text[handler_open:_matching_swift_brace(app_ids_text, handler_open)]
 
@@ -543,7 +545,7 @@ class ReadinessRegressionTests(unittest.TestCase):
         behavioral_model = _without_imports((ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8"))
         template = (ROOT / "tests/fixtures/v3_portal_failure_harness.swift").read_text(encoding="utf-8")
 
-        def build_source(*, mutate_server_code=False, mutate_source_step=False, mutate_quota=False, mutate_portal_type=False):
+        def build_source(*, mutate_server_code=False, mutate_source_step=False, mutate_quota=False, mutate_portal_type=False, mutate_9120=False):
             signing_helper = startup.SIGNING_CAUSE_HELPER
             if mutate_portal_type:
                 original = 'if error is DeveloperPortalError { context["typed_error"] = "sideSignDeveloperPortalError" }'
@@ -562,12 +564,17 @@ class ReadinessRegressionTests(unittest.TestCase):
                 original = 'sourceStep: "appIDRegistration"'
                 self.assertEqual(generated_method.count(original), 1)
                 generated_method = generated_method.replace(original, 'sourceStep: "appIDLookup"', 1)
+            app_id_handler = actual_app_id_result_handler
+            if mutate_9120:
+                original = ', 9120: // LC_APP_ID_LIMIT_9120_V1'
+                self.assertEqual(app_id_handler.count(original), 1)
+                app_id_handler = app_id_handler.replace(original, ':', 1)
             replacements = {
                 "$SIDESIGN_ERROR_TYPES$": actual_side_sign_errors,
                 "$DEVELOPER_PORTAL_STATUS_RESPONSE$": actual_status_response,
                 "$DEVELOPER_PORTAL_RESULT_CODES$": actual_result_codes,
                 "$PORTAL_OBSERVER$": startup.SIDESIGN_PORTAL_OBSERVER,
-                "$ACTUAL_APP_ID_RESULT_HANDLER$": actual_app_id_result_handler,
+                "$ACTUAL_APP_ID_RESULT_HANDLER$": app_id_handler,
                 "$COMBINED_FAILURE$": failure_model,
                 "$BEHAVIORAL_POLICIES$": behavioral_model,
                 "$SIGNING_CAUSE_HELPER$": signing_helper,
@@ -605,6 +612,7 @@ class ReadinessRegressionTests(unittest.TestCase):
             execute("portal-failure-wrong-source-step", build_source(mutate_source_step=True), False)
             execute("portal-failure-no-quota", build_source(mutate_quota=True), False)
             execute("portal-failure-no-portal-type", build_source(mutate_portal_type=True), False)
+            execute("portal-failure-no-9120", build_source(mutate_9120=True), False)
 
     def test_structured_failures_are_preserved_not_rewrapped(self):
         handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")

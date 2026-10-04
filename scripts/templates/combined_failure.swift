@@ -559,7 +559,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .signingNetworkUnavailable: return "The signing flow could not reach the provisioning service."
             case .developerPortalRejectedRequest:
                 return "Apple's developer service reported an error \(sourceStep?.portalUserLabel ?? "while preparing the app's provisioning data")."
-            case .appIDLimitReached: return "Apple reported that the selected developer team has reached its App ID limit."
+            case .appIDLimitReached: return "App ID limit reached. Apple could not register another App ID for the selected team."
             case .developerPortalInvalidResponse: return "The provisioning service returned an invalid response during signing."
             case .provisioningProfileUnavailable: return "A required provisioning profile is not available for this app."
             case .certificateUnavailable: return "The selected signing certificate is not available."
@@ -757,7 +757,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .developerPortalRejectedRequest, .developerPortalInvalidResponse:
                 return "Copy Diagnostics, including the failed request step and server code. The correct recovery action is not yet known."
             case .appIDLimitReached:
-                return "Check App IDs for the selected team and retry when capacity is available. Repeating the install immediately or changing certificates will not free an App ID slot."
+                return "Apps with extensions may need multiple App IDs. Check App IDs for the selected team and retry when capacity is available. Repeating the install immediately or changing certificates will not free an App ID slot."
             case .provisioningProfileUnavailable:
                 return "The requested provisioning profile was unavailable. Keep the diagnostics before trying the install again."
             case .certificateUnavailable:
