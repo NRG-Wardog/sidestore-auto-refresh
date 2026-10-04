@@ -7,7 +7,7 @@
 
 An independent, open-source build based on **SideStore** and **LiveContainer**, focused on reliable same-device refresh, clear scheduling, verification, and beginner-friendly setup.
 
-The recommended combined build is **v3.0.2**, which unifies LiveContainer and SideStore in one interface. **Standalone SideStore v1** remains available, and **combined v2** is the previous interface line. A computer is needed for the initial install and pairing setup. After that, the stable refresh path is designed to run on the iPhone without keeping the computer connected.
+The current combined release is **v3.1.0**, which unifies LiveContainer and SideStore in one interface. Read its [known issues and validation limits](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0), especially for iOS 27.0.1. **Standalone SideStore v1** remains available, and **combined v2** is the previous interface line. A computer is needed for the initial install and pairing setup. After that, the supported refresh path is designed to run on the iPhone without keeping the computer connected.
 
 > [!IMPORTANT]
 > The current stable refresh path requires **Wi-Fi + the official App Store LocalDevVPN**. Cellular-only refresh is experimental and is not part of the stable release.
@@ -71,12 +71,12 @@ _Comparison basis: upstream SideStore `develop` at `797e0d46c46491c7fba1192c789c
 
 ### Before you start
 
-For most users, install **Unified v3.0.2**. It is the recommended LiveContainer + SideStore build.
+For the unified product, download **Unified v3.1.0** and review the known issues in its release notes.
 
-<p align="center"><a href="https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v3.0.2/LiveContainer-SideStore-AutoRefresh.ipa"><strong>DOWNLOAD v3.0.2 IPA</strong></a></p>
+<p align="center"><a href="https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v3.1.0/LiveContainer-SideStore-v3.1.0.ipa"><strong>DOWNLOAD v3.1.0 IPA</strong></a></p>
 
 > [!IMPORTANT]
-> For installation, download **`LiveContainer-SideStore-AutoRefresh.ipa`**. You do **not** need `build-evidence.zip` or GitHub's source-code archives to install the app.
+> For installation, download **`LiveContainer-SideStore-v3.1.0.ipa`**. You do **not** need GitHub's source-code archives to install the app.
 
 Check these items before installing:
 
@@ -99,7 +99,7 @@ If you want to understand the differences first, see [What this project improves
 
 Download the recommended v3 build:
 
-**[LiveContainer-SideStore-AutoRefresh.ipa](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v3.0.2/LiveContainer-SideStore-AutoRefresh.ipa)**
+**[LiveContainer-SideStore-v3.1.0.ipa](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v3.1.0/LiveContainer-SideStore-v3.1.0.ipa)**
 
 Do not use iLoader's built-in stock SideStore or stock LiveContainer + SideStore installer if you want this project's modified build. Use **Import IPA** and choose the IPA downloaded from this repository.
 
@@ -107,7 +107,7 @@ Alternative product lines:
 
 - **Standalone SideStore:** [v1.0.4](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.4)
 - **Previous combined interface:** [v2.1.1](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.1)
-- **Recommended unified build:** [v3.0.2](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.0.2)
+- **Current unified build:** [v3.1.0](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0)
 
 ### Step 2: Install with iLoader
 
@@ -117,7 +117,7 @@ Alternative product lines:
 4. In iLoader, select the connected device.
 5. Sign in with the Apple Account you want to use for signing.
 6. Open **Installers -> Import IPA**.
-7. Select `LiveContainer-SideStore-AutoRefresh.ipa`.
+7. Select `LiveContainer-SideStore-v3.1.0.ipa`.
 8. Keep the required app extensions, including **LiveProcess**. Do not strip all extensions.
 9. Let iLoader sign and install the IPA. Keep the device connected and unlocked until installation finishes.
 
@@ -360,23 +360,34 @@ These screenshots show the earlier standalone SideStore v1.0.2 interface. The cu
 
 | What you want | Use | Download |
 | --- | --- | --- |
-| One unified LiveContainer + SideStore interface | **Unified v3.0.2 (recommended)** | **[Download v3 IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v3.0.2/LiveContainer-SideStore-AutoRefresh.ipa)** |
+| One unified LiveContainer + SideStore interface | **Unified v3.1.0** | **[Download v3 IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v3.1.0/LiveContainer-SideStore-v3.1.0.ipa)** |
 | The previous combined interface | **Combined v2.1.1 (previous release)** | [Previous v2 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.1) |
 | SideStore only, with normal separately installed sideloaded apps | **Standalone v1.0.4** | **[Download standalone IPA](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/download/v1.0.4/SideStore.ipa)** |
 
-For LiveContainer + SideStore, choose **v3.0.2**. SideStore is already included, so a separate SideStore installation is not needed for this setup. The v2 download is retained for users who need the previous interface; it does not contain the v3 fixes.
+For LiveContainer + SideStore, choose **v3.1.0** after reading its known issues. SideStore is already included, so a separate SideStore installation is not needed for this setup. The v2 download is retained for users who need the previous interface; it does not contain the v3 fixes.
 
-**Recommended unified build:** [v3.0.2 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.0.2)
+**Current unified build:** [v3.1.0 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0)
 
-**Previous unified build:** [v3.0.1 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.0.1) (previous v3 line, still available)
+**Previous unified build:** [v3.0.2 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.0.2) (still available)
 
 **Previous combined line:** [v2.1.1 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v2.1.1)
 
 **Standalone:** [v1.0.4 release](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v1.0.4)
 
+## What's new in v3.1.0?
+
+The released IPA is the unchanged verified builder **651587433eb7142089509e558dcfba9eb69d0470**, from successful macOS CI [37158730837](https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/37158730837). Its in-app diagnostics retain the original `Combined LC+SS v3.0.3-rc` label. The public release is v3.1.0; it does not contain the later unbuilt `54eb1990` changes.
+
+- **Smaller headless backend:** legacy SideStore UI/resources are excluded while upstream backend operations remain. Raw IPA size is **25,122,692 bytes / 23.958866 MiB**, down **35.14%** from v3.0.2. This is an artifact-size measurement, not a runtime-speed claim.
+- **Stabilization:** direct-root local IPA presentation/reuse, authoritative source-add persistence, typed auth/prompt ownership, signed App Group/runtime storage handling, operation phase/progress, LC-native JIT-Less observation, and the focused upstream guest-background backport are included.
+- **Explicit acceptance limits:** some iOS 27.0.1 devices still fail embedded LiveProcess launch; the released IPA still has the synthetic Cocoa 3587 marker on a missing request UUID. Its physical cause is unresolved. The alternate App ID-limit code 9120 mapping and improved launch diagnostics exist only in the later unbuilt branch. The official pinned LC source is currently unavailable, blocking the next validation build; the installed IPA does not need GitHub online to run.
+- **Device tests remain:** real Apple auth/2FA, sustained/scheduled refresh, affected-device guest lifecycle/preferences, source catalog/relaunch and the latest JIT-Less readiness/signature behavior. See the [complete release notes, checksum and size table](https://github.com/NRG-Wardog/sidestore-auto-refresh/releases/tag/v3.1.0). Do not delete data or reset pairing as speculative launch recovery.
+
+SHA-256: `2337e08a71b2af4fee930b59ccd28522563acd81e908069e56f6d27d1636daf4`.
+
 ## What's new in v3.0.2?
 
-v3.0.2 is the current maintenance release for the unified LiveContainer + SideStore v3 line.
+v3.0.2 is the previous maintenance release for the unified LiveContainer + SideStore v3 line.
 
 - **Setup Assistant:** host-owned onboarding checklist covering device, pairing, Apple account, network, Background App Refresh, schedule, and a verified test refresh. Setup Complete requires a signed-in team, acceptable network and tunnel, available Background App Refresh, enabled schedule, and a refresh verified in the current session.
 - **Start Dock Collapsed:** new persistent Multitasking preference. The dock can begin collapsed; manual expand/collapse always wins afterwards and layout or rotation never reset it. Independent from Hide Collapsed Dock and Guest Controls.
@@ -648,6 +659,7 @@ This separation keeps Issue #17 low risk: the renderer changes, while the app li
 
 | Scope | Current evidence |
 | --- | --- |
+| Unified v3.1.0 build and packaging | Exact builder 65158743 / CI 37158730837 passed 920 macOS repository tests with zero skips, native certificate checks, generated-source/idempotence, simulator layout, host/backend builds and uploaded-artifact verification. Fresh release download matches the raw IPA checksum. This is not exact-build physical-device acceptance |
 | Unified v3.0.2 build and packaging | CI 35518324344 passed 190 repository tests, 512 layout measurements with 0 failures, host + embedded source builds, transport checks, and IPA packaging verification. Matching evidence is attached to the release; this is not exhaustive physical-device validation |
 | Unified v3.0.1 build and packaging | CI 35419528113 passed 155 repository tests, 512 layout measurements with 0 failures, host + embedded source builds, transport checks, and IPA packaging verification. Matching evidence is attached to the release; this is not exhaustive physical-device validation |
 | Standalone v1.0.4 build and packaging | CI passed; published IPA checksum, arm64 executable, background-task configuration, and layout patch parsing verified |
