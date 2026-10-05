@@ -38,6 +38,38 @@ def block(source, anchor, occurrence=0):
 
 
 class CFBundleScanTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "darwin", "iPhoneOS SDK compile requires macOS/Xcode")
+    def test_production_adapter_compiles_against_actual_iphoneos_sdk(self):
+        # Use the real target SDK and unmodified ObjC/Mach adapter, not the
+        # host-only C syscall doubles below. Missing SDK/toolchain is a failure
+        # on macOS CI, never an additional skip.
+        sdk = subprocess.check_output(["xcrun", "--sdk", "iphoneos", "--show-sdk-path"],
+                                      text=True).strip()
+        original = upstream("LiveContainer/LCBootstrap.m")
+        generated = patch.patch_text(original)
+        start = generated.index("#include <stdbool.h>")
+        end = generated.index("void overwriteMainNSBundle(", start)
+        adapter = generated[start:end]
+        declarations = '''#import <Foundation/Foundation.h>
+#import <CoreFoundation/CoreFoundation.h>
+#include <mach/mach.h>
+#include <stdint.h>
+@interface NSBundle (CFBundleSDKProbe)
+- (id)_cfBundle;
+@end
+uint64_t aarch64_get_tbnz_jump_address(uint32_t, uint64_t);
+uint64_t aarch64_emulate_adrp_ldr(uint32_t, uint32_t, uint64_t);
+'''
+        with tempfile.TemporaryDirectory() as name:
+            source = Path(name) / "CFBundleSDKProbe.m"
+            source.write_text(declarations + adapter)
+            built = subprocess.run([
+                "xcrun", "--sdk", "iphoneos", "clang", "-target", "arm64-apple-ios15.0",
+                "-isysroot", sdk, "-fobjc-arc", "-fsyntax-only",
+                "-Werror=implicit-function-declaration", "-Werror=shorten-64-to-32",
+                str(source)], capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, built.stderr)
+
     def test_runtime_failure_returns_before_launch_success_or_unchecked_write(self):
         compiler = shutil.which("cc")
         if not compiler: self.skipTest("C compiler unavailable")
@@ -65,24 +97,26 @@ class CFBundleScanTests(unittest.TestCase):
         self.assertEqual(patch.patch_text(generated), generated)
         old_start = original.index("void overwriteMainCFBundle(void)")
         new_start = generated.index("#include <stdbool.h>")
-        self.assertEqual(original[:old_start], generated[:new_start].replace("#include <mach/mach_vm.h>\n", ""))
+        self.assertEqual(original[:old_start], generated[:new_start])
         original_tail = original[original.index("void overwriteMainNSBundle("):]
         generated_tail = generated[generated.index("void overwriteMainNSBundle("):]
         self.assertEqual(generated_tail.replace(patch.NEW_CALL, patch.OLD_CALL), original_tail)
         self.assertLess(generated.index("if (!mainCFBundleAddress)"),
                         generated.index("    overwriteMainNSBundle(appBundle);"))
         self.assertIn("if (!overwriteMainCFBundle(mainCFBundleAddress))", generated)
-        self.assertIn("mach_vm_read_overwrite", generated)
-        self.assertIn("mach_vm_write", generated)
+        self.assertIn("vm_read_overwrite", generated)
+        self.assertIn("vm_write", generated)
+        self.assertNotIn("#include <mach/mach_vm.h>", generated)
+        self.assertNotIn("mach_vm", patch.RUNTIME)
         self.assertNotIn("vm_protect", patch.RUNTIME)
-        self.assertNotIn("assert(", patch.RUNTIME)
+        self.assertNotRegex(patch.RUNTIME, r"\bassert\(")
         self.assertNotIn("*mainBundleAddr =", generated)
 
     def test_drift_or_partial_patch_fails_without_writing(self):
         original = upstream("LiveContainer/LCBootstrap.m")
         generated = patch.patch_text(original)
         for broken in (original.replace("while (true)", "for (;;)", 1),
-                       generated.replace("mach_vm_read_overwrite", "unchecked_read", 1),
+                       generated.replace("vm_read_overwrite", "unchecked_read", 1),
                        generated.replace(patch.NEW_CALL, patch.OLD_CALL)):
             with tempfile.TemporaryDirectory() as name:
                 path = Path(name) / "LCBootstrap.m"

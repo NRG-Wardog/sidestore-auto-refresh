@@ -457,6 +457,20 @@ for modern in [false, true] {
 
 
 class CombinedWorkflowTests(unittest.TestCase):
+    def test_full_rendering_remains_required_after_native_build_before_packaging(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        host = workflow.index("- name: Build unified host before transport compilation")
+        backend = workflow.index("- name: Build host and embedded SideStore source targets")
+        layout = workflow.index("- name: Execute real layout regression on final generated source")
+        package = workflow.index("- name: Package and verify combined LiveContainer plus SideStore")
+        self.assertLess(host, backend)
+        self.assertLess(backend, layout)
+        self.assertLess(layout, package)
+        block = workflow[layout:].split("\n      - name:", 1)[0]
+        self.assertIn("--v3-source", block)
+        self.assertNotIn("continue-on-error", block)
+        self.assertNotIn("--skip-v3-native", block)
+
     def test_fixed_upstream_authentication_pins_and_no_override(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
         for pin in ("ff25922e5c13ccfafd83bda5092910d848ebd409",

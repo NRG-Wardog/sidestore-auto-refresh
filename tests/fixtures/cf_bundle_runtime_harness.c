@@ -11,7 +11,7 @@
 #define KERN_SUCCESS 0
 typedef int BOOL;
 typedef void *CFBundleRef;
-typedef uintptr_t mach_vm_address_t, mach_vm_size_t, vm_offset_t;
+typedef uintptr_t vm_address_t, vm_size_t, vm_offset_t;
 typedef unsigned int mach_msg_type_number_t;
 static int oldBundle, guestBundle;
 static void *cache, *testGuestBundle;
@@ -19,8 +19,8 @@ static bool denyRead, shortRead, omitPattern, denyWrite;
 static int nsWrites, cacheWrites, successes;
 static CFBundleRef __attribute__((aligned(16))) CFBundleGetMainBundle(void) { return &oldBundle; }
 static int mach_task_self(void) { return 1; }
-static int mach_vm_read_overwrite(int task, mach_vm_address_t address, mach_vm_size_t size,
-                                 mach_vm_address_t destination, mach_vm_size_t *copied) {
+static int vm_read_overwrite(int task, vm_address_t address, vm_size_t size,
+                            vm_address_t destination, vm_size_t *copied) {
     assert(task == 1);
     *copied = 0;
     if (denyRead) return 1;
@@ -35,8 +35,8 @@ static int mach_vm_read_overwrite(int task, mach_vm_address_t address, mach_vm_s
     *copied = shortRead ? size - 1 : size;
     return KERN_SUCCESS;
 }
-static int mach_vm_write(int task, mach_vm_address_t address, vm_offset_t bytes,
-                         mach_msg_type_number_t size) {
+static int vm_write(int task, vm_address_t address, vm_offset_t bytes,
+                    mach_msg_type_number_t size) {
     assert(task == 1 && address == (uintptr_t)&cache && size == sizeof(cache));
     cacheWrites++;
     if (denyWrite) return 1;

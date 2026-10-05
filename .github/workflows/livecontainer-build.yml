@@ -172,26 +172,6 @@ jobs:
             grep -Fq 'LIVE_REFRESH_LOG_RETENTION_V1' work/EmbeddedSideStore/SideStore/Utils/iostreams/ConsoleLog.swift
           } 2>&1 | tee artifacts/logs/host-preflight.log
 
-      - name: Execute real layout regression on final generated source
-        shell: bash
-        run: |
-          set -euo pipefail
-          git -C builder fetch --no-tags origin 7d8ae12905f8baa6e0ecc4dbdd3f25e2aa0e43fa
-          python3 builder/scripts/run_issue25_rendering.py --livecontainer work/LiveContainer \
-            --v3-source work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift \
-            --output artifacts/layout-evidence 2>&1 | tee artifacts/logs/layout-rendering.log
-
-      - name: Preserve real layout measurements and screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: combined-v3-layout-evidence
-          path: |
-            artifacts/layout-evidence/**/*.json
-            artifacts/layout-evidence/**/*.png
-          if-no-files-found: warn
-          retention-days: 90
-
       - name: Build unified host before transport compilation
         shell: bash
         run: |
@@ -351,6 +331,28 @@ jobs:
             -scheme SideStore -sdk iphoneos -configuration Release \
             -derivedDataPath "$RUNNER_TEMP/embedded-sidestore-derived-data" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee artifacts/logs/embedded-sidestore-build.log
+
+      # Keep full simulator acceptance mandatory, after native compilation so
+      # SDK/compiler failures do not wait behind the longer rendering suite.
+      - name: Execute real layout regression on final generated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C builder fetch --no-tags origin 7d8ae12905f8baa6e0ecc4dbdd3f25e2aa0e43fa
+          python3 builder/scripts/run_issue25_rendering.py --livecontainer work/LiveContainer \
+            --v3-source work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift \
+            --output artifacts/layout-evidence 2>&1 | tee artifacts/logs/layout-rendering.log
+
+      - name: Preserve real layout measurements and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-v3-layout-evidence
+          path: |
+            artifacts/layout-evidence/**/*.json
+            artifacts/layout-evidence/**/*.png
+          if-no-files-found: warn
+          retention-days: 90
 
       - name: Package and verify combined LiveContainer plus SideStore
         shell: bash

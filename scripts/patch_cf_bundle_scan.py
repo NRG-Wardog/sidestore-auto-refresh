@@ -5,10 +5,13 @@ MARKER = "LC_CF_BUNDLE_BOUNDED_SCAN_V1"
 TEMPLATE = Path(__file__).with_name("templates") / "cf_bundle_scan.h"
 
 RUNTIME = '''
+_Static_assert(sizeof(vm_address_t) >= sizeof(uintptr_t), "VM address truncates a pointer");
+_Static_assert(sizeof(vm_offset_t) >= sizeof(uintptr_t), "VM data address truncates a pointer");
+
 static bool LCReadMainCFBundleMemory(uintptr_t address, void *value, size_t size) {
-    mach_vm_size_t copied = 0;
-    return mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)address,
-        (mach_vm_size_t)size, (mach_vm_address_t)(uintptr_t)value, &copied) == KERN_SUCCESS
+    vm_size_t copied = 0;
+    return vm_read_overwrite(mach_task_self(), (vm_address_t)address,
+        (vm_size_t)size, (vm_address_t)(uintptr_t)value, &copied) == KERN_SUCCESS
         && copied == size;
 }
 
@@ -38,7 +41,7 @@ static BOOL overwriteMainCFBundle(void **address) {
     if (!address || !value) return NO;
     // A protection/layout change must return failure, never fault on a raw
     // pointer store or change VM protections to force the write through.
-    return mach_vm_write(mach_task_self(), (mach_vm_address_t)(uintptr_t)address,
+    return vm_write(mach_task_self(), (vm_address_t)(uintptr_t)address,
         (vm_offset_t)(uintptr_t)&value, (mach_msg_type_number_t)sizeof(value)) == KERN_SUCCESS;
 }
 
@@ -66,7 +69,7 @@ NEW_CALL = '''    // Resolve the existing CF cache before changing NSBundle iden
 
 def patch_text(text: str) -> str:
     replacement = TEMPLATE.read_text(encoding="utf-8") + "\n" + RUNTIME
-    include = "#include <mach/mach_vm.h>\n"
+    include = "#include <mach/mach.h>\n"
     if MARKER in text:
         if text.count(replacement) != 1 or text.count(NEW_CALL) != 1 or text.count(include) != 1:
             raise ValueError("CFBundle bounded scan is partial or changed")
@@ -87,7 +90,7 @@ def patch_text(text: str) -> str:
     if text.count(anchor) != 1:
         raise ValueError("Pinned Mach import anchor changed")
     text = text[:first] + replacement + text[last:]
-    return text.replace(anchor, anchor + include, 1).replace(OLD_CALL, NEW_CALL, 1)
+    return text.replace(OLD_CALL, NEW_CALL, 1)
 
 
 def patch_bootstrap(path: Path) -> None:
