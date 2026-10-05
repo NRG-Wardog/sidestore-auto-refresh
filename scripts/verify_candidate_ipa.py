@@ -549,6 +549,8 @@ def preflight_archive(archive, ipa_size_bytes: int, limits: dict | None = None):
 
 
 REQUIRED_GENERATED_HOST_SOURCES = {
+    "LiveContainer/Tweaks/Dead10ccFix.m",
+    "LiveContainer/Tweaks/NSUserDefaults.m",
     'ZSign/zsigner.h',
     'ZSign/zsign.mm',
     'LiveContainerSwiftUI/Utilities/LCUtils.h',
@@ -568,6 +570,8 @@ REQUIRED_GENERATED_HOST_SOURCES = {
     "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
 }
 REQUIRED_GENERATED_EMBEDDED_SOURCES = {
+    "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+    "SideStore/Core/Certificates/CertificateManager.swift",
     "AltStore/AppDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift",
     "SideStore/Core/Operations/PipelineRunner.swift",
     "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
@@ -585,6 +589,8 @@ def verify_generated_source_evidence(evidence_root: Path, hashes: dict,
     required = set(REQUIRED_GENERATED_HOST_SOURCES)
     if product in ("v2",):
         required.difference_update({
+            'LiveContainer/Tweaks/Dead10ccFix.m',
+            'LiveContainer/Tweaks/NSUserDefaults.m',
             "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
             "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
             'ZSign/zsigner.h',

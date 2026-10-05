@@ -3,7 +3,7 @@ name: LiveContainer embedded SideStore build
 on:
   workflow_dispatch:
   push:
-    branches: [fix/combined-refresh-build-and-runtime, fix/v3.0.3-auth-errors]
+    branches: [fix/combined-refresh-build-and-runtime, fix/v3.0.3-auth-errors, fix/v3.1.0-audit]
 
 permissions:
   contents: read
@@ -36,15 +36,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/logs
-          git clone --filter=blob:none https://github.com/LiveContainer/LiveContainer.git work/LiveContainer
+          # The original organization is unavailable. Fetch the identical pinned
+          # commit from the owner's existing fork; no branch/nightly substitution.
+          git clone --filter=blob:none https://github.com/NRG-Wardog/LiveContainer.git work/LiveContainer
           git -C work/LiveContainer checkout --detach "$LIVE_CONTAINER_REF"
-          git -C work/LiveContainer submodule update --init --recursive --depth=1
+          test "$(git -C work/LiveContainer rev-parse HEAD^{tree})" = "06c7c54047734a7e19ec260d04dc073a52a1c872"
+          git -C work/LiveContainer -c submodule.litehook.url=https://github.com/LiveContainerMirror/litehook.git submodule update --init --recursive --depth=1
 
       - name: Checkout pinned embedded SideStore sources
         shell: bash
         run: |
           set -euo pipefail
-          git clone --filter=blob:none https://github.com/LiveContainer/SideStore.git work/EmbeddedSideStore
+          git clone --filter=blob:none https://github.com/SideStore/SideStore.git work/EmbeddedSideStore
           git -C work/EmbeddedSideStore checkout --detach "$EMBEDDED_SIDESTORE_REF"
           git -C work/EmbeddedSideStore submodule update --init --recursive --depth=1
 
@@ -69,6 +72,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 builder/scripts/verify_pinned_sources.py --live work/LiveContainer --side work/EmbeddedSideStore | tee artifacts/logs/pinned-source-identity.json
           test "$(git -C work/LiveContainer rev-parse HEAD)" = "$LIVE_CONTAINER_REF"
           test "$(git -C work/EmbeddedSideStore rev-parse HEAD)" = "$EMBEDDED_SIDESTORE_REF"
           test "$(git -C work/EmbeddedSideStore/Dependencies/minimuxer rev-parse HEAD)" = "$MINIMUXER_REF"
@@ -201,7 +205,7 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v ldid >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install ldid; fi
-          if ! command -v bindgen >/dev/null 2>&1; then cargo install --locked bindgen-cli --version 0.72.1; fi
+          if ! command -v bindgen >/dev/null 2>&1 || [ "$(bindgen --version)" != "bindgen 0.72.1" ]; then cargo install --locked --force bindgen-cli --version 0.72.1; fi
           rustup target add aarch64-apple-ios
 
       - name: Execute canonical LiveContainer certificate observation regression
@@ -219,6 +223,16 @@ jobs:
           set -euo pipefail
           python3 builder/scripts/patch_jktcp_reliability.py jktcp
           python3 builder/scripts/patch_coredevice_idevice.py idevice jktcp
+          # The dependency now uses the identical local gitlink. Remove only
+          # its old Git locator; preserve all registry versions and checksums.
+          python3 - <<'PYLOCK'
+          from pathlib import Path
+          path = Path('idevice/Cargo.lock')
+          text = path.read_text()
+          locator = 'source = "git+https://github.com/SideStore/jktcp?branch=master#e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020"\n'
+          assert text.count(locator) == 1, 'unexpected jktcp lock identity'
+          path.write_text(text.replace(locator, '', 1))
+          PYLOCK
           ! grep -R -E 'rppairing_connect_quic|create_quic_listener|quinn::' \
             idevice/ffi/src/tunnel_provider.rs idevice/idevice/src/tunnel.rs
           grep -Fq 'packet.extend_from_slice(CDTUNNEL_MAGIC)' idevice/idevice/src/tunnel.rs
@@ -234,8 +248,8 @@ jobs:
           cargo fmt --manifest-path idevice/ffi/Cargo.toml
           git -C jktcp diff --check
           git -C idevice diff --check
-          cargo test --manifest-path jktcp/Cargo.toml --lib -- --skip tests::local_tcp --skip tests::handle_speed
-          cargo check --manifest-path idevice/ffi/Cargo.toml --features obfuscate
+          cargo test --locked --manifest-path jktcp/Cargo.toml --lib -- --skip tests::local_tcp --skip tests::handle_speed
+          cargo check --locked --manifest-path idevice/ffi/Cargo.toml --features obfuscate
 
       - name: Build idevice for iOS
         working-directory: idevice
@@ -243,7 +257,7 @@ jobs:
           set -euo pipefail
           BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)" \
             IPHONEOS_DEPLOYMENT_TARGET=15.0 \
-            cargo build --release --target aarch64-apple-ios --features obfuscate --manifest-path ffi/Cargo.toml
+            cargo build --locked --release --target aarch64-apple-ios --features obfuscate --manifest-path ffi/Cargo.toml
           test -f target/aarch64-apple-ios/release/libidevice_ffi.a
           test -f ffi/idevice.h
           grep -Fq 'tunnel_create_usb' ffi/idevice.h
@@ -302,6 +316,7 @@ jobs:
           python3 builder/scripts/patch_combined_service_startup.py --portal "$SIDESIGN"
           git -C "$SIDESIGN" diff --check
           expected_sidesign=$(printf '%s\n' \
+            'Sources/DeveloperPortal/AppIDs.swift' \
             'Sources/DeveloperPortal/Authentication.swift' \
             'Sources/DeveloperPortal/DeveloperPortalAPI.swift' \
             'Sources/Logging.swift' | sort)
@@ -326,13 +341,13 @@ jobs:
             rm -rf "$artifact"
             rm -rf "$HOME/Library/Developer/Xcode/DerivedData"/*/SourcePackages/artifacts/openssl 2>/dev/null || true
             rm -rf "$RUNNER_TEMP/embedded-sidestore-derived-data/SourcePackages/artifacts/openssl"
-            if xcodebuild -resolvePackageDependencies -disablePackageRepositoryCache \
+            if xcodebuild -resolvePackageDependencies -onlyUsePackageVersionsFromResolvedFile -disablePackageRepositoryCache \
                 -project work/EmbeddedSideStore/AltStore.xcodeproj -scheme SideStore \
                 -derivedDataPath "$RUNNER_TEMP/embedded-sidestore-derived-data"; then resolved=1; break; fi
             sleep 2
           done
           test "$resolved" -eq 1
-          xcodebuild -project work/EmbeddedSideStore/AltStore.xcodeproj \
+          xcodebuild -project work/EmbeddedSideStore/AltStore.xcodeproj -onlyUsePackageVersionsFromResolvedFile \
             -scheme SideStore -sdk iphoneos -configuration Release \
             -derivedDataPath "$RUNNER_TEMP/embedded-sidestore-derived-data" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee artifacts/logs/embedded-sidestore-build.log
@@ -387,6 +402,20 @@ jobs:
               f'executable={embedded}\n' + '\n'.join(markers) + '\nverification=PASS\n')
           PY
 
+      - name: Record actual dependency and toolchain evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts/dependencies
+          cp idevice/Cargo.lock artifacts/dependencies/idevice-Cargo.lock 2>/dev/null || true
+          cp jktcp/Cargo.lock artifacts/dependencies/jktcp-Cargo.lock 2>/dev/null || true
+          cp work/EmbeddedSideStore/AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved artifacts/dependencies/Package.resolved 2>/dev/null || true
+          cp "$RUNNER_TEMP/embedded-sidestore-derived-data/SourcePackages/workspace-state.json" artifacts/dependencies/workspace-state.json 2>/dev/null || true
+          set +e
+          record() { printf '\ncommand:'; printf ' %q' "$@"; printf '\n'; "$@"; printf 'exit_status=%s\n' "$?"; }
+          { record xcodebuild -version; record xcrun clang --version; record swift --version; record rustc --version; record cargo --version; record bindgen --version; record brew list --versions ldid openssl@3; } > artifacts/dependencies/tool-versions.txt 2>&1
+          printf 'runner_os=%s\nrunner_arch=%s\nimage=%s\nimage_version=%s\n' "$RUNNER_OS" "$RUNNER_ARCH" "$ImageOS" "$ImageVersion" >> artifacts/dependencies/tool-versions.txt
+
       - name: Upload combined LiveContainer IPA
         uses: actions/upload-artifact@v4
         with:
@@ -399,6 +428,8 @@ jobs:
             artifacts/debug-evidence/candidate-provenance.json
             artifacts/candidate-package-verification.json
             artifacts/logs/upstream-auth-provenance.txt
+            artifacts/logs/pinned-source-identity.json
+            artifacts/dependencies
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -408,7 +439,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: livecontainer-autorefresh-build-evidence
-          path: artifacts/logs
+          path: |
+            artifacts/logs
+            artifacts/dependencies
           if-no-files-found: warn
           retention-days: 7
 

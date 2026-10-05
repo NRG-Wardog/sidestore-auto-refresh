@@ -1969,9 +1969,20 @@ def patch_sign_in_operation(text):
     if marker in text:
         required = (
             "V3_AUTH_CREDENTIAL_TRANSACTION_V1",
+            "V3_TYPED_ACCOUNT_DIAGNOSTICS_V1",
+            "V3_ACCOUNT_ACTIVATION_PERSISTENCE_V1",
+            "v3AccountOperationFailure(error, step: .credentialCommit)",
+            "throw v3AccountOperationFailure(error, step: .activateAccount)",
+            "V3AccountDatabaseRecovery.begin(previous:",
+            "v3ReconcileAccountDatabaseStorage()",
+            "context.rollback()",
             "AuthManager.shared.v3ReplaceSession(session)",
             "V3AuthIdentityBindingPolicy.hasUsableSession(",
             "v3ForceProvisioningRetry: Bool",
+            "V3_PROVISIONING_REAUTHENTICATION_V1",
+            "v3RequireFullProvisioning: Bool",
+            "v3ValidateReauthenticationIdentity",
+            "v3DidCompleteProvisioning",
             "V3ProvisioningResumeExecutionPolicy.mayUseCachedSignIn",
             "V3ProvisioningResumeExecutionPolicy.mayPromptForCredentials",
             "V3ProvisioningResumeUnavailableError()",
@@ -2001,15 +2012,26 @@ def patch_sign_in_operation(text):
         "    let skipCertificateProvisioning: Bool\n",
         "    let skipCertificateProvisioning: Bool\n"
         "    // V3_PROVISIONING_RETRY_BYPASSES_CACHED_SIGNIN_V1\n"
-        "    let v3ForceProvisioningRetry: Bool\n")
+        "    let v3ForceProvisioningRetry: Bool\n"
+        "    // V3_PROVISIONING_REAUTHENTICATION_V1\n"
+        "    let v3RequireFullProvisioning: Bool\n"
+        "    let v3ReauthenticateAppleID: String?\n"
+        "    let v3ReauthenticationIdentityStamp: String?\n"
+        "    private(set) var v3DidCompleteProvisioning = false\n")
     text = replace(text,
         "        skipCertificateProvisioning: Bool = false\n",
         "        skipCertificateProvisioning: Bool = false,\n"
-        "        v3ForceProvisioningRetry: Bool = false\n")
+        "        v3ForceProvisioningRetry: Bool = false,\n"
+        "        v3RequireFullProvisioning: Bool = false,\n"
+        "        v3ReauthenticateAppleID: String? = nil,\n"
+        "        v3ReauthenticationIdentityStamp: String? = nil\n")
     text = replace(text,
         "        self.skipCertificateProvisioning = skipCertificateProvisioning\n",
         "        self.skipCertificateProvisioning = skipCertificateProvisioning\n"
-        "        self.v3ForceProvisioningRetry = v3ForceProvisioningRetry\n")
+        "        self.v3ForceProvisioningRetry = v3ForceProvisioningRetry\n"
+        "        self.v3RequireFullProvisioning = v3RequireFullProvisioning\n"
+        "        self.v3ReauthenticateAppleID = v3ReauthenticateAppleID\n"
+        "        self.v3ReauthenticationIdentityStamp = v3ReauthenticationIdentityStamp\n")
     text = replace(text,
         "            if var session = AuthManager.shared.session,\n",
         "            if self.v3ForceProvisioningRetry {\n"
@@ -2054,7 +2076,8 @@ def patch_sign_in_operation(text):
         "                authResult = try await self.provisioningLoop(account: account, session: session,\n"
         "                    reportProgress: { [weak self] progress in self?.setProgress(progress) })\n"
         "            } else if V3ProvisioningResumeExecutionPolicy.mayUseCachedSignIn(\n"
-        "                forceProvisioningRetry: self.v3ForceProvisioningRetry),\n"
+        "                forceProvisioningRetry: self.v3ForceProvisioningRetry,\n"
+        "                requireFullProvisioning: self.v3RequireFullProvisioning),\n"
         "               var session = AuthManager.shared.session,\n")
     text = replace(text,
         "               var session = AuthManager.shared.session,\n"
@@ -2068,7 +2091,7 @@ def patch_sign_in_operation(text):
         "        } else {\n"
         "            try await self.authenticationLoop()\n"
         "        }\n",
-        "        let silentResult = try await self.silentSignIn()\n"
+        "        let silentResult = self.v3ReauthenticateAppleID == nil ? try await self.silentSignIn() : nil\n"
         "        let (account, session) = if let silentResult {\n"
         "            silentResult\n"
         "        } else if V3ProvisioningResumeExecutionPolicy.mayPromptForCredentials(\n"
@@ -2097,6 +2120,7 @@ def patch_sign_in_operation(text):
         "            } catch {\n"
         "                self.debugLog(\"[SignInOperation] authenticationLoop: Attempt failed with error: \\(error)\")\n",
         "            } catch {\n"
+        "                if error is V3ProvisioningReauthenticationIdentityError { throw error }\n"
         "                if self.isCancelled || error is CancellationError || v3ClassifyAuthError(error) == nil {\n"
         "                    throw OperationError.cancelled\n"
         "                }\n"
@@ -2104,6 +2128,8 @@ def patch_sign_in_operation(text):
     text = replace(text,
         "                await handler.handleSignInResult(.failure(error))\n",
         "                await handler.handleSignInResult(.failure(error))\n"
+        "                // A local commit failure must reconcile, never replay Apple login.\n"
+        "                if let local = error as? V3AccountOperationError, local.credentialCommit { throw local }\n"
         "                if V3TwoFactorRetryPolicy.shouldReuseCredentialsForCodeRetry(\n"
         "                    authFailureKind: v3ClassifyAuthError(error)?.rawValue) {\n"
         "                    retryCredentials = (appleID, password)\n"
@@ -2125,7 +2151,11 @@ def patch_sign_in_operation(text):
         "        // and readiness marker together after exact read-back verification.\n"
         "        AuthManager.shared.v3BeginIdentityTransition()\n"
         "        defer { AuthManager.shared.v3CompleteIdentityTransition() }\n"
-        "        try Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)\n"
+        "        do {\n"
+        "            try Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)\n"
+        "        } catch {\n"
+        "            throw v3AccountOperationFailure(error, step: .credentialCommit)\n"
+        "        }\n"
         "        AuthManager.shared.session = session\n"
         )
     text = replace(text,
@@ -2139,7 +2169,133 @@ def patch_sign_in_operation(text):
         "                throw V3ProvisioningResumeUnavailableError()\n"
         "            }\n"
         "            try await self.finalizeAuthentication(result: .success(authResult))\n")
-    return text
+    text = replace(text,
+        "        let (account, session) = try await AuthManager.shared.signIn(\n",
+        "        try self.v3ValidateReauthenticationIdentity(submittedAppleID: appleID)\n"
+        "        let (account, session) = try await AuthManager.shared.signIn(\n")
+    text = replace(text,
+        "        self.appleIDEmailAddress = appleID\n",
+        "        try self.v3ValidateReauthenticationIdentity(submittedAppleID: appleID)\n"
+        "        self.appleIDEmailAddress = appleID\n")
+    text = replace(text,
+        "        // V3_AUTH_CREDENTIAL_TRANSACTION_V1: commit the complete credential route\n",
+        "        if self.isCancelled || Task.isCancelled { throw OperationError.cancelled }\n"
+        "        try self.v3ValidateReauthenticationIdentity(submittedAppleID: appleID, returnedAppleID: account.appleID, returnedDSID: session.dsid)\n"
+        "        // V3_AUTH_CREDENTIAL_TRANSACTION_V1: commit the complete credential route\n")
+    text = replace(text,
+        "                return SignInResult(\n",
+        "                self.v3DidCompleteProvisioning = !self.skipDeviceRegistration &&\n"
+        "                    !self.skipCertificateProvisioning && resolvedCertificate != nil\n"
+        "                return SignInResult(\n")
+    text = replace(text,
+        "    private func signIn(appleID: String, password: String)",
+        "    private func v3ValidateReauthenticationIdentity(submittedAppleID: String, returnedAppleID: String? = nil, returnedDSID: String? = nil) throws {\n"
+        "        guard let expectedOwner = self.v3ReauthenticateAppleID else { return }\n"
+        "        let credentials = AuthManager.shared.authenticationSnapshot\n"
+        "        guard let stamp = self.v3ReauthenticationIdentityStamp,\n"
+        "              V3ProvisioningReauthenticationIdentityPolicy.mayAuthenticate(\n"
+        "                expectedOwner: expectedOwner, submittedOwner: submittedAppleID,\n"
+        "                currentOwner: credentials?.appleIDEmailAddress, capturedStamp: stamp,\n"
+        "                currentStamp: AuthManager.shared.v3IdentityStamp,\n"
+        "                identityStable: AuthManager.shared.v3IdentityIsStable),\n"
+        "              returnedAppleID == nil || V3AuthIdentityBindingPolicy.mayUseTeam(\n"
+        "                sessionOwner: expectedOwner, teamOwner: returnedAppleID),\n"
+        "              returnedDSID == nil || returnedDSID == credentials?.appleIDAdsid else {\n"
+        "            throw V3ProvisioningReauthenticationIdentityError()\n"
+        "        }\n"
+        "    }\n\n"
+        "    private func signIn(appleID: String, password: String)")
+    return patch_sign_in_diagnostics(text)
+
+
+def patch_sign_in_diagnostics(text):
+    """Typed operation boundaries, terminal credential commit, verified activation."""
+    text = replace(text,
+        '                self.debugLog("[SignInOperation] Saved password authentication failed: \\(error)")\n',
+        '                if error is V3AccountOperationError { throw error }\n'
+        '                self.debugLog("[SignInOperation] Saved password authentication failed: \\(error)")\n')
+    text = replace(text,
+        "        var isDeviceRegistered = false\n",
+        "        var isDeviceRegistered = false\n"
+        "        // V3_TYPED_ACCOUNT_DIAGNOSTICS_V1: owned stage, never provider text.\n"
+        "        var diagnosticStep: CombinedFailure.SourceStep = .fetchTeams\n")
+    boundaries = (
+        ("                    let team = try await self.fetchTeam(for: account, session: session)", "fetchTeams"),
+        ("                    try await self.saveTeamAndAccount(team)", "saveAccount"),
+        ("                        let device = try await self.registerCurrentDevice(for: team, session: session)", "registerDevice"),
+    )
+    for anchor, step in boundaries:
+        indent = anchor[:len(anchor) - len(anchor.lstrip())]
+        text = replace(text, anchor + "\n", indent + "diagnosticStep = ." + step + "\n" + anchor + "\n")
+    text = replace(text,
+        "                        let certificate = try await self.fetchCertificate(for: team, session: session)\n"
+        "                        try CertificateManager.shared.setActiveCertificate(certificate)\n"
+        "                        resolvedCertificate = certificate\n",
+        "                        // Retain the obtained certificate across local save retries.\n"
+        "                        if resolvedCertificate == nil {\n"
+        "                            diagnosticStep = .fetchCertificate\n"
+        "                            resolvedCertificate = try await self.fetchCertificate(for: team, session: session)\n"
+        "                        }\n"
+        "                        if let certificate = resolvedCertificate {\n"
+        "                            diagnosticStep = .activateCertificate\n"
+        "                            try CertificateManager.shared.setActiveCertificate(certificate)\n"
+        "                        }\n")
+    text = replace(text,
+        "                let decision = await self.signInHandler.resolveProvisioningError(error)\n",
+        "                let diagnosticError = v3AccountOperationFailure(error, step: diagnosticStep)\n"
+        "                let decision = await self.signInHandler.resolveProvisioningError(diagnosticError)\n")
+    text = replace(text,
+        '                    self.debugLog("[SignInOperation] finalizeAuthentication: error occured when performing cleanup: \\(error)")\n',
+        '                    // V3_ACCOUNT_ACTIVATION_PERSISTENCE_V1: never publish activation after a failed save.\n'
+        '                    throw v3AccountOperationFailure(error, step: .activateAccount)\n')
+    text = replace(text,
+        '                        self.debugLog("[SignInOperation] User cancelled in provisioningLoop")\n'
+        '                        throw OperationError.cancelled\n',
+        '                        self.debugLog("[SignInOperation] User cancelled in provisioningLoop")\n'
+        '                        if diagnosticError.requiresReconciliation { throw diagnosticError }\n'
+        '                        throw OperationError.cancelled\n')
+    # Roll back only the operation-owned context, so unsaved active flags cannot
+    # leak into the next snapshot or be committed by a later unrelated save.
+    start = text.index("    private func saveTeamAndAccount(")
+    end = text.index("    private func validateCodeSign(", start)
+    body = text[start:end]
+    body = replace(body,
+        "        try await context.perform {\n",
+        "        let intended = [\"account:\" + (altTeam.account?.identifier ?? altTeam.identifier),\n"
+        "                        \"team:\" + altTeam.identifier].sorted()\n"
+        "        do {\n"
+        "            if makeActive {\n"
+        "                let previous = try await v3AccountDatabaseSnapshot()\n"
+        "                try V3AccountDatabaseRecovery.begin(previous: previous, intended: intended)\n"
+        "            }\n"
+        "            try await context.perform {\n")
+    body = replace(body,
+        "            try context.save()\n        }\n    }\n",
+        "            try context.save()\n"
+        "            }\n"
+        "            if makeActive {\n"
+        "                let observed = try await v3AccountDatabaseSnapshot()\n"
+        "                guard observed == intended else {\n"
+        "                    throw NSError(domain: \"LiveContainerRefresh.Configuration\", code: 1011)\n"
+        "                }\n"
+        "                try V3AccountDatabaseRecovery.reconcile(observed: observed)\n"
+        "            }\n"
+        "        } catch {\n"
+        "            await context.perform { context.rollback() }\n"
+        "            if makeActive {\n"
+        "                do { try await v3ReconcileAccountDatabaseStorage() }\n"
+        "                catch { throw V3AccountDatabaseOutcomeUnknownError() }\n"
+        "            }\n"
+        "            throw error\n"
+        "        }\n    }\n")
+    # Publish the derived defaults only after the database transaction commits.
+    defaults_start = body.index("                let isSparseRestorePatched")
+    defaults_end = body.index("\n            }", defaults_start)
+    defaults = body[defaults_start:defaults_end]
+    body = body[:defaults_start] + body[defaults_end:]
+    body = replace(body, "            try context.save()\n",
+        "            try context.save()\n            if makeActive {\n" + defaults + "\n            }\n")
+    return text[:start] + body + text[end:]
 
 
 def patch_auth_identity_generation(text):

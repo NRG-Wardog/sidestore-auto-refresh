@@ -104,7 +104,7 @@ enum V3WireContract {
     static let operations: Set<String> = ["snapshot", "catalog", "appIcon", "cancel", "refreshSources",
         "refreshAdmissionBegin", "refreshAdmissionEnd",
         "signOut", "syncAppIDs", "clearCache", "jit", "backupResult",
-        "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning",
+        "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning", "authReconcileStorage",
         "opStart", "opPoll", "opAnswer", "opCancel", "opRecoveryPrepare", "opRecoveryReconcile",
         "refreshAdmissionReconcile", "recoveryDiscardUnreadable", "directRecoveryInspect",
         "directRecoveryReconcile", "ipaCleanup", "ipaActiveTokens",
@@ -138,7 +138,7 @@ enum V3WireContract {
             "syncAppIDs", "clearCache", "settingsGet", "settingsSet", "sidesignGet", "sidesignSet",
             "sidesignReset", "sidesignExport", "anisetteList", "anisetteReset", "anisetteSync",
             "healthSnapshot", "logTail", "certList", "certExportActive", "certPortalList", "certCreate", "opRecoveryPrepare",
-            "recoveryDiscardUnreadable",
+            "recoveryDiscardUnreadable", "authReconcileStorage",
             "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles"
         ]
         if emptyTargetOperations.contains(operation) && !target.isEmpty { return nil }
@@ -219,7 +219,10 @@ enum V3WireContract {
             return Set(payload.keys) == Set(["readinessOnly"]) &&
                 strictBool(payload["readinessOnly"]) == true
         case "authBegin", "authRetryProvisioning":
-            guard Set(payload.keys) == Set(["session", "sessionDeadline"]),
+            let baseKeys: Set<String> = ["session", "sessionDeadline"]
+            let allowedKeys = operation == "authBegin" ? baseKeys.union(["reauthenticateProvisioning"]) : baseKeys
+            guard baseKeys.isSubset(of: Set(payload.keys)), Set(payload.keys).isSubset(of: allowedKeys),
+                  payload["reauthenticateProvisioning"] == nil || strictBool(payload["reauthenticateProvisioning"]) != nil,
                   let session = payload["session"] as? String,
                   canonicalSecretToken(session), session == target,
                   let sessionDeadline = payload["sessionDeadline"] as? Date,

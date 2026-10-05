@@ -80,9 +80,10 @@ class CombinedPackagingTests(unittest.TestCase):
                 share_packaged_app_groups(app)
 
     def test_upstream_adapter_retains_transformations(self):
-        script = '''brew install ldid
+        script = '''wget https://github.com/LiveContainer/dylibify/releases/download/1.0/dylibify
+brew install ldid
 wget https://github.com/LiveContainer/SideStore/releases/download/nightly/SideStore.ipa
-./dylibify input output
+./dylibify ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore.dylib
 mv widget destination
 rm -r .zsign_cache
 find payloadlc/Payload -type d -name "_CodeSignature" -exec rm -r {} +
@@ -97,7 +98,9 @@ zip output Payload
 '''
         result = adapt(script)
         self.assertIn('cp "$PATCHED_SIDESTORE_IPA" SideStore.ipa', result)
-        self.assertIn('./dylibify input output\nmv widget destination', result)
+        self.assertIn('--verify-dylibify', result)
+        self.assertNotIn('wget ', result)
+        self.assertIn('cp "$VERIFIED_DYLIBIFY" dylibify', result)
         self.assertIn('rm -rf ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Metadata.appintents', result)
         self.assertLess(result.index('--prepare-entitlements'), result.index('zip output'))
         self.assertTrue(result.startswith('set -eu\n'))
@@ -112,8 +115,10 @@ zip output Payload
             adapt('brew install ldid\nbrew install ldid\n')
 
     def test_adapter_stages_host_intents_then_removes_backend_metadata_inputs(self):
-        script = '''brew install ldid
+        script = '''wget https://github.com/LiveContainer/dylibify/releases/download/1.0/dylibify
+brew install ldid
 wget https://github.com/LiveContainer/SideStore/releases/download/nightly/SideStore.ipa
+./dylibify ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore ./Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore.dylib
 rm -r .zsign_cache
 find payloadlc/Payload -type d -name "_CodeSignature" -exec rm -r {} +
 # copy intents

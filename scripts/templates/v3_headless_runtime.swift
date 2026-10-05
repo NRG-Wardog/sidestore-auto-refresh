@@ -296,8 +296,12 @@ enum V3AuthFailureKind: String, Equatable {
     case anisette
     case network
     case accountRepairRequired
+    case credentialStorage, credentialStorageUncertain
+    case accountIdentityMismatch
     case unknown
 }
+
+struct V3ProvisioningReauthenticationIdentityError: Error {}
 
 func v3AuthFailureStage(_ kind: V3AuthFailureKind) -> CombinedFailure.Stage {
     switch kind {
@@ -305,9 +309,10 @@ func v3AuthFailureStage(_ kind: V3AuthFailureKind) -> CombinedFailure.Stage {
     // authentication; failureKind preserves the precise Anisette meaning.
     case .anisette: return .authentication
     case .network: return .network
+    case .credentialStorage, .credentialStorageUncertain: return .persistence
     case .unknown: return .provisioning
     case .invalidCredentials, .appSpecificPasswordRequired, .invalidCode,
-         .rateLimited, .serviceUnavailable, .accountRepairRequired:
+         .rateLimited, .serviceUnavailable, .accountRepairRequired, .accountIdentityMismatch:
         return .authentication
     }
 }
@@ -330,14 +335,63 @@ func v3AuthFailureStage(_ kind: V3AuthFailureKind) -> CombinedFailure.Stage {
 // - known URL transport codes: network failure
 // Anything else is honestly reported as unknown.
 func v3IsAuthCancellation(_ error: Error) -> Bool {
+    let error = v3AccountUnderlyingError(error)
     if error is CancellationError { return true }
     if let portal = error as? DeveloperPortalError, case .userCancelled = portal { return true }
     let native = error as NSError
     return CombinedFailure.isURLCancellation(domain: native.domain, code: native.code)
 }
 
+// Called only at our operation boundaries, before NSError bridging loses the
+// associated ServerError code. Never choose a stage from provider text.
+func v3AccountOperationFailure(_ error: Error, step: CombinedFailure.SourceStep) -> V3AccountOperationError {
+    if let known = error as? V3AccountOperationError { return known }
+    let kind: V3AccountOperationError.Kind
+    var serverCode: Int?
+    if error is V3AccountDatabaseOutcomeUnknownError { kind = .persistenceOutcomeUnknown }
+    else if let server = error as? ServerError {
+        switch server {
+        case .underlyingError(let code, _): kind = .sideSignServerReportedError; serverCode = code
+        case .badServerResponse: kind = .sideSignBadResponse
+        case .invalidResponseFormat: kind = .sideSignInvalidResponse
+        case .missingKey: kind = .sideSignMissingKey
+        }
+    } else if error is DeveloperPortalError { kind = .sideSignDeveloperPortalError }
+    else if error is SideSign.AnisetteError { kind = .anisetteFailure }
+    else {
+        let native = error as NSError
+        switch (native.domain, native.code) {
+        case ("com.SideStore.Keychain", 1010): kind = .keychainOutcomeUnknown
+        case ("com.SideStore.Keychain", 1009): kind = .keychainValidationFailed
+        case ("com.SideStore.Keychain", _), (NSOSStatusErrorDomain, _): kind = .keychainWrite
+        case ("LiveContainerRefresh.Configuration", 1008): kind = .legacyMigrationConflict
+        default:
+            if CombinedFailure.knownURLTransportCause(domain: native.domain, code: native.code) != nil {
+                kind = .transportFailure
+            } else if step == .saveAccount || step == .activateAccount { kind = .persistenceFailure }
+            else { kind = .unknownAccountFailure }
+        }
+    }
+    return V3AccountOperationError(step: step, kind: kind, underlying: error, serverCode: serverCode)
+}
+
+func v3AccountUnderlyingError(_ error: Error) -> Error {
+    var current = error
+    // Unwrap only our own fixed wrapper, never arbitrary NSError.userInfo.
+    for _ in 0..<5 {
+        guard let wrapped = current as? V3AccountOperationError else { break }
+        current = wrapped.underlying
+    }
+    return current
+}
+
 func v3ClassifyAuthError(_ error: Error) -> V3AuthFailureKind? {
+    if let local = error as? V3AccountOperationError, local.credentialCommit {
+        return local.kind == .keychainOutcomeUnknown ? .credentialStorageUncertain : .credentialStorage
+    }
     if v3IsAuthCancellation(error) { return nil }
+    let error = v3AccountUnderlyingError(error)
+    if error is V3ProvisioningReauthenticationIdentityError { return .accountIdentityMismatch }
     if let portal = error as? DeveloperPortalError {
         switch portal {
         case .incorrectCredentials: return .invalidCredentials
@@ -579,7 +633,42 @@ func v3OperationErrorGuidance(_ error: OperationError) -> (message: String, hint
             "You can retry. If it keeps failing, keep the technical details and review Account and Signing and Certificates.")
 }
 
+// A new context observes committed rows, independent of any failed operation's
+// registered objects. Only opaque identity sets reach the local recovery journal.
+func v3AccountDatabaseSnapshot() async throws -> [String] {
+    let context = DatabaseManager.shared.persistentContainer.newBackgroundContext()
+    return try await context.perform {
+        try context.setQueryGenerationFrom(.current)
+        let accounts = Account.fetchRequest() as NSFetchRequest<Account>
+        accounts.predicate = NSPredicate(format: "%K == YES", #keyPath(Account.isActiveAccount))
+        let teams = Team.fetchRequest() as NSFetchRequest<Team>
+        teams.predicate = NSPredicate(format: "%K == YES", #keyPath(Team.isActiveTeam))
+        return (try context.fetch(accounts).map { "account:" + $0.identifier } +
+            context.fetch(teams).map { "team:" + $0.identifier }).sorted()
+    }
+}
+
+func v3ReconcileAccountDatabaseStorage() async throws {
+    guard V3AccountDatabaseRecovery.requiresReconciliation else { return }
+    try V3AccountDatabaseRecovery.reconcile(observed: try await v3AccountDatabaseSnapshot())
+}
+
 // MARK: - Authentication state machine
+
+// The journal contains only a digest, never credentials or private device IDs.
+@MainActor
+func v3ProvisioningCompletionBinding(credentials: LCEmbeddedAuthenticationSnapshot?,
+                                    teamID: String?, certificateSerial: String?) -> String? {
+    guard credentials?.isAuthenticated == true,
+          let owner = V3AuthIdentityBindingPolicy.normalizedOwner(credentials?.appleIDEmailAddress),
+          let dsid = credentials?.appleIDAdsid, !dsid.isEmpty,
+          let token = credentials?.appleIDXcodeToken, !token.isEmpty,
+          let teamID, !teamID.isEmpty, let certificateSerial, !certificateSerial.isEmpty,
+          let device = UIDevice.current.identifierForVendor?.uuidString,
+          let bytes = try? PropertyListSerialization.data(fromPropertyList:
+            [owner, dsid, token, teamID, certificateSerial, device], format: .binary, options: 0) else { return nil }
+    return SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+}
 
 struct V3ProvisioningResumeUnavailableError: Error {}
 
@@ -592,6 +681,7 @@ final class V3AuthCenter {
     enum BeginMode: String, Equatable {
         case interactive
         case resumeProvisioning
+        case reauthenticateProvisioning
     }
 
     struct Session {
@@ -610,14 +700,53 @@ final class V3AuthCenter {
         var submittedAppleID: String?
         var authenticatedAppleID: String?
         var accountAppleIDAtStart: String?
+        var reauthenticationAppleID: String?
+        var reauthenticationIdentityStamp: String?
     }
 
     // Privacy-safe record of a finished-but-incomplete provisioning attempt, so
     // Retry Provisioning can be served without credentials or 2FA. Only the
     // lowercased Apple ID and the typed stage are stored; never a token.
+    var provisioningCompletion = V3ProvisioningCompletionState()
+    // Both journals survive a service restart. A failed read is never permission
+    // to mutate; only verified storage reconciliation can clear their holds.
+    var provisioningRecoveryRequiresReconciliation: Bool {
+        V3AccountDatabaseRecovery.requiresReconciliation ||
+            ((try? Keychain.shared.storageRequiresReconciliation()) ?? true)
+    }
+
+
+    func reconcileStorage() async throws {
+        let auth = AuthManager.shared
+        auth.v3BeginIdentityTransition()
+        defer {
+            // Repaired storage may select the old or the intended route. Drop
+            // only process-local caches; saved account/certificate data remain.
+            auth.session = nil
+            auth.team = nil
+            auth.v3CompleteIdentityTransition()
+        }
+        try await v3ReconcileAccountDatabaseStorage()
+        try Keychain.shared.reconcileStorage()
+        try CertificateManager.shared.loadActiveCertificate()
+    }
+
+    func canReauthenticateProvisioning() -> Bool {
+        let auth = AuthManager.shared
+        let stamp = auth.v3IdentityStamp
+        let credentials = auth.authenticationSnapshot
+        return !provisioningRecoveryRequiresReconciliation &&
+            !hasActiveSession && auth.v3IdentityIsStable && stamp == auth.v3IdentityStamp &&
+            V3AuthIdentityBindingPolicy.normalizedOwner(credentials?.appleIDEmailAddress) != nil &&
+            V3AuthIdentityBindingPolicy.hasTokenBackedRoute(
+                credentialRoutePresent: credentials?.isAuthenticated == true,
+                dsid: credentials?.appleIDAdsid, xcodeToken: credentials?.appleIDXcodeToken)
+    }
+
     private(set) var resumableProvisioning: (appleID: String, stage: String)?
 
     func canResumeProvisioning() -> Bool {
+        guard !provisioningRecoveryRequiresReconciliation else { return false }
         let auth = AuthManager.shared
         let generationAtStart = auth.v3IdentityGeneration
         let stampAtStart = auth.v3IdentityStamp
@@ -681,8 +810,11 @@ final class V3AuthCenter {
             cleanupSessions()
             return poll(id: id) ?? ["session": id, "state": "cancelled", "authenticated": false]
         }
-        let authCredentials = mode == .resumeProvisioning
-            ? AuthManager.shared.authenticationSnapshot : nil
+        let authCredentials = AuthManager.shared.authenticationSnapshot
+        if mode == .reauthenticateProvisioning && !canReauthenticateProvisioning() {
+            return ["session": id, "state": "failed", "authenticated": false,
+                    "message": "Reload account status before signing in again to finish setup."]
+        }
         if mode == .resumeProvisioning {
             // Refuse to claim a reusable session that cannot be reused. This is
             // the only place that decides whether a retry may skip credentials,
@@ -719,6 +851,15 @@ final class V3AuthCenter {
         }
         if mode == .resumeProvisioning {
             newSession.authenticatedAppleID = authCredentials?.appleIDEmailAddress?.lowercased()
+        }
+        if mode == .reauthenticateProvisioning {
+            newSession.reauthenticationAppleID = V3AuthIdentityBindingPolicy.normalizedOwner(authCredentials?.appleIDEmailAddress)
+            newSession.reauthenticationIdentityStamp = AuthManager.shared.v3IdentityStamp
+        }
+        guard provisioningCompletion.begin(attemptID: id, owner: authCredentials?.appleIDEmailAddress,
+            identityStamp: AuthManager.shared.v3IdentityStamp) else {
+            return ["session": id, "state": "failed", "authenticated": false,
+                    "message": "SideStore could not save the setup attempt safely. Reload status before continuing."]
         }
         sessions[id] = newSession
         activeID = id
@@ -763,10 +904,14 @@ final class V3AuthCenter {
             let handler = V3HeadlessAuthHandler(sessionID: id)
             let forceProvisioningRetry = sessions[id]?.mode == .resumeProvisioning
             let operation = try SignInOperation(context: context, signInHandler: handler,
-                anisetteServerHandler: handler, v3ForceProvisioningRetry: forceProvisioningRetry)
+                anisetteServerHandler: handler, v3ForceProvisioningRetry: forceProvisioningRetry,
+                v3RequireFullProvisioning: true,
+                v3ReauthenticateAppleID: sessions[id]?.reauthenticationAppleID,
+                v3ReauthenticationIdentityStamp: sessions[id]?.reauthenticationIdentityStamp)
             let result = try await operation.execute()
             let account = result.team.account ?? ALTAccount(appleID: "", identifier: result.team.identifier)
             let identityGeneration = AuthManager.shared.v3IdentityGeneration
+            let identityStamp = AuthManager.shared.v3IdentityStamp
             let credentials = AuthManager.shared.authenticationSnapshot
             guard V3AuthIdentityBindingPolicy.hasUsableSession(
                     credentialRoutePresent: credentials?.isAuthenticated == true,
@@ -777,6 +922,25 @@ final class V3AuthCenter {
                 throw OperationError.notAuthenticated
             }
             await handler.handleSignInResult(.success((account, result.session)))
+            let activeAccount = DatabaseManager.shared.activeAccount()
+            let activeTeam = DatabaseManager.shared.activeTeam()
+            let activeCertificate = CertificateManager.shared.activeCertificate?.certificate
+            guard ownsActiveSession(id), provisioningCompletion.complete(attemptID: id,
+                owner: credentials?.appleIDEmailAddress, identityStamp: AuthManager.shared.v3IdentityStamp,
+                identityStable: V3AuthReadStampPolicy.mayReturn(capturedStamp: identityStamp,
+                    currentStamp: AuthManager.shared.v3IdentityStamp, stable: AuthManager.shared.v3IdentityIsStable),
+                fullProvisioningCompleted: operation.v3DidCompleteProvisioning,
+                activeAccountMatches: V3AuthIdentityBindingPolicy.mayUseTeam(
+                    sessionOwner: credentials?.appleIDEmailAddress, teamOwner: activeAccount?.appleID),
+                activeTeamMatches: activeTeam?.identifier == result.team.identifier &&
+                    V3AuthIdentityBindingPolicy.mayUseTeam(sessionOwner: credentials?.appleIDEmailAddress,
+                        teamOwner: activeTeam?.account?.appleID),
+                activeCertificateMatches: result.certificate != nil && activeCertificate != nil &&
+                    result.certificate?.serialNumber == activeCertificate?.serialNumber,
+                binding: v3ProvisioningCompletionBinding(credentials: credentials,
+                    teamID: activeTeam?.identifier, certificateSerial: activeCertificate?.serialNumber)) else {
+                throw V3ProvisioningResumeUnavailableError()
+            }
             sessions[id]?.prompt = nil
             resumableProvisioning = nil
             finish(id: id, response: ["state": "completed", "team": result.team.name,
@@ -823,7 +987,7 @@ final class V3AuthCenter {
                         id: id, retryable: cancelled)
                 }
                 var failureWire = failure.wire
-                if resumeUnavailable {
+                if resumeUnavailable || provisioningRecoveryRequiresReconciliation {
                     resumableProvisioning = nil
                 } else if let resumableAppleID = V3ProvisioningResumeIdentityPolicy.select(
                     authenticatedSessionAppleID: session?.authenticatedAppleID,
@@ -837,7 +1001,7 @@ final class V3AuthCenter {
                     "state": authenticatedOutcome,
                     "authenticated": true,
                     "outcome": cancelled ? "provisioningCancelled" : "provisioningFailed",
-                    "resumable": tokenBackedRoute && !resumeUnavailable,
+                    "resumable": tokenBackedRoute && !resumeUnavailable && !provisioningRecoveryRequiresReconciliation,
                     "message": message,
                     "stage": failure.stage.rawValue,
                     "code": failure.code.rawValue,
@@ -1032,6 +1196,7 @@ enum V3AuthFailureDisplay {
         case "anisette": return "Authentication could not obtain valid Anisette data."
         case "network": return "Authentication could not reach the required Apple service. Check the connection and try again."
         case "accountRepairRequired": return "Apple requires attention on this account before signing in."
+        case "accountIdentityMismatch": return "Use the same Apple ID as the saved account. Reload status if the account changed."
         default: return "Apple sign-in failed for an unknown typed reason."
         }
     }
@@ -1094,9 +1259,11 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
     }
 
     func credentials() async throws -> (String, String) {
+        let expectedOwner = V3HeadlessRuntime.shared.auth.sessions[sessionID]?.reauthenticationAppleID
         let answer = try await ask(kind: "credentials", title: "Apple ID Sign In",
-                                   message: "Enter the Apple ID and password used for signing.",
-                                   fields: [["key": "appleID", "label": "Apple ID", "secure": "false"],
+                                   message: expectedOwner == nil ? "Enter the Apple ID and password used for signing."
+                                    : "Sign in with the saved Apple ID to finish device provisioning. Your account and certificate are kept.",
+                                   fields: [["key": "appleID", "label": "Apple ID", "secure": "false", "value": expectedOwner ?? ""],
                                             ["key": "password", "label": "Password", "secure": "true"]])
         guard let appleID = answer["appleID"], !appleID.isEmpty,
               let password = answer["password"], !password.isEmpty else { throw CancellationError() }
@@ -1222,6 +1389,8 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
         guard V3HeadlessRuntime.shared.auth.sessions[sessionID]?.terminal.isEmpty == true else { return }
         switch result {
         case .success(let (account, _)):
+            V3HeadlessRuntime.shared.auth.provisioningCompletion.authenticated(attemptID: sessionID,
+                owner: account.appleID, identityStamp: AuthManager.shared.v3IdentityStamp)
             V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure = nil
             V3HeadlessRuntime.shared.auth.sessions[sessionID]?.authenticatedAppleID =
                 account.appleID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -1230,7 +1399,8 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
                 V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure = nil
                 return
             }
-            let failure = CombinedFailure.capture(error, operation: "signIn", stage: .authentication, id: sessionID)
+            let diagnosed = v3AccountOperationFailure(error, step: .authenticate)
+            let failure = CombinedFailure.capture(diagnosed, operation: "signIn", stage: .authentication, id: sessionID)
             var wire = failure.wire
             wire["kind"] = kind.rawValue
             V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure = wire
@@ -1253,23 +1423,38 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
         // concrete DeveloperPortalError or SideStore.OperationError case; the
         // bridged domain/code travel only inside the separate technical
         // details. A numeric NSError code is never treated as a semantic API.
+        let diagnosticError = v3AccountOperationFailure(error, step: .provisioningUnknown)
+        let error = v3AccountUnderlyingError(error)
         if error is CancellationError { return .cancel }
+        if v3IsAuthCancellation(error) { return .cancel }
+        if diagnosticError.requiresReconciliation {
+            return await askProvisioningRetry(
+                message: "Provisioning reached local storage, but the save result could not be confirmed.",
+                hint: "Finish Later and reload Account & Signing to reconcile storage before continuing.",
+                error: diagnosticError, mayRetry: false)
+        }
+        if [.keychainWrite, .keychainValidationFailed, .legacyMigrationConflict, .persistenceFailure].contains(diagnosticError.kind) {
+            return await askProvisioningRetry(
+                message: "Provisioning could not save the required account or signing state on this device.",
+                hint: "Retry repeats this local storage step. If it keeps failing, Finish Later and review the safe diagnostics.",
+                error: diagnosticError)
+        }
         if let portal = error as? DeveloperPortalError {
             if case .userCancelled = portal { return .cancel }
             let guidance = v3ProvisioningGuidance(portal)
-            return await askProvisioningRetry(message: guidance.message, hint: guidance.hint, error: error)
+            return await askProvisioningRetry(message: guidance.message, hint: guidance.hint, error: diagnosticError)
         }
         if let operation = error as? OperationError {
             let guidance = v3OperationErrorGuidance(operation)
-            return await askProvisioningRetry(message: guidance.message, hint: guidance.hint, error: error)
+            return await askProvisioningRetry(message: guidance.message, hint: guidance.hint, error: diagnosticError)
         }
         return await askProvisioningRetry(
             message: "Provisioning could not be completed because of an unexpected failure.",
             hint: "You can retry; if it keeps failing, check the account, team, and certificates before trying again.",
-            error: error)
+            error: diagnosticError)
     }
 
-    private func askProvisioningRetry(message: String, hint: String, error: Error) async -> ProvisioningErrorDecision {
+    private func askProvisioningRetry(message: String, hint: String, error: Error, mayRetry: Bool = true) async -> ProvisioningErrorDecision {
         let technical = CombinedFailure.provisioningRetryTechnicalDetails(
             for: error, correlationID: sessionID)
         // V3_PROVISIONING_RECOVERY_LABELS_V1: authentication already succeeded.
@@ -1279,9 +1464,9 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
             let answer = try await ask(kind: "provisioningError", title: "Provisioning Needs Attention",
                                        message: message + "\n\n" + hint,
                                        fields: [["key": "technical", "label": "Technical details", "secure": "false", "value": technical]],
-                                       options: [["id": "retry", "label": "Retry Provisioning"],
-                                                 ["id": "cancel", "label": "Finish Later"]])
-            return answer["choice"] == "retry" ? .retry : .cancel
+                                       options: (mayRetry ? [["id": "retry", "label": "Retry Provisioning"]] : []) +
+                                                 [["id": "cancel", "label": "Finish Later"]])
+            return mayRetry && answer["choice"] == "retry" ? .retry : .cancel
         } catch { return .cancel }
     }
 

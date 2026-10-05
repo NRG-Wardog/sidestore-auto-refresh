@@ -30,6 +30,31 @@ KEYCHAIN_ACCESS_ADAPTER = '''extension Keychain {
             appleID: appleID, password: password, dsid: dsid, authToken: authToken,
             client: self.keychain)
     }
+    func authenticationCandidate() throws -> LCEmbeddedAuthenticationCandidate? {
+        try LCEmbeddedSharedKeychain.readAuthenticationCandidate(self.keychain)
+    }
+    func writeVerifiedAuthentication(_ candidate: LCEmbeddedAuthenticationCandidate,
+                                     appleID: String, dsid: String, authToken: String) throws {
+        try LCEmbeddedSharedKeychain.writeAuthenticationCredentials(
+            appleID: appleID, password: candidate.credentials.appleIDPassword,
+            dsid: dsid, authToken: authToken, expectedCandidate: candidate, client: self.keychain)
+    }
+    func reconcileStorage() throws {
+        try LCEmbeddedSharedKeychain.reconcileStorage(self.keychain) { data, password in
+            try CertificateManager.parse(data, password: password).serialNumber
+        }
+    }
+    func storageRequiresReconciliation() throws -> Bool {
+        try LCEmbeddedSharedKeychain.storageRequiresReconciliation(self.keychain)
+    }
+    func signingCertificateSnapshot() throws -> LCEmbeddedSigningCertificateSnapshot? {
+        try LCEmbeddedSharedKeychain.readSigningCertificateSnapshot(self.keychain)
+    }
+    func writeSigningCertificate(p12Data: Data?, password: String?, serial: String?,
+                                 validate: (Data, String?) throws -> Void) throws {
+        try LCEmbeddedSharedKeychain.writeSigningCertificate(p12Data: p12Data,
+            password: password, serial: serial, client: self.keychain, validate: validate)
+    }
     func clearSignInInfoChecked() throws {
         try LCEmbeddedSharedKeychain.clearSignInInfoChecked(self.keychain)
     }
@@ -161,7 +186,8 @@ def patch_background_auth_snapshot(text: str) -> str:
 
 def patch_sign_in_operation(text: str) -> str:
     if SIGN_IN_SNAPSHOT_MARKER in text:
-        required = ("AuthManager.shared.authenticationSnapshot", "credentials?.appleIDAdsid",
+        required = ("Keychain.shared.authenticationCandidate()", "LC_VERIFIED_LEGACY_AUTH_V1",
+                    "Keychain.shared.writeVerifiedAuthentication", "credentials?.appleIDAdsid",
                     "credentials?.appleIDXcodeToken", "credentials?.appleIDEmailAddress",
                     "credentials?.appleIDPassword",
                     "V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1")
@@ -184,7 +210,13 @@ def patch_sign_in_operation(text: str) -> str:
         "    private func silentSignIn() async throws -> (ALTAccount, ALTAppleAPISession)? {",
         "    private func silentSignIn() async throws -> (ALTAccount, ALTAppleAPISession)? {\n"
         "        // LC_SIGNIN_CREDENTIAL_SNAPSHOT_V1\n"
-        "        let credentials = AuthManager.shared.authenticationSnapshot", 1)
+        "        // LC_VERIFIED_LEGACY_AUTH_V1: routes are not yet bound identities.\n"
+        "        let capturedStamp = AuthManager.shared.v3IdentityStamp\n"
+        "        guard AuthManager.shared.v3IdentityIsStable else { throw OperationError.notAuthenticated }\n"
+        "        let candidate: LCEmbeddedAuthenticationCandidate?\n"
+        "        do { candidate = try Keychain.shared.authenticationCandidate() }\n"
+        "        catch { throw v3AccountOperationFailure(error, step: .credentialCommit) }\n"
+        "        let credentials = candidate?.credentials", 1)
     token_pattern = re.compile(
         r'        if let adsid = AuthManager\.shared\.adsid,\s*'
         r'let xcodeToken = AuthManager\.shared\.xcodeToken\s*\{')
@@ -199,7 +231,74 @@ def patch_sign_in_operation(text: str) -> str:
         '           let password = credentials?.appleIDPassword {', section, count=1)
     if token_count != 1 or password_count != 1:
         raise ValueError("embedded keychain: SignInOperation silent credential pairs changed")
-    return text[:start] + section + text[end:]
+    section = once(section,
+        "                return try await AuthManager.shared.authenticateWithToken(",
+        "                let (account, session) = try await AuthManager.shared.authenticateWithToken(")
+    section = once(section,
+        "                    xcodeVersion: xcodeVersion\n                )\n",
+        "                    xcodeVersion: xcodeVersion\n                )\n"
+        "                guard !self.isCancelled, !Task.isCancelled else { throw OperationError.cancelled }\n"
+        "                guard let candidate, AuthManager.shared.v3IdentityIsStable,\n"
+        "                      capturedStamp == AuthManager.shared.v3IdentityStamp,\n"
+        "                      account.identifier == session.dsid,\n"
+        "                      candidate.matchesVerifiedIdentity(appleID: account.appleID, dsid: session.dsid) else {\n"
+        "                    throw v3AccountOperationFailure(NSError(domain: \"LiveContainerRefresh.Configuration\", code: 1008), step: .credentialCommit)\n"
+        "                }\n"
+        "                AuthManager.shared.v3BeginIdentityTransition()\n"
+        "                defer { AuthManager.shared.v3CompleteIdentityTransition() }\n"
+        "                do {\n"
+        "                    try Keychain.shared.writeVerifiedAuthentication(candidate, appleID: account.appleID,\n"
+        "                        dsid: session.dsid, authToken: session.authToken)\n"
+        "                } catch { throw v3AccountOperationFailure(error, step: .credentialCommit) }\n"
+        "                AuthManager.shared.session = session\n"
+        "                return (account, session)\n")
+    # Keep failure after Apple success visible and terminal. In particular, never
+    # fall through to stored-password replay after an uncertain local commit.
+    section = once(section,
+        '            } catch {\n                self.debugLog("[SignInOperation] Token authentication failed: \\(error)")',
+        '            } catch {\n'
+        '                if error is V3AccountOperationError { throw error }\n'
+        '                if self.isCancelled || Task.isCancelled || error is CancellationError { throw OperationError.cancelled }\n'
+        '                self.debugLog("[V3_AUTH] saved_token_verification_failed")')
+    section = once(section,
+        "                return try await self.signIn(appleID: appleID, password: password)",
+        "                return try await self.signIn(appleID: appleID, password: password,\n"
+        "                    recoveryCandidate: candidate, capturedStamp: capturedStamp)")
+    # patch_v3_service also installs this guard in new builds. Support its
+    # presence without duplicating it, and reject a swallowed local failure.
+    saved_catch = section.index('self.debugLog("[SignInOperation] Saved password authentication failed:')
+    saved_prefix = section[:saved_catch]
+    if "if error is V3AccountOperationError" not in saved_prefix[saved_prefix.rfind("} catch {"):]:
+        section = section[:saved_catch] + "if error is V3AccountOperationError { throw error }\n                " + section[saved_catch:]
+    text = text[:start] + section + text[end:]
+    text = once(text,
+        "    private func signIn(appleID: String, password: String) async throws -> (ALTAccount, ALTAppleAPISession) {",
+        "    private func signIn(appleID: String, password: String,\n"
+        "                        recoveryCandidate: LCEmbeddedAuthenticationCandidate? = nil,\n"
+        "                        capturedStamp: String? = nil) async throws -> (ALTAccount, ALTAppleAPISession) {")
+    transition = "        AuthManager.shared.v3BeginIdentityTransition()\n"
+    # Restrict the anchor to interactive/password signIn; the token branch owns
+    # its own transition above.
+    start = text.index("    private func signIn(appleID: String, password: String,")
+    head, body = text[:start], text[start:]
+    body = once(body, transition,
+        "        if let candidate = recoveryCandidate {\n"
+        "            guard !self.isCancelled, !Task.isCancelled else { throw OperationError.cancelled }\n"
+        "            guard AuthManager.shared.v3IdentityIsStable, capturedStamp == AuthManager.shared.v3IdentityStamp,\n"
+        "                  account.identifier == session.dsid,\n"
+        "                  candidate.matchesVerifiedIdentity(appleID: account.appleID, dsid: session.dsid) else {\n"
+        "                throw v3AccountOperationFailure(NSError(domain: \"LiveContainerRefresh.Configuration\", code: 1008), step: .credentialCommit)\n"
+        "            }\n"
+        "        }\n" + transition)
+    writer = "try Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)"
+    body = once(body, writer,
+        "if let candidate = recoveryCandidate {\n"
+        "                do {\n"
+        "                    try Keychain.shared.writeVerifiedAuthentication(candidate, appleID: account.appleID,\n"
+        "                        dsid: session.dsid, authToken: session.authToken)\n"
+        "                } catch { throw v3AccountOperationFailure(error, step: .credentialCommit) }\n"
+        "            } else {\n                " + writer + "\n            }")
+    return head + body
 
 
 def patch_import_export(text: str) -> str:
@@ -301,17 +400,95 @@ class DocumentPickerHandler: NSObject, UIDocumentPickerDelegate {
     return text
 
 
+def patch_certificate_manager(text: str) -> str:
+    marker = "LC_VERIFIED_ACTIVE_CERTIFICATE_V1"
+    if marker in text:
+        required = ("try Keychain.shared.writeSigningCertificate", "try Keychain.shared.signingCertificateSnapshot()",
+                    "try Self.parse(storedData, password: storedPassword)", "self.recordCertificateMetadata(cert)")
+        if any(value not in text for value in required):
+            raise ValueError("embedded keychain: verified certificate persistence patch is incomplete")
+        return text
+    start = text.index("    @discardableResult\n    public func loadActiveCertificate()")
+    end = text.index("\n    public func getPassword(for cert:", start)
+    text = text[:start] + '''    // LC_VERIFIED_ACTIVE_CERTIFICATE_V1
+    @discardableResult
+    public func loadActiveCertificate() throws -> ActiveSigningCertificate? {
+        do {
+            guard let stored = try Keychain.shared.signingCertificateSnapshot() else {
+                self.activeCertificate = nil
+                return nil
+            }
+            let cert = try Self.parse(stored.p12Data, password: stored.password)
+            let active = ActiveSigningCertificate(certificate: cert, p12Data: stored.p12Data, password: stored.password)
+            self.activeCertificate = active
+            return active
+        } catch {
+            self.activeCertificate = nil
+            throw error
+        }
+    }
+''' + text[end:]
+    start = text.index("    public func setActiveCertificate(_ cert:")
+    end = text.index("    // MARK: - Certificate Encoding Helpers", start)
+    text = text[:start] + '''    public func setActiveCertificate(_ cert: ALTCertificate?) throws {
+        do {
+            if let cert {
+                let password = getPassword(for: cert)
+                let p12Data = try Self.convert(cert, password: password)
+                try Keychain.shared.writeSigningCertificate(p12Data: p12Data, password: password,
+                    serial: cert.serialNumber) { storedData, storedPassword in
+                    let parsed = try Self.parse(storedData, password: storedPassword)
+                    guard parsed.serialNumber == cert.serialNumber else {
+                        throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                    }
+                }
+                self.recordCertificateMetadata(cert)
+                self.activeCertificate = ActiveSigningCertificate(certificate: cert, p12Data: p12Data, password: password)
+            } else {
+                try Keychain.shared.writeSigningCertificate(p12Data: nil, password: nil, serial: nil) { _, _ in }
+                self.activeCertificate = nil
+            }
+        } catch {
+            // Preserve the last proven certificate on a verified rollback;
+            // an uncertain transaction must not remain advertised in memory.
+            let native = error as NSError
+            if native.domain == "com.SideStore.Keychain" && native.code == 1010 {
+                self.activeCertificate = nil
+            }
+            throw error
+        }
+    }
+
+    public func clearActiveCertificate() {
+        do { try self.setActiveCertificate(nil) }
+        catch { debugLog("[LC_KEYCHAIN] certificate_clear_failed") }
+    }
+
+''' + text[end:]
+    start = text.index("    public func saveCertificate(_ cert:")
+    end = text.index("    public func saveX509Certificate(", start)
+    segment = text[start:end]
+    metadata_start = segment.index("        let serials = getImportedCertificateSerials()")
+    metadata = segment[metadata_start:]
+    segment = segment[:metadata_start] + "        self.recordCertificateMetadata(cert)\n    }\n\n" + \
+        "    private func recordCertificateMetadata(_ cert: ALTCertificate) {\n" + metadata
+    text = text[:start] + segment + text[end:]
+    return text
+
+
 def patch(root: Path) -> None:
     path = root / "AltStore/Core/Components/Keychain.swift"
     operation = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
     auth_manager = root / "SideStore/Core/Auth/AuthManager.swift"
     sign_in = root / "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"
     import_export = root / "SideStore/Utils/importexport/ImportExport.swift"
+    certificate_manager = root / "SideStore/Core/Certificates/CertificateManager.swift"
     original = path.read_text(encoding="utf-8")
     text = original
     auth_text = auth_manager.read_text(encoding="utf-8")
     sign_in_text = sign_in.read_text(encoding="utf-8")
     import_export_text = import_export.read_text(encoding="utf-8")
+    certificate_text = patch_certificate_manager(certificate_manager.read_text(encoding="utf-8"))
     helper = TEMPLATE.read_text(encoding="utf-8")
     if MARKER not in text:
         text = once(text, "import Foundation\n", "import Foundation\nimport Security\n#if canImport(Darwin)\nimport Darwin\n#elseif canImport(Glibc)\nimport Glibc\n#endif\n")
@@ -326,6 +503,14 @@ def patch(root: Path) -> None:
         text = once(text, "case is String.Type: Keychain.shared.keychain[self.key] = newValue as? String",
                     "case is String.Type: LCEmbeddedSharedKeychain.write(self.key, data: (newValue as? String).map { Data($0.utf8) }, client: Keychain.shared.keychain)")
         text = once(text, "        self.migrateLegacyKeychainItems()", "        LCEmbeddedSharedKeychain.prepare(self.keychain)\n        if LCEmbeddedSharedKeychain.isReady(self.keychain) { self.migrateLegacyKeychainItems() }")
+        text = once(text, '''            try self.keychain.set(p12Data, key: signingCertificateKey)
+            try self.keychain.set("", key: "signingCertificatePassword")''', '''            try LCEmbeddedSharedKeychain.writeSigningCertificate(p12Data: p12Data, password: nil,
+                serial: cert.serialNumber, client: self.keychain) { storedData, _ in
+                let parsed = try ALTCertificate(p12Data: storedData)
+                guard parsed.serialNumber == cert.serialNumber else {
+                    throw NSError(domain: "com.SideStore.Keychain", code: 1009)
+                }
+            }''')
         text = once(text, 'get { try? self.keychain.getData("importedCert_" + serial) }',
                     'get { LCEmbeddedSharedKeychain.read("importedCert_" + serial, client: self.keychain) }')
         text = once(text, '''            if let data = newValue {
@@ -373,8 +558,9 @@ def patch(root: Path) -> None:
     auth_manager.write_text(auth_text, encoding="utf-8")
     sign_in.write_text(sign_in_text, encoding="utf-8")
     import_export.write_text(import_export_text, encoding="utf-8")
+    certificate_manager.write_text(certificate_text, encoding="utf-8")
     if compiler := shutil.which("swiftc"):
-        for file in (path, operation, auth_manager, sign_in, import_export):
+        for file in (path, operation, auth_manager, sign_in, import_export, certificate_manager):
             subprocess.run([compiler, "-frontend", "-parse", str(file)], check=True)
 
 

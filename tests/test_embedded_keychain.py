@@ -108,7 +108,13 @@ extension Bundle {
     var altstoreAppGroup: String? { Store.group }
 }
 enum KeychainAccess {
-    final class Keychain {
+    enum CertificateManager {
+    struct Parsed { let serialNumber: String }
+    static func parse(_ data: Data, password: String?) throws -> Parsed {
+        Parsed(serialNumber: "new-serial")
+    }
+}
+final class Keychain {
         enum Accessibility { case afterFirstUnlock }
         let group: String
         init(service: String) { group = Store.processGroup }
@@ -341,7 +347,8 @@ HARNESS = r'''
             precondition(uncommittedMarker == nil)
             fail = false
             let ready = try LCSharedKeychainMigration.prepare(group: group, items: { items }, read: { try client.getData($0) }, write: { try client.set($1, key: $0) })
-            precondition(ready && LCEmbeddedSharedKeychain.read("appleIDXcodeToken", client: client) == login["appleIDXcodeToken"])
+            precondition(!ready && LCEmbeddedSharedKeychain.read("appleIDXcodeToken", client: client) == nil,
+                "markerless partial state is preserved for explicit recovery, never filled from another namespace")
         case "conflicts_fail_before_writes":
             let client = LCEmbeddedSharedKeychain.makeClient()
             var items = login.map { LCLegacyKeychainItem(group: "old1", key: $0.key, data: $0.value) }
@@ -644,6 +651,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
                 "SideStore/Core/Auth/AuthManager.swift",
                 "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
                 "SideStore/Utils/importexport/ImportExport.swift",
+                "SideStore/Core/Certificates/CertificateManager.swift",
             )
             destinations = []
             for name in relatives:
@@ -728,6 +736,7 @@ class KeychainPatchGenerationTests(unittest.TestCase):
             "SideStore/Core/Auth/AuthManager.swift",
             "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
             "SideStore/Utils/importexport/ImportExport.swift",
+            "SideStore/Core/Certificates/CertificateManager.swift",
         )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -758,7 +767,7 @@ class KeychainPatchGenerationTests(unittest.TestCase):
         }
 }''', encoding="utf-8")
             module.patch(root)
-            keychain, auth, sign_in, import_export = [p.read_text(encoding="utf-8") for p in paths]
+            keychain, auth, sign_in, import_export, certificate = [p.read_text(encoding="utf-8") for p in paths]
             self.assertIn("LCEmbeddedSharedKeychain.readAuthenticationSnapshot(self.keychain)", keychain)
             self.assertIn("LC_AUTH_CREDENTIAL_SNAPSHOT_V1", auth)
             self.assertIn("authenticationSnapshot?.isAuthenticated", auth)
@@ -776,7 +785,9 @@ class KeychainPatchGenerationTests(unittest.TestCase):
             self.assertNotIn("self.adsid", auth_session)
             self.assertNotIn("self.xcodeToken", auth_session)
             self.assertIn("LC_SIGNIN_CREDENTIAL_SNAPSHOT_V1", sign_in)
-            self.assertIn("let credentials = AuthManager.shared.authenticationSnapshot", sign_in)
+            self.assertIn("let credentials = candidate?.credentials", sign_in)
+            self.assertIn("try Keychain.shared.authenticationCandidate()", sign_in)
+            self.assertIn("LC_VERIFIED_ACTIVE_CERTIFICATE_V1", certificate)
             self.assertNotIn("if let adsid = AuthManager.shared.adsid", sign_in)
             self.assertNotIn("if let appleID = AuthManager.shared.currentAppleID", sign_in)
             self.assertIn("LC_IMPORT_EXPORT_CREDENTIAL_SNAPSHOT_V1", import_export)

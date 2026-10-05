@@ -30,6 +30,8 @@ HOST_SOURCE_PATHS = [
     '.lc-app-layout.json', '.combined-service-startup.json',
 ]
 V3_HOST_SOURCE_PATHS = [
+    'LiveContainer/Tweaks/Dead10ccFix.m',
+    'LiveContainer/Tweaks/NSUserDefaults.m',
     'ZSign/zsigner.h',
     'ZSign/zsign.mm',
     'LiveContainerSwiftUI/Utilities/LCUtils.h',
@@ -38,6 +40,8 @@ V3_HOST_SOURCE_PATHS = [
     'LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift',
 ]
 EMBEDDED_SOURCE_PATHS = [
+    'SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift',
+    'SideStore/Core/Certificates/CertificateManager.swift',
     'AltStore/AppDelegate.swift', 'SideStore/Core/Operations/PipelineExecutor.swift',
     'SideStore/Core/Operations/PipelineRunner.swift',
     'SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift',

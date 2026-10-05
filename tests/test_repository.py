@@ -117,7 +117,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(
             {path.name for path in SCRIPTS.glob("*.py")},
                 REQUIRED_SCRIPTS | LIVE_CONTAINER_SCRIPTS | {
-                    "patch_sidesign_privacy.py", "verify_candidate_ipa.py", "run_required_tests.py"},
+                    "patch_sidesign_privacy.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py"},
         )
 
     def test_patch_scripts_parse_and_contain_guard_markers(self):

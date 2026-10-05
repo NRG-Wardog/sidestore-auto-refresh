@@ -659,6 +659,20 @@ class CandidateArchiveSizeReportTests(unittest.TestCase):
         self.assertEqual(set(evidence_module.EMBEDDED_SOURCE_PATHS),
                          verify_module.REQUIRED_GENERATED_EMBEDDED_SOURCES)
 
+    def test_v2_collector_inventory_still_verifies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            hashes = {}
+            for prefix, names in [('generated', evidence_module.HOST_SOURCE_PATHS),
+                                  ('embedded-generated', evidence_module.EMBEDDED_SOURCE_PATHS)]:
+                for name in names:
+                    path = root / prefix / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b'fixture source')
+                    key = ('embedded/' if prefix == 'embedded-generated' else '') + name
+                    hashes[key] = hashlib.sha256(path.read_bytes()).hexdigest()
+            verify_module.verify_generated_source_evidence(root, hashes, product='v2')
+
     def test_collect_is_reproducible_and_removes_stale_evidence_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

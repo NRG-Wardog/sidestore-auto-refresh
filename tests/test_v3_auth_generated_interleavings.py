@@ -123,6 +123,7 @@ def declarations_for_harness(auth: str, sign_in: str, coalescer: str) -> str:
     cached_execute = swift_declaration(sign_in, "    override func execute(parentProgress: Progress?) async throws -> SignInResult")
     sign_in_fields = """
     let v3ForceProvisioningRetry = false
+    let v3RequireFullProvisioning = false
     let skipCertificateProvisioning = true
     var isCancelled = false
     var cachedPathAnisetteCalls = 0

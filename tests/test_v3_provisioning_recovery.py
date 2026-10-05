@@ -223,7 +223,7 @@ class RecoveryActionLabelTests(unittest.TestCase):
         self.assertIn('["id": "cancel", "label": "Finish Later"]', prompt)
         # Finish Later is still an upstream .cancel; a third decision case is
         # never fabricated.
-        self.assertIn('return answer["choice"] == "retry" ? .retry : .cancel', prompt)
+        self.assertIn('return mayRetry && answer["choice"] == "retry" ? .retry : .cancel', prompt)
         self.assertNotIn('"label": "Cancel"', prompt)
 
     def test_host_offers_retry_provisioning_and_finish_later(self):
@@ -328,7 +328,9 @@ class AuthSuccessIsNotProvisioningSuccessTests(unittest.TestCase):
         start = service.index("private func snapshot()")
         snapshot = service[start:]
         self.assertIn('"authenticated": authenticated', snapshot)
-        self.assertIn('"provisioningIncomplete": authenticated && activeAccount == nil', snapshot)
+        self.assertIn('"provisioningIncomplete": provisioningIncomplete', snapshot)
+        self.assertIn('provisioningCompletion.status(', snapshot)
+        self.assertNotIn('authenticated && activeAccount == nil', snapshot)
         self.assertIn("AuthManager.shared.authenticationSnapshot", snapshot)
         self.assertIn("authCredentials?.appleIDEmailAddress", snapshot)
         # The old unconditional "Not signed in" shortcut is gone.

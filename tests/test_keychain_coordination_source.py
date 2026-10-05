@@ -113,13 +113,13 @@ class KeychainCoordinationSourceTests(unittest.TestCase):
         patcher = runtime[start:end]
         self.assertIn("V3_AUTH_CREDENTIAL_TRANSACTION_V1", patcher)
         self.assertIn("Keychain.shared.writeAuthenticationCredentials(appleID: appleID, password: password, dsid: session.dsid, authToken: session.authToken)", patcher)
-        self.assertIn("func writeAuthenticationCredentials(appleID: String, password: String,", KEYCHAIN)
+        self.assertIn("func writeAuthenticationCredentials(appleID: String, password: String?,", KEYCHAIN)
 
         transaction = KEYCHAIN[
             KEYCHAIN.index("static func writeAuthenticationCredentials("):
             KEYCHAIN.index("    private static func writeOne(")
         ]
-        self.assertLess(transaction.index("try client.set(LCSharedKeychainMigration.signedOut"),
+        self.assertLess(transaction.index("try client.set(LCSharedKeychainMigration.pending"),
                         transaction.index("for key in keys"))
         self.assertLess(transaction.index("guard written == expected"),
                         transaction.index("try client.set(LCSharedKeychainMigration.ready"))

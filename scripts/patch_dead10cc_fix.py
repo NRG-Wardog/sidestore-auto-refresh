@@ -13,6 +13,7 @@ import sys
 
 MARKER = "DEAD10CC_FIX_E98699A"
 TRANSITION_MARKER = "DEAD10CC_TRANSITION_GATE_V1"
+RESOURCE_MARKER = "DEAD10CC_RESOURCE_LIFETIME_V1"
 TRANSITION_HELPER = '''// DEAD10CC_TRANSITION_GATE_V1
 // DEAD10CC_TRANSITION_GATE_BEGIN
 typedef struct { int handled; } LCDead10ccTransitionGate;
@@ -37,12 +38,48 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def patch_resource_lifetimes(text: str) -> str:
+    """Balance resources on the repeatedly invoked upstream file-lock scan.
+
+    This preserves the existing lock-detection/notification policy. A failed
+    fcntl still closes the successfully opened descriptor, including descriptor
+    0 or 1 when those slots happen to be available in the guest process.
+    """
+    edits = (
+        ("    void *pidinfo = malloc(pidinfo_size);\n",
+         "    // DEAD10CC_RESOURCE_LIFETIME_V1\n"
+         "    void *pidinfo = malloc(pidinfo_size);\n"
+         "    if (pidinfo == NULL) return nil;\n",
+         "file-list allocation guard"),
+        ("            fdinfo++;\n        }\n    }\n\n    NSMutableSet *lockedFilePaths",
+         "            fdinfo++;\n        }\n    }\n"
+         "    free(pidinfo);\n\n    NSMutableSet *lockedFilePaths",
+         "file-list allocation release"),
+        ("            if (fd <= 1) {\n                continue;\n            }",
+         "            if (fd < 0) {\n                continue;\n            }",
+         "all valid descriptor ownership"),
+        ("            int lock = fcntl(fd, F_GETLKPID, &fl);\n",
+         "            int lock = fcntl(fd, F_GETLKPID, &fl);\n"
+         "            close(fd);\n",
+         "file-lock descriptor release"),
+    )
+    if RESOURCE_MARKER in text:
+        if any(text.count(new) != 1 for _, new, _ in edits):
+            die("Dead10cc resource-lifetime patch is partial or changed")
+        return text
+    for old, new, label in edits:
+        text = replace_once(text, old, new, label)
+    return text
+
+
 def patch_dead10cc(live_root: Path) -> None:
     path = live_root / "LiveContainer" / "Tweaks" / "Dead10ccFix.m"
     if not path.exists():
         die(f"Dead10ccFix.m not found at {path}")
     text = path.read_text(encoding="utf-8")
+    text = patch_resource_lifetimes(text)
     if MARKER in text:
+        path.write_text(text, encoding="utf-8")
         return
 
     text = replace_once(text, "@import Foundation;\n", "@import Foundation;\n\n" + TRANSITION_HELPER,
@@ -140,6 +177,7 @@ def verify(live_root: Path) -> None:
     
     required = [
         MARKER,
+        RESOURCE_MARKER,
         TRANSITION_MARKER,
         "NSExtensionHostDidEnterBackgroundNotification",
         "UIApplicationDidEnterBackgroundNotification",
@@ -156,6 +194,7 @@ def verify(live_root: Path) -> None:
     missing = [needle for needle in required if needle not in text]
     if missing:
         die(f"Dead10ccFix verification failed: missing {missing}")
+    patch_resource_lifetimes(text)
 
 
 def main() -> None:

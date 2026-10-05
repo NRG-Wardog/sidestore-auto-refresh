@@ -651,8 +651,15 @@ public final class V3ServiceBridge {
                     code: .staleResult, id: UUID().uuidString, retryable: false)
             }
         }
-        if ["authBegin", "authRetryProvisioning", "signOut", "accountImport"].contains(operation) {
+        if ["authBegin", "authRetryProvisioning", "authReconcileStorage", "signOut", "accountImport"].contains(operation) {
             NotificationCenter.default.post(name: Notification.Name("V3AuthIdentityTransition"), object: nil)
+        }
+        defer {
+            // Local storage reconciliation is one bounded identity mutation.
+            // Balance invalidation even when admission, connection or repair fails.
+            if operation == "authReconcileStorage" {
+                NotificationCenter.default.post(name: Notification.Name("V3AuthIdentityTransitionFinished"), object: nil)
+            }
         }
         // V3_CATALOG_OPERATION_CONTEXT_V1: the request correlation is minted
         // before connecting, so a failure that happens before the service

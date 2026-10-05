@@ -234,6 +234,19 @@ struct V3UnifiedTabs: View {
             status.sourcesPresented = false
             sharedModel.selectedTab = .sources
         }
+        .safeAreaInset(edge: .bottom) {
+            if status.installAttempt.phase == .staging {
+                HStack(spacing: 12) {
+                    ProgressView("Preparing IPA…")
+                    Spacer()
+                    Button("Cancel") { status.cancelIPAStaging() }
+                        .accessibilityIdentifier("V3_IPA_STAGING_CANCEL")
+                }
+                .padding(12)
+                .background(.regularMaterial)
+                .accessibilityIdentifier("V3_IPA_STAGING_PROGRESS")
+            }
+        }
         .overlay(alignment: .topLeading) {
             V3InstallPickerPresenter(status: status)
                 .frame(width: 1, height: 1)
@@ -585,7 +598,7 @@ struct V3InstallPickerPresenter: UIViewControllerRepresentable {
         private weak var status: V3SideStoreStatusStore?
         private let presentation = V3InstallPickerPresentationCoordinator()
         private var picker: UIDocumentPickerViewController?
-        private var selectionStaged = false
+        private var selectionAccepted = false
         private var isDetaching = false
 
         init(status: V3SideStoreStatusStore) { self.status = status }
@@ -658,7 +671,7 @@ struct V3InstallPickerPresenter: UIViewControllerRepresentable {
             documentPicker.delegate = self
             documentPicker.presentationController?.delegate = self
             picker = documentPicker
-            selectionStaged = false
+            selectionAccepted = false
             status?.installPickerPresentationRequested(attemptID: attemptID)
             anchor.present(documentPicker, animated: true) { [weak self, weak documentPicker] in
                 guard let self, let documentPicker else { return }
@@ -690,13 +703,13 @@ struct V3InstallPickerPresenter: UIViewControllerRepresentable {
             guard let attemptID = presentation.attemptID,
                   presentation.phase == .presented,
                   let url = urls.first else { return }
-            selectionStaged = status?.stagePickerIPA(url, attemptID: attemptID) != nil
+            selectionAccepted = status?.stagePickerIPA(url, attemptID: attemptID) == true
             dismissPicker(controller, attemptID: attemptID)
         }
 
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
             guard let attemptID = presentation.attemptID else { return }
-            selectionStaged = false
+            selectionAccepted = false
             dismissPicker(controller, attemptID: attemptID)
         }
 
@@ -736,9 +749,9 @@ struct V3InstallPickerPresenter: UIViewControllerRepresentable {
         }
 
         private func finishDismissal(attemptID: UUID) {
-            let selected = selectionStaged
+            let selected = selectionAccepted
             picker = nil
-            selectionStaged = false
+            selectionAccepted = false
             NSLog("[V3_INSTALL_UI] picker_dismissed attempt=%@ selected=%d",
                   attemptID.uuidString, selected ? 1 : 0)
             if isDetaching {
@@ -1589,6 +1602,8 @@ final class V3SideStoreStatusStore: ObservableObject {
     private var snapshotWaiters: [UUID: SnapshotWaiter] = [:]
     private var snapshotWaiterRegistry = V3SnapshotWaiterRegistry()
     private var pendingPickerError: (attemptID: UUID, message: String)?
+    private var ipaStagingTask: (attemptID: UUID, task: Task<Void, Never>)?
+    private var dismissedIPAStagingAttemptID: UUID?
     @Published private(set) var installAttempt = V3InstallAttemptState()
     var installedAppCount: Int { installedApps.count }
     var hasUncertainInstallCancellation: Bool {
@@ -2229,6 +2244,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             error = "An install attempt is still being resolved. Wait for it to finish, then try again."
             return
         }
+        pendingPickerError = nil
         operationRecoveryDestination = nil
         NSLog("[V3_INSTALL_UI] begin_attempt result=started attempt=%@ loading=%d",
               attemptID.uuidString, loading ? 1 : 0)
@@ -2243,6 +2259,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
 
     func installPickerPresentationFailed(attemptID: UUID, reason: String) {
+        guard installAttempt.attemptID == attemptID else { return }
         NSLog("[V3_INSTALL_UI] tap_rejected reason=%@ attempt=%@", reason, attemptID.uuidString)
         NSLog("[V3_INSTALL_UI] picker_present_failed attempt=%@ reason=%@",
               attemptID.uuidString, reason)
@@ -2263,13 +2280,20 @@ final class V3SideStoreStatusStore: ObservableObject {
         if let token { Task { _ = await cleanupStagedIPA(token, allowLocalFallback: true) } }
     }
 
+    func cancelIPAStaging() {
+        guard installAttempt.phase == .staging, let attemptID = installAttempt.attemptID else { return }
+        // Invalidate ownership immediately. A coordinated copy may still be
+        // running; its worker owns cleanup until it returns, never the UI.
+        _ = resetInstallUI(attemptID: attemptID, outcome: "staging_cancelled")
+    }
+
     @discardableResult
-    func stagePickerIPA(_ url: URL, attemptID: UUID) -> String? {
+    func stagePickerIPA(_ url: URL, attemptID: UUID) -> Bool {
         NSLog("[V3_INSTALL_UI] picker_selected attempt=%@", attemptID.uuidString)
         guard installAttempt.beginStaging(attemptID: attemptID) else {
             NSLog("[V3_INSTALL_UI] picker_selection_rejected attempt=%@ reason=stale_attempt",
                   attemptID.uuidString)
-            return nil
+            return false
         }
         NSLog("[V3_INSTALL_STATE] attempt=%@ event=staging_started", attemptID.uuidString)
         return stageIPA(url, attemptID: attemptID, bookmark: nil,
@@ -2278,13 +2302,14 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
 
     @discardableResult
-    func stageSharedIPA(_ url: URL, bookmark: Data? = nil, title: String) -> String? {
-        guard !rejectForUnresolvedRecovery() else { return nil }
+    func stageSharedIPA(_ url: URL, bookmark: Data? = nil, title: String) -> Bool {
+        guard !rejectForUnresolvedRecovery() else { return false }
         guard presentation == nil, !installAttempt.hasActiveAttempt,
               let attemptID = installAttempt.beginDirectStaging() else {
             error = "Another operation is already running. Finish or cancel it before installing another app."
-            return nil
+            return false
         }
+        pendingPickerError = nil
         return stageIPA(url, attemptID: attemptID, bookmark: bookmark, title: title,
                         waitsForPickerDismissal: false)
     }
@@ -2318,40 +2343,64 @@ final class V3SideStoreStatusStore: ObservableObject {
         }
     }
 
+    // Returns admission, not a staged token. No coordinated file access or copy runs on
+    // MainActor; the token is handed to the current attempt only after await.
     private func stageIPA(_ url: URL, attemptID: UUID, bookmark: Data?, title: String,
-                          waitsForPickerDismissal: Bool) -> String? {
-        do {
-            guard let container = V3IPAStaging.sideStoreContainerRoot(selectedGroup: LCSharedUtils.appGroupID()) else {
-                throw CombinedIPAFileError(.fileAccess)
-            }
-            let token = try V3IPAStaging.stage(sourceURL: url, bookmark: bookmark, containerRoot: container)
-            guard installAttempt.staged(attemptID: attemptID, token: token, title: title,
-                                        waitsForPickerDismissal: waitsForPickerDismissal,
-                                        isLoading: loading) else {
-                _ = resetInstallUI(attemptID: attemptID, outcome: "stage_handoff_failed")
-                Task { _ = await cleanupStagedIPA(token, allowLocalFallback: true) }
-                let message = "The selected IPA could not be queued for presentation. Choose it again."
-                if waitsForPickerDismissal { pendingPickerError = (attemptID, message) }
-                else { error = message }
-                return nil
-            }
-            NSLog("[V3_INSTALL_UI] staged attempt=%@ phase=%@ loading=%d",
-                  attemptID.uuidString, installAttempt.phase.rawValue, loading ? 1 : 0)
-            if !waitsForPickerDismissal {
-                drainInstallPresentation(trigger: "input_staged")
-            }
-            return token
-        } catch let failure as CombinedIPAFileError {
-            _ = resetInstallUI(attemptID: attemptID, outcome: "staging_failed")
-            if waitsForPickerDismissal { pendingPickerError = (attemptID, V3FailureGuidance.message(failure)) }
-            else { self.error = V3FailureGuidance.message(failure) }
-        } catch {
-            _ = resetInstallUI(attemptID: attemptID, outcome: "staging_failed")
-            let message = CombinedIPAFileError(.stagingFailed).localizedDescription
-            if waitsForPickerDismissal { pendingPickerError = (attemptID, message) }
-            else { self.error = message }
+                          waitsForPickerDismissal: Bool) -> Bool {
+        guard let container = V3IPAStaging.sideStoreContainerRoot(selectedGroup: LCSharedUtils.appGroupID()) else {
+            failIPAStaging(CombinedIPAFileError(.fileAccess), attemptID: attemptID,
+                           waitsForPickerDismissal: waitsForPickerDismissal)
+            return false
         }
-        return nil
+        dismissedIPAStagingAttemptID = nil
+        let task = Task { [weak self] in
+            do {
+                let token = try await V3IPAStaging.stageOffMainActor(
+                    sourceURL: url, bookmark: bookmark, containerRoot: container)
+                guard let self, !Task.isCancelled,
+                      self.installAttempt.attemptID == attemptID,
+                      self.installAttempt.phase == .staging else {
+                    // This token was never dispatched. Clean only this worker's
+                    // result in its captured container, not a newer attempt's.
+                    await V3IPAStaging.cleanupUnclaimedOffMainActor(token: token, containerRoot: container)
+                    return
+                }
+                self.ipaStagingTask = nil
+                let waitForPicker = waitsForPickerDismissal && self.dismissedIPAStagingAttemptID != attemptID
+                guard self.installAttempt.staged(attemptID: attemptID, token: token, title: title,
+                                                waitsForPickerDismissal: waitForPicker,
+                                                isLoading: self.loading) else {
+                    self.failIPAStaging(CombinedIPAFileError(.stagingFailed), attemptID: attemptID,
+                                        waitsForPickerDismissal: waitsForPickerDismissal)
+                    await V3IPAStaging.cleanupUnclaimedOffMainActor(token: token, containerRoot: container)
+                    return
+                }
+                NSLog("[V3_INSTALL_UI] staged attempt=%@ phase=%@ loading=%d",
+                      attemptID.uuidString, self.installAttempt.phase.rawValue, self.loading ? 1 : 0)
+                if !waitForPicker { self.drainInstallPresentation(trigger: "input_staged") }
+            } catch {
+                guard let self, self.installAttempt.attemptID == attemptID,
+                      self.installAttempt.phase == .staging else { return }
+                self.ipaStagingTask = nil
+                if Task.isCancelled {
+                    _ = self.resetInstallUI(attemptID: attemptID, outcome: "staging_cancelled")
+                    return
+                }
+                self.failIPAStaging((error as? CombinedIPAFileError) ?? CombinedIPAFileError(.stagingFailed),
+                                    attemptID: attemptID, waitsForPickerDismissal: waitsForPickerDismissal)
+            }
+        }
+        ipaStagingTask = (attemptID, task)
+        return true
+    }
+
+    private func failIPAStaging(_ failure: CombinedIPAFileError, attemptID: UUID,
+                               waitsForPickerDismissal: Bool) {
+        guard installAttempt.attemptID == attemptID, installAttempt.phase == .staging else { return }
+        let waitForPicker = waitsForPickerDismissal && dismissedIPAStagingAttemptID != attemptID
+        _ = resetInstallUI(attemptID: attemptID, outcome: "staging_failed")
+        if waitForPicker { pendingPickerError = (attemptID, V3FailureGuidance.message(failure)) }
+        else { self.error = V3FailureGuidance.message(failure) }
     }
 
     private func drainInstallPresentation(trigger: String) {
@@ -2374,6 +2423,17 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
 
     func installPickerDidDisappear(attemptID: UUID) {
+        if let pending = pendingPickerError, pending.attemptID == attemptID {
+            pendingPickerError = nil
+            error = pending.message
+            return
+        }
+        guard installAttempt.attemptID == attemptID else { return }
+        // Dismissal and copy completion may arrive in either order.
+        if installAttempt.phase == .staging {
+            dismissedIPAStagingAttemptID = attemptID
+            return
+        }
         guard installAttempt.pickerDidDisappear(attemptID: attemptID, isLoading: loading) else { return }
         NSLog("[V3_INSTALL_UI] picker_dismissed attempt=%@ loading=%d",
               attemptID.uuidString, loading ? 1 : 0)
@@ -2430,6 +2490,11 @@ final class V3SideStoreStatusStore: ObservableObject {
         default:
             guard installAttempt.resetBeforeBackend(attemptID: attemptID) else { return nil }
         }
+        if ipaStagingTask?.attemptID == attemptID {
+            ipaStagingTask?.task.cancel()
+            ipaStagingTask = nil
+        }
+        if dismissedIPAStagingAttemptID == attemptID { dismissedIPAStagingAttemptID = nil }
         if presentation?.installAttemptID == attemptID { presentation = nil }
         if pendingPickerError?.attemptID == attemptID { pendingPickerError = nil }
         if !preserveRecoveryDestination { operationRecoveryDestination = nil }
@@ -4998,6 +5063,9 @@ final class V3AuthStore: ObservableObject {
     @Published private(set) var provisioningStage = ""
     @Published private(set) var provisioningCorrelation = ""
     @Published private(set) var provisioningRetryAvailable = false
+    @Published private(set) var provisioningReauthenticationAvailable = false
+    @Published private(set) var provisioningRecoveryRequiresReconciliation = false
+    @Published private(set) var checkingProvisioningStorage = false
     @Published private(set) var provisioningSessionUnavailable = false
     @Published private(set) var provisioningRetryBlockedByActiveSession = false
     @Published private(set) var provisioningFinishedLater = false
@@ -5013,6 +5081,8 @@ final class V3AuthStore: ObservableObject {
     private var pendingAuthenticationReadinessAttemptSequence: UInt64?
     private var provisioningRetryReadinessAttemptSequence: UInt64?
     private var reconciledProvisioningRetryReadinessSessionID: String?
+    private var accountRecoveryProtocolAvailable = false
+    private var reauthenticationSessionID: String?
     private var session: String?
     private var authoritativeActiveAuthenticationSessionID: String?
     private var task: Task<Void, Never>?
@@ -5036,19 +5106,61 @@ final class V3AuthStore: ObservableObject {
         V3AuthTerminalFailureActionPolicy.guidance(kind: terminalFailureKind,
             retryable: terminalFailureRetryable)
     }
-    // The provisioning problem is only present when a classified failure arrived.
-    var hasProvisioningProblem: Bool {
-        provisioningIncomplete && !provisioningMessage.isEmpty
-            && !provisioningFinishedLater
+    // Dismissal closes only this presentation; the account still needs attention.
+    var hasProvisioningProblem: Bool { provisioningIncomplete }
+
+    var provisioningRecoveryActions: V3AuthProvisioningRecoveryPresentation {
+        V3AuthProvisioningRecoveryPolicy.resolve(state: state, hasSession: hasSession,
+            signedIn: signedIn, provisioningRetryAvailable: provisioningRetryAvailable,
+            isCancelling: isCancelling, cancellationConfirmed: cancellationConfirmed,
+            authenticationActive: provisioningRetryBlockedByActiveSession,
+            reauthenticationAvailable: provisioningReauthenticationAvailable)
+    }
+
+    var canReauthenticateProvisioning: Bool {
+        hasProvisioningProblem && provisioningRecoveryActions.showReauthenticateProvisioning
+    }
+
+    var canCheckProvisioningStorage: Bool {
+        accountRecoveryProtocolAvailable && provisioningRecoveryRequiresReconciliation && !checkingProvisioningStorage &&
+            !hasSession && !isCancelling && !provisioningRetryBlockedByActiveSession
+    }
+
+    func checkProvisioningStorage() {
+        guard canCheckProvisioningStorage else { return }
+        checkingProvisioningStorage = true
+        Task { @MainActor in
+            defer { checkingProvisioningStorage = false }
+            do {
+                _ = try await V3ServiceBridge.shared.request(operation: "authReconcileStorage")
+                _ = await reconcile(force: true)
+                message = provisioningRecoveryRequiresReconciliation
+                    ? "Saved signing state is still unverified. Review the account and certificate storage diagnostics before another attempt."
+                    : "Saved account state was verified. You can continue setup."
+            } catch {
+                message = "SideStore could not verify saved account state. Reload status and review the storage diagnostics."
+                provisioningTechnical = (error as? CombinedFailure)?.technicalDetails ?? ""
+            }
+        }
+    }
+
+    func reauthenticateProvisioning() {
+        guard canReauthenticateProvisioning else { return }
+        startAuthentication(reauthenticatingProvisioning: true)
     }
 
     func begin() {
         guard canBegin else { return }
+        startAuthentication(reauthenticatingProvisioning: signedIn && provisioningIncomplete)
+    }
+
+    private func startAuthentication(reauthenticatingProvisioning: Bool) {
         task?.cancel()
         provisioningRetryReadinessOwnership.clear()
         provisioningRetryReadinessAttemptSequence = nil
         reconciledProvisioningRetryReadinessSessionID = nil
         let requestedSession = UUID().uuidString
+        reauthenticationSessionID = reauthenticatingProvisioning ? requestedSession : nil
         reconciliationGate.invalidate()
         session = requestedSession
         pendingAuthenticationReadinessSessionID = requestedSession
@@ -5067,12 +5179,14 @@ final class V3AuthStore: ObservableObject {
         promptSubmitting = false
         cancellationConfirmed = true
         cancellationWasAttempted = false
-        signedIn = false
+        if !reauthenticatingProvisioning { signedIn = false }
         clearProvisioningOutcome()
         task = Task { await run(sessionID: requestedSession) }
     }
     var canBegin: Bool {
-        !isCancelling && cancellationConfirmed && !provisioningRetryBlockedByActiveSession &&
+        guard !provisioningRecoveryRequiresReconciliation else { return false }
+        if signedIn && provisioningIncomplete { return canReauthenticateProvisioning }
+        return !isCancelling && cancellationConfirmed && !provisioningRetryBlockedByActiveSession &&
             !["working", "awaitingPrompt", "resultUnknown"].contains(state)
     }
 
@@ -5083,6 +5197,7 @@ final class V3AuthStore: ObservableObject {
         provisioningStage = ""
         provisioningCorrelation = ""
         provisioningRetryAvailable = false
+        provisioningReauthenticationAvailable = false
         provisioningSessionUnavailable = false
         provisioningRetryBlockedByActiveSession = false
         provisioningFinishedLater = false
@@ -5219,7 +5334,7 @@ final class V3AuthStore: ObservableObject {
                             provisioningMessage = "Another sign-in or provisioning attempt is still active. Wait for it to finish, then reload status before retrying provisioning."
                         }
                         if provisioningSessionUnavailable {
-                            provisioningMessage = "Apple ID is signed in, but the saved provisioning session is unavailable. Finish Later, then reopen Account & Signing to sign in again before retrying provisioning."
+                            provisioningMessage = "Apple ID is signed in, but the saved provisioning session is unavailable. Sign in again with the same Apple ID to finish setup."
                         }
                     } else {
                         provisioningRetryAvailable = previouslyAvailable
@@ -5345,8 +5460,6 @@ final class V3AuthStore: ObservableObject {
     // not sign the account out. It only dismisses the local recovery
     // presentation; authoritative account state is reloaded afterwards.
     func finishProvisioningLater() {
-        provisioningMessage = ""
-        provisioningTechnical = ""
         provisioningFinishedLater = true
     }
 
@@ -5358,6 +5471,7 @@ final class V3AuthStore: ObservableObject {
             expectedSessionID: expectedSession, currentSessionID: session) else { return false }
         let ticket = reconciliationGate.begin(sessionID: session, state: state, revision: revision)
         authoritativeActiveAuthenticationSessionID = nil
+        provisioningReauthenticationAvailable = false
         let reportedTerminalState = state
         do {
             let snapshot = try await V3ServiceBridge.shared.request(operation: "snapshot")
@@ -5368,6 +5482,12 @@ final class V3AuthStore: ObservableObject {
                 return false
             }
             let accountFacts = V3AuthSnapshotAuthorityPolicy.facts(authSnapshot)
+            accountRecoveryProtocolAvailable = V3ServiceBridge.strictInt(snapshot["accountRecoveryProtocol"]) == 1
+            provisioningReauthenticationAvailable = accountRecoveryProtocolAvailable && authSnapshot.identityStable &&
+                V3ServiceBridge.strictBool(snapshot["provisioningReauthenticationAvailable"]) == true
+            provisioningRecoveryRequiresReconciliation =
+                V3ServiceBridge.strictBool(snapshot["provisioningRecoveryRequiresReconciliation"]) == true
+            if force { provisioningFinishedLater = false }
             authoritativeActiveAuthenticationSessionID = accountFacts.authenticationSessionID
             let ownerSessionID = expectedSession ?? session
             let authenticationActiveForCurrentSession = V3AuthSessionCorrelationPolicy.isActive(
@@ -5470,7 +5590,9 @@ final class V3AuthStore: ObservableObject {
                     // terminal attempt state while showing provisioning recovery
                     // as a separate account-state fact.
                     if provisioningMessage.isEmpty {
-                        provisioningMessage = "Device provisioning did not complete. Retry provisioning, or finish later and come back."
+                        provisioningMessage = snapshot["provisioningState"] as? String == "unknown"
+                            ? "Device provisioning has not been verified in this SideStore session. Complete setup to verify it."
+                            : "Device provisioning did not complete. Complete setup, or finish later and come back."
                     }
                     // The account snapshot alone does not prove the process-local
                     // authenticated session needed to resume provisioning survived.
@@ -5482,7 +5604,7 @@ final class V3AuthStore: ObservableObject {
                     } else if authenticationActiveForCurrentSession {
                         provisioningMessage = "Another sign-in or provisioning attempt is still active. Wait for it to finish, then reload status before retrying provisioning."
                     } else if !canRetryProvisioning {
-                        provisioningMessage = "Apple ID is signed in, but the saved provisioning session is unavailable. Finish Later, then reopen Account & Signing to sign in again before retrying provisioning."
+                        provisioningMessage = "Apple ID is signed in, but the saved provisioning session is unavailable. Sign in again with the same Apple ID to finish setup."
                     }
                 } else {
                     clearProvisioningOutcome()
@@ -5605,9 +5727,13 @@ final class V3AuthStore: ObservableObject {
             state = "working"
             message = ""
             prompt = nil
+            var payload: [String: Any] = ["session": requestedSession, "sessionDeadline": sessionDeadline]
+            if reauthenticationSessionID == requestedSession {
+                guard accountRecoveryProtocolAvailable else { return }
+                payload["reauthenticateProvisioning"] = true
+            }
             let reply = try await V3ServiceBridge.shared.request(operation: "authBegin",
-                target: requestedSession,
-                payload: ["session": requestedSession, "sessionDeadline": sessionDeadline])
+                target: requestedSession, payload: payload)
             guard V3AuthSessionResponsePolicy.mayAcceptStartedSession(
                 expectedSessionID: requestedSession, replySessionID: reply["session"] as? String,
                 currentSessionID: session, cancellationInProgress: isCancelling) else {
@@ -6108,7 +6234,7 @@ final class V3AuthStore: ObservableObject {
             provisioningRetryAvailable = V3ServiceBridge.strictBool(reply["resumable"]) ?? false
             provisioningSessionUnavailable = false
             if !provisioningRetryAvailable {
-                provisioningMessage += " The saved provisioning session is not ready to retry yet. Finish Later, then reopen Account & Signing to reload status."
+                provisioningMessage += " Checking the saved provisioning state before another attempt."
             }
             provisioningFinishedLater = false
         } else if state == "failed" {
@@ -6148,6 +6274,9 @@ final class V3AuthStore: ObservableObject {
         case "anisetteFailure", "anisette": return "Authentication could not obtain valid Anisette data."
         case "networkFailure", "network": return "Authentication could not reach the required Apple service. Check the connection and try again."
         case "accountRepairRequired": return "Apple requires attention on this account before signing in."
+        case "credentialStorage": return "Apple authentication succeeded, but the credentials could not be saved on this device. Reload Account & Signing and review Diagnostics before starting another sign-in."
+        case "credentialStorageUncertain": return "Apple authentication succeeded, but the credential save result is uncertain. Reload Account & Signing to reconcile local storage before continuing."
+        case "accountIdentityMismatch": return "Use the same Apple ID as the saved account. Reload status if the account changed."
         case "unknown": return "Apple sign-in returned an error that could not be safely classified."
         case nil: break
         default: break
@@ -6365,6 +6494,7 @@ struct V3SignInLink: View {
 }
 
 struct V3SignInView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var status: V3SideStoreStatusStore
     @EnvironmentObject private var sharedModel: SharedModel
     @StateObject private var auth = V3AuthStore()
@@ -6578,17 +6708,18 @@ struct V3SignInView: View {
                         role: .cancel) { auth.cancel() }
                         .disabled(auth.isCancelling)
                 }
+                if auth.provisioningRecoveryRequiresReconciliation {
+                    Button(auth.checkingProvisioningStorage ? "Checking Saved State..." : "Check Saved Signing State") {
+                        auth.checkProvisioningStorage()
+                    }
+                    .disabled(!auth.canCheckProvisioningStorage)
+                }
                 // V3_PROVISIONING_RECOVERY_ACTIONS_V1: the actions describe the
                 // provisioning state, not a failed sign-in. "Retry" re-enters
                 // provisioning with the saved session; "Finish Later" keeps the
                 // authenticated account and closes this flow.
                 if auth.hasProvisioningProblem {
-                    let recovery = V3AuthProvisioningRecoveryPolicy.resolve(
-                        state: auth.state, hasSession: auth.hasSession, signedIn: auth.isSignedIn,
-                        provisioningRetryAvailable: auth.provisioningRetryAvailable,
-                        isCancelling: auth.isCancelling,
-                        cancellationConfirmed: auth.cancellationConfirmed,
-                        authenticationActive: auth.provisioningRetryBlockedByActiveSession)
+                    let recovery = auth.provisioningRecoveryActions
                     if recovery.showCancellationInstruction {
                         Text("Cancel the unconfirmed sign-in before retrying provisioning.")
                             .font(.caption).foregroundColor(.secondary)
@@ -6601,8 +6732,15 @@ struct V3SignInView: View {
                         }
                         .disabled(!auth.canRetryProvisioning)
                     }
-                    if auth.provisioningSessionUnavailable {
-                        Text("Finish Later, then reopen Account & Signing to sign in again before retrying provisioning.")
+                    if recovery.showReauthenticateProvisioning {
+                        Button("Sign In Again to Finish Setup") { auth.reauthenticateProvisioning() }
+                            .disabled(!auth.canReauthenticateProvisioning)
+                    }
+                    if auth.provisioningRecoveryRequiresReconciliation {
+                        Text("A local account or certificate save could not be verified. Setup is blocked until that saved state is repaired; another sign-in cannot safely retry it.")
+                            .font(.caption).foregroundColor(.secondary)
+                    } else if auth.provisioningSessionUnavailable {
+                        Text("Sign in again with the same Apple ID to finish setup. Your account and certificate are kept.")
                             .font(.caption).foregroundColor(.secondary)
                     }
                     if recovery.blockedByActiveSession {
@@ -6687,6 +6825,7 @@ struct V3SignInView: View {
     private func finishProvisioningLater() {
         auth.finishProvisioningLater()
         status.reload()
+        dismiss()
     }
 
     private func openJITLessSetup() {

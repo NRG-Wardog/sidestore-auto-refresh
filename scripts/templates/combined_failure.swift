@@ -372,6 +372,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case authProvisioningRetryNotDispatched
         case authSessionUnavailable
         case authResponseCapacityUnavailable
+        case credentialCommitFailed, credentialCommitOutcomeUnknown, accountActivationFailed, provisioningStorageFailed
         case keychainSignOutFailed
         case keychainSignOutOutcomeUnknown
         case operationPersistenceFailed
@@ -448,6 +449,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return false
             case .authResponseCapacityUnavailable:
                 return true
+            case .credentialCommitFailed, .credentialCommitOutcomeUnknown, .accountActivationFailed, .provisioningStorageFailed:
+                return false
             case .keychainSignOutFailed, .keychainSignOutOutcomeUnknown:
                 return true
             case .operationPersistenceFailed:
@@ -462,6 +465,8 @@ public struct CombinedFailure: Error, LocalizedError {
     }
 
     public enum SourceStep: String, CaseIterable {
+        case authenticate, credentialCommit, fetchTeams, saveAccount, fetchCertificate
+        case activateCertificate, registerDevice, activateAccount, provisioningUnknown
         case provisioningProfileFetch, certificateValidation, localCodeSigning
         case appIDLookup, appIDRegistration, appIDCapabilitiesUpdate
         case appGroupLookup, appGroupRegistration, appGroupAssignment
@@ -522,7 +527,7 @@ public struct CombinedFailure: Error, LocalizedError {
         let normalized = ["snapshot": "status", "refreshApp": "refresh", "refreshAdmissionBegin": "refresh", "refreshAdmissionEnd": "refresh", "installURL": "install", "installSharedIPA": "install",
                           "addSource": "source", "removeSource": "source", "refreshSources": "source", "syncAppIDs": "signIn",
                           "authBegin": "signIn", "authPoll": "signIn", "authRespond": "signIn", "authCancel": "signIn",
-                          "authRetryProvisioning": "signIn",
+                          "authRetryProvisioning": "signIn", "authReconcileStorage": "signIn",
                           "opStart": "command", "opPoll": "command", "opAnswer": "command", "opCancel": "command",
                           "recoveryDiscardUnreadable": "recovery",
                           "sourcePreview": "source", "sourceAddConfirmed": "source", "sourceRemoveConfirmed": "source"][operation] ?? operation
@@ -543,7 +548,7 @@ public struct CombinedFailure: Error, LocalizedError {
         self.launchContext = normalized == "connect" && launchStages.contains(stage) ? launchContext : nil
     }
     private static let operations: Set<String> = ["connect", "status", "command", "recovery", "refresh", "install", "update", "signIn", "signOut", "catalog", "source", "sign", "activate", "deactivate", "delete", "remove", "backup", "restore", "jit", "pairingImportData", "anisetteList", "anisetteReset", "anisetteSync"]
-    private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "kCFErrorDomainCFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError", "io.sidestore.LiveContainer.ExtensionLaunch"]
+    private static let domains: Set<String> = ["none", "NSCocoaErrorDomain", "NSPOSIXErrorDomain", "NSURLErrorDomain", "NSOSStatusErrorDomain", "ALTServerErrorDomain", "ALTAppleAPIErrorDomain", "ALTErrorDomain", "MinimuxerError", "DeviceGatewayError", "IdeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy", "V3IPAFileErrorDomain", "Foundation", "CoreData", "CoreFoundation", "IOKit", "Security", "CFNetwork", "kCFErrorDomainCFNetwork", "HTTPStatus", "io.sidestore.SideStore.DecodingError", "io.sidestore.LiveContainer.ExtensionLaunch", "com.SideStore.Keychain", "LiveContainerRefresh.Configuration", "SideSign.ServerError", "SideSign.DeveloperPortalError"]
     private static let verificationDomains: Set<String> = ["ALTServerErrorDomain", "ALTErrorDomain", "IdeviceGatewayError", "DeviceGatewayError", "InstallationProxyErrorDomain", "com.apple.installd", "com.apple.mobile.installation_proxy"]
 
     /// Only observations from the request/operation context are allowed here.
@@ -595,7 +600,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case "device_registration":
                 guard text == "unobserved" else { return nil }
             case "typed_error":
-                guard ["sideSignServerReportedError", "sideSignBadResponse", "sideSignInvalidResponse", "sideSignMissingKey", "sideSignDeveloperPortalError"].contains(text) else { return nil }
+                guard ["sideSignServerReportedError", "sideSignBadResponse", "sideSignInvalidResponse", "sideSignMissingKey", "sideSignDeveloperPortalError", "keychainWrite", "keychainValidationFailed", "keychainOutcomeUnknown", "legacyMigrationConflict", "persistenceFailure", "persistenceOutcomeUnknown", "transportFailure", "anisetteFailure", "unknownAccountFailure"].contains(text) else { return nil }
             default: return nil
             }
         }
@@ -617,9 +622,14 @@ public struct CombinedFailure: Error, LocalizedError {
     /// area/correlation context, but never interpolate an untrusted NSError.
     public static func provisioningRetryTechnicalDetails(for error: Error,
                                                          correlationID: String) -> String {
+        if let accountError = error as? V3AccountOperationError {
+            let failure = accountError.failure(operation: "signIn", id: correlationID)
+            return "area=provisioning " + failure.technicalDetails
+        }
         let native = error as NSError
         let underlying = safeDiagnosticUnderlying(domain: native.domain, code: native.code)
-        return "domain=\(underlying.domain) code=\(underlying.code) area=provisioning correlation=\(correlationID)"
+        let safeID = UUID(uuidString: correlationID)?.uuidString ?? UUID().uuidString
+        return "domain=\(underlying.domain) code=\(underlying.code) area=provisioning correlation=\(safeID)"
     }
 
     /// The serialized wire keeps an integer field for compatibility. `none/0`
@@ -761,6 +771,14 @@ public struct CombinedFailure: Error, LocalizedError {
             case .authProvisioningRetryNotDispatched: return "SideStore did not start the provisioning retry; the saved authentication session was not changed by this request."
             case .authSessionUnavailable: return "SideStore no longer has the active sign-in session."
             case .authResponseCapacityUnavailable: return "SideStore could not start sign-in because it cannot safely reserve a response slot yet."
+            case .credentialCommitFailed:
+                return "Apple authentication succeeded, but the sign-in credentials could not be saved on this device."
+            case .credentialCommitOutcomeUnknown:
+                return "Apple authentication succeeded, but the local credential save could not be confirmed."
+            case .accountActivationFailed:
+                return "Authentication succeeded, but SideStore could not confirm that account and team activation was saved."
+            case .provisioningStorageFailed:
+                return "Authentication succeeded, but provisioning could not save the account or certificate on this device."
             case .keychainSignOutFailed: return "SideStore could not confirm removal of the saved Apple sign-in data. Sign Out stopped, and any partial changes were rolled back."
             case .keychainSignOutOutcomeUnknown: return "SideStore could not confirm the Sign Out outcome. Reload Account & Signing to reconcile which Apple account is active before continuing."
             case .operationPersistenceFailed: return "The device operation may have completed, but SideStore could not confirm that its updated app state was saved."
@@ -1006,6 +1024,10 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Open Account & Signing and start a new sign-in. SideStore will reconcile the current account before proceeding."
             case .authResponseCapacityUnavailable:
                 return "Wait for SideStore to release earlier request results, reload account status, then try again. No Apple credentials were submitted."
+            case .credentialCommitFailed, .credentialCommitOutcomeUnknown:
+                return "Reload Account & Signing to reconcile local storage before starting another sign-in. Keep existing account data and copy Diagnostics if this continues."
+            case .accountActivationFailed, .provisioningStorageFailed:
+                return "Reload Account & Signing before continuing. Keep the authenticated account and certificate; do not repeat Apple resource creation to repair local storage."
             case .keychainSignOutFailed:
                 return "Unlock the iPhone and try Sign Out again. If it still fails, copy Diagnostics."
             case .keychainSignOutOutcomeUnknown:
@@ -1233,6 +1255,10 @@ public struct CombinedFailure: Error, LocalizedError {
     public static func capture(_ error: Error, operation: String, stage: Stage, id: String,
                                retryable: Bool? = nil) -> CombinedFailure {
         if let known = error as? CombinedFailure { return known }
+        // Typed account boundaries bypass all provider-description parsing.
+        if let accountError = error as? V3AccountOperationError {
+            return accountError.failure(operation: operation, id: id)
+        }
         if let refreshError = error as? CombinedRefreshVerificationError {
             let code: Code = refreshError == .missingResult ? .missingResult : .staleResult
             return CombinedFailure(operation: operation, stage: .refreshVerification, code: code, id: id, retryable: retryable)
@@ -1396,6 +1422,104 @@ public struct CombinedFailure: Error, LocalizedError {
             code: resolvedCode, id: id,
             underlying: underlying, retryable: resolvedRetryable, safeCause: safeCause,
             sourceStep: sourceStep, signingContext: signingContext)
+    }
+}
+
+// V3_TYPED_ACCOUNT_DIAGNOSTICS_V1: only operation-owned stage and fixed
+// classifications cross the wire. Original errors stay inside the process for
+// typed guidance; descriptions, userInfo and provider payloads never serialize.
+struct V3AccountOperationError: Error, LocalizedError {
+    enum Kind: String {
+        case keychainWrite, keychainValidationFailed, keychainOutcomeUnknown
+        case legacyMigrationConflict, persistenceFailure, persistenceOutcomeUnknown, transportFailure
+        case sideSignServerReportedError, sideSignBadResponse, sideSignInvalidResponse
+        case sideSignMissingKey, sideSignDeveloperPortalError, anisetteFailure
+        case unknownAccountFailure
+    }
+    let step: CombinedFailure.SourceStep
+    let kind: Kind
+    let underlying: Error
+    let serverCode: Int?
+
+    var errorDescription: String? { "An account operation failed; review the safe diagnostics." }
+    var credentialCommit: Bool { step == .credentialCommit }
+    var requiresReconciliation: Bool {
+        kind == .keychainOutcomeUnknown || kind == .persistenceOutcomeUnknown
+    }
+    var failureStage: CombinedFailure.Stage {
+        switch step {
+        case .credentialCommit, .saveAccount, .activateAccount, .activateCertificate: return .persistence
+        case .authenticate: return .authentication
+        default: return .provisioning
+        }
+    }
+    func failure(operation: String, id: String) -> CombinedFailure {
+        let native = underlying as NSError
+        let safeCause: CombinedFailure.SafeCause?
+        if credentialCommit {
+            safeCause = kind == .keychainOutcomeUnknown ? .credentialCommitOutcomeUnknown : .credentialCommitFailed
+        } else if step == .activateAccount { safeCause = .accountActivationFailed }
+        else if step == .activateCertificate || step == .saveAccount { safeCause = .provisioningStorageFailed }
+        else { safeCause = nil }
+        // An associated Apple result is separate from Swift's enum bridge code.
+        // HTTP status remains unavailable unless a typed producer observes it.
+        return CombinedFailure(operation: operation, stage: failureStage, id: id,
+            underlying: NSError(domain: native.domain, code: native.code),
+            retryable: safeCause != nil ? false : nil, safeCause: safeCause,
+            sourceStep: step, signingContext: ["typed_error": kind.rawValue,
+                "server_code": serverCode.map(String.init) ?? "unknown", "http_status": "unavailable"])
+    }
+}
+
+// Journal only the account/team activation transaction, before the database is
+// touched. No password, DSID, token, certificate or provider payload is stored.
+// A crash is resolved from a fresh persistent-store read against the exact
+// pre-transaction or intended active identity set, never account-row presence.
+struct V3AccountDatabaseOutcomeUnknownError: Error, LocalizedError {
+    var errorDescription: String? { "The local account activation outcome needs reconciliation." }
+}
+
+enum V3AccountDatabaseRecovery {
+    static let key = "V3AccountDatabaseActivationPendingV1"
+    static var requiresReconciliation: Bool { UserDefaults.standard.object(forKey: key) != nil }
+
+    private static func valid(_ values: [String]) -> Bool {
+        values.count <= 1024 && values == values.sorted() && Set(values).count == values.count &&
+            values.allSatisfy { value in
+                value.utf8.count <= 1024 &&
+                    ((value.hasPrefix("account:") && value.count > 8) ||
+                     (value.hasPrefix("team:") && value.count > 5))
+            }
+    }
+    static func begin(previous: [String], intended: [String], defaults: UserDefaults = .standard) throws {
+        guard valid(previous), valid(intended), defaults.object(forKey: key) == nil else {
+            throw V3AccountDatabaseOutcomeUnknownError()
+        }
+        let record: [String: Any] = ["previous": previous, "intended": intended]
+        defaults.set(record, forKey: key)
+        guard defaults.synchronize(),
+              let saved = defaults.dictionary(forKey: key),
+              saved["previous"] as? [String] == previous,
+              saved["intended"] as? [String] == intended else {
+            throw V3AccountDatabaseOutcomeUnknownError()
+        }
+    }
+    static func reconcile(observed: [String], defaults: UserDefaults = .standard) throws {
+        guard defaults.object(forKey: key) != nil else { return }
+        guard valid(observed), let record = defaults.dictionary(forKey: key),
+              Set(record.keys) == Set(["previous", "intended"]),
+              let previous = record["previous"] as? [String], valid(previous),
+              let intended = record["intended"] as? [String], valid(intended),
+              observed == previous || observed == intended else {
+            throw V3AccountDatabaseOutcomeUnknownError()
+        }
+        defaults.removeObject(forKey: key)
+        guard defaults.synchronize(), defaults.object(forKey: key) == nil else {
+            // Restore the hold if durable removal cannot be established.
+            defaults.set(record, forKey: key)
+            _ = defaults.synchronize()
+            throw V3AccountDatabaseOutcomeUnknownError()
+        }
     }
 }
 

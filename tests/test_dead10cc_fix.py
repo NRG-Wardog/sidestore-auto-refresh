@@ -20,6 +20,41 @@ SPEC = importlib.util.spec_from_file_location(
 patch = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(patch)
 
+RESOURCE_SCANNER = '''- (NSMutableSet *)_lock_lockedFilePathsIgnoring:(NSMutableSet *)ignoring {
+    void *pidinfo = malloc(pidinfo_size);
+    pidinfo_size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, pidinfo, pidinfo_size);
+    if (pidinfo_size >= 8) {
+        struct proc_fdinfo *fdinfo = (struct proc_fdinfo *)pidinfo;
+        while (count--) {
+            fdinfo++;
+        }
+    }
+
+    NSMutableSet *lockedFilePaths = [NSMutableSet set];
+    for (NSString *path in openFilePaths) {
+            int fd = open(path_c, O_RDONLY | O_NOCTTY);
+            if (fd <= 1) {
+                continue;
+            }
+
+            struct flock fl;
+            memset(&fl, 0, sizeof(fl));
+            fl.l_type = F_WRLCK;
+            fl.l_pid = pid;
+
+            int lock = fcntl(fd, F_GETLKPID, &fl);
+            if (lock == -1) {
+                continue;
+            }
+
+            if ((fl.l_type &~ F_UNLCK) == 1) {
+                [lockedFilePaths addObject:path];
+            }
+    }
+    return lockedFilePaths;
+}
+'''
+
 PINNED_FIXTURE = '''@import Foundation;
 
 @interface Dead10ccFix : NSObject
@@ -58,9 +93,112 @@ void initDead10ccFix(void) {
 
 @end
 '''
+PINNED_FIXTURE = PINNED_FIXTURE.replace("@implementation Dead10ccFix\n",
+                                      "@implementation Dead10ccFix\n\n" + RESOURCE_SCANNER)
 
 
 class Dead10ccFixTests(unittest.TestCase):
+    def test_scan_balances_allocation_before_lock_detection(self):
+        generated = patch.patch_resource_lifetimes(RESOURCE_SCANNER)
+        self.assertEqual(generated, patch.patch_resource_lifetimes(generated))
+        self.assertIn("if (pidinfo == NULL) return nil;", generated)
+        self.assertLess(generated.index("free(pidinfo);"),
+                        generated.index("NSMutableSet *lockedFilePaths"))
+        self.assertLess(generated.index("close(fd);"), generated.index("if (lock == -1)"))
+        self.assertEqual(generated.count("free(pidinfo);"), 1)
+        self.assertEqual(generated.count("close(fd);"), 1)
+
+    def test_resource_patch_fails_closed_on_drift_or_partial_prepared_source(self):
+        generated = patch.patch_resource_lifetimes(RESOURCE_SCANNER)
+        for broken in (RESOURCE_SCANNER.replace("fdinfo++;", "fdinfo += 1;"),
+                       generated.replace("    free(pidinfo);\n", ""),
+                       generated.replace("            close(fd);\n", "")):
+            with self.assertRaises(SystemExit):
+                patch.patch_resource_lifetimes(broken)
+
+    def test_existing_observer_patch_is_upgraded_without_duplicate_observers(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            source = root / "LiveContainer/Tweaks/Dead10ccFix.m"
+            source.parent.mkdir(parents=True)
+            source.write_text(PINNED_FIXTURE)
+            patch.patch_dead10cc(root)
+            expected = source.read_text()
+            legacy = expected.replace(patch.patch_resource_lifetimes(RESOURCE_SCANNER),
+                                      RESOURCE_SCANNER)
+            self.assertIn(patch.MARKER, legacy)
+            self.assertNotIn(patch.RESOURCE_MARKER, legacy)
+            source.write_text(legacy)
+            patch.patch_dead10cc(root)
+            self.assertEqual(source.read_text(), expected)
+            patch.verify(root)
+
+    def test_descriptor_probe_executes_generated_code_and_baseline_leaks(self):
+        import subprocess
+        compiler = shutil.which("cc") or shutil.which("clang")
+        if not compiler:
+            self.skipTest("C compiler unavailable")
+
+        def probe(source):
+            start = source.index("            int fd = open(")
+            end = source.index("            if ((fl.l_type", start)
+            return source[start:end]
+
+        # The open/fcntl/close production block is unchanged in this extraction.
+        # Only OS functions/types are doubles; no UIKit runtime is simulated.
+        harness = r'''
+#include <assert.h>
+#include <string.h>
+enum { O_RDONLY = 0, O_NOCTTY = 1, F_WRLCK = 2, F_GETLKPID = 3 };
+struct flock { int l_type; int l_pid; };
+static int next_fd, next_result, outstanding, opens, closes, calls;
+static int open(const char *path, int flags) {
+    opens++;
+    if (next_fd >= 0) outstanding++;
+    return next_fd;
+}
+static int fcntl(int fd, int command, struct flock *fl) {
+    assert(fd == next_fd && fd >= 0);
+    calls++;
+    return next_result;
+}
+static int close(int fd) {
+    assert(fd == next_fd && fd >= 0 && outstanding == 1);
+    outstanding--; closes++; return 0;
+}
+int main(void) {
+    const char *path_c = "fixture"; int pid = 123;
+    int descriptors[] = {-1, 0, 1, 2, 42};
+    for (int i = 0; i < 5; ++i) {
+        for (int failure = 0; failure < 2; ++failure) {
+            next_fd = descriptors[i]; next_result = failure ? -1 : 0;
+            outstanding = opens = closes = calls = 0;
+            for (int path = 0; path < 1; ++path) {
+__PRODUCTION_PROBE__
+            }
+            if (outstanding != 0) return 17;
+            assert(opens == 1);
+            assert(closes == (next_fd >= 0));
+            assert(calls == (next_fd >= 0));
+        }
+    }
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            for label, source, expected in (
+                ("baseline", RESOURCE_SCANNER, 17),
+                ("patched", patch.patch_resource_lifetimes(RESOURCE_SCANNER), 0),
+            ):
+                cfile, executable = root / (label + ".c"), root / label
+                cfile.write_text(harness.replace("__PRODUCTION_PROBE__", probe(source)))
+                built = subprocess.run([compiler, str(cfile), "-o", str(executable)],
+                                       capture_output=True, text=True)
+                self.assertEqual(built.returncode, 0, built.stderr)
+                run = subprocess.run([str(executable)], capture_output=True, text=True, timeout=5)
+                self.assertEqual(run.returncode, expected, label + run.stderr)
+
     def test_pinned_source_patch_is_idempotent_and_scoped(self):
         source = os.getenv("LIVE_CONTAINER_TEST_SOURCE")
         if not source:
@@ -79,6 +217,15 @@ class Dead10ccFixTests(unittest.TestCase):
             self.assertIn("!NSUserDefaults.isLiveProcess && !NSUserDefaults.isSharedApp", text)
             self.assertIn("LCDead10ccClaimBackgroundTransition", text)
             self.assertIn("handleAppWillEnterForeground", text)
+            self.assertIn("free(pidinfo);", text)
+            self.assertIn("close(fd);", text)
+            # The C harness exercises exactly this emitted resource probe,
+            # not a rewritten model of its descriptor ownership.
+            start, end = "            int fd = open(", "            if ((fl.l_type"
+            actual_probe = text[text.index(start):text.index(end, text.index(start))]
+            fixture = patch.patch_resource_lifetimes(RESOURCE_SCANNER)
+            fixture_probe = fixture[fixture.index(start):fixture.index(end, fixture.index(start))]
+            self.assertEqual(actual_probe, fixture_probe)
 
     def test_registers_both_background_notifications(self):
         import tempfile

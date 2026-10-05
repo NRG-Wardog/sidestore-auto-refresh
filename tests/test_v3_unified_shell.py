@@ -251,7 +251,7 @@ class V3UnifiedShellTests(unittest.TestCase):
         self.assertIn('func documentPickerWasCancelled', source)
         self.assertIn('status?.stagePickerIPA(url, attemptID: attemptID)', source)
         self.assertIn('status.stageSharedIPA(selected, bookmark: bookmark, title: "Install shared app")', source)
-        self.assertIn("V3IPAStaging.stage(sourceURL: url", source)
+        self.assertIn("try await V3IPAStaging.stageOffMainActor(", source)
         self.assertNotIn('"V3SharedIPA."', source)
         self.assertIn("V3InstallPipelineParity.makeOperation(route: route, app)", runtime)
         self.assertIn("AppOperation.install($0)", runtime)

@@ -1278,6 +1278,7 @@ final class V3SideStoreService: NSObject {
                 var stage: CombinedFailure.Stage
                 switch operation {
                 case "snapshot": stage = .serviceReadiness
+                case "authReconcileStorage": stage = .persistence
                 case "catalog": stage = .catalog
                 case "authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning", "accountExport", "accountImport": stage = .authentication
                 case "opStart", "opPoll", "opAnswer", "opCancel": stage = .command
@@ -1733,6 +1734,11 @@ final class V3SideStoreService: NSObject {
                 ])
             }, "nextCursor": fetched.count > 50 ? offset + 50 : -1]
         case "signOut":
+            // Resolve any interrupted activation while its prior/intended rows
+            // still exist. Sign Out cannot silently erase ambiguous evidence.
+            if V3AccountDatabaseRecovery.requiresReconciliation {
+                try await v3ReconcileAccountDatabaseStorage()
+            }
             try V3BackendCommands.prepareSignOut()
             // Preserve reusable certificate and anisette state, matching upgrade preservation.
             AuthManager.shared.signOut(keepCertificate: true, keepAnisetteData: true)
@@ -1757,16 +1763,31 @@ final class V3SideStoreService: NSObject {
             let app: InstalledApp = try object(target)
             try await callback { done in AppManager.shared.enableJIT(for: app, completionHandler: done) }
             return try snapshot()
+        case "authReconcileStorage":
+            // This is a gated local readback repair, never a remote provisioning retry.
+            try await V3HeadlessRuntime.shared.auth.reconcileStorage()
+            return try snapshot()
         case "authBegin":
+            guard !V3HeadlessRuntime.shared.auth.provisioningRecoveryRequiresReconciliation else {
+                throw ServiceError.busy
+            }
             guard let deadline = payload["sessionDeadline"] as? Date,
                   deadline > Date(), deadline.timeIntervalSinceNow <= V3WireContract.authSessionLifetime + 10,
                   let session = payload["session"] as? String, session == target else {
                 throw ServiceError.invalidRequest
             }
             guard !V3HeadlessRuntime.shared.auth.hasActiveSession else { throw ServiceError.busy }
+            let reauthenticate = payload["reauthenticateProvisioning"] as? Bool == true
+            if reauthenticate && !V3HeadlessRuntime.shared.auth.canReauthenticateProvisioning() {
+                throw ServiceError.busy
+            }
             return await V3HeadlessRuntime.shared.auth.begin(deadline: deadline,
+                mode: reauthenticate ? .reauthenticateProvisioning : .interactive,
                 requestDeadline: request["deadline"] as? Date, sessionID: session)
         case "authRetryProvisioning":
+            guard !V3HeadlessRuntime.shared.auth.provisioningRecoveryRequiresReconciliation else {
+                throw ServiceError.busy
+            }
             // V3_PROVISIONING_RESUME_V1: Apple authentication already succeeded.
             // This re-enters provisioning with the saved session so credentials
             // and 2FA are never requested a second time.
@@ -2350,6 +2371,17 @@ final class V3SideStoreService: NSObject {
         }
         let activeMutation = mutationID != nil || activeAuthenticationSessionID != nil ||
             V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive
+        let provisioningState = V3HeadlessRuntime.shared.auth.provisioningCompletion.status(
+            owner: credentialAppleID, identityStamp: identityStampAtStart, identityStable: identityReadStable,
+            activeAccountPresent: activeAccount != nil, activeTeamPresent: team != nil,
+            activeCertificatePresent: activeCertificate != nil,
+            binding: v3ProvisioningCompletionBinding(credentials: authCredentials,
+                teamID: team?.identifier, certificateSerial: activeCertificate?.certificate.serialNumber))
+        let provisioningIncomplete = authenticated && provisioningState != "complete"
+        let provisioningRetryAvailable = V3HeadlessRuntime.shared.auth.canResumeProvisioning()
+        let provisioningReauthenticationAvailable = provisioningIncomplete && !provisioningRetryAvailable &&
+            !activeMutation && operationRecovery == nil && directRecoveryRecord == nil && !recoveryJournalUnreadable &&
+            V3HeadlessRuntime.shared.auth.canReauthenticateProvisioning()
         var response: [String: Any] = ["updatedAt": Date(), "busy": mutationID != nil ||
                     activeAuthenticationSessionID != nil ||
                     V3HeadlessRuntime.shared.operations.activeMutationID != nil || refreshAdmission.isActive ||
@@ -2366,8 +2398,12 @@ final class V3SideStoreService: NSObject {
                  "activeTeamPresent": team != nil,
                  "activeCertificatePresent": activeCertificate != nil,
                  "authenticationActive": activeAuthenticationSessionID != nil,
-                 "provisioningIncomplete": authenticated && activeAccount == nil,
-                "provisioningRetryAvailable": V3HeadlessRuntime.shared.auth.canResumeProvisioning(),
+                 "provisioningIncomplete": provisioningIncomplete,
+                 "provisioningState": provisioningState,
+                 "accountRecoveryProtocol": 1,
+                 "provisioningRecoveryRequiresReconciliation": V3HeadlessRuntime.shared.auth.provisioningRecoveryRequiresReconciliation,
+                 "provisioningReauthenticationAvailable": provisioningReauthenticationAvailable,
+                "provisioningRetryAvailable": provisioningRetryAvailable,
                 "team": team?.name ?? "No active team", "teamID": team?.identifier ?? "",
                 "signing": team == nil ? "Sign in required" : "Team selected",
                 "certificate": activeCertificate == nil ? "No active certificate" : "Active certificate available",

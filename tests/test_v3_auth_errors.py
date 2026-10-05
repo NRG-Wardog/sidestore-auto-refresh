@@ -305,7 +305,8 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("authSessionOwnership.clear(sessionID: sessionID)", bridge)
         self.assertIn('"authBegin", "authRetryProvisioning"].contains(operation)', service)
         self.assertIn('"operationNotDispatched"] = true', service)
-        self.assertIn('"provisioningRetryAvailable": V3HeadlessRuntime.shared.auth.canResumeProvisioning()', service)
+        self.assertIn('let provisioningRetryAvailable = V3HeadlessRuntime.shared.auth.canResumeProvisioning()', service)
+        self.assertIn('"provisioningRetryAvailable": provisioningRetryAvailable', service)
         self.assertIn('"authenticationActive": activeAuthenticationSessionID != nil', service)
         self.assertIn('response["authenticationSessionID"] = activeSessionID', service)
         self.assertIn('response["authenticationSessionID"] = activeSessionID', service)
@@ -459,7 +460,8 @@ class V3AuthErrorTests(unittest.TestCase):
         run = run[:run.index("private func pollLoop", 1)]
         self.assertIn("if isCancelling || Task.isCancelled { return }", run)
         self.assertIn('target: requestedSession,', run)
-        self.assertIn('payload: ["session": requestedSession, "sessionDeadline": sessionDeadline]', run)
+        self.assertIn('var payload: [String: Any] = ["session": requestedSession, "sessionDeadline": sessionDeadline]', run)
+        self.assertIn('payload["reauthenticateProvisioning"] = true', run)
         self.assertIn("session = requestedSession", store[store.index("func begin() {"):])
         self.assertNotIn(".task { auth.begin() }", host)
 

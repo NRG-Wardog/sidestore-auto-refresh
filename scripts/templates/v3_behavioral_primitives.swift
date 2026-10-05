@@ -415,7 +415,7 @@ enum V3StatusAuthorityOperationPolicy {
             "certSetActive", "certDelete", "certRevoke", "certCreate",
             "sourceAddConfirmed", "sourceRemoveConfirmed", "pairingImportData", "settingsSet",
             "sidesignSet", "sidesignReset", "sidesignImport", "anisetteReset", "anisetteSync",
-            "opRecoveryPrepare", "recoveryDiscardUnreadable"
+            "opRecoveryPrepare", "recoveryDiscardUnreadable", "authReconcileStorage"
         ]
         return writes.contains(operation) ? "request:\(requestID)" : nil
     }
@@ -4194,12 +4194,100 @@ enum V3ProvisioningResumeIdentityPolicy {
 }
 
 enum V3ProvisioningResumeExecutionPolicy {
-    static func mayUseCachedSignIn(forceProvisioningRetry: Bool) -> Bool {
-        !forceProvisioningRetry
+    static func mayUseCachedSignIn(forceProvisioningRetry: Bool,
+                                   requireFullProvisioning: Bool = false) -> Bool {
+        !forceProvisioningRetry && !requireFullProvisioning
     }
 
     static func mayPromptForCredentials(forceProvisioningRetry: Bool) -> Bool {
         !forceProvisioningRetry
+    }
+}
+
+// Completion is evidence from a full SignInOperation, never a database row.
+// The journal is invalidated durably BEFORE a new attempt can mutate anything.
+// A process restart may reuse verified completion only for the exact hashed
+// credential route, team, certificate and device binding, never row presence.
+struct V3ProvisioningCompletionState {
+    private static let journalKey = "V3VerifiedProvisioningCompletionV1"
+    private let defaults: UserDefaults
+    private(set) var attemptID: String?
+    private var owner: String?
+    private var identityStamp: String?
+    private var completed = false
+    private var completedBinding: String?
+
+    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+
+    private func persist(_ record: [String: Any]) -> Bool {
+        defaults.set(record, forKey: Self.journalKey)
+        return defaults.synchronize() &&
+            defaults.dictionary(forKey: Self.journalKey).map { NSDictionary(dictionary: $0).isEqual(to: record) } == true
+    }
+
+    @discardableResult
+    mutating func begin(attemptID: String, owner: String?, identityStamp: String) -> Bool {
+        guard persist(["version": 1, "state": "incomplete", "attemptID": attemptID,
+                       "identityStamp": identityStamp]) else { return false }
+        self.attemptID = attemptID
+        self.owner = V3AuthIdentityBindingPolicy.normalizedOwner(owner)
+        self.identityStamp = identityStamp
+        completed = false
+        completedBinding = nil
+        return true
+    }
+
+    mutating func authenticated(attemptID: String, owner: String?, identityStamp: String) {
+        guard self.attemptID == attemptID else { return }
+        self.owner = V3AuthIdentityBindingPolicy.normalizedOwner(owner)
+        self.identityStamp = identityStamp
+        completed = false
+    }
+
+    @discardableResult
+    mutating func complete(attemptID: String, owner: String?, identityStamp: String,
+                           identityStable: Bool, fullProvisioningCompleted: Bool,
+                           activeAccountMatches: Bool, activeTeamMatches: Bool,
+                           activeCertificateMatches: Bool, binding: String?) -> Bool {
+        guard self.attemptID == attemptID,
+              self.owner != nil, self.owner == V3AuthIdentityBindingPolicy.normalizedOwner(owner),
+              self.identityStamp == identityStamp, identityStable,
+              fullProvisioningCompleted, activeAccountMatches, activeTeamMatches,
+              activeCertificateMatches, let binding, !binding.isEmpty,
+              persist(["version": 1, "state": "complete", "attemptID": attemptID,
+                       "identityStamp": identityStamp, "binding": binding]) else { return false }
+        completed = true
+        completedBinding = binding
+        return true
+    }
+
+    func status(owner: String?, identityStamp: String, identityStable: Bool,
+                activeAccountPresent: Bool, activeTeamPresent: Bool,
+                activeCertificatePresent: Bool, binding: String?) -> String {
+        guard identityStable, let owner = V3AuthIdentityBindingPolicy.normalizedOwner(owner) else { return "unknown" }
+        let prerequisitesPresent = activeAccountPresent && activeTeamPresent && activeCertificatePresent
+        if attemptID != nil {
+            guard self.owner == owner, self.identityStamp == identityStamp else { return "unknown" }
+            return completed && prerequisitesPresent && binding == completedBinding ? "complete" : "incomplete"
+        }
+        guard let record = defaults.dictionary(forKey: Self.journalKey),
+              record["version"] as? Int == 1, let binding, !binding.isEmpty,
+              record["state"] as? String == "complete", record["binding"] as? String == binding else {
+            return "unknown"
+        }
+        return prerequisitesPresent ? "complete" : "incomplete"
+    }
+}
+
+enum V3ProvisioningReauthenticationIdentityPolicy {
+    static func mayAuthenticate(expectedOwner: String, submittedOwner: String?,
+                                currentOwner: String?, capturedStamp: String,
+                                currentStamp: String, identityStable: Bool) -> Bool {
+        guard let expected = V3AuthIdentityBindingPolicy.normalizedOwner(expectedOwner) else { return false }
+        return expected == V3AuthIdentityBindingPolicy.normalizedOwner(submittedOwner) &&
+            expected == V3AuthIdentityBindingPolicy.normalizedOwner(currentOwner) &&
+            V3AuthReadStampPolicy.mayReturn(capturedStamp: capturedStamp,
+                currentStamp: currentStamp, stable: identityStable)
     }
 }
 
@@ -4213,7 +4301,8 @@ enum V3ProvisioningRetryRecoveryPolicy {
 
 enum V3AuthTimeoutReconciliationPolicy {
     static func shouldReconcileAfterTerminal(_ state: String) -> Bool {
-        ["timedOut", "failed", "cancelled", "resultUnknown", "promptExpired"].contains(state)
+        ["timedOut", "failed", "cancelled", "resultUnknown", "promptExpired"].contains(state) ||
+            state == "authenticatedProvisioningIncomplete"
     }
 }
 
@@ -4777,6 +4866,7 @@ enum V3AuthSessionAdmissionPolicy {
 struct V3AuthProvisioningRecoveryPresentation: Equatable {
     let showCancellationInstruction: Bool
     let showRetryProvisioning: Bool
+    let showReauthenticateProvisioning: Bool
     let showFinishLater: Bool
     let blockedByActiveSession: Bool
 }
@@ -4785,7 +4875,8 @@ enum V3AuthProvisioningRecoveryPolicy {
     static func resolve(state: String, hasSession: Bool, signedIn: Bool,
                         provisioningRetryAvailable: Bool, isCancelling: Bool,
                         cancellationConfirmed: Bool,
-                        authenticationActive: Bool = false) -> V3AuthProvisioningRecoveryPresentation {
+                        authenticationActive: Bool = false,
+                        reauthenticationAvailable: Bool = false) -> V3AuthProvisioningRecoveryPresentation {
         let noSessionResumeIsSafe = state == "resultUnknown" && !hasSession && signedIn &&
             provisioningRetryAvailable && !authenticationActive
         let retryAllowed = !isCancelling && cancellationConfirmed && provisioningRetryAvailable &&
@@ -4794,6 +4885,10 @@ enum V3AuthProvisioningRecoveryPolicy {
         return V3AuthProvisioningRecoveryPresentation(
             showCancellationInstruction: state == "resultUnknown" && hasSession,
             showRetryProvisioning: retryAllowed,
+            showReauthenticateProvisioning: signedIn && !hasSession &&
+                reauthenticationAvailable && !authenticationActive &&
+                !isCancelling && cancellationConfirmed &&
+                !["working", "awaitingPrompt"].contains(state),
             showFinishLater: signedIn && (!hasSession || state != "resultUnknown"),
             blockedByActiveSession: authenticationActive)
     }
@@ -4815,7 +4910,7 @@ enum V3AuthStatusTextPolicy {
         switch state {
         case "completed": return "Signed in"
         case "authenticatedProvisioningIncomplete":
-            return provisioningFinishedLater ? "Signed in" : "Signed in, provisioning needs attention"
+            return "Signed in, provisioning needs attention"
         case "awaitingPrompt": return "Needs your input"
         case "failed": return "Failed"
         case "cancelled": return "Cancelled"
@@ -4857,7 +4952,10 @@ enum V3AuthFailureDiagnosticsPolicy {
         let underlyingDomain = failure["underlyingDomain"] as? String ?? ""
         let codeText = underlyingCode.map(String.init) ?? "unknown"
         let retryableText = retryableValue.map { $0 ? "yes" : "no" } ?? "unknown"
-        return "kind=\(kind) stage=\(stage) code=\(code) correlation=\(correlation) underlying=\(underlyingDomain)/\(codeText) retryable=\(retryableText)"
+        let step = (failure["sourceStep"] as? String).flatMap(CombinedFailure.SourceStep.init(rawValue:))?.rawValue ?? "unknown"
+        let fields = (failure["signingContext"] as? [String: String]).flatMap(CombinedFailure.validatedSigningContext) ?? [:]
+        let accountDetails = " source_step=\(step) typed_error=\(fields["typed_error"] ?? "unknown") server_code=\(fields["server_code"] ?? "unknown") http_status=\(fields["http_status"] ?? "unavailable")"
+        return "kind=\(kind) stage=\(stage) code=\(code) correlation=\(correlation) underlying=\(underlyingDomain)/\(codeText) retryable=\(retryableText)" + accountDetails
     }
 }
 
@@ -4878,6 +4976,8 @@ enum V3AuthTerminalFailureAction: Equatable {
 enum V3AuthTerminalFailureActionPolicy {
     static func resolve(kind: String?, retryable: Bool?) -> V3AuthTerminalFailureAction {
         switch kind {
+        case "credentialStorage", "credentialStorageUncertain": return .blocked
+        case "accountIdentityMismatch": return .beginNewSignIn(title: "Use Saved Apple ID")
         case "accountRepairRequired": return .repairAppleAccount
         case "appSpecificPasswordRequired": return .useAppSpecificPassword
         default: break
@@ -4896,6 +4996,9 @@ enum V3AuthTerminalFailureActionPolicy {
     }
 
     static func guidance(kind: String?, retryable: Bool?) -> String? {
+        if kind == "accountIdentityMismatch" {
+            return "Reload status, then sign in with the saved Apple ID to finish setup."
+        }
         switch resolve(kind: kind, retryable: retryable) {
         case .repairAppleAccount:
             return "Resolve the account issue shown by Apple, then begin a new sign-in."

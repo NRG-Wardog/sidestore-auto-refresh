@@ -593,7 +593,7 @@ import Foundation
         self.assertIn("currentAppleID: credentials?.appleIDEmailAddress", availability)
         begin = runtime[runtime.index("func begin(deadline: Date,"):
             runtime.index("    func poll(id: String)", runtime.index("func begin(deadline: Date,"))]
-        self.assertIn("let authCredentials = mode == .resumeProvisioning", begin)
+        self.assertIn("let authCredentials = AuthManager.shared.authenticationSnapshot", begin)
         self.assertIn("authCredentials?.appleIDEmailAddress", begin)
         self.assertNotIn("AuthManager.shared.currentAppleID", begin)
         expire = runtime[runtime.index("func expire(id: String)"):
@@ -1980,7 +1980,9 @@ import Foundation
         self.assertIn("candidate.account?.appleID", snapshot)
         self.assertIn("resolveColdTeamOwner(", snapshot)
         self.assertIn("V3AuthIdentityBindingPolicy.mayUseTeam", snapshot)
-        self.assertIn('"provisioningIncomplete": authenticated && activeAccount == nil', snapshot)
+        self.assertIn('"provisioningIncomplete": provisioningIncomplete', snapshot)
+        self.assertIn('provisioningCompletion.status(', snapshot)
+        self.assertNotIn('authenticated && activeAccount == nil', snapshot)
         self.assertIn("identityGenerationAtStart", snapshot)
         self.assertIn("identityReadStable", snapshot)
         self.assertIn("mayProjectIdentity", snapshot)
