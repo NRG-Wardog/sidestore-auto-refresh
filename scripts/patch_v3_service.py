@@ -2293,6 +2293,10 @@ def patch_sign_in_diagnostics(text):
     defaults_end = body.index("\n            }", defaults_start)
     defaults = body[defaults_start:defaults_end]
     body = body[:defaults_start] + body[defaults_end:]
+    # Moving this block makes the upstream whitespace-only separator a new
+    # diff line. Normalize only that relocated separator, not upstream source.
+    body = replace(body, "\n            }\n            \n            try context.save()\n",
+                         "\n            }\n\n            try context.save()\n")
     body = replace(body, "            try context.save()\n",
         "            try context.save()\n            if makeActive {\n" + defaults + "\n            }\n")
     return text[:start] + body + text[end:]

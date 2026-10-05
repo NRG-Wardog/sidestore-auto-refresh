@@ -457,6 +457,16 @@ for modern in [false, true] {
 
 
 class CombinedWorkflowTests(unittest.TestCase):
+    def test_prepared_auth_scope_and_diff_guards_run_before_native_builds(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        preparation = workflow.index("- name: Verify prepared authentication source boundaries")
+        host = workflow.index("- name: Build unified host before transport compilation")
+        self.assertLess(preparation, host)
+        block = workflow[preparation:host]
+        self.assertIn('git -C "$SIDESTORE" diff --check', block)
+        self.assertEqual(block.count('patch_sidesign_privacy.py "$SIDESIGN" "$SIDESTORE"'), 2)
+        self.assertEqual(block.count('patch_combined_service_startup.py --portal "$SIDESIGN"'), 2)
+
     def test_full_rendering_remains_required_after_native_build_before_packaging(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
         host = workflow.index("- name: Build unified host before transport compilation")

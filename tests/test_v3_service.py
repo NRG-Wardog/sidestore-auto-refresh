@@ -1409,6 +1409,46 @@ import Foundation
             self.assertEqual(before, self.snapshot(directory),
                              "v37 generated trees must be discarded without partial migration")
 
+    def test_pinned_generated_sign_in_passes_diff_check_after_patch_composition(self):
+        with tempfile.TemporaryDirectory() as name:
+            live, side = self.fixture(Path(name))
+            relative = "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"
+            # Preserve the exact pinned baseline in Git's index. Upstream has
+            # whitespace-only separators, so checking the entire generated file
+            # would conflate inherited lines with newly introduced whitespace.
+            subprocess.run(["git", "init", "-q", str(side)], check=True)
+            subprocess.run(["git", "-C", str(side), "add", "--", relative], check=True)
+            for checkout, target, pin, extra in (
+                (os.environ["LIVE_CONTAINER_TEST_SOURCE"], live, service.PINS[0],
+                 "SideStoreSupport/SideStoreHooks.m"),
+                (os.environ["EMBEDDED_SIDESTORE_TEST_SOURCE"], side, service.PINS[1],
+                 "SideStore/Core/Logging/OperationLogging.swift"),
+            ):
+                (target / extra).write_bytes(subprocess.check_output(
+                    ["git", "-C", checkout, "show", pin + ":" + extra]))
+            with mock.dict("sys.modules", {"patch_cf_bundle_scan": module("patch_cf_bundle_scan")}):
+                startup = module("patch_embedded_sidestore_startup")
+            startup.patch(live, side)
+            startup.patch(live, side)
+            self.apply((live, side))
+            self.apply((live, side))
+            module("patch_background_automation").patch_background_operation(side)
+            contract = module("patch_combined_refresh_contract")
+            # This temporary indexed fixture has no HEAD; every source input
+            # above came from git show at the workflow's exact source pins.
+            with mock.object(contract, "verify_pin", return_value=None), \
+                 mock.dict("sys.modules", {"patch_embedded_keychain": embedded_keychain}):
+                contract.patch_combined_cli(side)
+                contract.patch_combined_cli(side)
+            privacy = module("patch_sidesign_privacy")
+            before_privacy = (side / relative).read_bytes()
+            privacy.patch_sidestore_tree(side)
+            privacy.patch_sidestore_tree(side)
+            self.assertEqual(before_privacy, (side / relative).read_bytes())
+            checked = subprocess.run(["git", "-C", str(side), "diff", "--check", "--", relative],
+                                     capture_output=True, text=True)
+            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
     def test_pinned_headless_ui_adapter_verifier_rejects_drift(self):
         side_source = os.getenv("EMBEDDED_SIDESTORE_TEST_SOURCE")
         if not side_source:
