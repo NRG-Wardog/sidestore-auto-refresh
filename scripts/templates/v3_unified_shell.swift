@@ -4151,6 +4151,14 @@ struct V3OperationSheet: View {
 
     private func handleStartFailure(_ reply: [String: Any], generation: UUID) {
         guard attempt.generation == generation, !attempt.isTerminal else { return }
+        // Missing-source detection happens during driver preparation. Although
+        // no installation started, this is a recoverable terminal session, not
+        // a generic start error. Admit only its correlated, settled envelope.
+        if V3SourceRecoveryPolicy.isSettledStartReply(reply, sessionID: generation.uuidString),
+           attempt.bind(sessionID: generation.uuidString, generation: generation) {
+            apply(reply, generation: generation, sessionID: generation.uuidString)
+            return
+        }
         let failure = (reply["failure"] as? [String: Any]).flatMap {
             CombinedFailure.decode($0, expectedID: generation.uuidString)
         } ?? CombinedFailure(operation: request.operation,
@@ -4334,8 +4342,20 @@ struct V3OperationSheet: View {
             recoveryDestination = "signIn"
             retryBlocked = true
         case "requiresSource":
-            sourceOffer = ["id": reply["sourceID"] as? String ?? "",
-                           "name": reply["sourceName"] as? String ?? "Unknown source"]
+            let sourceID = reply["sourceID"] as? String ?? ""
+            if let url = V3SourceRecoveryPolicy.target(sourceID: sourceID,
+                                                       sourceURL: reply["sourceURL"] as? String) {
+                sourceOffer = ["id": sourceID, "url": url,
+                               "name": reply["sourceName"] as? String ?? "Unknown source"]
+            } else {
+                // Older backends provide only the lossy identifier. Do not
+                // invent an HTTPS URL or dispatch a broken source mutation.
+                sourceOffer = nil
+                retryBlocked = true
+                message = "The app's source must be added before installation."
+                whatToDo = "Open Sources and add the original source URL, then try installing again."
+                recoveryDestination = "sources"
+            }
             prompt = nil
         case "reconciling":
             let failure = (reply["failure"] as? [String: Any]).flatMap {
@@ -4454,13 +4474,24 @@ struct V3OperationSheet: View {
         }
     }
     private func addSourceAndRetry(id: String) async {
-        guard !id.isEmpty, attempt.beginTransition() else { return }
+        guard sourceOffer?["id"] == id,
+              let url = V3SourceRecoveryPolicy.target(sourceID: id, sourceURL: sourceOffer?["url"]),
+              let session = attempt.sessionID, attempt.beginTransition() else { return }
+        let generation = attempt.generation
         do {
-            let preview = try await V3ServiceBridge.shared.request(operation: "sourcePreview", target: id)
-            let added = try await V3ServiceBridge.shared.request(operation: "sourceAddConfirmed",
-                target: preview["identifier"] as? String ?? id)
+            let preview = try await V3ServiceBridge.shared.request(operation: "sourcePreview", target: url)
+            guard !isDismissing, attempt.owns(generation: generation, sessionID: session) else { return }
+            guard V3SourceRecoveryPolicy.matchesPreview(preview, sourceID: id) else {
+                throw V3SourceAddPersistencePolicy.unverifiedPersistenceFailure(correlationID: session)
+            }
+            let added = try await V3ServiceBridge.shared.request(operation: "sourceAddConfirmed", target: url)
+            guard !isDismissing, attempt.owns(generation: generation, sessionID: session) else { return }
+            guard V3SourceRecoveryPolicy.verifiedAddition(added, sourceID: id) else {
+                throw V3SourceAddPersistencePolicy.unverifiedPersistenceFailure(correlationID: session)
+            }
             _ = await V3ServiceBridge.shared.acknowledgeDirectRecoveryAfterSuccess(
                 added, operation: "sourceAddConfirmed")
+            guard !isDismissing, attempt.owns(generation: generation, sessionID: session) else { return }
             sourceAddFailure = nil
             sourceAddRetryBlocked = false
             retryBlocked = false
@@ -4468,6 +4499,7 @@ struct V3OperationSheet: View {
             attempt.endTransition()
             retry()
         } catch {
+            guard !isDismissing, attempt.owns(generation: generation, sessionID: session) else { return }
             attempt.endTransition()
             let failure = (error as? CombinedFailure) ?? CombinedFailure.capture(error,
                 operation: "source", stage: .source,

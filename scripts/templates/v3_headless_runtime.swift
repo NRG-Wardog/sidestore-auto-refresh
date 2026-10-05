@@ -1989,7 +1989,12 @@ final class V3OperationCenter {
 
     private func terminalFailure(id: String, kind: String, error: Error) -> [String: Any] {
         if let required = error as? V3RequiresSourceError {
-            return ["state": "requiresSource", "sourceID": required.sourceID, "sourceName": required.sourceName]
+            var reply: [String: Any] = ["state": "requiresSource", "sourceID": required.sourceID,
+                "sourceName": required.sourceName]
+            if let url = V3SourceRecoveryPolicy.target(sourceID: required.sourceID, sourceURL: required.sourceURL) {
+                reply["sourceURL"] = url
+            }
+            return reply
         }
         let stage: CombinedFailure.Stage
         switch kind {
@@ -2029,7 +2034,8 @@ final class V3OperationCenter {
                 app = protocolApp
                 if let storeApp = protocolApp.storeApp, let source = storeApp.source {
                     guard try await source.isAdded() else {
-                        throw V3RequiresSourceError(sourceID: source.identifier, sourceName: source.name)
+                        throw V3RequiresSourceError(sourceID: source.identifier, sourceName: source.name,
+                            sourceURL: source.sourceURL.absoluteString)
                     }
                 }
             case .url(_):
@@ -2461,6 +2467,7 @@ final class V3OperationCenter {
 struct V3RequiresSourceError: Error {
     let sourceID: String
     let sourceName: String
+    let sourceURL: String
 }
 
 enum V3SideStoreServiceError: String, Error {

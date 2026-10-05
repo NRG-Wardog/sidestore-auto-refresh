@@ -129,6 +129,104 @@ struct SourceAddPersistenceHarness {
         require(busyFallback.safeCause == .sourceAddBusy &&
                 busyFallback.recovery.contains("preview and confirm the add again"),
                 "a busy source add gets source-specific recovery guidance")
+        // The pinned Source identifier strips scheme and query and lowercases
+        // path. It is a persistence key, never a fetch target (issues #38/#37).
+        let originalURL = "https://Example.com/CaseSensitive/Source.json?channel=Beta&v=2"
+        let normalizedID = "example.com/casesensitive/source.json"
+        let terminal = sourceRecoveryTerminal(V3RequiresSourceError(sourceID: normalizedID,
+            sourceName: "Example", sourceURL: originalURL))
+        // Execute the same start-failure envelope storage/readback as the
+        // operation center; terminalFailure alone hid a failedToStart routing bug.
+        let host = SourceRecoveryStartHost()
+        let hostGeneration = host.attempt.begin()
+        let sourceSession = hostGeneration.uuidString
+        var startFailure = terminal
+        startFailure["failedToStart"] = true
+        let terminalStore = V3OperationTerminalResponse()
+        require(terminalStore.finishOrResolve(startFailure, backendSettled: true), "terminal rejected")
+        let startReply = terminalStore.reply(sessionID: sourceSession, backendSettled: true)!
+        require(V3SourceRecoveryPolicy.isSettledStartReply(startReply, sessionID: sourceSession),
+                "real failedToStart requiresSource envelope must reach source recovery")
+        host.receive(startReply, generation: hostGeneration)
+        require(!host.genericFailure && host.applied?["sourceURL"] as? String == originalURL,
+                "production start handler swallowed missing-source recovery")
+        require(host.attempt.isTerminal, "missing-source start reply did not settle host attempt")
+        require(!V3SourceRecoveryPolicy.isSettledStartReply(startReply, sessionID: UUID().uuidString),
+                "foreign session must not show a source mutation offer")
+        for value in [false, 1, "true"] as [Any] {
+            var bad = startReply; bad["backendSettled"] = value
+            require(!V3SourceRecoveryPolicy.isSettledStartReply(bad, sessionID: sourceSession),
+                    "unsettled/malformed terminal must not show source recovery")
+        }
+        for value in [true, 0, "false"] as [Any] {
+            var bad = startReply; bad["outcomeUnknown"] = value
+            require(!V3SourceRecoveryPolicy.isSettledStartReply(bad, sessionID: sourceSession),
+                    "unknown/malformed outcome must not show source recovery")
+        }
+        var oldReply = startReply; oldReply.removeValue(forKey: "sourceURL")
+        require(V3SourceRecoveryPolicy.isSettledStartReply(oldReply, sessionID: sourceSession),
+                "old backend must reach manual source recovery")
+        let legacyHost = SourceRecoveryStartHost()
+        let legacyGeneration = legacyHost.attempt.begin()
+        oldReply["session"] = legacyGeneration.uuidString
+        legacyHost.receive(oldReply, generation: legacyGeneration)
+        require(!legacyHost.genericFailure && legacyHost.applied?["state"] as? String == "requiresSource",
+                "production start handler must preserve manual fallback for old backend")
+        var generic = startReply; generic["state"] = "failed"
+        require(!V3SourceRecoveryPolicy.isSettledStartReply(generic, sessionID: sourceSession),
+                "generic start failure must preserve existing failure handling")
+        let serialized = try JSONSerialization.data(withJSONObject: startReply)
+        let decoded = try JSONSerialization.jsonObject(with: serialized) as! [String: Any]
+        let recoveredURL = V3SourceRecoveryPolicy.target(sourceID: decoded["sourceID"] as! String,
+                                                         sourceURL: decoded["sourceURL"] as? String)
+        require(recoveredURL == originalURL, "wire recovery lost original URL spelling/query")
+        let privateTerminal = sourceRecoveryTerminal(V3RequiresSourceError(sourceID: normalizedID,
+            sourceName: "Example", sourceURL: "https://user:secret@example.com/a"))
+        require(privateTerminal["sourceURL"] == nil, "producer must not expose URL credentials")
+        var attempt = V3OperationAttemptState()
+        let generation = attempt.begin()
+        let session = attempt.sessionID!
+        require(attempt.accept(state: "requiresSource", generation: generation, sessionID: session),
+                "missing-source terminal must be admitted")
+        require(attempt.owns(generation: generation, sessionID: session),
+                "terminal source recovery still owns its generation")
+        _ = attempt.supersede()
+        require(!attempt.owns(generation: generation, sessionID: session),
+                "late preview must not mutate after a newer attempt")
+        require(V3SourceAddPersistencePolicy.validatedURL(normalizedID) == nil,
+                "baseline identifier unexpectedly became a fetchable URL")
+        require(V3SourceRecoveryPolicy.target(sourceID: normalizedID, sourceURL: nil) == nil,
+                "old backend must request manual recovery, not guess HTTPS")
+        require(V3SourceRecoveryPolicy.target(sourceID: "", sourceURL: originalURL) == nil,
+                "missing identity must fail closed")
+        for invalid in [normalizedID, "file:///tmp/source.json", "https://user:secret@example.com/a",
+                        "ftp://example.com/a", "https://user@example.com/a"] {
+            require(V3SourceRecoveryPolicy.target(sourceID: normalizedID, sourceURL: invalid) == nil,
+                    "invalid/private URL was admitted")
+        }
+        require(V3SourceRecoveryPolicy.matchesPreview(["identifier": normalizedID], sourceID: normalizedID),
+                "matching preview was rejected")
+        require(!V3SourceRecoveryPolicy.matchesPreview(["identifier": "other"], sourceID: normalizedID),
+                "redirected/mismatched source may not be added")
+        require(!V3SourceRecoveryPolicy.matchesPreview([:], sourceID: normalizedID),
+                "missing preview identity may not be added")
+        var verified: [String: Any] = ["identifier": normalizedID, "added": true,
+            "alreadyAdded": false, "persistenceVerified": true,
+            "sources": [["identifier": normalizedID]]]
+        require(V3SourceRecoveryPolicy.verifiedAddition(verified, sourceID: normalizedID),
+                "persisted matching add should permit install retry")
+        verified["added"] = false
+        verified["alreadyAdded"] = true
+        require(V3SourceRecoveryPolicy.verifiedAddition(verified, sourceID: normalizedID),
+                "persisted duplicate should permit install retry")
+        verified["sources"] = [["identifier": "other"]]
+        require(!V3SourceRecoveryPolicy.verifiedAddition(verified, sourceID: normalizedID),
+                "missing durable source must not retry install")
+        verified["sources"] = [["identifier": normalizedID]]
+        verified["persistenceVerified"] = false
+        require(!V3SourceRecoveryPolicy.verifiedAddition(verified, sourceID: normalizedID),
+                "unverified add must not retry install")
+
         print("V3_SOURCE_ADD_PERSISTENCE_PASS")
     }
 }

@@ -467,19 +467,50 @@ class CombinedWorkflowTests(unittest.TestCase):
         self.assertEqual(block.count('patch_sidesign_privacy.py "$SIDESIGN" "$SIDESTORE"'), 2)
         self.assertEqual(block.count('patch_combined_service_startup.py --portal "$SIDESIGN"'), 2)
 
-    def test_full_rendering_remains_required_after_native_build_before_packaging(self):
+    def test_parallel_native_and_full_rendering_both_gate_packaging(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
         host = workflow.index("- name: Build unified host before transport compilation")
-        backend = workflow.index("- name: Build host and embedded SideStore source targets")
-        layout = workflow.index("- name: Execute real layout regression on final generated source")
+        parallel = workflow.index("- name: Build embedded SideStore and execute full layout regression")
         package = workflow.index("- name: Package and verify combined LiveContainer plus SideStore")
-        self.assertLess(host, backend)
-        self.assertLess(backend, layout)
-        self.assertLess(layout, package)
-        block = workflow[layout:].split("\n      - name:", 1)[0]
+        self.assertLess(host, parallel)
+        self.assertLess(parallel, package)
+        block = workflow[parallel:].split("\n      - name:", 1)[0]
         self.assertIn("--v3-source", block)
+        self.assertIn('wait "$native_pid" || native_status=$?', block)
+        self.assertIn('test "$native_status" -eq 0', block)
+        self.assertIn('test "$layout_status" -eq 0', block)
+        self.assertIn('|| layout_status=$?', block)
+        self.assertIn('timeout-minutes: 35', block)
         self.assertNotIn("continue-on-error", block)
         self.assertNotIn("--skip-v3-native", block)
+
+    def test_parallel_gate_waits_for_native_and_rejects_either_failure(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        start = workflow.index('          native_pid=$!')
+        end = workflow.index('\n      - name: Preserve real layout', start)
+        gate = "\n".join(line[10:] for line in workflow[start:end].splitlines())
+        command_start = gate.index('python3 builder/scripts/run_issue25_rendering.py')
+        command_end = gate.index('|| layout_status=$?', command_start)
+        gate = gate[:command_start] + 'bash -c "exit $LAYOUT_RESULT" ' + gate[command_end:]
+        for native_result, layout_result in ((0, 0), (1, 0), (0, 1), (1, 1)):
+            with self.subTest(native=native_result, layout=layout_result):
+                script = ('set -euo pipefail\n'
+                          '( sleep 0.05; echo NATIVE_FINISHED; exit "$NATIVE_RESULT" ) &\n'
+                          + gate)
+                env = dict(os.environ, NATIVE_RESULT=str(native_result), LAYOUT_RESULT=str(layout_result))
+                result = subprocess.run(['bash', '-c', script], env=env,
+                                        capture_output=True, text=True, timeout=5)
+                self.assertIn('NATIVE_FINISHED', result.stdout)
+                self.assertEqual(result.returncode == 0, native_result == layout_result == 0)
+
+    def test_canonical_certificate_checks_run_once_with_dependency_ready(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        dependency = workflow.index('- name: Install native certificate test dependency')
+        suite = workflow.index('- name: Run repository checks before patches')
+        self.assertLess(dependency, suite)
+        self.assertIn('REQUIRE_LC_CERTIFICATE_NATIVE_TESTS: "1"', workflow)
+        self.assertNotIn('-p test_lc_certificate_observation.py', workflow)
+        self.assertIn('--timings-output artifacts/logs/repository-test-timings.json', workflow)
 
     def test_fixed_upstream_authentication_pins_and_no_override(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()

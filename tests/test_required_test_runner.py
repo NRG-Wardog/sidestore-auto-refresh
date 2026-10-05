@@ -96,6 +96,61 @@ class RequiredSkipGateTests(unittest.TestCase):
             self.assertEqual(2, result.returncode, result.stdout + result.stderr)
             self.assertIn("required test runner discovered zero tests", result.stderr)
 
+    def run_timed_fixture(self, root, body, output):
+        (root / "test_timed.py").write_text(
+            "import unittest\nclass Timed(unittest.TestCase):\n" + body, encoding="utf-8")
+        allowlist = root / "allowlist.json"
+        allowlist.write_text("[]", encoding="utf-8")
+        return subprocess.run([
+            sys.executable, str(ROOT / "scripts" / "run_required_tests.py"),
+            "--start-directory", str(root), "--allowlist", str(allowlist),
+            "--timings-output", str(output),
+        ], capture_output=True, text=True)
+
+    def test_timing_output_preserves_pass_failure_error_skip_and_subtest_results(self):
+        cases = {
+            "pass": ("        pass\n", 0),
+            "failure": ("        self.fail('expected failure')\n", 1),
+            "error": ("        raise RuntimeError('expected error')\n", 1),
+            "skip": ("        self.skipTest('unexpected skip')\n", 2),
+            "subtest": ("        with self.subTest(value=1):\n            self.fail('subtest failure')\n", 1),
+        }
+        for name, (body, expected_code) in cases.items():
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                output = root / "logs/timings.json"
+                result = self.run_timed_fixture(root, "    def test_case(self):\n" + body, output)
+                self.assertEqual(expected_code, result.returncode, result.stdout + result.stderr)
+                report = json.loads(output.read_text())
+                self.assertEqual(1, report["tests_run"])
+                self.assertEqual(1, len(report["tests"]))
+                self.assertEqual("test_timed.Timed.test_case", report["tests"][0]["test_id"])
+                self.assertGreaterEqual(report["tests"][0]["elapsed_seconds"], 0)
+                self.assertGreaterEqual(report["suite_elapsed_seconds"], report["tests"][0]["elapsed_seconds"])
+                self.assertIn("Slowest required tests", result.stdout)
+
+    def test_timing_output_does_not_turn_zero_tests_or_class_setup_failure_green(self):
+        for body, code in [("    pass\n", 2), (
+            "    @classmethod\n    def setUpClass(cls):\n        raise RuntimeError('fixture failed')\n"
+            "    def test_case(self):\n        pass\n", 1)]:
+            with self.subTest(body=body), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                output = root / "timings.json"
+                result = self.run_timed_fixture(root, body, output)
+                self.assertEqual(code, result.returncode, result.stdout + result.stderr)
+                report = json.loads(output.read_text())
+                self.assertEqual(0, report["tests_run"])
+                self.assertEqual([], report["tests"])
+
+    def test_requested_unwritable_timing_output_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            blocker = root / "file"
+            blocker.write_text("not a directory")
+            result = self.run_timed_fixture(root, "    def test_case(self):\n        pass\n", blocker / "timings.json")
+            self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+            self.assertIn("required test timing output failed", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

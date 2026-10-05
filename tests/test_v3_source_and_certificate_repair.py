@@ -22,6 +22,35 @@ def region(source, start, end):
 
 
 class SourceAddPersistenceContractTests(unittest.TestCase):
+    def test_missing_source_recovery_preserves_url_and_checks_identity_before_mutation(self):
+        runtime = text(RUNTIME)
+        shell = text(SHELL)
+        self.assertIn("sourceURL: source.sourceURL.absoluteString", runtime)
+        terminal = region(runtime, "if let required = error as? V3RequiresSourceError", "let stage: CombinedFailure.Stage")
+        self.assertIn('reply["sourceURL"] = url', terminal)
+        self.assertIn("V3SourceRecoveryPolicy.target", terminal)
+        recovery = region(shell, "private func addSourceAndRetry(id:", "private func retry()")
+        self.assertIn('operation: "sourcePreview", target: url', recovery)
+        self.assertIn('operation: "sourceAddConfirmed", target: url', recovery)
+        self.assertNotIn('target: id)', recovery)
+        self.assertNotIn('target: preview["identifier"]', recovery)
+        self.assertLess(recovery.index("matchesPreview(preview, sourceID: id)"),
+                        recovery.index('operation: "sourceAddConfirmed"'))
+        self.assertLess(recovery.index("verifiedAddition(added, sourceID: id)"),
+                        recovery.index("acknowledgeDirectRecoveryAfterSuccess"))
+        self.assertEqual(recovery.count("attempt.owns(generation: generation, sessionID: session)"), 4)
+        state = region(shell, 'case "requiresSource":\n', 'case "reconciling":')
+        self.assertIn('sourceURL: reply["sourceURL"] as? String', state)
+        self.assertIn('recoveryDestination = "sources"', state)
+        self.assertIn("sourceOffer = nil", state)
+        self.assertNotIn('"https://"', state + recovery)
+        start_failure = region(shell, "private func handleStartFailure(", "private func presentCurrentFailure()")
+        self.assertLess(start_failure.index("V3SourceRecoveryPolicy.isSettledStartReply"),
+                        start_failure.index("failureContext.recordStartFailure"))
+        self.assertIn("attempt.bind(sessionID: generation.uuidString, generation: generation)", start_failure)
+        self.assertIn("apply(reply, generation: generation, sessionID: generation.uuidString)", start_failure)
+        self.assertIn('failure["failedToStart"] = true', runtime)
+
     def test_headless_source_preview_and_add_refresh_known_source_policy_first(self):
         service = text(SERVICE)
         preview = region(service, 'case "sourcePreview":', 'case "sourceAddConfirmed":')
@@ -114,6 +143,13 @@ class SourceAddPersistenceContractTests(unittest.TestCase):
             "git", "-C", side, "show",
             patch_v3_service.PINS[1] + ":SideStore/Core/Operations/StandaloneOperations/FetchSourceOperation.swift"],
             text=True, encoding="utf-8")
+        normalization = subprocess.check_output([
+            "git", "-C", side, "show",
+            patch_v3_service.PINS[1] + ":AltStore/Core/Extensions/URL+Normalized.swift"],
+            text=True, encoding="utf-8")
+        self.assertIn("var normalizedURL = host", normalization)
+        self.assertIn("normalizedURL = normalizedURL.lowercased()", normalization)
+        self.assertIn("let sourceID = try sourceURL.normalized()", source_model)
         add = region(app_manager, "func add(@AsyncManaged _ source: Source,", "func remove(")
         is_added = region(source_model, "nonisolated func isAdded() async throws -> Bool", "var isPersisted:")
         self.assertIn("fetchSource(sourceURL: sourceURL, managedObjectContext: context)", add)

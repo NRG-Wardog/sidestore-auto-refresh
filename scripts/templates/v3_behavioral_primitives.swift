@@ -690,6 +690,36 @@ enum V3SourceAddPersistencePolicy {
     }
 }
 
+// Source identifiers are normalized database keys, not fetchable URLs. Never
+// reconstruct a URL from one: normalization removes scheme/query and lowercases
+// case-sensitive paths. Missing URLs from older backends require manual recovery.
+enum V3SourceRecoveryPolicy {
+    static func isSettledStartReply(_ reply: [String: Any], sessionID: String) -> Bool {
+        reply["session"] as? String == sessionID &&
+            reply["state"] as? String == "requiresSource" &&
+            V3OperationReplyFieldPolicy.strictBoolean(reply["failedToStart"]) == true &&
+            V3OperationReplyFieldPolicy.strictBoolean(reply["backendSettled"]) == true &&
+            !V3OperationReplyFieldPolicy.outcomeUnknown(reply["outcomeUnknown"])
+    }
+
+    static func target(sourceID: String, sourceURL: String?) -> String? {
+        guard !sourceID.isEmpty, let sourceURL,
+              V3SourceAddPersistencePolicy.validatedURL(sourceURL) != nil else { return nil }
+        return sourceURL
+    }
+
+    static func matchesPreview(_ preview: [String: Any], sourceID: String) -> Bool {
+        !sourceID.isEmpty && preview["identifier"] as? String == sourceID
+    }
+
+    static func verifiedAddition(_ result: [String: Any], sourceID: String) -> Bool {
+        guard matchesPreview(result, sourceID: sourceID),
+              V3SourceAddPersistencePolicy.confirmationMessage(result) != nil,
+              let sources = result["sources"] as? [[String: Any]] else { return false }
+        return sources.contains { $0["identifier"] as? String == sourceID }
+    }
+}
+
 enum V3SourceAddFailurePolicy {
     static func normalized(_ failure: CombinedFailure) -> CombinedFailure {
         guard failure.operation == "source", failure.stage == .command,

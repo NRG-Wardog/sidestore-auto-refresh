@@ -288,7 +288,21 @@ __PRODUCTION_PROBE__
             text = (target / "Dead10ccFix.m").read_text(encoding="utf-8")
         self.assertIn("[LC_GUEST_LIFECYCLE]", text)
         self.assertIn("BACKGROUND source=", text)
-        self.assertIn("PROCESS_INTERRUPTED pid=", text)
+        self.assertIn("DEAD10CC_PREPARATION pid=", text)
+        self.assertNotIn("PROCESS_INTERRUPTED", text)
+
+    def test_prepared_tree_upgrades_false_interruption_diagnostic(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            source = root / "LiveContainer/Tweaks/Dead10ccFix.m"
+            source.parent.mkdir(parents=True)
+            source.write_text(PINNED_FIXTURE)
+            patch.patch_dead10cc(root)
+            expected = source.read_text()
+            source.write_text(expected.replace("DEAD10CC_PREPARATION pid=", "PROCESS_INTERRUPTED pid="))
+            patch.patch_dead10cc(root)
+            self.assertEqual(source.read_text(), expected)
+            patch.verify(root)
 
     def test_shipped_template_references_both_observers(self):
         # The CI host-preflight greps enforce the same markers in the final

@@ -12,6 +12,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import time
 import unittest
 from typing import List, Optional, Set, Tuple
 
@@ -23,6 +24,16 @@ class RequiredTextTestResult(unittest.TextTestResult):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.skip_records: list[SkipRecord] = []
+        self.test_timings: list[dict] = []
+
+    def startTest(self, test):
+        super().startTest(test)
+        self._test_started = time.perf_counter()
+
+    def stopTest(self, test):
+        self.test_timings.append({"test_id": test.id(),
+                                  "elapsed_seconds": time.perf_counter() - self._test_started})
+        super().stopTest(test)
 
     def addSkip(self, test, reason):
         self.skip_records.append((test.id(), str(reason)))
@@ -62,6 +73,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--top-level-directory", type=Path)
     parser.add_argument("--allowlist", type=Path, required=True)
     parser.add_argument("--verbosity", type=int, default=2)
+    parser.add_argument("--timings-output", type=Path,
+                        help="Write diagnostic timings without changing test selection or gates")
     args = parser.parse_args(argv)
 
     try:
@@ -73,7 +86,25 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"required test runner setup failed: {error}", file=sys.stderr)
         return 2
 
+    started = time.perf_counter()
     result = RequiredTextTestRunner(verbosity=args.verbosity).run(suite)
+    elapsed = time.perf_counter() - started
+    timing_write_failed = False
+    if args.timings_output:
+        timings = sorted(result.test_timings, key=lambda item: item["elapsed_seconds"], reverse=True)
+        print("Slowest required tests (seconds; class/module fixtures excluded):")
+        for item in timings[:20]:
+            print(f"{item['elapsed_seconds']:.3f} {item['test_id']}")
+        try:
+            args.timings_output.parent.mkdir(parents=True, exist_ok=True)
+            args.timings_output.write_text(json.dumps({
+                "schema_version": 1, "suite_elapsed_seconds": elapsed,
+                "tests_run": result.testsRun, "tests": timings,
+                "scope": "Per-test timings include setUp/tearDown; class/module fixtures are included only in suite elapsed time.",
+            }, indent=2) + "\n", encoding="utf-8")
+        except OSError as error:
+            print(f"required test timing output failed: {error}", file=sys.stderr)
+            timing_write_failed = True
     unexpected = unexpected_skips(result.skip_records, allowed)
     if result.testsRun == 0:
         print("required test runner discovered zero tests", file=sys.stderr)
@@ -87,6 +118,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if result.testsRun == 0:
         return 2
     if unexpected:
+        return 2
+    if timing_write_failed:
         return 2
     return 0
 

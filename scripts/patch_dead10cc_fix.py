@@ -79,6 +79,13 @@ def patch_dead10cc(live_root: Path) -> None:
     text = path.read_text(encoding="utf-8")
     text = patch_resource_lifetimes(text)
     if MARKER in text:
+        # Upgrade only the misleading diagnostic in already prepared trees.
+        old_log = 'NSLog(@"[LC_GUEST_LIFECYCLE] PROCESS_INTERRUPTED pid=%d", getpid());'
+        new_log = 'NSLog(@"[LC_GUEST_LIFECYCLE] DEAD10CC_PREPARATION pid=%d", getpid());'
+        if old_log in text:
+            text = replace_once(text, old_log, new_log, "truthful preparation diagnostic")
+        if text.count(new_log) != 1 or old_log in text:
+            die("Dead10cc preparation diagnostic is partial or changed")
         path.write_text(text, encoding="utf-8")
         return
 
@@ -156,17 +163,17 @@ def patch_dead10cc(live_root: Path) -> None:
     NSString* src = [notification.name isEqualToString:NSExtensionHostDidEnterBackgroundNotification] ? @"extension_host" : @"uiapplication";'''
     text = replace_once(text, old_foreground, new_foreground, "foreground transition reset")
 
-    # Add diagnostics to _terminateWithStatus
+    # This overridden callback prepares for suspension; it is not process exit.
     old_terminate = '''- (void)_terminateWithStatus:(int)status {
     // Fake implementation from UIApplication
     NSLog(@"[LC] _handleTaskCompletionAndTerminate");'''
 
     new_terminate = '''- (void)_terminateWithStatus:(int)status {
     // Fake implementation from UIApplication
-    NSLog(@"[LC_GUEST_LIFECYCLE] PROCESS_INTERRUPTED pid=%d", getpid());
+    NSLog(@"[LC_GUEST_LIFECYCLE] DEAD10CC_PREPARATION pid=%d", getpid());
     NSLog(@"[LC] _handleTaskCompletionAndTerminate");'''
 
-    text = replace_once(text, old_terminate, new_terminate, "diagnostics process interrupted")
+    text = replace_once(text, old_terminate, new_terminate, "diagnostics suspension preparation")
 
     path.write_text(text, encoding="utf-8")
 
@@ -189,11 +196,13 @@ def verify(live_root: Path) -> None:
         "BACKGROUND_DUPLICATE source=",
         "FOREGROUND_RESET source=",
         "DEAD10CC_FIX_E98699A registered both observers in guest process",
-        "PROCESS_INTERRUPTED pid=",
+        "DEAD10CC_PREPARATION pid=",
     ]
     missing = [needle for needle in required if needle not in text]
     if missing:
         die(f"Dead10ccFix verification failed: missing {missing}")
+    if "PROCESS_INTERRUPTED" in text:
+        die("Dead10cc preparation must not claim process interruption")
     patch_resource_lifetimes(text)
 
 

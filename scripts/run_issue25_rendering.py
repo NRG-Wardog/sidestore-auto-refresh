@@ -16,6 +16,8 @@ import platform
 import plistlib
 import re
 import shutil
+import signal
+import tempfile
 import subprocess
 import time
 
@@ -25,25 +27,60 @@ GRID = "scripts/templates/livecontainer_grid_app_cell.swift"
 V3_BASELINE = "9d1eed7992694aa0fb9a18742255c21c95b0e697"
 
 
-def command(*args: str, **kwargs) -> str:
+COMMAND_LOG: Path | None = None
+
+
+def record_command(event: dict) -> None:
+    if COMMAND_LOG is not None:
+        with COMMAND_LOG.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(event, sort_keys=True) + "\n")
+
+
+def capture(*args: str, timeout: float = 300) -> bytes:
+    """Bound the entire child process group, including inherited output handles."""
     print("Running: " + " ".join(args), flush=True)
-    kwargs.setdefault("timeout", 300)
-    try:
-        result = subprocess.run(list(args), check=False, text=True, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, **kwargs)
-    except subprocess.TimeoutExpired as error:
-        if error.stdout:
-            print(error.stdout.decode(errors="replace") if isinstance(error.stdout, bytes) else error.stdout, flush=True)
-        raise RuntimeError("Rendering harness command exceeded its 300-second bound: " + args[0]) from error
-    if result.stdout:
-        print(result.stdout, end="", flush=True)
-    result.check_returncode()
-    return result.stdout.strip()
+    started = time.monotonic()
+    record_command({"event": "start", "argv": args, "timeoutSeconds": timeout})
+    # A regular file cannot keep communicate() waiting when a grandchild owns
+    # the output pipe after its parent has been killed (notably xcrun/swiftc).
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(list(args), stdout=output, stderr=errors,
+                                   start_new_session=True)
+        timed_out = False
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=10)
+        output.seek(0)
+        data = output.read()
+        errors.seek(0)
+        diagnostics = errors.read()
+    elapsed = time.monotonic() - started
+    record_command({"event": "timeout" if timed_out else "finish", "argv": args,
+                    "elapsedSeconds": elapsed, "returncode": process.returncode})
+    if data:
+        print(data.decode(errors="replace"), end="", flush=True)
+    if diagnostics:
+        print(diagnostics.decode(errors="replace"), end="", flush=True)
+    if timed_out:
+        raise RuntimeError(f"Rendering harness command exceeded its {timeout}-second bound: {args[0]}")
+    if process.returncode:
+        raise subprocess.CalledProcessError(process.returncode, args, output=data, stderr=diagnostics)
+    return data
+
+
+def command(*args: str, timeout: float = 300) -> str:
+    return capture(*args, timeout=timeout).decode().strip()
 
 
 def available_devices() -> list[tuple[str, str, str]]:
-    result = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "--json"], text=True))
-    runtimes = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "--json"], text=True))["runtimes"]
+    result = json.loads(command("xcrun", "simctl", "list", "devices", "available", "--json"))
+    runtimes = json.loads(command("xcrun", "simctl", "list", "runtimes", "--json"))["runtimes"]
     supported = sorted((item for item in runtimes if item.get("isAvailable") and ".iOS-" in item["identifier"]),
                        key=lambda item: tuple(int(part) for part in item["version"].split(".")))
     if not supported:
@@ -72,7 +109,7 @@ def build_app(output: Path, live: Path, baseline: bool, fallback: bool = False) 
     bundle_id = "org.sidestore.layout.fixture." + name
     grid = build / "LCGridAppCell.swift"
     if baseline:
-        data = subprocess.check_output(["git", "-C", str(ROOT), "show", BASELINE + ":" + GRID])
+        data = capture("git", "-C", str(ROOT), "show", BASELINE + ":" + GRID)
         grid.write_bytes(data)
     else:
         shutil.copyfile(live / "LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift", grid)
@@ -91,7 +128,7 @@ def build_app(output: Path, live: Path, baseline: bool, fallback: bool = False) 
     sources += [grid, ROOT / "tests/fixtures/issue25_rendering_dependencies.swift", ROOT / "tests/fixtures/issue25_rendering_harness.swift"]
     hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     hashes["original-production-grid"] = original_grid_hash
-    sdk = subprocess.check_output(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-path"], text=True).strip()
+    sdk = command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
     architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
     flags = [] if baseline else ["-D", "CORRECTED_GRID", "-D", "CORRECTED_BANNER"]
     command("xcrun", "--sdk", "iphonesimulator", "swiftc", "-parse-as-library", "-swift-version", "5", "-sdk", sdk,
@@ -114,8 +151,8 @@ def build_v3_app(output: Path, live: Path, source: Path | None) -> tuple[Path, s
     build.mkdir(parents=True, exist_ok=True)
     if source is None:
         candidate = ROOT / "scripts/templates/v3_unified_shell.swift"
-        text = candidate.read_text() if candidate.exists() else subprocess.check_output([
-            "git", "-C", str(ROOT), "show", V3_BASELINE + ":scripts/templates/v3_unified_shell.swift"], text=True)
+        text = candidate.read_text() if candidate.exists() else capture(
+            "git", "-C", str(ROOT), "show", V3_BASELINE + ":scripts/templates/v3_unified_shell.swift").decode()
     else:
         text = source.read_text()
     start = text.index("struct V3InstalledAppsSection: View {")
@@ -172,7 +209,7 @@ def build_v3_app(output: Path, live: Path, source: Path | None) -> tuple[Path, s
     bundle = build / "Issue25Rendering.app"
     bundle.mkdir(exist_ok=True)
     bundle_id = "org.sidestore.layout.fixture.v3native"
-    sdk = subprocess.check_output(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-path"], text=True).strip()
+    sdk = command("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
     architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
     command("xcrun", "--sdk", "iphonesimulator", "swiftc", "-parse-as-library", "-swift-version", "5", "-sdk", sdk,
             "-target", architecture + "-apple-ios15.0-simulator", "-g", "-Onone",
@@ -223,6 +260,7 @@ def execute(bundle: Path, bundle_id: str, kind: str, device: str, output: Path, 
 
 
 def main() -> None:
+    global COMMAND_LOG
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--livecontainer", type=Path, required=True, help="Already patched generated LiveContainer checkout")
     parser.add_argument("--output", type=Path, required=True)
@@ -236,12 +274,13 @@ def main() -> None:
     if output.exists() and any(output.iterdir()):
         parser.error("--output must be a fresh evidence directory; previous-run evidence is not overwritten or reused")
     output.mkdir(parents=True, exist_ok=True)
+    COMMAND_LOG = output / "command-diagnostics.jsonl"
     if platform.system() != "Darwin":
         raise SystemExit("This executable rendering suite requires macOS with Xcode and iOS simulators")
     if args.diagnostic_only:
         bundle, bundle_id, hashes = build_app(output, args.livecontainer.resolve(), False)
         kind, device, runtime = available_devices()[0]
-        state = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "--json"], text=True))
+        state = json.loads(command("xcrun", "simctl", "list", "devices", "--json"))
         booted = any(item["udid"] == device and item["state"] == "Booted" for group in state["devices"].values() for item in group)
         if not booted:
             command("xcrun", "simctl", "boot", device)
@@ -263,7 +302,7 @@ def main() -> None:
     devices = available_devices()
     try:
         for kind, device, runtime in devices:
-            state = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "--json"], text=True))
+            state = json.loads(command("xcrun", "simctl", "list", "devices", "--json"))
             booted = any(item["udid"] == device and item["state"] == "Booted" for group in state["devices"].values() for item in group)
             if not booted:
                 command("xcrun", "simctl", "boot", device)

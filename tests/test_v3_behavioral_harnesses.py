@@ -317,7 +317,34 @@ enum V3SetupReloadOutcomeHarness {
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_source_add_persistence_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run(failure + "\n" + helper + "\n" + harness, "V3_SOURCE_ADD_PERSISTENCE_PASS")
+        runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text(encoding="utf-8")
+        emission = runtime[runtime.index("            var reply: [String: Any] = [\"state\": \"requiresSource\""):]
+        emission = emission[:emission.index("\n        }\n        let stage: CombinedFailure.Stage")]
+        error_type = runtime[runtime.index("struct V3RequiresSourceError: Error {"):]
+        error_type = error_type[:error_type.index("\nenum V3SideStoreServiceError")]
+        producer = (error_type + "\nfunc sourceRecoveryTerminal(_ required: V3RequiresSourceError) -> [String: Any] {\n" +
+                    emission + "\n}\n")
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text(encoding="utf-8")
+        handler = shell[shell.index("    private func handleStartFailure("):]
+        handler = handler[:handler.index("    private func presentCurrentFailure()")]
+        host = r'''
+final class SourceRecoveryStartHost {
+    struct Request { let operation = "install" }
+    let request = Request()
+    var attempt = V3OperationAttemptState()
+    var failureContext = V3OperationRetryContext()
+    var applied: [String: Any]?
+    var genericFailure = false
+    func presentCurrentFailure() { genericFailure = true }
+    func apply(_ reply: [String: Any], generation: UUID, sessionID: String) {
+        if attempt.accept(state: reply["state"] as! String, generation: generation, sessionID: sessionID) {
+            applied = reply
+        }
+    }
+    func receive(_ reply: [String: Any], generation: UUID) { handleStartFailure(reply, generation: generation) }
+''' + handler + "\n}\n"
+        self.compile_and_run(failure + "\n" + helper + "\n" + producer + "\n" + host + "\n" + harness,
+                             "V3_SOURCE_ADD_PERSISTENCE_PASS")
 
     def test_refresh_all_request_correlation_terminal_order_and_absorbing_states_execute(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")

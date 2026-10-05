@@ -26,7 +26,8 @@ jobs:
     # Standard Intel capacity avoids the macOS arm64 runner acquisition outage.
     # Device targets remain arm64; the layout harness selects x86_64 simulators.
     runs-on: macos-26-intel
-    timeout-minutes: 60
+    # Intel native tests/builds are slower; reserve time for failure evidence.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -93,6 +94,9 @@ jobs:
         with:
           xcode-version: "26.4"
 
+      - name: Install native certificate test dependency
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install openssl@3
+
       - name: Run repository checks before patches
         env:
           LIVE_CONTAINER_TEST_SOURCE: ${{ github.workspace }}/work/LiveContainer
@@ -100,6 +104,7 @@ jobs:
           EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore
           SIDESIGN_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore/Dependencies/SideSign
           SIDESTORE_070_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore
+          REQUIRE_LC_CERTIFICATE_NATIVE_TESTS: "1"
           REQUIRE_SWIFT_070_CHECKS: "1"
           REQUIRE_PINNED_SOURCE_CLASSIFIER_TEST: "1"
         shell: bash
@@ -108,6 +113,7 @@ jobs:
           python3 builder/scripts/run_required_tests.py \
             --start-directory builder/tests \
             --allowlist builder/scripts/required_test_skip_allowlist.json \
+            --timings-output artifacts/logs/repository-test-timings.json \
             --verbosity 2 2>&1 | tee artifacts/logs/repository-tests.log
 
       # Fail on generated Swift/configuration errors BEFORE compiling Rust/iOS.
@@ -221,22 +227,21 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/livecontainer-derived-data" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee artifacts/logs/livecontainer-build.log
 
+      # Cache downloaded dependencies only; never reuse patched sources or products.
+      - name: Cache Cargo dependency downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: combined-cargo-downloads-${{ runner.os }}-${{ runner.arch }}-${{ env.IDEVICE_REF }}-${{ env.JKTCP_REF }}-${{ hashFiles('builder/scripts/patch_transport_lockfiles.py') }}
+
       - name: Install build tools
         run: |
           set -euo pipefail
           if ! command -v ldid >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install ldid; fi
           if ! command -v bindgen >/dev/null 2>&1 || [ "$(bindgen --version)" != "bindgen 0.72.1" ]; then cargo install --locked --force bindgen-cli --version 0.72.1; fi
           rustup target add aarch64-apple-ios
-
-      - name: Execute canonical LiveContainer certificate observation regression
-        env:
-          LIVE_CONTAINER_TEST_SOURCE: ${{ github.workspace }}/work/LiveContainer
-          REQUIRE_LC_CERTIFICATE_NATIVE_TESTS: "1"
-        shell: bash
-        run: |
-          set -euo pipefail
-          brew install openssl@3
-          python3 -m unittest discover -s builder/tests -p test_lc_certificate_observation.py -v
 
       - name: Apply focused CoreDevice transport patches
         run: |
@@ -308,39 +313,50 @@ jobs:
           while IFS= read -r -d '' source; do swiftc -frontend -parse "$source"; done < <(find "$MUX" -type f -name '*.swift' -not -path '*/.build/*' -print0)
           swift package --package-path "$MUX/DeviceGateway" dump-package >"$RUNNER_TEMP/combined-gateway-package.json"
 
-      - name: Build host and embedded SideStore source targets
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf "$HOME/Library/Caches/org.swift.swiftpm/artifacts/https___github_com_krzyzanowskim_OpenSSL_releases_download_3_6_2000_OpenSSL_xcframework_zip"
-          rm -rf "$HOME/Library/Developer/Xcode/DerivedData"/*/SourcePackages/artifacts/openssl
-          artifact="$HOME/Library/Caches/org.swift.swiftpm/artifacts/https___github_com_krzyzanowskim_OpenSSL_releases_download_3_6_2000_OpenSSL_xcframework_zip"
-          resolved=0
-          for attempt in 1 2 3; do
-            rm -rf "$artifact"
-            rm -rf "$HOME/Library/Developer/Xcode/DerivedData"/*/SourcePackages/artifacts/openssl 2>/dev/null || true
-            rm -rf "$RUNNER_TEMP/embedded-sidestore-derived-data/SourcePackages/artifacts/openssl"
-            if xcodebuild -resolvePackageDependencies -onlyUsePackageVersionsFromResolvedFile -disablePackageRepositoryCache \
-                -project work/EmbeddedSideStore/AltStore.xcodeproj -scheme SideStore \
-                -derivedDataPath "$RUNNER_TEMP/embedded-sidestore-derived-data"; then resolved=1; break; fi
-            sleep 2
-          done
-          test "$resolved" -eq 1
-          xcodebuild -project work/EmbeddedSideStore/AltStore.xcodeproj -onlyUsePackageVersionsFromResolvedFile \
-            -scheme SideStore -sdk iphoneos -configuration Release \
-            -derivedDataPath "$RUNNER_TEMP/embedded-sidestore-derived-data" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee artifacts/logs/embedded-sidestore-build.log
-
-      # Keep full simulator acceptance mandatory, after native compilation so
-      # SDK/compiler failures do not wait behind the longer rendering suite.
-      - name: Execute real layout regression on final generated source
+      # Host source is final and already compiled. Overlap independent simulator
+      # acceptance with embedded SideStore compilation on this same prepared tree.
+      # Both exit statuses are required before packaging; no acceptance is skipped.
+      - name: Build embedded SideStore and execute full layout regression
+        timeout-minutes: 35
         shell: bash
         run: |
           set -euo pipefail
           git -C builder fetch --no-tags origin 7d8ae12905f8baa6e0ecc4dbdd3f25e2aa0e43fa
+          (
+            set -euo pipefail
+            printf 'Native build start: '; date -u
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm/artifacts/https___github_com_krzyzanowskim_OpenSSL_releases_download_3_6_2000_OpenSSL_xcframework_zip"
+            rm -rf "$HOME/Library/Developer/Xcode/DerivedData"/*/SourcePackages/artifacts/openssl
+            artifact="$HOME/Library/Caches/org.swift.swiftpm/artifacts/https___github_com_krzyzanowskim_OpenSSL_releases_download_3_6_2000_OpenSSL_xcframework_zip"
+            resolved=0
+            for attempt in 1 2 3; do
+              rm -rf "$artifact"
+              rm -rf "$HOME/Library/Developer/Xcode/DerivedData"/*/SourcePackages/artifacts/openssl 2>/dev/null || true
+              rm -rf "$RUNNER_TEMP/embedded-sidestore-derived-data/SourcePackages/artifacts/openssl"
+              if xcodebuild -resolvePackageDependencies -onlyUsePackageVersionsFromResolvedFile -disablePackageRepositoryCache \
+                  -project work/EmbeddedSideStore/AltStore.xcodeproj -scheme SideStore \
+                  -derivedDataPath "$RUNNER_TEMP/embedded-sidestore-derived-data"; then resolved=1; break; fi
+              sleep 2
+            done
+            test "$resolved" -eq 1
+            xcodebuild -project work/EmbeddedSideStore/AltStore.xcodeproj -onlyUsePackageVersionsFromResolvedFile \
+              -scheme SideStore -sdk iphoneos -configuration Release \
+              -derivedDataPath "$RUNNER_TEMP/embedded-sidestore-derived-data" \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee artifacts/logs/embedded-sidestore-build.log
+            printf 'Native build finish: '; date -u
+          ) &
+          native_pid=$!
+          layout_status=0
+          printf 'Layout start: '; date -u
           python3 builder/scripts/run_issue25_rendering.py --livecontainer work/LiveContainer \
             --v3-source work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift \
-            --output artifacts/layout-evidence 2>&1 | tee artifacts/logs/layout-rendering.log
+            --output artifacts/layout-evidence 2>&1 | tee artifacts/logs/layout-rendering.log || layout_status=$?
+          printf 'Layout finish: '; date -u
+          native_status=0
+          wait "$native_pid" || native_status=$?
+          printf 'Acceptance statuses: native=%s layout=%s\n' "$native_status" "$layout_status"
+          test "$native_status" -eq 0
+          test "$layout_status" -eq 0
 
       - name: Preserve real layout measurements and screenshots
         if: always()
@@ -349,6 +365,8 @@ jobs:
           name: combined-v3-layout-evidence
           path: |
             artifacts/layout-evidence/**/*.json
+            artifacts/layout-evidence/**/*.jsonl
+            artifacts/logs/layout-rendering.log
             artifacts/layout-evidence/**/*.png
           if-no-files-found: warn
           retention-days: 90

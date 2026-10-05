@@ -299,6 +299,24 @@ if mode == "write" {
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertIn('RETURN_CONTROL_TESTS_PASSED', run.stdout)
 
+    def test_extension_diagnostics_are_truthful_idempotent_and_behavior_neutral(self):
+        original = "\n".join([
+            '    [_extension setRequestCancellationBlock:^(NSUUID *uuid, NSError *error) {\n        [weakSelf appTerminationCleanUp];\n    }];',
+            '    [_extension setRequestInterruptionBlock:^(NSUUID *uuid) {\n        [weakSelf appTerminationCleanUp];\n    }];',
+            '    [self.extension setRequestInterruptionBlock:^(NSUUID *uuid) {\n        [weakSelf appTerminationCleanUp];\n    }];',
+        ])
+        generated = module.patch_lifecycle_diagnostics(original)
+        self.assertEqual(generated.count("PROCESS_INTERRUPTED pid="), 2)
+        self.assertEqual(generated.count("PROCESS_CANCELLED pid="), 1)
+        self.assertEqual(generated, module.patch_lifecycle_diagnostics(generated))
+        without_logs = "\n".join(line for line in generated.split("\n")
+                                 if "[LC_GUEST_LIFECYCLE]" not in line)
+        self.assertEqual(without_logs, original)
+        with self.assertRaises(ValueError):
+            module.patch_lifecycle_diagnostics(generated.replace("PROCESS_CANCELLED", "PROCESS_INTERRUPTED"))
+        with self.assertRaises(ValueError):
+            module.patch_lifecycle_diagnostics(original.replace("setRequestCancellationBlock", "changedCallback"))
+
     def test_cleanup_finishes_before_exit_callback(self):
         self.assertLess(module.CLEANUP.index("unregisterMultitaskContainer"), module.CLEANUP.index("appSceneVCAppDidExit"))
         self.assertIn("NSThread.isMainThread", module.CLEANUP)

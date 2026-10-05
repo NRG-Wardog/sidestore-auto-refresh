@@ -32,6 +32,15 @@ available. See `test_v3_certificate_storage_admission.py`.
 
 ## Additional validated defects and build repairs
 
+- Missing-source installation recovery sent a normalized database identifier to
+  URL-only preview/add commands. Pinned `URL.normalized()` removes the scheme and
+  query and lowercases the path, so even an ordinary HTTPS source failed URL
+  validation. Recovery now carries the original source URL separately, preserves
+  case/query, checks preview and persisted identities, and ignores superseded
+  replies. Correlated, settled `requiresSource` start replies also bypass the
+  generic `failedToStart` handler that previously hid recovery altogether. Old replies without a usable URL direct users to Sources rather than
+  guessing a URL. The native source-persistence harness exercises the emitted
+  terminal reply and its JSON roundtrip; device recovery remains unverified.
 - Repeated guest background lock scans leaked allocated process information and
   file descriptors. The pinned generated scanner now frees/closes them on every
   checked path, including descriptor zero and failed lock inspection. The emitted

@@ -497,8 +497,31 @@ def section(text, start, end, replacement, label):
     return text[:a] + replacement + "\n\n" + text[b:]
 
 
+def patch_lifecycle_diagnostics(implementation):
+    """Label extension callbacks without changing their cleanup or ownership."""
+    callbacks = (
+        ('setRequestCancellationBlock:^(NSUUID *uuid, NSError *error) {',
+         'PROCESS_CANCELLED', 1),
+        ('setRequestInterruptionBlock:^(NSUUID *uuid) {',
+         'PROCESS_INTERRUPTED', 2),
+    )
+    for callback, event, expected in callbacks:
+        log = f'        NSLog(@"[LC_GUEST_LIFECYCLE] {event} pid=%d source=extension_request", weakSelf.pid);'
+        marked = callback + "\n" + log
+        if implementation.count(callback) != expected:
+            raise ValueError("Changed extension lifecycle callback: " + event)
+        if log in implementation:
+            if implementation.count(marked) != expected or implementation.count(log) != expected:
+                raise ValueError("Partial extension lifecycle diagnostic: " + event)
+        else:
+            implementation = implementation.replace(callback, marked)
+    return implementation
+
+
 def verify(texts):
     implementation, header, window, dock, hooks, model, tab, bootstrap, settings, decorated = (texts[p] for p in PATHS)
+    if patch_lifecycle_diagnostics(implementation) != implementation:
+        raise ValueError("Missing extension lifecycle diagnostics")
     for text, token in ((implementation, CONTROL), (implementation, METHODS), (implementation, CLEANUP),
                         (window, WINDOW_MANAGER), (dock, DOCK_RESUME), (header, "lcActivateHost"),
                         (model, "LC_RETURN_CONTAINER_GUARD"),
@@ -527,8 +550,11 @@ def patch(root):
     root = Path(root)
     texts = {p: (root / p).read_text(encoding="utf-8") for p in PATHS}
     implementation, header, window, dock, hooks, model, tab, bootstrap, settings, decorated = (texts[p] for p in PATHS)
+    implementation = patch_lifecycle_diagnostics(implementation)
+    texts[PATHS[0]] = implementation
     if MARKER in implementation:
         verify(texts)
+        (root / PATHS[0]).write_text(implementation, encoding="utf-8")
         return
     if any(marker in implementation for marker in ("LC_GUEST_RETURN_V1", "LC_GUEST_RETURN_V2")):
         raise ValueError("Reapply the return patch to clean pinned sources, not an older patched tree")
