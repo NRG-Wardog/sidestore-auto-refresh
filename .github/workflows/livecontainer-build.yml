@@ -23,7 +23,9 @@ env:
 
 jobs:
   source-and-host-build:
-    runs-on: macos-26
+    # Standard Intel capacity avoids the macOS arm64 runner acquisition outage.
+    # Device targets remain arm64; the layout harness selects x86_64 simulators.
+    runs-on: macos-26-intel
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
