@@ -67,6 +67,43 @@ class AuditRecoveryTests(unittest.TestCase):
         self.assertEqual(swift_source(first, second, third),
                          first + '\n\n' + second + '\n\nfunc third() {}\n')
 
+    def test_provisioning_login_flag_obeys_strict_wire_contract(self):
+        harness = r'''
+@main
+struct ProvisioningLoginWireHarness {
+    static func main() {
+        let now = Date()
+        let session = UUID().uuidString
+        let basePayload: [String: Any] = ["session": session,
+            "sessionDeadline": now.addingTimeInterval(V3WireContract.authSessionLifetime)]
+        func accepts(_ payload: [String: Any], operation: String = "authBegin") -> Bool {
+            V3WireContract.encodeRequest(["version": 1, "id": UUID().uuidString,
+                "operation": operation, "target": session, "payload": payload,
+                "deadline": now.addingTimeInterval(20)], now: now) != nil
+        }
+        precondition(accepts(basePayload), "ordinary sign-in contract remains accepted")
+        for value in [true, false] {
+            var payload = basePayload; payload["provisioningLogin"] = value
+            precondition(accepts(payload), "the exact Boolean control flag must encode")
+            precondition(!accepts(payload, operation: "authRetryProvisioning"),
+                "saved-session retry cannot request interactive credentials")
+        }
+        let malformedFlags: [Any] = [1, "true", ["password": "fixture-only"], [true], Data()]
+        for malformed in malformedFlags {
+            var payload = basePayload; payload["provisioningLogin"] = malformed
+            precondition(!accepts(payload), "control flag remains strictly Boolean")
+        }
+        var oldName = basePayload; oldName["reauthenticateProvisioning"] = true
+        precondition(!accepts(oldName), "raw-auth-name filtering must remain unchanged")
+        var secret = basePayload; secret["password"] = "fixture-only"
+        precondition(!accepts(secret), "new control flag must not bypass the secret sweep")
+        print("V3_PROVISIONING_LOGIN_WIRE_PASS")
+    }
+}
+'''
+        self.compile_and_run(swift_source(template('v3_wire_contract.swift'), harness),
+                             'V3_PROVISIONING_LOGIN_WIRE_PASS')
+
     def test_production_store_reloads_and_real_button_starts_same_account_mode(self):
         shell = template('v3_unified_shell.swift')
         helpers = '\n'.join(declaration(shell, sig) for sig in (

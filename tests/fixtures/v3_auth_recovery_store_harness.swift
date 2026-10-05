@@ -16,7 +16,7 @@ final class V3ServiceBridge {
         var envelope: [String: Any] = ["version": 1, "id": UUID().uuidString,
             "operation": operation, "target": target, "deadline": Date().addingTimeInterval(20)]
         if !payload.isEmpty { envelope["payload"] = payload }
-        precondition(V3WireContract.encodeRequest(envelope) != nil, "real host request failed wire schema")
+        precondition(V3WireContract.encodeRequest(envelope) != nil, "real host request failed wire schema: \(operation)")
         let reply: [String: Any]
         switch operation {
         case "snapshot": reply = snapshot
@@ -84,7 +84,7 @@ struct RecoveryStoreHarness {
         button.action(); button.action()
         for _ in 0..<100 where bridge.starts.isEmpty { await Task.yield() }
         precondition(bridge.starts.count == 1, "double tap dispatched two sign-ins")
-        precondition(bridge.starts[0]["reauthenticateProvisioning"] as? Bool == true)
+        precondition(bridge.starts[0]["provisioningLogin"] as? Bool == true)
         precondition(store.isSignedIn, "reauthentication erased the saved signed-in fact")
         // Server Finish Later is a terminal reply, distinct from local dismissal.
         try await Task.sleep(nanoseconds: 1_200_000_000)

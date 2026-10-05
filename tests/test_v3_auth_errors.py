@@ -461,7 +461,7 @@ class V3AuthErrorTests(unittest.TestCase):
         self.assertIn("if isCancelling || Task.isCancelled { return }", run)
         self.assertIn('target: requestedSession,', run)
         self.assertIn('var payload: [String: Any] = ["session": requestedSession, "sessionDeadline": sessionDeadline]', run)
-        self.assertIn('payload["reauthenticateProvisioning"] = true', run)
+        self.assertIn('payload["provisioningLogin"] = true', run)
         self.assertIn("session = requestedSession", store[store.index("func begin() {"):])
         self.assertNotIn(".task { auth.begin() }", host)
 

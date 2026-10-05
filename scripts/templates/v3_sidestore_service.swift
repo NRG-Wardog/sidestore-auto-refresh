@@ -1792,7 +1792,7 @@ final class V3SideStoreService: NSObject {
                 throw ServiceError.invalidRequest
             }
             guard !V3HeadlessRuntime.shared.auth.hasActiveSession else { throw ServiceError.busy }
-            let reauthenticate = payload["reauthenticateProvisioning"] as? Bool == true
+            let reauthenticate = payload["provisioningLogin"] as? Bool == true
             if reauthenticate && !V3HeadlessRuntime.shared.auth.canReauthenticateProvisioning() {
                 throw ServiceError.busy
             }

@@ -220,9 +220,11 @@ enum V3WireContract {
                 strictBool(payload["readinessOnly"]) == true
         case "authBegin", "authRetryProvisioning":
             let baseKeys: Set<String> = ["session", "sessionDeadline"]
-            let allowedKeys = operation == "authBegin" ? baseKeys.union(["reauthenticateProvisioning"]) : baseKeys
+            // A control flag, not an authentication secret. Keep its name out
+            // of the raw-secret vocabulary; do not exempt it from that sweep.
+            let allowedKeys = operation == "authBegin" ? baseKeys.union(["provisioningLogin"]) : baseKeys
             guard baseKeys.isSubset(of: Set(payload.keys)), Set(payload.keys).isSubset(of: allowedKeys),
-                  payload["reauthenticateProvisioning"] == nil || strictBool(payload["reauthenticateProvisioning"]) != nil,
+                  payload["provisioningLogin"] == nil || strictBool(payload["provisioningLogin"]) != nil,
                   let session = payload["session"] as? String,
                   canonicalSecretToken(session), session == target,
                   let sessionDeadline = payload["sessionDeadline"] as? Date,

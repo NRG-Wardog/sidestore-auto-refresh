@@ -5730,7 +5730,7 @@ final class V3AuthStore: ObservableObject {
             var payload: [String: Any] = ["session": requestedSession, "sessionDeadline": sessionDeadline]
             if reauthenticationSessionID == requestedSession {
                 guard accountRecoveryProtocolAvailable else { return }
-                payload["reauthenticateProvisioning"] = true
+                payload["provisioningLogin"] = true
             }
             let reply = try await V3ServiceBridge.shared.request(operation: "authBegin",
                 target: requestedSession, payload: payload)
