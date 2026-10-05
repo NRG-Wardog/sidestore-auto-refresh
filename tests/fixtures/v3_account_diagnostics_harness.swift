@@ -3,6 +3,20 @@
     static func main() {
         let id = UUID().uuidString
         let secret = "PRIVATE_ACCOUNT_EMAIL PRIVATE_TOKEN HTTP 503 lc_stage=network errno=13"
+        let rejected = v3AccountOperationFailure(
+            ServerError.underlyingError(code: 1100, message: secret), step: .fetchTeams)
+        precondition(rejected.portalSessionRejected)
+        precondition(rejected.failure(operation: "signIn", id: id).retryable == false)
+        precondition(rejected.failure(operation: "signIn", id: id).technicalDetails.contains("server_code=1100"))
+        precondition(!rejected.failure(operation: "signIn", id: id).technicalDetails.contains(secret))
+        for otherStep in [CombinedFailure.SourceStep.authenticate, .fetchCertificate, .registerDevice] {
+            precondition(!v3AccountOperationFailure(
+                ServerError.underlyingError(code: 1100, message: secret), step: otherStep).portalSessionRejected)
+        }
+        precondition(!v3AccountOperationFailure(
+            ServerError.underlyingError(code: 1101, message: secret), step: .fetchTeams).portalSessionRejected)
+        precondition(!v3AccountOperationFailure(
+            NSError(domain: "SideSign.ServerError", code: 1100), step: .fetchTeams).portalSessionRejected)
         let stages: [CombinedFailure.SourceStep] = [.fetchTeams, .saveAccount, .fetchCertificate,
             .activateCertificate, .registerDevice, .activateAccount, .credentialCommit]
         let errors: [Error] = [

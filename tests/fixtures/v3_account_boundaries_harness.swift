@@ -49,7 +49,7 @@ final class Handler {
     var prompts = 0, failures = 0, completed = 0, provisioningPrompts = 0
     func resolveProvisioningError(_ error: Error) async -> ProvisioningErrorDecision {
         provisioningPrompts += 1
-        if let local = error as? V3AccountOperationError, local.requiresReconciliation { return .cancel }
+        if let local = error as? V3AccountOperationError, local.requiresReconciliation || local.portalSessionRejected { return .cancel }
         return .retry
     }
     func credentials() async throws -> (String, String) { prompts += 1; return ("private-email", "private-password") }
@@ -67,6 +67,7 @@ final class Operation {
     var skipCertificateProvisioning = false
     var skipDeviceRegistration = false
     var fetchedCertificates = 0, registeredDevices = 0
+    var teamFailure: Error?
     var saveFails = true, validations = 0, signIns = 0
     func debugLog(_ text: String) {}
     func verboseLog(_ text: String) {}
@@ -89,7 +90,10 @@ final class Operation {
     func validateCodeSign(signer: ALTSigner, session: ALTAppleAPISession) async throws -> Bool {
         validations += 1; return true
     }
-    func fetchTeam(for account: ALTAccount, session: ALTAppleAPISession) async throws -> ALTTeam { ALTTeam() }
+    func fetchTeam(for account: ALTAccount, session: ALTAppleAPISession) async throws -> ALTTeam {
+        if let teamFailure { throw teamFailure }
+        return ALTTeam()
+    }
     func fetchCertificate(for team: ALTTeam, session: ALTAppleAPISession) async throws -> ALTCertificate {
         fetchedCertificates += 1; return ALTCertificate()
     }
@@ -177,6 +181,16 @@ final class Operation {
         } catch let local as V3AccountOperationError {
             precondition(local.step == .activateCertificate && local.requiresReconciliation)
             precondition(uncertain.fetchedCertificates == 1 && uncertain.registeredDevices == 0)
+        }
+        let rejected = Operation()
+        rejected.teamFailure = ServerError.underlyingError(code: 1100, message: "PRIVATE_PORTAL_MESSAGE")
+        do {
+            _ = try await rejected.provisioningLoop(account: ALTAccount(), session: ALTAppleAPISession(), reportProgress: { _ in })
+            preconditionFailure("rejected portal session was reused")
+        } catch let local as V3AccountOperationError {
+            precondition(local.portalSessionRejected && local.step == .fetchTeams)
+            precondition(rejected.fetchedCertificates == 0 && rejected.registeredDevices == 0)
+            precondition(rejected.signInHandler.provisioningPrompts == 1)
         }
         print("Generated account boundaries PASS")
     }

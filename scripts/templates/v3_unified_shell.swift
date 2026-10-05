@@ -4925,14 +4925,14 @@ struct V3PromptSection: View {
             // user-facing message and can be copied without the prompt text.
             if let technical = fieldDefs.first(where: { $0["key"] == "technical" }),
                let value = technical["value"], !value.isEmpty {
-                Text("Technical details")
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(.secondary)
-                    .padding(.top, 4)
-                Text(value)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .textSelection(.enabled)
+                DisclosureGroup("Technical details") {
+                    Text(value)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
                 Button(copiedDetails ? "Copied" : "Copy Details") {
                     UIPasteboard.general.string = value
                     copiedDetails = true
@@ -6532,255 +6532,259 @@ struct V3SignInView: View {
     @StateObject private var auth = V3AuthStore()
     var body: some View {
         List {
-            Section("Apple ID") {
-                HStack {
-                    Text("Status")
-                    Spacer()
-                    Text(statusText).foregroundColor(.secondary)
-                }
-                if auth.isSignedIn {
-                    HStack {
-                        Label(V3AuthStatusTextPolicy.accountLabel(state: auth.state, isSignedIn: auth.isSignedIn),
-                              systemImage: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        Spacer()
-                        if !auth.team.isEmpty { Text(auth.team).foregroundColor(.secondary) }
+            if shouldShowAccountSection {
+                Section("Apple ID") {
+                    if !isProvisioningRecoveryPrompt || auth.isCancelling {
+                        HStack {
+                            Text("Status")
+                            Spacer()
+                            Text(statusText).foregroundColor(.secondary)
+                        }
                     }
-                    if let jitless = jitlessGuidance {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Label(jitless.presentation.title, systemImage: jitless.presentation.icon)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundColor(jitless.presentation.tint)
-                            Text(jitless.presentation.detail)
-                                .font(.footnote).foregroundColor(.secondary)
-                            if jitless.presentation.isOutstandingSetupTask {
-                                switch jitless.action {
-                                case .setUp:
-                                    Button("Continue to JIT-Less Setup") { openJITLessSetup() }
-                                        .buttonStyle(.borderedProminent)
-                                case .refreshCertificate:
-                                    Button("Refresh JIT-Less Certificate") { openJITLessSetup() }
-                                        .buttonStyle(.borderedProminent)
-                                case .openCertificates:
-                                    NavigationLink {
-                                        V3CertificatesView().environmentObject(status)
-                                    } label: {
-                                        Label("Open Certificates", systemImage: "doc.text")
+                    if auth.isSignedIn {
+                        HStack {
+                            Label(V3AuthStatusTextPolicy.accountLabel(state: auth.state, isSignedIn: auth.isSignedIn),
+                                  systemImage: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Spacer()
+                            if !auth.team.isEmpty { Text(auth.team).foregroundColor(.secondary) }
+                        }
+                        if let jitless = jitlessGuidance {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label(jitless.presentation.title, systemImage: jitless.presentation.icon)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundColor(jitless.presentation.tint)
+                                Text(jitless.presentation.detail)
+                                    .font(.footnote).foregroundColor(.secondary)
+                                if jitless.presentation.isOutstandingSetupTask {
+                                    switch jitless.action {
+                                    case .setUp:
+                                        Button("Continue to JIT-Less Setup") { openJITLessSetup() }
+                                            .buttonStyle(.borderedProminent)
+                                    case .refreshCertificate:
+                                        Button("Refresh JIT-Less Certificate") { openJITLessSetup() }
+                                            .buttonStyle(.borderedProminent)
+                                    case .openCertificates:
+                                        NavigationLink {
+                                            V3CertificatesView().environmentObject(status)
+                                        } label: {
+                                            Label("Open Certificates", systemImage: "doc.text")
+                                        }
+                                    case .openSetup:
+                                        Button("Open JIT-Less Setup") { openJITLessSetup() }
+                                            .buttonStyle(.borderedProminent)
+                                    case .none:
+                                        EmptyView()
                                     }
-                                case .openSetup:
-                                    Button("Open JIT-Less Setup") { openJITLessSetup() }
-                                        .buttonStyle(.borderedProminent)
-                                case .none:
-                                    EmptyView()
+                                } else if jitless.readiness == .ready {
+                                    NavigationLink {
+                                        V3HealthView().environmentObject(status).environmentObject(sharedModel)
+                                    } label: {
+                                        Label("Review JIT-Less Status", systemImage: "stethoscope")
+                                    }
+                                    .font(.caption)
                                 }
-                            } else if jitless.readiness == .ready {
-                                NavigationLink {
-                                    V3HealthView().environmentObject(status).environmentObject(sharedModel)
-                                } label: {
-                                    Label("Review JIT-Less Status", systemImage: "stethoscope")
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    if !auth.message.isEmpty {
+                        Text(auth.message)
+                            .font(.footnote)
+                            .foregroundColor(auth.state == "resultUnknown" || auth.state == "timedOut" ||
+                                auth.state == "cancelled" ? .orange : (auth.isSignedIn ? .green : .red))
+                            .textSelection(.enabled)
+                    }
+                    if V3AuthFailureDiagnosticsPolicy.shouldShowTerminalDetails(
+                        state: auth.state, hasPrompt: auth.prompt != nil,
+                        hasFailure: auth.previousFailure != nil),
+                       let failure = auth.previousFailure {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Sign-in diagnostics")
+                                .font(.subheadline.weight(.semibold))
+                            DisclosureGroup("Technical details") {
+                                Text(V3AuthStore.failureDetails(from: failure))
+                                    .font(.caption2)
+                                    .textSelection(.enabled)
+                            }
+                            Button("Copy Diagnostics", systemImage: "doc.on.doc") {
+                                UIPasteboard.general.string = V3AuthStore.failureDetails(from: failure)
+                            }
+                            .font(.caption)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    if !auth.currentAttemptFailure.message.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Sign-in attempt could not be confirmed")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(.orange)
+                            Text(auth.currentAttemptFailure.message)
+                                .font(.footnote)
+                                .foregroundColor(.orange)
+                                .textSelection(.enabled)
+                            if !auth.currentAttemptFailure.technicalDetails.isEmpty {
+                                DisclosureGroup("Technical details") {
+                                    Text(auth.currentAttemptFailure.technicalDetails)
+                                        .font(.caption2)
+                                        .textSelection(.enabled)
+                                }
+                                Button("Copy Diagnostics") {
+                                    UIPasteboard.general.string = auth.currentAttemptFailure.technicalDetails
                                 }
                                 .font(.caption)
                             }
                         }
-                        .padding(.vertical, 4)
                     }
-                }
-                if !auth.message.isEmpty {
-                    Text(auth.message)
-                        .font(.footnote)
-                        .foregroundColor(auth.state == "resultUnknown" || auth.state == "timedOut" ||
-                            auth.state == "cancelled" ? .orange : (auth.isSignedIn ? .green : .red))
-                        .textSelection(.enabled)
-                }
-                if V3AuthFailureDiagnosticsPolicy.shouldShowTerminalDetails(
-                    state: auth.state, hasPrompt: auth.prompt != nil,
-                    hasFailure: auth.previousFailure != nil),
-                   let failure = auth.previousFailure {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Sign-in diagnostics")
-                            .font(.subheadline.weight(.semibold))
-                        DisclosureGroup("Technical details") {
-                            Text(V3AuthStore.failureDetails(from: failure))
-                                .font(.caption2)
+                    // V3_PROVISIONING_NEEDS_ATTENTION_V1: the authenticated fact above
+                    // stays green while the provisioning problem is stated separately.
+                    if auth.hasProvisioningProblem {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Provisioning needs attention")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(.orange)
+                            Text("Provisioning could not be completed.")
+                                .font(.footnote.weight(.medium))
+                                .foregroundColor(.orange)
+                            Text(auth.provisioningMessage)
+                                .font(.footnote)
+                                .foregroundColor(.orange)
                                 .textSelection(.enabled)
-                        }
-                        Button("Copy Diagnostics", systemImage: "doc.on.doc") {
-                            UIPasteboard.general.string = V3AuthStore.failureDetails(from: failure)
-                        }
-                        .font(.caption)
-                    }
-                    .padding(.vertical, 4)
-                }
-                if !auth.currentAttemptFailure.message.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Sign-in attempt could not be confirmed")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(.orange)
-                        Text(auth.currentAttemptFailure.message)
-                            .font(.footnote)
-                            .foregroundColor(.orange)
-                            .textSelection(.enabled)
-                        if !auth.currentAttemptFailure.technicalDetails.isEmpty {
-                            DisclosureGroup("Technical details") {
-                                Text(auth.currentAttemptFailure.technicalDetails)
-                                    .font(.caption2)
-                                    .textSelection(.enabled)
+                            if !auth.provisioningTechnical.isEmpty {
+                                DisclosureGroup("Technical details") {
+                                    Text(auth.provisioningTechnical)
+                                        .font(.caption2)
+                                        .textSelection(.enabled)
+                                }
+                                HStack {
+                                    Button("Copy Diagnostics") { UIPasteboard.general.string = auth.provisioningTechnical }
+                                        .font(.caption)
+                                    Spacer(minLength: 0)
+                                }
                             }
-                            Button("Copy Diagnostics") {
-                                UIPasteboard.general.string = auth.currentAttemptFailure.technicalDetails
-                            }
-                            .font(.caption)
                         }
                     }
-                }
-                // V3_PROVISIONING_NEEDS_ATTENTION_V1: the authenticated fact above
-                // stays green while the provisioning problem is stated separately.
-                if auth.hasProvisioningProblem {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Provisioning needs attention")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(.orange)
-                        Text("Provisioning could not be completed.")
+                    if !auth.deliveryProgressMessage.isEmpty {
+                        Text(auth.deliveryProgressMessage)
                             .font(.footnote.weight(.medium))
                             .foregroundColor(.orange)
-                        Text(auth.provisioningMessage)
-                            .font(.footnote)
+                    } else if let progress = auth.twoFactorTransientStep?.progressLabel {
+                        Text(progress)
+                            .font(.footnote.weight(.medium))
                             .foregroundColor(.orange)
-                            .textSelection(.enabled)
-                        if !auth.provisioningTechnical.isEmpty {
-                            DisclosureGroup("Technical details") {
-                                Text(auth.provisioningTechnical)
-                                    .font(.caption2)
-                                    .textSelection(.enabled)
-                            }
-                            HStack {
-                                Button("Copy Diagnostics") { UIPasteboard.general.string = auth.provisioningTechnical }
-                                    .font(.caption)
-                                Spacer(minLength: 0)
-                            }
-                        }
                     }
-                }
-                if !auth.deliveryProgressMessage.isEmpty {
-                    Text(auth.deliveryProgressMessage)
-                        .font(.footnote.weight(.medium))
-                        .foregroundColor(.orange)
-                } else if let progress = auth.twoFactorTransientStep?.progressLabel {
-                    Text(progress)
-                        .font(.footnote.weight(.medium))
-                        .foregroundColor(.orange)
-                }
-                if auth.state == "idle" {
-                    Button { auth.begin() } label: {
-                        Label("Begin Sign In", systemImage: "person.badge.key.fill")
-                    }
-                    .disabled(!auth.canBegin)
-                } else if auth.state == "failed" || auth.state == "cancelled" ||
-                    auth.state == "timedOut" || auth.state == "promptExpired" {
-                    switch auth.terminalFailureAction {
-                    case .beginNewSignIn(let title):
+                    if auth.state == "idle" {
                         Button { auth.begin() } label: {
-                            Label(title, systemImage: "person.badge.key.fill")
+                            Label("Begin Sign In", systemImage: "person.badge.key.fill")
                         }
                         .disabled(!auth.canBegin)
-                        if let guidance = auth.terminalFailureGuidance {
-                            Text(guidance).font(.caption).foregroundColor(.secondary)
-                        }
-                    case .repairAppleAccount:
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(auth.terminalFailureGuidance ?? "Resolve the account issue shown by Apple before signing in again.")
+                    } else if auth.state == "failed" || auth.state == "cancelled" ||
+                        auth.state == "timedOut" || auth.state == "promptExpired" {
+                        switch auth.terminalFailureAction {
+                        case .beginNewSignIn(let title):
+                            Button { auth.begin() } label: {
+                                Label(title, systemImage: "person.badge.key.fill")
+                            }
+                            .disabled(!auth.canBegin)
+                            if let guidance = auth.terminalFailureGuidance {
+                                Text(guidance).font(.caption).foregroundColor(.secondary)
+                            }
+                        case .repairAppleAccount:
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(auth.terminalFailureGuidance ?? "Resolve the account issue shown by Apple before signing in again.")
+                                    .font(.footnote).foregroundColor(.orange)
+                                Link("Open Apple Account", destination: URL(string: "https://account.apple.com")!)
+                                Button("Begin Sign-In After Repair") { auth.begin() }
+                                    .disabled(!auth.canBegin)
+                            }
+                        case .useAppSpecificPassword:
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(auth.terminalFailureGuidance ?? "Apple requires an app-specific password for this authentication path.")
+                                    .font(.footnote).foregroundColor(.orange)
+                                Link("Open Apple Account", destination: URL(string: "https://account.apple.com")!)
+                                Button("Use App-Specific Password") { auth.begin() }
+                                    .disabled(!auth.canBegin)
+                            }
+                        case .blocked:
+                            Text(auth.terminalFailureGuidance ?? "This failure is not marked safe to retry. Review Diagnostics before another attempt.")
                                 .font(.footnote).foregroundColor(.orange)
-                            Link("Open Apple Account", destination: URL(string: "https://account.apple.com")!)
-                            Button("Begin Sign-In After Repair") { auth.begin() }
-                                .disabled(!auth.canBegin)
                         }
-                    case .useAppSpecificPassword:
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(auth.terminalFailureGuidance ?? "Apple requires an app-specific password for this authentication path.")
-                                .font(.footnote).foregroundColor(.orange)
-                            Link("Open Apple Account", destination: URL(string: "https://account.apple.com")!)
-                            Button("Use App-Specific Password") { auth.begin() }
-                                .disabled(!auth.canBegin)
-                        }
-                    case .blocked:
-                        Text(auth.terminalFailureGuidance ?? "This failure is not marked safe to retry. Review Diagnostics before another attempt.")
-                            .font(.footnote).foregroundColor(.orange)
                     }
-                }
-                if auth.state != "resultUnknown" && V3AuthCancellationRetryPolicy.canRetry(isCancelling: auth.isCancelling,
-                    cancellationConfirmed: auth.cancellationConfirmed,
-                    hasSession: auth.hasSession) {
-                    Button(auth.cancellationWasAttempted ? "Retry Cancellation" : "Cancel Unconfirmed Sign-In",
-                           role: .cancel) { auth.cancel() }
-                }
-                if auth.state == "resultUnknown" {
-                    switch V3AuthUnknownResultRecoveryPolicy.action(
-                        isCancelling: auth.isCancelling,
+                    if auth.state != "resultUnknown" && V3AuthCancellationRetryPolicy.canRetry(isCancelling: auth.isCancelling,
                         cancellationConfirmed: auth.cancellationConfirmed,
                         hasSession: auth.hasSession) {
-                    case .cancelSession:
                         Button(auth.cancellationWasAttempted ? "Retry Cancellation" : "Cancel Unconfirmed Sign-In",
                                role: .cancel) { auth.cancel() }
+                    }
+                    if auth.state == "resultUnknown" {
+                        switch V3AuthUnknownResultRecoveryPolicy.action(
+                            isCancelling: auth.isCancelling,
+                            cancellationConfirmed: auth.cancellationConfirmed,
+                            hasSession: auth.hasSession) {
+                        case .cancelSession:
+                            Button(auth.cancellationWasAttempted ? "Retry Cancellation" : "Cancel Unconfirmed Sign-In",
+                                   role: .cancel) { auth.cancel() }
+                                .disabled(auth.isCancelling)
+                        case .reloadStatus:
+                            Button(auth.isCancelling ? "Checking..." : "Reload Status") {
+                                auth.reloadAuthoritativeAccountStatus()
+                            }
                             .disabled(auth.isCancelling)
-                    case .reloadStatus:
-                        Button(auth.isCancelling ? "Checking..." : "Reload Status") {
-                            auth.reloadAuthoritativeAccountStatus()
+                        case .none:
+                            EmptyView()
                         }
-                        .disabled(auth.isCancelling)
-                    case .none:
-                        EmptyView()
                     }
-                }
-                if !V3AuthCancellationRetryPolicy.canRetry(isCancelling: auth.isCancelling,
-                    cancellationConfirmed: auth.cancellationConfirmed,
-                    hasSession: auth.hasSession) &&
-                    (auth.state == "working" || auth.state == "awaitingPrompt" ||
-                     auth.state == "promptExpired") {
-                    Button(auth.isCancelling ? "Cancelling..." : "Cancel Sign In",
-                        role: .cancel) { auth.cancel() }
-                        .disabled(auth.isCancelling)
-                }
-                if auth.provisioningRecoveryRequiresReconciliation {
-                    Button(auth.checkingProvisioningStorage ? "Checking Saved State..." : "Check Saved Signing State") {
-                        auth.checkProvisioningStorage()
-                    }
-                    .disabled(!auth.canCheckProvisioningStorage)
-                }
-                // V3_PROVISIONING_RECOVERY_ACTIONS_V1: the actions describe the
-                // provisioning state, not a failed sign-in. "Retry" re-enters
-                // provisioning with the saved session; "Finish Later" keeps the
-                // authenticated account and closes this flow.
-                if auth.hasProvisioningProblem {
-                    let recovery = auth.provisioningRecoveryActions
-                    if recovery.showCancellationInstruction {
-                        Text("Cancel the unconfirmed sign-in before retrying provisioning.")
-                            .font(.caption).foregroundColor(.secondary)
-                    }
-                    if recovery.showRetryProvisioning || auth.state != "resultUnknown" {
-                        Button {
-                            auth.retryProvisioning()
-                        } label: {
-                            Label("Retry Provisioning", systemImage: "arrow.clockwise")
-                        }
-                        .disabled(!auth.canRetryProvisioning)
-                    }
-                    if recovery.showReauthenticateProvisioning {
-                        Button("Sign In Again to Finish Setup") { auth.reauthenticateProvisioning() }
-                            .disabled(!auth.canReauthenticateProvisioning)
+                    if !V3AuthCancellationRetryPolicy.canRetry(isCancelling: auth.isCancelling,
+                        cancellationConfirmed: auth.cancellationConfirmed,
+                        hasSession: auth.hasSession) &&
+                        (auth.state == "working" || auth.state == "awaitingPrompt" ||
+                         auth.state == "promptExpired") {
+                        Button(auth.isCancelling ? "Cancelling..." : "Cancel Sign In",
+                            role: .cancel) { auth.cancel() }
+                            .disabled(auth.isCancelling)
                     }
                     if auth.provisioningRecoveryRequiresReconciliation {
-                        Text("A local account or certificate save could not be verified. Setup is blocked until that saved state is repaired; another sign-in cannot safely retry it.")
-                            .font(.caption).foregroundColor(.secondary)
-                    } else if auth.provisioningSessionUnavailable {
-                        Text("Sign in again with the same Apple ID to finish setup. Your account and certificate are kept.")
-                            .font(.caption).foregroundColor(.secondary)
+                        Button(auth.checkingProvisioningStorage ? "Checking Saved State..." : "Check Saved Signing State") {
+                            auth.checkProvisioningStorage()
+                        }
+                        .disabled(!auth.canCheckProvisioningStorage)
                     }
-                    if recovery.blockedByActiveSession {
-                        Text("Another sign-in or provisioning attempt is still active. Wait for it to finish, then reload status.")
-                            .font(.caption).foregroundColor(.secondary)
-                    }
-                    if recovery.showFinishLater {
-                        Button("Finish Later") { finishProvisioningLater() }
+                    // V3_PROVISIONING_RECOVERY_ACTIONS_V1: the actions describe the
+                    // provisioning state, not a failed sign-in. "Retry" re-enters
+                    // provisioning with the saved session; "Finish Later" keeps the
+                    // authenticated account and closes this flow.
+                    if auth.hasProvisioningProblem {
+                        let recovery = auth.provisioningRecoveryActions
+                        if recovery.showCancellationInstruction {
+                            Text("Cancel the unconfirmed sign-in before retrying provisioning.")
+                                .font(.caption).foregroundColor(.secondary)
+                        }
+                        if recovery.showRetryProvisioning || auth.state != "resultUnknown" {
+                            Button {
+                                auth.retryProvisioning()
+                            } label: {
+                                Label("Retry Provisioning", systemImage: "arrow.clockwise")
+                            }
+                            .disabled(!auth.canRetryProvisioning)
+                        }
+                        if recovery.showReauthenticateProvisioning {
+                            Button("Sign In Again to Finish Setup") { auth.reauthenticateProvisioning() }
+                                .disabled(!auth.canReauthenticateProvisioning)
+                        }
+                        if auth.provisioningRecoveryRequiresReconciliation {
+                            Text("A local account or certificate save could not be verified. Setup is blocked until that saved state is repaired; another sign-in cannot safely retry it.")
+                                .font(.caption).foregroundColor(.secondary)
+                        } else if auth.provisioningSessionUnavailable {
+                            Text("Sign in again with the same Apple ID to finish setup. Your account and certificate are kept.")
+                                .font(.caption).foregroundColor(.secondary)
+                        }
+                        if recovery.blockedByActiveSession {
+                            Text("Another sign-in or provisioning attempt is still active. Wait for it to finish, then reload status.")
+                                .font(.caption).foregroundColor(.secondary)
+                        }
+                        if recovery.showFinishLater {
+                            Button("Finish Later") { finishProvisioningLater() }
+                        }
                     }
                 }
             }
@@ -6816,11 +6820,6 @@ struct V3SignInView: View {
                     }
                 }
             }
-            Section("About") {
-                Text("Sign-in runs entirely in this screen. Credentials and codes go to Apple through the SideStore service; no separate app opens.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Sign In")
@@ -6839,6 +6838,21 @@ struct V3SignInView: View {
             // invalidation even after this presentation disappears.
             status.reload()
         }
+    }
+    // A provisioning recovery prompt already explains the failure and owns
+    // Retry / Finish Later. Do not prepend an empty status/cancel card, but
+    // never suppress account facts, cancellation feedback or other recovery.
+    private var isProvisioningRecoveryPrompt: Bool {
+        auth.state == "awaitingPrompt" &&
+        auth.prompt?["kind"] as? String == "provisioningError"
+    }
+    private var shouldShowAccountSection: Bool {
+        !isProvisioningRecoveryPrompt ||
+        auth.isSignedIn || auth.isCancelling || auth.cancellationWasAttempted ||
+        !auth.cancellationConfirmed || !auth.message.isEmpty ||
+        !auth.currentAttemptFailure.message.isEmpty || auth.hasProvisioningProblem ||
+        auth.provisioningRecoveryRequiresReconciliation ||
+        !auth.deliveryProgressMessage.isEmpty || auth.twoFactorTransientStep != nil
     }
     private var statusText: String {
         V3AuthCancellationFeedbackPolicy.statusLabel(isCancelling: auth.isCancelling,

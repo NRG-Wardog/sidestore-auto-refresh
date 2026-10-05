@@ -101,7 +101,7 @@ class AccountDiagnosticTests(unittest.TestCase):
             ('registerDevice', 'self.registerCurrentDevice(')):
             self.assertLess(loop.index('diagnosticStep = .' + step), loop.index(operation))
         self.assertIn('if resolvedCertificate == nil {', loop)
-        self.assertIn('if diagnosticError.requiresReconciliation { throw diagnosticError }', loop)
+        self.assertIn('if diagnosticError.requiresReconciliation || diagnosticError.portalSessionRejected { throw diagnosticError }', loop)
         self.assertIn('resolveProvisioningError(diagnosticError)', loop)
         finalize = declaration(source, '    private func finalizeAuthentication(')
         self.assertIn('throw v3AccountOperationFailure(error, step: .activateAccount)', finalize)
@@ -114,6 +114,26 @@ class AccountDiagnosticTests(unittest.TestCase):
         auth_loop = declaration(source, '    private func authenticationLoop(')
         self.assertLess(auth_loop.index('local.credentialCommit { throw local }'),
                         auth_loop.index('V3TwoFactorRetryPolicy.shouldReuseCredentialsForCodeRetry'))
+
+    def test_rejected_team_session_offers_reauthentication_not_same_token_retry(self):
+        runtime = (ROOT / 'scripts/templates/v3_headless_runtime.swift').read_text()
+        handler = declaration(runtime, '    func resolveProvisioningError(')
+        rejected = handler.split('if diagnosticError.portalSessionRejected {', 1)[1].split('if diagnosticError.requiresReconciliation', 1)[0]
+        self.assertIn('error: diagnosticError, mayRetry: false', rejected)
+        self.assertIn('Sign In Again to Finish Setup', rejected)
+        self.assertIn('before certificate setup', rejected)
+        self.assertNotIn('password', rejected.lower())
+        self.assertIn('if resumeUnavailable || portalSessionRejected || provisioningRecoveryRequiresReconciliation', runtime)
+        self.assertIn('!resumeUnavailable && !portalSessionRejected && !provisioningRecoveryRequiresReconciliation', runtime)
+        retirement = runtime.split('if portalSessionRejected {', 1)[1].split('let postAuthentication', 1)[0]
+        self.assertIn('AuthManager.shared.v3ReplaceSession(nil)', retirement)
+        expiry = declaration(runtime, '    func expire(id: String)')
+        self.assertIn('session.rejectedPortalSessionFailure == nil', expiry)
+        self.assertIn('response["resumable"] = false', expiry)
+        self.assertIn('response["technicalDetails"] = failure.technicalDetails', expiry)
+        self.assertIn('center.sessions[sessionID]?.rejectedPortalSessionFailure =', rejected)
+        for forbidden in ('signOut(', 'clearSignInInfo', 'clearActiveCertificate', 'revoke'):
+            self.assertNotIn(forbidden, retirement)
 
     def test_typed_errors_round_trip_to_prompt_and_copy_diagnostics(self):
         self.execute(diagnostic_sources() + (ROOT / 'tests/fixtures/v3_account_diagnostics_harness.swift').read_text())

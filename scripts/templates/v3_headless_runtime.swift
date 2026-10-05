@@ -694,6 +694,7 @@ final class V3AuthCenter {
         var terminal = V3TerminalResponse()
         var deadline = Date.distantFuture
         var previousFailure: [String: Any]?
+        var rejectedPortalSessionFailure: CombinedFailure?
         var terminalAt: Date?
         var cancellationRequested = false
         var acceptedPromptIDs: [String] = []
@@ -976,6 +977,12 @@ final class V3AuthCenter {
                 // outcome discriminator, so the host never has to guess and can
                 // never present a successful sign-in as a failed one.
                 let resumeUnavailable = error is V3ProvisioningResumeUnavailableError
+                let portalSessionRejected = (error as? V3AccountOperationError)?.portalSessionRejected == true
+                if portalSessionRejected {
+                    // Retire only the rejected process-local session. Preserve
+                    // the saved account and certificates for explicit reauthentication.
+                    AuthManager.shared.v3ReplaceSession(nil)
+                }
                 let postAuthentication = V3AuthPostAuthenticationFailurePolicy.resolve(
                     cancelled: cancelled, savedSessionUnavailable: resumeUnavailable)
                 let failure: CombinedFailure
@@ -987,7 +994,7 @@ final class V3AuthCenter {
                         id: id, retryable: cancelled)
                 }
                 var failureWire = failure.wire
-                if resumeUnavailable || provisioningRecoveryRequiresReconciliation {
+                if resumeUnavailable || portalSessionRejected || provisioningRecoveryRequiresReconciliation {
                     resumableProvisioning = nil
                 } else if let resumableAppleID = V3ProvisioningResumeIdentityPolicy.select(
                     authenticatedSessionAppleID: session?.authenticatedAppleID,
@@ -996,12 +1003,14 @@ final class V3AuthCenter {
                 } else {
                     resumableProvisioning = nil
                 }
-                let message = postAuthentication.message
+                let message = portalSessionRejected
+                    ? "Apple rejected the developer-portal session while loading your teams (1100). Sign in again to finish setup."
+                    : postAuthentication.message
                 var response: [String: Any] = [
                     "state": authenticatedOutcome,
                     "authenticated": true,
                     "outcome": cancelled ? "provisioningCancelled" : "provisioningFailed",
-                    "resumable": tokenBackedRoute && !resumeUnavailable && !provisioningRecoveryRequiresReconciliation,
+                    "resumable": tokenBackedRoute && !resumeUnavailable && !portalSessionRejected && !provisioningRecoveryRequiresReconciliation,
                     "message": message,
                     "stage": failure.stage.rawValue,
                     "code": failure.code.rawValue,
@@ -1107,20 +1116,28 @@ final class V3AuthCenter {
         let routeMatchesAttempt = V3AuthIdentityBindingPolicy.mayUseTeam(
             sessionOwner: authenticatedAppleID, teamOwner: authCredentials?.appleIDEmailAddress)
         let authenticated = authenticationConfirmed && tokenBackedRoute && routeMatchesAttempt
-        if authenticated, tokenBackedRoute,
+        if authenticated, tokenBackedRoute, session.rejectedPortalSessionFailure == nil,
            let authenticatedAppleID, !authenticatedAppleID.isEmpty,
            resumableProvisioning?.appleID != authenticatedAppleID {
             resumableProvisioning = (authenticatedAppleID, "sessionTimeout")
         }
-        let resumable = authenticated && tokenBackedRoute &&
+        let resumable = authenticated && tokenBackedRoute && session.rejectedPortalSessionFailure == nil &&
             authenticatedAppleID.map { resumableProvisioning?.appleID == $0 } == true
         session.cancellationRequested = true
         session.task?.cancel()
         session.watchdog?.cancel()
         session.prompt = nil
         sessions[id] = session
-        let response = V3AuthSessionExpiryPolicy.response(authenticated: authenticated,
+        var response = V3AuthSessionExpiryPolicy.response(authenticated: authenticated,
                                                           resumable: resumable)
+        if let failure = session.rejectedPortalSessionFailure {
+            response["resumable"] = false
+            response["failure"] = failure.wire
+            response["stage"] = failure.stage.rawValue
+            response["code"] = failure.code.rawValue
+            response["technicalDetails"] = failure.technicalDetails
+            response["message"] = "Apple rejected the developer-portal session while loading your teams (1100). Sign in again to finish setup."
+        }
         _ = finish(id: id, response: response)
         if session.task == nil, activeID == id { activeID = nil }
         debugLog("[V3_AUTH] TERMINAL session=\(id) state=\(authenticated ? "authenticatedProvisioningIncomplete" : "timedOut")")
@@ -1427,6 +1444,19 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
         let error = v3AccountUnderlyingError(error)
         if error is CancellationError { return .cancel }
         if v3IsAuthCancellation(error) { return .cancel }
+        if diagnosticError.portalSessionRejected {
+            if let center = try? center(), center.ownsActiveSession(sessionID) {
+                // Preserve the typed rejection even if the prompt watchdog wins
+                // before the operation unwinds. No credential/certificate deletion.
+                center.sessions[sessionID]?.rejectedPortalSessionFailure =
+                    diagnosticError.failure(operation: "signIn", id: sessionID)
+                AuthManager.shared.v3ReplaceSession(nil)
+            }
+            return await askProvisioningRetry(
+                message: "Apple rejected the developer-portal session while loading your teams (1100).",
+                hint: "Choose Finish Later, then Sign In Again to Finish Setup. Retrying provisioning would reuse the rejected session. This happened before certificate setup.",
+                error: diagnosticError, mayRetry: false)
+        }
         if diagnosticError.requiresReconciliation {
             return await askProvisioningRetry(
                 message: "Provisioning reached local storage, but the save result could not be confirmed.",

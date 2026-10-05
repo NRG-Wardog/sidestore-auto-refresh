@@ -1970,6 +1970,7 @@ def patch_sign_in_operation(text):
         required = (
             "V3_AUTH_CREDENTIAL_TRANSACTION_V1",
             "V3_TYPED_ACCOUNT_DIAGNOSTICS_V1",
+            "diagnosticError.portalSessionRejected",
             "V3_ACCOUNT_ACTIVATION_PERSISTENCE_V1",
             "v3AccountOperationFailure(error, step: .credentialCommit)",
             "throw v3AccountOperationFailure(error, step: .activateAccount)",
@@ -2252,7 +2253,7 @@ def patch_sign_in_diagnostics(text):
         '                        self.debugLog("[SignInOperation] User cancelled in provisioningLoop")\n'
         '                        throw OperationError.cancelled\n',
         '                        self.debugLog("[SignInOperation] User cancelled in provisioningLoop")\n'
-        '                        if diagnosticError.requiresReconciliation { throw diagnosticError }\n'
+        '                        if diagnosticError.requiresReconciliation || diagnosticError.portalSessionRejected { throw diagnosticError }\n'
         '                        throw OperationError.cancelled\n')
     # Roll back only the operation-owned context, so unsaved active flags cannot
     # leak into the next snapshot or be committed by a later unrelated save.

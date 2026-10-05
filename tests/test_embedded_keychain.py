@@ -380,6 +380,95 @@ HARNESS = r'''
             precondition(LCEmbeddedSharedKeychain.read("importedCert_test", client: client) == cert)
             precondition(LCEmbeddedSharedKeychain.read("appleIDXcodeToken", client: client) == nil)
             precondition(Store.writes == 0)
+        case "certificate_fallback_allowlist":
+            let longImportedKey = "importedCert_" + String(repeating: "x", count: 256)
+            let values = ["signingCertificatePrivateKey": Data("legacy-private-key-fixture".utf8),
+                "signingCertificateSerialNumber": Data("legacy-serial-fixture".utf8),
+                "importedCert_test": Data("legacy-imported-cert-fixture".utf8),
+                "unexpectedKey": Data("unrelated-legacy-value".utf8),
+                longImportedKey: Data("oversized-legacy-key".utf8)]
+            Store.data[Store.processGroup] = values
+            let client = LCEmbeddedSharedKeychain.makeClient()
+            LCEmbeddedSharedKeychain.prepare(client)
+            for key in ["signingCertificatePrivateKey", "signingCertificateSerialNumber", "importedCert_test"] {
+                precondition(LCEmbeddedSharedKeychain.read(key, client: client) == values[key])
+            }
+            precondition(LCEmbeddedSharedKeychain.read("unexpectedKey", client: client) == nil)
+            precondition(LCEmbeddedSharedKeychain.read(longImportedKey, client: client) == nil)
+            precondition(Store.writes == 0 && Store.data[Store.processGroup] == values,
+                "certificate fallback stays read-only and bounded")
+        case "anisette_markerless_login_continuity", "anisette_signed_out_login_continuity":
+            // A legacy namespace can retain Anisette after its Apple login was
+            // cleared. It is not a complete account migration source.
+            let legacyID = Data("11111111-1111-1111-1111-111111111111".utf8)
+            let legacyBlob = Data("legacy-anisette-blob".utf8)
+            let legacy = ["identifier": legacyID, "adiPb": legacyBlob]
+            Store.data[Store.processGroup] = legacy
+            if scenario == "anisette_signed_out_login_continuity" {
+                Store.data[group] = [LCSharedKeychainMigration.marker: LCSharedKeychainMigration.signedOut]
+            }
+            let client = LCEmbeddedSharedKeychain.makeClient()
+            LCEmbeddedSharedKeychain.prepare(client)
+            func resolveIdentity() -> Data {
+                if let value = LCEmbeddedSharedKeychain.read("identifier", client: client) { return value }
+                // Model AnisetteConfigManager.resolveDeviceIdentifier(): only
+                // generate and persist when the selected keychain has no ID.
+                let generated = Data("22222222-2222-2222-2222-222222222222".utf8)
+                LCEmbeddedSharedKeychain.write("identifier", data: generated, client: client)
+                return generated
+            }
+            func resolveBlob() -> Data {
+                if let value = LCEmbeddedSharedKeychain.read("adiPb", client: client) { return value }
+                let provisioned = Data("selected-anisette-blob".utf8)
+                LCEmbeddedSharedKeychain.write("adiPb", data: provisioned, client: client)
+                return provisioned
+            }
+            // Password authentication calls viewDeveloper with this identity.
+            let loginIdentity = resolveIdentity()
+            let loginBlob = resolveBlob()
+            try Keychain(client).writeAuthenticationCredentials(appleID: "test@example.com",
+                password: "test-password", dsid: "test-account-id", authToken: "test-token")
+            // fetchTeams asks the same provider for fresh data after the auth
+            // marker becomes ready. The device and its blob must stay bound.
+            precondition(resolveIdentity() == loginIdentity,
+                "committing Apple login must not switch Anisette device identity before fetchTeams")
+            precondition(resolveBlob() == loginBlob,
+                "committing Apple login must not discard the Anisette provisioning blob")
+            precondition(Store.data[group]?["identifier"] == loginIdentity &&
+                Store.data[group]?["adiPb"] == loginBlob,
+                "pre-auth Anisette identity is persisted in the selected namespace")
+            precondition(Store.data[Store.processGroup] == legacy,
+                "legacy Anisette is neither borrowed nor changed without coherent account migration")
+        case "anisette_partial_selected_identity", "anisette_partial_selected_blob":
+            let legacyID = Data("11111111-1111-1111-1111-111111111111".utf8)
+            let legacyBlob = Data("legacy-anisette-blob".utf8)
+            let selectedID = Data("22222222-2222-2222-2222-222222222222".utf8)
+            let selectedBlob = Data("selected-anisette-blob".utf8)
+            Store.data[Store.processGroup] = ["identifier": legacyID, "adiPb": legacyBlob]
+            let selectedKey = scenario == "anisette_partial_selected_identity" ? "identifier" : "adiPb"
+            let missingKey = selectedKey == "identifier" ? "adiPb" : "identifier"
+            let selectedValue = selectedKey == "identifier" ? selectedID : selectedBlob
+            Store.data[group] = [selectedKey: selectedValue]
+            let client = LCEmbeddedSharedKeychain.makeClient()
+            LCEmbeddedSharedKeychain.prepare(client)
+            precondition(LCEmbeddedSharedKeychain.read(selectedKey, client: client) == selectedValue)
+            precondition(LCEmbeddedSharedKeychain.read(missingKey, client: client) == nil,
+                "never combine an Anisette identifier and blob from different keychain namespaces")
+        case "anisette_complete_migration_preserved":
+            let identifier = Data("11111111-1111-1111-1111-111111111111".utf8)
+            let blob = Data("legacy-anisette-blob".utf8)
+            let legacy = login.merging(["identifier": identifier, "adiPb": blob]) { _, new in new }
+            Store.data[Store.processGroup] = legacy
+            let client = LCEmbeddedSharedKeychain.makeClient()
+            LCEmbeddedSharedKeychain.prepare(client)
+            precondition(LCEmbeddedSharedKeychain.read("identifier", client: client) == identifier &&
+                LCEmbeddedSharedKeychain.read("adiPb", client: client) == blob,
+                "coherent full account migration still preserves its Anisette pair")
+            try Keychain(client).writeAuthenticationCredentials(appleID: "test@example.com",
+                password: "test-password", dsid: "test-account-id", authToken: "new-test-token")
+            precondition(LCEmbeddedSharedKeychain.read("identifier", client: client) == identifier &&
+                LCEmbeddedSharedKeychain.read("adiPb", client: client) == blob)
+            precondition(Store.data[Store.processGroup] == legacy)
         case "invalid_utf8":
             seed(); let client = LCEmbeddedSharedKeychain.makeClient(); LCEmbeddedSharedKeychain.prepare(client)
             Store.data[group]?["appleIDXcodeToken"] = Data([0xff])
@@ -621,7 +710,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
             raise AssertionError(result.stderr)
 
     def test_execution_scenarios(self):
-        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "stale_snapshot_signout", "checked_signout_failure", "checked_signout_rollback", "checked_signout_outcome_unknown", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "partial_single_auth_item_never_marks_ready", "stale_ready_partial_route_is_downgraded", "partial_signin_write_failure_no_ready", "partial_signin_failure_preserves_previous_credentials", "partial_signin_rollback_unverified_is_unknown", "credential_snapshot_serializes_bulk_replacement", "snapshot_access_error_preserves_actionable_keychain_failure", "new_credentials_remain_readable_after_an_empty_snapshot_observation", "certificate_only", "invalid_utf8"):
+        for scenario in ("shared_route", "extension_first", "no_password_or_token_logging", "locked", "migration_retry_after_unlock", "missing_entitlement", "missing_group", "wrong_identity", "signout_no_resurrection", "stale_snapshot_signout", "checked_signout_failure", "checked_signout_rollback", "checked_signout_outcome_unknown", "clear_all_no_resurrection", "unchanged_no_writes", "partial_retry", "conflicts_fail_before_writes", "no_cross_group_pair", "preserve_new_login", "partial_single_auth_item_never_marks_ready", "stale_ready_partial_route_is_downgraded", "partial_signin_write_failure_no_ready", "partial_signin_failure_preserves_previous_credentials", "partial_signin_rollback_unverified_is_unknown", "credential_snapshot_serializes_bulk_replacement", "snapshot_access_error_preserves_actionable_keychain_failure", "new_credentials_remain_readable_after_an_empty_snapshot_observation", "certificate_only", "invalid_utf8", "anisette_markerless_login_continuity", "anisette_signed_out_login_continuity", "anisette_partial_selected_identity", "anisette_partial_selected_blob", "anisette_complete_migration_preserved", "certificate_fallback_allowlist"):
             with self.subTest(scenario=scenario):
                 result = subprocess.run([str(self.executable), scenario], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0,

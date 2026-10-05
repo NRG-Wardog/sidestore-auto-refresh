@@ -1447,6 +1447,11 @@ struct V3AccountOperationError: Error, LocalizedError {
 
     var errorDescription: String? { "An account operation failed; review the safe diagnostics." }
     var credentialCommit: Bool { step == .credentialCommit }
+    // Apple Developer Portal result 1100 rejects the portal session. Scope this
+    // to the observed team-list boundary; an NSError bridge code is not proof.
+    var portalSessionRejected: Bool {
+        step == .fetchTeams && kind == .sideSignServerReportedError && serverCode == 1100
+    }
     var requiresReconciliation: Bool {
         kind == .keychainOutcomeUnknown || kind == .persistenceOutcomeUnknown
     }
@@ -1469,7 +1474,7 @@ struct V3AccountOperationError: Error, LocalizedError {
         // HTTP status remains unavailable unless a typed producer observes it.
         return CombinedFailure(operation: operation, stage: failureStage, id: id,
             underlying: NSError(domain: native.domain, code: native.code),
-            retryable: safeCause != nil ? false : nil, safeCause: safeCause,
+            retryable: safeCause != nil || portalSessionRejected ? false : nil, safeCause: safeCause,
             sourceStep: step, signingContext: ["typed_error": kind.rawValue,
                 "server_code": serverCode.map(String.init) ?? "unknown", "http_status": "unavailable"])
     }

@@ -8,7 +8,10 @@ enum HarnessError: Error { case injected }
 struct CombinedFailure {
     enum SourceStep { case fetchTeams, saveAccount, fetchCertificate, activateCertificate, registerDevice }
 }
-struct DiagnosticFailure: Error { var requiresReconciliation: Bool { false } }
+struct DiagnosticFailure: Error {
+    var requiresReconciliation: Bool { false }
+    var portalSessionRejected: Bool { false }
+}
 func v3AccountOperationFailure(_ error: Error, step: CombinedFailure.SourceStep) -> DiagnosticFailure { DiagnosticFailure() }
 struct ALTAnisetteData {}
 struct ALTAppleAPISession { var dsid = "dsid"; var authToken = "token"; var anisetteData = ALTAnisetteData() }

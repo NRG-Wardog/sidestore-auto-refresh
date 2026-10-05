@@ -28,6 +28,11 @@ enum LCSharedKeychainMigration {
         knownKeys.contains(key) || (key.hasPrefix("importedCert_") && key.count <= 256)
     }
 
+    static func supportsLegacyCertificateFallback(_ key: String) -> Bool {
+        ["signingCertificatePrivateKey", "signingCertificateSerialNumber"].contains(key) ||
+            (key.hasPrefix("importedCert_") && key.count <= 256)
+    }
+
     static func complete(_ values: [String: Data]) -> Bool {
         func present(_ key: String) -> Bool {
             guard let data = values[key], let value = String(data: data, encoding: .utf8) else { return false }
@@ -438,10 +443,15 @@ fileprivate enum LCEmbeddedSharedKeychain {
             }
             let ready = try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.ready
             var data = try client.getData(key)
-            if data == nil && !ready {
+            if data == nil && !ready && LCSharedKeychainMigration.supportsLegacyCertificateFallback(key) {
                 // Preserve certificate-only/imported-certificate setups before
                 // an Apple login is migrated. This fallback is READ ONLY and
                 // cannot make an authentication preflight pass.
+                // Anisette identifier/adiPb must use the selected namespace on
+                // both sides of the auth commit. Borrowing them only before
+                // ready would change the device identity between successful
+                // viewDeveloper authentication and the following fetchTeams.
+                // A coherent full migration above already preserves both keys.
                 let legacy = KeychainAccess.Keychain(service: service)
                     .accessibility(.afterFirstUnlock).synchronizable(true)
                 data = try legacy.getData(key)
