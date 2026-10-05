@@ -23,7 +23,10 @@ struct PromptRaceHarness {
         }
         precondition(center.pendingCount == 1, "prompt continuation was not installed")
         precondition(center.answer(promptID: prompt, answer: ["action": "sms"]) == .accepted)
-        precondition(center.answer(promptID: prompt, answer: ["action": "voice"]) == .alreadySettled,
+        let duplicate = center.answer(promptID: prompt, answer: ["action": "voice"])
+        // The resumed detached waiter may remove its box before this call.
+        // Both terminal states reject the duplicate; only .accepted is unsafe.
+        precondition(duplicate == .alreadySettled || duplicate == .unavailable,
                      "rapid duplicate answer was accepted")
         let pendingReply = V3PromptResponseStatePolicy.responsePending(.unavailable,
             acceptedPromptID: prompt, promptID: prompt, sessionID: "session",
@@ -81,6 +84,26 @@ struct PromptRaceHarness {
         precondition(center.pendingCount == 0, "answered continuation was retained")
         precondition(center.answer(promptID: prompt, answer: ["action": "voice"]) == .unavailable,
                      "a consumed prompt cannot accept another response")
+        // Stress the real answer-versus-cleanup interleaving, without assuming
+        // which executor gets the next timeslice after continuation.resume().
+        for _ in 0..<256 {
+            let id = UUID().uuidString
+            let waiter = Task.detached { try await center.park(promptID: id) }
+            var spins = 0
+            while center.pendingCount == 0 && spins < 10_000 {
+                spins += 1
+                await Task.yield()
+            }
+            precondition(center.pendingCount == 1)
+            precondition(center.answer(promptID: id, answer: ["value": "first"]) == .accepted)
+            let duplicate = center.answer(promptID: id, answer: ["value": "second"])
+            precondition(duplicate == .alreadySettled || duplicate == .unavailable,
+                         "a raced duplicate resumed the prompt again")
+            let delivered = try await waiter.value
+            precondition(delivered["value"] == "first", "duplicate replaced the accepted answer")
+            precondition(center.pendingCount == 0)
+            precondition(center.answer(promptID: id, answer: ["value": "third"]) == .unavailable)
+        }
         print("V3_PROMPT_RACE_PASS")
     }
 }
