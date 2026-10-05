@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 import sys
 
+from patch_cf_bundle_scan import patch_bootstrap as patch_cf_bundle_bootstrap
+
 
 MARKER = "EMBEDDED_SIDESTORE_STARTUP_FIX_V1"
 
@@ -263,6 +265,7 @@ def patch_database(path: Path) -> None:
 
 
 def patch(live_root: Path, sidestore_root: Path) -> None:
+    patch_cf_bundle_bootstrap(live_root / "LiveContainer" / "LCBootstrap.m")
     patch_hooks(live_root / "SideStoreSupport" / "SideStoreHooks.m")
     remove_non_live_sidestore_ui_hooks(live_root / "SideStoreSupport" / "SideStoreHooks.m")
     patch_auth_storage(sidestore_root / "SideStore" / "Core" / "Auth" / "AuthManager.swift")

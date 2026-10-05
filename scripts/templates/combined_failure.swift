@@ -324,6 +324,7 @@ public struct CombinedFailure: Error, LocalizedError {
         case developerPortalInvalidResponse
         case provisioningProfileUnavailable
         case certificateUnavailable
+        case signingStorageUnverified
         case wifiUnavailable
         case localDevVPNUnavailable
         case unknownSigningCause
@@ -394,7 +395,7 @@ public struct CombinedFailure: Error, LocalizedError {
                 return false
             case .anisetteInvalidResponse, .anisetteUnknownFailure:
                 return nil
-            case .appIDLimitReached, .provisioningProfileUnavailable, .certificateUnavailable:
+            case .appIDLimitReached, .provisioningProfileUnavailable, .certificateUnavailable, .signingStorageUnverified:
                 return false
             case .developerPortalRejectedRequest, .developerPortalInvalidResponse:
                 return nil
@@ -736,6 +737,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case .developerPortalInvalidResponse: return "The provisioning service returned an invalid response during signing."
             case .provisioningProfileUnavailable: return "A required provisioning profile is not available for this app."
             case .certificateUnavailable: return "The selected signing certificate is not available."
+            case .signingStorageUnverified: return "SideStore cannot change Apple certificates while saved signing state is unverified."
             case .wifiUnavailable: return "Wi-Fi was unavailable before refresh started."
             case .localDevVPNUnavailable: return "LocalDevVPN was unavailable before refresh started."
             case .unknownSigningCause: return "SideStore could not sign the selected app. The exact underlying cause could not be safely identified."
@@ -1024,6 +1026,8 @@ public struct CombinedFailure: Error, LocalizedError {
                 return "Open Account & Signing and start a new sign-in. SideStore will reconcile the current account before proceeding."
             case .authResponseCapacityUnavailable:
                 return "Wait for SideStore to release earlier request results, reload account status, then try again. No Apple credentials were submitted."
+            case .signingStorageUnverified:
+                return "Open Account & Signing and choose Check Saved Signing State. Creating or revoking Apple certificates stays blocked until local storage is verified."
             case .credentialCommitFailed, .credentialCommitOutcomeUnknown:
                 return "Reload Account & Signing to reconcile local storage before starting another sign-in. Keep existing account data and copy Diagnostics if this continues."
             case .accountActivationFailed, .provisioningStorageFailed:

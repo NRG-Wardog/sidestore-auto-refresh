@@ -51,7 +51,8 @@ class PromptTransportTests(unittest.TestCase):
         production = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
         methods = declaration(production, "    fileprivate func accepted(") + "\n" + declaration(
             production, "    private func confirmLaunchedPeer(")
-        source = '''import Foundation
+        source = (ROOT / "scripts/templates/combined_failure.swift").read_text() + '''
+import Foundation
 protocol RefreshClient: AnyObject {}
 final class DummyClient: RefreshClient {}
 final class NSXPCInterface { init(with type: Any.Type) {} }
@@ -72,11 +73,17 @@ final class NSXPCConnection {
     var connection: NSXPCConnection?; var client: RefreshClient?
     var pendingPeerConnections: [NSXPCConnection] = []
     var signals = 0
+    var launchPeerPIDRejected: Bool?
+    var launchXPCAccepted: Bool?
+    var failures: [CombinedFailure.LaunchContext.Step] = []
     var service: Owner { self }
-    enum Stage { case xpcConnection }; enum Signal { case connected }
+    enum Signal { case connected }
     func signal(_ signal: Signal, attempt: UUID) { signals += 1 }
-    func failed(_ id: UUID, stage: Stage, underlying: Error? = nil, code: Int = 0) {}
-''' + methods.replace("code: .interrupted", "code: 1").replace(
+    func failed(_ id: UUID, stage: CombinedFailure.Stage, code: CombinedFailure.Code = .failed,
+                underlying: Error? = nil, launchSourceStep: CombinedFailure.LaunchContext.Step? = nil) {
+        failures.append(launchSourceStep ?? .unknown)
+    }
+''' + methods.replace(
     "private func confirmLaunchedPeer", "fileprivate func confirmLaunchedPeer") + '''
 }
 @main struct Test {
@@ -88,21 +95,25 @@ final class NSXPCConnection {
             owner.accepted(rogue, id: id); owner.accepted(correct, id: id)
             if early {
                 precondition(rogue.resumes == 0 && correct.resumes == 0 && correct.proxies == 0)
+                precondition(owner.launchPeerPIDRejected == nil && owner.launchXPCAccepted == nil)
                 owner.sideStorePid = 42; owner.confirmLaunchedPeer(id)
             }
             precondition(rogue.invalidated && rogue.resumes == 0 && rogue.proxies == 0)
             precondition(correct.resumes == 1 && owner.connection === correct && owner.signals == 1)
+            precondition(owner.launchPeerPIDRejected == true && owner.launchXPCAccepted == true)
             let duplicate = NSXPCConnection(42); owner.accepted(duplicate, id: id)
             precondition(duplicate.invalidated && duplicate.resumes == 0)
             let stale = NSXPCConnection(42); owner.accepted(stale, id: UUID())
             precondition(stale.invalidated && stale.resumes == 0)
+            precondition(owner.launchPeerPIDRejected == true && owner.launchXPCAccepted == true && owner.failures.isEmpty)
         }
         print("V3_PEER_ADMISSION_PASS")
     }
 }
 '''
         self.execute(source, "V3_PEER_ADMISSION_PASS")
-        mutant = source.replace(
-            "guard incoming.processIdentifier == sideStorePid else { incoming.invalidate(); return }", "")
+        peer_guard = declaration(production, "guard incoming.processIdentifier == sideStorePid else {")
+        self.assertEqual(source.count(peer_guard), 1, "production peer-admission guard anchor drifted")
+        mutant = source.replace(peer_guard, "", 1)
         self.assertNotEqual(source, mutant)
         self.execute(mutant, should_pass=False)

@@ -252,6 +252,12 @@ HARNESS = r'''
             try keychain.reconcileStorage()
             let stillBlocked = try keychain.storageRequiresReconciliation()
             precondition(!stillBlocked, "exact intended readback resolves without rewriting credentials")
+        case "certificate_parser_dependency":
+            let newCertificate = try CertificateManager.parse(Data("new-p12".utf8), password: "new-password")
+            let oldCertificate = try CertificateManager.parse(Data("old-p12".utf8), password: "old-password")
+            precondition(newCertificate.serialNumber == "new-serial" && oldCertificate.serialNumber == "old-serial")
+            expectFailure(1009) { _ = try CertificateManager.parse(Data("new-p12".utf8), password: "wrong-password") }
+            expectFailure(1009) { _ = try CertificateManager.parse(Data("invalid-p12".utf8), password: "new-password") }
         case "certificate_no_cross_group_password":
             Store.data[group] = ["signingCertificate": Data("selected-p12".utf8)]
             Store.data[Store.processGroup] = ["signingCertificatePassword": Data("foreign-password".utf8)]
@@ -271,7 +277,7 @@ SCENARIOS = (
     "auth_each_write_failure", "auth_readback_failure", "certificate_commit", "certificate_each_write_failure",
     "certificate_readback_failure", "certificate_parse_failure", "certificate_uncertain_restart",
     "certificate_ready_failed_rollback_fences", "auth_ready_failed_rollback_fences",
-    "certificate_no_cross_group_password", "certificate_reconcile_intended", "certificate_reconcile_partial",
+    "certificate_parser_dependency", "certificate_no_cross_group_password", "certificate_reconcile_intended", "certificate_reconcile_partial",
     "auth_reconcile_previous", "auth_reconcile_intended", "auth_reconcile_partial", "reconcile_preserves_tombstone", "auth_ready_with_retained_journal",
 )
 

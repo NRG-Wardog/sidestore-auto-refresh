@@ -1,5 +1,5 @@
 
-struct ALTAccount {}
+struct ALTAccount { var appleID = "private-email"; var identifier = "private-dsid" }
 struct ALTAppleAPISession { let dsid = "private-dsid"; let authToken = "private-token" }
 struct ALTTeam { let identifier = "private-team" }
 struct ALTCertificate { let data: Data? = nil }
@@ -15,13 +15,20 @@ final class AuthManager {
     var session: ALTAppleAPISession?
     var team: ALTTeam?
     var transitions = 0
+    var v3IdentityIsStable: Bool { transitions == 0 }
+    var v3IdentityStamp = "current-stamp"
     func v3BeginIdentityTransition() { transitions += 1 }
     func v3CompleteIdentityTransition() { transitions -= 1 }
 }
 final class Keychain {
     static let shared = Keychain()
     var injected: Error?
-    var writes = 0
+    var writes = 0, verifiedWrites = 0
+    func writeVerifiedAuthentication(_ candidate: LCEmbeddedAuthenticationCandidate,
+                                     appleID: String, dsid: String, authToken: String) throws {
+        verifiedWrites += 1
+        if let injected { throw injected }
+    }
     func writeAuthenticationCredentials(appleID: String, password: String, dsid: String, authToken: String) throws {
         writes += 1
         if let injected { throw injected }
@@ -69,7 +76,10 @@ final class Operation {
         try commit(appleID: appleID, password: password, session: session)
         return (ALTAccount(), session)
     }
-    func commit(appleID: String, password: String, session: ALTAppleAPISession) throws {
+    func commit(appleID: String, password: String, session: ALTAppleAPISession,
+                account: ALTAccount = ALTAccount(),
+                recoveryCandidate: LCEmbeddedAuthenticationCandidate? = nil,
+                capturedStamp: String? = nil) throws {
         // GENERATED_COMMIT
     }
     func saveTeamAndAccount(_ team: ALTTeam, makeActive: Bool = false) async throws {
@@ -107,6 +117,36 @@ final class Operation {
         let success = Operation()
         _ = try await success.authenticationLoop()
         precondition(AuthManager.shared.session != nil && AuthManager.shared.transitions == 0)
+        let candidate = LCEmbeddedAuthenticationCandidate(credentials: LCEmbeddedAuthenticationSnapshot(
+            appleIDEmailAddress: "private-email", appleIDPassword: nil,
+            appleIDAdsid: "private-dsid", appleIDXcodeToken: "private-token"), marker: nil, values: [:])
+        for code in [1009, 1010, -34018] {
+            Keychain.shared.injected = NSError(domain: "com.SideStore.Keychain", code: code)
+            AuthManager.shared.session = nil
+            let ordinaryWrites = Keychain.shared.writes
+            let verifiedWrites = Keychain.shared.verifiedWrites
+            do {
+                try success.commit(appleID: "private-email", password: "private-password", session: ALTAppleAPISession(),
+                    recoveryCandidate: candidate, capturedStamp: AuthManager.shared.v3IdentityStamp)
+                preconditionFailure("failed verified recovery commit became success")
+            } catch let local as V3AccountOperationError {
+                precondition(local.credentialCommit && local.requiresReconciliation == (code == 1010))
+                precondition(Keychain.shared.verifiedWrites == verifiedWrites + 1 && Keychain.shared.writes == ordinaryWrites)
+                precondition(AuthManager.shared.session == nil && AuthManager.shared.transitions == 0)
+            }
+        }
+        Keychain.shared.injected = nil
+        try success.commit(appleID: "private-email", password: "private-password", session: ALTAppleAPISession(),
+            recoveryCandidate: candidate, capturedStamp: AuthManager.shared.v3IdentityStamp)
+        precondition(AuthManager.shared.session != nil && AuthManager.shared.transitions == 0)
+        let verifiedWrites = Keychain.shared.verifiedWrites
+        do {
+            try success.commit(appleID: "private-email", password: "private-password", session: ALTAppleAPISession(),
+                recoveryCandidate: candidate, capturedStamp: "stale-stamp")
+            preconditionFailure("stale recovery identity was committed")
+        } catch let local as V3AccountOperationError {
+            precondition(local.kind == .legacyMigrationConflict && Keychain.shared.verifiedWrites == verifiedWrites)
+        }
         let activate = Operation()
         do { try await activate.finalizeAuthentication(result: .success(SignInResult())); preconditionFailure("failed activation completed") }
         catch let local as V3AccountOperationError {

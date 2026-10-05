@@ -566,7 +566,7 @@ enum V3ServiceReadinessReply: Equatable {
         "anisetteRateLimited", "anisetteInvalidResponse", "anisetteUnknownFailure",
         "signingNetworkConnectionLost", "signingNetworkTimedOut", "signingNetworkUnavailable",
         "developerPortalRejectedRequest", "developerPortalInvalidResponse", "appIDLimitReached",
-        "provisioningProfileUnavailable", "certificateUnavailable", "wifiUnavailable",
+        "provisioningProfileUnavailable", "certificateUnavailable", "signingStorageUnverified", "wifiUnavailable",
         "localDevVPNUnavailable", "unknownSigningCause", "sourceNetworkFailure",
         "sourceInvalidManifest", "sourcePersistenceUnverified", "sourceInvalidURL",
         "sourceBlocked", "sourceChangedID", "sourceDuplicate", "sourceUnsupported",
@@ -578,12 +578,15 @@ enum V3ServiceReadinessReply: Equatable {
         "pairingFilePreparationFailed", "authAttemptNotDispatched",
         "authProvisioningRetryNotDispatched", "authSessionUnavailable",
         "authResponseCapacityUnavailable", "operationPersistenceFailed", "keychainSignOutFailed",
+        "credentialCommitFailed", "credentialCommitOutcomeUnknown", "accountActivationFailed", "provisioningStorageFailed",
         "keychainSignOutOutcomeUnknown", "recoveryMalformedRecord",
         "recoveryIncompatibleRecord", "recoveryStorageUnavailable",
 "recoveryLockUnavailable", "recoveryReadFailure", "recoveryDeleteFailure",
         "sharedStoreUnavailable", "secretHandoffUnavailable"
     ]
     static let knownSourceStepValues: Set<String> = [
+        "authenticate", "credentialCommit", "fetchTeams", "saveAccount", "fetchCertificate",
+        "activateCertificate", "registerDevice", "activateAccount", "provisioningUnknown",
         "provisioningProfileFetch", "certificateValidation", "localCodeSigning",
         "appIDLookup", "appIDRegistration", "appIDCapabilitiesUpdate",
         "appGroupLookup", "appGroupRegistration", "appGroupAssignment",
@@ -603,7 +606,7 @@ enum V3ServiceReadinessReply: Equatable {
         if reply["error"] != nil || reply["failure"] != nil {
             guard let envelope = reply["failure"] as? [String: Any],
                   Set(envelope.keys).isSubset(of: Set(["version", "operation", "stage", "code", "correlationID",
-                      "underlyingDomain", "underlyingCode", "retryable", "safeCause", "sourceStep"])),
+                      "underlyingDomain", "underlyingCode", "retryable", "safeCause", "sourceStep", "signingContext"])),
                   V3WireContract.strictInt(envelope["version"]) == 1,
                   envelope["correlationID"] as? String == requestID,
                   let operation = envelope["operation"] as? String,

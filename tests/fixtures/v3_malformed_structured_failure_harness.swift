@@ -124,6 +124,39 @@ struct MalformedStructuredFailureHarness {
         } else {
             preconditionFailure("the readiness decoder must preserve the typed operation persistence failure")
         }
+        let accountFailure = CombinedFailure(operation: "signIn", stage: .persistence,
+            code: .failed, id: id, underlying: NSError(domain: "com.SideStore.Keychain", code: 1009),
+            retryable: false, safeCause: .credentialCommitFailed, sourceStep: .credentialCommit,
+            signingContext: ["typed_error": "keychainValidationFailed", "server_code": "unknown", "http_status": "unavailable"])
+        func readinessEnvelope(_ failure: [String: Any]) throws -> V3ServiceReadinessReply {
+            let data = try encoded(["version": 1, "id": id, "ok": false, "failure": failure])
+            return V3ServiceReadinessReply.decode(data, requestID: id)
+        }
+        guard case .failed(let accountDecoded) = try readinessEnvelope(accountFailure.wire) else {
+            preconditionFailure("typed account diagnostic fields were rejected by readiness")
+        }
+        let accountRoundTrip = accountDecoded.combinedFailure(id: id)
+        precondition(accountRoundTrip.safeCause == .credentialCommitFailed &&
+                     accountRoundTrip.sourceStep == .credentialCommit &&
+                     accountRoundTrip.signingContext == accountFailure.signingContext &&
+                     accountRoundTrip.underlyingDomain == "com.SideStore.Keychain" &&
+                     accountRoundTrip.underlyingCode == 1009)
+        for unsafeFields in [["typed_error": "PRIVATE_PROVIDER HTTP 503 lc_stage=network"],
+                             ["unexpected_secret": "PRIVATE_TOKEN"]] {
+            var unsafe = accountFailure.wire
+            unsafe["signingContext"] = unsafeFields
+            guard case .failed(let bounded) = try readinessEnvelope(unsafe) else {
+                preconditionFailure("bounded fields should reach the typed validation boundary")
+            }
+            let rejected = bounded.combinedFailure(id: id)
+            precondition(rejected.code == .invalidResponse && rejected.signingContext.isEmpty &&
+                         !rejected.technicalDetails.contains("PRIVATE_"),
+                         "unknown context must never be published as diagnostics")
+        }
+        var malformedContext = accountFailure.wire
+        malformedContext["signingContext"] = ["typed_error": ["not", "a", "string"]]
+        let malformedContextReply = try readinessEnvelope(malformedContext)
+        precondition(malformedContextReply == .invalid)
         print("V3_MALFORMED_STRUCTURED_FAILURE_PASS")
     }
 }

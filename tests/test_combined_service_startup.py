@@ -60,12 +60,14 @@ class ExecutableStartupTests(unittest.TestCase):
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
         source = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text()
         body = source[source.index("        LCLaunchServiceExtension(ext, item) {"):source.index("    fileprivate func accepted(")]
-        swift = '''import Foundation
+        swift = (ROOT / "scripts/templates/combined_failure.swift").read_text() + '''
+import Foundation
 @MainActor var callbacks: [(UUID?, Error?) -> Void] = []
 @MainActor final class ExtensionStub {
     var kills = 0
+    var observedPID: Int32 = 17
     func _kill(_ signal: Int) { kills += 1 }
-    func pid(forRequestIdentifier id: UUID) -> Int32 { 17 }
+    func pid(forRequestIdentifier id: UUID) -> Int32 { observedPID }
 }
 @MainActor func LCLaunchServiceExtension(_ ext: ExtensionStub, _ item: Int, _ callback: @escaping (UUID?, Error?) -> Void) { callbacks.append(callback) }
 @MainActor final class Owner {
@@ -75,14 +77,26 @@ class ExecutableStartupTests(unittest.TestCase):
     var retiringRequestPending: UUID?
     var retiringPID: Int32 = 0
     var sideStorePid: Int32 = 0
+    var launchRequestIdentifierObserved: Bool?
+    var launchPIDObserved: Bool?
+    var failureContext: CombinedFailure.LaunchContext?
     var signals = 0; var failures = 0
     var service: Owner { self }
-    enum Signal { case launched }; enum Stage { case extensionLaunch }
+    enum Signal { case launched }
     func signal(_ signal: Signal, attempt: UUID) { signals += 1 }
     func confirmLaunchedPeer(_ id: UUID) {}
-    func failed(_ id: UUID, stage: Stage, underlying: Error? = nil) { failures += 1 }
+    func failed(_ id: UUID, stage: CombinedFailure.Stage, underlying: Error? = nil,
+                launchSourceStep: CombinedFailure.LaunchContext.Step? = nil,
+                requestIdentifierObserved: Bool? = nil, pidObserved: Bool? = nil) {
+        failures += 1
+        failureContext = CombinedFailure.LaunchContext(error: underlying,
+            sourceStep: launchSourceStep ?? .unknown,
+            requestIdentifierObserved: requestIdentifierObserved ?? launchRequestIdentifierObserved,
+            pidObserved: pidObserved ?? launchPIDObserved)
+    }
     func launch(_ id: UUID) {
         launchID = id; launchRequestPending = id
+        launchRequestIdentifierObserved = nil; launchPIDObserved = nil
         let ext = self.ext; let item = 0
 ''' + body + '''
 }
@@ -92,16 +106,37 @@ class ExecutableStartupTests(unittest.TestCase):
         callbacks[0](UUID(), nil)
         try await Task.sleep(nanoseconds: 30_000_000)
         precondition(owner.signals == 1)
+        precondition(owner.launchRequestIdentifierObserved == true && owner.launchPIDObserved == true)
         callbacks[0](nil, NSError(domain: "test", code: 1))
         try await Task.sleep(nanoseconds: 30_000_000)
         precondition(owner.failures == 0 && owner.signals == 1)
+        precondition(owner.launchRequestIdentifierObserved == true && owner.launchPIDObserved == true,
+            "duplicate failure overwrote settled launch observations")
         let next = UUID(); owner.launch(next)
         callbacks[0](UUID(), nil)
         try await Task.sleep(nanoseconds: 30_000_000)
         precondition(owner.ext.kills == 0 && owner.launchRequestPending == next)
+        precondition(owner.launchRequestIdentifierObserved == nil && owner.launchPIDObserved == nil,
+            "late callback overwrote the new attempt's observations")
         callbacks[1](UUID(), nil)
         try await Task.sleep(nanoseconds: 30_000_000)
         precondition(owner.signals == 2 && owner.sideStorePid == 17)
+        owner.launch(UUID())
+        callbacks[2](nil, NSError(domain: CombinedFailure.LaunchContext.bridgeErrorDomain, code: 1))
+        try await Task.sleep(nanoseconds: 30_000_000)
+        precondition(owner.failures == 1 && owner.signals == 2)
+        precondition(owner.failureContext?.sourceStep == .requestCallbackNoIdentifier)
+        precondition(owner.failureContext?.requestIdentifierObserved == "no" &&
+                     owner.failureContext?.pidObserved == "unknown")
+        precondition(owner.failureContext?.errorChain == [.init(
+            domain: CombinedFailure.LaunchContext.bridgeErrorDomain, code: 1)])
+        owner.launch(UUID()); owner.ext.observedPID = 0
+        callbacks[3](UUID(), nil)
+        try await Task.sleep(nanoseconds: 30_000_000)
+        precondition(owner.failures == 2 && owner.signals == 2)
+        precondition(owner.failureContext?.sourceStep == .processIdentifierUnavailable)
+        precondition(owner.failureContext?.requestIdentifierObserved == "yes" &&
+                     owner.failureContext?.pidObserved == "no" && owner.failureContext?.errorChain.isEmpty == true)
         print("native duplicate/late launch identity PASS")
     }
 }
@@ -274,17 +309,27 @@ enum V3SharedAppGroup {
         if not compiler: self.skipTest("requires Swift; executed by combined macOS CI")
         adapter = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text()
         method = adapter[adapter.index("    fileprivate func applicationReady("):adapter.index("    private func awaitServiceReady(")]
-        source = '''import Foundation
-enum Stage { case serviceReadiness }
+        source = (ROOT / "scripts/templates/combined_failure.swift").read_text() + '''
+import Foundation
 @MainActor final class Probe {
     var launchID: UUID? = UUID()
     var readinessTask: Task<Void, Never>?
+    var launchApplicationReadyObserved: Bool?
+    var readinessError: Error?
+    var failureStep: CombinedFailure.LaunchContext.Step?
     var probes = 0; var failures = 0; var signals = 0
     var service: Probe { self }
     enum Signal { case ready }
     func signal(_ signal: Signal, attempt: UUID) { signals += 1 }
-    func awaitServiceReady(_ id: UUID) async throws { probes += 1; try await Task.sleep(nanoseconds: 30_000_000) }
-    func failed(_ id: UUID, stage: Stage, underlying: Error) { failures += 1 }
+    func awaitServiceReady(_ id: UUID) async throws {
+        probes += 1
+        try await Task.sleep(nanoseconds: 30_000_000)
+        if let readinessError { throw readinessError }
+    }
+    func failed(_ id: UUID, stage: CombinedFailure.Stage, underlying: Error,
+                launchSourceStep: CombinedFailure.LaunchContext.Step? = nil) {
+        failures += 1; failureStep = launchSourceStep
+    }
 ''' + method + '''
 }
 @main struct Test {
@@ -295,13 +340,20 @@ enum Stage { case serviceReadiness }
         await owner.readinessTask?.value
         owner.applicationReady(id)
         precondition(owner.probes == 1 && owner.signals == 1 && owner.failures == 0)
-        owner.readinessTask = nil; owner.launchID = UUID()
+        precondition(owner.launchApplicationReadyObserved == true)
+        owner.readinessTask = nil; owner.launchID = UUID(); owner.launchApplicationReadyObserved = nil
         owner.applicationReady(id)
-        precondition(owner.probes == 1)
+        precondition(owner.probes == 1 && owner.launchApplicationReadyObserved == nil,
+            "old readiness callback mutated new launch observations")
         owner.applicationReady(owner.launchID!)
         owner.readinessTask?.cancel()
         await owner.readinessTask?.value
         precondition(owner.failures == 0 && owner.signals == 1)
+        let failed = Probe(); failed.readinessError = NSError(domain: "ReadinessFixture", code: 1)
+        failed.applicationReady(failed.launchID!)
+        await failed.readinessTask?.value
+        precondition(failed.failures == 1 && failed.signals == 0 && failed.launchApplicationReadyObserved == true)
+        precondition(failed.failureStep == .readinessProbe)
         print("adapter duplicate readiness/cancellation PASS")
     }
 }

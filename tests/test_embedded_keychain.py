@@ -107,14 +107,24 @@ extension Bundle {
     enum Info { static var appbundleIdentifier = "com.kdt.livecontainer" }
     var altstoreAppGroup: String? { Store.group }
 }
-enum KeychainAccess {
-    enum CertificateManager {
+// Certificate parsing is an external dependency of the production Keychain
+// adapter. Keep this double at file scope, matching CertificateManager's real
+// visibility, and reject bytes/passwords outside the explicit test fixtures.
+// These fixtures exercise the parser contract, not PKCS#12 cryptography.
+enum CertificateManager {
     struct Parsed { let serialNumber: String }
     static func parse(_ data: Data, password: String?) throws -> Parsed {
-        Parsed(serialNumber: "new-serial")
+        if data == Data("new-p12".utf8) && password == "new-password" {
+            return Parsed(serialNumber: "new-serial")
+        }
+        if data == Data("old-p12".utf8) && password == "old-password" {
+            return Parsed(serialNumber: "old-serial")
+        }
+        throw NSError(domain: "CertificateFixture", code: 1009)
     }
 }
-final class Keychain {
+enum KeychainAccess {
+    final class Keychain {
         enum Accessibility { case afterFirstUnlock }
         let group: String
         init(service: String) { group = Store.processGroup }
@@ -582,6 +592,18 @@ HARNESS = r'''
     }
 }
 '''
+
+class SharedKeychainHarnessDependencyTests(unittest.TestCase):
+    def test_certificate_parser_dependency_is_file_scoped_and_validates_fixtures(self):
+        certificate = DOUBLES.index("\nenum CertificateManager {")
+        keychain_library = DOUBLES.index("\nenum KeychainAccess {")
+        self.assertLess(certificate, keychain_library)
+        parser = DOUBLES[certificate:keychain_library]
+        self.assertIn('data == Data("new-p12".utf8) && password == "new-password"', parser)
+        self.assertIn('throw NSError(domain: "CertificateFixture", code: 1009)', parser)
+        self.assertIn('try CertificateManager.parse(data, password: password).serialNumber',
+                      module.KEYCHAIN_ACCESS_ADAPTER)
+
 
 class EmbeddedKeychainTests(unittest.TestCase):
     @classmethod

@@ -1197,6 +1197,15 @@ final class V3SideStoreService: NSObject {
                 operation: operation))
             return
         }
+        // Check before reserving a direct-mutation journal: this refusal is
+        // proven not dispatched and cannot strand a new recovery owner.
+        if let failure = signingStorageFailure(operation: operation, id: id) {
+            var response: [String: Any] = ["version": 1, "id": id, "error": "notReady",
+                "failure": failure.wire]
+            _ = V3DirectMutationPreDispatchReplyPolicy.annotate(request: request, response: &response)
+            reply(encode(response, operation: operation))
+            return
+        }
         if V3DirectMutationRecoveryRecord.isEligible(request: request) {
             do {
                 guard try V3DirectMutationRecoveryLifecycle.reserve(request: request, requestID: id,
@@ -1571,6 +1580,12 @@ final class V3SideStoreService: NSObject {
         _ = try? V3OperationRecoveryJournal.clearPreparedAfterNotDispatched(
             sessionID: sessionID, expectedRequestID: requestID,
             replyRequestID: reply["id"] as? String, operationNotDispatched: true)
+    }
+
+    private func signingStorageFailure(operation: String, id: String) -> CombinedFailure? {
+        V3CertificateStorageAdmission.failure(operation: operation, id: id,
+            databaseRequiresReconciliation: V3AccountDatabaseRecovery.requiresReconciliation,
+            keychainRequiresReconciliation: { try Keychain.shared.storageRequiresReconciliation() })
     }
 
     private func run(_ operation: String, request: [String: Any], id: String) async throws -> [String: Any] {
@@ -2003,6 +2018,8 @@ final class V3SideStoreService: NSObject {
             guard let certificate = certificates.first(where: { $0.serialNumber == target }) else {
                 throw ServiceError.notFound
             }
+            // Account lookups above suspend; recheck immediately at dispatch.
+            if let failure = signingStorageFailure(operation: operation, id: id) { throw failure }
             _ = try await DeveloperPortalProxy.shared.revokeCertificate(certificate, team: team)
             return try snapshot()
         case "certCreate":
@@ -2011,7 +2028,10 @@ final class V3SideStoreService: NSObject {
             let name = UIDevice.current.name
             let outcome = try await V3CertificateCreateAdapter.createAndPersist(
                 create: {
-                    try await DeveloperPortalProxy.shared.createCertificate(
+                    // Recheck after asynchronous account/team lookup. The
+                    // existing dispatched journal still owns any later error.
+                    if let failure = self.signingStorageFailure(operation: operation, id: id) { throw failure }
+                    return try await DeveloperPortalProxy.shared.createCertificate(
                         machineName: "SideStore - \(team.name)'s \(name)", team: team)
                 },
                 persist: { certificate in

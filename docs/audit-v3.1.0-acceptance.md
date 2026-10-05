@@ -81,6 +81,68 @@ Objective-C scanner was not executed on Linux.
 
 ## Device test execution cards
 
+### iOS 27 compatibility follow-up: bounded CFBundle lookup
+
+The pinned LiveContainer already includes iOS 27-specific paths; absence of a
+27.0 check is not the source defect. Existing adaptations include the TBZ-based
+`CFBundleGetMainBundle` lookup, executable-path cached length in `DyldConfig`,
+segment-count handling before `dlopen`, the dyld version-map symbol and scene
+APIs. The original lookup comment specifically refers to observation on iOS 27
+developer beta 1. No source or device evidence establishes that the instruction
+layout changed in 27.0.1 or caused the reported extension activation failure.
+
+**Additional source-proven defect:** both loops in
+`LiveContainer/LCBootstrap.m::overwriteMainCFBundle` are unbounded. Their matched
+branches read the preceding instruction, adjacent instruction or decoded branch
+target before proving that it is readable. The existing ADRP/LDR emulator checks
+the opcode/register pattern only after those unchecked reads. The final assert
+cannot protect the earlier reads or a never-matching loop.
+
+`scripts/patch_cf_bundle_scan.py` now bounds the existing instruction patterns
+to 256 words, uses checked Mach reads, and rejects out-of-window predecessor/
+load targets, unreadable memory and invalid decoded storage. The resolved slot
+must contain the current CF main bundle before the caller changes NSBundle
+identity. An unsupported/unreadable pattern returns an explicit startup error.
+The later cache write is kernel-checked and returns failure instead of directly
+dereferencing an unchecked pointer; VM protections are not relaxed. This is a
+finite safety budget, not a newly inferred instruction layout or proof that all
+valid future functions fit that budget.
+
+`test_cf_bundle_scan` executes the original pinned loops and the emitted helper:
+the original faults against protected guard pages for no pattern, TBZ at the
+first/last word and an out-of-window legacy branch; the corrected helper returns
+failure in all four cases. Positive existing-layout, invalid opcode/register,
+unreadable target and integer-bound cases also execute. A separate adapter test
+uses OS/NSBundle doubles to verify errors cannot be reported as launch success.
+Patch replay is byte-identical and partial/changed source fails closed. These
+tests do **not** run CoreFoundation/private system code on iOS. A write failure
+after NSBundle mutation is reported, not represented as a rolled-back launch.
+The existing legacy TBNZ decoder is retained verbatim; this is not generalized
+ARM64 decoder verification. The local follow-up suite on baseline `2859d969`
+plus this patch ran 961 tests: 811 passed, 150 platform-dependent skips, zero
+failures/errors. All four focused scan/adapter tests passed without skips.
+The adapter fixture replaces ObjC surfaces and Mach calls with C doubles;
+it does not compile the real ObjC availability/bridge expressions.
+
+Device acceptance remains blocked on the exact rebuilt/re-signed candidate:
+
+- Exercise the existing legacy and iOS 27 paths on appropriate physical OS
+  versions, including a controlled unavailable-pattern/read/write failure
+- Verify no unsupported lookup writes a cache or reports guest startup success;
+  after failure use a fresh process and confirm host/guest data remain intact
+- Distinguish extension request UUID, PID, XPC connection, `appReady`,
+  `serviceReady` and guest-bootstrap completion. Synthetic error 3587 correction
+  and the CFBundle lookup operate at different boundaries
+- Repeat affected guest launch, narrow/iPad keyboard flows, background expiry,
+  offline interruption/recovery and result persistence on the same exact IPA
+- Verify installed host/LiveProcess identities, provisioning and entitlements
+  after installer re-signing. Do not wipe databases, add speculative entitlements
+  or infer blanket TLS/Core Data incompatibility from an OS version
+
+This is defensive compatibility hardening. It is **not** acceptance of iOS 27.0.1,
+a confirmed repair for any reporter's launch failure, or justification for
+replacing unattended scheduling with a foreground-user-triggered task API.
+
 Run on a backed-up test installation or an authorized in-place upgrade. Preserve
 the existing signing/bundle identity and user data. Account deletion, sign-out,
 certificate revocation or clearing the database is not a diagnostic prerequisite.

@@ -39,6 +39,11 @@ def template(name):
     return (ROOT / 'scripts/templates' / name).read_text()
 
 
+def swift_source(*fragments):
+    """Extracted declarations do not include trailing newlines."""
+    return '\n\n'.join(fragment.rstrip('\n') for fragment in fragments) + '\n'
+
+
 class AuditRecoveryTests(unittest.TestCase):
     def compile_and_run(self, source, marker):
         swift = shutil.which('swiftc')
@@ -55,6 +60,13 @@ class AuditRecoveryTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(marker, result.stdout)
 
+    def test_swift_fragments_are_separated_without_changing_declarations(self):
+        first = 'struct First {}'
+        second = '@MainActor\nfinal class Second {}'
+        third = 'func third() {}\n'
+        self.assertEqual(swift_source(first, second, third),
+                         first + '\n\n' + second + '\n\nfunc third() {}\n')
+
     def test_production_store_reloads_and_real_button_starts_same_account_mode(self):
         shell = template('v3_unified_shell.swift')
         helpers = '\n'.join(declaration(shell, sig) for sig in (
@@ -69,9 +81,9 @@ class AuditRecoveryTests(unittest.TestCase):
         branch = declaration(shell, 'if recovery.showReauthenticateProvisioning {')
         harness = (ROOT / 'tests/fixtures/v3_auth_recovery_store_harness.swift').read_text()
         harness = harness.replace('__PRODUCTION_BUTTON_BRANCH__', branch)
-        self.compile_and_run('import Combine\n' + template('combined_failure.swift') +
-            template('v3_wire_contract.swift') + template('v3_behavioral_primitives.swift') +
-            helpers + store + harness, 'V3_AUTH_RECOVERY_STORE_PASS')
+        self.compile_and_run(swift_source('import Combine', template('combined_failure.swift'),
+            template('v3_wire_contract.swift'), template('v3_behavioral_primitives.swift'),
+            helpers, store, harness), 'V3_AUTH_RECOVERY_STORE_PASS')
 
     def test_production_completion_evidence_cannot_be_inferred_from_rows(self):
         primitives = template('v3_behavioral_primitives.swift')
@@ -81,7 +93,8 @@ class AuditRecoveryTests(unittest.TestCase):
             'enum V3ProvisioningReauthenticationIdentityPolicy {',
         ))
         harness = (ROOT / 'tests/fixtures/v3_provisioning_completion_harness.swift').read_text()
-        self.compile_and_run('import Foundation\n' + production + harness, 'V3_PROVISIONING_COMPLETION_PASS')
+        self.compile_and_run(swift_source('import Foundation', production, harness),
+                             'V3_PROVISIONING_COMPLETION_PASS')
 
     def test_generation_bypasses_cached_and_silent_paths_and_checks_owner_before_commit(self):
         path = Path(os.environ.get('EMBEDDED_SIDESTORE_TEST_SOURCE', '/workspace/shared/sidestore-review/SideStore'))
@@ -112,7 +125,7 @@ class AuditRecoveryTests(unittest.TestCase):
             'enum V3ProvisioningReauthenticationIdentityPolicy {',
             'enum V3ProvisioningResumeExecutionPolicy {',
         ))
-        self.compile_and_run('import Foundation\nimport CoreFoundation\n' + policies + harness,
+        self.compile_and_run(swift_source('import Foundation\nimport CoreFoundation', policies, harness),
                              'V3_REAUTHENTICATION_OPERATION_PASS')
 
     def test_actual_snapshot_reports_unknown_and_failed_provisioning_with_existing_account(self):
@@ -123,8 +136,8 @@ class AuditRecoveryTests(unittest.TestCase):
         snapshot = declaration(template('v3_sidestore_service.swift'), 'private func snapshot()')
         harness = (ROOT / 'tests/fixtures/v3_provisioning_snapshot_harness.swift').read_text()
         binding = declaration(template('v3_headless_runtime.swift'), 'func v3ProvisioningCompletionBinding(')
-        self.compile_and_run('import Foundation\nimport CryptoKit\n' + production + binding +
-            harness.replace('__PRODUCTION_SNAPSHOT__', snapshot), 'V3_PROVISIONING_SNAPSHOT_PASS')
+        self.compile_and_run(swift_source('import Foundation\nimport CryptoKit', production, binding,
+            harness.replace('__PRODUCTION_SNAPSHOT__', snapshot)), 'V3_PROVISIONING_SNAPSHOT_PASS')
 
     def test_snapshot_and_runtime_use_completion_and_preserve_mutation_admission(self):
         service = template('v3_sidestore_service.swift')

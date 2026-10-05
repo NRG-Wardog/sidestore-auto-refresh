@@ -147,7 +147,7 @@ class GeneratedAuthenticationRecoveryTests(unittest.TestCase):
         generated = existing.module.patch_sign_in_operation(existing.service_module.patch_sign_in_operation(original))
         silent = generated[generated.index("    private func silentSignIn()") : generated.index("    private func authenticationLoop()")]
         password = generated[generated.index("    private func signIn(appleID:") : generated.index("    private func finalizeAuthentication(")]
-        doubles = existing.DOUBLES.replace("final class Keychain {", "final class Keychain {\n    static var shared: Keychain!")
+        doubles = existing.DOUBLES.replace("\nfinal class Keychain {", "\nfinal class Keychain {\n    static var shared: Keychain!", 1)
         swift = doubles + existing.TEMPLATE.read_text() + existing.module.KEYCHAIN_ACCESS_ADAPTER + AUTH_DOUBLES + silent + password + MAIN
         cls.temp = tempfile.TemporaryDirectory(prefix="lc-generated-auth-recovery-")
         cls.addClassCleanup(cls.temp.cleanup)

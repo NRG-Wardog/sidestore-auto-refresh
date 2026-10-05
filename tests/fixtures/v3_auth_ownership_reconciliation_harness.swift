@@ -699,8 +699,13 @@ struct AuthOwnershipReconciliationHarness {
         let malformedDiagnostics = V3AuthFailureDiagnosticsPolicy.render(malformedFailure,
             underlyingCode: V3WireContract.strictInt(malformedFailure["underlyingCode"]),
             retryableValue: V3WireContract.strictBool(malformedFailure["retryable"]))
-        precondition(malformedDiagnostics.contains("underlying=redacted/unknown") &&
-                     malformedDiagnostics.hasSuffix("retryable=unknown"),
+        // Typed account diagnostics append more fields after retryable. Assert
+        // the exact field values rather than freezing their position in text.
+        let malformedFields = Set(malformedDiagnostics.split(separator: " ").map(String.init))
+        precondition(malformedFields.contains("underlying=redacted/unknown") &&
+                     malformedFields.contains("retryable=unknown") &&
+                     !malformedFields.contains("retryable=no") &&
+                     !malformedFields.contains("retryable=yes"),
             "malformed diagnostic NSNumber values stay unknown rather than becoming false values")
         precondition(V3AuthFailureDiagnosticsPolicy.shouldShowTerminalDetails(
             state: "failed", hasPrompt: false, hasFailure: true) &&

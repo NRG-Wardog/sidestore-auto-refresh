@@ -405,6 +405,22 @@ enum V3StatusRecoveryEvidencePolicy {
     }
 }
 
+// Direct Apple certificate mutations must not outrun an interrupted local
+// credential, certificate or account activation commit. Local readback repair
+// is deliberately outside this policy and still uses the normal mutation gate.
+enum V3CertificateStorageAdmission {
+    static func failure(operation: String, id: String,
+                        databaseRequiresReconciliation: Bool,
+                        keychainRequiresReconciliation: () throws -> Bool) -> CombinedFailure? {
+        guard ["certCreate", "certRevoke"].contains(operation) else { return nil }
+        let unresolved = databaseRequiresReconciliation ||
+            ((try? keychainRequiresReconciliation()) ?? true)
+        guard unresolved else { return nil }
+        return CombinedFailure(operation: operation, stage: .persistence, code: .notReady,
+            id: id, retryable: false, safeCause: .signingStorageUnverified)
+    }
+}
+
 enum V3StatusAuthorityOperationPolicy {
     static func directWriteOwnerID(operation: String, requestID: String) -> String? {
         // `backupResult` and `ipaCleanup` only transfer/retire staged files; they

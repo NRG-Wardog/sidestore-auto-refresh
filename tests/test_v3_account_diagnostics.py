@@ -1,6 +1,7 @@
 """Audit D01/D02/R02: exercise generated boundaries and the shipped wire/UI."""
 import importlib.util
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -75,6 +76,22 @@ class AccountDiagnosticTests(unittest.TestCase):
             self.assertEqual(executed.returncode, 0, executed.stderr)
             self.assertIn('PASS', executed.stdout)
 
+    def test_readiness_vocabulary_matches_production_failure_enums(self):
+        # Run this contract check on Linux too; missing wire vocabulary must not
+        # wait for a macOS executable harness to be detected.
+        failure = (ROOT / 'scripts/templates/combined_failure.swift').read_text()
+        wire = (ROOT / 'scripts/templates/v3_wire_contract.swift').read_text()
+        for name, boundary, allowlist in (
+            ('SafeCause', 'fileprivate var inferredRetryable', 'knownSafeCauseValues'),
+            ('SourceStep', 'var portalUserLabel', 'knownSourceStepValues')):
+            enum = declaration(failure, 'public enum ' + name + ':').split(boundary)[0]
+            cases = set()
+            for line in re.findall(r'\bcase\s+([A-Za-z]\w*(?:\s*,\s*[A-Za-z]\w*)*)', enum):
+                cases.update(value.strip() for value in line.split(',') if value.strip())
+            values = wire.split('static let ' + allowlist + ': Set<String> = [', 1)[1].split(']', 1)[0]
+            self.assertEqual(cases, set(re.findall(r'"([^"\n]+)"', values)))
+        self.assertIn('"sourceStep", "signingContext"])),', wire)
+
     def test_generated_boundaries_preserve_stage_and_fail_activation(self):
         source = generated_sign_in()
         loop = declaration(source, '    private func provisioningLoop(')
@@ -103,16 +120,22 @@ class AccountDiagnosticTests(unittest.TestCase):
 
     def test_generated_commit_auth_loop_and_finalize_execute(self):
         source = generated_sign_in()
-        commit_start = source.index('        // V3_AUTH_CREDENTIAL_TRANSACTION_V1')
-        commit_end = source.index('        return (account, session)', commit_start)
-        commit = source[commit_start:commit_end]
+        # Keep the complete post-auth commit (including verified legacy recovery)
+        # in its real generated method boundary, with every dependency supplied.
+        sign_in = declaration(source, '    private func signIn(')
+        commit_start = sign_in.index('        // V3_AUTH_CREDENTIAL_TRANSACTION_V1')
+        commit_end = sign_in.index('        return (account, session)', commit_start)
+        commit = sign_in[commit_start:commit_end]
         auth = declaration(source, '    private func authenticationLoop(').replace('private func', 'func', 1)
         finalize = declaration(source, '    private func finalizeAuthentication(').replace('private func', 'func', 1)
         provisioning = declaration(source, '    private func provisioningLoop(').replace('private func', 'func', 1)
         harness = (ROOT / 'tests/fixtures/v3_account_boundaries_harness.swift').read_text()
         harness = harness.replace('// GENERATED_COMMIT', commit).replace('// GENERATED_AUTH_LOOP', auth)
         harness = harness.replace('// GENERATED_FINALIZE', finalize).replace('// GENERATED_PROVISIONING', provisioning)
-        self.execute(diagnostic_sources() + harness)
+        keychain = (ROOT / 'scripts/templates/embedded_shared_keychain.swift').read_text()
+        identity_types = '\n'.join(declaration(keychain, signature) for signature in (
+            'struct LCEmbeddedAuthenticationSnapshot:', 'struct LCEmbeddedAuthenticationCandidate:'))
+        self.execute(diagnostic_sources() + '\n' + identity_types + '\n' + harness)
 
 
 if __name__ == '__main__':

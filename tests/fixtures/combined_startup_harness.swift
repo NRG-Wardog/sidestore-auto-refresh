@@ -230,7 +230,21 @@ struct StartupTests {
             sourceStep: .unknown)
         precondition(boundedContext.errorChain.count == 5)
         precondition(boundedContext.errorChain.map(\.code) == [1, 2, 3, 4, 5])
-        precondition(boundedContext.technicalDetails.contains("redacted:unknown"))
+        precondition(boundedContext.technicalDetails.contains(
+            "launch_error_chain=NSCocoaErrorDomain:1>NSCocoaErrorDomain:2>NSCocoaErrorDomain:3>NSCocoaErrorDomain:4>NSCocoaErrorDomain:5"),
+            "the five-cause bound must retain exactly the observed prefix")
+        // The private sixth cause lies outside the bounded traversal. Exercise
+        // redaction separately with a private cause inside the observed prefix.
+        let privateCause = NSError(domain: "Private.Path.Domain", code: 99,
+            userInfo: [NSFilePathErrorKey: "/private/leaf"])
+        let redactable = NSError(domain: NSCocoaErrorDomain, code: 3,
+            userInfo: [NSUnderlyingErrorKey: privateCause])
+        let redactedContext = CombinedFailure.LaunchContext(error: redactable, sourceStep: .unknown)
+        precondition(redactedContext.errorChain == [.init(domain: NSCocoaErrorDomain, code: 3),
+            .init(domain: "redacted", code: nil)])
+        precondition(redactedContext.technicalDetails.contains("NSCocoaErrorDomain:3>redacted:unknown"))
+        precondition(!redactedContext.technicalDetails.contains("Private.Path.Domain"))
+        precondition(!redactedContext.technicalDetails.contains("/private"))
         precondition(!boundedContext.technicalDetails.contains("Private.Path.Domain"))
         precondition(!boundedContext.technicalDetails.contains("/private"))
 

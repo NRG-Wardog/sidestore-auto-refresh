@@ -420,7 +420,9 @@ enum V3SetupReloadOutcomeHarness {
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         wire = (ROOT / "scripts/templates/v3_wire_contract.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_malformed_structured_failure_harness.swift").read_text(encoding="utf-8")
-        self.compile_and_run(failure + "\n" + wire + "\n" + context + "\n" + harness,
+        handler = (ROOT / "scripts/templates/combined_refresh_handler.swift").read_text(encoding="utf-8")
+        readiness_adapter = swift_declaration(handler, "extension V3ServiceReadinessFailure {")
+        self.compile_and_run(failure + "\n" + wire + "\n" + context + "\n" + readiness_adapter + "\n" + harness,
                              "V3_MALFORMED_STRUCTURED_FAILURE_PASS")
 
     def test_readiness_vocabulary_and_refresh_diagnostics_follow_shared_failure_contract(self):
