@@ -203,16 +203,8 @@ jobs:
           set -euo pipefail
           python3 builder/scripts/patch_jktcp_reliability.py jktcp
           python3 builder/scripts/patch_coredevice_idevice.py idevice jktcp
-          # The dependency now uses the identical local gitlink. Remove only
-          # its old Git locator; preserve all registry versions and checksums.
-          python3 - <<'PYLOCK'
-          from pathlib import Path
-          path = Path('idevice/Cargo.lock')
-          text = path.read_text()
-          locator = 'source = "git+https://github.com/SideStore/jktcp?branch=master#e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020"\n'
-          assert text.count(locator) == 1, 'unexpected jktcp lock identity'
-          path.write_text(text.replace(locator, '', 1))
-          PYLOCK
+          python3 builder/scripts/patch_transport_lockfiles.py jktcp idevice \
+            | tee artifacts/logs/transport-lock-migration.json
           ! grep -R -E 'rppairing_connect_quic|create_quic_listener|quinn::' \
             idevice/ffi/src/tunnel_provider.rs idevice/idevice/src/tunnel.rs
           grep -Fq 'packet.extend_from_slice(CDTUNNEL_MAGIC)' idevice/idevice/src/tunnel.rs
