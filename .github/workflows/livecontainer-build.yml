@@ -26,8 +26,9 @@ jobs:
     # Standard Intel capacity avoids the macOS arm64 runner acquisition outage.
     # Device targets remain arm64; the layout harness selects x86_64 simulators.
     runs-on: macos-26-intel
-    # Bound the serial native/layout gates and reserve packaging/diagnostic time.
-    timeout-minutes: 120
+    # Preserve the prior 120-minute budget plus 25 for required sign-in UI and 5 margin.
+    # Measured legacy layout is22m27s and can approach 30m; do not reuse its 35m cap.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
         with:
@@ -140,6 +141,8 @@ jobs:
             python3 builder/scripts/patch_lc_certificate_observation.py work/LiveContainer
             python3 builder/scripts/patch_v3_service.py work/LiveContainer work/EmbeddedSideStore
             python3 builder/scripts/patch_v3_service.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_native_error_presenters.py work/LiveContainer
+            python3 builder/scripts/patch_native_error_presenters.py work/LiveContainer
             swiftc -frontend -parse work/LiveContainer/MultitaskSupport/MultitaskAppWindow.swift
             swiftc -frontend -parse work/LiveContainer/MultitaskSupport/MultitaskDockView.swift
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Models/AppLayoutStyle.swift
@@ -348,7 +351,8 @@ jobs:
         # Preserve layout evidence after a native failure, but never package it
         # as success: the earlier failed step still fails the job.
         if: ${{ !cancelled() && (steps.embedded_build.outcome == 'success' || steps.embedded_build.outcome == 'failure') }}
-        timeout-minutes: 35
+        # Legacy 35m + sign-in build 5m + devices 8m + 8m + export/margin 4m.
+        timeout-minutes: 60
         shell: bash
         run: |
           set -euo pipefail
@@ -356,7 +360,7 @@ jobs:
           printf 'Layout start: '; date -u
           python3 builder/scripts/run_issue25_rendering.py --livecontainer work/LiveContainer \
             --v3-source work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift \
-            --output artifacts/layout-evidence 2>&1 | tee artifacts/logs/layout-rendering.log
+            --require-p0-signin --output artifacts/layout-evidence 2>&1 | tee artifacts/logs/layout-rendering.log
           printf 'Layout finish: '; date -u
 
       - name: Preserve real layout measurements and screenshots

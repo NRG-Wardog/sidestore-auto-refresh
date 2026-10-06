@@ -1,0 +1,1710 @@
+{
+  "base": "8bd9e3d",
+  "local_conditions": [
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 521,
+      "key": "libraryAppMissing",
+      "stage_family": "catalog",
+      "literal": "This app is not in SideStore's library.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CAT-D001",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 1376,
+      "key": "operationRecoveryHoldUncleared",
+      "stage_family": "command",
+      "literal": "SideStore could not clear the recovery hold. Reconnect and try again.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D002",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 1407,
+      "key": "refreshRecoveryHoldUncleared",
+      "stage_family": "refreshVerification",
+      "literal": "SideStore could not clear the refresh hold. Reconnect and try again.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-VERIFY-D003",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 2121,
+      "key": "operationAlreadyRunning",
+      "stage_family": "command",
+      "literal": "Another operation is already running. Finish or cancel it before starting a new one.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D004",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 2162,
+      "key": "serviceStillLoading",
+      "stage_family": "serviceReadiness",
+      "literal": "SideStore is still loading. Wait for the current request to finish, then try again.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-READY-D005",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 2223,
+      "key": "sharedFileSizeInvalid",
+      "stage_family": "filePreparation",
+      "literal": "The selected file is empty or too large to hand to the SideStore service.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-IPA-D006",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 2227,
+      "key": "sharedFileContainerUnavailable",
+      "stage_family": "filePreparation",
+      "literal": "The SideStore shared file container is unavailable. Check Connection and try again.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-IPA-D007",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 2234,
+      "key": "secureStagingUnavailable",
+      "stage_family": "filePreparation",
+      "literal": "Secure file staging is full or unavailable. Finish the pending import and try again.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-IPA-D008",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 2251,
+      "key": "installOperationBusy",
+      "stage_family": "command",
+      "literal": "Another operation is already running. Finish or cancel it before installing another app.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D009",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 2265,
+      "key": "installAttemptUnresolved",
+      "stage_family": "command",
+      "literal": "An install attempt is still being resolved. Wait for it to finish, then try again.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D010",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 2289,
+      "key": "installPickerUnavailable",
+      "stage_family": "filePreparation",
+      "literal": "The IPA picker could not be opened. Tap Install / Sideload App to try again.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-IPA-D011",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 2533,
+      "key": "installPresentationUnavailable",
+      "stage_family": "command",
+      "literal": "The install screen could not be opened. The attempt was cleared; tap Install / Sideload App again.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D012",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 2541,
+      "key": "installCancelSessionMissing",
+      "stage_family": "command",
+      "literal": "No install session is available to cancel. Keep this screen open and reload operation status.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D013",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 2554,
+      "key": "installStopUnconfirmed",
+      "stage_family": "command",
+      "literal": "SideStore has not confirmed that the device operation stopped. The IPA and operation session were kept; retry cancellation or check device state before another install.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D014",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 2569,
+      "key": "installStopStillUnconfirmed",
+      "stage_family": "command",
+      "literal": "SideStore still cannot confirm that the install stopped. No new install was started. Reconnect, then retry cancellation.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D015",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 2733,
+      "key": "appOpenFailed",
+      "stage_family": "command",
+      "literal": "The app could not be opened. Check whether it is still installed.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D016",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 3433,
+      "key": "catalogUnknownFailure",
+      "stage_family": "catalog",
+      "literal": "The source catalog could not be loaded.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CAT-D017",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 3733,
+      "key": "settingSaveUnverified",
+      "stage_family": "persistence",
+      "literal": "The saved setting could not be verified. Reload settings to check its value.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-SAVE-D018",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 4077,
+      "key": "stagedIPAStopUnconfirmed",
+      "stage_family": "command",
+      "literal": "The operation was not confirmed as stopped, so its staged IPA was kept safely. Reconnect before cleanup.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D019",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 4103,
+      "key": "savedOperationIdentityInvalid",
+      "stage_family": "command",
+      "literal": "The saved operation identity is invalid. Check the device before continuing.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D020",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 4196,
+      "key": "operationResultUnconfirmed",
+      "stage_family": "command",
+      "literal": "SideStore could not confirm the current operation result.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D021",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 4246,
+      "key": "operationRecoveryReconcileFailed",
+      "stage_family": "command",
+      "literal": "SideStore could not clear the recovery hold. Keep waiting and check the device again.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D022",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 4258,
+      "key": "previousOperationOutcomeUnknown",
+      "stage_family": "command",
+      "literal": "The previous operation result remains unknown.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D023",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 4391,
+      "key": "operationNeedsAuthentication",
+      "stage_family": "authentication",
+      "literal": "Sign in first, then run this action again.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-AUTH-D024",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 4406,
+      "key": "installSourceRequired",
+      "stage_family": "source",
+      "literal": "The app's source must be added before installation.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-SOURCE-D025",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 4717,
+      "key": "operationCancelResponseMismatch",
+      "stage_family": "command",
+      "literal": "SideStore could not confirm that this operation stopped.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D026",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 4731,
+      "key": "operationStopUnconfirmed",
+      "stage_family": "command",
+      "literal": "SideStore has not confirmed that the operation stopped.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D027",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 4746,
+      "key": "operationStopTransportFailure",
+      "stage_family": "xpcConnection",
+      "literal": "SideStore could not confirm that the operation stopped. It may still be running.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-XPC-D028",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 4808,
+      "key": "installDismissStopUnconfirmed",
+      "stage_family": "command",
+      "literal": "SideStore could not confirm that the previous operation stopped. The staged IPA was kept safely.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D029",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 5261,
+      "key": "savedSigningStateUnverified",
+      "stage_family": "persistence",
+      "literal": "Saved signing state is still unverified. Review the account and certificate storage diagnostics before another attempt.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-SAVE-D030",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 5264,
+      "key": "savedAccountStateUnverified",
+      "stage_family": "persistence",
+      "literal": "SideStore could not verify saved account state. Reload status and review the storage diagnostics.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-SAVE-D031",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 5544,
+      "key": "signedInProvisioningResponseUnknown",
+      "stage_family": "authentication",
+      "literal": "Apple ID is signed in, but SideStore could not confirm the current verification or provisioning response. Cancel the unconfirmed session before starting another attempt.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-AUTH-D032",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 5575,
+      "key": "provisioningRetryStartUnknown",
+      "stage_family": "authentication",
+      "literal": "The provisioning retry could not be started, and SideStore could not confirm the account state. Check Account & Signing, then reload status.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-AUTH-D033",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 5604,
+      "key": "accountStatusInvalid",
+      "stage_family": "authentication",
+      "literal": "SideStore returned account status that could not be validated. Reload status and try again.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-AUTH-D034",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 5791,
+      "key": "accountStatusUnconfirmed",
+      "stage_family": "authentication",
+      "literal": "Could not confirm the current SideStore account. Reload status and try again.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-AUTH-D035",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 5989,
+      "key": "signinAttemptUnconfirmedAfterSnapshot",
+      "stage_family": "authentication",
+      "literal": "SideStore confirmed account status but could not confirm whether this sign-in attempt finished. Cancel the unconfirmed session before starting another attempt.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-AUTH-D036",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 5990,
+      "key": "signinResultUnconfirmed",
+      "stage_family": "authentication",
+      "literal": "SideStore could not confirm the sign-in result. Cancel the unconfirmed session before starting another attempt.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-AUTH-D037",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 6110,
+      "key": "accountReconcileUnconfirmed",
+      "stage_family": "authentication",
+      "literal": "SideStore could not confirm the account state. Reload status again before starting a new sign-in.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-AUTH-D038",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 6364,
+      "key": "signinUnknownFailure",
+      "stage_family": "authentication",
+      "literal": "The sign-in request failed for an unknown reason.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-AUTH-D039",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 6370,
+      "key": "signinTimedOut",
+      "stage_family": "authentication",
+      "literal": "Sign-in timed out. Start a new sign-in when you are ready.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-AUTH-D040",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift",
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 6376,
+      "key": "verificationSessionExpired",
+      "stage_family": "authentication",
+      "literal": "That verification session expired. Start a new sign-in to request another verification code.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-AUTH-D041",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 6903,
+      "key": "signingStorageUnverified",
+      "stage_family": "persistence",
+      "literal": "A local account or certificate save could not be verified. Setup is blocked until that saved state is repaired; another sign-in cannot safely retry it.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-SAVE-D042",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 7503,
+      "key": "pairingStateUnconfirmed",
+      "stage_family": "pairing",
+      "literal": "LiveContainer could not confirm the pairing-file state. Reload status before treating setup as complete.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-PAIR-D043",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 9267,
+      "key": "testRefreshUnknownFailure",
+      "stage_family": "refreshVerification",
+      "literal": "Test refresh could not be completed, and the cause is not known.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-VERIFY-D044",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 9299,
+      "key": "testRefreshBusy",
+      "stage_family": "command",
+      "literal": "Another refresh is already running. Test Refresh did not start.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D045",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 9372,
+      "key": "testRefreshNoResult",
+      "stage_family": "refreshVerification",
+      "literal": "No verified result yet. Check Refresh Manager for progress.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-VERIFY-D046",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 9407,
+      "key": "testRefreshNotStarted",
+      "stage_family": "command",
+      "literal": "Refresh did not start.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-CMD-D047",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift",
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 9449,
+      "key": "refreshUnknownFailure",
+      "stage_family": "refreshVerification",
+      "literal": "Refresh failed, but no safe underlying cause was available.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-VERIFY-D048",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 9459,
+      "key": "refreshResultUnverified",
+      "stage_family": "refreshVerification",
+      "literal": "SideStore reported that refresh completed, but this run's result could not be verified.",
+      "origin": "repo-owned static presentation",
+      "adapter": "needs finite local-site fallback; do not infer cause",
+      "copy_details": "global alert copies message; other views depend on existing technical-details state",
+      "diagnostic_code": "SS-VERIFY-D049",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 4376,
+      "key": "deleteStopUnconfirmed",
+      "stage_family": "command",
+      "literal": "SideStore has not confirmed that the app was removed or that deletion stopped.",
+      "origin": "repo-owned static presentation",
+      "adapter": "finite local-site fallback",
+      "copy_details": "ad-hoc backend_settled/outcome string only",
+      "diagnostic_code": "SS-CMD-D050",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 4377,
+      "key": "deviceStopUnconfirmed",
+      "stage_family": "command",
+      "literal": "SideStore has not confirmed that the device operation stopped.",
+      "origin": "repo-owned static presentation",
+      "adapter": "finite local-site fallback",
+      "copy_details": "ad-hoc backend_settled/outcome string only",
+      "diagnostic_code": "SS-CMD-D051",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/livecontainer_refresh_scheduler.swift",
+      "line": 66,
+      "key": "hostRelaunchUnverified",
+      "stage_family": "refreshVerification",
+      "literal": "LiveContainer refreshed its installed profile, but the new one could not be confirmed until you relaunch. Relaunch to finish verifying it.",
+      "origin": "repo-owned scheduler persisted warning",
+      "adapter": "finite local-site fallback",
+      "copy_details": "Refresh settings copies lastError; Home has no copy",
+      "diagnostic_code": "SS-VERIFY-D052",
+      "files": [
+        "scripts/templates/livecontainer_refresh_scheduler.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/livecontainer_refresh_scheduler.swift",
+      "line": 68,
+      "key": "hostBaselineUnavailable",
+      "stage_family": "refreshVerification",
+      "literal": "LiveContainer could not read its previous installed profile, so a background refresh cannot be confirmed as having renewed it. Open Refresh History for details.",
+      "origin": "repo-owned scheduler persisted warning",
+      "adapter": "finite local-site fallback",
+      "copy_details": "Refresh settings copies lastError; Home has no copy",
+      "diagnostic_code": "SS-VERIFY-D053",
+      "files": [
+        "scripts/templates/livecontainer_refresh_scheduler.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/livecontainer_refresh_scheduler.swift",
+      "line": 70,
+      "key": "hostExpirationNotAdvanced",
+      "stage_family": "refreshVerification",
+      "literal": "LiveContainer refreshed, but its installed profile has not advanced yet. Relaunch LiveContainer, then check Refresh History.",
+      "origin": "repo-owned scheduler persisted warning",
+      "adapter": "finite local-site fallback",
+      "copy_details": "Refresh settings copies lastError; Home has no copy",
+      "diagnostic_code": "SS-VERIFY-D054",
+      "files": [
+        "scripts/templates/livecontainer_refresh_scheduler.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/livecontainer_refresh_scheduler.swift",
+      "line": 72,
+      "key": "schedulerConfigurationFailed",
+      "stage_family": "command",
+      "literal": "iOS did not register every background refresh task, so refreshes will not run on their own. Manual Refresh All still works.",
+      "origin": "repo-owned scheduler persisted warning",
+      "adapter": "finite local-site fallback",
+      "copy_details": "Refresh settings copies lastError; Home has no copy",
+      "diagnostic_code": "SS-CMD-D055",
+      "files": [
+        "scripts/templates/livecontainer_refresh_scheduler.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/livecontainer_refresh_scheduler.swift",
+      "line": 74,
+      "key": "backgroundSubmitFailed",
+      "stage_family": "command",
+      "literal": "iOS would not accept the next scheduled background refresh. Refresh All still works now; check Settings for Background App Refresh.",
+      "origin": "repo-owned scheduler persisted warning",
+      "adapter": "finite local-site fallback",
+      "copy_details": "Refresh settings copies lastError; Home has no copy",
+      "diagnostic_code": "SS-CMD-D056",
+      "files": [
+        "scripts/templates/livecontainer_refresh_scheduler.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/livecontainer_refresh_scheduler.swift",
+      "line": 616,
+      "key": "hostHandoffBaselineIncomplete",
+      "stage_family": "refreshVerification",
+      "literal": "The refresh could not verify the installed host profile because its handoff record or baseline is incomplete. Review Refresh history and app expiration before retrying.",
+      "origin": "repo-owned scheduler persisted warning",
+      "adapter": "finite local-site fallback",
+      "copy_details": "Refresh settings copies lastError; Home has no copy",
+      "diagnostic_code": "SS-VERIFY-D057",
+      "files": [
+        "scripts/templates/livecontainer_refresh_scheduler.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/livecontainer_refresh_scheduler.swift",
+      "line": 648,
+      "key": "hostProfileDidNotAdvance",
+      "stage_family": "refreshVerification",
+      "literal": "The installed host profile did not advance after replacement. Retry manually; no success was recorded.",
+      "origin": "repo-owned scheduler persisted warning",
+      "adapter": "finite local-site fallback",
+      "copy_details": "Refresh settings copies lastError; Home has no copy",
+      "diagnostic_code": "SS-VERIFY-D058",
+      "files": [
+        "scripts/templates/livecontainer_refresh_scheduler.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_shared_app_group.swift",
+      "line": 217,
+      "key": "sharedRefreshStoreUnavailable",
+      "stage_family": "persistence",
+      "literal": "LiveContainer could not open its shared refresh store, so scheduled refresh state is unavailable in this launch. Refresh All still works.",
+      "origin": "repo-owned storage warning",
+      "adapter": "finite local-site fallback",
+      "copy_details": "Refresh settings copies persisted warning; Home has no copy",
+      "diagnostic_code": "SS-SAVE-D059",
+      "files": [
+        "scripts/templates/v3_shared_app_group.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 2769,
+      "key": "signOutSnapshotIncomplete",
+      "stage_family": "authentication",
+      "literal": "SideStore did not return enough account state to confirm sign-out.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D060",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 2802,
+      "key": "sideJITUnreachable",
+      "stage_family": "network",
+      "literal": "The SideJIT server could not be reached. Check its address and network, then try again.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-NET-D061",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 3226,
+      "key": "hostSigningCheckUnavailable",
+      "stage_family": "refreshVerification",
+      "literal": "Installed host signing could not be checked. Reload Status to check again.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-VERIFY-D062",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 3230,
+      "key": "hostSigningExpiredOrDifferent",
+      "stage_family": "refreshVerification",
+      "literal": "The installed host signing is expired or differs from the active setup. Run Test Refresh after completing account and certificate setup.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-VERIFY-D063",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 3968,
+      "key": "operationUnknownFailure",
+      "stage_family": "command",
+      "literal": "The operation failed.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-CMD-D064",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 3974,
+      "key": "operationStartBusy",
+      "stage_family": "command",
+      "literal": "The operation could not start because another SideStore operation is still active.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-CMD-D065",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 3983,
+      "key": "operationStartUnconfirmed",
+      "stage_family": "command",
+      "literal": "The operation could not be confirmed as started. It may still be active.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-CMD-D066",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 3985,
+      "key": "operationStartFailed",
+      "stage_family": "command",
+      "literal": "The operation could not start, so the app pipeline did not run.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-CMD-D067",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 4058,
+      "key": "operationSessionUnavailable",
+      "stage_family": "command",
+      "literal": "The operation session is no longer available, so its device result cannot be confirmed.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-CMD-D068",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 4491,
+      "key": "signinTimeoutSignedOut",
+      "stage_family": "authentication",
+      "literal": "Sign-in timed out. SideStore reports that no account is currently signed in.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D069",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 4505,
+      "key": "signinAttemptFailedProvisioningIncomplete",
+      "stage_family": "authentication",
+      "literal": "The sign-in attempt did not complete. SideStore reports authentication, but device provisioning is incomplete.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D070",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 4506,
+      "key": "signinAttemptFailedAccountSignedIn",
+      "stage_family": "authentication",
+      "literal": "The sign-in attempt did not complete. SideStore currently reports an account as signed in.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D071",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 4511,
+      "key": "signinTimeoutProvisioningIncomplete",
+      "stage_family": "authentication",
+      "literal": "The sign-in attempt timed out. SideStore reports authentication, but device provisioning is incomplete.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D072",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 4512,
+      "key": "signinTimeoutAccountSignedIn",
+      "stage_family": "authentication",
+      "literal": "The sign-in attempt timed out. SideStore currently reports an account as signed in.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D073",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 4519,
+      "key": "signinResultUnknownProvisioningIncomplete",
+      "stage_family": "authentication",
+      "literal": "The sign-in result remains unconfirmed. SideStore reports authentication, but device provisioning is incomplete.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D074",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 4520,
+      "key": "signinResultUnknownAccountSignedIn",
+      "stage_family": "authentication",
+      "literal": "The sign-in result remains unconfirmed. SideStore currently reports an account as signed in.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D075",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 4523,
+      "key": "verificationExpiredProvisioningIncomplete",
+      "stage_family": "authentication",
+      "literal": "The verification session expired. SideStore reports authentication, but device provisioning is incomplete.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D076",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 4524,
+      "key": "verificationExpiredAccountSignedIn",
+      "stage_family": "authentication",
+      "literal": "The verification session expired. SideStore currently reports an account as signed in.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D077",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 4540,
+      "key": "authActiveSessionMismatch",
+      "stage_family": "authentication",
+      "literal": "Another Apple sign-in session is active. This request could not be matched to it. Wait for it to finish, then reload status.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D078",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 4696,
+      "key": "authSessionGoneAccountStateUnknown",
+      "stage_family": "authentication",
+      "literal": "SideStore no longer has the active sign-in session. The current account and provisioning state could not be confirmed. Reload status before continuing.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D079",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 4711,
+      "key": "provisioningSessionUnavailable",
+      "stage_family": "authentication",
+      "literal": "The saved provisioning session is no longer available. Open Account & Signing to sign in again before retrying setup.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D080",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 4723,
+      "key": "authSessionGoneAccountUnknown",
+      "stage_family": "authentication",
+      "literal": "SideStore no longer has the active sign-in session and could not confirm the account state. Reload status before starting a new sign-in.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D081",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 5269,
+      "key": "provisioningRetryResponseSlotUnavailable",
+      "stage_family": "authentication",
+      "literal": "SideStore could not start the provisioning retry because it could not reserve a safe response slot.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D082",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_behavioral_primitives.swift",
+      "line": 5283,
+      "key": "provisioningTimedOutAfterSignin",
+      "stage_family": "authentication",
+      "literal": "Apple ID sign-in succeeded, but provisioning did not finish before the session timed out.",
+      "origin": "repo-owned policy-produced error presentation",
+      "adapter": "finite local-site fallback unless caller retains typed failure",
+      "copy_details": "depends on caller; state-only auth branches may have no previousFailure",
+      "diagnostic_code": "SS-AUTH-D083",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ]
+    },
+    {
+      "file": "scripts/templates/v3_unified_shell.swift",
+      "line": 2562,
+      "key": "installFailedBeforeCancelConfirmed",
+      "stage_family": "command",
+      "literal": "The install ended with a failure before cancellation was confirmed.",
+      "origin": "repo-owned install cancellation reconciliation failure",
+      "adapter": "finite local-site fallback",
+      "copy_details": "global alert copies message",
+      "diagnostic_code": "SS-CMD-D084",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ]
+    },
+    {
+      "key": "previousInstallStopUnknown",
+      "stage_family": "command",
+      "literal": "SideStore has not confirmed that the previous install stopped. No new install was started; retry cancellation.",
+      "diagnostic_code": "SS-CMD-D085",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local condition",
+      "copy_details": "Existing copy retains visible code; message-only presenters retain their existing controls."
+    },
+    {
+      "key": "recoveryRecordUnreadable",
+      "stage_family": "persistence",
+      "literal": "The recovery record cannot be read. Use the recovery banner after checking the device before starting another operation.",
+      "diagnostic_code": "SS-SAVE-D086",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local condition",
+      "copy_details": "Existing copy retains visible code; message-only presenters retain their existing controls."
+    },
+    {
+      "key": "previousRequestUnresolved",
+      "stage_family": "command",
+      "literal": "A previous request has an unresolved result. Inspect it in the recovery banner before repeating the action.",
+      "diagnostic_code": "SS-CMD-D087",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local condition",
+      "copy_details": "Existing copy retains visible code; message-only presenters retain their existing controls."
+    },
+    {
+      "key": "previousOperationUnresolved",
+      "stage_family": "command",
+      "literal": "A previous operation is unresolved. Use the recovery banner at the top of SideStore to resume its status check or reconcile after checking the device.",
+      "diagnostic_code": "SS-CMD-D088",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local condition",
+      "copy_details": "Existing copy retains visible code; message-only presenters retain their existing controls."
+    },
+    {
+      "key": "verificationCannotContinue",
+      "stage_family": "authentication",
+      "literal": "Verification could not continue. You can change method or cancel sign-in.",
+      "diagnostic_code": "SS-AUTH-D089",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local condition",
+      "copy_details": "Existing copy retains visible code; message-only presenters retain their existing controls."
+    },
+    {
+      "key": "certificateLocalCopyUnverified",
+      "stage_family": "persistence",
+      "literal": "Apple created the certificate, but its local signing copy could not be verified. Open Certificates and reload before creating another certificate.",
+      "diagnostic_code": "SS-SAVE-D090",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local condition",
+      "copy_details": "Existing copy retains visible code; message-only presenters retain their existing controls."
+    },
+    {
+      "key": "certificateLocalCopyUnknown",
+      "stage_family": "persistence",
+      "literal": "Certificate creation finished, but its local signing copy could not be confirmed. Open Certificates and reload before creating another certificate.",
+      "diagnostic_code": "SS-SAVE-D091",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local condition",
+      "copy_details": "Existing copy retains visible code; message-only presenters retain their existing controls."
+    },
+    {
+      "key": "signinCancelSignedInUnknown",
+      "stage_family": "authentication",
+      "literal": "SideStore currently reports an account as signed in, but could not confirm that the sign-in request stopped. Retry Cancellation before starting another attempt.",
+      "diagnostic_code": "SS-AUTH-D092",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local condition",
+      "copy_details": "Existing copy retains visible code; message-only presenters retain their existing controls."
+    },
+    {
+      "key": "signinCancelUnknown",
+      "stage_family": "authentication",
+      "literal": "SideStore could not confirm that the sign-in request stopped. Retry Cancellation before starting another attempt.",
+      "diagnostic_code": "SS-AUTH-D093",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local condition",
+      "copy_details": "Existing copy retains visible code; message-only presenters retain their existing controls."
+    },
+    {
+      "key": "signOutAccountRemains",
+      "stage_family": "authentication",
+      "literal": "Sign-in credentials were cleared, but SideStore still reports an active account or team.",
+      "diagnostic_code": "SS-AUTH-D094",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ],
+      "origin": "repo-owned local condition",
+      "copy_details": "Existing copy retains visible code; message-only presenters retain their existing controls."
+    },
+    {
+      "key": "signOutAuthenticationRemains",
+      "stage_family": "authentication",
+      "literal": "SideStore still reports an active sign-in. Sign-out is not confirmed.",
+      "diagnostic_code": "SS-AUTH-D095",
+      "files": [
+        "scripts/templates/v3_behavioral_primitives.swift"
+      ],
+      "origin": "repo-owned local condition",
+      "copy_details": "Existing copy retains visible code; message-only presenters retain their existing controls."
+    },
+    {
+      "key": "setupWifiUnavailable",
+      "stage_family": "network",
+      "literal": "Wi-Fi unavailable",
+      "diagnostic_code": "SS-NET-D096",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local condition",
+      "copy_details": "Existing copy retains visible code; message-only presenters retain their existing controls."
+    },
+    {
+      "key": "setupCertificateUnverified",
+      "stage_family": "signing",
+      "literal": "Could not verify JIT-Less certificate state",
+      "diagnostic_code": "SS-SIGN-D097",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local condition",
+      "copy_details": "Existing copy retains visible code; message-only presenters retain their existing controls."
+    },
+    {
+      "key": "scheduledRefreshUncertain",
+      "stage_family": "refreshVerification",
+      "literal": "The previous refresh result is uncertain. Automatic retries are paused. Review app status and expiration before explicitly retrying.",
+      "diagnostic_code": "SS-VERIFY-D098",
+      "files": [
+        "scripts/templates/livecontainer_refresh_settings.swift"
+      ],
+      "origin": "repo-owned local condition",
+      "copy_details": "Existing copy retains visible code; message-only presenters retain their existing controls."
+    },
+    {
+      "key": "savedProvisioningSessionGone",
+      "stage_family": "provisioning",
+      "literal": "The saved provisioning session is no longer available. Open Account & Signing to reauthenticate before retrying setup.",
+      "diagnostic_code": "SS-PROV-D099",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local provisioning condition",
+      "copy_details": "Existing copy retains visible code; existing message controls unchanged."
+    },
+    {
+      "key": "provisioningBlockedByActiveAttempt",
+      "stage_family": "provisioning",
+      "literal": "Another sign-in or provisioning attempt is still active. Wait for it to finish, then reload status before retrying provisioning.",
+      "diagnostic_code": "SS-PROV-D100",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local provisioning condition",
+      "copy_details": "Existing copy retains visible code; existing message controls unchanged."
+    },
+    {
+      "key": "signedInProvisioningSessionGone",
+      "stage_family": "provisioning",
+      "literal": "Apple ID is signed in, but the saved provisioning session is unavailable. Sign in again with the same Apple ID to finish setup.",
+      "diagnostic_code": "SS-PROV-D101",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local provisioning condition",
+      "copy_details": "Existing copy retains visible code; existing message controls unchanged."
+    },
+    {
+      "key": "provisioningAnotherAttemptActive",
+      "stage_family": "provisioning",
+      "literal": "Another sign-in or provisioning attempt is already active. Reload status after it finishes before retrying.",
+      "diagnostic_code": "SS-PROV-D102",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local provisioning condition",
+      "copy_details": "Existing copy retains visible code; existing message controls unchanged."
+    },
+    {
+      "key": "signedInProvisioningSessionGoneOpenAccount",
+      "stage_family": "provisioning",
+      "literal": "Apple ID is signed in, but the saved provisioning session is unavailable. Open Account & Signing to sign in again before retrying setup.",
+      "diagnostic_code": "SS-PROV-D103",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local provisioning condition",
+      "copy_details": "Existing copy retains visible code; existing message controls unchanged."
+    },
+    {
+      "key": "provisioningRetryUnconfirmed",
+      "stage_family": "provisioning",
+      "literal": "Retry Provisioning could not be confirmed. Your last confirmed state is still signed in. Reload status, then try again.",
+      "diagnostic_code": "SS-PROV-D104",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local provisioning condition",
+      "copy_details": "Existing copy retains visible code; existing message controls unchanged."
+    },
+    {
+      "key": "provisioningSessionUnverified",
+      "stage_family": "provisioning",
+      "literal": "Device provisioning has not been verified in this SideStore session. Complete setup to verify it.",
+      "diagnostic_code": "SS-PROV-D105",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local provisioning condition",
+      "copy_details": "Existing copy retains visible code; existing message controls unchanged."
+    },
+    {
+      "key": "provisioningIncomplete",
+      "stage_family": "provisioning",
+      "literal": "Device provisioning did not complete. Complete setup, or finish later and come back.",
+      "diagnostic_code": "SS-PROV-D106",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local provisioning condition",
+      "copy_details": "Existing copy retains visible code; existing message controls unchanged."
+    },
+    {
+      "key": "provisioningIncompleteSignInUnconfirmed",
+      "stage_family": "provisioning",
+      "literal": "Apple ID is signed in, but provisioning is incomplete. The previous sign-in attempt remains unconfirmed; you can retry provisioning in a new session.",
+      "diagnostic_code": "SS-PROV-D107",
+      "files": [
+        "scripts/templates/v3_unified_shell.swift"
+      ],
+      "origin": "repo-owned local provisioning condition",
+      "copy_details": "Existing copy retains visible code; existing message controls unchanged."
+    }
+  ],
+  "upstream_presenters": [
+    {
+      "file": "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift",
+      "lines": [
+        289,
+        296,
+        546,
+        555,
+        580,
+        650,
+        854,
+        906,
+        931,
+        946,
+        966,
+        1045,
+        1059,
+        1071
+      ],
+      "flow": "native guest install/import/launch",
+      "origin": "raw NSError/string",
+      "adapter": "Fixed finite native presenter ID; cause remains unknown. Existing messages and controls preserved.",
+      "copy": "yes, raw errorInfo",
+      "diagnostic_codes": [
+        "SS-NATIVE-APP-LIST"
+      ],
+      "baseline_adapter_observation": "needs LC site fallback or typed adapter before String conversion"
+    },
+    {
+      "file": "LiveContainerSwiftUI/Utilities/ViewExtensions.swift",
+      "lines": [
+        366,
+        376,
+        379
+      ],
+      "flow": "native banner actions shared showError",
+      "origin": "plain String from LCAppBannerViewController122/130/288/321/358",
+      "adapter": "Fixed finite native presenter ID; cause remains unknown. Existing messages and controls preserved.",
+      "copy": "yes, raw message",
+      "diagnostic_codes": [
+        "SS-NATIVE-BANNER"
+      ],
+      "baseline_adapter_observation": "needs LC site fallback; type lost"
+    },
+    {
+      "file": "LiveContainerSwiftUI/Views/AppList/AppSettings/LCAppSettingsView.swift",
+      "lines": [
+        405,
+        409,
+        183,
+        497,
+        599,
+        664,
+        725,
+        736,
+        756
+      ],
+      "flow": "app settings / files / guest configuration",
+      "origin": "NSError localizedDescription/string",
+      "adapter": "Fixed finite native presenter ID; cause remains unknown. Existing messages and controls preserved.",
+      "copy": "no",
+      "diagnostic_codes": [
+        "SS-NATIVE-APP-SETTINGS"
+      ],
+      "baseline_adapter_observation": "needs finite LC site fallback"
+    },
+    {
+      "file": "LiveContainerSwiftUI/Views/AppList/AppSettings/LCContainerView.swift",
+      "lines": [
+        178,
+        180,
+        279,
+        330
+      ],
+      "flow": "container operations",
+      "origin": "NSError localizedDescription",
+      "adapter": "Fixed finite native presenter ID; cause remains unknown. Existing messages and controls preserved.",
+      "copy": "no",
+      "diagnostic_codes": [
+        "SS-NATIVE-CONTAINER"
+      ],
+      "baseline_adapter_observation": "needs finite LC site fallback"
+    },
+    {
+      "file": "LiveContainerSwiftUI/Models/LCStorageManagementModel.swift",
+      "lines": [
+        54
+      ],
+      "flow": "storage analysis",
+      "origin": "NSError localizedDescription",
+      "adapter": "Fixed finite native presenter ID; cause remains unknown. Existing messages and controls preserved.",
+      "copy": "no; display LCStorageManagementSections112",
+      "diagnostic_codes": [
+        "SS-NATIVE-STORAGE"
+      ],
+      "baseline_adapter_observation": "needs finite LC storage fallback"
+    },
+    {
+      "file": "LiveContainerSwiftUI/Views/Settings/DataManagement/LCDataManagementView.swift",
+      "lines": [
+        124,
+        126,
+        244,
+        292
+      ],
+      "flow": "data cleanup/storage",
+      "origin": "NSError localizedDescription",
+      "adapter": "Fixed finite native presenter ID; cause remains unknown. Existing messages and controls preserved.",
+      "copy": "no",
+      "diagnostic_codes": [
+        "SS-NATIVE-DATA"
+      ],
+      "baseline_adapter_observation": "needs finite LC site fallback"
+    },
+    {
+      "file": "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
+      "lines": [
+        381,
+        383
+      ],
+      "flow": "native settings",
+      "origin": "plain errorInfo",
+      "adapter": "Fixed finite native presenter ID; cause remains unknown. Existing messages and controls preserved.",
+      "copy": "no",
+      "diagnostic_codes": [
+        "SS-NATIVE-SETTINGS"
+      ],
+      "baseline_adapter_observation": "needs finite LC settings fallback"
+    },
+    {
+      "file": "LiveContainerSwiftUI/Views/Settings/LCJITLessDiagnoseView.swift",
+      "lines": [
+        331,
+        333
+      ],
+      "flow": "native signing diagnostics",
+      "origin": "plain errorInfo",
+      "adapter": "Fixed finite native presenter ID; cause remains unknown. Existing messages and controls preserved.",
+      "copy": "no",
+      "diagnostic_codes": [
+        "SS-NATIVE-SIGNING"
+      ],
+      "baseline_adapter_observation": "needs finite LC diagnostics fallback"
+    },
+    {
+      "file": "LiveContainerSwiftUI/Views/LCAltStoreSourcesView.swift",
+      "lines": [
+        223,
+        562,
+        568,
+        908
+      ],
+      "flow": "native LC source refresh/add",
+      "origin": "NSError localizedDescription / errorMessage",
+      "adapter": "Fixed finite native presenter ID; cause remains unknown. Existing messages and controls preserved.",
+      "copy": "no",
+      "diagnostic_codes": [
+        "SS-NATIVE-SOURCE"
+      ],
+      "baseline_adapter_observation": "needs LC source fallback; separate from V3SourcesView"
+    },
+    {
+      "file": "LiveContainerSwiftUI/Views/LCTweaksView.swift",
+      "lines": [
+        184,
+        188
+      ],
+      "flow": "tweak operations",
+      "origin": "plain errorInfo",
+      "adapter": "Fixed finite native presenter ID; cause remains unknown. Existing messages and controls preserved.",
+      "copy": "no",
+      "diagnostic_codes": [
+        "SS-NATIVE-TWEAKS"
+      ],
+      "baseline_adapter_observation": "needs finite LC tweak fallback"
+    },
+    {
+      "file": "LiveContainerSwiftUI/Views/AppList/LCWebView.swift",
+      "lines": [
+        123,
+        127
+      ],
+      "flow": "browser install/download",
+      "origin": "plain errorInfo",
+      "adapter": "Fixed finite native presenter ID; cause remains unknown. Existing messages and controls preserved.",
+      "copy": "no",
+      "diagnostic_codes": [
+        "SS-NATIVE-DOWNLOAD"
+      ],
+      "baseline_adapter_observation": "needs finite LC download fallback"
+    },
+    {
+      "file": "LiveContainerSwiftUI/Views/LCTabView.swift",
+      "lines": [
+        54,
+        61,
+        66
+      ],
+      "flow": "root errors / crash report",
+      "origin": "plain errorInfo",
+      "adapter": "Fixed finite native presenter ID; cause remains unknown. Existing messages and controls preserved.",
+      "copy": "yes error; crash report selectable",
+      "diagnostic_codes": [
+        "SS-NATIVE-ROOT"
+      ],
+      "baseline_adapter_observation": "needs finite LC root fallback; root may be replaced by V3 tabs, verify reachability"
+    },
+    {
+      "file": "MultitaskSupport/DecoratedAppSceneViewController.m",
+      "lines": [
+        359,
+        362
+      ],
+      "flow": "guest launch",
+      "origin": "NSError.localizedDescription; repo patch_guest_return.py replaces this",
+      "adapter": "Known own-domain 410 early exit or explicit unknown; raw provider description excluded from display and copy.",
+      "copy": "yes raw error",
+      "diagnostic_codes": [
+        "SS-GUEST-EXIT",
+        "SS-GUEST-UNKNOWN"
+      ],
+      "baseline_adapter_observation": "ObjC-specific fallback required"
+    },
+    {
+      "file": "TweakLoader/TweakLoader.m",
+      "lines": [
+        61,
+        67
+      ],
+      "flow": "guest tweak load",
+      "origin": "dlerror string",
+      "adapter": "Fixed finite native presenter ID; cause remains unknown. Existing messages and controls preserved.",
+      "copy": "yes raw string",
+      "diagnostic_codes": [
+        "SS-NATIVE-TWEAK-LOAD"
+      ],
+      "baseline_adapter_observation": "ObjC site fallback, avoid raw error classification"
+    }
+  ],
+  "baseline_audit_notes": [
+    "Literal inventory is specifically repo-owned static bypasses; centrally typed CombinedFailure/V3FailureGuidance/auth-kind paths are intentionally omitted. Check current lines by exact literal because another worker is editing the same checkout.",
+    "V3FailureGuidance.message typed branch returns recovery, not safeMessage: append ID there as well. Message-only certificate/developer/pairing/settings/anisette/SideSign/health/backup/logs presenters generally have no Copy Diagnostics.",
+    "Auth terminal apply reply[message] (shell6364/6370/6375), provisioning reply[message]6350, auth resultUnknown strings, and dynamic presentation.message branches need adapters at state-aware call sites. Never annotate success/normal cancellation solely because they share message storage.",
+    "V3AnisetteFailureGuidance.message at shell7998 bypasses V3FailureGuidance. Preserve its typed CombinedFailure ID.",
+    "Scheduler supplied safeMessage line527 can bypass structured.safeMessage, persisted historical run messages may lack IDs. Refresh button963 and setup9443/9449/9493 accept historical message strings.",
+    "V3SharedRefreshStore.unavailableMessage is another static storage origin, scheduler17 references it.",
+    "Guest ObjC patch_guest_return.py38 and41 show/copy launchError.localizedDescription; add finite LC guest-launch adapter before raw presentation. Origins include LiveContainerReturn code410 early exit and busy code409. No CombinedFailure bridge currently.",
+    "Pinned pristine LiveContainer12377cf is available at /workspace/shared/sidestore-review/LiveContainer. It is not a generated patched build. Native SwiftUI app-list, settings, container, sources, storage, tweaks and UIKit showError presenters remain separate from central templates and require explicit patch-generator coverage or a documented P1 residual.",
+    "Confirmation alerts, settings explanatory text, expected not-configured setup states, successful messages, normal user cancellations, and ongoing checking/waiting progress are NOT failure labels."
+  ],
+  "current_scope": "See ERROR_DIAGNOSTICS.md for implemented structured/local coverage and explicit privacy/system-message residuals. The notes below describe pre-change audit observations, not unresolved implementation status.",
+  "native_implementation": {
+    "generator": "scripts/patch_native_error_presenters.py",
+    "reviewed_commit": "464f30d594caa821523c48fb20fcd5837abb6284",
+    "pin": "12377cf3b91d51739a33f14a302e5f522b238593",
+    "generated_files": [
+      "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift",
+      "LiveContainerSwiftUI/Utilities/ViewExtensions.swift",
+      "LiveContainerSwiftUI/Views/AppList/AppSettings/LCAppSettingsView.swift",
+      "LiveContainerSwiftUI/Views/AppList/AppSettings/LCContainerView.swift",
+      "LiveContainerSwiftUI/Views/Settings/DataManagement/LCStorageManagementSections.swift",
+      "LiveContainerSwiftUI/Views/Settings/DataManagement/LCDataManagementView.swift",
+      "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
+      "LiveContainerSwiftUI/Views/Settings/LCJITLessDiagnoseView.swift",
+      "LiveContainerSwiftUI/Views/LCAltStoreSourcesView.swift",
+      "LiveContainerSwiftUI/Views/LCTweaksView.swift",
+      "LiveContainerSwiftUI/Views/AppList/LCWebView.swift",
+      "LiveContainerSwiftUI/Views/LCTabView.swift",
+      "TweakLoader/TweakLoader.m"
+    ],
+    "guest_generator": "scripts/patch_guest_return.py",
+    "source_checks": "Pinned two-pass idempotence, atomic drift rejection, marker tampering, and composition after actual shell/service transforms passed. Native compilation not run locally.",
+    "privacy_residual": "Existing native provider prose remains a pre-existing P1 privacy/wording review item. No new copy controls or provider data are added."
+  }
+}

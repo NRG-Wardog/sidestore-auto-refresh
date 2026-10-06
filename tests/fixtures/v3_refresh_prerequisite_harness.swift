@@ -54,7 +54,7 @@ struct RefreshPrerequisiteHarness {
         precondition(failure.safeCause == .pairingRequired)
         precondition(failure.retryable == false)
         precondition(failure.correlationID == id)
-        precondition(failure.safeMessage == "A pairing file is required before this device can be refreshed.")
+        precondition(failure.safeMessage == "A pairing file is required before this device can be refreshed.\n" + failure.diagnosticLabel)
         precondition(failure.recovery == "Add the pairing file, then retry the refresh.")
         // The technical line carries the exact identifiers the defect report
         // asked for and is safe to copy.

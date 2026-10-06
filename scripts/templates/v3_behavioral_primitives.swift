@@ -1835,12 +1835,12 @@ enum V3AuthPromptResponsePolicy {
         if let failure = error as? CombinedFailure {
             return "\(failure.safeMessage) \(failure.recovery)"
         }
-        return "The verification response could not be confirmed. The exact underlying cause could not be safely identified. Check the sign-in status before trying again."
+        return "The verification response could not be confirmed. The exact underlying cause could not be safely identified. Check the sign-in status before trying again.\nError ID: SS-AUTH-C11"
     }
 
     static func diagnostics(_ error: Error) -> String {
         if let failure = error as? CombinedFailure { return failure.technicalDetails }
-        return "schema=1 operation=authRespond stage=command code=failed correlation=unavailable underlying_domain=redacted underlying_code=redacted retryable=unknown"
+        return "schema=1 diagnostic_code=SS-AUTH-C11 builder_commit=\(V3DiagnosticBuild.commit) operation=authRespond stage=command code=failed correlation=unavailable underlying_domain=redacted underlying_code=redacted retryable=unknown"
     }
 
     static func blocksResubmission(_ error: Error) -> Bool {
@@ -2454,7 +2454,7 @@ struct V3RefreshAllAttemptState {
     mutating func markDidNotStart() {
         guard !isTerminal else { return }
         phase = .failed
-        terminalMessage = "Refresh did not start."
+        terminalMessage = "Refresh did not start." + "\nError ID: SS-CMD-D047"
     }
 
     mutating func markTimedOut() {
@@ -2509,7 +2509,7 @@ enum V3RefreshAllFailureDiagnostics {
             String(value.filter { $0.isASCII && $0 != "\n" && $0 != "\r" }.prefix(512))
         }
         return [
-            "schema=1", "request_id=\(requestID)", "manual_refresh_request=\(requestID)",
+            "schema=1", "diagnostic_code=SS-REFRESH-UNKNOWN", "builder_commit=\(V3DiagnosticBuild.commit)", "request_id=\(requestID)", "manual_refresh_request=\(requestID)",
             "run_id=\(safeRunID)", "state=failed", "operation=refresh", "stage=unknown",
             "code=unknown", "correlation=\(safeCorrelation)",
             "underlying_domain=redacted", "underlying_code=unknown", "retryable=unknown",
@@ -2543,7 +2543,7 @@ enum V3RefreshAllFailureDiagnostics {
         }
         if failure?.operation != "refresh" {
             return [
-                "schema=1", "request_id=\(requestID)", "manual_refresh_request=\(requestID)", "run_id=\(runID)",
+                "schema=1", "diagnostic_code=SS-REFRESH-UNKNOWN", "builder_commit=\(V3DiagnosticBuild.commit)", "request_id=\(requestID)", "manual_refresh_request=\(requestID)", "run_id=\(runID)",
                 "state=failed", "operation=refresh", "stage=unknown",
                 "code=staleResult", "correlation=\(runID)",
                 "underlying_domain=redacted", "underlying_code=unknown",
@@ -2565,6 +2565,8 @@ enum V3RefreshAllFailureDiagnostics {
                                                                     code: failure.underlyingCode)
         return [
             "schema=1",
+            "diagnostic_code=\(failure.diagnosticCode)",
+            "builder_commit=\(V3DiagnosticBuild.commit)",
             "request_id=\(requestID)",
             "manual_refresh_request=\(requestID)",
             "run_id=\(runID)",
@@ -2762,11 +2764,11 @@ enum V3SignOutOutcomePolicy {
         switch outcome {
         case .confirmed: return nil
         case .accountStateRemains:
-            return "Sign-in credentials were cleared, but SideStore still reports an active account or team."
+            return "Sign-in credentials were cleared, but SideStore still reports an active account or team." + "\nError ID: SS-AUTH-D094"
         case .authenticationRemains:
-            return "SideStore still reports an active sign-in. Sign-out is not confirmed."
+            return "SideStore still reports an active sign-in. Sign-out is not confirmed." + "\nError ID: SS-AUTH-D095"
         case .snapshotIncomplete:
-            return "SideStore did not return enough account state to confirm sign-out."
+            return "SideStore did not return enough account state to confirm sign-out." + "\nError ID: SS-AUTH-D060"
         }
     }
 
@@ -2788,18 +2790,18 @@ enum V3AnisetteFailureGuidance {
     static func message(_ failure: CombinedFailure) -> String? {
         guard failure.operation.lowercased().hasPrefix("anisette") else { return nil }
         if failure.code == .cancelled {
-            return "What happened: The Anisette Servers request was cancelled.\nWhat you can do: Reopen Anisette Servers to check the current state before trying again."
+            return "What happened: The Anisette Servers request was cancelled.\nWhat you can do: Reopen Anisette Servers to check the current state before trying again.\n\(failure.diagnosticLabel)"
         }
         guard failure.stage == .network ||
               failure.safeCause == .networkConnectionLost ||
               failure.safeCause == .networkTimedOut ||
               failure.safeCause == .networkUnavailable else { return nil }
-        return "What happened: SideStore could not reach the configured Anisette server.\nWhat you can do: Check its address and your network, then try again. This does not show that LocalDevVPN is unavailable."
+        return "What happened: SideStore could not reach the configured Anisette server.\nWhat you can do: Check its address and your network, then try again. This does not show that LocalDevVPN is unavailable.\n\(failure.diagnosticLabel)"
     }
 }
 
 enum V3SideJITReachabilityFeedback {
-    static let unreachable = "The SideJIT server could not be reached. Check its address and network, then try again."
+    static let unreachable = "The SideJIT server could not be reached. Check its address and network, then try again." + "\nError ID: SS-NET-D061"
 
     static func reachable(httpStatusCode: Int?) -> String {
         httpStatusCode.map { "Reachable (HTTP \($0))." } ?? "Reachable."
@@ -3223,11 +3225,11 @@ enum V3HostSigningState: String, Equatable, Sendable {
     var detail: String {
         switch self {
         case .unknown:
-            return "Installed host signing could not be checked. Reload Status to check again."
+            return "Installed host signing could not be checked. Reload Status to check again." + "\nError ID: SS-VERIFY-D062"
         case .compatible:
             return "The installed host is locally compatible with the active signing setup. Revocation was not checked."
         case .refreshRequired:
-            return "The installed host signing is expired or differs from the active setup. Run Test Refresh after completing account and certificate setup."
+            return "The installed host signing is expired or differs from the active setup. Run Test Refresh after completing account and certificate setup." + "\nError ID: SS-VERIFY-D063"
         case .paidSignerUnverified:
             return "The installed host uses a different paid-team signer. Its portal status was not checked; a re-sign is not known to be required. You can inspect Certificates or explicitly run Test Refresh."
         }
@@ -3344,7 +3346,7 @@ struct V3SetupCompletionInputs: Equatable {
 enum V3FailureGuidance {
     static func message(_ error: Error) -> String {
         if let combined = error as? CombinedFailure {
-            return combined.recovery
+            return combined.recovery + "\n" + combined.diagnosticLabel
         }
         // The earlier wording asserted "and nothing was changed". Nothing
         // supports that: an untyped failure can arrive after the service applied
@@ -3353,7 +3355,7 @@ enum V3FailureGuidance {
         // side-effect from an unknown cause is the same class of error as
         // blaming the network, so the claim is removed and the outcome is stated
         // as unknown.
-        return "That action did not complete, and whether it took effect is not known. Reload status to see the current state before trying again. If it keeps failing, copy diagnostics to identify the cause."
+        return "That action did not complete, and whether it took effect is not known. Reload status to see the current state before trying again. If it keeps failing, copy diagnostics to identify the cause.\nError ID: SS-CMD-C11"
     }
 
     /// Privacy-safe diagnostic text, never shown as guidance.
@@ -3364,7 +3366,7 @@ enum V3FailureGuidance {
         let nsError = error as NSError
         let underlying = CombinedFailure.safeDiagnosticUnderlying(domain: nsError.domain,
             code: nsError.code)
-        return "operation=untyped stage=command code=failed underlying_domain=\(underlying.domain) underlying_code=\(underlying.code)"
+        return "diagnostic_code=SS-CMD-C11 builder_commit=\(V3DiagnosticBuild.commit) operation=untyped stage=command code=failed underlying_domain=\(underlying.domain) underlying_code=\(underlying.code)"
     }
 }
 
@@ -3965,13 +3967,13 @@ struct V3OperationRetryContext {
     }
 
     var whatHappened: String {
-        guard let currentFailure else { return "The operation failed." }
+        guard let currentFailure else { return "The operation failed." + "\nError ID: SS-CMD-D064" }
         guard retryCouldNotStart else { return currentFailure.whatHappened }
         if currentFailure.safeCause == CombinedFailure.SafeCause.operationInProgress.rawValue {
             if let previousFailure {
                 return "The retry could not start because another SideStore operation is still active. Previous attempt: \(previousFailure.whatHappened)"
             }
-            return "The operation could not start because another SideStore operation is still active."
+            return "The operation could not start because another SideStore operation is still active." + "\nError ID: SS-CMD-D065"
         }
         if let previousFailure {
             if ["timedOut", "interrupted"].contains(currentFailure.code) {
@@ -3980,9 +3982,9 @@ struct V3OperationRetryContext {
             return "The retry could not start, so the app operation did not run. Previous attempt: \(previousFailure.whatHappened)"
         }
         if ["timedOut", "interrupted"].contains(currentFailure.code) {
-            return "The operation could not be confirmed as started. It may still be active."
+            return "The operation could not be confirmed as started. It may still be active." + "\nError ID: SS-CMD-D066"
         }
-        return "The operation could not start, so the app pipeline did not run."
+        return "The operation could not start, so the app pipeline did not run." + "\nError ID: SS-CMD-D067"
     }
 
     var whatToDo: String {
@@ -4055,7 +4057,7 @@ enum V3OperationMissingSessionPolicy {
         guard knownStarted else { return nil }
         return ["session": sessionID, "state": "failed", "backendSettled": false,
                 "outcomeUnknown": true, "stopConfirmed": false,
-                "message": "The operation session is no longer available, so its device result cannot be confirmed."]
+                "message": "The operation session is no longer available, so its device result cannot be confirmed." + "\nError ID: SS-CMD-D068"]
     }
 }
 
@@ -4488,7 +4490,7 @@ enum V3AuthReconciliationPresentationPolicy {
         guard authenticated else {
             switch reportedState {
             case "timedOut":
-                return .init(state: "timedOut", message: "Sign-in timed out. SideStore reports that no account is currently signed in.")
+                return .init(state: "timedOut", message: "Sign-in timed out. SideStore reports that no account is currently signed in." + "\nError ID: SS-AUTH-D069")
             case "cancelled":
                 return .init(state: "cancelled", message: "Sign-in was cancelled. SideStore reports that no account is currently signed in.")
             default:
@@ -4502,26 +4504,26 @@ enum V3AuthReconciliationPresentationPolicy {
         switch reportedState {
         case "failed":
             var message = provisioningIncomplete
-                ? "The sign-in attempt did not complete. SideStore reports authentication, but device provisioning is incomplete."
-                : "The sign-in attempt did not complete. SideStore currently reports an account as signed in."
+                ? "The sign-in attempt did not complete. SideStore reports authentication, but device provisioning is incomplete." + "\nError ID: SS-AUTH-D070"
+                : "The sign-in attempt did not complete. SideStore currently reports an account as signed in." + "\nError ID: SS-AUTH-D071"
             if let previousFailureMessage { message += " " + previousFailureMessage }
             return .init(state: "failed", message: message)
         case "timedOut":
             return .init(state: "timedOut", message: provisioningIncomplete
-                ? "The sign-in attempt timed out. SideStore reports authentication, but device provisioning is incomplete."
-                : "The sign-in attempt timed out. SideStore currently reports an account as signed in.")
+                ? "The sign-in attempt timed out. SideStore reports authentication, but device provisioning is incomplete." + "\nError ID: SS-AUTH-D072"
+                : "The sign-in attempt timed out. SideStore currently reports an account as signed in." + "\nError ID: SS-AUTH-D073")
         case "cancelled":
             return .init(state: "cancelled", message: provisioningIncomplete
                 ? "The sign-in attempt was cancelled. SideStore reports authentication, but device provisioning is incomplete."
                 : "The sign-in attempt was cancelled. SideStore currently reports an account as signed in.")
         case "resultUnknown":
             return .init(state: "resultUnknown", message: provisioningIncomplete
-                ? "The sign-in result remains unconfirmed. SideStore reports authentication, but device provisioning is incomplete."
-                : "The sign-in result remains unconfirmed. SideStore currently reports an account as signed in.")
+                ? "The sign-in result remains unconfirmed. SideStore reports authentication, but device provisioning is incomplete." + "\nError ID: SS-AUTH-D074"
+                : "The sign-in result remains unconfirmed. SideStore currently reports an account as signed in." + "\nError ID: SS-AUTH-D075")
         case "promptExpired":
             return .init(state: "promptExpired", message: provisioningIncomplete
-                ? "The verification session expired. SideStore reports authentication, but device provisioning is incomplete."
-                : "The verification session expired. SideStore currently reports an account as signed in.")
+                ? "The verification session expired. SideStore reports authentication, but device provisioning is incomplete." + "\nError ID: SS-AUTH-D076"
+                : "The verification session expired. SideStore currently reports an account as signed in." + "\nError ID: SS-AUTH-D077")
         default:
             return provisioningIncomplete
                 ? .init(state: "authenticatedProvisioningIncomplete", message: "Apple ID signed in successfully.")
@@ -4537,7 +4539,7 @@ enum V3AuthInactiveSessionResolutionPolicy {
         if anotherSessionActive && !authenticated &&
            ["working", "awaitingPrompt", "resultUnknown"].contains(reportedState) {
             return .init(state: "resultUnknown",
-                message: "Another Apple sign-in session is active. This request could not be matched to it. Wait for it to finish, then reload status.")
+                message: "Another Apple sign-in session is active. This request could not be matched to it. Wait for it to finish, then reload status." + "\nError ID: SS-AUTH-D078")
         }
         guard !authenticated, !authenticationActive,
               ["working", "awaitingPrompt", "resultUnknown"].contains(reportedState) else { return nil }
@@ -4693,14 +4695,14 @@ enum V3AuthSessionUnavailablePolicy {
         guard snapshotConfirmed else {
             return V3AuthSessionUnavailablePresentation(
                 state: "resultUnknown",
-                message: "SideStore no longer has the active sign-in session. The current account and provisioning state could not be confirmed. Reload status before continuing.",
+                message: "SideStore no longer has the active sign-in session. The current account and provisioning state could not be confirmed. Reload status before continuing." + "\nError ID: SS-AUTH-D079",
                 provisioningMessage: nil,
                 cancellationConfirmed: false)
         }
         if anotherSessionActive {
             return V3AuthSessionUnavailablePresentation(
                 state: "resultUnknown",
-                message: "Another Apple sign-in session is active. This request could not be matched to it. Wait for it to finish, then reload status.",
+                message: "Another Apple sign-in session is active. This request could not be matched to it. Wait for it to finish, then reload status." + "\nError ID: SS-AUTH-D078",
                 provisioningMessage: nil,
                 cancellationConfirmed: true)
         }
@@ -4708,7 +4710,7 @@ enum V3AuthSessionUnavailablePolicy {
             return V3AuthSessionUnavailablePresentation(
                 state: "authenticatedProvisioningIncomplete",
                 message: "Apple ID signed in successfully.",
-                provisioningMessage: "The saved provisioning session is no longer available. Open Account & Signing to sign in again before retrying setup.",
+                provisioningMessage: "The saved provisioning session is no longer available. Open Account & Signing to sign in again before retrying setup." + "\nError ID: SS-AUTH-D080",
                 cancellationConfirmed: true)
         }
         if authenticated {
@@ -4720,7 +4722,7 @@ enum V3AuthSessionUnavailablePolicy {
         }
         let message = snapshotConfirmed
             ? safeMessage + " " + recovery
-            : "SideStore no longer has the active sign-in session and could not confirm the account state. Reload status before starting a new sign-in."
+            : "SideStore no longer has the active sign-in session and could not confirm the account state. Reload status before starting a new sign-in." + "\nError ID: SS-AUTH-D081"
         return V3AuthSessionUnavailablePresentation(
             state: "failed", message: message, provisioningMessage: nil,
             cancellationConfirmed: true)
@@ -5099,6 +5101,60 @@ enum V3AuthStatusTextPolicy {
 }
 
 enum V3AuthFailureDiagnosticsPolicy {
+    static func provisioning(reply: [String: Any], message: String, technical: String) -> (message: String, technical: String) {
+        var evidence = (reply["failure"] as? [String: Any]) ?? ["stage": "provisioning", "code": "failed"]
+        if let kind = reply["failureKind"] as? String { evidence["kind"] = kind }
+        let canonical = "diagnostic_code=\(diagnosticCode(for: evidence)) builder_commit=\(V3DiagnosticBuild.commit)"
+        // Preserve existing safe technical evidence, explicitly naming its
+        // structured category separately from the presentation category.
+        let underlying = technical.replacingOccurrences(of: "diagnostic_code=", with: "underlying_diagnostic_code=")
+            .replacingOccurrences(of: "builder_commit=", with: "underlying_builder_commit=")
+        return (display(message, failure: evidence), canonical + (underlying.isEmpty ? "" : "\n" + underlying))
+    }
+
+    static func display(_ message: String, failure: [String: Any]) -> String {
+        // Replace our previous decoration only. Never inspect prose to infer a
+        // cause; the canonical ID comes solely from the finite envelope fields.
+        let prose = message.components(separatedBy: "\n").compactMap { line -> String? in
+            let prefix = "Error ID: "
+            guard line.hasPrefix(prefix + "SS-") else { return line }
+            // Older call sites may append recovery prose after the ID token.
+            // Remove only the decoration token, never the recovery instructions.
+            let trailing = line.dropFirst(prefix.count).drop(while: { !$0.isWhitespace })
+                .trimmingCharacters(in: .whitespaces)
+            return trailing.isEmpty ? nil : trailing
+        }.joined(separator: "\n")
+        return prose + "\nError ID: " + diagnosticCode(for: failure)
+    }
+
+    static func diagnosticCode(for failure: [String: Any]) -> String {
+        let stage = (failure["stage"] as? String).flatMap(CombinedFailure.Stage.init(rawValue:)) ?? .authentication
+        let code = (failure["code"] as? String).flatMap(CombinedFailure.Code.init(rawValue:)) ?? .failed
+        let step = (failure["sourceStep"] as? String).flatMap(CombinedFailure.SourceStep.init(rawValue:))
+        let cause = (failure["safeCause"] as? String).flatMap(CombinedFailure.SafeCause.init(rawValue:))
+        let fields = (failure["signingContext"] as? [String: String]).flatMap(CombinedFailure.validatedSigningContext) ?? [:]
+        let failureCode = CombinedFailure(operation: "signIn", stage: stage, code: code,
+            id: "00000000-0000-0000-0000-000000000000", safeCause: cause, sourceStep: step,
+            signingContext: fields).diagnosticCode
+        let kind = failure["kind"] as? String ?? failure["code"] as? String ?? "unknown"
+        let kindToken: String
+        switch kind {
+        case "unknown": kindToken = "A00"
+        case "invalidCredentials": kindToken = "A01"
+        case "appSpecificPasswordRequired": kindToken = "A02"
+        case "invalidCode": kindToken = "A03"
+        case "rateLimited": kindToken = "A04"
+        case "serviceUnavailable": kindToken = "A05"
+        case "anisetteFailure", "anisette": kindToken = "A06"
+        case "networkFailure", "network": kindToken = "A07"
+        case "accountRepairRequired": kindToken = "A08"
+        case "credentialStorage": kindToken = "A09"
+        case "credentialStorageUncertain": kindToken = "A10"
+        case "accountIdentityMismatch": kindToken = "A11"
+        default: kindToken = "A00"
+        }
+        return failureCode + "-" + kindToken
+    }
     static func shouldShowTerminalDetails(state: String, hasPrompt: Bool,
                                           hasFailure: Bool) -> Bool {
         hasFailure && !hasPrompt && ["failed", "timedOut", "promptExpired", "resultUnknown"]
@@ -5117,7 +5173,7 @@ enum V3AuthFailureDiagnosticsPolicy {
         let step = (failure["sourceStep"] as? String).flatMap(CombinedFailure.SourceStep.init(rawValue:))?.rawValue ?? "unknown"
         let fields = (failure["signingContext"] as? [String: String]).flatMap(CombinedFailure.validatedSigningContext) ?? [:]
         let accountDetails = " source_step=\(step) typed_error=\(fields["typed_error"] ?? "unknown") server_code=\(fields["server_code"] ?? "unknown") http_status=\(fields["http_status"] ?? "unavailable")"
-        return "kind=\(kind) stage=\(stage) code=\(code) correlation=\(correlation) underlying=\(underlyingDomain)/\(codeText) retryable=\(retryableText)" + accountDetails
+        return "diagnostic_code=\(diagnosticCode(for: failure)) builder_commit=\(V3DiagnosticBuild.commit) kind=\(kind) stage=\(stage) code=\(code) correlation=\(correlation) underlying=\(underlyingDomain)/\(codeText) retryable=\(retryableText)" + accountDetails
     }
 }
 
@@ -5266,7 +5322,7 @@ enum V3AuthProvisioningRetryDispatchPolicy {
 
     static func whatHappened(_ failure: CombinedFailure) -> String {
         if failure.safeCause == .authResponseCapacityUnavailable {
-            return "SideStore could not start the provisioning retry because it could not reserve a safe response slot."
+            return "SideStore could not start the provisioning retry because it could not reserve a safe response slot." + "\nError ID: SS-AUTH-D082"
         }
         if failure.safeCause == .operationInProgress {
             return "Another sign-in or provisioning attempt is already active."
@@ -5280,10 +5336,10 @@ enum V3AuthSessionExpiryPolicy {
         if authenticated {
             return ["state": "authenticatedProvisioningIncomplete", "authenticated": true,
                     "resumable": resumable,
-                    "message": "Apple ID sign-in succeeded, but provisioning did not finish before the session timed out."]
+                    "message": "Apple ID sign-in succeeded, but provisioning did not finish before the session timed out." + "\nError ID: SS-AUTH-D083"]
         }
         return ["state": "timedOut", "authenticated": false,
-                "message": "Sign-in timed out. Start a new sign-in when you are ready."]
+                "message": "Sign-in timed out. Start a new sign-in when you are ready." + "\nError ID: SS-AUTH-D040"]
     }
 }
 

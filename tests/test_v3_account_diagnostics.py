@@ -94,6 +94,12 @@ class AccountDiagnosticTests(unittest.TestCase):
 
     def test_generated_boundaries_preserve_stage_and_fail_activation(self):
         source = generated_sign_in()
+        anisette = declaration(source, '    private func getAnisetteData(')
+        self.assertIn('v3AuthenticationPhase(.anisetteFetch)', anisette)
+        signin = declaration(source, '    private func signIn(')
+        self.assertIn('v3AuthenticationPhase(.appleAuthentication)', signin)
+        silent = declaration(source, '    private func silentSignIn(')
+        self.assertIn('v3AuthenticationPhase(.accountLookup)', silent)
         loop = declaration(source, '    private func provisioningLoop(')
         for step, operation in (
             ('fetchTeams', 'self.fetchTeam('), ('saveAccount', 'self.saveTeamAndAccount(team)'),
@@ -134,6 +140,19 @@ class AccountDiagnosticTests(unittest.TestCase):
         self.assertIn('center.sessions[sessionID]?.rejectedPortalSessionFailure =', rejected)
         for forbidden in ('signOut(', 'clearSignInInfo', 'clearActiveCertificate', 'revoke'):
             self.assertNotIn(forbidden, retirement)
+
+    def test_terminal_routes_capture_owned_phase_evidence(self):
+        runtime = (ROOT / 'scripts/templates/v3_headless_runtime.swift').read_text()
+        run = declaration(runtime, '    func run(id: String) async')
+        self.assertEqual(run.count('v3CaptureAuthFailure(error, operation: "signIn"'), 2)
+        self.assertNotIn('CombinedFailure.capture(error, operation: "signIn"', run)
+        source = generated_sign_in()
+        execute = declaration(source, '    override func execute(')
+        self.assertIn('session.anisetteData = try await self.getAnisetteData()', execute)
+        self.assertIn('if self.v3ForceProvisioningRetry', execute)
+        # Both paths use the generated owned Anisette boundary; their escaped
+        # failures are handled by the production terminal capture helper below.
+        self.assertEqual(execute.count('self.getAnisetteData()'), 2)
 
     def test_typed_errors_round_trip_to_prompt_and_copy_diagnostics(self):
         self.execute(diagnostic_sources() + (ROOT / 'tests/fixtures/v3_account_diagnostics_harness.swift').read_text())

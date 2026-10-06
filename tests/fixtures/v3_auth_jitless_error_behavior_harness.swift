@@ -175,7 +175,7 @@ struct V3AuthJITLessErrorBehaviorHarness {
         precondition(sourceNetwork.safeMessage.contains("source could not be downloaded"))
         precondition(badManifest.safeMessage.contains("valid source"))
         precondition(catalog.safeMessage.contains("saved catalog"))
-        precondition(pairing.safeMessage == "A pairing file is required before this device can be refreshed.")
+        precondition(pairing.safeMessage == "A pairing file is required before this device can be refreshed.\n" + pairing.diagnosticLabel)
         precondition(pairing.recovery == "Add the pairing file, then retry the refresh.")
 
         var attempt = V3RefreshAllAttemptState()

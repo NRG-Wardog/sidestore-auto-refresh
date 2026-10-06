@@ -18,10 +18,23 @@ enum ServerError: Error {
 }
 
 enum SideSign {
+    enum Archive {
+        enum Error: Swift.Error {
+            case fileNotFound(URL), corruptArchive(URL), readFailed(URL), writeFailed(URL), missingAppBundle(URL)
+        }
+    }
     enum AnisetteError: Error {
         case noServersConfigured
         case allServersFailed
         case badServerResponse(statusCode: Int, payload: String)
+    }
+}
+
+enum AnisetteKit {
+    enum AnisetteError: Error {
+        case invalidArgument, loaderFailed(reason: String), symbolMissing(name: String), readFailure
+        case invalidResponse(reason: String), adiError(code: Int32, description: String)
+        case librariesNotFound(reason: String), httpError(statusCode: Int, message: String)
     }
 }
 

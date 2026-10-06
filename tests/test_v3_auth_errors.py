@@ -232,9 +232,9 @@ class V3AuthErrorTests(unittest.TestCase):
         post_auth = runtime_text[runtime_text.index('if authenticatedOutcome == "authenticatedProvisioningIncomplete"'):]
         post_auth = post_auth[:post_auth.index('} else if cancelled {')]
         self.assertNotIn("v3ClassifyAuthError(error)", post_auth)
-        auth_failure = runtime_text[runtime_text.index("} else {\n                let failure = CombinedFailure.capture(error, operation: \"signIn\"") :]
+        auth_failure = runtime_text[runtime_text.index("} else {\n                let failure = v3CaptureAuthFailure(error, operation: \"signIn\"") :]
         self.assertIn("v3ClassifyAuthError(error)", auth_failure)
-        self.assertIn('V3AuthStore.failureMessage(from: ["kind": failureKind])', host)
+        self.assertIn('.merging(["kind": failureKind]) { _, supplied in supplied }', host)
 
     def test_reauthentication_cancellation_reconciles_preexisting_account_state(self):
         runtime_text = runtime()

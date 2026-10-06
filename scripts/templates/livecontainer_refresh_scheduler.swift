@@ -63,15 +63,15 @@ enum LiveContainerAutoRefreshScheduler {
     // snake_case tokens. Each of these states now says what happened and what
     // remains true, and the raw error text stays in the log and the run record.
     static let hostRelaunchUnverifiedMessage =
-        "LiveContainer refreshed its installed profile, but the new one could not be confirmed until you relaunch. Relaunch to finish verifying it."
+        "LiveContainer refreshed its installed profile, but the new one could not be confirmed until you relaunch. Relaunch to finish verifying it." + "\nError ID: SS-VERIFY-D052"
     static let hostBaselineUnavailableMessage =
-        "LiveContainer could not read its previous installed profile, so a background refresh cannot be confirmed as having renewed it. Open Refresh History for details."
+        "LiveContainer could not read its previous installed profile, so a background refresh cannot be confirmed as having renewed it. Open Refresh History for details." + "\nError ID: SS-VERIFY-D053"
     static let hostExpirationNotAdvancedMessage =
-        "LiveContainer refreshed, but its installed profile has not advanced yet. Relaunch LiveContainer, then check Refresh History."
+        "LiveContainer refreshed, but its installed profile has not advanced yet. Relaunch LiveContainer, then check Refresh History." + "\nError ID: SS-VERIFY-D054"
     static let schedulerConfigurationMessage =
-        "iOS did not register every background refresh task, so refreshes will not run on their own. Manual Refresh All still works."
+        "iOS did not register every background refresh task, so refreshes will not run on their own. Manual Refresh All still works." + "\nError ID: SS-CMD-D055"
     static let backgroundSubmitFailedMessage =
-        "iOS would not accept the next scheduled background refresh. Refresh All still works now; check Settings for Background App Refresh."
+        "iOS would not accept the next scheduled background refresh. Refresh All still works now; check Settings for Background App Refresh." + "\nError ID: SS-CMD-D056"
     static let maximumRunLedgerEntries = 32
     static let warningIdentifier = "LiveContainerAutoRefresh.deadline"
     static let leadTime: TimeInterval = 60 * 60 // Provisional policy, not a timing guarantee.
@@ -524,7 +524,8 @@ enum LiveContainerAutoRefreshScheduler {
         } else {
             structured = CombinedFailure(operation: "refresh", stage: .refreshVerification, id: runID)
         }
-        let safeMessage = String(((suppliedFailureMatches ? message : nil) ?? structured.safeMessage).prefix(2048))
+        let safeMessage = V3DiagnosticPresentation.label(
+            String(((suppliedFailureMatches ? message : nil) ?? structured.safeMessage).prefix(2048)), context: .refresh)
         // Persist a terminal intent before releasing the run marker. If iOS
         // stops LiveContainer between the release and final ledger write,
         // startup recovery can complete this exact failure instead of leaving
@@ -613,7 +614,7 @@ enum LiveContainerAutoRefreshScheduler {
               let previous = baseline["expiration"] as? Date,
               let bundle = hostBundle, let bundleID = bundle.bundleIdentifier else {
             defaults.set(true, forKey: retryExhaustedKey)
-            let message = "The refresh could not verify the installed host profile because its handoff record or baseline is incomplete. Review Refresh history and app expiration before retrying."
+            let message = "The refresh could not verify the installed host profile because its handoff record or baseline is incomplete. Review Refresh history and app expiration before retrying." + "\nError ID: SS-VERIFY-D057"
             if let runID = defaults.string(forKey: hostHandoffRunKey),
                UUID(uuidString: runID) != nil,
                runLedger()[runID] != nil {
@@ -645,7 +646,7 @@ enum LiveContainerAutoRefreshScheduler {
                 if let started = defaults.object(forKey: hostHandoffStartedKey) as? Date,
                    Date().timeIntervalSince(started) >= 180 {
                     defaults.set(true, forKey: retryExhaustedKey)
-                    let message = "The installed host profile did not advance after replacement. Retry manually; no success was recorded."
+                    let message = "The installed host profile did not advance after replacement. Retry manually; no success was recorded." + "\nError ID: SS-VERIFY-D058"
                     let failed = markFailed(runID: runID, source: "relaunch", health: "HOST_REFRESH_FAILED",
                         failure: CombinedFailure(operation: "refresh", stage: .refreshVerification,
                             code: .timedOut, id: runID, retryable: true),

@@ -2101,6 +2101,8 @@ def patch_sign_in_operation(text):
     marker = "V3_PROVISIONING_RETRY_BYPASSES_CACHED_SIGNIN_V1"
     if marker in text:
         required = (
+            "V3_AUTHENTICATION_PHASE_EVIDENCE_V1",
+            "v3AuthenticationPhase(.appleAuthentication)",
             "V3_AUTH_CREDENTIAL_TRANSACTION_V1",
             "V3_TYPED_ACCOUNT_DIAGNOSTICS_V1",
             "diagnosticError.portalSessionRejected",
@@ -2339,6 +2341,21 @@ def patch_sign_in_operation(text):
         "        }\n"
         "    }\n\n"
         "    private func signIn(appleID: String, password: String)")
+    text = replace(text,
+        "        try await AnisetteProvider.fetch(handler: self.anisetteServerHandler)\n",
+        "        // V3_AUTHENTICATION_PHASE_EVIDENCE_V1\n"
+        "        try await v3AuthenticationPhase(.anisetteFetch) {\n"
+        "            try await AnisetteProvider.fetch(handler: self.anisetteServerHandler)\n"
+        "        }\n")
+    text = replace(text,
+        "        let (account, session) = try await AuthManager.shared.signIn(\n",
+        "        let (account, session) = try await v3AuthenticationPhase(.appleAuthentication) {\n"
+        "            try await AuthManager.shared.signIn(\n")
+    text = replace(text,
+        "                try await handler.verificationCode(for: request)\n"
+        "            }\n        )\n",
+        "                try await handler.verificationCode(for: request)\n"
+        "            }\n        )\n        }\n")
     return patch_sign_in_diagnostics(text)
 
 

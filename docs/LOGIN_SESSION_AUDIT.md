@@ -89,3 +89,70 @@ Linux source checks cannot prove those passed. A successful device login and
 team fetch are still required before calling this device issue fixed. No Apple
 account request, certificate creation/revocation, or real credential test is
 performed by these fixtures.
+
+
+## Device recurrence after 185341a (2026-10-06)
+
+The new screenshot shows `source_step=authenticate`,
+`typed_error=unknownAccountFailure`, `underlying=redacted/0`,
+`server_code=unknown`, and `http_status=unavailable`. It is **not** evidence of
+another team-list 1100. The legacy broad authentication boundary includes
+Anisette acquisition before Apple-ID authentication, Apple SRP/2FA/app tokens,
+and the initial developer-account lookup. `redacted/0` means an unallowlisted
+error domain was hidden, not that the original error had code zero.
+
+The diagnostic candidate adds operation-owned phases without replacing the
+upstream sign-in implementation:
+
+- `anisetteFetch`: the existing SignInOperation Anisette acquisition call;
+- `appleAuthentication`: the upstream password authentication call, including
+  SideSign's internal developer-account lookup;
+- `accountLookup`: the saved-token verification call, which constructs a
+  session and invokes the developer-account lookup.
+
+A separate phase wrapper retains the original typed error. It does not turn
+ordinary auth errors into local-commit errors (which would suppress upstream
+silent-token/password fallback), and cancellation remains cancellation.
+
+The pinned AnisetteKit dependency exposes a distinct `AnisetteKit.AnisetteError`
+from `SideSign.AnisetteError`. The old classifier recognized only the latter.
+Both remote Anisette provisioning and on-device Anisette can propagate the
+former. Finite categories now distinguish its argument, loader, symbol, read,
+response, ADI, missing-library and HTTP failures. Only a typed, range-checked
+HTTP status is retained; messages, response bodies, paths, symbols and ADI
+payloads are never serialized. Archive and decoding errors receive finite
+categories with the same privacy restrictions.
+
+The exact pinned source is
+[AnisetteKit error definitions](https://github.com/mahee96/AnisetteKit/blob/1f5a7e36553cc865b873f222b87a6486c0bcc7bf/Sources/AnisetteError.swift).
+This fills a verified diagnostic gap. It does **not** establish which error
+occurred on the user's device and is not a proven login correction. No resets,
+credential replacement, certificate mutation, endpoint changes or invented
+Apple authentication implementation are part of this diagnostic candidate.
+
+Executable native fixtures inject the typed errors, round-trip the real wire
+contract, verify phase and HTTP evidence, reject malicious payload leakage,
+and preserve cancellation and saved-token fallback behavior. Linux source
+checks cannot substitute for native macOS CI or successful real-device login.
+
+### Separate startup readiness finding (not changed by this candidate)
+
+The retained AppDelegate sequence awaits DatabaseManager.start, which publishes
+isStarted, then awaits self-reinstallation reconciliation and widget publishing,
+then performs first-launch sign-out and maintenance. V3 command admission and
+status readiness currently use DatabaseManager.isStarted, so authentication can
+enter before retained startup maintenance has finished. Original LC UI also
+lacks an explicit maintenance-completion barrier; navigation only adds delay.
+
+Pinned MaintenanceManager runs destructive early migration passes when its
+shared-container counter is below 3. A missing/unreadable counter becomes zero;
+its write is unchecked. These normally run once per container. A warm retry
+after startup avoids the overlap; repeated failures would require additional
+conditions such as repeated counter-write failure or a changed container.
+
+This is a source-proven possible overlap, not an attribution of the latest
+screenshot. No startup barrier or maintenance behavior is changed here. If
+follow-up evidence warrants it, a separate non-destructive readiness barrier
+should be tested using suspended mock startup continuations, proving that auth
+is withheld until completion, failures stay unready, maintenance is not repeated,
+and seeded account/certificate/Anisette data remains untouched.

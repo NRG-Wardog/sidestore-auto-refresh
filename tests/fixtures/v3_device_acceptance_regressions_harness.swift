@@ -482,7 +482,7 @@ struct V3DeviceAcceptanceRegressionsHarness {
         precondition(homeAttempt.observe(failed) && homeAttempt.phase == .failed)
         let details = V3OperationFailureDetails(exactFailure)
         precondition(details.whatHappened ==
-            "The connection to the provisioning service was interrupted during signing.")
+            "The connection to the provisioning service was interrupted during signing.\n" + exactFailure.diagnosticLabel)
         precondition(details.recommendedAction ==
             "Your current connection may still be healthy. Retry once. If this happens again, open Connection Settings.")
         precondition(details.recoveryDestination == "connection")

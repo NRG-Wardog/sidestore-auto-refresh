@@ -20,6 +20,7 @@ REQUIRED_SCRIPTS = {
     "adapt_sidestore_070_signing.py",
 }
 LIVE_CONTAINER_SCRIPTS = {
+    "patch_native_error_presenters.py",
     "patch_cf_bundle_scan.py",
     "patch_lc_certificate_observation.py",
     "patch_livecontainer_autorefresh.py",
@@ -42,6 +43,7 @@ LIVE_CONTAINER_SCRIPTS = {
     "patch_combined_service_startup.py",
     "combined_build_evidence.py",
     "run_issue25_rendering.py",
+    "run_p0_signin_rendering.py",
     "patch_app_layout.py",
     "audit_ipa_signing.py",
     "patch_guest_return.py",

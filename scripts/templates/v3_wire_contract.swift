@@ -595,7 +595,7 @@ enum V3ServiceReadinessReply: Equatable {
         "sharedStoreUnavailable", "secretHandoffUnavailable"
     ]
     static let knownSourceStepValues: Set<String> = [
-        "authenticate", "credentialCommit", "fetchTeams", "saveAccount", "fetchCertificate",
+        "authenticate", "anisetteFetch", "appleAuthentication", "accountLookup", "credentialCommit", "fetchTeams", "saveAccount", "fetchCertificate",
         "activateCertificate", "registerDevice", "activateAccount", "provisioningUnknown",
         "provisioningProfileFetch", "certificateValidation", "localCodeSigning",
         "appIDLookup", "appIDRegistration", "appIDCapabilitiesUpdate",

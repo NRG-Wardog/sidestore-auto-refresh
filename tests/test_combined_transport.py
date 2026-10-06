@@ -480,8 +480,8 @@ class CombinedWorkflowTests(unittest.TestCase):
         layout_block = workflow[layout:].split("\n      - name:", 1)[0]
         self.assertIn('id: embedded_build', native_block)
         self.assertIn('timeout-minutes: 40', native_block)
-        self.assertIn('timeout-minutes: 35', layout_block)
-        self.assertIn('timeout-minutes: 120', workflow[:native])
+        self.assertIn('timeout-minutes: 60', layout_block)
+        self.assertIn('timeout-minutes: 150', workflow[:native])
         self.assertIn("steps.embedded_build.outcome == 'failure'", layout_block)
         self.assertIn("!cancelled()", layout_block)
         self.assertIn("--v3-source", layout_block)

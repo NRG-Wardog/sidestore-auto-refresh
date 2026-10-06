@@ -189,7 +189,7 @@ def patch_sign_in_operation(text: str) -> str:
         required = ("Keychain.shared.authenticationCandidate()", "LC_VERIFIED_LEGACY_AUTH_V1",
                     "Keychain.shared.writeVerifiedAuthentication", "credentials?.appleIDAdsid",
                     "credentials?.appleIDXcodeToken", "credentials?.appleIDEmailAddress",
-                    "credentials?.appleIDPassword",
+                    "credentials?.appleIDPassword", "v3AuthenticationPhase(.accountLookup)",
                     "V3_AUTH_FAILURE_PRESERVES_ACCOUNT_STATE_V1")
         if not all(token in text for token in required):
             raise ValueError("embedded keychain: SignInOperation credential snapshot or non-destructive failure contract is incomplete")
@@ -233,10 +233,11 @@ def patch_sign_in_operation(text: str) -> str:
         raise ValueError("embedded keychain: SignInOperation silent credential pairs changed")
     section = once(section,
         "                return try await AuthManager.shared.authenticateWithToken(",
-        "                let (account, session) = try await AuthManager.shared.authenticateWithToken(")
+        "                let (account, session) = try await v3AuthenticationPhase(.accountLookup) {\n"
+        "                    try await AuthManager.shared.authenticateWithToken(")
     section = once(section,
         "                    xcodeVersion: xcodeVersion\n                )\n",
-        "                    xcodeVersion: xcodeVersion\n                )\n"
+        "                    xcodeVersion: xcodeVersion\n                )\n                }\n"
         "                guard !self.isCancelled, !Task.isCancelled else { throw OperationError.cancelled }\n"
         "                guard let candidate, AuthManager.shared.v3IdentityIsStable,\n"
         "                      capturedStamp == AuthManager.shared.v3IdentityStamp,\n"

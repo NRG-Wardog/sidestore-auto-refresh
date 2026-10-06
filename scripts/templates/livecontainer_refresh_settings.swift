@@ -118,11 +118,11 @@ struct LCEmbeddedSideStoreRefreshView: View {
                 Text("Background execution remains best-effort. A scheduled request is not a completed refresh.")
                     .font(.caption).foregroundColor(.secondary)
                 if !lastError.isEmpty {
-                    Text(lastError).font(.caption).foregroundColor(.red)
-                    Button("Copy Refresh Diagnostics") { UIPasteboard.general.string = lastError }
+                    Text(V3DiagnosticPresentation.label(lastError, context: .refresh)).font(.caption).foregroundColor(.red)
+                    Button("Copy Refresh Diagnostics") { UIPasteboard.general.string = V3DiagnosticCopy.details(visibleMessage: V3DiagnosticPresentation.label(lastError, context: .refresh), technical: V3DiagnosticPresentation.label(lastError, context: .refresh)) }
                 }
                 if !uncertainMutation.isEmpty {
-                    Text("The previous refresh result is uncertain. Automatic retries are paused. Review app status and expiration before explicitly retrying.")
+                    Text("The previous refresh result is uncertain. Automatic retries are paused. Review app status and expiration before explicitly retrying." + "\nError ID: SS-VERIFY-D098")
                         .font(.caption).foregroundColor(.orange)
                 }
             }

@@ -548,7 +548,10 @@ def preflight_archive(archive, ipa_size_bytes: int, limits: dict | None = None):
     return infos
 
 
+from patch_native_error_presenters import TOUCHED_PATHS as NATIVE_ERROR_SOURCE_PATHS
+
 REQUIRED_GENERATED_HOST_SOURCES = {
+    *NATIVE_ERROR_SOURCE_PATHS,
     'MultitaskSupport/AppSceneViewController.h',
     'MultitaskSupport/AppSceneViewController.m',
     'MultitaskSupport/DecoratedAppSceneViewController.m',
@@ -594,6 +597,9 @@ def verify_generated_source_evidence(evidence_root: Path, hashes: dict,
                                     product: str = "v3") -> None:
     required = set(REQUIRED_GENERATED_HOST_SOURCES)
     if product in ("v2",):
+        required.difference_update(set(NATIVE_ERROR_SOURCE_PATHS) - {
+            "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift",
+        })
         required.difference_update({
             'MultitaskSupport/AppSceneViewController.h',
             'MultitaskSupport/AppSceneViewController.m',

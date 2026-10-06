@@ -214,5 +214,5 @@ enum V3SharedRefreshStore {
     static let isAvailable = V3SharedAppGroup.sharedUserDefaults() != nil
     static let defaults: UserDefaults = V3SharedAppGroup.sharedUserDefaults()
         ?? V3SharedAppGroup.quarantinedUserDefaults()
-    static let unavailableMessage = "LiveContainer could not open its shared refresh store, so scheduled refresh state is unavailable in this launch. Refresh All still works."
+    static let unavailableMessage = "LiveContainer could not open its shared refresh store, so scheduled refresh state is unavailable in this launch. Refresh All still works." + "\nError ID: SS-SAVE-D059"
 }

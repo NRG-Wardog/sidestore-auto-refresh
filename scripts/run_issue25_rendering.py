@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -272,10 +273,14 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--v3-source", type=Path, help="Generated v3 shell source; otherwise current template or immutable v3 baseline is used")
     parser.add_argument("--skip-v3-native", action="store_true", help="Scope final v2 package evidence to its own renderers")
+    parser.add_argument("--require-p0-signin", action="store_true",
+                        help="Require native P0 sign-in XCTest interactions/screenshots on the same booted devices")
     parser.add_argument("--diagnostic-only", action="store_true", help="Inspect corrected phone Grid/labels equations only; NOT full rendering validation")
     args = parser.parse_args()
     if args.skip_v3_native and args.v3_source:
         parser.error("--skip-v3-native and --v3-source are mutually exclusive")
+    if args.require_p0_signin and (not args.v3_source or args.skip_v3_native or args.diagnostic_only):
+        parser.error("--require-p0-signin requires --v3-source and the complete legacy suite")
     output = args.output.resolve()
     if output.exists() and any(output.iterdir()):
         parser.error("--output must be a fresh evidence directory; previous-run evidence is not overwritten or reused")
@@ -301,13 +306,36 @@ def main() -> None:
         if not report["passed"]:
             raise SystemExit("Diagnostic checker reported violations; this run is not full-suite validation")
         return
+    legacy_build_started = time.monotonic()
+    print("Legacy layout build phase start", flush=True)
     builds = {baseline: build_app(output, args.livecontainer.resolve(), baseline) for baseline in (True, False)}
     native_build = None if args.skip_v3_native else build_v3_app(output, args.livecontainer.resolve(), args.v3_source)
     fallback_build = build_app(output, args.livecontainer.resolve(), False, fallback=True)
+    print(f"Legacy layout build phase finished in {time.monotonic() - legacy_build_started:.1f}s", flush=True)
+    p0 = None
+    p0_build = None
+    p0_preparation_failure = None
+    if args.require_p0_signin:
+        spec = importlib.util.spec_from_file_location("p0_signin_rendering", ROOT / "scripts/run_p0_signin_rendering.py")
+        p0 = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(p0)
+        p0_build_started = time.monotonic()
+        print("Required sign-in UI build phase start", flush=True)
+        try:
+            p0_build = p0.prepare(output, args.v3_source.resolve(), command)
+        except Exception as error:
+            # Preserve every legacy measurement even if the new UI build fails.
+            # This records a required gate failure, never an optional exclusion.
+            p0_preparation_failure = str(error)
+            print("Required P0 sign-in UI preparation failed: " + str(error), flush=True)
+        print(f"Required sign-in UI build phase finished in {time.monotonic() - p0_build_started:.1f}s", flush=True)
     reports = []
+    p0_reports = []
     devices = available_devices()
     try:
         for kind, device, runtime in devices:
+            legacy_device_started = time.monotonic()
+            print(f"Legacy layout {kind} phase start", flush=True)
             state = json.loads(command("xcrun", "simctl", "list", "devices", "--json"))
             booted = any(item["udid"] == device and item["state"] == "Booted" for group in state["devices"].values() for item in group)
             if not booted:
@@ -325,6 +353,20 @@ def main() -> None:
             bundle, bundle_id, _ = fallback_build
             for cold in (False, True):
                 reports.append(execute(bundle, bundle_id, kind, device, output, False, cold, mode="fallback-contract"))
+            print(f"Legacy layout {kind} phase finished in {time.monotonic() - legacy_device_started:.1f}s", flush=True)
+            if p0_build:
+                p0_device_started = time.monotonic()
+                print(f"Required sign-in UI {kind} phase start", flush=True)
+                try:
+                    p0_reports.append(p0.execute(p0_build, kind, device, output, command))
+                except Exception as error:
+                    report = {"mode": "p0-signin", "deviceClass": kind,
+                              "passed": False, "failures": [str(error)], "reportCount": 0}
+                    p0_reports.append(report)
+                    (output / "p0-signin" / (kind + "-verification.json")).write_text(
+                        json.dumps(report, indent=2, sort_keys=True) + "\n")
+                    print("Required P0 sign-in UI execution failed: " + str(error), flush=True)
+                print(f"Required sign-in UI {kind} phase finished in {time.monotonic() - p0_device_started:.1f}s", flush=True)
             if not booted:
                 command("xcrun", "simctl", "shutdown", device)
     finally:
@@ -337,9 +379,17 @@ def main() -> None:
             "ciRun": os.environ.get("GITHUB_RUN_ID"), "baselineBuilderCommit": BASELINE,
             "sourceSHA256": hashes,
             "simulatorRuntimes": sorted(set(runtime for _, _, runtime in devices)),
-            "passed": len(reports) == (14 if native_build else 10) and all(report["passed"] for report in reports),
+            "passed": len(reports) == (14 if native_build else 10) and all(report["passed"] for report in reports)
+                and (not args.require_p0_signin or
+                     len(p0_reports) == 2 and all(report["passed"] for report in p0_reports)),
             "reportCount": len(reports), "physicalDeviceExecution": False,
         }
+        if args.require_p0_signin:
+            metadata["p0SignIn"] = {"required": True, "reportCount": len(p0_reports),
+                "passed": len(p0_reports) == 2 and all(report["passed"] for report in p0_reports),
+                "preparationFailure": p0_preparation_failure,
+                "sourceSHA256": p0_build["sourceSHA256"] if p0_build else {},
+                "caseCount": sum(report["reportCount"] for report in p0_reports)}
         (output / "rendering-verification.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
     if not metadata["passed"]:
         raise SystemExit("Issue25 simulator rendering regression failed; inspect measured JSON, not only build/markers")

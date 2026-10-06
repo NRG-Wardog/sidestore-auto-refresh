@@ -245,7 +245,7 @@ struct V3SafeFailureCopyHarness {
 
         let sideJITFailure = V3SideJITReachabilityFeedback.unreachable
         precondition(sideJITFailure ==
-            "The SideJIT server could not be reached. Check its address and network, then try again.")
+            "The SideJIT server could not be reached. Check its address and network, then try again." + "\nError ID: SS-NET-D061")
         precondition(!sideJITFailure.contains(privateDomain) &&
                      !sideJITFailure.contains(privateDescription) &&
                      !sideJITFailure.contains("NSError"))

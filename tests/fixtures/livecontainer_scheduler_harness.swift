@@ -129,7 +129,7 @@ extension LiveContainerAutoRefreshScheduler {
         precondition(currentFailure["stage"] as? String == "command")
         precondition(currentFailure["code"] as? String == "failed")
         precondition(currentFailure["safe_message"] as? String ==
-                     "Refresh failed during command, but no safe underlying cause was available.")
+                     "Refresh failed during command, but no safe underlying cause was available.\nError ID: SS-CMD-C11")
         precondition(currentFailure["retryable"] as? String == "unknown")
         let failedRunID = currentFailure["run_id"] as! String
         let failedLedgerRecord = runLedger()[failedRunID]!

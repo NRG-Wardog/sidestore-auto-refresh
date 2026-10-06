@@ -995,7 +995,7 @@ struct SetupAndSemanticUXHarness {
         let typed = CombinedFailure(operation: "source", stage: .source, code: .failed,
                                     id: UUID().uuidString, retryable: true,
                                     safeCause: .sourceNetworkFailure, sourceStep: .sourceDownload)
-        precondition(V3FailureGuidance.message(typed) == typed.recovery,
+        precondition(V3FailureGuidance.message(typed) == typed.recovery + "\n" + typed.diagnosticLabel,
                      "a typed failure shows its own product recovery copy")
         precondition(V3FailureGuidance.diagnostics(typed) == typed.technicalDetails)
         precondition(!V3FailureGuidance.message(typed).contains("LiveContainer"),

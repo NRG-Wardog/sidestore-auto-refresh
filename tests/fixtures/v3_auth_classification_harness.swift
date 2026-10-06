@@ -19,10 +19,23 @@ enum ServerError: Error {
 }
 
 enum SideSign {
+    enum Archive {
+        enum Error: Swift.Error {
+            case fileNotFound(URL), corruptArchive(URL), readFailed(URL), writeFailed(URL), missingAppBundle(URL)
+        }
+    }
     enum AnisetteError: Error {
         case noServersConfigured
         case allServersFailed
         case badServerResponse(statusCode: Int, payload: String)
+    }
+}
+
+enum AnisetteKit {
+    enum AnisetteError: Error {
+        case invalidArgument, loaderFailed(reason: String), symbolMissing(name: String), readFailure
+        case invalidResponse(reason: String), adiError(code: Int32, description: String)
+        case librariesNotFound(reason: String), httpError(statusCode: Int, message: String)
     }
 }
 
@@ -67,7 +80,7 @@ struct AuthClassificationHarness {
         networkWire["kind"] = connectionLostKind.rawValue
         let networkHostMessage = v3HostAuthFailureMessage(from: networkWire)
         precondition(networkWire["stage"] as? String == CombinedFailure.Stage.network.rawValue)
-        precondition(networkHostMessage.contains("could not reach the required Apple service"))
+        precondition(networkHostMessage.contains("could not reach the required service"))
         precondition(!networkHostMessage.contains("LocalDevVPN"))
 
         let badServerResponse = ServerError.invalidResponseFormat(rawPayload: "PRIVATE_BAD_RESPONSE")

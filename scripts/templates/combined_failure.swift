@@ -466,7 +466,8 @@ public struct CombinedFailure: Error, LocalizedError {
     }
 
     public enum SourceStep: String, CaseIterable {
-        case authenticate, credentialCommit, fetchTeams, saveAccount, fetchCertificate
+        case authenticate, anisetteFetch, appleAuthentication, accountLookup
+        case credentialCommit, fetchTeams, saveAccount, fetchCertificate
         case activateCertificate, registerDevice, activateAccount, provisioningUnknown
         case provisioningProfileFetch, certificateValidation, localCodeSigning
         case appIDLookup, appIDRegistration, appIDCapabilitiesUpdate
@@ -601,7 +602,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case "device_registration":
                 guard text == "unobserved" else { return nil }
             case "typed_error":
-                guard ["sideSignServerReportedError", "sideSignBadResponse", "sideSignInvalidResponse", "sideSignMissingKey", "sideSignDeveloperPortalError", "keychainWrite", "keychainValidationFailed", "keychainOutcomeUnknown", "legacyMigrationConflict", "persistenceFailure", "persistenceOutcomeUnknown", "transportFailure", "anisetteFailure", "unknownAccountFailure"].contains(text) else { return nil }
+                guard ["sideSignServerReportedError", "sideSignBadResponse", "sideSignInvalidResponse", "sideSignMissingKey", "sideSignDeveloperPortalError", "keychainWrite", "keychainValidationFailed", "keychainOutcomeUnknown", "legacyMigrationConflict", "persistenceFailure", "persistenceOutcomeUnknown", "transportFailure", "anisetteFailure", "anisetteKitInvalidArgument", "anisetteKitLoaderFailed", "anisetteKitSymbolMissing", "anisetteKitReadFailure", "anisetteKitInvalidResponse", "anisetteKitADIError", "anisetteKitLibrariesNotFound", "anisetteKitHTTPError", "decodingTypeMismatch", "decodingValueNotFound", "decodingKeyNotFound", "decodingDataCorrupted", "archiveFileNotFound", "archiveCorrupt", "archiveReadFailed", "archiveWriteFailed", "archiveMissingApp", "unknownAccountFailure"].contains(text) else { return nil }
             default: return nil
             }
         }
@@ -630,7 +631,7 @@ public struct CombinedFailure: Error, LocalizedError {
         let native = error as NSError
         let underlying = safeDiagnosticUnderlying(domain: native.domain, code: native.code)
         let safeID = UUID(uuidString: correlationID)?.uuidString ?? UUID().uuidString
-        return "domain=\(underlying.domain) code=\(underlying.code) area=provisioning correlation=\(safeID)"
+        return "diagnostic_code=SS-PROV-C11 builder_commit=\(V3DiagnosticBuild.commit) domain=\(underlying.domain) code=\(underlying.code) area=provisioning correlation=\(safeID)"
     }
 
     /// The serialized wire keeps an integer field for compatibility. `none/0`
@@ -1082,7 +1083,8 @@ public struct CombinedFailure: Error, LocalizedError {
         default: return "Reload the current status to check the result. If the cause remains unclear, copy Diagnostics before deciding whether to try again."
         }
     }
-    public var safeMessage: String {
+    public var safeMessage: String { messageWithoutDiagnosticCode + "\n" + diagnosticLabel }
+    private var messageWithoutDiagnosticCode: String {
         if operation == "refresh", safeCause == nil {
             return "Refresh failed during \(stage.rawValue), but no safe underlying cause was available."
         }
@@ -1094,10 +1096,9 @@ public struct CombinedFailure: Error, LocalizedError {
     public var technicalDetails: String {
         let displayedUnderlyingCode = underlyingDomain == "redacted" ? "unknown" : String(underlyingCode)
         let signingDetails = signingContext.sorted(by: { $0.key < $1.key }).map { " \($0.key)=\($0.value)" }.joined()
-        return "schema=1 operation=\(operation) stage=\(stage.rawValue) code=\(code.rawValue) correlation=\(correlationID) underlying_domain=\(underlyingDomain) underlying_code=\(displayedUnderlyingCode) retryable=\(retryable.map(String.init) ?? "unknown") source_step=\(sourceStep?.rawValue ?? "unknown") safe_cause=\(safeCause?.rawValue ?? "unknown")" + signingDetails + installVerdict + requestContextSuffix + (launchContext?.technicalDetails ?? "")
+        return "schema=1 diagnostic_code=\(diagnosticCode) builder_commit=\(V3DiagnosticBuild.commit) operation=\(operation) stage=\(stage.rawValue) code=\(code.rawValue) correlation=\(correlationID) underlying_domain=\(underlyingDomain) underlying_code=\(displayedUnderlyingCode) retryable=\(retryable.map(String.init) ?? "unknown") source_step=\(sourceStep?.rawValue ?? "unknown") safe_cause=\(safeCause?.rawValue ?? "unknown")" + signingDetails + installVerdict + requestContextSuffix + (launchContext?.technicalDetails ?? "")
     }
-    // Appended only when present, so every existing diagnostic stays
-    // byte-identical.
+    // Request context is appended only when it was observed.
     private var requestContextSuffix: String {
         guard let requestContext, !requestContext.isEmpty else { return "" }
         return " " + requestContext
@@ -1124,7 +1125,7 @@ public struct CombinedFailure: Error, LocalizedError {
     private var hasApplicationVerificationEvidence: Bool {
         ["install", "update"].contains(operation) && stage == .installation && Self.verificationDomains.contains(underlyingDomain)
     }
-    public var errorDescription: String? { message + "\n" + recovery + "\n" + technicalDetails }
+    public var errorDescription: String? { safeMessage + "\n" + recovery + "\n" + technicalDetails }
     /// Bind this semantic failure to the request/reply transaction carrying it.
     /// Session IDs and request IDs are distinct: an auth poll can discover a
     /// missing session while answering a different, current XPC request.
@@ -1259,6 +1260,12 @@ public struct CombinedFailure: Error, LocalizedError {
     public static func capture(_ error: Error, operation: String, stage: Stage, id: String,
                                retryable: Bool? = nil) -> CombinedFailure {
         if let known = error as? CombinedFailure { return known }
+        // Generic non-auth consumers still see the original native evidence;
+        // headless auth captures finite typed/phase detail before arriving here.
+        if let phase = error as? V3AuthenticationPhaseError {
+            return capture(phase.underlying, operation: operation, stage: stage,
+                           id: id, retryable: retryable)
+        }
         // Typed account boundaries bypass all provider-description parsing.
         if let accountError = error as? V3AccountOperationError {
             return accountError.failure(operation: operation, id: id)
@@ -1429,6 +1436,23 @@ public struct CombinedFailure: Error, LocalizedError {
     }
 }
 
+// V3_AUTHENTICATION_PHASE_EVIDENCE_V1: preserve the original error for retry,
+// cancellation and typed matching; never store provider strings or payloads.
+struct V3AuthenticationPhaseError: Error {
+    let step: CombinedFailure.SourceStep
+    let underlying: Error
+}
+func v3AuthenticationPhase<T>(_ step: CombinedFailure.SourceStep,
+                              perform: () async throws -> T) async throws -> T {
+    do { return try await perform() }
+    catch {
+        let native = error as NSError
+        if error is CancellationError || CombinedFailure.isURLCancellation(domain: native.domain, code: native.code) { throw error }
+        if error is V3AuthenticationPhaseError { throw error }
+        throw V3AuthenticationPhaseError(step: step, underlying: error)
+    }
+}
+
 // V3_TYPED_ACCOUNT_DIAGNOSTICS_V1: only operation-owned stage and fixed
 // classifications cross the wire. Original errors stay inside the process for
 // typed guidance; descriptions, userInfo and provider payloads never serialize.
@@ -1438,12 +1462,15 @@ struct V3AccountOperationError: Error, LocalizedError {
         case legacyMigrationConflict, persistenceFailure, persistenceOutcomeUnknown, transportFailure
         case sideSignServerReportedError, sideSignBadResponse, sideSignInvalidResponse
         case sideSignMissingKey, sideSignDeveloperPortalError, anisetteFailure
+        case anisetteKitInvalidArgument, anisetteKitLoaderFailed, anisetteKitSymbolMissing, anisetteKitReadFailure, anisetteKitInvalidResponse, anisetteKitADIError, anisetteKitLibrariesNotFound, anisetteKitHTTPError, decodingTypeMismatch, decodingValueNotFound, decodingKeyNotFound, decodingDataCorrupted
+        case archiveFileNotFound, archiveCorrupt, archiveReadFailed, archiveWriteFailed, archiveMissingApp
         case unknownAccountFailure
     }
     let step: CombinedFailure.SourceStep
     let kind: Kind
     let underlying: Error
     let serverCode: Int?
+    var httpStatus: Int? = nil
 
     var errorDescription: String? { "An account operation failed; review the safe diagnostics." }
     var credentialCommit: Bool { step == .credentialCommit }
@@ -1458,7 +1485,7 @@ struct V3AccountOperationError: Error, LocalizedError {
     var failureStage: CombinedFailure.Stage {
         switch step {
         case .credentialCommit, .saveAccount, .activateAccount, .activateCertificate: return .persistence
-        case .authenticate: return .authentication
+        case .authenticate, .anisetteFetch, .appleAuthentication, .accountLookup: return .authentication
         default: return .provisioning
         }
     }
@@ -1476,7 +1503,7 @@ struct V3AccountOperationError: Error, LocalizedError {
             underlying: NSError(domain: native.domain, code: native.code),
             retryable: safeCause != nil || portalSessionRejected ? false : nil, safeCause: safeCause,
             sourceStep: step, signingContext: ["typed_error": kind.rawValue,
-                "server_code": serverCode.map(String.init) ?? "unknown", "http_status": "unavailable"])
+                "server_code": serverCode.map(String.init) ?? "unknown", "http_status": httpStatus.map(String.init) ?? "unavailable"])
     }
 }
 
@@ -1707,5 +1734,400 @@ enum V3AnisetteSyncFailurePolicy {
             return .networkUnavailable
         default: return nil
         }
+    }
+}
+
+
+// V3_STABLE_DIAGNOSTIC_CODE_V1: identifiers classify finite evidence, never attempts.
+// Values are append-only. See docs/ERROR_CODES_V1.json; never renumber existing cases.
+extension CombinedFailure {
+    public var diagnosticCode: String {
+        var parts = ["SS", stage.diagnosticToken, code.diagnosticToken]
+        if let sourceStep { parts.append(sourceStep.diagnosticToken) }
+        if let safeCause { parts.append(safeCause.diagnosticToken) }
+        if let typed = signingContext["typed_error"], let token = Self.typedDiagnosticToken(typed) { parts.append(token) }
+        if let launchContext { parts.append(launchContext.sourceStep.diagnosticToken) }
+        if hasApplicationVerificationEvidence && underlyingCode == 0xE8008024 { parts.append("V01") }
+        if hasApplicationVerificationEvidence && underlyingCode == 0xE8008018 { parts.append("V02") }
+        if sourceStep == .fetchTeams && signingContext["typed_error"] == "sideSignServerReportedError" && signingContext["server_code"] == "1100" { parts.append("P01") }
+        return parts.joined(separator: "-")
+    }
+    public var diagnosticLabel: String { "Error ID: \(diagnosticCode)" }
+    fileprivate static func typedDiagnosticToken(_ value: String) -> String? {
+        switch value {
+        case "sideSignServerReportedError": return "T01"
+        case "sideSignBadResponse": return "T02"
+        case "sideSignInvalidResponse": return "T03"
+        case "sideSignMissingKey": return "T04"
+        case "sideSignDeveloperPortalError": return "T05"
+        case "keychainWrite": return "T06"
+        case "keychainValidationFailed": return "T07"
+        case "keychainOutcomeUnknown": return "T08"
+        case "legacyMigrationConflict": return "T09"
+        case "persistenceFailure": return "T10"
+        case "persistenceOutcomeUnknown": return "T11"
+        case "transportFailure": return "T12"
+        case "anisetteFailure": return "T13"
+        case "anisetteKitInvalidArgument": return "T14"
+        case "anisetteKitLoaderFailed": return "T15"
+        case "anisetteKitSymbolMissing": return "T16"
+        case "anisetteKitReadFailure": return "T17"
+        case "anisetteKitInvalidResponse": return "T18"
+        case "anisetteKitADIError": return "T19"
+        case "anisetteKitLibrariesNotFound": return "T20"
+        case "anisetteKitHTTPError": return "T21"
+        case "decodingTypeMismatch": return "T22"
+        case "decodingValueNotFound": return "T23"
+        case "decodingKeyNotFound": return "T24"
+        case "decodingDataCorrupted": return "T25"
+        case "archiveFileNotFound": return "T26"
+        case "archiveCorrupt": return "T27"
+        case "archiveReadFailed": return "T28"
+        case "archiveWriteFailed": return "T29"
+        case "archiveMissingApp": return "T30"
+        case "unknownAccountFailure": return "T31"
+        default: return nil
+        }
+    }
+}
+extension CombinedFailure.Stage {
+    fileprivate var diagnosticToken: String {
+        switch self {
+        case .hostContainer: return "HOST"
+        case .storagePreparation: return "STORE"
+        case .bookmarkCreation: return "BOOK"
+        case .extensionDiscovery: return "DISC"
+        case .extensionLaunch: return "LAUNCH"
+        case .xpcConnection: return "XPC"
+        case .serviceReadiness: return "READY"
+        case .command: return "CMD"
+        case .authentication: return "AUTH"
+        case .provisioning: return "PROV"
+        case .signing: return "SIGN"
+        case .filePreparation: return "IPA"
+        case .installation: return "INSTALL"
+        case .persistence: return "SAVE"
+        case .refreshVerification: return "VERIFY"
+        case .replyEncoding: return "REPLY"
+        case .endpointSelection: return "ENDPOINT"
+        case .heartbeat: return "HEART"
+        case .coreDevice: return "CORE"
+        case .cdTunnel: return "TUNNEL"
+        case .rsdDiscovery: return "RSD"
+        case .rsdService: return "SERVICE"
+        case .lockdownConnection: return "LOCK"
+        case .uniqueDeviceID: return "UDID"
+        case .pairing: return "PAIR"
+        case .network: return "NET"
+        case .source: return "SOURCE"
+        case .catalog: return "CAT"
+        }
+    }
+}
+extension CombinedFailure.Code {
+    fileprivate var diagnosticToken: String {
+        switch self {
+        case .unavailable: return "C01"
+        case .invalidConfiguration: return "C02"
+        case .permissionDenied: return "C03"
+        case .timedOut: return "C04"
+        case .cancelled: return "C05"
+        case .interrupted: return "C06"
+        case .notReady: return "C07"
+        case .busy: return "C08"
+        case .invalidResponse: return "C09"
+        case .unsupported: return "C10"
+        case .failed: return "C11"
+        case .missingResult: return "C12"
+        case .staleResult: return "C13"
+        case .invalidToken: return "C14"
+        case .missingFile: return "C15"
+        case .emptyFile: return "C16"
+        case .invalidPackage: return "C17"
+        case .fileAccess: return "C18"
+        case .stagingFailed: return "C19"
+        }
+    }
+}
+extension CombinedFailure.SafeCause {
+    fileprivate var diagnosticToken: String {
+        switch self {
+        case .networkConnectionLost: return "F01"
+        case .networkTimedOut: return "F02"
+        case .networkUnavailable: return "F03"
+        case .anisetteServerUnavailable: return "F04"
+        case .anisetteServerRejected: return "F05"
+        case .anisetteRequestTimedOut: return "F06"
+        case .anisetteRateLimited: return "F07"
+        case .anisetteInvalidResponse: return "F08"
+        case .anisetteUnknownFailure: return "F09"
+        case .signingNetworkConnectionLost: return "F10"
+        case .signingNetworkTimedOut: return "F11"
+        case .signingNetworkUnavailable: return "F12"
+        case .developerPortalRejectedRequest: return "F13"
+        case .appIDLimitReached: return "F14"
+        case .developerPortalInvalidResponse: return "F15"
+        case .provisioningProfileUnavailable: return "F16"
+        case .certificateUnavailable: return "F17"
+        case .signingStorageUnverified: return "F18"
+        case .wifiUnavailable: return "F19"
+        case .localDevVPNUnavailable: return "F20"
+        case .unknownSigningCause: return "F21"
+        case .sourceNetworkFailure: return "F22"
+        case .sourceInvalidManifest: return "F23"
+        case .sourcePersistenceUnverified: return "F24"
+        case .sourceInvalidURL: return "F25"
+        case .sourceBlocked: return "F26"
+        case .sourceChangedID: return "F27"
+        case .sourceDuplicate: return "F28"
+        case .sourceUnsupported: return "F29"
+        case .sourceValidationFailed: return "F30"
+        case .sourceRemoveFailed: return "F31"
+        case .sourceRemoveBusy: return "F32"
+        case .sourceAddBusy: return "F33"
+        case .operationInProgress: return "F34"
+        case .responseCapacityUnavailable: return "F35"
+        case .sharedStoreUnavailable: return "F36"
+        case .secretHandoffUnavailable: return "F37"
+        case .staleRefreshAttempt: return "F38"
+        case .knownSourcePolicyNetworkFailure: return "F39"
+        case .knownSourcePolicyInvalidResponse: return "F40"
+        case .catalogUnavailable: return "F41"
+        case .catalogSourceUnavailable: return "F42"
+        case .responseEncodingFailed: return "F43"
+        case .responseTooLarge: return "F44"
+        case .pairingRequired: return "F45"
+        case .invalidPairingFile: return "F46"
+        case .pairingFilePreparationFailed: return "F47"
+        case .authAttemptNotDispatched: return "F48"
+        case .authProvisioningRetryNotDispatched: return "F49"
+        case .authSessionUnavailable: return "F50"
+        case .authResponseCapacityUnavailable: return "F51"
+        case .credentialCommitFailed: return "F52"
+        case .credentialCommitOutcomeUnknown: return "F53"
+        case .accountActivationFailed: return "F54"
+        case .provisioningStorageFailed: return "F55"
+        case .keychainSignOutFailed: return "F56"
+        case .keychainSignOutOutcomeUnknown: return "F57"
+        case .operationPersistenceFailed: return "F58"
+        case .recoveryMalformedRecord: return "F59"
+        case .recoveryIncompatibleRecord: return "F60"
+        case .recoveryStorageUnavailable: return "F61"
+        case .recoveryLockUnavailable: return "F62"
+        case .recoveryReadFailure: return "F63"
+        case .recoveryDeleteFailure: return "F64"
+        }
+    }
+}
+extension CombinedFailure.SourceStep {
+    fileprivate var diagnosticToken: String {
+        switch self {
+        case .authenticate: return "S01"
+        case .anisetteFetch: return "S02"
+        case .appleAuthentication: return "S03"
+        case .accountLookup: return "S04"
+        case .credentialCommit: return "S05"
+        case .fetchTeams: return "S06"
+        case .saveAccount: return "S07"
+        case .fetchCertificate: return "S08"
+        case .activateCertificate: return "S09"
+        case .registerDevice: return "S10"
+        case .activateAccount: return "S11"
+        case .provisioningUnknown: return "S12"
+        case .provisioningProfileFetch: return "S13"
+        case .certificateValidation: return "S14"
+        case .localCodeSigning: return "S15"
+        case .appIDLookup: return "S16"
+        case .appIDRegistration: return "S17"
+        case .appIDCapabilitiesUpdate: return "S18"
+        case .appGroupLookup: return "S19"
+        case .appGroupRegistration: return "S20"
+        case .appGroupAssignment: return "S21"
+        case .provisioningProfileRetrieval: return "S22"
+        case .provisioningProfileCreation: return "S23"
+        case .provisioningProfileUpdate: return "S24"
+        case .sourceDownload: return "S25"
+        case .manifestParsing: return "S26"
+        case .sourceValidation: return "S27"
+        case .knownSourcePolicyFetch: return "S28"
+        case .knownSourcePolicyParsing: return "S29"
+        case .catalogRead: return "S30"
+        }
+    }
+}
+extension CombinedFailure.LaunchContext.Step {
+    fileprivate var diagnosticToken: String {
+        switch self {
+        case .hostBundleUnavailable: return "L01"
+        case .missingPluginDirectory: return "L02"
+        case .liveProcessBundleMissing: return "L03"
+        case .liveProcessBundleUnreadable: return "L04"
+        case .bundleIdentifierMissing: return "L05"
+        case .executableMetadataMissing: return "L06"
+        case .executableFileMissing: return "L07"
+        case .extensionFactory: return "L08"
+        case .extensionFactoryNil: return "L09"
+        case .listenerCreation: return "L10"
+        case .requestCallbackNoIdentifier: return "L11"
+        case .requestCancellation: return "L12"
+        case .requestInterruption: return "L13"
+        case .requestCallbackError: return "L14"
+        case .processIdentifierUnavailable: return "L15"
+        case .xpcRemoteObjectError: return "L16"
+        case .xpcInvalidation: return "L17"
+        case .xpcPeerRejected: return "L18"
+        case .readinessProbe: return "L19"
+        case .startupTimeout: return "L20"
+        case .connectionStopped: return "L21"
+        case .unknown: return "L22"
+        }
+    }
+}
+
+// Public build provenance only. Reject unexpected metadata rather than copying
+// arbitrary Info.plist values into a diagnostic payload.
+enum V3DiagnosticBuild {
+    static var commit: String { validatedCommit(Bundle.main.object(forInfoDictionaryKey: "LCBuilderCommit")) }
+    static func validatedCommit(_ value: Any?) -> String {
+        guard let value = value as? String, value.utf8.count == 40,
+              value.range(of: "^[0-9a-fA-F]{40}$", options: .regularExpression) != nil else { return "unknown" }
+        return value.lowercased()
+    }
+}
+
+// Local UI conditions can accompany a more specific underlying failure. Copy
+// both classifications without copying message prose or guessing its cause.
+enum V3DiagnosticCopy {
+    private static let localCodes: Set<String> = [
+        "SS-PROV-D099",
+        "SS-PROV-D100",
+        "SS-PROV-D101",
+        "SS-PROV-D102",
+        "SS-PROV-D103",
+        "SS-PROV-D104",
+        "SS-PROV-D105",
+        "SS-PROV-D106",
+        "SS-PROV-D107",
+        "SS-REFRESH-UNKNOWN", "SS-OPERATION-UNKNOWN", "SS-UI-UNKNOWN",
+        "SS-AUTH-D024",
+        "SS-AUTH-D032",
+        "SS-AUTH-D033",
+        "SS-AUTH-D034",
+        "SS-AUTH-D035",
+        "SS-AUTH-D036",
+        "SS-AUTH-D037",
+        "SS-AUTH-D038",
+        "SS-AUTH-D039",
+        "SS-AUTH-D040",
+        "SS-AUTH-D041",
+        "SS-AUTH-D060",
+        "SS-AUTH-D069",
+        "SS-AUTH-D070",
+        "SS-AUTH-D071",
+        "SS-AUTH-D072",
+        "SS-AUTH-D073",
+        "SS-AUTH-D074",
+        "SS-AUTH-D075",
+        "SS-AUTH-D076",
+        "SS-AUTH-D077",
+        "SS-AUTH-D078",
+        "SS-AUTH-D079",
+        "SS-AUTH-D080",
+        "SS-AUTH-D081",
+        "SS-AUTH-D082",
+        "SS-AUTH-D083",
+        "SS-AUTH-D089",
+        "SS-AUTH-D092",
+        "SS-AUTH-D093",
+        "SS-AUTH-D094",
+        "SS-AUTH-D095",
+        "SS-CAT-D001",
+        "SS-CAT-D017",
+        "SS-CMD-D002",
+        "SS-CMD-D004",
+        "SS-CMD-D009",
+        "SS-CMD-D010",
+        "SS-CMD-D012",
+        "SS-CMD-D013",
+        "SS-CMD-D014",
+        "SS-CMD-D015",
+        "SS-CMD-D016",
+        "SS-CMD-D019",
+        "SS-CMD-D020",
+        "SS-CMD-D021",
+        "SS-CMD-D022",
+        "SS-CMD-D023",
+        "SS-CMD-D026",
+        "SS-CMD-D027",
+        "SS-CMD-D029",
+        "SS-CMD-D045",
+        "SS-CMD-D047",
+        "SS-CMD-D050",
+        "SS-CMD-D051",
+        "SS-CMD-D055",
+        "SS-CMD-D056",
+        "SS-CMD-D064",
+        "SS-CMD-D065",
+        "SS-CMD-D066",
+        "SS-CMD-D067",
+        "SS-CMD-D068",
+        "SS-CMD-D084",
+        "SS-CMD-D085",
+        "SS-CMD-D087",
+        "SS-CMD-D088",
+        "SS-IPA-D006",
+        "SS-IPA-D007",
+        "SS-IPA-D008",
+        "SS-IPA-D011",
+        "SS-NET-D061",
+        "SS-NET-D096",
+        "SS-PAIR-D043",
+        "SS-READY-D005",
+        "SS-SAVE-D018",
+        "SS-SAVE-D030",
+        "SS-SAVE-D031",
+        "SS-SAVE-D042",
+        "SS-SAVE-D059",
+        "SS-SAVE-D086",
+        "SS-SAVE-D090",
+        "SS-SAVE-D091",
+        "SS-SIGN-D097",
+        "SS-SOURCE-D025",
+        "SS-VERIFY-D003",
+        "SS-VERIFY-D044",
+        "SS-VERIFY-D046",
+        "SS-VERIFY-D048",
+        "SS-VERIFY-D049",
+        "SS-VERIFY-D052",
+        "SS-VERIFY-D053",
+        "SS-VERIFY-D054",
+        "SS-VERIFY-D057",
+        "SS-VERIFY-D058",
+        "SS-VERIFY-D062",
+        "SS-VERIFY-D063",
+        "SS-VERIFY-D098",
+        "SS-XPC-D028",
+    ]
+    static func details(visibleMessage: String, technical: String) -> String {
+        let line = visibleMessage.components(separatedBy: "\n").last ?? ""
+        let prefix = "Error ID: "
+        let value = line.hasPrefix(prefix) ? String(line.dropFirst(prefix.count)) : ""
+        let labels = localCodes.contains(value) ? "visible_error_id=\(value)" : ""
+        let build = technical.contains("builder_commit=") ? "" : "builder_commit=\(V3DiagnosticBuild.commit)\n"
+        return build + (labels.isEmpty ? "" : labels + "\n") + technical
+    }
+}
+
+// Historical/plain messages have no recoverable typed cause. This fallback
+// identifies only the known presentation flow and leaves original text intact.
+enum V3DiagnosticPresentation {
+    enum Context: String {
+        case refresh = "SS-REFRESH-UNKNOWN"
+        case operation = "SS-OPERATION-UNKNOWN"
+        case global = "SS-UI-UNKNOWN"
+    }
+    static func label(_ message: String, context: Context) -> String {
+        guard !message.contains("\nError ID: SS-") else { return message }
+        return message + "\nError ID: " + context.rawValue
     }
 }

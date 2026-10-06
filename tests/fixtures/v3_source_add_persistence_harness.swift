@@ -108,9 +108,9 @@ struct SourceAddPersistenceHarness {
                                          "alreadyAdded": true, "persistenceVerified": true]
         require(V3SourceAddPersistencePolicy.confirmationMessage(ambiguous) == nil,
                 "ambiguous add outcome was accepted as success")
-        let unverifiedFailure = V3OperationFailureDetails(
-            V3SourceAddPersistencePolicy.unverifiedPersistenceFailure(correlationID: UUID().uuidString))
-        require(unverifiedFailure.whatHappened == "SideStore could not confirm that the source was saved.",
+        let sourceFailure = V3SourceAddPersistencePolicy.unverifiedPersistenceFailure(correlationID: UUID().uuidString)
+        let unverifiedFailure = V3OperationFailureDetails(sourceFailure)
+        require(unverifiedFailure.whatHappened == "SideStore could not confirm that the source was saved.\n" + sourceFailure.diagnosticLabel,
                 "an unverified source add must be reported as a source persistence failure")
         require(!unverifiedFailure.whatHappened.contains("sourceAddConfirmed") &&
                 unverifiedFailure.whatToDo.contains("reload the list") &&

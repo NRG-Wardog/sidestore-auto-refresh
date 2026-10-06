@@ -3,6 +3,7 @@ import CoreData
 import CryptoKit
 import UIKit
 import SideSign
+import AnisetteKit
 import Minimuxer
 import MinimuxerCommon
 
@@ -348,7 +349,10 @@ func v3IsAuthCancellation(_ error: Error) -> Bool {
 // associated ServerError code. Never choose a stage from provider text.
 func v3AccountOperationFailure(_ error: Error, step: CombinedFailure.SourceStep) -> V3AccountOperationError {
     if let known = error as? V3AccountOperationError { return known }
+    let step = (error as? V3AuthenticationPhaseError)?.step ?? step
+    let error = v3AccountUnderlyingError(error)
     let kind: V3AccountOperationError.Kind
+    var httpStatus: Int?
     var serverCode: Int?
     if error is V3AccountDatabaseOutcomeUnknownError { kind = .persistenceOutcomeUnknown }
     else if let server = error as? ServerError {
@@ -360,6 +364,36 @@ func v3AccountOperationFailure(_ error: Error, step: CombinedFailure.SourceStep)
         }
     } else if error is DeveloperPortalError { kind = .sideSignDeveloperPortalError }
     else if error is SideSign.AnisetteError { kind = .anisetteFailure }
+    else if let anisette = error as? AnisetteKit.AnisetteError {
+        switch anisette {
+        case .invalidArgument: kind = .anisetteKitInvalidArgument
+        case .loaderFailed: kind = .anisetteKitLoaderFailed
+        case .symbolMissing: kind = .anisetteKitSymbolMissing
+        case .readFailure: kind = .anisetteKitReadFailure
+        case .invalidResponse: kind = .anisetteKitInvalidResponse
+        case .adiError: kind = .anisetteKitADIError
+        case .librariesNotFound: kind = .anisetteKitLibrariesNotFound
+        case .httpError(let statusCode, _):
+            kind = .anisetteKitHTTPError
+            if (100...599).contains(statusCode) { httpStatus = statusCode }
+        }
+    } else if let archive = error as? SideSign.Archive.Error {
+        switch archive {
+        case .fileNotFound: kind = .archiveFileNotFound
+        case .corruptArchive: kind = .archiveCorrupt
+        case .readFailed: kind = .archiveReadFailed
+        case .writeFailed: kind = .archiveWriteFailed
+        case .missingAppBundle: kind = .archiveMissingApp
+        }
+    } else if let decoding = error as? DecodingError {
+        switch decoding {
+        case .typeMismatch: kind = .decodingTypeMismatch
+        case .valueNotFound: kind = .decodingValueNotFound
+        case .keyNotFound: kind = .decodingKeyNotFound
+        case .dataCorrupted: kind = .decodingDataCorrupted
+        @unknown default: kind = .unknownAccountFailure
+        }
+    }
     else {
         let native = error as NSError
         switch (native.domain, native.code) {
@@ -374,15 +408,27 @@ func v3AccountOperationFailure(_ error: Error, step: CombinedFailure.SourceStep)
             else { kind = .unknownAccountFailure }
         }
     }
-    return V3AccountOperationError(step: step, kind: kind, underlying: error, serverCode: serverCode)
+    return V3AccountOperationError(step: step, kind: kind, underlying: error, serverCode: serverCode, httpStatus: httpStatus)
+}
+
+// Both terminal routes (including cached/provisioning-resume paths that never
+// call handleSignInResult) preserve the same owned phase evidence.
+func v3CaptureAuthFailure(_ error: Error, operation: String,
+                          stage: CombinedFailure.Stage, id: String,
+                          retryable: Bool? = nil) -> CombinedFailure {
+    let diagnostic: Error = error is V3AuthenticationPhaseError
+        ? v3AccountOperationFailure(error, step: .authenticate) : error
+    return CombinedFailure.capture(diagnostic, operation: operation, stage: stage,
+                                   id: id, retryable: retryable)
 }
 
 func v3AccountUnderlyingError(_ error: Error) -> Error {
     var current = error
     // Unwrap only our own fixed wrapper, never arbitrary NSError.userInfo.
     for _ in 0..<5 {
-        guard let wrapped = current as? V3AccountOperationError else { break }
-        current = wrapped.underlying
+        if let wrapped = current as? V3AccountOperationError { current = wrapped.underlying }
+        else if let phase = current as? V3AuthenticationPhaseError { current = phase.underlying }
+        else { break }
     }
     return current
 }
@@ -410,7 +456,7 @@ func v3ClassifyAuthError(_ error: Error) -> V3AuthFailureKind? {
     // DeveloperPortalError exists (for example, when no servers are configured
     // or every provider fails). Preserve that typed infrastructure category and
     // never forward its associated response/path text.
-    if error is SideSign.AnisetteError { return .anisette }
+    if error is SideSign.AnisetteError || error is AnisetteKit.AnisetteError { return .anisette }
     if let server = error as? ServerError {
         switch server {
         // These response-shape cases have unsafe associated text/payload and
@@ -992,7 +1038,7 @@ final class V3AuthCenter {
                     failure = CombinedFailure(operation: "signIn", stage: .provisioning, code: .notReady,
                                               id: id, retryable: false)
                 } else {
-                    failure = CombinedFailure.capture(error, operation: "signIn", stage: postAuthentication.stage,
+                    failure = v3CaptureAuthFailure(error, operation: "signIn", stage: postAuthentication.stage,
                         id: id, retryable: cancelled)
                 }
                 var failureWire = failure.wire
@@ -1024,7 +1070,7 @@ final class V3AuthCenter {
                 finish(id: id, response: ["state": "cancelled", "authenticated": false])
                 debugLog("[V3_AUTH] TERMINAL session=\(id) state=cancelled")
             } else {
-                let failure = CombinedFailure.capture(error, operation: "signIn", stage: .authentication, id: id)
+                let failure = v3CaptureAuthFailure(error, operation: "signIn", stage: .authentication, id: id)
                 var wire = failure.wire
                 if let kind = v3ClassifyAuthError(error) { wire["kind"] = kind.rawValue }
                 let message = (wire["kind"] as? String).map { V3AuthFailureDisplay.message(for: $0) } ?? failure.safeMessage

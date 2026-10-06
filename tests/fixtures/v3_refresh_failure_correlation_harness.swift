@@ -84,9 +84,9 @@ struct RefreshFailureCorrelationHarness {
         didNotStartAttempt.begin(requestID: homeRequest)
         didNotStartAttempt.markDidNotStart()
         precondition(didNotStartAttempt.phase == .failed &&
-                     didNotStartAttempt.terminalMessage == "Refresh did not start.")
+                     didNotStartAttempt.terminalMessage == "Refresh did not start." + "\nError ID: SS-CMD-D047")
         let noStartDiagnostic = V3RefreshAllFailureDiagnostics.withoutRunRecord(
-            requestID: homeRequest, runID: nil, message: "Refresh did not start.", health: "REFRESH_FAILED")!
+            requestID: homeRequest, runID: nil, message: "Refresh did not start." + "\nError ID: SS-CMD-D047", health: "REFRESH_FAILED")!
         precondition(noStartDiagnostic.contains("stage=unknown") &&
                      noStartDiagnostic.contains("run_id=not_started") &&
                      noStartDiagnostic.contains("safe_message=Refresh did not start.") &&
@@ -107,7 +107,7 @@ struct RefreshFailureCorrelationHarness {
         let unknownRecord = runRecord(request: homeRequest, run: unknownRun, state: "failed",
             message: unknown.safeMessage, failure: unknown)
         precondition(unknown.safeMessage ==
-            "Refresh failed during command, but no safe underlying cause was available.")
+            "Refresh failed during command, but no safe underlying cause was available.\n" + unknown.diagnosticLabel)
         precondition(V3RefreshAllFailureDiagnostics.text(
             requestID: homeRequest, runID: unknownRun, record: unknownRecord)?
             .contains("safe_message=Refresh failed during command, but no safe underlying cause was available.") == true)

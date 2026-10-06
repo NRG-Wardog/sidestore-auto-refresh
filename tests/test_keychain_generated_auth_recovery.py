@@ -11,6 +11,9 @@ AUTH_DOUBLES = r'''
 struct ALTAccount { let appleID: String; let identifier: String }
 struct ALTAppleAPISession { let dsid: String; let authToken: String }
 enum OperationError: Error { case notAuthenticated, cancelled }
+enum CombinedFailure { enum SourceStep { case anisetteFetch, appleAuthentication, accountLookup }
+    static func isURLCancellation(domain: String, code: Int) -> Bool { domain == NSURLErrorDomain && code == NSURLErrorCancelled }
+}
 enum V3AccountOperationStep { case credentialCommit }
 struct V3AccountOperationError: Error { let underlying: Error }
 func v3AccountOperationFailure(_ error: Error, step: V3AccountOperationStep) -> V3AccountOperationError {
@@ -84,7 +87,11 @@ MAIN = r'''
         if scenario == "email_tokens" || scenario == "email_mismatch" {
             Store.data[group]!["appleIDEmailAddress"] = Data("test@example.com".utf8)
         }
-        if scenario == "expired_token" { auth.tokenError = NSError(domain: "AppleTest", code: 1) }
+        if scenario == "expired_token" || scenario == "expired_token_password" { auth.tokenError = NSError(domain: "AppleTest", code: 1) }
+        if scenario == "expired_token_password" {
+            Store.data[group]!["appleIDEmailAddress"] = Data("test@example.com".utf8)
+            Store.data[group]!["appleIDPassword"] = Data("password".utf8)
+        }
         if scenario == "generation_changed" { auth.onAppleResponse = { auth.v3IdentityStamp = "different-generation" } }
         if scenario == "cancelled" || scenario == "interactive_cancelled" {
             auth.onAppleResponse = { operation.isCancelled = true }
@@ -119,6 +126,11 @@ MAIN = r'''
             precondition(snapshot?.appleIDPassword == (scenario == "password_only" ? "password" : nil))
             precondition(auth.tokenCalls == (scenario == "password_only" ? 0 : 1))
             precondition(auth.passwordCalls == (scenario == "password_only" ? 1 : 0))
+        } else if scenario == "expired_token_password" {
+            let result = try await operation.run()
+            precondition(result?.0.appleID == "test@example.com")
+            precondition(auth.tokenCalls == 1 && auth.passwordCalls == 1,
+                "phase wrapper must retain stored-password fallback")
         } else if scenario == "expired_token" {
             let result = try await operation.run()
             precondition(result == nil && Store.data == before && auth.passwordCalls == 0)
@@ -148,7 +160,9 @@ class GeneratedAuthenticationRecoveryTests(unittest.TestCase):
         silent = generated[generated.index("    private func silentSignIn()") : generated.index("    private func authenticationLoop()")]
         password = generated[generated.index("    private func signIn(appleID:") : generated.index("    private func finalizeAuthentication(")]
         doubles = existing.DOUBLES.replace("\nfinal class Keychain {", "\nfinal class Keychain {\n    static var shared: Keychain!", 1)
-        swift = doubles + existing.TEMPLATE.read_text() + existing.module.KEYCHAIN_ACCESS_ADAPTER + AUTH_DOUBLES + silent + password + MAIN
+        phase_source = (Path(__file__).resolve().parents[1] / 'scripts/templates/combined_failure.swift').read_text()
+        phase_source = phase_source[phase_source.index('struct V3AuthenticationPhaseError:'):phase_source.index('// V3_TYPED_ACCOUNT_DIAGNOSTICS_V1:')]
+        swift = phase_source + doubles + existing.TEMPLATE.read_text() + existing.module.KEYCHAIN_ACCESS_ADAPTER + AUTH_DOUBLES + silent + password + MAIN
         cls.temp = tempfile.TemporaryDirectory(prefix="lc-generated-auth-recovery-")
         cls.addClassCleanup(cls.temp.cleanup)
         source = Path(cls.temp.name) / "Generated.swift"
@@ -159,7 +173,7 @@ class GeneratedAuthenticationRecoveryTests(unittest.TestCase):
             raise AssertionError(result.stderr)
 
     def test_generated_apple_verification_boundary(self):
-        for scenario in ("token_only", "email_tokens", "password_only", "expired_token", "different_account",
+        for scenario in ("token_only", "email_tokens", "password_only", "expired_token", "expired_token_password", "different_account",
                          "account_session_mismatch", "email_mismatch", "generation_changed", "writeback_failure", "cancelled", "interactive_cancelled"):
             with self.subTest(scenario=scenario):
                 result = subprocess.run([str(self.executable), scenario], capture_output=True, text=True)
