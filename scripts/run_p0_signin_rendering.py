@@ -10,11 +10,14 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import plistlib
 from pathlib import Path
 import re
 import shutil
+import stat
 import struct
+import uuid
 import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +35,10 @@ REQUIRED_CASES = {"credentials-default", "credentials-largest", "submitting-defa
 REQUIRED_SCREENSHOTS = {name: {"prompt-top", "copy-details", "cancel-reachable"} for name in REQUIRED_CASES}
 REQUIRED_CONTROLS = {"username", "password", "copy-details", "cancel"}
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+EVIDENCE_RUN_ID_KEY = "P0_SIGNIN_EVIDENCE_RUN_ID"
+MAX_DURABLE_FILES = 64
+MAX_DURABLE_FILE_BYTES = 16 * 1024 * 1024
+MAX_DURABLE_TOTAL_BYTES = 128 * 1024 * 1024
 
 
 def digest(path: Path) -> str:
@@ -350,19 +357,143 @@ def verify_export(directory: Path, summary: dict) -> dict:
             "artifactSHA256": artifacts, "reportCount": len(cases)}
 
 
+def configure_evidence_run(xctestrun: Path, kind: str) -> dict:
+    """Inject a fresh ID into the test runner, preserving Xcode's relative roots.
+
+    The runner writes inside its own Documents container, not a host path. The
+    actual built runner bundle supplies the ID used to harvest that container.
+    """
+    xctestrun = xctestrun.resolve()
+    configuration = plistlib.loads(xctestrun.read_bytes())
+    if "TestConfigurations" in configuration:
+        targets = [target for group in configuration["TestConfigurations"]
+                   for target in group.get("TestTargets", [])]
+    else:
+        targets = [value for value in configuration.values() if isinstance(value, dict)]
+    targets = [target for target in targets if "TestHostPath" in target and "TestBundlePath" in target]
+    if len(targets) != 1:
+        raise ValueError("Expected exactly one P0 sign-in test runner target")
+    target = targets[0]
+    raw_host = target["TestHostPath"]
+    if re.search(r"__[A-Z][A-Z0-9_]*__", raw_host.replace("__TESTROOT__", "")):
+        raise ValueError("Unsupported placeholder in P0 sign-in test runner host path")
+    host = raw_host.replace("__TESTROOT__", str(xctestrun.parent))
+    host_path = Path(host)
+    if not host_path.is_absolute():
+        host_path = xctestrun.parent / host_path
+    host_path = host_path.resolve()
+    if not host_path.is_relative_to(xctestrun.parent) or host_path.suffix != ".app":
+        raise ValueError("P0 sign-in test runner host is outside its build products")
+    info = plistlib.loads((host_path / "Info.plist").read_bytes())
+    runner_id = info.get("CFBundleIdentifier")
+    if not isinstance(runner_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]+", runner_id):
+        raise ValueError("Built P0 sign-in test runner has no usable bundle identifier")
+    run_id = uuid.uuid4().hex
+    environment = target.setdefault("EnvironmentVariables", {})
+    if not isinstance(environment, dict):
+        raise ValueError("P0 sign-in test runner environment is not a dictionary")
+    environment[EVIDENCE_RUN_ID_KEY] = run_id
+    # A sibling retains the meaning of __TESTROOT__ in every unchanged setting.
+    configured = xctestrun.with_name(xctestrun.stem + f"-p0-{kind}-{run_id}.xctestrun")
+    configured.write_bytes(plistlib.dumps(configuration))
+    return {"xctestrun": str(configured), "runnerBundleIdentifier": runner_id, "runID": run_id}
+
+
+def harvest_durable_files(container: Path, run_id: str, destination: Path) -> dict:
+    """Copy only bounded, flat, regular files from this exact test-run directory."""
+    if not re.fullmatch(r"[0-9a-f]{32}", run_id):
+        raise ValueError("Invalid P0 sign-in evidence run ID")
+    if not container.is_absolute() or container.is_symlink() or not container.is_dir():
+        raise ValueError("UI test runner data container is unavailable or a symlink")
+    source = container
+    for part in ("Documents", "p0-signin-evidence", run_id):
+        source = source / part
+        if source.is_symlink() or not source.is_dir():
+            raise ValueError("Current-run UI test evidence directory is unavailable or a symlink")
+    files, errors, total = {}, [], 0
+    destination.mkdir(parents=True, exist_ok=False)
+    with os.scandir(source) as entries:
+        for index, entry in enumerate(entries):
+            if index >= MAX_DURABLE_FILES:
+                errors.append("UI test evidence exceeds the file-count bound")
+                break
+            if (not re.fullmatch(r"p0-[A-Za-z0-9_.-]+\.(?:png|json|txt)", entry.name)
+                    or not entry.is_file(follow_symlinks=False)):
+                errors.append("Rejected non-regular or unexpected evidence entry: " + entry.name)
+                continue
+            # O_NOFOLLOW also prevents a file replaced by a symlink between
+            # directory enumeration and opening from escaping the runner folder.
+            try:
+                descriptor = os.open(entry.path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                with os.fdopen(descriptor, "rb") as stream:
+                    details = os.fstat(stream.fileno())
+                    if not stat.S_ISREG(details.st_mode) or details.st_size > MAX_DURABLE_FILE_BYTES:
+                        raise ValueError("Non-regular or oversized evidence file")
+                    data = stream.read(MAX_DURABLE_FILE_BYTES + 1)
+                if len(data) > MAX_DURABLE_FILE_BYTES or total + len(data) > MAX_DURABLE_TOTAL_BYTES:
+                    raise ValueError("UI test evidence exceeds the byte bound")
+                total += len(data)
+                (destination / entry.name).write_bytes(data)
+                files[entry.name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+                if entry.name.endswith(".png") and not valid_png(data):
+                    errors.append("Invalid durable diagnostic PNG: " + entry.name)
+            except (OSError, ValueError) as error:
+                errors.append(entry.name + ": " + str(error))
+    if not files:
+        errors.append("No durable files were recovered for the current test run")
+    return {"files": files, "errors": errors, "totalBytes": total}
+
+
+def capture_diagnostics(evidence: Path, kind: str, device: str, run: dict | None, command) -> dict:
+    """Preserve pixels and runner files even when xcresult never finalizes.
+
+    This runs before result export and the caller's simulator cleanup. Nothing
+    collected here can substitute for acceptance screenshots or XCTest success.
+    """
+    evidence.mkdir(parents=True, exist_ok=True)
+    report = {"schemaVersion": 1, "deviceClass": kind, "diagnosticOnly": True,
+              "runID": run.get("runID") if run else None, "errors": []}
+    screenshot = evidence / (kind + "-terminal-diagnostic.png")
+    try:
+        command("xcrun", "simctl", "io", device, "screenshot", str(screenshot), timeout=30)
+        data = screenshot.read_bytes()
+        if not valid_png(data):
+            raise ValueError("Terminal simulator screenshot is not a valid PNG")
+        report["terminalScreenshot"] = {"file": screenshot.name, "sha256": hashlib.sha256(data).hexdigest()}
+    except Exception as error:
+        report["errors"].append("Terminal simulator screenshot: " + str(error))
+    try:
+        if not run:
+            raise ValueError("Verified test runner identity/run ID unavailable; no container guessed")
+        container = command("xcrun", "simctl", "get_app_container", device,
+                            run["runnerBundleIdentifier"], "data", timeout=15)
+        report["runnerBundleIdentifier"] = run["runnerBundleIdentifier"]
+        report["durableEvidence"] = harvest_durable_files(
+            Path(container.strip()), run["runID"], evidence / (kind + "-durable-diagnostics"))
+        report["errors"].extend(report["durableEvidence"]["errors"])
+    except Exception as error:
+        report["errors"].append("Durable UI test evidence: " + str(error))
+    (evidence / (kind + "-capture-diagnostics.json")).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    return report
+
+
 def execute(prepared: dict, kind: str, device: str, output: Path, command) -> dict:
     evidence = output / "p0-signin"
     result = evidence / (kind + ".xcresult")
     exports = evidence / (kind + "-attachments")
     failure = None
+    run = None
     try:
-        command("xcodebuild", "test-without-building", "-xctestrun", prepared["xctestrun"],
+        run = configure_evidence_run(Path(prepared["xctestrun"]), kind)
+        command("xcodebuild", "test-without-building", "-xctestrun", run["xctestrun"],
                 "-destination", "id=" + device, "-resultBundlePath", str(result),
                 "-parallel-testing-enabled", "NO", "-maximum-concurrent-test-simulator-destinations", "1",
                 "-test-timeouts-enabled", "YES", "-default-test-execution-time-allowance", "90",
                 "-maximum-test-execution-time-allowance", "120", timeout=480)
     except Exception as error:
         failure = str(error)
+    finally:
+        capture_diagnostics(evidence, kind, device, run, command)
     if not result.exists():
         raise RuntimeError("P0 sign-in XCTest produced no result bundle: " + (failure or kind))
     command("xcrun", "xcresulttool", "export", "attachments", "--path", str(result),

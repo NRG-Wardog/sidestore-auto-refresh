@@ -105,6 +105,34 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         self.assertIn('artifacts/layout-evidence/p0-signin/**/*.swift', workflow)
         self.assertIn('artifacts/layout-evidence/p0-signin/project/**', workflow)
 
+    def test_durable_capture_precedes_attachments_and_remote_teardown(self):
+        ui = (ROOT / 'tests/fixtures/p0_signin_ui_tests.swift').read_text()
+        screenshot = renderer.member(ui, '@MainActor private func screenshot')
+        self.assertLess(screenshot.index('persist(captured.pngRepresentation'), screenshot.index('add(attachment)'))
+        self.assertEqual(screenshot.count('app.screenshot()'), 1)
+        self.assertIn('options: .atomic', ui)
+        self.assertIn('P0_SIGNIN_EVIDENCE_RUN_ID', ui)
+        self.assertIn('^[0-9a-f]{32}$', ui)
+        finish = renderer.member(ui, '@MainActor private func finish')
+        self.assertLess(finish.index('persistProgress("teardown-started")'), finish.index('diagnosticSnapshot("teardown")'))
+        self.assertLess(finish.index('persist(reportData'), finish.index('app.terminate()'))
+        reveal = renderer.member(ui, '@MainActor private func reveal')
+        self.assertLess(reveal.index('var region = visibleScrollRegion()'), reveal.index('for attempt in'))
+        self.assertLess(reveal.index('persistProgress("before-scroll")'), reveal.index('start.press('))
+        self.assertIn('unchangedFrames >= 3', reveal)
+        self.assertIn('let freshRegion = visibleScrollRegion()', reveal)
+        self.assertIn('P0SignInViewport.contains(element.frame, in: region)', reveal)
+        self.assertIn('diagnosticSnapshot("scroll-stalled")', reveal)
+        self.assertIn('element.exists && element.isHittable &&', reveal)
+        self.assertIn('"passed": false, "complete": false', ui)
+        self.assertIn('import Foundation\n', ui)
+        self.assertIn('runID.utf8.count == 32', ui)
+        self.assertLess(ui.index('Native Return did not dismiss the username keyboard'), ui.index('record(password, name: "password")'))
+        self.assertLess(ui.index('Native Return did not dismiss the credentials keyboard'), ui.index('record(copy, name: "copy-details")'))
+        self.assertNotIn('typeText(', reveal)
+        self.assertNotIn('.tap()', reveal)
+
+
     def test_exact_runtime_viewport_math_executes(self):
         compiler = shutil.which('swiftc')
         if not compiler:
@@ -240,7 +268,7 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
     def test_ui_uses_real_taps_and_reports_limits(self):
         source = (ROOT / "tests/fixtures/p0_signin_ui_tests.swift").read_text()
         for marker in ('copy.tap()', 'proceed.tap()', 'cancel.tap()', 'app.terminate()', 'app.launch()',
-                       'XCTAttachment(screenshot: app.screenshot())', 'spoken VoiceOver output is not asserted',
+                       'let captured = app.screenshot()', 'XCTAttachment(screenshot: captured)', 'spoken VoiceOver output is not asserted',
                        'p0-clipboard', 'p0-cancelled-submission', 'p0-synthetic-password', 'safeDiagnosticOnly',
                        '!cancel.isEnabled', '"Status"', '"Needs your input"'):
             self.assertIn(marker, source)

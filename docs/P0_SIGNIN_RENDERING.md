@@ -121,3 +121,38 @@ layout parity. The workflow also retains the exported failure text, extracted
 Swift inputs and fixture project alongside image/report evidence. Updated
 query and geometry code still requires a complete macOS CI execution and
 actual PNG review before UI acceptance.
+
+## Interrupted-result evidence recovery
+
+Run 37459827308 passed all 1,113 native checks, and its phone credentials
+cases passed, but the sign-in suite did not finish. The submitting-header
+check reached its full-frame containment predicate and failed after repeated
+scrolls. Its final query trace proves existence and hittability had succeeded;
+it does not identify the clipped edge. Tablet execution also slowed and failed
+while terminating the fixture. The 480-second command bounds left incomplete
+xcresult bundles, so no sign-in pixels could be exported or reviewed.
+
+The fixture now writes the same screenshot bytes atomically into its own
+Documents container before adding each XCTest attachment. A fresh per-device
+run ID supplied in the test-runner environment isolates those files. Fail-closed
+progress JSON, including exact element and safe-region rectangles before each
+scroll, is persisted before launch and teardown RPCs. The unchanged containment
+and hittability requirements remain mandatory. A reveal reuses the measured
+region during its gesture-only loop and fails with diagnostic pixels after
+three unchanged nonempty frames rather than repeating ineffective gestures.
+Navigation bars may change size during scrolling. Every new reveal, candidate
+success and stall remeasures its safe region, as do final control measurements.
+The gesture-only loop does not introduce keyboard input.
+
+The host always attempts a bounded terminal simulator screenshot and harvests
+only bounded regular files from that exact runner/run directory before result
+export and simulator cleanup. The runner bundle identifier comes from its built
+Info.plist. This survives an unfinished xcresult when the runner container
+remains available. Capture failures are recorded explicitly. Direct files stay
+in a separate diagnostic directory: they cannot replace the required 24
+acceptance PNGs, four passing tests per device, complete reports, or zero-skip
+XCTest summaries. Terminal pixels may show the app after teardown or SpringBoard
+and therefore do not establish any sign-in layout assertion.
+
+This change adds evidence and reduces redundant accessibility queries. It does
+not establish a product layout fix or successful real-account authentication.

@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 import CoreGraphics
 
 enum P0SignInViewport {
@@ -26,6 +27,7 @@ final class P0SignInUITests: XCTestCase {
     private var measurements: [[String: Any]] = []
     private var screenshots: [String] = []
     private var diagnosticScreenshots: [String] = []
+    private var scrollObservations: [[String: Any]] = []
     private var finished = false
     private var caseName = ""
     private var largest = false
@@ -62,28 +64,65 @@ final class P0SignInUITests: XCTestCase {
         return intersections.max(by: { $0.width * $0.height < $1.width * $1.height }) ?? available
     }
     @MainActor private func reveal(_ element: XCUIElement, name: String = "requested control", towardTop: Bool = false) {
+        // Reuse gesture geometry while searching, but remeasure before accepting
+        // visibility or declaring a stall: scrolling may resize navigation bars.
+        var region = visibleScrollRegion()
+        require(region.width >= 44 && region.height >= 80,
+                "No safe list area remains outside keyboard/navigation for scrolling")
+        let window = app.windows.firstMatch
+        let windowFrame = window.frame
+        let origin = window.coordinate(withNormalizedOffset: .zero)
+        var previousFrame: CGRect?
+        var unchangedFrames = 0
         for attempt in 0..<16 {
-            let region = visibleScrollRegion()
-            require(region.width >= 44 && region.height >= 80,
-                    "No safe list area remains outside keyboard/navigation for scrolling")
-            if element.exists && element.isHittable &&
-                P0SignInViewport.contains(element.frame, in: region) { return }
-            let upward: Bool
-            if element.exists && !element.frame.isEmpty {
-                upward = element.frame.maxY > region.maxY
+            let exists = element.exists
+            let frame = exists ? element.frame : .zero
+            let hittable = exists ? element.isHittable : false
+            scrollObservations.append(["control": name, "attempt": attempt, "exists": exists,
+                "frame": [frame.minX, frame.minY, frame.width, frame.height],
+                "region": [region.minX, region.minY, region.width, region.height],
+                "hittable": hittable])
+            persistProgress("before-scroll")
+            if exists && hittable && P0SignInViewport.contains(frame, in: region) {
+                region = visibleScrollRegion()
+                if P0SignInViewport.contains(element.frame, in: region) { return }
+            }
+            if exists && !frame.isEmpty && frame == previousFrame {
+                unchangedFrames += 1
             } else {
-                // Offscreen lazy rows have no usable frame. Start toward the
-                // known control order, then search the other direction too.
+                unchangedFrames = 0
+            }
+            previousFrame = exists && !frame.isEmpty ? frame : nil
+            if unchangedFrames >= 3 {
+                let freshRegion = visibleScrollRegion()
+                let freshFrame = element.frame
+                scrollObservations.append(["control": name, "phase": "stall-remeasure",
+                    "frame": [freshFrame.minX, freshFrame.minY, freshFrame.width, freshFrame.height],
+                    "region": [freshRegion.minX, freshRegion.minY, freshRegion.width, freshRegion.height]])
+                persistProgress("stall-remeasure")
+                if element.isHittable && P0SignInViewport.contains(freshFrame, in: freshRegion) { return }
+                if freshRegion != region {
+                    region = freshRegion
+                    unchangedFrames = 0
+                    continue
+                }
+                diagnosticSnapshot("scroll-stalled")
+                require(false, "Safe scrolling made no geometry progress for \(name); see persisted frame observations")
+                return
+            }
+            let upward: Bool
+            if exists && !frame.isEmpty {
+                upward = frame.maxY > region.maxY
+            } else {
                 upward = attempt < 8 ? !towardTop : towardTop
             }
-            let window = app.windows.firstMatch
-            let origin = window.coordinate(withNormalizedOffset: .zero)
             let startY = upward ? region.maxY - region.height * 0.2 : region.minY + region.height * 0.2
             let endY = upward ? region.minY + region.height * 0.2 : region.maxY - region.height * 0.2
-            let start = origin.withOffset(CGVector(dx: region.midX - window.frame.minX, dy: startY - window.frame.minY))
-            let end = origin.withOffset(CGVector(dx: region.midX - window.frame.minX, dy: endY - window.frame.minY))
+            let start = origin.withOffset(CGVector(dx: region.midX - windowFrame.minX, dy: startY - windowFrame.minY))
+            let end = origin.withOffset(CGVector(dx: region.midX - windowFrame.minX, dy: endY - windowFrame.minY))
             start.press(forDuration: 0.05, thenDragTo: end)
         }
+        diagnosticSnapshot("scroll-exhausted")
         require(element.exists && element.isHittable &&
                 P0SignInViewport.contains(element.frame, in: visibleScrollRegion()),
                 "Control is not fully visible after bounded safe scrolling: \(name)")
@@ -108,24 +147,56 @@ final class P0SignInUITests: XCTestCase {
             "viewportBounds": [viewport.minX, viewport.minY, viewport.width, viewport.height],
             "viewportWidth": viewport.width, "largestDynamicType": largest, "hittable": element.isHittable])
     }
+    private func persist(_ data: Data, name: String) {
+        do {
+            guard let runID = ProcessInfo.processInfo.environment["P0_SIGNIN_EVIDENCE_RUN_ID"],
+                  runID.utf8.count == 32,
+                  runID.range(of: "^[0-9a-f]{32}$", options: .regularExpression) != nil else {
+                failures.append("Missing valid independent evidence run identity")
+                return
+            }
+            let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("p0-signin-evidence", isDirectory: true)
+                .appendingPathComponent(runID, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(to: directory.appendingPathComponent(name), options: .atomic)
+        } catch {
+            failures.append("Could not persist independent fixture evidence: \(error)")
+        }
+    }
+    private func persistProgress(_ phase: String) {
+        let data: [String: Any] = ["schema": "p0-signin-progress-v1", "case": caseName,
+            "phase": phase, "passed": false, "complete": false,
+            "scrollObservations": scrollObservations, "failures": failures]
+        if let encoded = try? JSONSerialization.data(withJSONObject: data, options: [.sortedKeys]) {
+            persist(encoded, name: "p0-" + caseName + "-progress.json")
+        }
+    }
     @MainActor private func screenshot(_ suffix: String) {
         let name = "p0-" + caseName + "-" + suffix
-        let attachment = XCTAttachment(screenshot: app.screenshot())
+        let captured = app.screenshot()
+        persist(captured.pngRepresentation, name: name + ".png")
+        let attachment = XCTAttachment(screenshot: captured)
         attachment.name = name; attachment.lifetime = .keepAlways
         add(attachment); screenshots.append(name)
     }
     @MainActor private func diagnosticSnapshot(_ suffix: String) {
         let name = "p0-" + caseName + "-diagnostic-" + suffix
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let captured = XCUIScreen.main.screenshot()
+        persist(captured.pngRepresentation, name: name + ".png")
+        let attachment = XCTAttachment(screenshot: captured)
         attachment.name = name; attachment.lifetime = .keepAlways
         add(attachment); diagnosticScreenshots.append(name)
     }
     @MainActor private func finish() {
         guard !finished else { return }
         finished = true
+        persistProgress("teardown-started")
         diagnosticSnapshot("teardown")
         if app.state == .runningForeground {
-            let hierarchy = XCTAttachment(string: String(app.debugDescription.prefix(131072)))
+            let hierarchyText = String(app.debugDescription.prefix(131072))
+            persist(Data(hierarchyText.utf8), name: "p0-" + caseName + "-hierarchy.txt")
+            let hierarchy = XCTAttachment(string: hierarchyText)
             hierarchy.name = "p0-" + caseName + "-hierarchy.txt"
             hierarchy.lifetime = .keepAlways
             add(hierarchy)
@@ -143,8 +214,9 @@ final class P0SignInUITests: XCTestCase {
             "largestDynamicType": largest, "noRedundantStatusPanel": noRedundantPanel,
             "scope": "unsigned-in credentials/no recovery; fixture cancel callback only",
             "accessibility": "Runtime accessibility labels; spoken VoiceOver output is not asserted"]
-        let attachment = XCTAttachment(data: try! JSONSerialization.data(withJSONObject: data, options: [.sortedKeys]),
-                                       uniformTypeIdentifier: "public.json")
+        let reportData = try! JSONSerialization.data(withJSONObject: data, options: [.sortedKeys])
+        persist(reportData, name: "p0-" + caseName + "-report.json")
+        let attachment = XCTAttachment(data: reportData, uniformTypeIdentifier: "public.json")
         attachment.name = "p0-" + caseName + "-report.json"; attachment.lifetime = .keepAlways
         add(attachment)
         app.terminate()
@@ -153,7 +225,7 @@ final class P0SignInUITests: XCTestCase {
         continueAfterFailure = false
         self.largest = largest; self.submitting = submitting
         caseName = (submitting ? "submitting" : "credentials") + (largest ? "-largest" : "-default")
-        failures = []; measurements = []; screenshots = []; diagnosticScreenshots = []; finished = false
+        failures = []; measurements = []; screenshots = []; diagnosticScreenshots = []; scrollObservations = []; finished = false
         clipboardMatched = false; cancelInvoked = false; noRedundantPanel = false
         safeDiagnosticOnly = false; oneCredentialsPanel = false
         submissionInvoked = false; priorFailureCleared = false
@@ -165,6 +237,7 @@ final class P0SignInUITests: XCTestCase {
             await Task.yield()
             finish()
         }
+        persistProgress("before-launch")
         app.launch()
         diagnosticSnapshot("launch")
         require(app.staticTexts["p0-ready"].waitForExistence(timeout: 10), "Fixture failed to launch")
