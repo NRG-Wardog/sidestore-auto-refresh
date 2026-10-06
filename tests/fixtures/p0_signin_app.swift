@@ -83,15 +83,20 @@ import Combine
                         Text(auth.cancelledWhileSubmitting ? "yes" : "no")
                             .accessibilityIdentifier("p0-cancelled-submission")
                         Text(String(auth.answerCount)).accessibilityIdentifier("p0-answer-count")
+                        Text("Prior failure").accessibilityIdentifier("p0-prior-failure")
+                            .accessibilityValue(auth.previousFailure == nil ? "cleared" : "present")
                     }
                     .font(.system(size: 9)).environment(\.sizeCategory, .large)
                     .frame(maxWidth: .infinity).frame(height: 24)
                     .background(Color(.systemBackground))
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("p0-telemetry")
                 }
         }
         .navigationViewStyle(.stack)
         .environment(\.sizeCategory, largest ? .accessibilityExtraExtraExtraLarge : .large)
         .frame(width: width)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("p0-viewport")
         .frame(maxWidth: .infinity, alignment: .leading)
         .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in

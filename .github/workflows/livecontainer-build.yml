@@ -221,6 +221,37 @@ jobs:
           actual_side_logging=$(git -C "$SIDESTORE" diff --name-only -- SideStore/Core/Logging | sort)
           test "$actual_side_logging" = "$expected_side_logging"
 
+      - name: Execute full layout regression
+        # Standalone fixtures read the already-prepared Swift sources, not built
+        # app products. Fail early without duplicating simulator lifecycles.
+        # Legacy 35m + sign-in build 5m + devices 8m + 8m + export/margin 4m.
+        timeout-minutes: 60
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C builder fetch --no-tags origin 7d8ae12905f8baa6e0ecc4dbdd3f25e2aa0e43fa
+          printf 'Layout start: '; date -u
+          python3 builder/scripts/run_issue25_rendering.py --livecontainer work/LiveContainer \
+            --v3-source work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift \
+            --require-p0-signin --output artifacts/layout-evidence 2>&1 | tee artifacts/logs/layout-rendering.log
+          printf 'Layout finish: '; date -u
+
+      - name: Preserve real layout measurements and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-v3-layout-evidence
+          path: |
+            artifacts/layout-evidence/**/*.json
+            artifacts/layout-evidence/**/*.jsonl
+            artifacts/logs/layout-rendering.log
+            artifacts/layout-evidence/**/*.png
+            artifacts/layout-evidence/p0-signin/**/*.txt
+            artifacts/layout-evidence/p0-signin/**/*.swift
+            artifacts/layout-evidence/p0-signin/project/**
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Build unified host before transport compilation
         shell: bash
         run: |
@@ -317,9 +348,7 @@ jobs:
           swift package --package-path "$MUX/DeviceGateway" dump-package >"$RUNNER_TEMP/combined-gateway-package.json"
 
       # Host source is final and already compiled; retain the exact prepared tree.
-      # The parallel Intel run timed out during native compilation while the
-      # simulator's first-boot migration exceeded 300 seconds. Serialize them;
-      # this is resource isolation, not a claimed speed improvement.
+      # Keep native compilation serial with the earlier simulator suite.
       - name: Build embedded SideStore
         id: embedded_build
         timeout-minutes: 40
@@ -346,35 +375,6 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/embedded-sidestore-derived-data" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee artifacts/logs/embedded-sidestore-build.log
           printf 'Native build finish: '; date -u
-
-      - name: Execute full layout regression
-        # Preserve layout evidence after a native failure, but never package it
-        # as success: the earlier failed step still fails the job.
-        if: ${{ !cancelled() && (steps.embedded_build.outcome == 'success' || steps.embedded_build.outcome == 'failure') }}
-        # Legacy 35m + sign-in build 5m + devices 8m + 8m + export/margin 4m.
-        timeout-minutes: 60
-        shell: bash
-        run: |
-          set -euo pipefail
-          git -C builder fetch --no-tags origin 7d8ae12905f8baa6e0ecc4dbdd3f25e2aa0e43fa
-          printf 'Layout start: '; date -u
-          python3 builder/scripts/run_issue25_rendering.py --livecontainer work/LiveContainer \
-            --v3-source work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift \
-            --require-p0-signin --output artifacts/layout-evidence 2>&1 | tee artifacts/logs/layout-rendering.log
-          printf 'Layout finish: '; date -u
-
-      - name: Preserve real layout measurements and screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: combined-v3-layout-evidence
-          path: |
-            artifacts/layout-evidence/**/*.json
-            artifacts/layout-evidence/**/*.jsonl
-            artifacts/logs/layout-rendering.log
-            artifacts/layout-evidence/**/*.png
-          if-no-files-found: warn
-          retention-days: 90
 
       - name: Package and verify combined LiveContainer plus SideStore
         shell: bash

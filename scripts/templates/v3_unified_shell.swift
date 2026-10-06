@@ -4904,6 +4904,7 @@ struct V3PromptSection: View {
                         Text(previousFailureDetails)
                             .font(.caption).foregroundColor(.secondary)
                             .textSelection(.enabled)
+                            .accessibilityIdentifier("signin.prompt.previous-error-body")
                     }
                     .accessibilityIdentifier("signin.prompt.previous-error-details")
                     Button("Copy Details") { UIPasteboard.general.string = previousFailureDetails }

@@ -83,3 +83,41 @@ per-device JSON reports and source identity before this is considered native
 sign-in evidence. The fixture retains the product's iOS 15 compilation target;
 it executes on the existing runner's oldest installed simulator runtime and
 does not claim physical-device, spoken VoiceOver or iOS 15 runtime validation.
+
+## Early fail-closed ordering
+
+The complete existing layout step runs after host source generation and exact authentication source-boundary verification, before native host/transport/backend builds. Its inputs are the same prepared LC grid/banner/model/shell Swift files, builder templates and fixtures, and immutable baseline Git object; it consumes no compiled app or transport product. The runner, source hashes, one shared two-device lifecycle, 14 legacy reports, 8 sign-in cases and 24 required PNGs are unchanged. The moved step uses default success gating; its failure prevents later builds and packaging. Evidence upload remains always-run, and packaging still requires every preceding gate. Bounds stay 60 minutes for layout and 150 minutes for the job.
+
+
+## Runtime query and failure evidence correction
+
+Run `37448846642` passed compilation but exposed fixture-query failures before
+any sign-in screenshots or input/tap checks. Its retained PNGs belong to the
+legacy suite. No sign-in pixel acceptance is inferred from that run.
+
+The collapsed diagnostic body now has a stable accessibility identifier. Tests
+never use the full diagnostic string as an element identifier; clipboard and
+visible-message comparisons still require exact content. The Cancel count is
+checked after bounded scrolling has exposed the control. Reveal requires the
+whole frame to fit a measured list region outside navigation, keyboard and
+fixture telemetry, rather than accepting a partially hittable element.
+
+The test verifies username input while that field is visible, then uses native
+Return before finding the password field. After Submit, an independent fixture
+state observation verifies the extracted failure-clear policy, and the test
+returns to the header to check that stale error/copy controls are absent.
+
+Launch and teardown attach diagnostic PNGs, and teardown retains a bounded
+accessibility hierarchy as text. Teardown reports include XCTest's assertion
+and exception count, which must be the integer zero for acceptance. This uses
+[XCTest's documented teardown lifecycle](https://developer.apple.com/documentation/xctest/set-up-and-tear-down-state-in-your-tests)
+and [totalFailureCount](https://developer.apple.com/documentation/xctest/xctestrun/totalfailurecount),
+rather than relying on Swift defer after XCTest aborts a failed method. A hard
+test-runner crash can still prevent teardown; missing reports remain failures.
+
+The original 24 named acceptance screenshots remain required. Extra diagnostic
+screenshots cannot replace them and do not claim post-cancellation product
+layout parity. The workflow also retains the exported failure text, extracted
+Swift inputs and fixture project alongside image/report evidence. Updated
+query and geometry code still requires a complete macOS CI execution and
+actual PNG review before UI acceptance.

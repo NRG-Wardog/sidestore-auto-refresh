@@ -474,16 +474,23 @@ class CombinedWorkflowTests(unittest.TestCase):
         layout = workflow.index("- name: Execute full layout regression")
         package = workflow.index("- name: Package and verify combined LiveContainer plus SideStore")
         self.assertLess(host, native)
-        self.assertLess(native, layout)
+        preparation = workflow.index("- name: Verify prepared authentication source boundaries")
+        self.assertLess(preparation, layout)
+        self.assertLess(layout, host)
         self.assertLess(layout, package)
-        native_block = workflow[native:layout]
+        native_block = workflow[native:].split("\n      - name:", 1)[0]
         layout_block = workflow[layout:].split("\n      - name:", 1)[0]
         self.assertIn('id: embedded_build', native_block)
         self.assertIn('timeout-minutes: 40', native_block)
         self.assertIn('timeout-minutes: 60', layout_block)
         self.assertIn('timeout-minutes: 150', workflow[:native])
-        self.assertIn("steps.embedded_build.outcome == 'failure'", layout_block)
-        self.assertIn("!cancelled()", layout_block)
+        self.assertNotIn("if:", layout_block)  # Default success() requires source preparation.
+        self.assertNotIn("DerivedData", layout_block)
+        self.assertNotIn("Build/Products", layout_block)
+        self.assertEqual(workflow.count("- name: Execute full layout regression"), 1)
+        self.assertIn("--livecontainer work/LiveContainer", layout_block)
+        self.assertIn("--v3-source work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift", layout_block)
+        self.assertIn("--require-p0-signin --output artifacts/layout-evidence", layout_block)
         self.assertIn("--v3-source", layout_block)
         self.assertNotIn('native_pid', native_block + layout_block)
         self.assertNotRegex(native_block + layout_block, r'(?m)^\s*\)\s*&\s*$')

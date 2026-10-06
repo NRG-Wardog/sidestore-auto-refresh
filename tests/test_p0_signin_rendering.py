@@ -7,6 +7,8 @@ from types import SimpleNamespace
 import json
 from pathlib import Path
 import struct
+import shutil
+import subprocess
 import tempfile
 import unittest
 import zlib
@@ -38,6 +40,7 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
                 manifest.append({"exportedFileName": filename, "suggestedHumanReadableName": filename})
             (directory / (name + ".json")).write_text(json.dumps({
                 "schema": "p0-signin-case-v1", "case": name, "passed": True, "failures": [],
+                "xctestFailureCount": 0, "teardownCaptured": True,
                 "measurements": [{"control": control, "bounds": [20, 100, 200, 44], "hittable": True,
                     "label": "Fixture " + control, "viewportBounds": [0, 0, 320, 640], "viewportWidth": 320,
                     "largestDynamicType": name.endswith("-largest")} for control in renderer.REQUIRED_CONTROLS],
@@ -59,6 +62,86 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         for source in ("", "struct X {\n", "struct X {\n}\nstruct X {\n}\n"):
             with self.assertRaises(ValueError):
                 renderer.declaration(source, "struct X")
+
+    def test_xctest_exceptions_and_missing_teardown_cannot_look_successful(self):
+        for changes in ({"xctestFailureCount": 1}, {"xctestFailureCount": None},
+                        {"xctestFailureCount": False}, {"xctestFailureCount": 0.0}, {"teardownCaptured": False}, {"teardownCaptured": None}):
+            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); summary = self.make_export(root)
+                path = root / "credentials-default.json"
+                data = json.loads(path.read_text()); data.update(changes); path.write_text(json.dumps(data))
+                self.assertFalse(renderer.verify_export(root, summary)["passed"])
+
+    def test_diagnostic_screenshots_cannot_replace_the_acceptance_matrix(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); summary = self.make_export(root)
+            (root / "p0-credentials-default-diagnostic-launch.png").write_bytes(image())
+            self.assertTrue(renderer.verify_export(root, summary)["passed"])
+            (root / "p0-credentials-default-copy-details.png").unlink()
+            self.assertFalse(renderer.verify_export(root, summary)["passed"])
+
+    def test_queries_use_short_ids_and_teardown_preserves_early_failure(self):
+        ui = (ROOT / "tests/fixtures/p0_signin_ui_tests.swift").read_text()
+        app = (ROOT / "tests/fixtures/p0_signin_app.swift").read_text()
+        shell = (ROOT / "scripts/templates/v3_unified_shell.swift").read_text()
+        self.assertNotIn('app.staticTexts[expected]', ui)
+        self.assertIn('app.staticTexts["signin.prompt.previous-error-body"]', ui)
+        self.assertIn('.accessibilityIdentifier("signin.prompt.previous-error-body")', shell)
+        self.assertIn('addTeardownBlock { @MainActor [self] in', ui)
+        self.assertLess(ui.index('addTeardownBlock'), ui.index('app.launch()'))
+        self.assertLess(ui.index('diagnosticSnapshot("launch")'), ui.index('require(app.staticTexts["p0-ready"]'))
+        self.assertNotIn('defer { finish() }', ui)
+        self.assertIn('testRun?.totalFailureCount ?? 1', ui)
+        self.assertIn('diagnosticSnapshot("teardown")', ui)
+        self.assertIn('String(app.debugDescription.prefix(131072))', ui)
+        self.assertIn('"passed": failures.isEmpty && frameworkFailures == 0', ui)
+        self.assertLess(ui.index('record(cancel, name: "cancel")'), ui.index('let cancelCount ='))
+        self.assertIn('p0-prior-failure', app)
+        self.assertIn('reveal(header, name: "credentials header", towardTop: true)', ui)
+        self.assertIn('Stale error or Copy Details remains after returning to the previous-error area', ui)
+        self.assertIn('.accessibilityElement(children: .contain)', app)
+        workflow = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()
+        self.assertIn('artifacts/layout-evidence/p0-signin/**/*.txt', workflow)
+        self.assertIn('artifacts/layout-evidence/p0-signin/**/*.swift', workflow)
+        self.assertIn('artifacts/layout-evidence/p0-signin/project/**', workflow)
+
+    def test_exact_runtime_viewport_math_executes(self):
+        compiler = shutil.which('swiftc')
+        if not compiler:
+            self.skipTest('Swift compiler unavailable; actual sign-in viewport helper executes in required macOS CI')
+        ui = (ROOT / 'tests/fixtures/p0_signin_ui_tests.swift').read_text()
+        helper = renderer.declaration(ui, 'enum P0SignInViewport')
+        self.assertIn('P0SignInViewport.contains(element.frame, in: region)', ui)
+        self.assertIn('P0SignInViewport.available(viewport: viewport', ui)
+        harness = 'import Foundation\n' + helper + r'''
+@main struct Test {
+    static func main() {
+        let viewport = CGRect(x: 0, y: 0, width: 320, height: 844)
+        let nav = CGRect(x: 0, y: 0, width: 320, height: 100)
+        let keyboard = CGRect(x: 0, y: 500, width: 320, height: 344)
+        let footer = CGRect(x: 0, y: 800, width: 320, height: 24)
+        let region = P0SignInViewport.available(viewport: viewport, navigation: nav, keyboard: keyboard, footer: footer)
+        precondition(region == CGRect(x: 4, y: 104, width: 312, height: 392))
+        precondition(P0SignInViewport.contains(CGRect(x: 20, y: 120, width: 240, height: 44), in: region))
+        precondition(!P0SignInViewport.contains(CGRect(x: 20, y: 470, width: 240, height: 44), in: region), "A hittable center does not prove full containment")
+        precondition(!P0SignInViewport.contains(CGRect(x: 0, y: 120, width: 320, height: 44), in: region))
+        let offscreenKeyboard = CGRect(x: 400, y: 500, width: 300, height: 300)
+        let unaffected = P0SignInViewport.available(viewport: viewport, navigation: nav, keyboard: offscreenKeyboard, footer: footer)
+        precondition(unaffected.maxY == 796)
+        precondition(P0SignInViewport.available(viewport: .zero, navigation: nil, keyboard: nil, footer: nil) == .zero)
+        precondition(!P0SignInViewport.contains(CGRect(x: 20, y: 120, width: 240, height: 44), in: .infinite))
+        print("P0_SIGNIN_VIEWPORT_PASS")
+    }
+}
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); source = root / 'main.swift'; source.write_text(harness)
+            binary = root / 'viewport'
+            compiled = subprocess.run([compiler, '-parse-as-library', str(source), '-o', str(binary)], capture_output=True, text=True, timeout=90)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+            self.assertIn('P0_SIGNIN_VIEWPORT_PASS', executed.stdout)
 
     def test_valid_complete_export_is_accepted(self):
         with tempfile.TemporaryDirectory() as temporary:

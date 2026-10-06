@@ -269,6 +269,8 @@ def verify_export(directory: Path, summary: dict) -> dict:
     for case in cases:
         if case.get("passed") is not True or case.get("failures") != []:
             failures.append(f"Failed P0 sign-in case: {case.get('case')}")
+        if type(case.get("xctestFailureCount")) is not int or case.get("xctestFailureCount") != 0 or case.get("teardownCaptured") is not True:
+            failures.append(f"Missing clean XCTest teardown proof: {case.get('case')}")
         measurements = case.get("measurements")
         if not isinstance(measurements, list) or not measurements:
             failures.append(f"Missing measured control geometry: {case.get('case')}")
