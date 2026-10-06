@@ -18,6 +18,17 @@ final class AuthManager {
     var v3IdentityIsStable = true
     var authenticationSnapshot: CredentialSnapshot? = CredentialSnapshot()
 }
+// Dependency boundary for this snapshot harness; the separate host-signing
+// harness exercises the real validator/reader. Snapshot only consumes a digest.
+struct SnapshotHostSigningContext { let digest: String }
+enum SnapshotHostSigningDependency {
+    static var digest: String? = "fixture-host-context"
+    static var reads = 0
+}
+func v3CurrentHostSigningContext() -> SnapshotHostSigningContext? {
+    SnapshotHostSigningDependency.reads += 1
+    return SnapshotHostSigningDependency.digest.map { SnapshotHostSigningContext(digest: $0) }
+}
 struct StoredAccount { var appleID = "same@example.invalid" }
 struct StoredTeam { var identifier = "team"; var name = "Team"; var account: StoredAccount? = StoredAccount() }
 struct X509 { var expiryDate = Date.distantFuture }
@@ -109,6 +120,16 @@ struct SnapshotHarness {
     static func main() throws {
         let service = SnapshotService(); let auth = V3HeadlessRuntime.shared.auth
         var snapshot = try service.read()
+        precondition(snapshot["hostSigningContext"] as? String == "fixture-host-context")
+        SnapshotHostSigningDependency.digest = nil
+        precondition(try! service.read()["hostSigningContext"] as? String == "")
+        SnapshotHostSigningDependency.digest = "fixture-host-context"
+        AuthManager.shared.v3IdentityIsStable = false
+        let readsBeforeUnstableSnapshot = SnapshotHostSigningDependency.reads
+        precondition(try! service.read()["hostSigningContext"] as? String == "")
+        precondition(SnapshotHostSigningDependency.reads == readsBeforeUnstableSnapshot,
+            "unstable account snapshot must not read a host signing context")
+        AuthManager.shared.v3IdentityIsStable = true
         precondition(snapshot["activeAccountPresent"] as? Bool == true)
         precondition(snapshot["provisioningIncomplete"] as? Bool == true)
         precondition(snapshot["provisioningState"] as? String == "unknown")

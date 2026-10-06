@@ -5,6 +5,7 @@ import ast
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -36,7 +37,38 @@ def pinned_source(relative):
     return subprocess.check_output(["git", "-C", root, "show", PATCH.PINS[1] + ":" + relative], text=True)
 
 
+def production_owner_methods(runtime):
+    # The interaction handler also has an endBackupCallback forwarding method.
+    # Extract only the operation center's implementation and its owned state.
+    owner = declaration(runtime, 'final class V3OperationCenter {')
+    return "\n".join(declaration(owner, signature) for signature in (
+        '    func beginBackupCallback(id:', '    func endBackupCallback(_ identity:',
+        '    func ownsBackupCallback(_ result:', '    func acceptBackupCallback(_ result:'))
+
+
+def run_harness_command(command):
+    completed = subprocess.run(command, capture_output=True, text=True)
+    if completed.returncode:
+        raise AssertionError(
+            f"Backup callback harness command failed with return code {completed.returncode}: {command!r}\n"
+            f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}")
+    return completed
+
+
 class BackupCallbackParityTests(unittest.TestCase):
+    def test_harness_extracts_callback_methods_from_operation_center(self):
+        runtime = (TEMPLATES / "v3_headless_runtime.swift").read_text()
+        methods = production_owner_methods(runtime)
+        owner = declaration(runtime, 'final class V3OperationCenter {')
+        self.assertIn(declaration(owner, '    func endBackupCallback(_ identity:'), methods)
+        self.assertIn('sessions[identity.session]?.backupCallback = nil', methods)
+        self.assertNotIn('V3HeadlessRuntime.shared.operations.endBackupCallback', methods)
+
+    def test_harness_command_failure_reports_captured_diagnostics(self):
+        with self.assertRaisesRegex(AssertionError, r'(?s)return code 19.*stdout-marker.*stderr-marker'):
+            run_harness_command([sys.executable, '-c',
+                'import sys; print("stdout-marker"); print("stderr-marker", file=sys.stderr); sys.exit(19)'])
+
     def test_producer_preserves_callback_correlation_and_failure_destination(self):
         source = pinned_source("SideBackup/SideBackupApp.swift")
         patched = PATCH.headless_sidebackup_response(source)
@@ -140,16 +172,14 @@ class BackupCallbackParityTests(unittest.TestCase):
             'enum V3ServiceMutationAdmissionPolicy', 'struct V3ServiceRecoveryAdmissionDecision:',
             'enum V3ServiceRecoveryAdmissionPolicy', 'enum V3OperationSessionCorrelationPolicy',
             'enum V3RequestRetirementPolicy'))
-        owner_methods = "\n".join(declaration(runtime, signature) for signature in (
-            '    func beginBackupCallback(id:', '    func endBackupCallback(_ identity:',
-            '    func ownsBackupCallback(_ result:', '    func acceptBackupCallback(_ result:'))
+        owner_methods = production_owner_methods(runtime)
         harness = HARNESS.replace('// PRODUCTION_DECLARATIONS', declarations).replace('// OWNER_METHODS', owner_methods).replace('// PRODUCER_RESPONSE', callback_response)
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / 'BackupCallback.swift'
             executable = Path(directory) / 'backup-callback'
             source.write_text(harness)
-            subprocess.run([compiler, '-parse-as-library', str(source), '-o', str(executable)], check=True, capture_output=True, text=True)
-            completed = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
+            run_harness_command([compiler, '-parse-as-library', str(source), '-o', str(executable)])
+            completed = run_harness_command([str(executable)])
             self.assertIn('backup callback production harness passed', completed.stdout)
 
 

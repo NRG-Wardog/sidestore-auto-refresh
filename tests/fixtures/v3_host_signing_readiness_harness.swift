@@ -193,7 +193,8 @@ struct HostSigningReadinessHarness {
         malformed = first.wire; malformed["validUntil"] = now.addingTimeInterval(301)
         precondition(V3HostSigningObservation.decode(malformed) == nil)
         let plist = try PropertyListSerialization.data(fromPropertyList: first.wire, format: .binary, options: 0)
-        precondition(V3HostSigningObservation.decode(try PropertyListSerialization.propertyList(from: plist, format: nil)) == first)
+        let decodedPlist = try PropertyListSerialization.propertyList(from: plist, format: nil)
+        precondition(V3HostSigningObservation.decode(decodedPlist) == first)
 
         var inputs = V3SetupCompletionInputs(accountComplete: true, pairingSatisfied: true,
             jitlessRequired: true, jitlessComplete: true, networkComplete: true, tunnelComplete: true,
