@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import SideStoreSupport
 
 // LC_REFRESH_HISTORY_STORE_V1_BEGIN
 /// Stable row identity is separate from display order: refresh events can be

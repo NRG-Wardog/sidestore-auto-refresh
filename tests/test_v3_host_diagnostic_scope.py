@@ -1,5 +1,6 @@
 """Keep generated app consumers on the real SideStoreSupport module boundary."""
 from pathlib import Path
+import platform
 import re
 import shutil
 import subprocess
@@ -24,6 +25,23 @@ def declaration(source, signature):
     return source[start:startup_tests._matching_swift_brace(source, source.index("{", start))]
 
 
+def file_imports(source, allowed_modules=None):
+    # Preserve each generated file's own imports and their conditional guards.
+    # Never inject a module import on behalf of a consumer under test.
+    lines = []
+    for line in source.splitlines():
+        imported = re.fullmatch(r"import (\w+)", line)
+        if re.match(r"^\s*#(?:if|elseif|else|endif)\b", line):
+            lines.append(line)
+        elif imported and (allowed_modules is None or imported[1] in allowed_modules):
+            lines.append(line)
+    return "\n".join(lines) + "\n"
+
+
+def diagnostic_references(source):
+    return {name for name in SHARED_DIAGNOSTICS if re.search(r"\b" + name + r"\b", source)}
+
+
 def generated_sources(directory):
     # Read exact pinned Git blobs and run the same shell/service/startup adapters
     # as the workflow. Do not give the app a copy of combined_failure.swift: that
@@ -44,7 +62,14 @@ def generated_sources(directory):
     wire_start = support.index("import Foundation\nimport CoreFoundation\nimport CryptoKit")
     wire_end = support.index("import Foundation\n\nenum V3SetupSnapshotOutcome:", wire_start)
     primitive_end = shell.index("import Foundation\nimport Security")
-    return support, shell, support[common_start:common_end] + support[wire_start:wire_end], shell[:primitive_end]
+    consumers = {}
+    for path in live.rglob("*.swift"):
+        if "SideStoreSupport" in path.relative_to(live).parts:
+            continue
+        source = path.read_text(encoding="utf-8")
+        if diagnostic_references(source):
+            consumers[path.relative_to(live).as_posix()] = source
+    return support, shell, support[common_start:common_end] + support[wire_start:wire_end], shell[:primitive_end], consumers
 
 
 class HostDiagnosticScopeTests(unittest.TestCase):
@@ -67,8 +92,14 @@ class HostDiagnosticScopeTests(unittest.TestCase):
 
     def test_generated_support_owns_helpers_once_and_host_uses_import(self):
         with tempfile.TemporaryDirectory() as directory:
-            support, shell, framework, primitives = generated_sources(Path(directory))
-        self.assertIn("import SideStoreSupport\n", shell)
+            support, shell, framework, primitives, consumers = generated_sources(Path(directory))
+        self.assertTrue({"LiveContainerSwiftUI/App/AppDelegate.swift",
+                         "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+                         "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift"}.issubset(consumers))
+        for path, source in consumers.items():
+            with self.subTest(path=path):
+                self.assertRegex(source, r"(?m)^import SideStoreSupport$",
+                                 "every Swift file must import the module it consumes")
         self.assertTrue(framework.startswith((TEMPLATES / "combined_failure.swift").read_text(encoding="utf-8")))
         self.assertEqual(primitives, (TEMPLATES / "v3_behavioral_primitives.swift").read_text(encoding="utf-8") + "\n")
         for name in SHARED_DIAGNOSTICS:
@@ -84,7 +115,7 @@ class HostDiagnosticScopeTests(unittest.TestCase):
             self.skipTest("Swift compiler unavailable; generated module boundary executes in macOS CI")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            _, shell, framework, primitives = generated_sources(root / "generated")
+            _, shell, framework, primitives, _ = generated_sources(root / "generated")
             support_path = root / "SideStoreSupport.swift"
             support_path.write_text(framework, encoding="utf-8")
             support_object = root / "SideStoreSupport.o"
@@ -96,7 +127,7 @@ class HostDiagnosticScopeTests(unittest.TestCase):
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
             # All primitives and these host methods come from generated output;
             # no declarations from the framework are re-injected into this file.
-            host = "import Foundation\nimport SideStoreSupport\n" + primitives
+            host = file_imports(shell, {"Foundation", "CoreFoundation", "SideStoreSupport"}) + primitives
             host += "\nstruct RecoveryProbe {\n    var recoveryStorageKind: String?\n"
             host += declaration(shell, "    var recoveryStorageDiagnosticCode: String {") + "\n}\n"
             host += "\nenum AuthProbe {\n" + declaration(shell, "    static func failureMessage(from failure: [String: Any]) -> String {") + "\n}\n"
@@ -142,3 +173,54 @@ class HostDiagnosticScopeTests(unittest.TestCase):
             ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
             self.assertEqual(ran.returncode, 0, ran.stderr)
             self.assertIn("GENERATED_HOST_DIAGNOSTIC_SCOPE_PASS", ran.stdout)
+
+    def test_native_each_generated_consumer_requires_its_own_import(self):
+        compiler = shutil.which("swiftc")
+        xcrun = shutil.which("xcrun")
+        if not compiler or not xcrun:
+            self.skipTest("iOS SDK unavailable; per-file diagnostic imports execute in macOS CI")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, _, framework, _, consumers = generated_sources(root / "generated")
+            sdk = subprocess.run([xcrun, "--sdk", "iphonesimulator", "--show-sdk-path"],
+                                 capture_output=True, text=True, timeout=30)
+            self.assertEqual(sdk.returncode, 0, sdk.stderr)
+            target = platform.machine() + "-apple-ios17.0-simulator"
+            flags = ["-sdk", sdk.stdout.strip(), "-target", target]
+            support_path = root / "SideStoreSupport.swift"
+            support_path.write_text(framework, encoding="utf-8")
+            compiled = subprocess.run([
+                compiler, *flags, "-parse-as-library", "-emit-module", "-module-name", "SideStoreSupport",
+                "-emit-module-path", str(root / "SideStoreSupport.swiftmodule"), str(support_path),
+            ], capture_output=True, text=True, timeout=120)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            reads = {
+                "LCAnisettePairError": "_ = LCAnisettePairError.safeMessage; _ = LCAnisettePairError.recovery",
+                "V3DiagnosticBuild": "_ = V3DiagnosticBuild.commit",
+                "V3DiagnosticCopy": '_ = V3DiagnosticCopy.details(visibleMessage: "", technical: "")',
+                "V3DiagnosticPresentation": '_ = V3DiagnosticPresentation.label("", context: .refresh)',
+            }
+            for relative, source in consumers.items():
+                with self.subTest(path=relative):
+                    references = diagnostic_references(source)
+                    body = "func checkDiagnosticDependencies() {\n" + "\n".join(reads[name] for name in sorted(references)) + "\n}\n"
+                    if relative.endswith("LCEmbeddedSideStoreRefreshView.swift"):
+                        # Typecheck the exact generated Text/Button UI too. Only
+                        # the surrounding View and sample state are scaffolding.
+                        body += "@MainActor struct SettingsDiagnosticsProbe: View {\nlet lastError = \"Failed\"\n@ViewBuilder var body: some View {\n"
+                        body += declaration(source, "                if !lastError.isEmpty {") + "\n}\n}\n"
+                    imports = file_imports(source)
+                    probe = root / Path(relative).name
+                    probe.write_text(imports + body, encoding="utf-8")
+                    command = [compiler, *flags, "-typecheck", "-I", str(root), str(probe)]
+                    compiled = subprocess.run(command, capture_output=True, text=True, timeout=120)
+                    self.assertEqual(compiled.returncode, 0, relative + "\n" + compiled.stderr)
+                    # A sibling file's import must never rescue this one. The
+                    # negative case uses identical code and only removes its
+                    # own production import, with no umbrella/@testable import.
+                    self.assertIn("import SideStoreSupport\n", imports)
+                    probe.write_text(imports.replace("import SideStoreSupport\n", "") + body, encoding="utf-8")
+                    rejected = subprocess.run(command, capture_output=True, text=True, timeout=120)
+                    self.assertNotEqual(rejected.returncode, 0, relative + " compiled without its dependency import")
+                    for name in references:
+                        self.assertIn("cannot find '" + name + "' in scope", rejected.stderr)
