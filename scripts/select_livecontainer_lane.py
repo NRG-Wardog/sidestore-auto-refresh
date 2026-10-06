@@ -6,6 +6,9 @@ import os
 from pathlib import Path
 
 AUDIT_BRANCH = "refs/heads/fix/v3.1.0-audit"
+# Temporary, explicit investigation selection. Restore to "preflight" after
+# inspecting both input-focus observations, before any eight-case acceptance run.
+AUDIT_PUSH_LANE = "input-diagnostic"
 RELEASE_PUSH_BRANCHES = {
     "refs/heads/fix/combined-refresh-build-and-runtime",
     "refs/heads/fix/v3.0.3-auth-errors",
@@ -17,7 +20,9 @@ def select_lane(event: str, ref: str, mode: str) -> str:
         if mode:
             raise ValueError("Push events cannot supply a manual lane")
         if ref == AUDIT_BRANCH:
-            return "preflight"
+            if AUDIT_PUSH_LANE not in ("preflight", "input-diagnostic"):
+                raise ValueError("Invalid audit push lane")
+            return AUDIT_PUSH_LANE
         if ref in RELEASE_PUSH_BRANCHES:
             return "release"
         raise ValueError("Unsupported push branch")
@@ -29,8 +34,8 @@ def select_lane(event: str, ref: str, mode: str) -> str:
         # which may not yet expose the new choice on the selected audit branch.
         if mode in ("", "release"):
             return "release"
-        if mode == "preflight":
-            return "preflight"
+        if mode in ("preflight", "input-diagnostic"):
+            return mode
         raise ValueError("Unknown manual lane")
     raise ValueError("Unsupported workflow event")
 

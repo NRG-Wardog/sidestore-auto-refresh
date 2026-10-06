@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / 'scripts/select_livecontainer_lane.py'
@@ -17,15 +18,23 @@ SPEC.loader.exec_module(router)
 class SignInLaneRoutingTests(unittest.TestCase):
     def test_complete_supported_decision_table(self):
         expected = [
-            ('push', router.AUDIT_BRANCH, '', 'preflight'),
+            ('push', router.AUDIT_BRANCH, '', 'input-diagnostic'),
             *[('push', ref, '', 'release') for ref in sorted(router.RELEASE_PUSH_BRANCHES)],
             *[('workflow_dispatch', ref, mode, lane)
               for ref in (router.AUDIT_BRANCH, 'refs/heads/main', 'refs/tags/manual-build')
-              for mode, lane in (('', 'release'), ('release', 'release'), ('preflight', 'preflight'))],
+              for mode, lane in (('', 'release'), ('release', 'release'), ('preflight', 'preflight'), ('input-diagnostic', 'input-diagnostic'))],
         ]
         for event, ref, mode, lane in expected:
             with self.subTest(event=event, ref=ref, mode=mode):
                 self.assertEqual(router.select_lane(event, ref, mode), lane)
+
+    def test_audit_diagnostic_selection_is_finite_and_restorable(self):
+        for lane in ('preflight', 'input-diagnostic'):
+            with patch.object(router, 'AUDIT_PUSH_LANE', lane):
+                self.assertEqual(router.select_lane('push', router.AUDIT_BRANCH, ''), lane)
+                self.assertEqual(router.select_lane('workflow_dispatch', router.AUDIT_BRANCH, ''), 'release')
+        with patch.object(router, 'AUDIT_PUSH_LANE', 'release'), self.assertRaises(ValueError):
+            router.select_lane('push', router.AUDIT_BRANCH, '')
 
     def test_unknown_inputs_and_events_fail_closed(self):
         for event, ref, mode in (
@@ -77,6 +86,10 @@ class SignInLaneRoutingTests(unittest.TestCase):
         self.assertIn('xcode-version: "26.4"', preflight)
         self.assertIn("--pattern 'test_p0_signin*.py'", preflight)
         self.assertIn('run_p0_signin_preflight.py', preflight)
+        self.assertIn('Input focus diagnostic (not acceptance)', preflight)
+        self.assertIn('input-diagnostic) extra+=(--input-diagnostic)', preflight)
+        self.assertIn('Unsupported sign-in lane', preflight)
+        self.assertNotIn('--input-diagnostic', release)
         self.assertIn('if: always()', preflight)
         self.assertIn('if-no-files-found: error', preflight)
         self.assertNotIn('continue-on-error:', preflight)

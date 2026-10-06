@@ -213,13 +213,121 @@ def run(output: Path, prepared_shell: Path | None = None) -> dict:
     return manifest
 
 
+def run_input_diagnostic(output: Path) -> dict:
+    """Two named one-shot phone observations; never a preflight acceptance run."""
+    if output.is_symlink() or (output.exists() and (not output.is_dir() or any(output.iterdir()))):
+        raise ValueError("--output must be a fresh evidence directory; previous evidence is never reused")
+    output.mkdir(parents=True, exist_ok=True)
+    output = output.resolve()
+    manifest = {"schema": "p0-signin-input-diagnostic-v1", "mode": "input-diagnostic",
+                "diagnosticOnly": True, "passed": False, "releaseEligible": False,
+                "fullSuiteValidated": False, "ipaBuilt": False, "physicalDeviceExecution": False,
+                "ciRun": os.environ.get("GITHUB_RUN_ID"), "builderCommit": None,
+                "observations": [{"name": name, "status": "not-started"}
+                                 for name in ("cold-launch", "fresh-app-relaunch")],
+                "failures": [], "diagnosticCompleted": False}
+    path = output / "input-diagnostic.json"
+    write_json(path, manifest)
+    previous_log = rendering.COMMAND_LOG
+    rendering.COMMAND_LOG = output / "command-diagnostics.jsonl"
+    owned = False
+    device = None
+    try:
+        manifest["builderCommit"] = rendering.command("git", "-C", str(ROOT), "rev-parse", "HEAD")
+        if not re.fullmatch(r"[0-9a-f]{40}", manifest["builderCommit"]):
+            raise ValueError("Cannot record the actual builder commit")
+        if rendering.command("git", "-C", str(ROOT), "status", "--porcelain", "--", "scripts", "tests"):
+            raise ValueError("Diagnostic inputs have uncommitted changes")
+        manifest["inputSHA256"] = input_hashes()
+        source, manifest["sourceGeneration"] = prepare_source(output)
+        if platform.system() != "Darwin":
+            raise RuntimeError("Input diagnostic requires macOS with Xcode")
+        prepared = p0.prepare(output, source, rendering.command)
+        manifest["sourceSHA256"] = prepared["sourceSHA256"]
+        info = plistlib.loads((output / "p0-signin/project/Info.plist").read_bytes())
+        if info.get("LCBuilderCommit") != manifest["builderCommit"]:
+            raise ValueError("Diagnostic fixture commit differs from checkout")
+        if prepared["sourceSHA256"].get("generated-shell") != manifest["sourceGeneration"]["generatedSourceSHA256"]:
+            raise ValueError("Diagnostic build source differs from production generation")
+        phones = [row for row in rendering.available_devices() if row[0] == "phone"]
+        if len(phones) != 1:
+            raise ValueError("Diagnostic requires exactly one selected phone")
+        _, device, runtime = phones[0]
+        manifest["device"] = {"udid": device, "runtime": runtime}
+        states = json.loads(rendering.command("xcrun", "simctl", "list", "devices", "--json"))
+        matches = [item for group in states["devices"].values() for item in group if item["udid"] == device]
+        if len(matches) != 1 or matches[0]["state"] != "Shutdown":
+            raise ValueError("Cold-launch diagnostic requires a shutdown simulator; no existing device is reset")
+        owned = True
+        rendering.command("xcrun", "simctl", "boot", device)
+        rendering.wait_for_simulator_boot(device)
+        for observation in manifest["observations"]:
+            # Always execute both fixed observations, even if the first fails.
+            # Request one method in each invocation. XCTest may restart after
+            # a crash; retain its complete summary/log rather than hide that.
+            destination = output / observation["name"]
+            destination.mkdir()
+            observation["status"] = "running"
+            write_json(path, manifest)
+            try:
+                report = p0.execute(prepared, "phone", device, destination, rendering.command,
+                                    diagnostic_case="credentials-default")
+                observation["report"] = report
+                observation["executionSucceeded"] = report.get("diagnosticExecutionSucceeded") is True
+                observation["status"] = "completed"
+            except Exception as error:
+                observation["status"] = "failed"
+                observation["executionSucceeded"] = False
+                observation["error"] = str(error)
+            write_json(path, manifest)
+        if rendering.command("git", "-C", str(ROOT), "rev-parse", "HEAD") != manifest["builderCommit"]:
+            raise ValueError("Builder commit changed during diagnostic")
+        if input_hashes() != manifest["inputSHA256"] or p0.digest(source) != manifest["sourceGeneration"]["generatedSourceSHA256"]:
+            raise ValueError("Diagnostic source inputs changed during execution")
+        manifest["diagnosticCompleted"] = all(row["status"] == "completed" for row in manifest["observations"])
+    except Exception as error:
+        manifest["failures"].append(str(error))
+    except BaseException as error:
+        manifest["failures"].append("Interrupted: " + type(error).__name__)
+        raise
+    finally:
+        if owned:
+            if all(row["status"] == "not-started" for row in manifest["observations"]):
+                try:
+                    p0.capture_diagnostics(output / "p0-signin", "phone", device, None, rendering.command)
+                except Exception as error:
+                    manifest["failures"].append("Boot diagnostics: " + str(error))
+            try:
+                rendering.command("xcrun", "simctl", "shutdown", device)
+                manifest["ownedShutdownSucceeded"] = True
+            except Exception as error:
+                manifest["ownedShutdownSucceeded"] = False
+                manifest["failures"].append("Owned simulator shutdown: " + str(error))
+        manifest["allObservationsSucceeded"] = manifest["diagnosticCompleted"] and not manifest["failures"] and all(
+            row.get("executionSucceeded") is True for row in manifest["observations"])
+        try:
+            write_json(path, manifest)
+        finally:
+            rendering.COMMAND_LOG = previous_log
+    return manifest
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True, help="Fresh, dedicated preflight evidence directory")
     parser.add_argument("--v3-source", type=Path,
                         help="Optional prepared production shell; require exact P0 extraction equivalence")
+    parser.add_argument("--input-diagnostic", action="store_true",
+                        help="Only two one-shot phone credentials-default observations; never acceptance")
     args = parser.parse_args(argv)
     try:
+        if args.input_diagnostic:
+            if args.v3_source:
+                raise ValueError("Diagnostic mode does not accept a prepared-host override")
+            manifest = run_input_diagnostic(args.output)
+            print(json.dumps({key: manifest[key] for key in (
+                "mode", "passed", "releaseEligible", "diagnosticCompleted", "allObservationsSucceeded", "failures")}), flush=True)
+            return 0 if manifest["allObservationsSucceeded"] else 1
         manifest = run(args.output, args.v3_source)
     except (OSError, ValueError) as error:
         parser.error(str(error))

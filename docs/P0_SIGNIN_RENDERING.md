@@ -241,3 +241,40 @@ fails. Up to 16 observations record only value type, UTF-8 length, equality and
 keyboard presence; no entered text or password is serialized. The native pure
 helper tests cover transient-to-exact success and persistent failure. This is
 synchronization hardening with unproven causal attribution, not an auth fix.
+
+## Shared native input focus contract
+
+Preflight 37533074107 passed seven cases but failed phone credentials-default
+before password input: a visible, hittable Password field was tapped, XCTest
+waited 60 seconds without an idle notification, and typing found no keyboard
+focus. Retained pixels show the username, empty Password and no keyboard.
+This does not prove that tap coordinates were wrong or that typing was too fast.
+
+Both inputs now use one fixture-only contract: require the prior input dismissed,
+reveal and measure the enabled field, observe stable physical geometry, tap once,
+and wait at most five seconds for matching field focus plus keyboard presence.
+Each payload is typed once; Return is a separate action. Dismissal requires both
+no focused field and no keyboard before another reveal. Username still requires
+exact bounded readback. Password text/value is never inspected or recorded.
+Submitting cases continue to prove exact credentials through the existing
+fixture answer admission; credentials-only cases prove typing/cancellation,
+not independent password equality.
+
+Passive UIKit begin/end editing notifications identify fields by their exact
+placeholder and secure-entry flag. A weak active-field reference ensures an old
+end event cannot clear a newer field. The existing footer accessibility value
+publishes only none/username/password/other, without changing its visual width.
+No responder mutation, private XCTest focus API, credential injection, retyping
+or production view instrumentation is used. Diagnostic records contain at most
+64 phase/target/focus/keyboard observations and no entered values. Separate
+bounded geometry records and durable before/after-tap screenshots identify the
+measured field and action phase. Tap metadata names `XCUIElement.tap`; it does
+not claim an actual tap coordinate that XCTest does not expose. Full viewport
+queries occur outside the short stability predicate, followed by a fresh
+physical-containment check before tapping.
+
+This is stronger observation and sequencing, not a proven cure for the idle
+stall. Native execution must confirm these SwiftUI controls emit the expected
+public UIKit notifications. XCTest action internals can outlast a predicate's
+logical five-second timeout; the existing case/process limits remain the hard
+outer bounds. The next diagnostic run is separate from eight-case acceptance.

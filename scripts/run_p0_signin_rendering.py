@@ -492,8 +492,12 @@ def capture_diagnostics(evidence: Path, kind: str, device: str, run: dict | None
     return report
 
 
-def execute(prepared: dict, kind: str, device: str, output: Path, command) -> dict:
+def execute(prepared: dict, kind: str, device: str, output: Path, command,
+            diagnostic_case: str | None = None) -> dict:
+    if diagnostic_case not in (None, "credentials-default"):
+        raise ValueError("Unsupported diagnostic case")
     evidence = output / "p0-signin"
+    evidence.mkdir(parents=True, exist_ok=True)
     result = evidence / (kind + ".xcresult")
     exports = evidence / (kind + "-attachments")
     failure = None
@@ -507,7 +511,9 @@ def execute(prepared: dict, kind: str, device: str, output: Path, command) -> di
                 "-destination", "id=" + device, "-resultBundlePath", str(result),
                 "-parallel-testing-enabled", "NO", "-maximum-concurrent-test-simulator-destinations", "1",
                 "-test-timeouts-enabled", "YES", "-default-test-execution-time-allowance", "240",
-                "-maximum-test-execution-time-allowance", "240", timeout=1080)
+                "-maximum-test-execution-time-allowance", "240",
+                *(["-only-testing:P0SignInUITests/P0SignInUITests/testCredentialsDefault"]
+                  if diagnostic_case else []), timeout=360 if diagnostic_case else 1080)
     except Exception as error:
         failure = str(error)
     finally:
@@ -527,5 +533,23 @@ def execute(prepared: dict, kind: str, device: str, output: Path, command) -> di
     if failure:
         report["passed"] = False
         report["failures"].append(failure)
+    if diagnostic_case:
+        # Keep the full-matrix verifier's rejection: a one-case observation can
+        # never become preflight/release acceptance, even when XCTest succeeds.
+        report.update({"mode": "p0-signin-input-diagnostic", "diagnosticOnly": True,
+                       "releaseEligible": False, "passed": False,
+                       "diagnosticCase": diagnostic_case,
+                       "xcodebuildInvocationCount": 1, "nativeSummary": summary,
+                       "frameworkRestartPolicy": "XCTest defaults; retained summary and logs expose framework restarts",
+                       "diagnosticExecutionSucceeded": failure is None and
+                           summary.get("result") == "Passed" and summary.get("passedTests") == 1 and
+                           summary.get("failedTests") == 0 and summary.get("skippedTests") == 0 and
+                           summary.get("totalTestCount") == 1 and
+                           all(type(summary.get(key)) is int for key in ("passedTests", "failedTests", "skippedTests", "totalTestCount")) and
+                           report["failures"] == ["Expected four passed XCTest methods with zero skips",
+                                                  "Missing or duplicated P0 sign-in case reports"] and
+                           len(report.get("cases", [])) == 1 and
+                           report["cases"][0].get("case") == diagnostic_case and
+                           report["cases"][0].get("passed") is True})
     (evidence / (kind + "-verification.json")).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     return report

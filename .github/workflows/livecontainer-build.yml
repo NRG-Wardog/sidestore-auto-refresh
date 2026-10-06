@@ -4,13 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Full release gates or focused sign-in UI preflight (no IPA)'
+        description: 'Release, complete sign-in preflight, or input-focus diagnosis (no IPA)'
         type: choice
         required: false
         default: release
         options:
           - release
           - preflight
+          - input-diagnostic
   push:
     branches: [fix/combined-refresh-build-and-runtime, fix/v3.0.3-auth-errors, fix/v3.1.0-audit]
 
@@ -50,8 +51,9 @@ jobs:
         run: python3 builder/scripts/select_livecontainer_lane.py
 
   signin-preflight:
+    name: ${{ needs.select-lane.outputs.lane == 'input-diagnostic' && 'Input focus diagnostic (not acceptance)' || 'signin-preflight' }}
     needs: select-lane
-    if: needs.select-lane.outputs.lane == 'preflight'
+    if: needs.select-lane.outputs.lane == 'preflight' || needs.select-lane.outputs.lane == 'input-diagnostic'
     runs-on: macos-26-intel
     timeout-minutes: 120
     steps:
@@ -74,18 +76,26 @@ jobs:
             --allowlist builder/scripts/required_test_skip_allowlist.json \
             --timings-output artifacts/logs/signin-preflight-test-timings.json \
             --verbosity 2 2>&1 | tee artifacts/logs/signin-preflight-tests.log
-      - name: Execute focused sign-in preflight
+      - name: Execute selected sign-in test lane
         timeout-minutes: 100
         shell: bash
+        env:
+          CI_SIGNIN_LANE: ${{ needs.select-lane.outputs.lane }}
         run: |
           set -euo pipefail
+          extra=()
+          case "$CI_SIGNIN_LANE" in
+            preflight) ;;
+            input-diagnostic) extra+=(--input-diagnostic) ;;
+            *) echo "Unsupported sign-in lane" >&2; exit 1 ;;
+          esac
           python3 builder/scripts/run_p0_signin_preflight.py \
-            --output artifacts/p0-preflight 2>&1 | tee artifacts/logs/signin-preflight.log
+            --output artifacts/p0-preflight "${extra[@]}" 2>&1 | tee artifacts/logs/signin-preflight.log
       - name: Preserve focused sign-in evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: signin-preflight-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ needs.select-lane.outputs.lane }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
           path: |
             artifacts/p0-preflight/**/*.json

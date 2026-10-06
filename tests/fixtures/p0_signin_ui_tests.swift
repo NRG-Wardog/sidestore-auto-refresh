@@ -49,6 +49,15 @@ enum P0SignInMeasurementLabel {
     }
 }
 
+enum P0SignInFocusPolicy {
+    static func ready(target: String, focus: String, keyboardPresent: Bool) -> Bool {
+        ["username", "password"].contains(target) && focus == target && keyboardPresent
+    }
+    static func dismissed(focus: String, keyboardPresent: Bool) -> Bool {
+        focus == "none" && !keyboardPresent
+    }
+}
+
 struct P0SignInUsernameProbe {
     private(set) var observations: [[String: Any]] = []
     mutating func observe(_ value: Any?, keyboardPresent: Bool) -> Bool {
@@ -67,6 +76,8 @@ final class P0SignInUITests: XCTestCase {
     @MainActor private lazy var app = XCUIApplication()
     private var failures: [String] = []
     private var usernameProbe = P0SignInUsernameProbe()
+    private var inputFocusObservations: [[String: Any]] = []
+    private var inputGeometryObservations: [[String: Any]] = []
     private var measurements: [[String: Any]] = []
     private var screenshots: [String] = []
     private var diagnosticScreenshots: [String] = []
@@ -90,6 +101,68 @@ final class P0SignInUITests: XCTestCase {
     @MainActor private func wait(_ predicate: @escaping () -> Bool) -> Bool {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in predicate() }, object: nil)
         return XCTWaiter.wait(for: [expectation], timeout: 5) == .completed
+    }
+    @MainActor private func observeFocus(phase: String, target: String) -> (String, Bool) {
+        let raw = app.staticTexts["p0-ready"].value as? String ?? "other"
+        let focus = ["none", "username", "password"].contains(raw) ? raw : "other"
+        let keyboard = app.keyboards.count > 0
+        if inputFocusObservations.count < 64 {
+            inputFocusObservations.append(["phase": phase, "target": target,
+                "focus": focus, "keyboardPresent": keyboard])
+        }
+        persistProgress("input-focus")
+        return (focus, keyboard)
+    }
+    @MainActor private func recordInputGeometry(_ element: XCUIElement, phase: String, target: String) {
+        let frame = element.exists ? element.frame : .zero
+        if inputGeometryObservations.count < 16 {
+            inputGeometryObservations.append(["phase": phase, "target": target,
+                "frame": [frame.minX, frame.minY, frame.width, frame.height],
+                "tapMethod": "XCUIElement.tap", "tapCoordinateKnown": false])
+        }
+        persistProgress("input-geometry")
+    }
+    @MainActor private func beginInput(_ element: XCUIElement, name: String) {
+        require(wait {
+            let (focus, keyboard) = self.observeFocus(phase: "before-reveal", target: name)
+            return P0SignInFocusPolicy.dismissed(focus: focus, keyboardPresent: keyboard)
+        }, "Previous input did not fully dismiss before \(name)")
+        record(element, name: name)
+        // Measure the full viewport outside the short stability predicate.
+        // A full hierarchy traversal can itself take several seconds on CI.
+        let sampledRegion = visibleScrollRegion()
+        var previousFrame = element.frame
+        require(wait {
+            guard element.exists && element.isEnabled && element.isHittable else { return false }
+            let frame = element.frame
+            let stable = P0SignInViewport.sameGeometry(previousFrame, frame)
+            previousFrame = frame
+            return stable && P0SignInViewport.contains(frame, in: sampledRegion)
+        }, "Input geometry did not stabilize before \(name)")
+        require(P0SignInViewport.contains(element.frame, in: visibleScrollRegion()),
+                "Input became obscured before native tap: \(name)")
+        let (priorFocus, priorKeyboard) = observeFocus(phase: "before-tap", target: name)
+        require(P0SignInFocusPolicy.dismissed(focus: priorFocus, keyboardPresent: priorKeyboard),
+                "Focus changed before native input tap: \(name)")
+        recordInputGeometry(element, phase: "before-tap", target: name)
+        diagnosticSnapshot(name + "-before-tap")
+        element.tap()
+        diagnosticSnapshot(name + "-after-tap")
+        recordInputGeometry(element, phase: "after-tap", target: name)
+        require(wait {
+            let (focus, keyboard) = self.observeFocus(phase: "after-tap", target: name)
+            return P0SignInFocusPolicy.ready(target: name, focus: focus, keyboardPresent: keyboard)
+        }, "Native target input did not gain keyboard focus: \(name)")
+    }
+    @MainActor private func dismissInput(_ element: XCUIElement, name: String) {
+        let (focus, keyboard) = observeFocus(phase: "before-return", target: name)
+        require(P0SignInFocusPolicy.ready(target: name, focus: focus, keyboardPresent: keyboard),
+                "Input lost focus before native Return: \(name)")
+        element.typeText("\n")
+        require(wait {
+            let (focus, keyboard) = self.observeFocus(phase: "after-return", target: name)
+            return P0SignInFocusPolicy.dismissed(focus: focus, keyboardPresent: keyboard)
+        }, "Native Return did not fully dismiss input: \(name)")
     }
     @MainActor private func visibleScrollRegion() -> CGRect {
         let viewport = app.descendants(matching: .any)["p0-viewport"].firstMatch.frame
@@ -220,7 +293,7 @@ final class P0SignInUITests: XCTestCase {
     private func persistProgress(_ phase: String) {
         let data: [String: Any] = ["schema": "p0-signin-progress-v1", "case": caseName,
             "phase": phase, "passed": false, "complete": false,
-            "scrollObservations": scrollObservations, "usernameObservations": usernameProbe.observations, "failures": failures]
+            "scrollObservations": scrollObservations, "usernameObservations": usernameProbe.observations, "inputFocusObservations": inputFocusObservations, "inputGeometryObservations": inputGeometryObservations, "failures": failures]
         if let encoded = try? JSONSerialization.data(withJSONObject: data, options: [.sortedKeys]) {
             persist(encoded, name: "p0-" + caseName + "-progress.json")
         }
@@ -260,7 +333,7 @@ final class P0SignInUITests: XCTestCase {
             "passed": failures.isEmpty && frameworkFailures == 0, "failures": failures,
             "xctestFailureCount": frameworkFailures, "teardownCaptured": true,
             "diagnosticScreenshots": diagnosticScreenshots, "measurements": measurements,
-            "usernameObservations": usernameProbe.observations,
+            "usernameObservations": usernameProbe.observations, "inputFocusObservations": inputFocusObservations, "inputGeometryObservations": inputGeometryObservations,
             "screenshots": screenshots, "clipboardExactMatch": clipboardMatched,
             "cancelInvoked": cancelInvoked, "submitting": submitting,
             "submissionInvoked": submissionInvoked, "priorFailureCleared": priorFailureCleared,
@@ -281,6 +354,8 @@ final class P0SignInUITests: XCTestCase {
         caseName = (submitting ? "submitting" : "credentials") + (largest ? "-largest" : "-default")
         failures = []; measurements = []; screenshots = []; diagnosticScreenshots = []; scrollObservations = []; finished = false
         usernameProbe = P0SignInUsernameProbe()
+        inputFocusObservations = []
+        inputGeometryObservations = []
         clipboardMatched = false; cancelInvoked = false; noRedundantPanel = false
         safeDiagnosticOnly = false; oneCredentialsPanel = false
         submissionInvoked = false; priorFailureCleared = false
@@ -342,20 +417,21 @@ final class P0SignInUITests: XCTestCase {
         require(error.label == "Sign-in failed before completion. Copy Details to help identify the cause.\nError ID: SS-AUTH-C11-S01-T31-A00",
                 "Visible unknown-failure guidance or canonical ID differs from Copy Details")
         screenshot("prompt-top")
-        record(username, name: "username")
-        username.tap()
-        require(wait { self.app.keyboards.count > 0 }, "Native username keyboard did not become ready")
+        beginInput(username, name: "username")
+        _ = observeFocus(phase: "before-payload", target: "username")
         username.typeText("p0-user@example.invalid")
+        _ = observeFocus(phase: "after-payload", target: "username")
         require(wait {
             let matches = self.usernameProbe.observe(username.value, keyboardPresent: self.app.keyboards.count > 0)
             self.persistProgress("username-readback")
             return matches
         }, "Native username input was not retained")
-        username.typeText("\n")
-        require(wait { self.app.keyboards.count == 0 }, "Native Return did not dismiss the username keyboard")
-        record(password, name: "password")
-        password.tap(); password.typeText("p0-synthetic-password\n")
-        require(wait { self.app.keyboards.count == 0 }, "Native Return did not dismiss the credentials keyboard")
+        dismissInput(username, name: "username")
+        beginInput(password, name: "password")
+        _ = observeFocus(phase: "before-payload", target: "password")
+        password.typeText("p0-synthetic-password")
+        _ = observeFocus(phase: "after-payload", target: "password")
+        dismissInput(password, name: "password")
         record(copy, name: "copy-details")
         require(copy.isEnabled, "Copy Details is disabled before credential submission")
         screenshot("copy-details")

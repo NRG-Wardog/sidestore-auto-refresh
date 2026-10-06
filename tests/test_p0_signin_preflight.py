@@ -121,6 +121,39 @@ class Commands:
         raise AssertionError("Unexpected command: " + repr(args))
 
 
+class DiagnosticCommands(Commands):
+    def __init__(self, output, *, first_failure=False, corrupt=False, initially_booted=(), reported_total=1):
+        super().__init__(output, initially_booted=initially_booted)
+        self.attempts = 0
+        self.first_failure = first_failure
+        self.corrupt = corrupt
+        self.reported_total = reported_total
+
+    def __call__(self, *args, timeout=300):
+        if args[:2] == ("xcodebuild", "test-without-building"):
+            self.attempts += 1
+            if self.first_failure and self.attempts == 1:
+                self.failures.add("test-phone")
+            else:
+                self.failures.discard("test-phone")
+        result = super().__call__(*args, timeout=timeout)
+        if args[:4] == ("xcrun", "xcresulttool", "export", "attachments"):
+            directory = Path(args[args.index("--output-path") + 1])
+            for name in fixtures.renderer.REQUIRED_CASES - {"credentials-default"}:
+                (directory / (name + ".json")).unlink()
+                for image in directory.glob("p0-" + name + "-*.png"):
+                    image.unlink()
+            manifest = json.loads((directory / "manifest.json").read_text())
+            manifest[0]["attachments"] = [a for a in manifest[0]["attachments"]
+                if a["exportedFileName"].startswith("p0-credentials-default-")]
+            (directory / "manifest.json").write_text(json.dumps(manifest))
+            if self.corrupt:
+                (directory / "p0-credentials-default-copy-details.png").write_bytes(b"broken")
+        if args[:4] == ("xcrun", "xcresulttool", "get", "test-results"):
+            return json.dumps({"result": "Passed", "passedTests": 1, "failedTests": 0, "skippedTests": 0, "totalTestCount": self.reported_total})
+        return result
+
+
 class P0SignInPreflightTests(unittest.TestCase):
     def run_fake(self, output, commands):
         with patch.object(preflight.platform, "system", return_value="Darwin"), \
@@ -135,6 +168,80 @@ class P0SignInPreflightTests(unittest.TestCase):
         self.assertEqual(report["status"], "failed")
         self.assertFalse((output / "rendering-verification.json").exists())
         return report
+
+    def run_diagnostic_fake(self, output, commands):
+        with patch.object(preflight.platform, "system", return_value="Darwin"), \
+                patch.object(preflight.rendering, "command", side_effect=commands):
+            return preflight.run_input_diagnostic(output)
+
+    def test_diagnostic_is_two_named_single_case_observations_never_acceptance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "diagnostic"
+            commands = DiagnosticCommands(output)
+            report = self.run_diagnostic_fake(output, commands)
+            self.assertTrue(report["allObservationsSucceeded"])
+            self.assertFalse(report["passed"])
+            self.assertFalse(report["releaseEligible"])
+            self.assertFalse(report["fullSuiteValidated"])
+            self.assertFalse(report["ipaBuilt"])
+            self.assertEqual([r["name"] for r in report["observations"]], ["cold-launch", "fresh-app-relaunch"])
+            self.assertEqual(commands.attempts, 2)
+            self.assertFalse((output / preflight.MANIFEST).exists())
+            builds = [(args, bound) for args, bound in commands.calls if args[0] == "xcodebuild"]
+            self.assertEqual([bound for _, bound in builds], [300, 360, 360])
+            for args, _ in builds[1:]:
+                self.assertEqual(args.count("-only-testing:P0SignInUITests/P0SignInUITests/testCredentialsDefault"), 1)
+                self.assertIn("id=phone", args)
+                self.assertNotIn("-retry-tests-on-failure", args)
+            self.assertNotEqual(builds[1][0][builds[1][0].index("-resultBundlePath") + 1],
+                                builds[2][0][builds[2][0].index("-resultBundlePath") + 1])
+            calls = [args for args, _ in commands.calls]
+            self.assertEqual(calls.count(("xcrun", "simctl", "boot", "phone")), 1)
+            self.assertEqual(calls.count(("xcrun", "simctl", "shutdown", "phone")), 1)
+            for row in report["observations"]:
+                self.assertFalse(row["report"]["passed"])
+                self.assertTrue(row["report"]["diagnosticExecutionSucceeded"])
+                self.assertEqual(row["report"]["xcodebuildInvocationCount"], 1)
+                self.assertEqual(row["report"]["nativeSummary"]["totalTestCount"], 1)
+                self.assertEqual(len(row["report"]["cases"]), 1)
+                self.assertFalse(preflight.matrix_counts([row["report"]])[2])
+
+    def test_diagnostic_preserves_first_failure_and_still_attempts_relaunch_once(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "diagnostic"
+            commands = DiagnosticCommands(output, first_failure=True)
+            report = self.run_diagnostic_fake(output, commands)
+            self.assertEqual(commands.attempts, 2)
+            self.assertFalse(report["allObservationsSucceeded"])
+            self.assertFalse(report["observations"][0]["executionSucceeded"])
+            self.assertTrue(report["observations"][1]["executionSucceeded"])
+            self.assertTrue((output / "cold-launch/p0-signin/phone-terminal-diagnostic.png").is_file())
+            self.assertTrue(report["ownedShutdownSucceeded"])
+
+    def test_diagnostic_rejects_incomplete_evidence_even_when_xctest_claims_success(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "diagnostic"
+            report = self.run_diagnostic_fake(output, DiagnosticCommands(output, corrupt=True))
+            self.assertFalse(report["allObservationsSucceeded"])
+            self.assertTrue(all(not row["executionSucceeded"] for row in report["observations"]))
+
+    def test_diagnostic_rejects_framework_extra_execution_in_summary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "diagnostic"
+            report = self.run_diagnostic_fake(output, DiagnosticCommands(output, reported_total=2))
+            self.assertFalse(report["allObservationsSucceeded"])
+            self.assertTrue(all(row["report"]["nativeSummary"]["totalTestCount"] == 2
+                                for row in report["observations"]))
+
+    def test_diagnostic_does_not_reset_existing_booted_phone(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "diagnostic"
+            commands = DiagnosticCommands(output, initially_booted=("phone",))
+            report = self.run_diagnostic_fake(output, commands)
+            self.assertFalse(report["allObservationsSucceeded"])
+            self.assertTrue(all(row["status"] == "not-started" for row in report["observations"]))
+            self.assertFalse(any(args[0] == "xcodebuild" and args[1] == "test-without-building"
+                                 or "boot" in args or "shutdown" in args for args, _ in commands.calls))
 
     def test_exact_production_composition_and_patch_host_use_one_helper(self):
         expected = "\n".join(path.read_text(encoding="utf-8") for path in (

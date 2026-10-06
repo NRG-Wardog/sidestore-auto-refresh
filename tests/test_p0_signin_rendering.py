@@ -127,8 +127,8 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         self.assertIn('"passed": false, "complete": false', ui)
         self.assertIn('import Foundation\n', ui)
         self.assertIn('runID.utf8.count == 32', ui)
-        self.assertLess(ui.index('Native Return did not dismiss the username keyboard'), ui.index('record(password, name: "password")'))
-        self.assertLess(ui.index('Native Return did not dismiss the credentials keyboard'), ui.index('record(copy, name: "copy-details")'))
+        self.assertLess(ui.index('dismissInput(username, name: "username")'), ui.index('beginInput(password, name: "password")'))
+        self.assertLess(ui.index('dismissInput(password, name: "password")'), ui.index('record(copy, name: "copy-details")'))
         self.assertNotIn('typeText(', reveal)
         self.assertNotIn('.tap()', reveal)
 
@@ -153,7 +153,7 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         ui = (ROOT / 'tests/fixtures/p0_signin_ui_tests.swift').read_text()
         credentials = renderer.member(ui, '@MainActor private func credentials')
         self.assertEqual(credentials.count('username.typeText("p0-user@example.invalid")'), 1)
-        ready = credentials.index('Native username keyboard did not become ready')
+        ready = credentials.index('beginInput(username, name: "username")')
         typing = credentials.index('username.typeText("p0-user@example.invalid")')
         observed = credentials.index('self.usernameProbe.observe(username.value')
         self.assertLess(ready, typing)
@@ -168,12 +168,50 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         self.assertNotIn('"text":', probe)
         self.assertIn('"usernameObservations": usernameProbe.observations', ui)
 
+    def test_shared_input_focus_contract_is_passive_and_symmetric(self):
+        ui = (ROOT / 'tests/fixtures/p0_signin_ui_tests.swift').read_text()
+        app = (ROOT / 'tests/fixtures/p0_signin_app.swift').read_text()
+        observer = renderer.declaration(app, 'final class P0FixtureFocusObserver')
+        self.assertIn('field === activeField', observer)
+        self.assertIn('private weak var activeField: UITextField?', observer)
+        self.assertIn('field.placeholder, secure: field.isSecureTextEntry', observer)
+        for forbidden in ('field.text', 'field.value', 'becomeFirstResponder', 'resignFirstResponder', 'hasKeyboardFocus'):
+            self.assertNotIn(forbidden, observer)
+        self.assertIn('UITextField.textDidBeginEditingNotification', app)
+        self.assertIn('UITextField.textDidEndEditingNotification', app)
+        self.assertIn('.accessibilityValue(focus.identity)', app)
+        begin = renderer.member(ui, '@MainActor private func beginInput')
+        dismiss = renderer.member(ui, '@MainActor private func dismissInput')
+        self.assertEqual(begin.count('element.tap()'), 1)
+        self.assertIn('element.isEnabled && element.isHittable', begin)
+        self.assertLess(begin.index('P0SignInFocusPolicy.dismissed'), begin.index('record(element'))
+        self.assertLess(begin.index('Input geometry did not stabilize'), begin.index('element.tap()'))
+        self.assertLess(begin.index('element.tap()'), begin.index('phase: "after-tap"'))
+        self.assertLess(begin.index('diagnosticSnapshot(name + "-before-tap")'), begin.index('element.tap()'))
+        self.assertLess(begin.index('element.tap()'), begin.index('diagnosticSnapshot(name + "-after-tap")'))
+        geometry_wait = begin.split('var previousFrame = element.frame', 1)[1].split('Input geometry did not stabilize', 1)[0]
+        self.assertNotIn('visibleScrollRegion()', geometry_wait)
+        self.assertIn('"tapCoordinateKnown": false', ui)
+
+        self.assertIn('P0SignInFocusPolicy.ready', begin)
+        self.assertEqual(dismiss.count('element.typeText("\\n")'), 1)
+        self.assertIn('P0SignInFocusPolicy.dismissed', dismiss)
+        credentials = renderer.member(ui, '@MainActor private func credentials')
+        for field in ('username', 'password'):
+            self.assertEqual(credentials.count(f'beginInput({field}, name: "{field}")'), 1)
+            self.assertEqual(credentials.count(f'dismissInput({field}, name: "{field}")'), 1)
+        self.assertEqual(credentials.count('password.typeText("p0-synthetic-password")'), 1)
+        self.assertNotIn('password.value', credentials)
+        self.assertIn('inputFocusObservations.count < 64', ui)
+        self.assertNotIn('hasKeyboardFocus', ui)
+
     def test_exact_runtime_viewport_math_executes(self):
         compiler = shutil.which('swiftc')
         if not compiler:
             self.skipTest('Swift compiler unavailable; actual sign-in viewport helper executes in required macOS CI')
         ui = (ROOT / 'tests/fixtures/p0_signin_ui_tests.swift').read_text()
-        helper = renderer.declaration(ui, 'enum P0SignInViewport') + renderer.declaration(ui, 'enum P0SignInMeasurementLabel') + renderer.declaration(ui, 'struct P0SignInUsernameProbe')
+        app_fixture = (ROOT / 'tests/fixtures/p0_signin_app.swift').read_text()
+        helper = renderer.declaration(app_fixture, 'enum P0FixtureFocusIdentity') + renderer.declaration(ui, 'enum P0SignInFocusPolicy') + renderer.declaration(ui, 'enum P0SignInViewport') + renderer.declaration(ui, 'enum P0SignInMeasurementLabel') + renderer.declaration(ui, 'struct P0SignInUsernameProbe')
         self.assertIn('P0SignInViewport.contains(element.frame, in: region)', ui)
         self.assertIn('P0SignInViewport.available(viewport: viewport', ui)
         self.assertIn('let gestureRegion = P0SignInViewport.gestureRegion(in: region)', ui)
@@ -243,6 +281,21 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
             precondition(observation["exactMatch"] is Bool && observation["keyboardPresent"] is Bool)
             precondition(observation["utf8Length"] is Int)
         }
+        precondition(P0FixtureFocusIdentity.identify(placeholder: "Apple ID", secure: false) == "username")
+        precondition(P0FixtureFocusIdentity.identify(placeholder: "Password", secure: true) == "password")
+        precondition(P0FixtureFocusIdentity.identify(placeholder: "Apple ID", secure: true) == "other")
+        precondition(P0FixtureFocusIdentity.identify(placeholder: "Password", secure: false) == "other")
+        precondition(P0FixtureFocusIdentity.identify(placeholder: nil, secure: false) == "other")
+        for target in ["username", "password"] {
+            precondition(P0SignInFocusPolicy.ready(target: target, focus: target, keyboardPresent: true))
+            precondition(!P0SignInFocusPolicy.ready(target: target, focus: "other", keyboardPresent: true))
+            precondition(!P0SignInFocusPolicy.ready(target: target, focus: target, keyboardPresent: false))
+        }
+        precondition(!P0SignInFocusPolicy.ready(target: "username", focus: "password", keyboardPresent: true))
+        precondition(!P0SignInFocusPolicy.ready(target: "other", focus: "other", keyboardPresent: true))
+        precondition(P0SignInFocusPolicy.dismissed(focus: "none", keyboardPresent: false))
+        precondition(!P0SignInFocusPolicy.dismissed(focus: "none", keyboardPresent: true))
+        precondition(!P0SignInFocusPolicy.dismissed(focus: "password", keyboardPresent: false))
         print("P0_SIGNIN_VIEWPORT_PASS")
     }
 }
@@ -347,7 +400,7 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         self.assertNotIn('"simctl", "boot"', p0_source)
         self.assertNotIn('"simctl", "create"', p0_source)
         self.assertIn('"-parallel-testing-enabled", "NO"', p0_source)
-        self.assertIn('timeout=1080', p0_source)
+        self.assertIn('timeout=360 if diagnostic_case else 1080', p0_source)
         self.assertIn('"-default-test-execution-time-allowance", "240"', p0_source)
         self.assertIn('"-maximum-test-execution-time-allowance", "240"', p0_source)
 
@@ -457,7 +510,8 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         ui = (ROOT / "tests/fixtures/p0_signin_ui_tests.swift").read_text()
         self.assertIn('app.buttons["Submit"]', ui)
         self.assertIn('username.typeText("p0-user@example.invalid")', ui)
-        self.assertIn('password.typeText("p0-synthetic-password\\n")', ui)
+        self.assertIn('password.typeText("p0-synthetic-password")', ui)
+        self.assertIn('dismissInput(password, name: "password")', ui)
         self.assertIn('clearingAfterSubmission(', fixture)
 
     def test_prepare_preserves_source_identities_and_tags_actual_builder(self):

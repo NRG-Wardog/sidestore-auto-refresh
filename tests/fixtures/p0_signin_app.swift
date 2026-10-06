@@ -3,6 +3,36 @@ import SwiftUI
 import UIKit
 import Combine
 
+// Passive fixture telemetry. Never reads or changes entered text or focus.
+enum P0FixtureFocusIdentity {
+    static func identify(placeholder: String?, secure: Bool) -> String {
+        guard let placeholder else { return "other" }
+        switch (placeholder, secure) {
+        case ("Apple ID", false): return "username"
+        case ("Password", true): return "password"
+        default: return "other"
+        }
+    }
+}
+
+@MainActor
+final class P0FixtureFocusObserver: ObservableObject {
+    @Published private(set) var identity = "none"
+    private weak var activeField: UITextField?
+    func began(_ notification: Notification) {
+        guard let field = notification.object as? UITextField else {
+            activeField = nil; identity = "other"; return
+        }
+        activeField = field
+        identity = P0FixtureFocusIdentity.identify(placeholder: field.placeholder, secure: field.isSecureTextEntry)
+    }
+    func ended(_ notification: Notification) {
+        guard let field = notification.object as? UITextField, field === activeField else { return }
+        activeField = nil
+        identity = "none"
+    }
+}
+
 // Deterministic, unsigned-in credentials fixture. No real service, account,
 // keychain, network, or cancellation operation runs in this process.
 @MainActor final class FixtureStatusStore: ObservableObject {
@@ -65,6 +95,7 @@ import Combine
 @MainActor struct P0SignInScreen: View {
     @StateObject private var auth = V3AuthStore()
     @StateObject private var status = FixtureStatusStore()
+    @StateObject private var focus = P0FixtureFocusObserver()
     let width: CGFloat
     let largest: Bool
     var body: some View {
@@ -75,6 +106,7 @@ import Combine
                     // Never synthesizes taps, writes pasteboard content or layout.
                     HStack(spacing: 6) {
                         Text("P0 fixture").accessibilityIdentifier("p0-ready")
+                            .accessibilityValue(focus.identity)
                         Text("Clipboard").accessibilityIdentifier("p0-clipboard")
                             .accessibilityValue(auth.clipboard)
                         Text("Expected").accessibilityIdentifier("p0-expected")
@@ -99,6 +131,8 @@ import Combine
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("p0-viewport")
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidBeginEditingNotification)) { focus.began($0) }
+        .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidEndEditingNotification)) { focus.ended($0) }
         .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
             auth.observeClipboard()
         }
