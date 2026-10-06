@@ -1313,7 +1313,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             "storageUnavailable": .recoveryStorageUnavailable, "lockUnavailable": .recoveryLockUnavailable,
             "readFailure": .recoveryReadFailure, "deleteFailure": .recoveryDeleteFailure]
         return CombinedFailure(operation: "status", stage: .persistence,
-            id: "00000000-0000-0000-0000-000000000000", safeCause: causes[recoveryStorageKind]).diagnosticCode
+            id: "00000000-0000-0000-0000-000000000000", safeCause: recoveryStorageKind.flatMap { causes[$0] }).diagnosticCode
     }
     var recoveryStorageTitle: String {
         recoveryStorageUnlabeledTitle + "\nError ID: " + recoveryStorageDiagnosticCode

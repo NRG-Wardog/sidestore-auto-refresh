@@ -1444,12 +1444,12 @@ public struct CombinedFailure: Error, LocalizedError {
 
 // LC_ANISETTE_PAIR_FAILURE_V1: finite preservation failures only. Never attach
 // the identifier, provisioning blob, provider response, or Keychain bytes.
-enum LCAnisettePairError: Error, LocalizedError, Equatable {
+public enum LCAnisettePairError: Error, LocalizedError, Equatable {
     case orphanedBlob, invalidIdentifier, invalidBlob, migrationPairConflict, stateChanged
 
-    static let safeMessage = "Sign-in is blocked because the saved Anisette identity state could not be verified."
-    static let recovery = "Keep the existing Anisette and account data unchanged. Copy Diagnostics for review before another sign-in."
-    var errorDescription: String? { Self.safeMessage }
+    public static let safeMessage = "Sign-in is blocked because the saved Anisette identity state could not be verified."
+    public static let recovery = "Keep the existing Anisette and account data unchanged. Copy Diagnostics for review before another sign-in."
+    public var errorDescription: String? { Self.safeMessage }
 }
 
 // V3_AUTHENTICATION_PHASE_EVIDENCE_V1: preserve the original error for retry,
@@ -2005,10 +2005,12 @@ extension CombinedFailure.LaunchContext.Step {
     }
 }
 
+// These diagnostic APIs are consumed by the separate LiveContainer app module
+// through SideStoreSupport. Keep implementation-only helpers internal.
 // Public build provenance only. Reject unexpected metadata rather than copying
 // arbitrary Info.plist values into a diagnostic payload.
-enum V3DiagnosticBuild {
-    static var commit: String { validatedCommit(Bundle.main.object(forInfoDictionaryKey: "LCBuilderCommit")) }
+public enum V3DiagnosticBuild {
+    public static var commit: String { validatedCommit(Bundle.main.object(forInfoDictionaryKey: "LCBuilderCommit")) }
     static func validatedCommit(_ value: Any?) -> String {
         guard let value = value as? String, value.utf8.count == 40,
               value.range(of: "^[0-9a-fA-F]{40}$", options: .regularExpression) != nil else { return "unknown" }
@@ -2018,7 +2020,7 @@ enum V3DiagnosticBuild {
 
 // Local UI conditions can accompany a more specific underlying failure. Copy
 // both classifications without copying message prose or guessing its cause.
-enum V3DiagnosticCopy {
+public enum V3DiagnosticCopy {
     private static let localCodes: Set<String> = [
         "SS-PROV-D099",
         "SS-PROV-D100",
@@ -2129,7 +2131,7 @@ enum V3DiagnosticCopy {
         "SS-VERIFY-D098",
         "SS-XPC-D028",
     ]
-    static func details(visibleMessage: String, technical: String) -> String {
+    public static func details(visibleMessage: String, technical: String) -> String {
         let line = visibleMessage.components(separatedBy: "\n").last ?? ""
         let prefix = "Error ID: "
         let value = line.hasPrefix(prefix) ? String(line.dropFirst(prefix.count)) : ""
@@ -2141,13 +2143,13 @@ enum V3DiagnosticCopy {
 
 // Historical/plain messages have no recoverable typed cause. This fallback
 // identifies only the known presentation flow and leaves original text intact.
-enum V3DiagnosticPresentation {
-    enum Context: String {
+public enum V3DiagnosticPresentation {
+    public enum Context: String {
         case refresh = "SS-REFRESH-UNKNOWN"
         case operation = "SS-OPERATION-UNKNOWN"
         case global = "SS-UI-UNKNOWN"
     }
-    static func label(_ message: String, context: Context) -> String {
+    public static func label(_ message: String, context: Context) -> String {
         guard !message.contains("\nError ID: SS-") else { return message }
         return message + "\nError ID: " + context.rawValue
     }
