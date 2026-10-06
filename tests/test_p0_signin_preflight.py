@@ -221,14 +221,18 @@ class P0SignInPreflightTests(unittest.TestCase):
         for stage in ("boot-phone", "bootstatus-phone", "test-phone", "export-phone", "summary-phone",
                       "missing-png-phone", "missing-case-phone", "skip-phone", "shutdown-phone"):
             with self.subTest(stage=stage), tempfile.TemporaryDirectory() as temporary:
-                output = Path(temporary) / "evidence"
+                # Exercise macOS /var -> /private/var semantics on every platform.
+                root = Path(temporary)
+                real = root / "real"; real.mkdir()
+                alias = root / "alias"; alias.symlink_to(real, target_is_directory=True)
+                output = alias / "evidence"
                 commands = Commands(output, [stage])
                 self.run_fake(output, commands)
                 report = self.assert_failed_manifest(output)
                 calls = [args for args, _ in commands.calls]
                 self.assertIn(("xcrun", "simctl", "shutdown", "phone"), calls)
                 self.assertIn(("xcrun", "simctl", "shutdown", "tablet"), calls)
-                screen = ("xcrun", "simctl", "io", "phone", "screenshot", str(output / "p0-signin/phone-terminal-diagnostic.png"))
+                screen = ("xcrun", "simctl", "io", "phone", "screenshot", str(output.resolve() / "p0-signin/phone-terminal-diagnostic.png"))
                 self.assertLess(calls.index(screen), calls.index(("xcrun", "simctl", "shutdown", "phone")))
                 self.assertEqual(len(report["devices"]), 2)
                 self.assertTrue((output / "p0-signin/phone-capture-diagnostics.json").exists())
