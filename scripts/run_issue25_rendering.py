@@ -78,6 +78,12 @@ def command(*args: str, timeout: float = 300) -> str:
     return capture(*args, timeout=timeout).decode().strip()
 
 
+def wait_for_simulator_boot(device: str) -> None:
+    # First-boot data migration exceeded five minutes on the standard Intel
+    # runner. Keep this special allowance bounded and limited to bootstatus.
+    command("xcrun", "simctl", "bootstatus", device, "-b", timeout=600)
+
+
 def available_devices() -> list[tuple[str, str, str]]:
     result = json.loads(command("xcrun", "simctl", "list", "devices", "available", "--json"))
     runtimes = json.loads(command("xcrun", "simctl", "list", "runtimes", "--json"))["runtimes"]
@@ -284,7 +290,7 @@ def main() -> None:
         booted = any(item["udid"] == device and item["state"] == "Booted" for group in state["devices"].values() for item in group)
         if not booted:
             command("xcrun", "simctl", "boot", device)
-        command("xcrun", "simctl", "bootstatus", device, "-b")
+        wait_for_simulator_boot(device)
         report = execute(bundle, bundle_id, kind, device, output, False, False, mode="diagnostic")
         metadata = {"schemaVersion": 1, "fullSuiteValidated": False, "diagnosticOnly": True,
                     "builderCommit": command("git", "-C", str(ROOT), "rev-parse", "HEAD"), "ciRun": os.environ.get("GITHUB_RUN_ID"),
@@ -306,7 +312,7 @@ def main() -> None:
             booted = any(item["udid"] == device and item["state"] == "Booted" for group in state["devices"].values() for item in group)
             if not booted:
                 command("xcrun", "simctl", "boot", device)
-            command("xcrun", "simctl", "bootstatus", device, "-b")
+            wait_for_simulator_boot(device)
             for baseline in (True, False):
                 bundle, bundle_id, _ = builds[baseline]
                 reports.append(execute(bundle, bundle_id, kind, device, output, baseline, False))

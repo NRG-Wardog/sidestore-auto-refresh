@@ -66,8 +66,18 @@ class RenderingCommandBoundsTests(unittest.TestCase):
         self.assertEqual(run.call_count, 2)
         self.assertNotIn('subprocess.check_output', (ROOT / 'scripts/run_issue25_rendering.py').read_text())
 
+    def test_only_simulator_boot_gets_the_migration_budget(self):
+        with patch.object(renderer, 'command') as run:
+            renderer.wait_for_simulator_boot('fixture-device')
+        run.assert_called_once_with('xcrun', 'simctl', 'bootstatus', 'fixture-device', '-b', timeout=600)
+        self.assertEqual(renderer.command.__kwdefaults__['timeout'], 300)
+        self.assertEqual(renderer.capture.__kwdefaults__['timeout'], 300)
+        source = (ROOT / 'scripts/run_issue25_rendering.py').read_text()
+        self.assertEqual(source.count('wait_for_simulator_boot(device)'), 2)
+
     def test_workflow_keeps_acceptance_and_saves_timeout_diagnostics(self):
         workflow = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()
+        self.assertIn('timeout-minutes: 40', workflow)
         self.assertIn('timeout-minutes: 35', workflow)
         self.assertIn('artifacts/layout-evidence/**/*.jsonl', workflow)
         self.assertIn('artifacts/logs/layout-rendering.log', workflow)

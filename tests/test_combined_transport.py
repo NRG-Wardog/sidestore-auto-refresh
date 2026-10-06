@@ -467,41 +467,54 @@ class CombinedWorkflowTests(unittest.TestCase):
         self.assertEqual(block.count('patch_sidesign_privacy.py "$SIDESIGN" "$SIDESTORE"'), 2)
         self.assertEqual(block.count('patch_combined_service_startup.py --portal "$SIDESIGN"'), 2)
 
-    def test_parallel_native_and_full_rendering_both_gate_packaging(self):
+    def test_serial_native_and_full_rendering_both_gate_packaging(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
         host = workflow.index("- name: Build unified host before transport compilation")
-        parallel = workflow.index("- name: Build embedded SideStore and execute full layout regression")
+        native = workflow.index("- name: Build embedded SideStore\n")
+        layout = workflow.index("- name: Execute full layout regression")
         package = workflow.index("- name: Package and verify combined LiveContainer plus SideStore")
-        self.assertLess(host, parallel)
-        self.assertLess(parallel, package)
-        block = workflow[parallel:].split("\n      - name:", 1)[0]
-        self.assertIn("--v3-source", block)
-        self.assertIn('wait "$native_pid" || native_status=$?', block)
-        self.assertIn('test "$native_status" -eq 0', block)
-        self.assertIn('test "$layout_status" -eq 0', block)
-        self.assertIn('|| layout_status=$?', block)
-        self.assertIn('timeout-minutes: 35', block)
-        self.assertNotIn("continue-on-error", block)
-        self.assertNotIn("--skip-v3-native", block)
+        self.assertLess(host, native)
+        self.assertLess(native, layout)
+        self.assertLess(layout, package)
+        native_block = workflow[native:layout]
+        layout_block = workflow[layout:].split("\n      - name:", 1)[0]
+        self.assertIn('id: embedded_build', native_block)
+        self.assertIn('timeout-minutes: 40', native_block)
+        self.assertIn('timeout-minutes: 35', layout_block)
+        self.assertIn('timeout-minutes: 120', workflow[:native])
+        self.assertIn("steps.embedded_build.outcome == 'failure'", layout_block)
+        self.assertIn("!cancelled()", layout_block)
+        self.assertIn("--v3-source", layout_block)
+        self.assertNotIn('native_pid', native_block + layout_block)
+        self.assertNotRegex(native_block + layout_block, r'(?m)^\s*\)\s*&\s*$')
+        for block in (native_block, layout_block):
+            self.assertIn('set -euo pipefail', block)
+            self.assertNotIn('continue-on-error', block)
+            self.assertNotIn('|| layout_status', block)
+            self.assertNotIn('--skip-v3-native', block)
+        package_block = workflow[package:].split("\n      - name:", 1)[0]
+        self.assertNotIn('if:', package_block)  # Default success() keeps both prior failures terminal.
+        self.assertNotIn('continue-on-error', package_block)
 
-    def test_parallel_gate_waits_for_native_and_rejects_either_failure(self):
+    def test_native_and_layout_pipelines_propagate_failures(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
-        start = workflow.index('          native_pid=$!')
-        end = workflow.index('\n      - name: Preserve real layout', start)
-        gate = "\n".join(line[10:] for line in workflow[start:end].splitlines())
-        command_start = gate.index('python3 builder/scripts/run_issue25_rendering.py')
-        command_end = gate.index('|| layout_status=$?', command_start)
-        gate = gate[:command_start] + 'bash -c "exit $LAYOUT_RESULT" ' + gate[command_end:]
-        for native_result, layout_result in ((0, 0), (1, 0), (0, 1), (1, 1)):
-            with self.subTest(native=native_result, layout=layout_result):
-                script = ('set -euo pipefail\n'
-                          '( sleep 0.05; echo NATIVE_FINISHED; exit "$NATIVE_RESULT" ) &\n'
-                          + gate)
-                env = dict(os.environ, NATIVE_RESULT=str(native_result), LAYOUT_RESULT=str(layout_result))
-                result = subprocess.run(['bash', '-c', script], env=env,
-                                        capture_output=True, text=True, timeout=5)
-                self.assertIn('NATIVE_FINISHED', result.stdout)
-                self.assertEqual(result.returncode == 0, native_result == layout_result == 0)
+        for title, command, variable in (
+                ('Build embedded SideStore', 'xcodebuild -project work/EmbeddedSideStore/', 'NATIVE_RESULT'),
+                ('Execute full layout regression', 'python3 builder/scripts/run_issue25_rendering.py', 'LAYOUT_RESULT')):
+            block = workflow.split('- name: ' + title + '\n', 1)[1].split('\n      - name:', 1)[0]
+            start = block.index(command)
+            pipe = block.index('2>&1 | tee ', start)
+            end = block.index('\n', pipe)
+            # Keep the shipped tee pipeline and shell flags. A successful tee
+            # must never hide either native compilation or layout failure.
+            pipeline = 'bash -c "exit $' + variable + '" ' + block[pipe:end]
+            for code in (0, 1):
+                with self.subTest(gate=title, result=code), tempfile.TemporaryDirectory() as temporary:
+                    Path(temporary, 'artifacts/logs').mkdir(parents=True)
+                    result = subprocess.run(['bash', '-c', 'set -euo pipefail\n' + pipeline],
+                        cwd=temporary, env=dict(os.environ, **{variable: str(code)}),
+                        capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode == 0, code == 0)
 
     def test_canonical_certificate_checks_run_once_with_dependency_ready(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()

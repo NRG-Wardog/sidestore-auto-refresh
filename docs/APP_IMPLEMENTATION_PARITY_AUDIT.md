@@ -95,3 +95,28 @@ P1 retains the typed profile projection, explicit numeric save/validation and tr
 ## Auth-baseline integration checkpoint
 
 The reviewed source batch was reapplied onto authentication follow-up `b6f243d6253b71e8000fc77ea1716b4a54368621`, producing candidate code `687ff23e95a60585729ea3aa9f65dd5d5bb84596`. The duplicate-prompt cleanup-interleaving fix remains byte-for-byte unchanged. This integration passed **1,034 tests: 867 passed, 167 explicit native/platform skips, zero failures/errors**, plus whitespace checks. No branch was pushed and no workflow was started or cancelled during this preparation. Native gates, candidate packaging, exact re-downloaded IPA verification, post-installer verification and device acceptance remain pending; this is a source checkpoint only.
+
+## Standard Intel acceptance scheduling correction
+
+Run `37399798526` at `7156e0f` passed 1,051 required tests, source preparation,
+the native host build, and transport gates. Its parallel native/layout phase did
+not complete: all four layout fixture builds finished in roughly 15–32 seconds
+each, but the first simulator's Apple data migration exceeded the 300-second
+boot-status bound, leaving zero of the 14 required rendering reports. Native
+compilation continued through SideSign and entered the SideStore module at
+02:43:48 UTC; the phase's 35-minute limit killed it at 02:47:38 UTC. There was no
+reported compiler failure before termination, and there was no candidate IPA.
+
+The parallel optimization is therefore removed on the existing standard Intel
+runner. Native compilation and complete layout acceptance now have separate
+40-minute and 35-minute step bounds (75 minutes combined), under a 120-minute
+job limit covering other gates, packaging and evidence. The layout bound retains
+headroom above the previously measured successful serial layout run of 22m27s
+on `6baf641`; it must not be shortened below known successful execution time. Only
+simulator `bootstatus` gets a 600-second first-migration allowance; other
+rendering commands retain their 300-second bounds and process-group cleanup.
+Both step results still gate packaging. Layout evidence is collected after a
+native failure where possible; it cannot convert that failure into success.
+This isolates resource contention and makes failures visible separately. No
+speed improvement or completed native/layout acceptance is claimed from this
+scheduling change; the next full CI run must establish those results.
