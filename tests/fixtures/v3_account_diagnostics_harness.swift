@@ -3,6 +3,77 @@
     static func main() async {
         let id = UUID().uuidString
         let secret = "PRIVATE_ACCOUNT_EMAIL PRIVATE_TOKEN HTTP 503 lc_stage=network errno=13"
+        // All preservation failures share one stable, secret-free diagnostic.
+        let pairErrors: [LCAnisettePairError] = [.orphanedBlob, .invalidIdentifier,
+            .invalidBlob, .migrationPairConflict, .stateChanged]
+        for pairError in pairErrors {
+            let phaseError = V3AuthenticationPhaseError(step: .anisetteFetch, underlying: pairError)
+            let typed = v3AccountOperationFailure(phaseError, step: .authenticate)
+            precondition(typed.kind == .anisetteIdentityStateInvalid && typed.step == .anisetteFetch)
+            let commitPhase = V3AuthenticationPhaseError(step: .credentialCommit, underlying: pairError)
+            let commitTyped = v3AccountOperationFailure(commitPhase, step: .credentialCommit)
+            precondition(commitTyped.step == .anisetteFetch && !commitTyped.credentialCommit)
+            let staleCommitWrapper = V3AccountOperationError(step: .credentialCommit,
+                kind: .anisetteIdentityStateInvalid, underlying: pairError, serverCode: nil)
+            precondition(!staleCommitWrapper.credentialCommit)
+            let wrappedErrors: [Error] = [pairError, phaseError, typed, commitPhase, commitTyped, staleCommitWrapper]
+            for error in wrappedErrors {
+                precondition(v3ClassifyAuthError(error) == .anisetteIdentityStateInvalid)
+                precondition(!v3IsAuthCancellation(error))
+                for stage in [CombinedFailure.Stage.authentication, .provisioning, .network] {
+                    let failure = v3CaptureAuthFailure(error, operation: "signIn", stage: stage,
+                        id: id, retryable: true)
+                    precondition(failure.stage == .authentication && failure.sourceStep == .anisetteFetch)
+                    precondition(failure.retryable == false && failure.safeCause == nil)
+                    precondition(failure.diagnosticCode == "SS-AUTH-C11-S02-T32")
+                    let decoded = CombinedFailure.fromEncodedString(failure.encodedString, expectedID: id)!
+                    precondition(decoded.retryable == false && decoded.diagnosticCode == failure.diagnosticCode)
+                    precondition(decoded.signingContext["typed_error"] == "anisetteIdentityStateInvalid")
+                    precondition(decoded.signingContext["server_code"] == "unknown")
+                    precondition(decoded.signingContext["http_status"] == "unavailable")
+                    precondition(decoded.message == LCAnisettePairError.safeMessage)
+                    precondition(decoded.recovery == LCAnisettePairError.recovery)
+                    var wire = decoded.wire
+                    wire["kind"] = V3AuthFailureKind.anisetteIdentityStateInvalid.rawValue
+                    let message = hostFailureMessage(from: wire)
+                    let serviceMessage = V3AuthFailureDisplay.message(for: "anisetteIdentityStateInvalid")
+                    let copy = V3AuthFailureDiagnosticsPolicy.render(wire,
+                        underlyingCode: decoded.underlyingCode, retryableValue: decoded.retryable)
+                    precondition(message.contains(serviceMessage))
+                    precondition(message.contains("Error ID: SS-AUTH-C11-S02-T32-A12"))
+                    precondition(copy.contains("diagnostic_code=SS-AUTH-C11-S02-T32-A12"))
+                    precondition(copy.contains("typed_error=anisetteIdentityStateInvalid") && copy.contains("retryable=no"))
+                    for rendered in [message, copy, decoded.technicalDetails, String(describing: wire)] {
+                        precondition(!rendered.contains("PRIVATE_") && !rendered.contains("orphanedBlob"))
+                        precondition(!rendered.contains("invalidIdentifier") && !rendered.contains("invalidBlob"))
+                        precondition(!rendered.contains("migrationPairConflict") && !rendered.contains("stateChanged"))
+                        precondition(!rendered.contains("password") && !rendered.contains("Check the connection"))
+                        precondition(!rendered.contains("Apple authentication succeeded"))
+                    }
+                }
+            }
+            let generic = CombinedFailure.capture(phaseError, operation: "refresh", stage: .network,
+                id: id, retryable: true)
+            precondition(generic.diagnosticCode == "SS-AUTH-C11-S02-T32" && generic.retryable == false)
+        }
+        // The preservation category remains blocked even if a stale/malformed
+        // caller provides absent or optimistic retry metadata.
+        for retryable in [nil, false, true] as [Bool?] {
+            precondition(V3AuthTerminalFailureActionPolicy.resolve(kind: "anisetteIdentityStateInvalid",
+                retryable: retryable) == .blocked)
+            precondition(V3AuthTerminalFailureActionPolicy.guidance(kind: "anisetteIdentityStateInvalid",
+                retryable: retryable) == LCAnisettePairError.recovery)
+        }
+        let blockedProvisioning = V3AuthProvisioningRecoveryPolicy.resolve(
+            state: "authenticatedProvisioningIncomplete", hasSession: false, signedIn: true,
+            provisioningRetryAvailable: true, isCancelling: false, cancellationConfirmed: true,
+            reauthenticationAvailable: true, identityStateBlocked: true)
+        precondition(!blockedProvisioning.showRetryProvisioning && !blockedProvisioning.showReauthenticateProvisioning)
+        precondition(blockedProvisioning.showFinishLater)
+        let lookalike = NSError(domain: "LCAnisettePairError", code: 0,
+            userInfo: [NSLocalizedDescriptionKey: "anisetteIdentityStateInvalid " + secret])
+        precondition(v3ClassifyAuthError(lookalike) == .unknown)
+        precondition(v3AccountOperationFailure(lookalike, step: .anisetteFetch).kind == .unknownAccountFailure)
         let phaseErrors: [(Error, V3AccountOperationError.Kind)] = [
             (AnisetteKit.AnisetteError.invalidArgument, .anisetteKitInvalidArgument),
             (AnisetteKit.AnisetteError.loaderFailed(reason: secret), .anisetteKitLoaderFailed),

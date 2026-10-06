@@ -179,7 +179,8 @@
     "archiveReadFailed": "T28",
     "archiveWriteFailed": "T29",
     "archiveMissingApp": "T30",
-    "unknownAccountFailure": "T31"
+    "unknownAccountFailure": "T31",
+    "anisetteIdentityStateInvalid": "T32"
   },
   "launch": {
     "hostBundleUnavailable": "L01",
@@ -217,7 +218,8 @@
     "accountRepairRequired": "A08",
     "credentialStorage": "A09",
     "credentialStorageUncertain": "A10",
-    "accountIdentityMismatch": "A11"
+    "accountIdentityMismatch": "A11",
+    "anisetteIdentityStateInvalid": "A12"
   },
   "verdict": {
     "installationProfileRejected": "V01",

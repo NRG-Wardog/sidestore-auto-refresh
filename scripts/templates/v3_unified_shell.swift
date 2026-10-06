@@ -5206,6 +5206,7 @@ final class V3AuthStore: ObservableObject {
     @Published private(set) var provisioningRetryAvailable = false
     @Published private(set) var provisioningReauthenticationAvailable = false
     @Published private(set) var provisioningRecoveryRequiresReconciliation = false
+    @Published private(set) var provisioningIdentityStateBlocked = false
     @Published private(set) var checkingProvisioningStorage = false
     @Published private(set) var provisioningSessionUnavailable = false
     @Published private(set) var provisioningRetryBlockedByActiveSession = false
@@ -5255,7 +5256,8 @@ final class V3AuthStore: ObservableObject {
             signedIn: signedIn, provisioningRetryAvailable: provisioningRetryAvailable,
             isCancelling: isCancelling, cancellationConfirmed: cancellationConfirmed,
             authenticationActive: provisioningRetryBlockedByActiveSession,
-            reauthenticationAvailable: provisioningReauthenticationAvailable)
+            reauthenticationAvailable: provisioningReauthenticationAvailable,
+            identityStateBlocked: provisioningIdentityStateBlocked)
     }
 
     var canReauthenticateProvisioning: Bool {
@@ -5339,6 +5341,7 @@ final class V3AuthStore: ObservableObject {
         provisioningCorrelation = ""
         provisioningRetryAvailable = false
         provisioningReauthenticationAvailable = false
+        provisioningIdentityStateBlocked = false
         provisioningSessionUnavailable = false
         provisioningRetryBlockedByActiveSession = false
         provisioningFinishedLater = false
@@ -5378,7 +5381,8 @@ final class V3AuthStore: ObservableObject {
         V3AuthProvisioningRecoveryPolicy.resolve(state: state, hasSession: session != nil,
             signedIn: signedIn, provisioningRetryAvailable: provisioningRetryAvailable,
             isCancelling: isCancelling, cancellationConfirmed: cancellationConfirmed,
-            authenticationActive: provisioningRetryBlockedByActiveSession)
+            authenticationActive: provisioningRetryBlockedByActiveSession,
+            identityStateBlocked: provisioningIdentityStateBlocked)
             .showRetryProvisioning
     }
 
@@ -5740,7 +5744,12 @@ final class V3AuthStore: ObservableObject {
                     provisioningRetryAvailable = authenticationActive ? false : canRetryProvisioning
                     provisioningRetryBlockedByActiveSession = authenticationActive
                     provisioningSessionUnavailable = !canRetryProvisioning && !authenticationActive
-                    if canRetryProvisioning && reportedTerminalState == "resultUnknown" {
+                    if provisioningIdentityStateBlocked {
+                        // A generic account snapshot cannot verify or repair the
+                        // Anisette pair. Keep the owned failure and its guidance.
+                        provisioningRetryAvailable = false
+                        provisioningSessionUnavailable = false
+                    } else if canRetryProvisioning && reportedTerminalState == "resultUnknown" {
                         provisioningMessage = "Apple ID is signed in, but provisioning is incomplete. The previous sign-in attempt remains unconfirmed; you can retry provisioning in a new session." + "\nError ID: SS-PROV-D107"
                     } else if authenticationActiveForCurrentSession {
                         provisioningMessage = "Another sign-in or provisioning attempt is still active. Wait for it to finish, then reload status before retrying provisioning." + "\nError ID: SS-PROV-D100"
@@ -6360,7 +6369,12 @@ final class V3AuthStore: ObservableObject {
             // retained verbatim. This state is never collapsed into "failed".
             provisioningIncomplete = true
             team = reply["team"] as? String ?? team
-            message = "Apple ID signed in successfully."
+            provisioningIdentityStateBlocked = ((reply["failure"] as? [String: Any])?["signingContext"] as? [String: String])?["typed_error"] == "anisetteIdentityStateInvalid"
+            if provisioningIdentityStateBlocked {
+                message = "The saved Apple account is signed in. Provisioning is blocked."
+            } else {
+                message = "Apple ID signed in successfully."
+            }
             prompt = nil
             deliveryProgressMessage = ""
             if let failureKind = reply["failureKind"] as? String {
@@ -6374,7 +6388,7 @@ final class V3AuthStore: ObservableObject {
             provisioningCorrelation = (reply["failure"] as? [String: Any])?["correlationID"] as? String ?? ""
             provisioningRetryAvailable = V3ServiceBridge.strictBool(reply["resumable"]) ?? false
             provisioningSessionUnavailable = false
-            if !provisioningRetryAvailable {
+            if !provisioningRetryAvailable && !provisioningIdentityStateBlocked {
                 provisioningMessage += " Checking the saved provisioning state before another attempt."
             }
             let diagnosticPresentation = V3AuthFailureDiagnosticsPolicy.provisioning(reply: reply,
@@ -6424,6 +6438,7 @@ final class V3AuthStore: ObservableObject {
         case "invalidCode": return "The verification code was not accepted. Enter a new code and try again."
         case "rateLimited": return "Too many authentication attempts. Apple is temporarily rate-limiting requests. Wait before trying again."
         case "serviceUnavailable": return "Apple's authentication service did not return a valid response. Try again later."
+        case "anisetteIdentityStateInvalid": return LCAnisettePairError.safeMessage
         case "anisetteFailure", "anisette": return "Authentication could not obtain valid Anisette data."
         case "networkFailure", "network": return "Authentication could not reach the required service. Check the connection and try again."
         case "accountRepairRequired": return "Apple requires attention on this account before signing in."

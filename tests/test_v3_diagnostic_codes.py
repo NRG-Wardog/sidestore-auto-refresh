@@ -47,6 +47,29 @@ class DiagnosticCodeTests(unittest.TestCase):
         for prohibited in ['hashValue', 'Hasher', 'localizedDescription', 'correlationID', 'UUID()', 'requestContext']:
             self.assertNotIn(prohibited, body)
 
+    def test_typed_registry_and_allowlist_include_appended_pair_failure(self):
+        registry = json.loads((ROOT / 'docs/ERROR_CODES_V1.json').read_text())
+        source = COMMON.read_text()
+        body = declaration(source, '    fileprivate static func typedDiagnosticToken(')
+        actual = dict(re.findall(r'case "(\w+)": return "([A-Z0-9]+)"', body))
+        self.assertEqual(actual, registry['typed'])
+        self.assertEqual(len(actual), len(set(actual.values())))
+        account = declaration(source, 'struct V3AccountOperationError:')
+        kinds = declaration(account, '    enum Kind:')
+        declared = set()
+        for group in re.findall(r'\bcase\s+([A-Za-z]\w*(?:\s*,\s*[A-Za-z]\w*)*)', kinds):
+            declared.update(part.strip() for part in group.split(','))
+        self.assertEqual(set(actual), declared)
+        validation = declaration(source, '    public static func validatedSigningContext(')
+        allowlist = validation.split('case "typed_error":', 1)[1].split('default:', 1)[0]
+        self.assertEqual(set(re.findall(r'"(\w+)"', allowlist)), declared)
+        self.assertEqual(registry['typed']['unknownAccountFailure'], 'T31')
+        self.assertEqual(registry['typed']['anisetteIdentityStateInvalid'], 'T32')
+        self.assertEqual(registry['authKind']['accountIdentityMismatch'], 'A11')
+        self.assertEqual(registry['authKind']['anisetteIdentityStateInvalid'], 'A12')
+        primitives = (ROOT / 'scripts/templates/v3_behavioral_primitives.swift').read_text()
+        self.assertIn('case "anisetteIdentityStateInvalid": kindToken = "A12"', primitives)
+
     def test_every_inventoried_local_condition_has_its_frozen_label(self):
         registry = json.loads((ROOT / 'docs/ERROR_CODES_V1.json').read_text())
         coverage = json.loads((ROOT / 'docs/ERROR_PRESENTATION_COVERAGE.json').read_text())

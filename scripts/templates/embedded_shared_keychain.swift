@@ -8,6 +8,56 @@
 // that lock or write the shared tombstone, so no client-side protocol can
 // exclude a credential snapshot it already took before this patch was active.
 
+// LC_ANISETTE_PAIR_PRECONDITION_V1: a stored blob must retain its own valid
+// identity. This policy never repairs, deletes, logs, or borrows either value.
+struct LCAnisetteStoredPair: Equatable, Sendable {
+    let identifier: Data?
+    let blob: Data?
+
+    static func read(_ read: (String) throws -> Data?) throws -> Self {
+        Self(identifier: try read("identifier"), blob: try read("adiPb"))
+    }
+
+    func validated() throws -> (identifier: UUID?, blob: Data?) {
+        var parsed: UUID?
+        if let identifier, let text = String(data: identifier, encoding: .utf8) {
+            parsed = UUID(uuidString: text)
+            if parsed == nil, let bytes = Data(base64Encoded: text), bytes.count == 16 {
+                var value: uuid_t = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                _ = withUnsafeMutableBytes(of: &value) { bytes.copyBytes(to: $0) }
+                parsed = UUID(uuid: value)
+            }
+        }
+        if blob != nil && parsed == nil { throw LCAnisettePairError.orphanedBlob }
+        if identifier != nil && parsed == nil { throw LCAnisettePairError.invalidIdentifier }
+        var decoded: Data?
+        if let blob {
+            guard let text = String(data: blob, encoding: .utf8),
+                  let value = Data(base64Encoded: text, options: .ignoreUnknownCharacters), !value.isEmpty else {
+                throw LCAnisettePairError.invalidBlob
+            }
+            decoded = value
+        }
+        return (parsed, decoded)
+    }
+
+    static func validateMigration(source: [String: Data], read: (String) throws -> Data?) throws {
+        let selected = try Self.read(read)
+        // Neither an orphan in selected storage nor an orphan in the legacy
+        // source may acquire an identity from the other namespace.
+        _ = try selected.validated()
+        let candidate = Self(identifier: source["identifier"], blob: source["adiPb"])
+        do { _ = try candidate.validated() }
+        catch { throw LCAnisettePairError.migrationPairConflict }
+    }
+}
+
+struct LCEmbeddedAnisetteSnapshot: Sendable {
+    let identifier: UUID
+    let adiBlob: Data?
+    let stored: LCAnisetteStoredPair
+}
+
 // LC_SHARED_MIGRATION_POLICY_BEGIN
 struct LCLegacyKeychainItem {
     let group: String
@@ -115,6 +165,7 @@ enum LCSharedKeychainMigration {
             refreshed[item.group, default: [:]][item.key] = item.data
         }
         guard refreshed.values.contains(where: { $0 == source }) else { return false }
+        try LCAnisetteStoredPair.validateMigration(source: source, read: read)
         // Check ALL conflicts before writing anything. Partial migrations can
         // retry, but may not overwrite credentials from a different sign-in.
         for key in source.keys.sorted() {
@@ -416,6 +467,43 @@ fileprivate enum LCEmbeddedSharedKeychain {
             return nil
         }
         return values
+    }
+
+    // The resolver and both providers consume this one locked epoch, never
+    // separate getters around an await. Only a genuinely absent pair may get
+    // its first identity; malformed or orphaned stored bytes fail unchanged.
+    static func resolveAnisetteSnapshot(_ client: KeychainAccess.Keychain) throws -> LCEmbeddedAnisetteSnapshot {
+        guard installedGroup != nil else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
+        return try withSharedTransaction {
+            let stored = try LCAnisetteStoredPair.read { try client.getData($0) }
+            let valid = try stored.validated()
+            if let identifier = valid.identifier {
+                return LCEmbeddedAnisetteSnapshot(identifier: identifier, adiBlob: valid.blob, stored: stored)
+            }
+            let identifier = UUID()
+            let data = Data(identifier.uuidString.utf8)
+            try writeOne("identifier", data: data, client: client)
+            return LCEmbeddedAnisetteSnapshot(identifier: identifier, adiBlob: nil,
+                stored: LCAnisetteStoredPair(identifier: data, blob: nil))
+        }
+    }
+
+    static func commitAnisetteBlob(_ blob: Data, snapshot: LCEmbeddedAnisetteSnapshot,
+                                  client: KeychainAccess.Keychain) throws {
+        guard installedGroup != nil else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
+        guard !blob.isEmpty else { throw LCAnisettePairError.invalidBlob }
+        try withSharedTransaction {
+            let current = try LCAnisetteStoredPair.read { try client.getData($0) }
+            guard current == snapshot.stored else { throw LCAnisettePairError.stateChanged }
+            if let existing = snapshot.adiBlob {
+                // SideSign's remote cache may return its earlier newAdiBlob
+                // even when this request supplied an existing blob. Never
+                // replace valid stored bytes with that stale cached result.
+                guard blob == existing else { throw LCAnisettePairError.stateChanged }
+                return
+            }
+            try writeOne("adiPb", data: Data(blob.base64EncodedString().utf8), client: client)
+        }
     }
 
     static func readString(_ key: String, client: KeychainAccess.Keychain) -> String? {

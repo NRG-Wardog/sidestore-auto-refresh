@@ -5040,16 +5040,17 @@ enum V3AuthProvisioningRecoveryPolicy {
                         provisioningRetryAvailable: Bool, isCancelling: Bool,
                         cancellationConfirmed: Bool,
                         authenticationActive: Bool = false,
-                        reauthenticationAvailable: Bool = false) -> V3AuthProvisioningRecoveryPresentation {
+                        reauthenticationAvailable: Bool = false,
+                        identityStateBlocked: Bool = false) -> V3AuthProvisioningRecoveryPresentation {
         let noSessionResumeIsSafe = state == "resultUnknown" && !hasSession && signedIn &&
             provisioningRetryAvailable && !authenticationActive
-        let retryAllowed = !isCancelling && cancellationConfirmed && provisioningRetryAvailable &&
+        let retryAllowed = !identityStateBlocked && !isCancelling && cancellationConfirmed && provisioningRetryAvailable &&
             !authenticationActive &&
             (state != "resultUnknown" || noSessionResumeIsSafe)
         return V3AuthProvisioningRecoveryPresentation(
             showCancellationInstruction: state == "resultUnknown" && hasSession,
             showRetryProvisioning: retryAllowed,
-            showReauthenticateProvisioning: signedIn && !hasSession &&
+            showReauthenticateProvisioning: !identityStateBlocked && signedIn && !hasSession &&
                 reauthenticationAvailable && !authenticationActive &&
                 !isCancelling && cancellationConfirmed &&
                 !["working", "awaitingPrompt"].contains(state),
@@ -5151,6 +5152,7 @@ enum V3AuthFailureDiagnosticsPolicy {
         case "credentialStorage": kindToken = "A09"
         case "credentialStorageUncertain": kindToken = "A10"
         case "accountIdentityMismatch": kindToken = "A11"
+        case "anisetteIdentityStateInvalid": kindToken = "A12"
         default: kindToken = "A00"
         }
         return failureCode + "-" + kindToken
@@ -5194,7 +5196,7 @@ enum V3AuthTerminalFailureAction: Equatable {
 enum V3AuthTerminalFailureActionPolicy {
     static func resolve(kind: String?, retryable: Bool?) -> V3AuthTerminalFailureAction {
         switch kind {
-        case "credentialStorage", "credentialStorageUncertain": return .blocked
+        case "credentialStorage", "credentialStorageUncertain", "anisetteIdentityStateInvalid": return .blocked
         case "accountIdentityMismatch": return .beginNewSignIn(title: "Use Saved Apple ID")
         case "accountRepairRequired": return .repairAppleAccount
         case "appSpecificPasswordRequired": return .useAppSpecificPassword
@@ -5214,6 +5216,7 @@ enum V3AuthTerminalFailureActionPolicy {
     }
 
     static func guidance(kind: String?, retryable: Bool?) -> String? {
+        if kind == "anisetteIdentityStateInvalid" { return LCAnisettePairError.recovery }
         if kind == "accountIdentityMismatch" {
             return "Reload status, then sign in with the saved Apple ID to finish setup."
         }

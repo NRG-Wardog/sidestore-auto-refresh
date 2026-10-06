@@ -99,6 +99,9 @@ def patch_combined_cli(root: Path) -> None:
         Path("SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"),
         Path("SideStore/Utils/importexport/ImportExport.swift"),
         Path("SideStore/Core/Certificates/CertificateManager.swift"),
+        Path("SideStore/Core/Anisette/AnisetteConfigManager.swift"),
+        Path("SideStore/Core/Anisette/OnDeviceAnisetteManager.swift"),
+        Path("SideStore/Core/Anisette/AnisetteProvider.swift"),
     ]
     manifest_path = Path(".combined-refresh-contract.json")
     paths = source_paths + [manifest_path]

@@ -1045,6 +1045,7 @@ import Foundation
              "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift",
              "SideStore/Core/Auth/DeveloperPortalProxy.swift",
              "SideStore/Core/Certificates/CertificateManager.swift",
+             *embedded_keychain.ANISETTE_PATHS,
              "SideStore/Core/Certificates/CodeSignValidator.swift",
              "SideStore/Core/Certificates/OCSPValidator.swift",
              "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",

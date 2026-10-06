@@ -145,7 +145,7 @@ extension LiveContainerAutoRefreshScheduler {
         await execute(source: "manual", task: omitted)
         precondition(omitted.completions == [false])
         precondition(defaults.string(forKey: lastErrorKey) ==
-                     "Refresh failed during refreshVerification, but no safe underlying cause was available.")
+                     "Refresh failed during refreshVerification, but no safe underlying cause was available.\nError ID: SS-VERIFY-C12")
         let omittedFailure = defaults.dictionary(forKey: currentRunFailureKey)!
         precondition(omittedFailure["operation"] as? String == "refresh")
         precondition(omittedFailure["stage"] as? String == "refreshVerification")

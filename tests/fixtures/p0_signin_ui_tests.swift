@@ -110,7 +110,11 @@ final class P0SignInUITests: XCTestCase {
             "correlation": "00000000-0000-0000-0000-000000000025", "underlying": "redacted/0",
             "retryable": "unknown", "source_step": "authenticate", "typed_error": "unknownAccountFailure",
             "server_code": "unknown", "http_status": "unavailable"]
-        safeDiagnosticOnly = fields.count == tokens.count && allowed.allSatisfy { fields[$0.key] == $0.value }
+        safeDiagnosticOnly = fields.count == 12 && fields.count == tokens.count &&
+            allowed.allSatisfy { fields[$0.key] == $0.value } &&
+            fields["diagnostic_code"] == "SS-AUTH-C11-S01-T31-A00" &&
+            fields["builder_commit"]?.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil &&
+            fields["builder_commit"]?.utf8.count == 40
         for (key, value) in fields where allowed[key] == nil {
             if key == "diagnostic_code" {
                 safeDiagnosticOnly = safeDiagnosticOnly && value.range(of: "^SS-AUTH-C11(-[A-Z][0-9]{2})*-A00$", options: .regularExpression) != nil
@@ -131,9 +135,8 @@ final class P0SignInUITests: XCTestCase {
         let error = app.staticTexts["signin.prompt.previous-error"]
         require(error.exists && error.label.hasPrefix("Sign-in failed before completion."),
                 "Unknown failure guidance is absent from the credentials panel")
-        if let diagnostic = fields["diagnostic_code"] {
-            require(error.label.contains("Error ID: " + diagnostic), "Visible Error ID differs from Copy Details")
-        }
+        require(error.label == "Sign-in failed before completion. Copy Details to help identify the cause.\nError ID: SS-AUTH-C11-S01-T31-A00",
+                "Visible unknown-failure guidance or canonical ID differs from Copy Details")
         screenshot("prompt-top")
         record(username, name: "username")
         username.tap(); username.typeText("p0-user@example.invalid")

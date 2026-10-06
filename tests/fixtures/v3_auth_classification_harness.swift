@@ -90,7 +90,8 @@ struct AuthClassificationHarness {
         badResponseWire["kind"] = badServerKind.rawValue
         let badResponseHostMessage = v3HostAuthFailureMessage(from: badResponseWire)
         precondition(badServerKind == .unknown)
-        precondition(badResponseHostMessage.contains("could not be safely classified"))
+        precondition(badResponseHostMessage ==
+            "Sign-in failed before completion. Copy Details to help identify the cause.\nError ID: SS-AUTH-C11-A00")
         precondition(!badResponseHostMessage.contains("PRIVATE_BAD_RESPONSE"))
 
         // Cancellation is lifecycle evidence and URLSession uses this domain
@@ -125,7 +126,8 @@ struct AuthClassificationHarness {
             localWire["kind"] = v3ClassifyAuthError(localFileError)!.rawValue
             let localHostMessage = v3HostAuthFailureMessage(from: localWire)
             precondition(localWire["stage"] as? String == CombinedFailure.Stage.authentication.rawValue)
-            precondition(localHostMessage.contains("could not be safely classified"))
+            precondition(localHostMessage ==
+                "Sign-in failed before completion. Copy Details to help identify the cause.\nError ID: SS-AUTH-C11-A00")
             precondition(!localHostMessage.contains("required Apple service"))
             precondition(!localHostMessage.contains("LocalDevVPN"))
         }
@@ -136,7 +138,8 @@ struct AuthClassificationHarness {
         precondition(unknownURLFailure.stage == .authentication && unknownURLFailure.safeCause == nil)
         var unknownWire = unknownURLFailure.wire
         unknownWire["kind"] = V3AuthFailureKind.unknown.rawValue
-        precondition(v3HostAuthFailureMessage(from: unknownWire).contains("could not be safely classified"))
+        precondition(v3HostAuthFailureMessage(from: unknownWire) ==
+            "Sign-in failed before completion. Copy Details to help identify the cause.\nError ID: SS-AUTH-C11-A00")
 
         precondition(v3ClassifyAuthError(NSError(domain: "SideSignErrorDomain", code: 20)) == .unknown)
         precondition(v3ClassifyAuthError(NSError(domain: "ALTServerErrorDomain", code: 20)) == .unknown)

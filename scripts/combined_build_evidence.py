@@ -48,6 +48,10 @@ V3_HOST_SOURCE_PATHS = [
 EMBEDDED_SOURCE_PATHS = [
     'SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift',
     'SideStore/Core/Certificates/CertificateManager.swift',
+    'AltStore/Core/Components/Keychain.swift',
+    'SideStore/Core/Anisette/AnisetteConfigManager.swift',
+    'SideStore/Core/Anisette/OnDeviceAnisetteManager.swift',
+    'SideStore/Core/Anisette/AnisetteProvider.swift',
     'SideStore/Core/Certificates/CodeSignValidator.swift',
     'AltStore/AppDelegate.swift', 'SideStore/Core/Operations/PipelineExecutor.swift',
     'SideStore/Core/Operations/PipelineRunner.swift',

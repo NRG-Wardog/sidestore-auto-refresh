@@ -241,6 +241,9 @@ print("standalone manifest privacy PASS")
                 "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
                 "SideStore/Utils/importexport/ImportExport.swift",
                 "SideStore/Core/Certificates/CertificateManager.swift",
+                "SideStore/Core/Anisette/AnisetteConfigManager.swift",
+                "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+                "SideStore/Core/Anisette/AnisetteProvider.swift",
             ]
             for relative in paths:
                 target = root / relative

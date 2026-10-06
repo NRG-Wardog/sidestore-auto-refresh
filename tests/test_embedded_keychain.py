@@ -200,6 +200,13 @@ func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<C
 }
 '''
 
+
+# Keep the production finite error available to standalone keychain harnesses.
+_error_source = (ROOT / "scripts/templates/combined_failure.swift").read_text()
+_error_start = _error_source.index("enum LCAnisettePairError:")
+_error_end = _error_source.index("\n}", _error_start) + len("\n}")
+DOUBLES += "\n" + _error_source[_error_start:_error_end] + "\n"
+
 HARNESS = r'''
 @main struct Tests {
     static func main() throws {
@@ -401,7 +408,7 @@ HARNESS = r'''
             // A legacy namespace can retain Anisette after its Apple login was
             // cleared. It is not a complete account migration source.
             let legacyID = Data("11111111-1111-1111-1111-111111111111".utf8)
-            let legacyBlob = Data("legacy-anisette-blob".utf8)
+            let legacyBlob = Data(Data("legacy-anisette-blob".utf8).base64EncodedString().utf8)
             let legacy = ["identifier": legacyID, "adiPb": legacyBlob]
             Store.data[Store.processGroup] = legacy
             if scenario == "anisette_signed_out_login_continuity" {
@@ -419,7 +426,7 @@ HARNESS = r'''
             }
             func resolveBlob() -> Data {
                 if let value = LCEmbeddedSharedKeychain.read("adiPb", client: client) { return value }
-                let provisioned = Data("selected-anisette-blob".utf8)
+                let provisioned = Data(Data("selected-anisette-blob".utf8).base64EncodedString().utf8)
                 LCEmbeddedSharedKeychain.write("adiPb", data: provisioned, client: client)
                 return provisioned
             }
@@ -441,9 +448,9 @@ HARNESS = r'''
                 "legacy Anisette is neither borrowed nor changed without coherent account migration")
         case "anisette_partial_selected_identity", "anisette_partial_selected_blob":
             let legacyID = Data("11111111-1111-1111-1111-111111111111".utf8)
-            let legacyBlob = Data("legacy-anisette-blob".utf8)
+            let legacyBlob = Data(Data("legacy-anisette-blob".utf8).base64EncodedString().utf8)
             let selectedID = Data("22222222-2222-2222-2222-222222222222".utf8)
-            let selectedBlob = Data("selected-anisette-blob".utf8)
+            let selectedBlob = Data(Data("selected-anisette-blob".utf8).base64EncodedString().utf8)
             Store.data[Store.processGroup] = ["identifier": legacyID, "adiPb": legacyBlob]
             let selectedKey = scenario == "anisette_partial_selected_identity" ? "identifier" : "adiPb"
             let missingKey = selectedKey == "identifier" ? "adiPb" : "identifier"
@@ -456,7 +463,7 @@ HARNESS = r'''
                 "never combine an Anisette identifier and blob from different keychain namespaces")
         case "anisette_complete_migration_preserved":
             let identifier = Data("11111111-1111-1111-1111-111111111111".utf8)
-            let blob = Data("legacy-anisette-blob".utf8)
+            let blob = Data(Data("legacy-anisette-blob".utf8).base64EncodedString().utf8)
             let legacy = login.merging(["identifier": identifier, "adiPb": blob]) { _, new in new }
             Store.data[Store.processGroup] = legacy
             let client = LCEmbeddedSharedKeychain.makeClient()
@@ -763,6 +770,7 @@ class EmbeddedKeychainTests(unittest.TestCase):
                 "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
                 "SideStore/Utils/importexport/ImportExport.swift",
                 "SideStore/Core/Certificates/CertificateManager.swift",
+                *module.ANISETTE_PATHS,
             )
             destinations = []
             for name in relatives:
@@ -877,6 +885,10 @@ class KeychainPatchGenerationTests(unittest.TestCase):
             throw error
         }
 }''', encoding="utf-8")
+            for relative in module.ANISETTE_PATHS:
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(read_pinned_source(source, relative), encoding="utf-8")
             module.patch(root)
             keychain, auth, sign_in, import_export, certificate = [p.read_text(encoding="utf-8") for p in paths]
             self.assertIn("LCEmbeddedSharedKeychain.readAuthenticationSnapshot(self.keychain)", keychain)

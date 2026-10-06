@@ -57,8 +57,8 @@ struct AuthErrorNuanceHarness {
                 stage: .authentication, id: UUID().uuidString)
             var wire = failure.wire
             wire["kind"] = kind.rawValue
-            precondition(v3HostAuthFailureMessage(from: wire)
-                .contains("could not be safely classified"))
+            precondition(v3HostAuthFailureMessage(from: wire) ==
+                "Sign-in failed before completion. Copy Details to help identify the cause.\nError ID: SS-AUTH-C11-A00")
             let safeOutput = failure.technicalDetails + String(describing: wire) +
                 v3HostAuthFailureMessage(from: wire)
             for marker in privateMarkers {

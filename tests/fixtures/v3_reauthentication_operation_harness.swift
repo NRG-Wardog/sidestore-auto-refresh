@@ -64,6 +64,7 @@ class BaseOperation {
 final class SignInOperation: BaseOperation {
     var v3ForceProvisioningRetry = false
     var v3RequireFullProvisioning = true
+    var v3RequireInteractiveCredentials = false
     var v3ReauthenticateAppleID: String? = "same@example.invalid"
     var v3ReauthenticationIdentityStamp: String? = "stamp:1"
     var v3DidCompleteProvisioning = false
@@ -106,6 +107,27 @@ final class SignInOperation: BaseOperation {
 @main
 struct ReauthenticationOperationHarness {
     static func main() async throws {
+        // The new manual flag independently prevents cached-success reuse,
+        // even when this caller does not request full provisioning explicitly.
+        let manual = SignInOperation()
+        manual.v3RequireInteractiveCredentials = true
+        manual.v3RequireFullProvisioning = false
+        manual.v3ReauthenticateAppleID = nil
+        _ = try await manual.execute(parentProgress: nil)
+        precondition(Harness.visits.first == "interactiveCredentials" &&
+            !Harness.visits.contains("silentSignIn") && !Harness.visits.contains("cachedAnisette"),
+            "manual credentials were bypassed by a cached or saved authentication route")
+        Harness.visits = []
+        // Provisioning resume is a separate operation, preserving its owned
+        // authenticated session and never requesting credentials or 2FA.
+        let resume = SignInOperation()
+        resume.v3ForceProvisioningRetry = true
+        resume.v3ReauthenticateAppleID = nil
+        _ = try await resume.execute(parentProgress: nil)
+        precondition(Harness.visits.first == "cachedAnisette" &&
+            !Harness.visits.contains("silentSignIn") && !Harness.visits.contains("interactiveCredentials"),
+            "provisioning resume replayed credentials")
+        Harness.visits = []
         // Existing account/team/certificate/session cannot short-circuit the
         // explicitly requested reauthentication and actual provisioning loop.
         let full = SignInOperation()

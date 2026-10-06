@@ -602,7 +602,7 @@ public struct CombinedFailure: Error, LocalizedError {
             case "device_registration":
                 guard text == "unobserved" else { return nil }
             case "typed_error":
-                guard ["sideSignServerReportedError", "sideSignBadResponse", "sideSignInvalidResponse", "sideSignMissingKey", "sideSignDeveloperPortalError", "keychainWrite", "keychainValidationFailed", "keychainOutcomeUnknown", "legacyMigrationConflict", "persistenceFailure", "persistenceOutcomeUnknown", "transportFailure", "anisetteFailure", "anisetteKitInvalidArgument", "anisetteKitLoaderFailed", "anisetteKitSymbolMissing", "anisetteKitReadFailure", "anisetteKitInvalidResponse", "anisetteKitADIError", "anisetteKitLibrariesNotFound", "anisetteKitHTTPError", "decodingTypeMismatch", "decodingValueNotFound", "decodingKeyNotFound", "decodingDataCorrupted", "archiveFileNotFound", "archiveCorrupt", "archiveReadFailed", "archiveWriteFailed", "archiveMissingApp", "unknownAccountFailure"].contains(text) else { return nil }
+                guard ["sideSignServerReportedError", "sideSignBadResponse", "sideSignInvalidResponse", "sideSignMissingKey", "sideSignDeveloperPortalError", "keychainWrite", "keychainValidationFailed", "keychainOutcomeUnknown", "legacyMigrationConflict", "persistenceFailure", "persistenceOutcomeUnknown", "transportFailure", "anisetteFailure", "anisetteKitInvalidArgument", "anisetteKitLoaderFailed", "anisetteKitSymbolMissing", "anisetteKitReadFailure", "anisetteKitInvalidResponse", "anisetteKitADIError", "anisetteKitLibrariesNotFound", "anisetteKitHTTPError", "decodingTypeMismatch", "decodingValueNotFound", "decodingKeyNotFound", "decodingDataCorrupted", "archiveFileNotFound", "archiveCorrupt", "archiveReadFailed", "archiveWriteFailed", "archiveMissingApp", "unknownAccountFailure", "anisetteIdentityStateInvalid"].contains(text) else { return nil }
             default: return nil
             }
         }
@@ -703,6 +703,7 @@ public struct CombinedFailure: Error, LocalizedError {
         }
     }
     public var message: String {
+        if signingContext["typed_error"] == "anisetteIdentityStateInvalid" { return LCAnisettePairError.safeMessage }
         if operation == "delete", code == .timedOut {
             return "SideStore could not confirm that the deleted app disappeared from its installed library."
         }
@@ -913,6 +914,7 @@ public struct CombinedFailure: Error, LocalizedError {
     }
 
     public var recovery: String {
+        if signingContext["typed_error"] == "anisetteIdentityStateInvalid" { return LCAnisettePairError.recovery }
         // V3_RESPONSE_CLASSIFICATION_CARRIER_V1: the two reply-level causes
         // outrank the catalog recovery for the same reason they outrank its
         // message. Repeating an unencodable request, or the same oversized one,
@@ -1260,6 +1262,10 @@ public struct CombinedFailure: Error, LocalizedError {
     public static func capture(_ error: Error, operation: String, stage: Stage, id: String,
                                retryable: Bool? = nil) -> CombinedFailure {
         if let known = error as? CombinedFailure { return known }
+        if error is LCAnisettePairError {
+            return V3AccountOperationError(step: .anisetteFetch, kind: .anisetteIdentityStateInvalid,
+                underlying: error, serverCode: nil).failure(operation: operation, id: id)
+        }
         // Generic non-auth consumers still see the original native evidence;
         // headless auth captures finite typed/phase detail before arriving here.
         if let phase = error as? V3AuthenticationPhaseError {
@@ -1436,6 +1442,16 @@ public struct CombinedFailure: Error, LocalizedError {
     }
 }
 
+// LC_ANISETTE_PAIR_FAILURE_V1: finite preservation failures only. Never attach
+// the identifier, provisioning blob, provider response, or Keychain bytes.
+enum LCAnisettePairError: Error, LocalizedError, Equatable {
+    case orphanedBlob, invalidIdentifier, invalidBlob, migrationPairConflict, stateChanged
+
+    static let safeMessage = "Sign-in is blocked because the saved Anisette identity state could not be verified."
+    static let recovery = "Keep the existing Anisette and account data unchanged. Copy Diagnostics for review before another sign-in."
+    var errorDescription: String? { Self.safeMessage }
+}
+
 // V3_AUTHENTICATION_PHASE_EVIDENCE_V1: preserve the original error for retry,
 // cancellation and typed matching; never store provider strings or payloads.
 struct V3AuthenticationPhaseError: Error {
@@ -1465,6 +1481,7 @@ struct V3AccountOperationError: Error, LocalizedError {
         case anisetteKitInvalidArgument, anisetteKitLoaderFailed, anisetteKitSymbolMissing, anisetteKitReadFailure, anisetteKitInvalidResponse, anisetteKitADIError, anisetteKitLibrariesNotFound, anisetteKitHTTPError, decodingTypeMismatch, decodingValueNotFound, decodingKeyNotFound, decodingDataCorrupted
         case archiveFileNotFound, archiveCorrupt, archiveReadFailed, archiveWriteFailed, archiveMissingApp
         case unknownAccountFailure
+        case anisetteIdentityStateInvalid
     }
     let step: CombinedFailure.SourceStep
     let kind: Kind
@@ -1473,7 +1490,7 @@ struct V3AccountOperationError: Error, LocalizedError {
     var httpStatus: Int? = nil
 
     var errorDescription: String? { "An account operation failed; review the safe diagnostics." }
-    var credentialCommit: Bool { step == .credentialCommit }
+    var credentialCommit: Bool { step == .credentialCommit && kind != .anisetteIdentityStateInvalid }
     // Apple Developer Portal result 1100 rejects the portal session. Scope this
     // to the observed team-list boundary; an NSError bridge code is not proof.
     var portalSessionRejected: Bool {
@@ -1483,6 +1500,7 @@ struct V3AccountOperationError: Error, LocalizedError {
         kind == .keychainOutcomeUnknown || kind == .persistenceOutcomeUnknown
     }
     var failureStage: CombinedFailure.Stage {
+        if kind == .anisetteIdentityStateInvalid { return .authentication }
         switch step {
         case .credentialCommit, .saveAccount, .activateAccount, .activateCertificate: return .persistence
         case .authenticate, .anisetteFetch, .appleAuthentication, .accountLookup: return .authentication
@@ -1492,7 +1510,8 @@ struct V3AccountOperationError: Error, LocalizedError {
     func failure(operation: String, id: String) -> CombinedFailure {
         let native = underlying as NSError
         let safeCause: CombinedFailure.SafeCause?
-        if credentialCommit {
+        if kind == .anisetteIdentityStateInvalid { safeCause = nil }
+        else if credentialCommit {
             safeCause = kind == .keychainOutcomeUnknown ? .credentialCommitOutcomeUnknown : .credentialCommitFailed
         } else if step == .activateAccount { safeCause = .accountActivationFailed }
         else if step == .activateCertificate || step == .saveAccount { safeCause = .provisioningStorageFailed }
@@ -1501,8 +1520,9 @@ struct V3AccountOperationError: Error, LocalizedError {
         // HTTP status remains unavailable unless a typed producer observes it.
         return CombinedFailure(operation: operation, stage: failureStage, id: id,
             underlying: NSError(domain: native.domain, code: native.code),
-            retryable: safeCause != nil || portalSessionRejected ? false : nil, safeCause: safeCause,
-            sourceStep: step, signingContext: ["typed_error": kind.rawValue,
+            retryable: safeCause != nil || portalSessionRejected || kind == .anisetteIdentityStateInvalid ? false : nil, safeCause: safeCause,
+            sourceStep: kind == .anisetteIdentityStateInvalid ? .anisetteFetch : step,
+            signingContext: ["typed_error": kind.rawValue,
                 "server_code": serverCode.map(String.init) ?? "unknown", "http_status": httpStatus.map(String.init) ?? "unavailable"])
     }
 }
@@ -1786,6 +1806,7 @@ extension CombinedFailure {
         case "archiveWriteFailed": return "T29"
         case "archiveMissingApp": return "T30"
         case "unknownAccountFailure": return "T31"
+        case "anisetteIdentityStateInvalid": return "T32"
         default: return nil
         }
     }

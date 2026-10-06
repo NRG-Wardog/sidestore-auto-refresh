@@ -304,11 +304,11 @@ struct ResponseClassificationHarness {
 
         // Each of the three reply defects has its own user-facing wording, so a
         // support reader can tell them apart without the diagnostics.
-        precondition(encodingFailure.safeMessage != oversizeFailure.safeMessage,
+        precondition(encodingFailure.message != oversizeFailure.message,
                      "an encoding failure and an oversize reply must read differently")
         precondition(encodingFailure.recovery != oversizeFailure.recovery,
                      "their recovery guidance must differ too")
-        precondition(oversizeFailure.safeMessage
+        precondition(oversizeFailure.message
                      != "SideStore could not read this source's saved catalog data.",
                      "an oversize reply must not be described as a catalog read failure")
 

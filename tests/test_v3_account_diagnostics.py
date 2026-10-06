@@ -56,7 +56,7 @@ def diagnostic_sources():
     return '\n'.join((
         (ROOT / 'scripts/templates/v3_wire_contract.swift').read_text(),
         (ROOT / 'scripts/templates/combined_failure.swift').read_text(),
-        classifier, message,
+        classifier, declaration(runtime, 'enum V3AuthFailureDisplay {'), message,
         (ROOT / 'scripts/templates/v3_behavioral_primitives.swift').read_text(), stub_errors))
 
 
@@ -75,6 +75,61 @@ class AccountDiagnosticTests(unittest.TestCase):
             executed = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30)
             self.assertEqual(executed.returncode, 0, executed.stderr)
             self.assertIn('PASS', executed.stdout)
+
+    def test_anisette_pair_failures_keep_finite_shared_definition_and_blocked_guidance(self):
+        common = (ROOT / 'scripts/templates/combined_failure.swift').read_text()
+        runtime = (ROOT / 'scripts/templates/v3_headless_runtime.swift').read_text()
+        shell = (ROOT / 'scripts/templates/v3_unified_shell.swift').read_text()
+        primitives = (ROOT / 'scripts/templates/v3_behavioral_primitives.swift').read_text()
+        error = declaration(common, 'enum LCAnisettePairError:')
+        self.assertIn('Error, LocalizedError, Equatable', error)
+        cases = re.findall(r'\bcase\s+([^\n]+)', error)
+        self.assertEqual(cases, ['orphanedBlob, invalidIdentifier, invalidBlob, migrationPairConflict, stateChanged'])
+        self.assertLess(common.index('enum LCAnisettePairError:'), common.index('struct V3AuthenticationPhaseError:'))
+        sources = diagnostic_sources()
+        self.assertEqual(sources.count('enum LCAnisettePairError:'), 1)
+        self.assertIn('if error is LCAnisettePairError { kind = .anisetteIdentityStateInvalid }', runtime)
+        self.assertIn('if v3AccountUnderlyingError(error) is LCAnisettePairError { return .anisetteIdentityStateInvalid }', runtime)
+        capture = declaration(common, '    public static func capture(')
+        self.assertIn('if error is LCAnisettePairError', capture)
+        self.assertLess(capture.index('if error is LCAnisettePairError'), capture.index('var cause = error as NSError'))
+        account_error = declaration(common, 'struct V3AccountOperationError:')
+        self.assertIn('kind == .anisetteIdentityStateInvalid ? false : nil', account_error)
+        self.assertIn('step == .credentialCommit && kind != .anisetteIdentityStateInvalid', account_error)
+        self.assertIn('sourceStep: kind == .anisetteIdentityStateInvalid ? .anisetteFetch : step', account_error)
+        for text, anchor in ((runtime, 'enum V3AuthFailureDisplay {'),
+                             (shell, '    static func failureMessage(from failure: [String: Any]) -> String {')):
+            self.assertIn('case "anisetteIdentityStateInvalid": return LCAnisettePairError.safeMessage', declaration(text, anchor))
+        policy = declaration(primitives, 'enum V3AuthTerminalFailureActionPolicy {')
+        self.assertIn('"anisetteIdentityStateInvalid": return .blocked', policy)
+        self.assertIn('if kind == "anisetteIdentityStateInvalid" { return LCAnisettePairError.recovery }', policy)
+        self.assertIn('Keep the existing Anisette and account data unchanged', error)
+        for misleading in ('password', 'internet', 'server', 'reset', 'delete', 'Apple authentication succeeded'):
+            self.assertNotIn(misleading, error)
+
+    def test_pair_failure_blocks_authenticated_provisioning_retry_and_reauthentication(self):
+        runtime = (ROOT / 'scripts/templates/v3_headless_runtime.swift').read_text()
+        shell = (ROOT / 'scripts/templates/v3_unified_shell.swift').read_text()
+        primitives = (ROOT / 'scripts/templates/v3_behavioral_primitives.swift').read_text()
+        post_auth = declaration(runtime, '    func run(id: String) async').split(
+            'if authenticatedOutcome == "authenticatedProvisioningIncomplete" {', 1)[1].split('} else if cancelled {', 1)[0]
+        self.assertIn('let anisetteIdentityStateInvalid = failure.signingContext["typed_error"] == "anisetteIdentityStateInvalid"', post_auth)
+        self.assertIn('provisioningRecoveryRequiresReconciliation || anisetteIdentityStateInvalid', post_auth)
+        self.assertIn('!provisioningRecoveryRequiresReconciliation && !anisetteIdentityStateInvalid', post_auth)
+        self.assertIn('LCAnisettePairError.safeMessage + " " + LCAnisettePairError.recovery', post_auth)
+        self.assertIn('failureWire["kind"] = "anisetteIdentityStateInvalid"', post_auth)
+        for signature in ('    var provisioningRecoveryActions:', '    var canRetryProvisioning:'):
+            self.assertIn('identityStateBlocked: provisioningIdentityStateBlocked', declaration(shell, signature))
+        self.assertIn('provisioningIdentityStateBlocked = false', declaration(shell, '    private func clearProvisioningOutcome()'))
+        self.assertIn('!provisioningRetryAvailable && !provisioningIdentityStateBlocked', shell)
+        reconcile = declaration(shell, '    func reconcile(force:')
+        self.assertIn('if provisioningIdentityStateBlocked {', reconcile)
+        preserved = reconcile.split('if provisioningIdentityStateBlocked {', 1)[1].split('} else if', 1)[0]
+        self.assertIn('provisioningRetryAvailable = false', preserved)
+        self.assertNotIn('provisioningMessage =', preserved)
+        policy = declaration(primitives, 'enum V3AuthProvisioningRecoveryPolicy {')
+        self.assertIn('let retryAllowed = !identityStateBlocked', policy)
+        self.assertIn('showReauthenticateProvisioning: !identityStateBlocked', policy)
 
     def test_readiness_vocabulary_matches_production_failure_enums(self):
         # Run this contract check on Linux too; missing wire vocabulary must not

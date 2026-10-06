@@ -301,6 +301,7 @@ enum V3AuthFailureKind: String, Equatable {
     case accountRepairRequired
     case credentialStorage, credentialStorageUncertain
     case accountIdentityMismatch
+    case anisetteIdentityStateInvalid
     case unknown
 }
 
@@ -310,7 +311,7 @@ func v3AuthFailureStage(_ kind: V3AuthFailureKind) -> CombinedFailure.Stage {
     switch kind {
     // The wire stage enum intentionally keeps authentication failures under
     // authentication; failureKind preserves the precise Anisette meaning.
-    case .anisette: return .authentication
+    case .anisette, .anisetteIdentityStateInvalid: return .authentication
     case .network: return .network
     case .credentialStorage, .credentialStorageUncertain: return .persistence
     case .unknown: return .provisioning
@@ -354,7 +355,8 @@ func v3AccountOperationFailure(_ error: Error, step: CombinedFailure.SourceStep)
     let kind: V3AccountOperationError.Kind
     var httpStatus: Int?
     var serverCode: Int?
-    if error is V3AccountDatabaseOutcomeUnknownError { kind = .persistenceOutcomeUnknown }
+    if error is LCAnisettePairError { kind = .anisetteIdentityStateInvalid }
+    else if error is V3AccountDatabaseOutcomeUnknownError { kind = .persistenceOutcomeUnknown }
     else if let server = error as? ServerError {
         switch server {
         case .underlyingError(let code, _): kind = .sideSignServerReportedError; serverCode = code
@@ -408,7 +410,8 @@ func v3AccountOperationFailure(_ error: Error, step: CombinedFailure.SourceStep)
             else { kind = .unknownAccountFailure }
         }
     }
-    return V3AccountOperationError(step: step, kind: kind, underlying: error, serverCode: serverCode, httpStatus: httpStatus)
+    return V3AccountOperationError(step: kind == .anisetteIdentityStateInvalid ? .anisetteFetch : step,
+        kind: kind, underlying: error, serverCode: serverCode, httpStatus: httpStatus)
 }
 
 // Both terminal routes (including cached/provisioning-resume paths that never
@@ -434,6 +437,7 @@ func v3AccountUnderlyingError(_ error: Error) -> Error {
 }
 
 func v3ClassifyAuthError(_ error: Error) -> V3AuthFailureKind? {
+    if v3AccountUnderlyingError(error) is LCAnisettePairError { return .anisetteIdentityStateInvalid }
     if let local = error as? V3AccountOperationError, local.credentialCommit {
         return local.kind == .keychainOutcomeUnknown ? .credentialStorageUncertain : .credentialStorage
     }
@@ -955,6 +959,7 @@ final class V3AuthCenter {
             let operation = try SignInOperation(context: context, signInHandler: handler,
                 anisetteServerHandler: handler, v3ForceProvisioningRetry: forceProvisioningRetry,
                 v3RequireFullProvisioning: true,
+                v3RequireInteractiveCredentials: sessions[id]?.mode == .interactive,
                 v3ReauthenticateAppleID: sessions[id]?.reauthenticationAppleID,
                 v3ReauthenticationIdentityStamp: sessions[id]?.reauthenticationIdentityStamp)
             let result = try await operation.execute()
@@ -1042,7 +1047,9 @@ final class V3AuthCenter {
                         id: id, retryable: cancelled)
                 }
                 var failureWire = failure.wire
-                if resumeUnavailable || portalSessionRejected || provisioningRecoveryRequiresReconciliation {
+                let anisetteIdentityStateInvalid = failure.signingContext["typed_error"] == "anisetteIdentityStateInvalid"
+                if anisetteIdentityStateInvalid { failureWire["kind"] = "anisetteIdentityStateInvalid" }
+                if resumeUnavailable || portalSessionRejected || provisioningRecoveryRequiresReconciliation || anisetteIdentityStateInvalid {
                     resumableProvisioning = nil
                 } else if let resumableAppleID = V3ProvisioningResumeIdentityPolicy.select(
                     authenticatedSessionAppleID: session?.authenticatedAppleID,
@@ -1051,14 +1058,16 @@ final class V3AuthCenter {
                 } else {
                     resumableProvisioning = nil
                 }
-                let message = portalSessionRejected
+                let message = anisetteIdentityStateInvalid
+                    ? LCAnisettePairError.safeMessage + " " + LCAnisettePairError.recovery
+                    : portalSessionRejected
                     ? "Apple rejected the developer-portal session while loading your teams (1100). Sign in again to finish setup."
                     : postAuthentication.message
                 var response: [String: Any] = [
                     "state": authenticatedOutcome,
                     "authenticated": true,
                     "outcome": cancelled ? "provisioningCancelled" : "provisioningFailed",
-                    "resumable": tokenBackedRoute && !resumeUnavailable && !portalSessionRejected && !provisioningRecoveryRequiresReconciliation,
+                    "resumable": tokenBackedRoute && !resumeUnavailable && !portalSessionRejected && !provisioningRecoveryRequiresReconciliation && !anisetteIdentityStateInvalid,
                     "message": message,
                     "stage": failure.stage.rawValue,
                     "code": failure.code.rawValue,
@@ -1258,6 +1267,7 @@ enum V3AuthFailureDisplay {
         case "invalidCode": return "The verification code was not accepted. Enter a new code and try again."
         case "rateLimited": return "Too many authentication attempts. Apple is temporarily rate-limiting requests. Wait before trying again."
         case "serviceUnavailable": return "Apple's authentication service is temporarily unavailable. Try again later."
+        case "anisetteIdentityStateInvalid": return LCAnisettePairError.safeMessage
         case "anisette": return "Authentication could not obtain valid Anisette data."
         case "network": return "Authentication could not reach the required Apple service. Check the connection and try again."
         case "accountRepairRequired": return "Apple requires attention on this account before signing in."

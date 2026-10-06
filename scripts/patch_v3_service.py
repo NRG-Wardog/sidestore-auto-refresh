@@ -2117,6 +2117,8 @@ def patch_sign_in_operation(text):
             "v3ForceProvisioningRetry: Bool",
             "V3_PROVISIONING_REAUTHENTICATION_V1",
             "v3RequireFullProvisioning: Bool",
+            "v3RequireInteractiveCredentials: Bool",
+            "!self.v3RequireInteractiveCredentials && self.v3ReauthenticateAppleID == nil",
             "v3ValidateReauthenticationIdentity",
             "v3DidCompleteProvisioning",
             "V3ProvisioningResumeExecutionPolicy.mayUseCachedSignIn",
@@ -2151,6 +2153,8 @@ def patch_sign_in_operation(text):
         "    let v3ForceProvisioningRetry: Bool\n"
         "    // V3_PROVISIONING_REAUTHENTICATION_V1\n"
         "    let v3RequireFullProvisioning: Bool\n"
+        "    // V3_EXPLICIT_SIGNIN_CREDENTIALS_V1: manual sign-in never replays saved credentials.\n"
+        "    let v3RequireInteractiveCredentials: Bool\n"
         "    let v3ReauthenticateAppleID: String?\n"
         "    let v3ReauthenticationIdentityStamp: String?\n"
         "    private(set) var v3DidCompleteProvisioning = false\n")
@@ -2159,6 +2163,7 @@ def patch_sign_in_operation(text):
         "        skipCertificateProvisioning: Bool = false,\n"
         "        v3ForceProvisioningRetry: Bool = false,\n"
         "        v3RequireFullProvisioning: Bool = false,\n"
+        "        v3RequireInteractiveCredentials: Bool = false,\n"
         "        v3ReauthenticateAppleID: String? = nil,\n"
         "        v3ReauthenticationIdentityStamp: String? = nil\n")
     text = replace(text,
@@ -2166,6 +2171,7 @@ def patch_sign_in_operation(text):
         "        self.skipCertificateProvisioning = skipCertificateProvisioning\n"
         "        self.v3ForceProvisioningRetry = v3ForceProvisioningRetry\n"
         "        self.v3RequireFullProvisioning = v3RequireFullProvisioning\n"
+        "        self.v3RequireInteractiveCredentials = v3RequireInteractiveCredentials\n"
         "        self.v3ReauthenticateAppleID = v3ReauthenticateAppleID\n"
         "        self.v3ReauthenticationIdentityStamp = v3ReauthenticationIdentityStamp\n")
     text = replace(text,
@@ -2214,6 +2220,7 @@ def patch_sign_in_operation(text):
         "            } else if V3ProvisioningResumeExecutionPolicy.mayUseCachedSignIn(\n"
         "                forceProvisioningRetry: self.v3ForceProvisioningRetry,\n"
         "                requireFullProvisioning: self.v3RequireFullProvisioning),\n"
+        "               !self.v3RequireInteractiveCredentials,\n"
         "               var session = AuthManager.shared.session,\n")
     text = replace(text,
         "               var session = AuthManager.shared.session,\n"
@@ -2227,7 +2234,9 @@ def patch_sign_in_operation(text):
         "        } else {\n"
         "            try await self.authenticationLoop()\n"
         "        }\n",
-        "        let silentResult = self.v3ReauthenticateAppleID == nil ? try await self.silentSignIn() : nil\n"
+        "        // Explicit credentials own this attempt; saved routes remain available to background callers.\n"
+        "        let silentResult = !self.v3RequireInteractiveCredentials && self.v3ReauthenticateAppleID == nil\n"
+        "            ? try await self.silentSignIn() : nil\n"
         "        let (account, session) = if let silentResult {\n"
         "            silentResult\n"
         "        } else if V3ProvisioningResumeExecutionPolicy.mayPromptForCredentials(\n"
@@ -2266,6 +2275,7 @@ def patch_sign_in_operation(text):
         "                await handler.handleSignInResult(.failure(error))\n"
         "                // A local commit failure must reconcile, never replay Apple login.\n"
         "                if let local = error as? V3AccountOperationError, local.credentialCommit { throw local }\n"
+        "                if v3ClassifyAuthError(error)?.rawValue == \"anisetteIdentityStateInvalid\" { throw error }\n"
         "                if V3TwoFactorRetryPolicy.shouldReuseCredentialsForCodeRetry(\n"
         "                    authFailureKind: v3ClassifyAuthError(error)?.rawValue) {\n"
         "                    retryCredentials = (appleID, password)\n"

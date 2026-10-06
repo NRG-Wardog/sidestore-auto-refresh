@@ -21,6 +21,12 @@ IMPORT_EXPORT_SNAPSHOT_MARKER = "LC_IMPORT_EXPORT_CREDENTIAL_SNAPSHOT_V1"
 IMPORT_EXPORT_HEADLESS_MARKER = "LC_HEADLESS_IMPORT_EXPORT_UI_REMOVED_V1"
 TEMPLATE = Path(__file__).parent / "templates/embedded_shared_keychain.swift"
 KEYCHAIN_ACCESS_ADAPTER = '''extension Keychain {
+    func resolveAnisetteSnapshot() throws -> LCEmbeddedAnisetteSnapshot {
+        try LCEmbeddedSharedKeychain.resolveAnisetteSnapshot(self.keychain)
+    }
+    func commitAnisetteBlob(_ blob: Data, snapshot: LCEmbeddedAnisetteSnapshot) throws {
+        try LCEmbeddedSharedKeychain.commitAnisetteBlob(blob, snapshot: snapshot, client: self.keychain)
+    }
     func authenticationSnapshot() throws -> LCEmbeddedAuthenticationSnapshot? {
         try LCEmbeddedSharedKeychain.readAuthenticationSnapshot(self.keychain)
     }
@@ -58,8 +64,9 @@ KEYCHAIN_ACCESS_ADAPTER = '''extension Keychain {
     func clearSignInInfoChecked() throws {
         try LCEmbeddedSharedKeychain.clearSignInInfoChecked(self.keychain)
     }
-    func embeddedAuthenticationFailure(_ error: Error) -> NSError {
-        LCEmbeddedSharedKeychain.authenticationFailure(for: error)
+    func embeddedAuthenticationFailure(_ error: Error) -> Error {
+        if error is LCAnisettePairError { return error }
+        return LCEmbeddedSharedKeychain.authenticationFailure(for: error)
     }
 }'''
 
@@ -259,6 +266,7 @@ def patch_sign_in_operation(text: str) -> str:
         '            } catch {\n                self.debugLog("[SignInOperation] Token authentication failed: \\(error)")',
         '            } catch {\n'
         '                if error is V3AccountOperationError { throw error }\n'
+        '                if let phase = error as? V3AuthenticationPhaseError, phase.underlying is LCAnisettePairError { throw error }\n'
         '                if self.isCancelled || Task.isCancelled || error is CancellationError { throw OperationError.cancelled }\n'
         '                self.debugLog("[V3_AUTH] saved_token_verification_failed")')
     section = once(section,
@@ -271,6 +279,8 @@ def patch_sign_in_operation(text: str) -> str:
     saved_prefix = section[:saved_catch]
     if "if error is V3AccountOperationError" not in saved_prefix[saved_prefix.rfind("} catch {"):]:
         section = section[:saved_catch] + "if error is V3AccountOperationError { throw error }\n                " + section[saved_catch:]
+    saved_catch = section.index('self.debugLog("[SignInOperation] Saved password authentication failed:')
+    section = section[:saved_catch] + "if let phase = error as? V3AuthenticationPhaseError, phase.underlying is LCAnisettePairError { throw error }\n                " + section[saved_catch:]
     text = text[:start] + section + text[end:]
     text = once(text,
         "    private func signIn(appleID: String, password: String) async throws -> (ALTAccount, ALTAppleAPISession) {",
@@ -477,6 +487,85 @@ def patch_certificate_manager(text: str) -> str:
     return text
 
 
+
+ANISETTE_PAIR_MARKER = "LC_ANISETTE_PAIR_PRECONDITION_V1"
+ANISETTE_PATHS = (
+    "SideStore/Core/Anisette/AnisetteConfigManager.swift",
+    "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+    "SideStore/Core/Anisette/AnisetteProvider.swift",
+)
+
+
+def patch_anisette_config(text: str) -> str:
+    replacement = '''    // LC_ANISETTE_PAIR_PRECONDITION_V1
+    public func resolveDeviceIdentifier() throws -> UUID {
+        try resolveAnisetteSnapshot().identifier
+    }
+
+    func resolveAnisetteSnapshot() throws -> LCEmbeddedAnisetteSnapshot {
+        try Keychain.shared.resolveAnisetteSnapshot()
+    }
+
+    func commitAnisetteBlob(_ blob: Data, snapshot: LCEmbeddedAnisetteSnapshot) throws {
+        try Keychain.shared.commitAnisetteBlob(blob, snapshot: snapshot)
+    }'''
+    if ANISETTE_PAIR_MARKER in text:
+        if replacement not in text:
+            raise ValueError("embedded anisette: changed resolver precondition")
+        return text
+    old = '''    public func resolveDeviceIdentifier() -> UUID {
+        if let storedId = anisetteIdentifier, !storedId.isEmpty {
+            if let parsed = UUID(uuidString: storedId) {
+                return parsed
+            }
+            if let data = Data(base64Encoded: storedId), data.count == 16 {
+                let uuid = data.withUnsafeBytes { UUID(uuid: $0.load(as: uuid_t.self)) }
+                return uuid
+            }
+        }
+        let generated = UUID()
+        anisetteIdentifier = generated.uuidString
+        return generated
+    }'''
+    return once(text, old, replacement)
+
+
+def patch_anisette_provider(text: str, *, on_device: bool) -> str:
+    if ANISETTE_PAIR_MARKER in text:
+        if ("let anisetteSnapshot = try await AnisetteConfigManager.shared.resolveAnisetteSnapshot()" not in text or
+                "try await AnisetteConfigManager.shared.commitAnisetteBlob(freshBlob, snapshot: anisetteSnapshot)" not in text or
+                "AnisetteConfigManager.shared.anisetteAdiBlob" in text or
+                "AnisetteConfigManager.shared.resolveDeviceIdentifier()" in text):
+            raise ValueError("embedded anisette: provider does not consume one guarded snapshot")
+        return text
+    if on_device:
+        old = '''        let identifierUUID = await AnisetteConfigManager.shared.resolveDeviceIdentifier()
+
+        var existingAdiPbData: Data? = nil
+        if let base64Blob = AnisetteConfigManager.shared.anisetteAdiBlob,
+           let decoded = Data(base64Encoded: base64Blob, options: .ignoreUnknownCharacters),
+           !decoded.isEmpty {
+            existingAdiPbData = decoded
+            debugLog("[OnDeviceAnisetteManager] [Fetch] Reusing existing adi.pb from Keychain (\\(decoded.count) bytes)")
+        } else {
+            debugLog("[OnDeviceAnisetteManager] [Fetch] No existing adi.pb in Keychain -> local in-memory provisioning will be performed")
+        }'''
+        new = '''        // LC_ANISETTE_PAIR_PRECONDITION_V1
+        let anisetteSnapshot = try await AnisetteConfigManager.shared.resolveAnisetteSnapshot()
+        let identifierUUID = anisetteSnapshot.identifier
+        let existingAdiPbData = anisetteSnapshot.adiBlob'''
+    else:
+        old = '''        let existingBlob = AnisetteConfigManager.shared.anisetteAdiBlob.flatMap { Data(base64Encoded: $0) }
+        let identifier = await AnisetteConfigManager.shared.resolveDeviceIdentifier()'''
+        new = '''        // LC_ANISETTE_PAIR_PRECONDITION_V1
+        let anisetteSnapshot = try await AnisetteConfigManager.shared.resolveAnisetteSnapshot()
+        let existingBlob = anisetteSnapshot.adiBlob
+        let identifier = anisetteSnapshot.identifier'''
+    text = once(text, old, new)
+    return once(text, "AnisetteConfigManager.shared.anisetteAdiBlob = freshBlob.base64EncodedString()",
+        "try await AnisetteConfigManager.shared.commitAnisetteBlob(freshBlob, snapshot: anisetteSnapshot)")
+
+
 def patch(root: Path) -> None:
     path = root / "AltStore/Core/Components/Keychain.swift"
     operation = root / "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
@@ -490,6 +579,10 @@ def patch(root: Path) -> None:
     sign_in_text = sign_in.read_text(encoding="utf-8")
     import_export_text = import_export.read_text(encoding="utf-8")
     certificate_text = patch_certificate_manager(certificate_manager.read_text(encoding="utf-8"))
+    anisette_paths = [root / relative for relative in ANISETTE_PATHS]
+    anisette_texts = [patch_anisette_config(anisette_paths[0].read_text(encoding="utf-8")),
+        patch_anisette_provider(anisette_paths[1].read_text(encoding="utf-8"), on_device=True),
+        patch_anisette_provider(anisette_paths[2].read_text(encoding="utf-8"), on_device=False)]
     helper = TEMPLATE.read_text(encoding="utf-8")
     if MARKER not in text:
         text = once(text, "import Foundation\n", "import Foundation\nimport Security\n#if canImport(Darwin)\nimport Darwin\n#elseif canImport(Glibc)\nimport Glibc\n#endif\n")
@@ -523,12 +616,12 @@ def patch(root: Path) -> None:
         text += "\n" + helper + "\n" + KEYCHAIN_ACCESS_ADAPTER + "\n"
     elif (helper not in text or "func writeAuthenticationCredentials(appleID: String, password: String," not in text or
           "func authenticationSnapshot() throws -> LCEmbeddedAuthenticationSnapshot?" not in text or
-          "func embeddedAuthenticationFailure(_ error: Error) -> NSError" not in text):
+          "func embeddedAuthenticationFailure(_ error: Error) -> Error" not in text):
         missing = [name for name, present in (
             ("helper", helper in text),
             ("bulk auth writer", "func writeAuthenticationCredentials(appleID: String, password: String," in text),
             ("auth snapshot bridge", "func authenticationSnapshot() throws -> LCEmbeddedAuthenticationSnapshot?" in text),
-            ("error-aware auth failure bridge", "func embeddedAuthenticationFailure(_ error: Error) -> NSError" in text),
+            ("error-aware auth failure bridge", "func embeddedAuthenticationFailure(_ error: Error) -> Error" in text),
         ) if not present]
         raise ValueError("outdated shared keychain patch: missing " + ", ".join(missing))
     op = patch_background_auth_snapshot(operation.read_text(encoding="utf-8"))
@@ -560,8 +653,10 @@ def patch(root: Path) -> None:
     sign_in.write_text(sign_in_text, encoding="utf-8")
     import_export.write_text(import_export_text, encoding="utf-8")
     certificate_manager.write_text(certificate_text, encoding="utf-8")
+    for anisette_path, anisette_text in zip(anisette_paths, anisette_texts):
+        anisette_path.write_text(anisette_text, encoding="utf-8")
     if compiler := shutil.which("swiftc"):
-        for file in (path, operation, auth_manager, sign_in, import_export, certificate_manager):
+        for file in (path, operation, auth_manager, sign_in, import_export, certificate_manager, *anisette_paths):
             subprocess.run([compiler, "-frontend", "-parse", str(file)], check=True)
 
 

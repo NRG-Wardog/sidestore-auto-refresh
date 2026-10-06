@@ -124,6 +124,7 @@ def declarations_for_harness(auth: str, sign_in: str, coalescer: str) -> str:
     sign_in_fields = """
     let v3ForceProvisioningRetry = false
     let v3RequireFullProvisioning = false
+    let v3RequireInteractiveCredentials = false
     let skipCertificateProvisioning = true
     var isCancelled = false
     var cachedPathAnisetteCalls = 0
