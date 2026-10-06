@@ -1364,13 +1364,13 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
     }
 
     private func chooseDeliveryMethod(phoneNumbers: [TrustedPhoneNumber]) async throws -> TwoFactorResponse {
-        var methods: [[String: String]] = [
+        let methods: [[String: String]] = [
             ["id": "trustedDevice", "label": "Use Trusted Device"],
             ["id": "sms", "label": "Send SMS"],
             ["id": "voice", "label": "Request Voice Call"],
             ["id": "cancel", "label": "Cancel Sign In"]
         ]
-        if phoneNumbers.isEmpty { methods.removeAll { ["sms", "voice"].contains($0["id"] ?? "") } }
+        // Empty lists still support Apple's default phone target, as in the original handler.
         let priorKind = V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure?["kind"] as? String
         let message = V3TwoFactorRetryPolicy.recoveryMessage(authFailureKind: priorKind)
             ?? "Choose how Apple should send your verification code."
@@ -1427,19 +1427,30 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
         }
         let priorKind = V3HeadlessRuntime.shared.auth.sessions[sessionID]?.previousFailure?["kind"] as? String
         let message = failure?.userMessage ?? V3TwoFactorRetryPolicy.recoveryMessage(authFailureKind: priorKind) ?? acknowledgement
+        var options = [["id": "changeMethod", "label": "Change Verification Method"],
+                       ["id": "cancel", "label": "Cancel Sign In"]]
+        if mode != .trustedDevice {
+            options.insert(["id": "resend", "label": mode == .sms ? "Resend SMS" : "Call Again"], at: 0)
+        }
         let answer = try await ask(kind: "twoFactor", title: "Enter Verification Code", message: message,
             fields: [["key": "step", "label": "step", "secure": "false", "value": V3TwoFactorStep.afterDelivery(mode.rawValue)?.rawValue ?? V3TwoFactorStep.enterVerificationCode.rawValue],
                      ["key": "mode", "label": "mode", "secure": "false", "value": mode.rawValue],
                      ["key": "activeID", "label": "activeID", "secure": "false", "value": activeID],
                      ["key": "code", "label": "Verification code", "secure": "false"]],
-            options: [["id": "changeMethod", "label": "Change Verification Method"],
-                      ["id": "cancel", "label": "Cancel Sign In"]])
+            options: options)
         switch answer["action"] {
         case "code":
-            guard let code = answer["code"], !code.isEmpty else { return try await enterVerificationCode(
+            guard let code = answer["code"], code.count == 6 else { return try await enterVerificationCode(
                 mode: mode, phoneNumbers: phoneNumbers, activeID: activeID, failure: .unknown) }
             debugLog("[V3_AUTH] 2FA_CODE_SUBMITTED")
             return .verificationCode(code)
+        case "resend":
+            // Only this explicit answer requests another delivery, to the active target.
+            switch mode {
+            case .sms: return .requestSMS(phoneID: activeID)
+            case .voice: return .requestVoice(phoneID: activeID)
+            case .trustedDevice: return .cancel
+            }
         case "changeMethod": return try await chooseDeliveryMethod(phoneNumbers: phoneNumbers)
         default: return .cancel
         }

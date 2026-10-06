@@ -1853,7 +1853,7 @@ import Foundation
 
     def test_workflow_verifies_exact_pinned_signin_and_headless_adapter_patches(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
-        self.assertIn("SideStore/Core/Anisette", workflow)
+        self.assertIn("python3 builder/scripts/verify_prepared_anisette.py work/EmbeddedSideStore", workflow)
         self.assertIn("AltStore/Managing Apps/AppManager.swift", workflow)
         auth_allowlist = workflow[workflow.index("expected_auth=$(printf"):workflow.index('test "$actual_auth" = "$expected_auth"')]
         self.assertIn("'SideStore/Core/Auth/DeveloperPortalProxy.swift'", auth_allowlist)

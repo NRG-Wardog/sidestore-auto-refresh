@@ -187,10 +187,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # SideSign, Anisette and auth protocol stay upstream-owned. The only
-          # Core Auth/AppManager changes remove presenter-only UI adapters from
-          # the headless target and are checked against exact pinned transforms.
-          git -C work/EmbeddedSideStore diff --exit-code -- SideStore/Core/Anisette
+          # Protocol sources stay pinned. Verify the three bounded Anisette
+          # adapters against exact transforms of pinned Git objects, and keep
+          # every other Anisette file byte-identical with no added files.
+          python3 builder/scripts/verify_prepared_anisette.py work/EmbeddedSideStore
           expected_auth=$(printf '%s\n' \
             'AltStore/Managing Apps/AppManager.swift' \
             'SideStore/Core/Auth/AuthManager.swift' \

@@ -67,8 +67,18 @@ class V3TwoFactorTests(unittest.TestCase):
         fn = text[text.index("func verificationCode"):]
         fn = fn[:fn.index("func accountRepair")]
         for forbidden in ("while true", "Timer", "DispatchQueue.main.asyncAfter",
-                          "Task.sleep", "resend"):
+                          "Task.sleep"):
             self.assertNotIn(forbidden, fn)
+
+    def test_original_empty_phone_fallback_and_explicit_resend(self):
+        text = runtime()
+        self.assertNotIn('if phoneNumbers.isEmpty { methods.removeAll', text)
+        self.assertIn('case .sms: return .requestSMS(phoneID: activeID)', text)
+        self.assertIn('case .voice: return .requestVoice(phoneID: activeID)', text)
+        self.assertIn('case .trustedDevice: return .cancel', text)
+        self.assertIn('code.count == 6', text)
+        self.assertIn('(fields["code"] ?? "").count != 6', shell())
+        self.assertIn('options.filter { $0["id"] == "resend" }', shell())
 
     def test_no_secrets_in_diagnostics(self):
         text = runtime()

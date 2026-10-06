@@ -4950,7 +4950,10 @@ struct V3PromptSection: View {
                         respond(answer)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled((fields["code"] ?? "").isEmpty || isSubmitting || isSubmissionBlocked)
+                    .disabled((fields["code"] ?? "").count != 6 || isSubmitting || isSubmissionBlocked)
+                    ForEach(options.filter { $0["id"] == "resend" }, id: \.self) { option in
+                        twoFactorOption(option)
+                    }
                     Button("Change Verification Method", systemImage: "arrow.uturn.backward") {
                         var answer = fields
                         answer["action"] = "changeMethod"
@@ -6508,6 +6511,9 @@ final class V3AuthStore: ObservableObject {
                     twoFactorTransientStep = .deliveryRequested
                     deliveryProgressMessage = "Requesting a verification code by SMS..."
                 }
+            case "resend":
+                twoFactorTransientStep = .deliveryRequested
+                deliveryProgressMessage = answer["mode"] == "voice" ? "Requesting a verification call..." : "Requesting a verification code by SMS..."
             case "code":
                 twoFactorTransientStep = .verifyingCode
                 deliveryProgressMessage = "Verifying code..."

@@ -534,7 +534,7 @@ class CombinedWorkflowTests(unittest.TestCase):
             self.assertIn(pin, workflow)
         self.assertIn('merge-base --is-ancestor "$SIDESIGN_GSA_FIX" HEAD', workflow)
         self.assertNotRegex(workflow, r"SideSign (?:checkout|cherry-pick)")
-        self.assertIn("SideStore/Core/Anisette", workflow)
+        self.assertIn("python3 builder/scripts/verify_prepared_anisette.py work/EmbeddedSideStore", workflow)
         self.assertIn("AltStore/Managing Apps/AppManager.swift", workflow)
         self.assertIn("--verify-headless-ui-adapters", workflow)
         self.assertIn("--verify-sign-in-operation", workflow)
