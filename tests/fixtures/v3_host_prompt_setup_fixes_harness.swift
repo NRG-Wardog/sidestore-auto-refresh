@@ -25,6 +25,19 @@ struct HostPromptSetupFixesHarness {
         default: preconditionFailure("host Remove All answer must reach the backend removeAll branch")
         }
 
+        for action in ["keepAllMainProfile", "cancel"] {
+            precondition(!V3MultiSelectPromptAnswerPolicy.isMemberOption(kind: "extensions", optionID: action),
+                         "main-profile and cancel actions must not appear as extension members")
+        }
+        let mainProfile = V3MultiSelectPromptAnswerPolicy.actionAnswer("keepAllMainProfile",
+            fields: ["ids": "stale", "serials": "stale"])
+        precondition(mainProfile["ids"] == nil && mainProfile["serials"] == nil)
+        switch try V3PromptSelectionPolicy.extensions(choice: mainProfile["choice"],
+            submittedOptionIDs: mainProfile["ids"], offeredBundleIDs: ["com.example.one"]) {
+        case .keepAllMainProfile: break
+        default: preconditionFailure("main-profile choice must reach its distinct backend branch")
+        }
+
         let keepAll = V3MultiSelectPromptAnswerPolicy.actionAnswer("keepAll", fields: [:])
         precondition(keepAll["choice"] == "keepAll" && keepAll["ids"] == nil,
             "Keep All remains a separate explicit action")

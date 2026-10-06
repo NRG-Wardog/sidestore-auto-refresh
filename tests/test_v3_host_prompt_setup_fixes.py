@@ -24,6 +24,8 @@ class V3HostPromptSetupFixesTests(unittest.TestCase):
         self.assertIn('Button("Remove All", role: .destructive)', view)
         self.assertIn('actionAnswer("removeAll", fields: fields)', view)
         self.assertIn('actionAnswer("keepAll", fields: fields)', view)
+        self.assertIn('actionAnswer("keepAllMainProfile", fields: fields)', view)
+        self.assertIn('actionAnswer("cancel", fields: fields)', view)
         self.assertIn("selectedMembersAnswer(", view)
 
         if not SWIFTC:

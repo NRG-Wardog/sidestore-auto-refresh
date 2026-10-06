@@ -497,8 +497,9 @@ class V3SetupAcceptanceTests(unittest.TestCase):
         start = source.index('Section("Verification")', assistant)
         verification = source[start:source.index("// V3_SETUP_COMPLETION_POLICY", start)]
         self.assertIn("Complete Pairing Setup before testing refresh.", verification)
-        self.assertIn('setup.verification.state != "complete" && setup.pairing.state == "actionRequired"',
+        self.assertIn('(setup.verification.state != "complete" || status.installedHostSigningState != .compatible)',
                       verification)
+        self.assertIn('&& setup.pairing.state == "actionRequired"', verification)
 
     def test_setup_complete_requires_everything(self):
         # V3_SETUP_COMPLETION_POLICY_V1: the assistant no longer owns a private
@@ -629,7 +630,7 @@ class V3SetupAcceptanceTests(unittest.TestCase):
                          "tunnelComplete: LiveContainerNetworkPreflight.hasTunnelInterface()",
                          "backgroundRefreshAvailable: UIApplication.shared.backgroundRefreshStatus == .available",
                          "scheduleEnabled: defaults?.bool(forKey: \"liveContainerAutoRefreshEnabled\")",
-                         "verifiedRefreshPresent: verifiedRunID?.isEmpty == false"):
+                         "verifiedRefreshPresent: verifiedRefresh"):
             self.assertIn(required, home)
         # The old private rule must be gone.
         self.assertNotIn('if UIApplication.shared.backgroundRefreshStatus != .available { return true }', home)

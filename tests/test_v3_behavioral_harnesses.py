@@ -367,7 +367,7 @@ final class SourceRecoveryStartHost {
         self.compile_and_run(failure + "\n" + helper + "\n" + harness,
                              "V3_REFRESH_FAILURE_CORRELATION_AND_TARGET_POLICY_PASS")
 
-    def test_zero_excess_extensions_skip_prompt_behavior_executes(self):
+    def test_zero_target_extensions_skip_prompt_behavior_executes(self):
         helper = (ROOT / "scripts/templates/v3_behavioral_primitives.swift").read_text(encoding="utf-8")
         failure = (ROOT / "scripts/templates/combined_failure.swift").read_text(encoding="utf-8")
         harness = (ROOT / "tests/fixtures/v3_extension_removal_harness.swift").read_text(encoding="utf-8")

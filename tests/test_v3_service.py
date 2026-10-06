@@ -131,8 +131,11 @@ enum DeviceConnectionMode: Equatable {{ case localVPN, remoteServer }}
 enum AppConstants {{
     enum Connection {{ static let defaultRemoteServerIP = "192.0.2.1" }}
     enum Proxy {{ static let address = "127.0.0.1"; static let defaultPort: UInt16 = 62078 }}
+    enum Minimuxer {{ static let remotePairingPort: UInt16 = 62078; static let defaultTCPProbeTimeoutMs = 1000 }}
 }}
 enum V3SideStoreServiceError: Error {{ case invalidRequest }}
+var remotePairingPortCache: UInt16 = 62078
+var deviceProbeTimeoutCache = 1000
 final class WidgetDataManager {{
     static let shared = WidgetDataManager()
     var isVerboseLoggingEnabled = false
@@ -1037,9 +1040,12 @@ import Foundation
              "SideStore/Core/Auth/AuthManager.swift", "SideStore/Handlers/SignInFlowHandler.swift",
              "SideStore/Core/Operations/PipelineExecutor.swift",
              "SideStore/Core/Operations/PipelineRunner.swift",
+             "SideStore/Core/Operations/PipelineOperations/PerformBackupRestoreOperation.swift",
+             "SideBackup/SideBackupApp.swift",
              "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift",
              "SideStore/Core/Auth/DeveloperPortalProxy.swift",
              "SideStore/Core/Certificates/CertificateManager.swift",
+             "SideStore/Core/Certificates/CodeSignValidator.swift",
              "SideStore/Core/Certificates/OCSPValidator.swift",
              "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
              "SideStore/Core/Operations/PipelineOperations/VerifyCertificateOperation.swift",

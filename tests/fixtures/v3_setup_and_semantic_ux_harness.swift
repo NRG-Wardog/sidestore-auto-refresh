@@ -67,6 +67,7 @@ struct SetupAndSemanticUXHarness {
         all.backgroundRefreshAvailable = true
         all.scheduleEnabled = true
         all.verifiedRefreshPresent = true
+        all.installedHostSigningCompatible = true
         precondition(all.isComplete)
         precondition(all.outstanding().isEmpty)
 

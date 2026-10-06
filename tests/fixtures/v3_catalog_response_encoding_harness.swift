@@ -484,7 +484,7 @@ struct CatalogResponseEncodingHarness {
                      "ordinary replies preserve a bounded reserve for cached start/release results")
         precondition(allReplyLimit - ordinaryReplyLimit == V3MutationReplyCacheBudget.reservedControlReplies,
                      "the configured reply reserve remains executable and symmetric")
-        for operation in ["refreshAdmissionEnd", "authBegin", "authRetryProvisioning", "opStart"] {
+        for operation in ["refreshAdmissionEnd", "authBegin", "authRetryProvisioning", "opStart", "backupResult"] {
             precondition(V3MutationReplyCacheBudget.isControlReply(operation: operation),
                          "state-changing start/release \(operation) must use reserved reply capacity")
         }
@@ -503,16 +503,41 @@ struct CatalogResponseEncodingHarness {
                         completedReplyCount: 512),
             "a provisioning retry is not dispatched unless its cached start reply fits")
         precondition(V3MutationReplyCacheBudget.canAdmit(operation: "opStart",
-            completedReplyCount: 511) &&
+            completedReplyCount: 510) &&
                      !V3MutationReplyCacheBudget.canAdmit(operation: "opStart",
-                        completedReplyCount: 512),
-            "an operation start is not dispatched without room for its cached start reply")
+                        completedReplyCount: 511),
+            "an operation start reserves its start reply and a possible external backup callback")
         precondition(!V3MutationReplyCacheBudget.isControlReply(operation: "sourceAddConfirmed"),
                      "ordinary source mutations cannot consume all continuation capacity")
         replyBudget.remove(V3WireContract.responseLimit)
         precondition(!replyBudget.canReserve(),
                      "ordinary requests still preserve reserved control capacity after release")
         precondition(replyBudget.canReserve(preservingControlCapacity: false))
+
+        // External backup callbacks are correlated controls, never payloadless
+        // notifications or a read-operation exemption.
+        let backupSession = UUID().uuidString
+        let backupNonce = UUID().uuidString
+        var backupRequest: [String: Any] = ["version": 1, "id": UUID().uuidString,
+            "operation": "backupResult", "target": backupSession,
+            "deadline": Date().addingTimeInterval(30),
+            "payload": ["nonce": backupNonce, "action": "backup", "result": "success"]]
+        precondition(V3WireContract.encodeRequest(backupRequest) != nil)
+        precondition(!V3WireContract.readOperations.contains("backupResult"))
+        precondition(V3MutationReplyCacheBudget.isControlReply(operation: "backupResult"))
+        precondition(V3MutationReplyCacheBudget.minimumReplyBytesToAdmit(operation: "opStart") ==
+            V3WireContract.responseLimit * 2)
+        let invalidBackupPayloads: [[String: Any]] = [[:], ["nonce": "invalid", "action": "backup", "result": "success"],
+            ["nonce": backupNonce, "action": "delete", "result": "success"],
+            ["nonce": backupNonce, "action": "backup", "result": "unknown"],
+            ["nonce": backupNonce, "action": "backup", "result": "failure", "errorDescription": "untrusted"]]
+        for payload in invalidBackupPayloads {
+            backupRequest["payload"] = payload
+            precondition(V3WireContract.encodeRequest(backupRequest) == nil)
+        }
+        backupRequest["target"] = "success"
+        backupRequest.removeValue(forKey: "payload")
+        precondition(V3WireContract.encodeRequest(backupRequest) == nil)
 
         // V3_REFRESH_ADMISSION_WIRE_V1: reservation/release must cross the
         // actual plist contract as mutations with a run-scoped UUID.

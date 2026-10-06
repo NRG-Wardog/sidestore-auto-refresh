@@ -80,6 +80,7 @@ final class MockJITLessStatusStore {
     private var setupFactRevision: UInt64 = 0
     private var setupFactObservation: SetupFactObservation = .pending
     private var setupFactLastAttemptAt: Date?
+    var installedHostSigning = V3HostSigningObservation()
     var wifiAvailable: Bool?
     var jitlessReadinessObservation: V3SetupReadinessObservation?
     var jitlessReadiness: V3JITLessReadiness?

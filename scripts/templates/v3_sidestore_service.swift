@@ -1120,14 +1120,20 @@ final class V3SideStoreService: NSObject {
            !refreshAdmission.owns(recoveryRecord.sessionID) {
             _ = refreshAdmission.restoreLost(runID: recoveryRecord.sessionID)
         }
+        let backupCallback = operation == "backupResult"
+            ? V3BackupCallbackResult(session: target, payload: payload) : nil
+        let backupCallbackControl = backupCallback.map {
+            V3HeadlessRuntime.shared.operations.ownsBackupCallback($0)
+        } ?? false
         let recoveryDecision = V3ServiceRecoveryAdmissionPolicy.decide(operation: operation,
             target: target, payload: payload, operationSessionID: operationSessionID,
             recovery: recoveryRecord, recoveryReadFailed: recoveryReadFailed,
             recoveryDiscardable: recoveryStorageFailure?.clearEligible == true,
-            refreshOwnerLost: refreshAdmission.ownerLost)
+            refreshOwnerLost: refreshAdmission.ownerLost, backupCallbackControl: backupCallbackControl)
         let policyOperationMutationActive = V3ServiceMutationAdmissionPolicy.hasConflictingOperationMutation(
             operation: operation, target: target,
-            activeOperationID: V3HeadlessRuntime.shared.operations.activeMutationID) ||
+            activeOperationID: V3HeadlessRuntime.shared.operations.activeMutationID,
+            backupCallbackControl: backupCallbackControl) ||
             recoveryDecision.blocksMutation
         let operationMutationActive = (operation == "opRecoveryReconcile" && recoveryDecision.recoveryControl) ||
             directRecoveryControl ? false : policyOperationMutationActive
@@ -1685,11 +1691,11 @@ final class V3SideStoreService: NSObject {
             guard let data = thumbnail.pngData(), data.count <= 262_144 else { return [:] }
             return ["icon": data]
         case "backupResult":
-            guard mutationID != nil, ["success", "failure"].contains(target) else { throw ServiceError.invalidRequest }
-            let result: Result<Void, Error> = target == "success" ? .success(()) : .failure(ServiceError.unsupported)
-            NotificationCenter.default.post(name: AppDelegate.appBackupDidFinish, object: nil,
-                userInfo: [AppDelegate.appBackupResultKey: result])
-            return [:]
+            guard let result = V3BackupCallbackResult(session: target, payload: payload),
+                  V3HeadlessRuntime.shared.operations.acceptBackupCallback(result) else {
+                throw ServiceError.invalidRequest
+            }
+            return ["session": target, "accepted": true]
         case "catalog":
             // V3_CATALOG_DIAGNOSTICS_V1: the catalog read is measured with
             // privacy-safe facts only: whether the source row exists, whether
@@ -2126,6 +2132,9 @@ final class V3SideStoreService: NSObject {
         case "logTail":
             return V3BackendCommands.logTail()
         case "healthSnapshot":
+            // All-iOS host signing observation is local and never starts OCSP
+            // or anisette/network work on devices that do not need JIT-Less.
+            if target == "hostSigningOnly" { return await V3BackendCommands.hostSigningHealth() }
             return await V3BackendCommands.health()
         case "accountExport":
             guard let answer = payload["answer"] as? [String: String],
@@ -2414,6 +2423,7 @@ final class V3SideStoreService: NSObject {
                  "credentialRoutePresent": credentialRoutePresent,
                  "identityStamp": identityStampAtStart,
                  "identityStable": identityReadStable,
+                 "hostSigningContext": identityReadStable ? v3CurrentHostSigningContext()?.digest ?? "" : "",
                  "activeAccountPresent": activeAccount != nil,
                  "activeTeamPresent": team != nil,
                  "activeCertificatePresent": activeCertificate != nil,

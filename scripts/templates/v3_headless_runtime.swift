@@ -226,6 +226,7 @@ enum V3PromptSelectionPolicy {
 
     enum Extensions {
         case keepAll
+        case keepAllMainProfile
         case removeAll
         case remove(Set<String>)
     }
@@ -273,6 +274,7 @@ enum V3PromptSelectionPolicy {
                            offeredBundleIDs: [String]) throws -> Extensions {
         switch choice {
         case "keepAll": return .keepAll
+        case "keepAllMainProfile": return .keepAllMainProfile
         case "removeAll": return .removeAll
         case "selected":
             return .remove(try rawValues(from: submittedOptionIDs, prefix: "remove:",
@@ -1523,10 +1525,13 @@ final class V3HeadlessAuthHandler: SignInHandler, AnisetteServerHandler {
     }
 
     func resolveResign(mismatchReason: CodeSignValidationReason, context: StandaloneOperationContext) async throws -> Bool {
-        let answer = try await ask(kind: "resign", title: "Re-sign Required",
-                                   message: "The installed app must be re-signed (\("\(mismatchReason)"). Proceed?",
-                                   options: [["id": "proceed", "label": "Re-sign"], ["id": "cancel", "label": "Cancel"]])
-        return answer["choice"] == "proceed"
+        let answer = try await ask(kind: "resign", title: "Host Refresh Needed",
+                                   message: "The installed LiveContainer app needs to be refreshed with the active signing certificate (\(mismatchReason)). Finish sign-in, then run Refresh All or Test Refresh in Setup Assistant. Sign-in alone does not re-sign the installed app.",
+                                   options: [["id": "continue", "label": "Finish Sign-In"]])
+        guard answer["choice"] == "continue" else { throw CancellationError() }
+        // Upstream consumes this result as didResign, not permission to resign.
+        // Host replacement belongs to the separately verified refresh owner.
+        return false
     }
 
     func complete() async {}
@@ -1606,20 +1611,24 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
     func selectAppExtensionsToRemove(appBundle: ALTApplication, localAppExtensions: [ALTApplication],
                                      excessExtensions: Set<ALTApplication>) async throws -> ExtensionRemovalDecision {
         return try await V3ExtensionRemovalPromptPolicy.decide(
-            excessExtensions: excessExtensions,
+            // Upstream customization reviews all target extensions. An empty
+            // excess set also occurs on fresh installs and unchanged updates.
+            targetExtensions: appBundle.appExtensions,
             whenEmpty: .keepAll(useMainProfile: false)
         ) {
-            let sorted = excessExtensions.sorted { $0.bundleIdentifier < $1.bundleIdentifier }
+            let sorted = appBundle.appExtensions.sorted { $0.bundleIdentifier < $1.bundleIdentifier }
             let answer = try await self.ask(kind: "extensions", title: "App Extensions",
-                message: "\(appBundle.bundleIdentifier) contains \(sorted.count) extension(s) that do not fit the active profile. Choose which to remove.",
-                options: [["id": "keepAll", "label": "Keep All"]] +
+                message: "\(appBundle.bundleIdentifier) contains \(sorted.count) extension(s). Keep them using the main app's profile or register an App ID for each, or choose which to remove.",
+                options: [["id": "keepAllMainProfile", "label": "Keep All (Use Main Profile)"],
+                          ["id": "keepAll", "label": "Keep All (Register Each Extension)"]] +
                     sorted.map { ["id": "remove:\($0.bundleIdentifier)", "label": "Remove \($0.bundleIdentifier)"] } +
-                    [["id": "removeAll", "label": "Remove All"]])
+                    [["id": "removeAll", "label": "Remove All"], ["id": "cancel", "label": "Cancel"]])
             let selection = try V3PromptSelectionPolicy.extensions(
                 choice: answer["choice"], submittedOptionIDs: answer["ids"],
                 offeredBundleIDs: sorted.map(\.bundleIdentifier))
             switch selection {
             case .keepAll: return .keepAll(useMainProfile: false)
+            case .keepAllMainProfile: return .keepAll(useMainProfile: true)
             case .removeAll: return .removeAll
             case .remove(let bundleIDs):
                 let selected = Set(sorted.filter { bundleIDs.contains($0.bundleIdentifier) })
@@ -1633,14 +1642,31 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
 
     func resolveUnsupportediOSVersion(errorDescription: String, appName: String, compatibleVersion: String) async throws -> Bool {
         let answer = try await ask(kind: "unsupportedVersion", title: "Unsupported iOS Version",
-                                   message: "\(appName): \(errorDescription) Compatible version: \(compatibleVersion). Proceed anyway?",
-                                   options: [["id": "proceed", "label": "Proceed"], ["id": "cancel", "label": "Cancel"]])
+                                   message: "\(errorDescription)\n\nDownload the last version compatible with this device instead?",
+                                   options: [["id": "proceed", "label": "Download \(appName) \(compatibleVersion)"],
+                                             ["id": "cancel", "label": "Cancel"]])
         return answer["choice"] == "proceed"
     }
 
     func requestBackgroundSuspension() async {}
     func suspendToHomeScreen() async {}
     func isAppInForeground() async -> Bool { false }
+
+    func beginBackupCallback(action: String) throws -> V3BackupCallbackIdentity {
+        try center().beginBackupCallback(id: sessionID, action: action)
+    }
+
+    func endBackupCallback(_ identity: V3BackupCallbackIdentity) {
+        V3HeadlessRuntime.shared.operations.endBackupCallback(identity)
+    }
+
+    func backupCallbackMayOpen() -> Bool {
+        let center = V3HeadlessRuntime.shared.operations
+        guard center.activeMutationID == sessionID, let session = center.sessions[sessionID],
+              session.terminal.isEmpty, !session.terminal.isCancellationRequested,
+              session.backupCallback != nil else { return false }
+        return true
+    }
 
     func recordNativeUninstallSucceeded() {
         V3DeleteNativeSuccessRegistry.shared.record(sessionID: sessionID)
@@ -1665,9 +1691,14 @@ final class V3HeadlessPipelineHandler: PipelineExecutionHandler, PreflightChecks
                                              ["id": "cancel", "label": "Cancel"]])
         switch answer["choice"] {
         case "custom":
-            guard let customID = answer["customID"], !customID.isEmpty else { throw CancellationError() }
+            // Match SideStore's confirmation behavior: trim the editable value,
+            // and keep the original identifier when the field is left empty.
+            let enteredID = answer["customID"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let customID = enteredID?.isEmpty == false ? enteredID! : initialBundleID
             return (customID, answer["appendTeamID"] != "false")
-        case "default": return nil
+        // UserCustomizationOperation treats nil as cancellation, so choosing
+        // the default must return the original identifier explicitly.
+        case "default": return (initialBundleID, true)
         default: throw CancellationError()
         }
     }
@@ -1703,6 +1734,7 @@ final class V3OperationCenter {
         var ipaToken: String?
         var temporaryIPADirectory: URL?
         var acceptedPromptIDs: [String] = []
+        var backupCallback: V3BackupCallbackIdentity?
     }
 
     var sessions: [String: Session] = [:]
@@ -1825,11 +1857,56 @@ final class V3OperationCenter {
             }
             reply["progress"] = normalized
         }
+        if let callback = session.backupCallback { reply["backupCallback"] = callback.wire }
         if let prompt = session.prompt, !session.terminal.isCancellationRequested {
             reply["state"] = "awaitingPrompt"
             reply["prompt"] = prompt
         }
         return reply
+    }
+
+    func beginBackupCallback(id: String, action: String) throws -> V3BackupCallbackIdentity {
+        guard let session = sessions[id], session.terminal.isEmpty,
+              !session.terminal.isCancellationRequested, mutationRegistry.activeID == id,
+              session.backupCallback == nil,
+              V3BackupCallbackIdentity.supports(kind: session.kind, action: action),
+              let identity = V3BackupCallbackIdentity(session: id, nonce: UUID().uuidString, action: action)
+        else { throw V3SideStoreServiceError.invalidRequest }
+        sessions[id]?.backupCallback = identity
+        return identity
+    }
+
+    func endBackupCallback(_ identity: V3BackupCallbackIdentity) {
+        guard sessions[identity.session]?.backupCallback == identity else { return }
+        sessions[identity.session]?.backupCallback = nil
+    }
+
+    func ownsBackupCallback(_ result: V3BackupCallbackResult) -> Bool {
+        let id = result.identity.session
+        guard mutationRegistry.activeID == id, let session = sessions[id],
+              session.terminal.isEmpty, session.backupCallback == result.identity,
+              V3BackupCallbackIdentity.supports(kind: session.kind, action: result.identity.action)
+        else { return false }
+        // Cancellation does not prove the external data copy stopped. Its real
+        // callback still settles this step before the pipeline can acknowledge it.
+        return true
+    }
+
+    @discardableResult
+    func acceptBackupCallback(_ result: V3BackupCallbackResult) -> Bool {
+        // Recheck durable ownership even for the service-local URL path. A URL
+        // must not bypass the XPC recovery gate or revive a reconciled session.
+        guard ownsBackupCallback(result),
+              let recovery = try? V3OperationRecoveryJournal.current(),
+              recovery.sessionID == result.identity.session, recovery.phase == .dispatched,
+              recovery.kind == sessions[result.identity.session]?.kind else { return false }
+        endBackupCallback(result.identity)
+        let outcome: Result<Void, Error> = result.succeeded ? .success(()) :
+            .failure(NSError(domain: "V3Backup", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                "The backup or restore operation did not complete."]))
+        NotificationCenter.default.post(name: AppDelegate.appBackupDidFinish, object: nil,
+            userInfo: [AppDelegate.appBackupResultKey: outcome, "v3BackupNonce": result.identity.nonce])
+        return true
     }
 
     func recordPipelineStep(sessionID: String, step: String, downloadUsesNetwork: Bool) {
@@ -1940,6 +2017,12 @@ final class V3OperationCenter {
         if settledSession.terminal.value != nil { return terminalReply(id: id) }
         let task = settledSession.task
         guard cancel(id: id) else { return nil }
+        if settledSession.backupCallback != nil, task != nil {
+            // SideBackup may still be copying data in another process. Return a
+            // bounded control reply and keep polling; cancellation is not proof
+            // that its data mutation stopped, and must not release this owner.
+            return poll(id: id)
+        }
         if V3DeleteCancellationPolicy.cancelRequestReturnsBeforeDriverSettlement(
             operation: settledSession.kind, driverIsRunning: task != nil) {
             // Delete's native callback can outlive the request to cancel its
@@ -2567,6 +2650,111 @@ func v3Resolve<T: NSManagedObject>(_ identifier: String) throws -> T {
 // MARK: - Backend data commands (certificates, developer services, sources,
 // pairing, settings, anisette, SideSign, logs, health, account backup)
 
+// The context contains public certificate data and account/team identity only.
+// Its digest is an observation key, not a credential or a durable refresh claim.
+struct V3HostSigningContext: Sendable {
+    let digest: String
+    let certificateDER: Data
+    let team: ALTTeam
+}
+
+@MainActor
+func v3CurrentHostSigningContext() -> V3HostSigningContext? {
+    let auth = AuthManager.shared
+    let stamp = auth.v3IdentityStamp
+    guard auth.v3IdentityIsStable, !V3HeadlessRuntime.shared.auth.hasActiveSession,
+          let credentials = auth.authenticationSnapshot, credentials.isAuthenticated,
+          let account = DatabaseManager.shared.activeAccount(),
+          let team = DatabaseManager.shared.activeTeam(),
+          team.account?.identifier == account.identifier,
+          V3AuthIdentityBindingPolicy.mayUseTeam(sessionOwner: credentials.appleIDEmailAddress,
+              teamOwner: account.appleID),
+          let owner = V3AuthIdentityBindingPolicy.normalizedOwner(account.appleID),
+          !account.identifier.isEmpty, !team.identifier.isEmpty,
+          let der = CertificateManager.shared.activeCertificate?.certificate.x509.data, !der.isEmpty,
+          let bytes = try? PropertyListSerialization.data(fromPropertyList:
+            ["V3HostSigningContext1", account.identifier, owner, team.identifier,
+             String(team.type.rawValue), der] as [Any], format: .binary, options: 0),
+          auth.v3IdentityIsStable, auth.v3IdentityStamp == stamp else { return nil }
+    return V3HostSigningContext(
+        digest: SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(),
+        certificateDER: der,
+        team: ALTTeam(identifier: team.identifier, name: team.name, type: team.type,
+            account: ALTAccount(appleID: owner, identifier: account.identifier)))
+}
+
+// An actor keeps Mach-O/profile reads off MainActor and serializes overlapping
+// health requests. The single-entry cache also expires before the local profile
+// or leaf certificate does. Snapshot never invokes this parser.
+actor V3InstalledHostSigningReader {
+    static let maximumCacheAge: TimeInterval = 60
+    static let shared = V3InstalledHostSigningReader()
+    private var cacheKey: String?
+    private var cached: V3HostSigningObservation?
+
+    private func fileIdentity(_ url: URL) -> String? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let file = attributes[.systemFileNumber] as? NSNumber,
+              let system = attributes[.systemNumber] as? NSNumber,
+              let size = attributes[.size] as? NSNumber,
+              let modified = attributes[.modificationDate] as? Date,
+              let created = attributes[.creationDate] as? Date else { return nil }
+        return [url.standardizedFileURL.path, system.stringValue, file.stringValue,
+                size.stringValue, String(modified.timeIntervalSince1970),
+                String(created.timeIntervalSince1970)].joined(separator: "|")
+    }
+
+    func observe(_ context: V3HostSigningContext, now: Date = Date()) -> V3HostSigningObservation {
+        let url = Bundle.Info.activeBundleURL
+        let unknown = V3HostSigningObservation(context: context.digest, checkedAt: now,
+            validUntil: now.addingTimeInterval(V3HostSigningObservation.maximumAge))
+        guard let executable = Bundle(url: url)?.executableURL,
+              let executableIdentity = fileIdentity(executable),
+              let profileIdentity = fileIdentity(url.appendingPathComponent("embedded.mobileprovision")) else {
+            cacheKey = nil; cached = nil
+            return unknown
+        }
+        let key = context.digest + "|" + executableIdentity + "|" + profileIdentity
+        if cacheKey == key, let cached,
+           now >= cached.checkedAt, now < cached.validUntil,
+           now.timeIntervalSince(cached.checkedAt) < Self.maximumCacheAge {
+            return cached
+        }
+        guard let certificate = ALTX509Certificate(data: context.certificateDER),
+              let profile = ALTApplication(fileURL: url)?.provisioningProfile,
+              let runningCertificate = CertificateManager.shared.getSigningCertificate(at: url) else { return unknown }
+        let result = CodeSignValidator.validate(runningProfile: profile,
+            observedRunningCertificate: runningCertificate, portalCertificates: nil, signerCertificate: certificate, signerTeam: context.team)
+        // The validator owns the local semantics. Paid mismatches are not
+        // definitely re-sign-required: upstream tolerates them after a portal
+        // check, and this deliberately local observation performs no such check.
+        let state: V3HostSigningState
+        switch result {
+        case .success: state = .compatible
+        case .failure(.missingProfile), .failure(.missingCertificate): state = .unknown
+        case .failure(.privateKeyLost), .failure(.externalSigner):
+            state = context.team.type == .free ? .refreshRequired : .paidSignerUnverified
+        case .failure: state = .refreshRequired
+        }
+        // Only successful evidence expires at certificate/profile expiry.
+        // An already-expired profile remains a definite refresh-needed fact.
+        let deadline = now.addingTimeInterval(V3HostSigningObservation.maximumAge)
+        let validUntil = state == .compatible
+            ? min(deadline, profile.expirationDate, certificate.expiryDate, runningCertificate.expiryDate)
+            : deadline
+        let observation = V3HostSigningObservation(context: context.digest, state: state,
+            checkedAt: now, validUntil: validUntil)
+        // Replacement while reading is not a valid cached observation.
+        guard fileIdentity(executable) == executableIdentity,
+              fileIdentity(url.appendingPathComponent("embedded.mobileprovision")) == profileIdentity else {
+            cacheKey = nil; cached = nil
+            return unknown
+        }
+        cacheKey = key; cached = observation
+        return observation
+    }
+}
+
 @MainActor
 enum V3BackendCommands {
     private static var activeCertificateValidationCache: (fingerprint: String, result: String, checkedAt: Date)?
@@ -2767,6 +2955,12 @@ enum V3BackendCommands {
     static func settingsGet() -> [String: Any] {
         var bools: [String: Bool] = [:]
         for key in boolSettings { bools[key] = UserDefaults.standard.bool(forKey: key) }
+        // These upstream preferences have computed defaults (including the
+        // active team's extension policy), not registered raw bool defaults.
+        // Project their effective values rather than showing false for an
+        // unset key while the install pipeline observes true.
+        bools["customizeAppExtensions"] = UserDefaults.standard.customizeAppExtensions
+        bools["autoFixAppGroupIDs"] = UserDefaults.standard.autoFixAppGroupIDs
         bools["widgetVerboseLogging"] = WidgetDataManager.shared.isVerboseLoggingEnabled
         var strings: [String: String] = [:]
         for key in stringSettings { strings[key] = UserDefaults.standard.string(forKey: key) ?? "" }
@@ -2791,7 +2985,22 @@ enum V3BackendCommands {
             guard let value = V3WireContract.strictInt(payload["int"]) else {
                 throw V3SideStoreServiceError.invalidRequest
             }
+            // Match the retained connection editor: zero means automatic,
+            // while explicit ports must fit UInt16. Never save an invalid
+            // value that the transport silently replaces with its default.
+            guard value >= 0,
+                  key != "remotePairingPortOverride" || value <= Int(UInt16.max) else {
+                throw V3SideStoreServiceError.invalidRequest
+            }
             UserDefaults.standard.set(value, forKey: key)
+            // Match upstream's effective integer settings without calling its
+            // whole-config sync: that also activates a separately saved backend
+            // change, which upstream applies only through an explicit restart.
+            if key == "remotePairingPortOverride" {
+                remotePairingPortCache = value > 0 ? UInt16(value) : AppConstants.Minimuxer.remotePairingPort
+            } else {
+                deviceProbeTimeoutCache = value > 0 ? value : AppConstants.Minimuxer.defaultTCPProbeTimeoutMs
+            }
         } else {
             throw V3SideStoreServiceError.invalidRequest
         }
@@ -2866,7 +3075,21 @@ enum V3BackendCommands {
         return ["tail": formatLogMessage(rawTail)]
     }
 
+    static func hostSigningHealth() async -> [String: Any] {
+        let stamp = AuthManager.shared.v3IdentityStamp
+        guard let context = v3CurrentHostSigningContext() else {
+            return ["hostSigning": V3HostSigningObservation().wire, "identityStamp": stamp]
+        }
+        let observed = await V3InstalledHostSigningReader.shared.observe(context)
+        guard AuthManager.shared.v3IdentityIsStable, AuthManager.shared.v3IdentityStamp == stamp,
+              v3CurrentHostSigningContext()?.digest == context.digest else {
+            return ["hostSigning": V3HostSigningObservation().wire, "identityStamp": stamp]
+        }
+        return ["hostSigning": observed.wire, "identityStamp": stamp]
+    }
+
     static func health() async -> [String: Any] {
+        let hostSigning = await hostSigningHealth()
         let account = DatabaseManager.shared.activeAccount()?.appleID ?? "Not signed in"
         let team = DatabaseManager.shared.activeTeam()
         var anisette: [String: Any] = ["servers": 0, "offline": UserDefaults.standard.bool(forKey: "isAnisetteOfflineMode")]
@@ -2879,7 +3102,7 @@ enum V3BackendCommands {
                 "anisette": anisette,
                 "sidesign": ["configured": SideSignConfigManager.shared.hasConfigFile()],
                 "service": ["ready": DatabaseManager.shared.isStarted],
-                "certificateState": await certificateState()]
+                "certificateState": await certificateState()].merging(hostSigning) { _, local in local }
     }
 
     // Facts about the certificate the refresh/signing pipeline actually uses

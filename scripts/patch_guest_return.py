@@ -4,6 +4,60 @@ import sys
 
 MARKER = "LC_GUEST_RETURN_V3"
 
+# The virtual-window delegate owns the same completion that Swift awaits in
+# LCAppModel.runApp. Consume it before cleanup can re-enter the delegate.
+VIRTUAL_LAUNCH_COMPLETION = r'''
+// LC_VIRTUAL_LAUNCH_COMPLETION_V1: main-queue terminal ownership.
+- (void)lcCompleteLaunch:(AppSceneViewController *)controller error:(NSError *)error {
+    NSAssert(NSThread.isMainThread, @"Guest launch completion must run on main");
+    if (self.lcLaunchSettled) return;
+    self.lcLaunchSettled = YES;
+    void (^completion)(NSNumber *, NSError *) = self.pidAvailableHandler;
+    self.pidAvailableHandler = nil;
+    // Cleanup releases container ownership before a caller can relaunch.
+    // It may call appSceneVCAppDidExit synchronously; the callback is consumed.
+    if (error) [controller appTerminationCleanUp];
+    if (completion) completion(error ? nil : @(controller.pid), error);
+}
+'''
+
+VIRTUAL_LAUNCH_EXIT = r'''    [self lcCompleteLaunch:vc error:vc.lcLaunchError ?: [NSError errorWithDomain:@"LiveContainerReturn" code:410
+        userInfo:@{NSLocalizedDescriptionKey: @"The guest exited before its launch completed."}]];
+'''
+
+VIRTUAL_LAUNCH_INITIALIZED = r'''- (void)appSceneVC:(AppSceneViewController*)vc didInitializeWithError:(NSError *)error {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.lcLaunchSettled) return;
+        NSError *launchError = error;
+        if (!launchError && (self.isAppTerminationRequested || !vc.isAppRunning)) {
+            launchError = vc.lcLaunchError ?: [NSError errorWithDomain:@"LiveContainerReturn" code:410
+                userInfo:@{NSLocalizedDescriptionKey: @"The guest exited before its launch completed."}];
+        }
+        if (launchError) {
+            [self lcCompleteLaunch:vc error:launchError];
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"lc.common.error".loc message:launchError.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"lc.common.ok".loc style:UIAlertActionStyleCancel handler:nil]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"lc.common.copy".loc style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+                UIPasteboard.generalPasteboard.string = launchError.localizedDescription;
+            }]];
+            [self presentViewController:alert animated:YES completion:nil];
+        } else {
+            self.pid = vc.pid;
+            [self updateOriginalFrame];
+            [self lcCompleteLaunch:vc error:nil];
+        }
+    });
+}'''
+
+CANCELLATION_OLD = '''        [weakSelf appTerminationCleanUp];
+        [weakSelf.delegate appSceneVC:weakSelf didInitializeWithError:error];'''
+CANCELLATION_NEW = '''        dispatch_async(dispatch_get_main_queue(), ^{
+            // Preserve the original extension error before cleanup settles a pending launch.
+            weakSelf.lcLaunchError = error;
+            [weakSelf appTerminationCleanUp];
+            [weakSelf.delegate appSceneVC:weakSelf didInitializeWithError:error];
+        });'''
+
 # Shared by the real control and executable geometry regression tests.
 GEOMETRY = r'''
 static double LCReturnAxisCenter(double origin, double length, double position) {
@@ -538,6 +592,15 @@ def verify(texts):
     for state in ("YES", "NO"):
         if f"self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];" not in decorated:
             raise ValueError("Return visibility transition missing: " + state)
+    for block in (VIRTUAL_LAUNCH_COMPLETION, VIRTUAL_LAUNCH_INITIALIZED, VIRTUAL_LAUNCH_EXIT):
+        if block.strip() not in decorated:
+            raise ValueError("Incomplete virtual guest launch completion")
+    if (CANCELLATION_NEW not in implementation or
+            "@property(nonatomic, strong) NSError *lcLaunchError;" not in header or
+            "@property(nonatomic, readonly) bool isAppTerminationCleanUpCalled;" not in header or
+            "if (self.appSceneVC && !self.appSceneVC.isAppTerminationCleanUpCalled)" not in decorated or
+            "[self.appSceneVC appTerminationCleanUp]; // Retire a pending launch before its PID arrives." not in decorated):
+        raise ValueError("Incomplete interrupted guest launch completion")
     # The SideStore-only escape hook that used to carry a second copy of the
     # direct-return diagnostic is removed by the startup patcher, which runs
     # after this one. Its presence is therefore not an error here; this patcher
@@ -565,6 +628,7 @@ def patch(root):
     implementation = replace(implementation, "@implementation AppSceneViewController", "@implementation AppSceneViewController\n" + METHODS, "return method")
     implementation = replace(implementation, "    [self.view addSubview:_contentView];", "    [self.view addSubview:_contentView];\n    [self.view setNeedsLayout]; // Re-show control after asynchronous guest initialization.", "control readiness")
     implementation = replace(implementation, "return _pid > 0 && getpgid(_pid) > 0;", "return !_isAppTerminationCleanUpCalled && _pid > 0 && getpgid(_pid) > 0;", "retired process is not resumable")
+    implementation = replace(implementation, CANCELLATION_OLD, CANCELLATION_NEW, "preserve extension cancellation error")
     implementation = section(implementation, "- (void)appTerminationCleanUp {", "- (void)setBackgroundNotificationEnabled:", CLEANUP, "synchronous cleanup")
     implementation = replace(implementation, "- (void)setUpAppPresenter {", "- (void)setUpAppPresenter {\n    if (_isAppTerminationCleanUpCalled || !self.isAppRunning) {\n        [self appTerminationCleanUp];\n        return;\n    }", "cancelled guest cannot create a scene")
     request_start = "    [_extension beginExtensionRequestWithInputItems:@[item] completion:^(NSUUID *identifier) {"
@@ -577,7 +641,7 @@ def patch(root):
     updated_request = updated_request.replace("    }];", "        });\n    }];", 1)
     implementation = implementation[:a] + updated_request + implementation[b:]
 
-    header = replace(header, "- (void)terminate;", "@property(nonatomic, copy) void (^lcActivateHost)(void);\n- (void)terminate;", "host action")
+    header = replace(header, "- (void)terminate;", "@property(nonatomic, copy) void (^lcActivateHost)(void);\n@property(nonatomic, strong) NSError *lcLaunchError;\n@property(nonatomic, readonly) bool isAppTerminationCleanUpCalled;\n- (void)terminate;", "host action")
 
     window = replace(window, "    var bundleId: String\n", "    var bundleId: String\n    let windowID = UUID().uuidString\n    var pid: Int32 = 0\n    weak var controller: AppSceneViewController?\n    var launchCallback: ((NSNumber, Error?) -> Void)?\n", "per-window launch identity")
     window = section(window, "    @objc class func openAppWindow(", "\n}\n\n@available(iOS 16.1, *)\nstruct AppSceneViewSwiftUI", WINDOW_MANAGER, "window registry")
@@ -632,6 +696,26 @@ def patch(root):
         decorated = replace(decorated, f"self.isMaximized = {state};",
                             f"self.isMaximized = {state};\n            [self.appSceneVC.view setNeedsLayout];",
                             "Return visibility on maximize/restore " + state)
+    decorated = replace(decorated, "@property(nonatomic) bool isAppTerminationRequested;",
+                        "@property(nonatomic) bool isAppTerminationRequested;\n@property(nonatomic) BOOL lcLaunchSettled;",
+                        "virtual launch completion ownership")
+    decorated = replace(decorated, "@implementation DecoratedAppSceneViewController",
+                        "@implementation DecoratedAppSceneViewController\n" + VIRTUAL_LAUNCH_COMPLETION,
+                        "virtual launch completion helper")
+    decorated = replace(decorated, "        [self appSceneVCAppDidExit:self.appSceneVC];",
+                        "        if (self.appSceneVC && !self.appSceneVC.isAppTerminationCleanUpCalled) {\n"
+                        "            [self.appSceneVC appTerminationCleanUp]; // Retire a pending launch before its PID arrives.\n"
+                        "        } else {\n"
+                        "            // Keep explicit Close working for a retained terminated view or failed initializer.\n"
+                        "            [self appSceneVCAppDidExit:self.appSceneVC];\n"
+                        "        }",
+                        "close before guest PID")
+    initialized = "- (void)appSceneVC:(AppSceneViewController*)vc didInitializeWithError:(NSError *)error {"
+    decorated = replace(decorated, "    }\n}\n\n" + initialized,
+                        "    }\n" + VIRTUAL_LAUNCH_EXIT + "}\n\n" + initialized,
+                        "virtual launch exit completion")
+    decorated = section(decorated, initialized, "- (void)appSceneVCWillActivateScene:",
+                        VIRTUAL_LAUNCH_INITIALIZED, "virtual launch result completion")
     updated = dict(zip(PATHS, (implementation, header, window, dock, hooks, model, tab, bootstrap, settings, decorated)))
     verify(updated)
     # Validate every anchor before writing any file, so upstream drift is not a partial patch.

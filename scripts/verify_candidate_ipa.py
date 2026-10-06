@@ -549,6 +549,9 @@ def preflight_archive(archive, ipa_size_bytes: int, limits: dict | None = None):
 
 
 REQUIRED_GENERATED_HOST_SOURCES = {
+    'MultitaskSupport/AppSceneViewController.h',
+    'MultitaskSupport/AppSceneViewController.m',
+    'MultitaskSupport/DecoratedAppSceneViewController.m',
     "LiveContainer/Tweaks/Dead10ccFix.m",
     "LiveContainer/Tweaks/NSUserDefaults.m",
     'ZSign/zsigner.h',
@@ -572,6 +575,7 @@ REQUIRED_GENERATED_HOST_SOURCES = {
 REQUIRED_GENERATED_EMBEDDED_SOURCES = {
     "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
     "SideStore/Core/Certificates/CertificateManager.swift",
+    "SideStore/Core/Certificates/CodeSignValidator.swift",
     "AltStore/AppDelegate.swift", "SideStore/Core/Operations/PipelineExecutor.swift",
     "SideStore/Core/Operations/PipelineRunner.swift",
     "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
@@ -581,6 +585,8 @@ REQUIRED_GENERATED_EMBEDDED_SOURCES = {
     "Dependencies/SideSign/Sources/DeveloperPortal/AppIDs.swift",
     "SideStore/Core/Auth/DeveloperPortalProxy.swift",
     "SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift",
+    "SideStore/Core/Operations/PipelineOperations/PerformBackupRestoreOperation.swift",
+    "SideBackup/SideBackupApp.swift",
 }
 
 
@@ -589,6 +595,9 @@ def verify_generated_source_evidence(evidence_root: Path, hashes: dict,
     required = set(REQUIRED_GENERATED_HOST_SOURCES)
     if product in ("v2",):
         required.difference_update({
+            'MultitaskSupport/AppSceneViewController.h',
+            'MultitaskSupport/AppSceneViewController.m',
+            'MultitaskSupport/DecoratedAppSceneViewController.m',
             'LiveContainer/Tweaks/Dead10ccFix.m',
             'LiveContainer/Tweaks/NSUserDefaults.m',
             "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",

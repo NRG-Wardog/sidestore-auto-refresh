@@ -154,6 +154,8 @@ def setup_revision_slices(shell: str, behavior: str) -> tuple[list[str], list[st
     facts = [
         swift_declaration(shell, "struct V3SetupReadinessObservation: Equatable"),
         swift_declaration(shell, "enum V3SetupReadinessObservationPolicy"),
+        swift_declaration(behavior, "enum V3HostSigningState:"),
+        swift_declaration(behavior, "struct V3HostSigningObservation:"),
         swift_declaration(behavior, "enum V3SetupSnapshotOutcome:"),
         swift_declaration(behavior, "enum V3SetupReloadRecomputePolicy"),
     ]

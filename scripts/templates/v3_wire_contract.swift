@@ -137,11 +137,12 @@ enum V3WireContract {
             "snapshot", "opStart", "accountExport", "ipaActiveTokens", "refreshSources", "signOut",
             "syncAppIDs", "clearCache", "settingsGet", "settingsSet", "sidesignGet", "sidesignSet",
             "sidesignReset", "sidesignExport", "anisetteList", "anisetteReset", "anisetteSync",
-            "healthSnapshot", "logTail", "certList", "certExportActive", "certPortalList", "certCreate", "opRecoveryPrepare",
+            "logTail", "certList", "certExportActive", "certPortalList", "certCreate", "opRecoveryPrepare",
             "recoveryDiscardUnreadable", "authReconcileStorage",
             "devTeams", "devDevices", "devAppIDs", "devGroups", "devProfiles"
         ]
         if emptyTargetOperations.contains(operation) && !target.isEmpty { return nil }
+        if operation == "healthSnapshot", !["", "hostSigningOnly"].contains(target) { return nil }
         if ["authBegin", "authPoll", "authRespond", "authCancel", "authRetryProvisioning",
             "opPoll", "opAnswer", "opCancel", "pairingImportData", "sidesignImport", "accountImport",
             "refreshAdmissionBegin", "refreshAdmissionEnd", "refreshAdmissionReconcile",
@@ -151,7 +152,7 @@ enum V3WireContract {
         if ["appIcon", "jit"].contains(operation),
            !acceptsCoreDataTarget(target, entity: "InstalledApp") { return nil }
         if ["sourcePreview", "sourceAddConfirmed"].contains(operation), !isHTTPURL(target) { return nil }
-        if operation == "backupResult", !["success", "failure"].contains(target) { return nil }
+        if operation == "backupResult", !canonicalSecretToken(target) { return nil }
         if let cursor = request["cursor"] {
             guard operation == "catalog", let value = strictInt(cursor),
                   value >= 0, value <= 1_000_000 else { return nil }
@@ -178,7 +179,7 @@ enum V3WireContract {
     private static let requiredPayloadOperations: Set<String> = [
         "authBegin", "authRetryProvisioning", "authRespond", "opAnswer", "opStart", "opRecoveryPrepare",
         "cancel", "accountExport", "accountImport", "settingsSet", "sidesignSet", "refreshAdmissionEnd",
-        "recoveryDiscardUnreadable", "directRecoveryReconcile"
+        "recoveryDiscardUnreadable", "directRecoveryReconcile", "backupResult"
     ]
 
     /// The one request key that may carry a credential, and only for the
@@ -215,6 +216,11 @@ enum V3WireContract {
             ? [credentialAnswerKey] : []
         guard !containsRawSecretField(payload, skipping: skipping) else { return false }
         switch operation {
+        case "backupResult":
+            return Set(payload.keys) == Set(["nonce", "action", "result"]) &&
+                canonicalSecretToken(payload["nonce"]) &&
+                ["backup", "restore"].contains(payload["action"] as? String ?? "") &&
+                ["success", "failure"].contains(payload["result"] as? String ?? "")
         case "snapshot":
             return Set(payload.keys) == Set(["readinessOnly"]) &&
                 strictBool(payload["readinessOnly"]) == true
@@ -495,13 +501,15 @@ struct V3MutationReplyCacheBudget {
     // reserve for starts and refresh admission release replies.
     static let authenticationLifecycleReplyBudget = 2
     static let provisioningRetryReplyBudget = 1
-    static let operationPromptReplyBudget = 1
+    // The operation start and its possible external SideBackup callback must
+    // both fit. Ordinary operation polls and prompt answers do not consume it.
+    static let operationPromptReplyBudget = 2
     static let reservedControlReplies = 8
     private(set) var storedBytes = 0
 
     static func isControlReply(operation: String) -> Bool {
         ["refreshAdmissionEnd", "refreshAdmissionReconcile", "opRecoveryReconcile", "directRecoveryReconcile", "recoveryDiscardUnreadable",
-         "authBegin", "authRetryProvisioning", "opStart"]
+         "authBegin", "authRetryProvisioning", "opStart", "backupResult"]
             .contains(operation) || V3RequestReplayPolicy.requiresCompletedReply(operation: operation)
     }
 
@@ -519,7 +527,7 @@ struct V3MutationReplyCacheBudget {
     }
 
     static func minimumReplyBytesToAdmit(operation: String) -> Int {
-        operation == "authBegin"
+        ["authBegin", "opStart"].contains(operation)
             ? V3WireContract.responseLimit * 2
             : V3WireContract.responseLimit
     }

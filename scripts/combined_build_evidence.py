@@ -30,6 +30,9 @@ HOST_SOURCE_PATHS = [
     '.lc-app-layout.json', '.combined-service-startup.json',
 ]
 V3_HOST_SOURCE_PATHS = [
+    'MultitaskSupport/AppSceneViewController.h',
+    'MultitaskSupport/AppSceneViewController.m',
+    'MultitaskSupport/DecoratedAppSceneViewController.m',
     'LiveContainer/Tweaks/Dead10ccFix.m',
     'LiveContainer/Tweaks/NSUserDefaults.m',
     'ZSign/zsigner.h',
@@ -42,6 +45,7 @@ V3_HOST_SOURCE_PATHS = [
 EMBEDDED_SOURCE_PATHS = [
     'SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift',
     'SideStore/Core/Certificates/CertificateManager.swift',
+    'SideStore/Core/Certificates/CodeSignValidator.swift',
     'AltStore/AppDelegate.swift', 'SideStore/Core/Operations/PipelineExecutor.swift',
     'SideStore/Core/Operations/PipelineRunner.swift',
     'SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift',
@@ -51,6 +55,8 @@ EMBEDDED_SOURCE_PATHS = [
     'Dependencies/SideSign/Sources/DeveloperPortal/AppIDs.swift',
     'SideStore/Core/Auth/DeveloperPortalProxy.swift',
     'SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift',
+    'SideStore/Core/Operations/PipelineOperations/PerformBackupRestoreOperation.swift',
+    'SideBackup/SideBackupApp.swift',
 ]
 
 

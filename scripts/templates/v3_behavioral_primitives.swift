@@ -423,8 +423,8 @@ enum V3CertificateStorageAdmission {
 
 enum V3StatusAuthorityOperationPolicy {
     static func directWriteOwnerID(operation: String, requestID: String) -> String? {
-        // `backupResult` and `ipaCleanup` only transfer/retire staged files; they
-        // do not change snapshot-owned SideStore state. Recovery journal edits
+        // `backupResult` is control for its existing operation owner; `ipaCleanup`
+        // only retires staged files. Neither creates a new status writer. Recovery journal edits
         // do change fields in the next authoritative snapshot and are fenced.
         let writes: Set<String> = [
             "signOut", "accountImport", "syncAppIDs", "clearCache", "refreshSources", "jit",
@@ -450,7 +450,7 @@ enum V3StatusAuthorityOperationPolicy {
         guard let sessionID, !sessionID.isEmpty else { return nil }
         switch operation {
         case "authPoll", "authRespond", "authCancel": return "auth:\(sessionID)"
-        case "opPoll", "opAnswer", "opCancel", "opRecoveryReconcile": return "operation:\(sessionID)"
+        case "opPoll", "opAnswer", "opCancel", "opRecoveryReconcile", "backupResult": return "operation:\(sessionID)"
         case "refreshAdmissionEnd", "refreshAdmissionReconcile": return "refresh:\(sessionID)"
         default: return nil
         }
@@ -2200,11 +2200,26 @@ final class V3OperationPreparationGate: @unchecked Sendable {
 
 struct V3SettingsWriteGeneration {
     private var values: [String: UInt64] = [:]
+    private var pending: [String: Set<UInt64>] = [:]
 
     mutating func begin(_ key: String) -> UInt64 {
         let next = (values[key] ?? 0) &+ 1
         values[key] = next
+        pending[key, default: []].insert(next)
         return next
+    }
+
+    mutating func finish(_ generation: UInt64, for key: String) {
+        pending[key]?.remove(generation)
+        if pending[key]?.isEmpty == true { pending.removeValue(forKey: key) }
+    }
+
+    func isPending(_ generation: UInt64, for key: String) -> Bool {
+        pending[key]?.contains(generation) == true
+    }
+
+    func hasPendingWrites(for key: String) -> Bool {
+        pending[key]?.isEmpty == false
     }
 
     func isCurrent(_ generation: UInt64, for key: String) -> Bool {
@@ -2213,6 +2228,23 @@ struct V3SettingsWriteGeneration {
 
     func current(for key: String) -> UInt64 {
         values[key] ?? 0
+    }
+
+    func isUnchanged(since captured: V3SettingsWriteGeneration) -> Bool {
+        values == captured.values && pending.isEmpty && captured.pending.isEmpty
+    }
+
+    // A read can start before OR during a write and return after it settles.
+    // Reject both cases per key, retaining unrelated authoritative read values.
+    func mergingSnapshot<Value>(_ snapshot: [String: Value], into currentValues: [String: Value],
+                                captured: V3SettingsWriteGeneration) -> [String: Value] {
+        var result = currentValues
+        for key in Set(currentValues.keys).union(snapshot.keys)
+            where current(for: key) == captured.current(for: key) &&
+                  pending[key] == nil && captured.pending[key] == nil {
+            result[key] = snapshot[key]
+        }
+        return result
     }
 }
 
@@ -2230,15 +2262,15 @@ enum V3RefreshResultVerifier {
     }
 }
 
-// The install pipeline may call the handler even when there is nothing to
-// remove. Keep this branch executable so a zero-item prompt cannot regress.
+// Customization reviews every target extension, including fresh installs
+// (where upstream reports no excess extensions). Only an empty target skips UI.
 enum V3ExtensionRemovalPromptPolicy {
     static func decide<Element: Hashable, Decision>(
-        excessExtensions: Set<Element>,
+        targetExtensions: Set<Element>,
         whenEmpty: Decision,
         prompt: () async throws -> Decision
     ) async rethrows -> Decision {
-        guard !excessExtensions.isEmpty else { return whenEmpty }
+        guard !targetExtensions.isEmpty else { return whenEmpty }
         return try await prompt()
     }
 }
@@ -2301,6 +2333,33 @@ enum V3RefreshAllTerminalEvidencePolicy {
     static func count(_ key: String, in summary: [String: Any]?) -> Int? {
         guard let summary else { return nil }
         return integer(summary[key])
+    }
+}
+
+// A result dictionary is written before the scheduler verifies it, including
+// failures. Home must consume settled scheduler evidence, never mere presence.
+enum V3HomeRefreshVerificationPolicy {
+    static func isVerified(manifest: [String: Any]?, ledger: [String: Any],
+                           activeRunID: String?, hostHandoffPending: Bool,
+                           uncertainMutationRunID: String?) -> Bool {
+        guard activeRunID?.isEmpty != false, !hostHandoffPending,
+              uncertainMutationRunID?.isEmpty != false,
+              let manifest, let runID = manifest["run_id"] as? String,
+              CombinedVerification.hasCompleteTerminalResults(manifest, runID: runID),
+              let record = ledger[runID] as? [String: Any],
+              let summary = record["manifest_summary"] as? [String: Any],
+              V3RefreshAllTerminalEvidencePolicy.verifiedSummary(summary, record: record, runID: runID),
+              let expected = manifest["expected_ids"] as? [String],
+              let results = manifest["results"] as? [[String: Any]],
+              summary["expected_count"] as? Int == expected.count,
+              summary["result_count"] as? Int == results.count,
+              summary["skipped_count"] as? Int == (manifest["skipped_ids"] as? [String] ?? []).count,
+              summary["requested_count"] as? Int == (manifest["requested_ids"] as? [String] ?? []).count else {
+            return false
+        }
+        // A completed result set can still contain failures. The canonical
+        // coverage check above already requires actual plist boolean values.
+        return results.allSatisfy { $0["success"] as? Bool == true }
     }
 }
 
@@ -3155,6 +3214,59 @@ enum V3SourceEditingPolicy {
 // the defect; this type removes the possibility of disagreement by having exactly
 // one decision, consumed by both, and by reporting which item is outstanding
 // rather than a bare boolean.
+// V3_INSTALLED_HOST_SIGNING_V1: local compatibility is a current observation,
+// separate from successful refresh history and the imported JIT-Less copy.
+// It does not establish portal revocation status or exact signing provenance.
+enum V3HostSigningState: String, Equatable, Sendable {
+    case unknown, compatible, refreshRequired, paidSignerUnverified
+
+    var detail: String {
+        switch self {
+        case .unknown:
+            return "Installed host signing could not be checked. Reload Status to check again."
+        case .compatible:
+            return "The installed host is locally compatible with the active signing setup. Revocation was not checked."
+        case .refreshRequired:
+            return "The installed host signing is expired or differs from the active setup. Run Test Refresh after completing account and certificate setup."
+        case .paidSignerUnverified:
+            return "The installed host uses a different paid-team signer. Its portal status was not checked; a re-sign is not known to be required. You can inspect Certificates or explicitly run Test Refresh."
+        }
+    }
+}
+
+struct V3HostSigningObservation: Equatable, Sendable {
+    // Match the existing shared setup-fact observation interval.
+    static let maximumAge: TimeInterval = 5 * 60
+    var context = ""
+    var state: V3HostSigningState = .unknown
+    var checkedAt = Date.distantPast
+    var validUntil = Date.distantPast
+
+    func currentState(context: String?, now: Date = Date()) -> V3HostSigningState {
+        guard let context, !context.isEmpty, self.context == context,
+              now >= checkedAt, now < validUntil,
+              now.timeIntervalSince(checkedAt) < Self.maximumAge else { return .unknown }
+        return state
+    }
+
+    var wire: [String: Any] {
+        ["context": context, "state": state.rawValue, "checkedAt": checkedAt, "validUntil": validUntil]
+    }
+
+    static func decode(_ value: Any?) -> V3HostSigningObservation? {
+        guard let value = value as? [String: Any],
+              let context = value["context"] as? String,
+              context.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+              let rawState = value["state"] as? String, let state = V3HostSigningState(rawValue: rawState),
+              let checkedAt = value["checkedAt"] as? Date,
+              let validUntil = value["validUntil"] as? Date,
+              checkedAt.timeIntervalSince1970.isFinite, validUntil.timeIntervalSince1970.isFinite,
+              validUntil <= checkedAt.addingTimeInterval(maximumAge) else { return nil }
+        return V3HostSigningObservation(context: context, state: state,
+            checkedAt: checkedAt, validUntil: validUntil)
+    }
+}
+
 enum V3SetupOutstandingItem: String, Equatable, CaseIterable {
     case account
     case provisioning
@@ -3165,6 +3277,7 @@ enum V3SetupOutstandingItem: String, Equatable, CaseIterable {
     case backgroundRefresh
     case schedule
     case verifiedRefresh
+    case installedHostSigning
 
     /// User-facing label, so the UI can name the outstanding step.
     var title: String {
@@ -3178,6 +3291,7 @@ enum V3SetupOutstandingItem: String, Equatable, CaseIterable {
         case .backgroundRefresh: return "Allow Background App Refresh"
         case .schedule: return "Enable scheduled refresh"
         case .verifiedRefresh: return "Run one verified refresh"
+        case .installedHostSigning: return "Check installed host signing"
         }
     }
 }
@@ -3193,6 +3307,7 @@ struct V3SetupCompletionInputs: Equatable {
     var backgroundRefreshAvailable = false
     var scheduleEnabled = false
     var verifiedRefreshPresent = false
+    var installedHostSigningCompatible = false
 
     /// The only legal way to decide whether setup is finished.
     func outstanding() -> [V3SetupOutstandingItem] {
@@ -3207,6 +3322,7 @@ struct V3SetupCompletionInputs: Equatable {
         if !backgroundRefreshAvailable { items.append(.backgroundRefresh) }
         if !scheduleEnabled { items.append(.schedule) }
         if !verifiedRefreshPresent { items.append(.verifiedRefresh) }
+        if !installedHostSigningCompatible { items.append(.installedHostSigning) }
         return items
     }
 
@@ -4045,7 +4161,7 @@ enum V3DirectRefreshRunClaimPolicy {
 
 enum V3RequestRetirementPolicy {
     private static let sessionControls: Set<String> = [
-        "opStart", "opPoll", "opAnswer", "opCancel",
+        "opStart", "opPoll", "opAnswer", "opCancel", "backupResult",
         "authPoll", "authRespond"
     ]
 
@@ -5171,12 +5287,99 @@ enum V3AuthSessionExpiryPolicy {
     }
 }
 
+// A backup callback is a one-shot capability for one external SideBackup step.
+// The session owns the device mutation throughout the round trip; this control
+// message must never create, release, or reconcile an operation owner.
+struct V3BackupCallbackIdentity: Equatable, Sendable {
+    let session: String
+    let nonce: String
+    let action: String
+
+    init?(session: String, nonce: String, action: String) {
+        guard UUID(uuidString: session)?.uuidString == session,
+              UUID(uuidString: nonce)?.uuidString == nonce,
+              ["backup", "restore"].contains(action) else { return nil }
+        self.session = session; self.nonce = nonce; self.action = action
+    }
+
+    init?(_ raw: Any?) {
+        guard let values = raw as? [String: String],
+              Set(values.keys) == Set(["session", "nonce", "action"]),
+              let session = values["session"], let nonce = values["nonce"],
+              let action = values["action"] else { return nil }
+        self.init(session: session, nonce: nonce, action: action)
+    }
+
+    var wire: [String: String] { ["session": session, "nonce": nonce, "action": action] }
+    var queryItems: [URLQueryItem] {
+        [URLQueryItem(name: "v3Session", value: session),
+         URLQueryItem(name: "v3Nonce", value: nonce),
+         URLQueryItem(name: "v3Action", value: action)]
+    }
+
+    static func supports(kind: String, action: String) -> Bool {
+        switch (kind, action) {
+        case ("backup", "backup"), ("deactivate", "backup"),
+             ("restore", "restore"), ("activate", "restore"): return true
+        default: return false
+        }
+    }
+}
+
+struct V3BackupCallbackResult: Equatable, Sendable {
+    let identity: V3BackupCallbackIdentity
+    let succeeded: Bool
+
+    init?(session: String, payload: [String: Any]) {
+        guard Set(payload.keys) == Set(["nonce", "action", "result"]),
+              let nonce = payload["nonce"] as? String,
+              let action = payload["action"] as? String,
+              let result = payload["result"] as? String,
+              ["success", "failure"].contains(result),
+              let identity = V3BackupCallbackIdentity(session: session, nonce: nonce, action: action)
+        else { return nil }
+        self.identity = identity; self.succeeded = result == "success"
+    }
+
+    // URLs come from outside the process. Reject ambiguous and unbound input;
+    // external descriptions, error domains and codes never enter XPC or logs.
+    init?(url: URL, expectedTargetBundleID: String) {
+        guard url.absoluteString.utf8.count <= 8192,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "sidestore",
+              components.host?.lowercased() == "appbackupresponse",
+              components.user == nil, components.password == nil, components.port == nil,
+              components.fragment == nil,
+              ["/success", "/failure"].contains(components.path.lowercased()) else { return nil }
+        let items = components.queryItems ?? []
+        let allowed: Set<String> = ["targetBundleID", "v3Session", "v3Nonce", "v3Action",
+                                    "errorDomain", "errorCode", "errorDescription"]
+        guard items.count <= allowed.count, Set(items.map(\.name)).count == items.count,
+              items.allSatisfy({ allowed.contains($0.name) && $0.value != nil }) else { return nil }
+        let values = Dictionary(uniqueKeysWithValues: items.compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+        guard !expectedTargetBundleID.isEmpty, values["targetBundleID"] == expectedTargetBundleID,
+              let session = values["v3Session"], let nonce = values["v3Nonce"],
+              let action = values["v3Action"] else { return nil }
+        self.init(session: session, payload: ["nonce": nonce, "action": action,
+            "result": components.path.lowercased() == "/success" ? "success" : "failure"])
+    }
+
+    var payload: [String: Any] {
+        ["nonce": identity.nonce, "action": identity.action,
+         "result": succeeded ? "success" : "failure"]
+    }
+}
+
 enum V3ServiceMutationAdmissionPolicy {
     static func hasConflictingOperationMutation(operation: String, target: String,
-                                                activeOperationID: String?) -> Bool {
+                                                activeOperationID: String?,
+                                                backupCallbackControl: Bool = false) -> Bool {
         guard let activeOperationID else { return false }
         return !(target == activeOperationID &&
-            ["opPoll", "opAnswer", "opCancel"].contains(operation))
+            (["opPoll", "opAnswer", "opCancel"].contains(operation) ||
+             (operation == "backupResult" && backupCallbackControl)))
     }
 
     static func admits(isMutation: Bool, anotherMutationActive: Bool,
@@ -5320,7 +5523,7 @@ enum V3OperationSessionCorrelationPolicy {
     static func requestSessionID(operation: String, target: String,
                                  payload: [String: Any]) -> String? {
         if operation == "opStart" { return payload["session"] as? String }
-        if ["opPoll", "opAnswer", "opCancel"].contains(operation) {
+        if ["opPoll", "opAnswer", "opCancel", "backupResult"].contains(operation) {
             return target.isEmpty ? nil : target
         }
         return nil
@@ -5328,7 +5531,7 @@ enum V3OperationSessionCorrelationPolicy {
 
     static func matches(operation: String, target: String, requestedStartSession: String?,
                         resultSession: String?) -> Bool {
-        guard ["opStart", "opPoll", "opAnswer", "opCancel"].contains(operation) else { return true }
+        guard ["opStart", "opPoll", "opAnswer", "opCancel", "backupResult"].contains(operation) else { return true }
         let expected = operation == "opStart" ? requestedStartSession : target
         guard let expected, !expected.isEmpty else { return false }
         return resultSession == expected
@@ -5352,13 +5555,14 @@ enum V3ServiceRecoveryAdmissionPolicy {
     static func decide(operation: String, target: String, payload: [String: Any],
                        operationSessionID: String?, recovery: V3OperationRecoveryRecord?,
                        recoveryReadFailed: Bool, recoveryDiscardable: Bool = false,
-                       refreshOwnerLost: Bool) -> V3ServiceRecoveryAdmissionDecision {
+                       refreshOwnerLost: Bool, backupCallbackControl: Bool = false) -> V3ServiceRecoveryAdmissionDecision {
         let refreshRecordMatches = recovery?.kind == "refreshAll" && recovery?.sessionID == target
         let refreshTerminalState = payload["state"] as? String
         let hasRefreshTerminal = ["completed", "failed", "notDispatched"].contains(refreshTerminalState ?? "")
         let userConfirmed = strictBoolean(payload["userConfirmed"]) == true
         let operationControl = recovery?.kind != "refreshAll" &&
-            ((["opPoll", "opAnswer", "opCancel"].contains(operation) &&
+            (((["opPoll", "opAnswer", "opCancel"].contains(operation) ||
+               (operation == "backupResult" && backupCallbackControl)) &&
               operationSessionID == recovery?.sessionID) ||
              (operation == "opRecoveryReconcile" && target == recovery?.sessionID && userConfirmed))
         let refreshControl = refreshRecordMatches &&

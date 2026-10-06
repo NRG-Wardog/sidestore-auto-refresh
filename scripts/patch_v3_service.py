@@ -12,7 +12,7 @@ import sys
 TEMPLATES = Path(__file__).with_name("templates")
 PINS = ("12377cf3b91d51739a33f14a302e5f522b238593", "ff25922e5c13ccfafd83bda5092910d848ebd409")
 MARKER = "V3_COMMAND_PATCH_V1"
-PATCH_VERSION = 48
+PATCH_VERSION = 49
 
 
 def runtime_app_group_environment_key() -> str:
@@ -1603,6 +1603,114 @@ def headless_pipeline_handler(text):
     return patched
 
 
+def headless_backup_operation(text):
+    """Bind only the concrete external backup step to its live operation owner."""
+    marker = "V3_BACKUP_CALLBACK_OWNER_V1"
+    if marker in text:
+        if any(token not in text for token in ("beginBackupCallback(action:", "endBackupCallback(callback)",
+                'notification.userInfo?["v3BackupNonce"]', "if callback == nil {")):
+            raise SystemExit("v3 service: backup callback owner patch is partial")
+        return text
+    text = replace(text,
+        "private func constructBackupURLs(bundleIdentifier: String, name: String, openAppURL: URL)",
+        "private func constructBackupURLs(bundleIdentifier: String, name: String, openAppURL: URL, callback: V3BackupCallbackIdentity?)")
+    text = replace(text,
+        'returnURLComponents?.queryItems = [URLQueryItem(name: "targetBundleID", value: appGroupBundleID)]',
+        'returnURLComponents?.queryItems = [URLQueryItem(name: "targetBundleID", value: appGroupBundleID)] + (callback?.queryItems ?? [])')
+    text = replace(text,
+        '        let (openURL, returnURL) = try self.constructBackupURLs(bundleIdentifier: bundleIdentifier, name: name, openAppURL: openAppURL)',
+        '''        // V3_BACKUP_CALLBACK_OWNER_V1: mint the one-shot callback before
+        // opening SideBackup; only its owning session may consume the result.
+        let headlessHandler = self.context.handler as? V3HeadlessPipelineHandler
+        let callback = try await headlessHandler?.beginBackupCallback(action: action.rawValue)
+        defer {
+            if let callback, let headlessHandler {
+                Task { @MainActor in headlessHandler.endBackupCallback(callback) }
+            }
+        }
+        let (openURL, returnURL) = try self.constructBackupURLs(bundleIdentifier: bundleIdentifier, name: name, openAppURL: openAppURL, callback: callback)''')
+    text = replace(text,
+        '            let appWillReturnObs = NotificationCenter.default.addObserver(',
+        '''            // A foreground transition does not establish whether an external
+            // copy stopped. Headless cancellation keeps the operation/journal
+            // owner until the actual callback or explicit device reconciliation.
+            var appWillReturnObs: NSObjectProtocol?
+            if callback == nil {
+                appWillReturnObs = NotificationCenter.default.addObserver(''')
+    text = replace(text,
+        '            let backupRespObs = NotificationCenter.default.addObserver(',
+        '            }\n\n            let backupRespObs = NotificationCenter.default.addObserver(')
+    text = replace(text,
+        '            ) { notification in\n                self.debugLog("[BackupRestoreAppOperation] appBackupDidFinish notification received. UserInfo: \\(String(describing: notification.userInfo))")',
+        '''            ) { notification in
+                if let callback,
+                   notification.userInfo?["v3BackupNonce"] as? String != callback.nonce { return }
+                self.debugLog("[BackupRestoreAppOperation] correlated backup result received")''')
+    text = replace(text,
+        '        let currentTime = CFAbsoluteTimeGetCurrent()\n        return await withCheckedContinuation',
+        '''        if let handler = self.context.handler as? V3HeadlessPipelineHandler,
+           !handler.backupCallbackMayOpen() { return false }
+        let currentTime = CFAbsoluteTimeGetCurrent()
+        return await withCheckedContinuation''')
+    text = replace(text,
+        '                        try? await Task.sleep(nanoseconds: 2_000_000_000)\n                        UIApplication.shared.open',
+        '''                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        if let handler = self.context.handler as? V3HeadlessPipelineHandler,
+                           !handler.backupCallbackMayOpen() {
+                            continuation.resume(returning: false)
+                            return
+                        }
+                        UIApplication.shared.open''')
+    # URL capabilities must not enter even the app's private diagnostic buffer.
+    text = replace(text,
+        '        self.debugLog("[BackupRestoreAppOperation] openApp() called with URL: \\(url.absoluteString)")',
+        '        self.debugLog("[BackupRestoreAppOperation] opening backup application")')
+    text = replace(text,
+        '        self.debugLog("[BackupRestoreAppOperation] openAppAndObserve() constructed URLs. openURL: \\(openURL.absoluteString), returnURL: \\(returnURL.absoluteString)")',
+        '        self.debugLog("[BackupRestoreAppOperation] prepared backup callback")')
+    return text
+
+
+def headless_sidebackup_response(text):
+    """SideBackup is built as a target dependency, then packaged into SideStore."""
+    marker = "V3_SIDEBACKUP_CALLBACK_QUERY_V1"
+    if marker in text:
+        if 'error.localizedDescription].map' in text or 'components.queryItems = ["errorDomain"' in text:
+            raise SystemExit("v3 service: SideBackup callback query patch is partial")
+        return text
+    text = replace(text,
+        '''        switch result {
+        case .success:
+            components.path = "/success"
+\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20
+        case .failure(let error as NSError):
+            components.path = "/failure"
+            components.queryItems = ["errorDomain": error.domain,
+                                     "errorCode": String(error.code),
+                                     "errorDescription": error.localizedDescription].map { URLQueryItem(name: $0, value: $1) }
+        }''',
+        '''        // V3_SIDEBACKUP_CALLBACK_QUERY_V1: preserve the explicit host target
+        // and one-shot callback correlation on both success and failure. Remove
+        // old error keys rather than creating duplicate/ambiguous query values.
+        var callbackItems = (components.queryItems ?? []).filter {
+            !["errorDomain", "errorCode", "errorDescription"].contains($0.name)
+        }
+        switch result {
+        case .success:
+            components.path = "/success"
+        case .failure:
+            components.path = "/failure"
+            callbackItems += [URLQueryItem(name: "errorDomain", value: "SideBackup"),
+                              URLQueryItem(name: "errorCode", value: "1"),
+                              URLQueryItem(name: "errorDescription", value: "The backup or restore operation did not complete.")]
+        }
+        components.queryItems = callbackItems''')
+    text = replace(text,
+        '''debugLog(logger, "[SideBackup]: Attempting to open target SideStore app '\\(targetSideStoreBundleID)' via LSApplicationWorkspace with return URL: \\(responseURL.absoluteString)")''',
+        '''debugLog(logger, "[SideBackup]: Returning the correlated operation result to SideStore")''')
+    return text
+
+
 def headless_pipeline_persistence_contract(text):
     """Require durable installed-app persistence after a successful mutation."""
     marker = "V3_POST_MUTATION_PERSISTENCE_CONTRACT_V1"
@@ -1760,6 +1868,31 @@ def headless_certificate_serial_log_redaction(text, owner):
     if any(contains_certificate_serial_log_identifier(call) for call in calls):
         raise SystemExit(f"v3 service: certificate serial redaction was incomplete in {owner}")
     return text
+
+
+def headless_code_sign_validator_privacy(text):
+    """Keep upstream decisions intact without logging personal signing facts."""
+    marker = "V3_HOST_SIGNING_VALIDATOR_QUIET_V1"
+    if marker in text:
+        if _swift_log_call_ranges(text):
+            raise SystemExit("v3 service: quiet CodeSignValidator contains log calls")
+        if "observedRunningCertificate: ALTX509Certificate? = nil" not in text or \
+                "observedRunningCertificate ?? CertificateManager.shared.getSigningCertificate" not in text:
+            raise SystemExit("v3 service: quiet CodeSignValidator observation adapter is partial")
+        return text
+    calls = _swift_log_call_ranges(text)
+    if not calls:
+        raise SystemExit("v3 service: CodeSignValidator log anchors changed")
+    for start, end, _ in reversed(calls):
+        text = text[:start] + "/* Local signing details are intentionally not logged. */" + text[end:]
+    text = replace(text,
+        "        runningProfile: ALTProvisioningProfile?,\n",
+        "        runningProfile: ALTProvisioningProfile?,\n"
+        "        observedRunningCertificate: ALTX509Certificate? = nil,\n")
+    text = replace(text,
+        "let runningCert = CertificateManager.shared.getSigningCertificate(at: Bundle.Info.activeBundleURL)",
+        "let runningCert = observedRunningCertificate ?? CertificateManager.shared.getSigningCertificate(at: Bundle.Info.activeBundleURL)")
+    return "// " + marker + "\n" + text
 
 
 def headless_connection_config(text):
@@ -2787,6 +2920,10 @@ def patch(live, side):
     edit(side, "AltStore/Managing Apps/AppManager.swift", headless_app_manager)
     edit(side, "SideStore/Core/Operations/PipelineRunner.swift",
          headless_pipeline_persistence_contract)
+    edit(side, "SideStore/Core/Certificates/CodeSignValidator.swift", headless_code_sign_validator_privacy)
+    edit(side, "SideStore/Core/Operations/PipelineOperations/PerformBackupRestoreOperation.swift",
+         headless_backup_operation)
+    edit(side, "SideBackup/SideBackupApp.swift", headless_sidebackup_response)
     certificate_serial_log_files = (
         ("SideStore/Core/Certificates/CertificateManager.swift", "CertificateManager"),
         ("SideStore/Core/Certificates/OCSPValidator.swift", "OCSPValidator"),
@@ -3115,6 +3252,9 @@ def verify_headless_ui_adapters(side, pinned_ref):
         ("SideStore/Core/JIT/SideJITManager.swift", headless_sidejit_manager),
         ("SideStore/Core/Pairing/PairingFileManager.swift", headless_pairing_file_manager),
         ("SideStore/Handlers/PipelineHandler.swift", headless_pipeline_handler),
+        ("SideStore/Core/Certificates/CodeSignValidator.swift", headless_code_sign_validator_privacy),
+        ("SideStore/Core/Operations/PipelineOperations/PerformBackupRestoreOperation.swift", headless_backup_operation),
+        ("SideBackup/SideBackupApp.swift", headless_sidebackup_response),
         ("SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
          headless_clear_cache_operation),
         ("SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift", headless_connection_config),

@@ -106,7 +106,7 @@ enum V3SetupReadinessObservationPolicy {
 enum V3MultiSelectPromptAnswerPolicy {
     static func isMemberOption(kind: String, optionID: String) -> Bool {
         if ["keep", "keepAll"].contains(optionID) { return false }
-        if kind == "extensions" && optionID == "removeAll" { return false }
+        if kind == "extensions" && ["keepAllMainProfile", "removeAll", "cancel"].contains(optionID) { return false }
         return true
     }
 
@@ -277,7 +277,7 @@ struct V3UnifiedTabs: View {
                         }
                         Button("Keep waiting", role: .cancel) {}
                     } message: {
-                        Text("Only continue after confirming the device is no longer installing, updating, refreshing, or deleting the app.")
+                        Text("Only continue after confirming the device is no longer installing, updating, refreshing, backing up, restoring, or deleting the app.")
                     }
                 }
                 .padding(12)
@@ -499,12 +499,8 @@ struct V3UnifiedTabs: View {
             return
         }
         if url.scheme?.lowercased() == "sidestore", url.host?.lowercased() == "appbackupresponse" {
-            let result = url.path.lowercased() == "/success" ? "success" : "failure"
             Task {
-                do {
-                    _ = try await V3ServiceBridge.shared.request(operation: "backupResult", target: result)
-                    status.reload()
-                }
+                do { try await V3ServiceBridge.shared.submitBackupCallback(url) }
                 catch { status.present(error) }
             }
             return
@@ -1076,6 +1072,25 @@ final class V3SideStoreStatusStore: ObservableObject {
     // completes before provisioning activates that row.
     @Published private(set) var authenticated = false
     @Published private(set) var identityStamp: String?
+    @Published private(set) var hostSigningContext: String?
+    @Published private(set) var installedHostSigning = V3HostSigningObservation()
+
+    var installedHostSigningState: V3HostSigningState {
+        connected ? installedHostSigning.currentState(context: hostSigningContext) : .unknown
+    }
+
+    func recordInstalledHostSigning(_ reply: [String: Any], revision: UInt64) {
+        guard isSetupFactRevisionCurrent(revision) else { return }
+        guard let currentStamp = identityStamp, !currentStamp.isEmpty,
+              reply["identityStamp"] as? String == currentStamp,
+              let observation = V3HostSigningObservation.decode(reply["hostSigning"]),
+              observation.context == hostSigningContext else {
+            installedHostSigning = V3HostSigningObservation()
+            return
+        }
+        installedHostSigning = observation
+    }
+
     @Published private(set) var authenticationActive = false
     // V3_AUTH_LOCAL_STATE_SNAPSHOT_V1: persisted account/team/certificate
     // presence is separate from credential readability and display strings.
@@ -1110,6 +1125,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     }
 
     func invalidateSetupFacts() {
+        installedHostSigning = V3HostSigningObservation()
         setupFactRevision &+= 1
         setupFactObservation = .pending
         setupFactLastAttemptAt = nil
@@ -1179,19 +1195,13 @@ final class V3SideStoreStatusStore: ObservableObject {
     /// Observes the shared setup facts once, when they are the only thing
     /// standing between the user and a cleared setup banner.
     private func observeSetupFactsIfNeeded() {
-        let osMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
         guard V3SetupFactObservationPolicy.shouldObserve(
             connected: connected, setupPresented: setupPresented,
             operationPresented: presentation != nil, loading: loadActivity != .idle,
             returnToSetupPending: returnToSetupAfterJITLess,
             lastAttemptAt: setupFactLastAttemptAt) else { return }
-        // On legacy iOS, Wi-Fi is the only setup fact owned here. Do not call
-        // the certificate/OCSP health endpoint when JIT-Less is not required.
-        if !V3JITLessCompletionPolicy.isRequired(osMajor: osMajor), wifiAvailable != nil {
-            setupFactObservation = .observed
-            setupFactLastAttemptAt = Date()
-            return
-        }
+        // Legacy devices still observe installed host signing, through the
+        // local-only endpoint branch. They never acquire an OCSP prerequisite.
         setupFactObservation = .deferred
         setupFactLastAttemptAt = Date()
         startSetupFactObservation()
@@ -1251,15 +1261,18 @@ final class V3SideStoreStatusStore: ObservableObject {
         let wifi = await LiveContainerNetworkPreflight.wifiAvailable()
         guard isSetupFactRevisionCurrent(revision) else { return }
         recordWifiAvailability(wifi, revision: revision)
-        guard V3JITLessCompletionPolicy.isRequired(
-            osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion) else {
-            recordJITLessReadiness(.notRequired, revision: revision)
-            markSetupFactsObserved(revision: revision)
-            return
-        }
+        let jitlessRequired = V3JITLessCompletionPolicy.isRequired(
+            osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
         do {
-            let health = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
+            let health = try await V3ServiceBridge.shared.request(operation: "healthSnapshot",
+                target: jitlessRequired ? "" : "hostSigningOnly")
             guard isSetupFactRevisionCurrent(revision) else { return }
+            recordInstalledHostSigning(health, revision: revision)
+            if !jitlessRequired {
+                recordJITLessReadiness(.notRequired, revision: revision)
+                markSetupFactsObserved(revision: revision)
+                return
+            }
             let certificate = health["certificateState"] as? [String: Any] ?? [:]
             let readiness = await V3JITLessStatusReader.read(serviceCertificate: certificate)
             guard isSetupFactRevisionCurrent(revision) else { return }
@@ -1271,6 +1284,7 @@ final class V3SideStoreStatusStore: ObservableObject {
             guard isSetupFactRevisionCurrent(revision) else { return }
             // Unobserved is published as unknown, so the item stays outstanding
             // rather than the banner claiming a certificate exists.
+            recordInstalledHostSigning([:], revision: revision)
             recordJITLessReadiness(.unknown, revision: revision)
         }
     }
@@ -1801,6 +1815,7 @@ final class V3SideStoreStatusStore: ObservableObject {
     /// A bridge write intent may invalidate a snapshot already in flight or
     /// originate outside a Store-owned mutation wrapper.
     func statusAuthorityInvalidated() {
+        invalidateSetupFacts()
         if loadActivity == .idle {
             reload(manual: false)
         } else {
@@ -1824,6 +1839,7 @@ final class V3SideStoreStatusStore: ObservableObject {
                 rejectedAsStale = true
             } else if V3SnapshotErrorPolicy.shouldMarkDisconnected(error) {
                 connected = false
+                invalidateSetupFacts()
                 requiresConnectionRetry = true
                 present(error)
             } else {
@@ -1918,7 +1934,12 @@ final class V3SideStoreStatusStore: ObservableObject {
         guard let incomingIdentityStamp = snapshot["identityStamp"] as? String,
               !incomingIdentityStamp.isEmpty,
               V3ServiceBridge.strictBool(snapshot["identityStable"]) != nil else { return false }
+        let incomingSigningContext = snapshot["hostSigningContext"] as? String
+        if identityStamp != incomingIdentityStamp || hostSigningContext != incomingSigningContext {
+            invalidateSetupFacts()
+        }
         identityStamp = incomingIdentityStamp
+        hostSigningContext = incomingSigningContext
         account = snapshot["account"] as? String ?? "Not signed in"
         team = snapshot["team"] as? String ?? "No active team"
         signing = snapshot["signing"] as? String ?? "Unknown"
@@ -3633,6 +3654,7 @@ struct V3BoolSettingRow: View {
     @State private var loadingRequest = false
     @State private var writeGenerations = V3SettingsWriteGeneration()
     @State private var confirmedValue: Bool?
+    @State private var pendingWriteReconciliation = false
     var body: some View {
         Toggle(isOn: Binding(get: { value }, set: { value = $0; save($0) })) {
             Label(title, systemImage: icon)
@@ -3643,9 +3665,12 @@ struct V3BoolSettingRow: View {
     private func load() async {
         guard !loadingRequest else { return }
         loadingRequest = true
+        let capturedWrites = writeGenerations
         defer { loadingRequest = false }
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "settingsGet")
+            guard writeGenerations.isUnchanged(since: capturedWrites) else { return }
+            pendingWriteReconciliation = false
             if let bools = reply["bools"] as? [String: Bool], let current = bools[key] {
                 value = current
                 confirmedValue = current
@@ -3654,11 +3679,14 @@ struct V3BoolSettingRow: View {
                 confirmedValue = legacy
             }
             loaded = true
-        } catch { status.present(error) }
+        } catch {
+            if writeGenerations.isUnchanged(since: capturedWrites) { status.present(error) }
+        }
     }
     private func save(_ newValue: Bool) {
         let generation = writeGenerations.begin(key)
         Task {
+            defer { finishWrite(generation) }
             let mutationTicket = status.beginDirectMutation()
             do {
                 let reply = try await V3ServiceBridge.shared.request(operation: "settingsSet",
@@ -3670,16 +3698,39 @@ struct V3BoolSettingRow: View {
                     confirmedValue = newValue
                     status.reload()
                 } else {
-                    _ = await reloadAuthoritative(generation: writeGenerations.current(for: key))
+                    pendingWriteReconciliation = true
                 }
             } catch {
                 status.finishDirectMutation(ticket: mutationTicket, requestReload: true)
-                guard writeGenerations.isCurrent(generation, for: key) else { return }
+                guard writeGenerations.isCurrent(generation, for: key) else {
+                    pendingWriteReconciliation = true
+                    return
+                }
                 let loaded = await reloadAuthoritative(generation: generation)
-                if !loaded, writeGenerations.isCurrent(generation, for: key) {
+                guard writeGenerations.isCurrent(generation, for: key) else {
+                    pendingWriteReconciliation = true
+                    return
+                }
+                if !loaded {
                     value = confirmedValue ?? !newValue
                 }
                 status.present(error)
+            }
+        }
+    }
+    private func finishWrite(_ generation: UInt64) {
+        writeGenerations.finish(generation, for: key)
+        guard pendingWriteReconciliation,
+              !writeGenerations.hasPendingWrites(for: key) else { return }
+        pendingWriteReconciliation = false
+        let settledGeneration = writeGenerations.current(for: key)
+        Task {
+            // Reconcile once all writes settle; response order need not match
+            // backend commit order, even when the newest reply arrived first.
+            let verified = await reloadAuthoritative(generation: settledGeneration)
+            if !verified, writeGenerations.isCurrent(settledGeneration, for: key) {
+                pendingWriteReconciliation = true
+                status.notice = "The saved setting could not be verified. Reload settings to check its value."
             }
         }
     }
@@ -3974,7 +4025,7 @@ struct V3OperationSheet: View {
             }
             Button("Keep Waiting", role: .cancel) {}
         } message: {
-            Text("Use this only after confirming the device is no longer installing, updating, refreshing, or deleting the app.")
+            Text("Use this only after confirming the device is no longer installing, updating, refreshing, backing up, restoring, or deleting the app.")
         }
         .task {
             if request.operation == "installSharedIPA" {
@@ -4965,14 +5016,26 @@ struct V3PromptSection: View {
                     }
                         .disabled(isSubmitting || isSubmissionBlocked)
                 } else {
-                    Button("Keep All") {
+                    if options.contains(where: { $0["id"] == "keepAllMainProfile" }) {
+                        Button("Keep All (Use Main Profile)") {
+                            respond(V3MultiSelectPromptAnswerPolicy.actionAnswer("keepAllMainProfile", fields: fields))
+                        }
+                        .disabled(isSubmitting || isSubmissionBlocked)
+                    }
+                    Button("Keep All (Register Each Extension)") {
                         respond(V3MultiSelectPromptAnswerPolicy.actionAnswer("keepAll", fields: fields))
                     }
-                        .disabled(isSubmitting || isSubmissionBlocked)
+                    .disabled(isSubmitting || isSubmissionBlocked)
                     Button("Remove All", role: .destructive) {
                         respond(V3MultiSelectPromptAnswerPolicy.actionAnswer("removeAll", fields: fields))
                     }
                     .disabled(isSubmitting || isSubmissionBlocked)
+                    if options.contains(where: { $0["id"] == "cancel" }) {
+                        Button("Cancel", role: .cancel) {
+                            respond(V3MultiSelectPromptAnswerPolicy.actionAnswer("cancel", fields: fields))
+                        }
+                        .disabled(isSubmitting)
+                    }
                 }
                 Button(kind == "revocation" ? "Revoke Selected" : "Remove Selected", role: .destructive) {
                     respond(V3MultiSelectPromptAnswerPolicy.selectedMembersAnswer(
@@ -7549,29 +7612,39 @@ final class V3SettingsStore: ObservableObject {
     @Published var message = ""
     private var writeGenerations = V3SettingsWriteGeneration()
     private var loadingRequest = false
+    private var pendingWriteReconciliation: Set<String> = []
     private var confirmedBools: [String: Bool] = [:]
     private var confirmedStrings: [String: String] = [:]
     private var confirmedInts: [String: Int] = [:]
     func load() async {
         guard !loadingRequest else { return }
         loadingRequest = true
+        let capturedWrites = writeGenerations
         defer { loadingRequest = false }
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "settingsGet")
-            bools = reply["bools"] as? [String: Bool] ?? [:]
-            strings = reply["strings"] as? [String: String] ?? [:]
-            ints = reply["ints"] as? [String: Int] ?? [:]
-            confirmedBools = bools
-            confirmedStrings = strings
-            confirmedInts = ints
+            let readBools = reply["bools"] as? [String: Bool] ?? [:]
+            let readStrings = reply["strings"] as? [String: String] ?? [:]
+            let readInts = reply["ints"] as? [String: Int] ?? [:]
+            bools = writeGenerations.mergingSnapshot(readBools, into: bools, captured: capturedWrites)
+            strings = writeGenerations.mergingSnapshot(readStrings, into: strings, captured: capturedWrites)
+            ints = writeGenerations.mergingSnapshot(readInts, into: ints, captured: capturedWrites)
+            confirmedBools = writeGenerations.mergingSnapshot(readBools, into: confirmedBools, captured: capturedWrites)
+            confirmedStrings = writeGenerations.mergingSnapshot(readStrings, into: confirmedStrings, captured: capturedWrites)
+            confirmedInts = writeGenerations.mergingSnapshot(readInts, into: confirmedInts, captured: capturedWrites)
             loaded = true
-            message = ""
-        } catch { message = V3FailureGuidance.message(error) }
+            if writeGenerations.isUnchanged(since: capturedWrites) { message = "" }
+        } catch {
+            if writeGenerations.isUnchanged(since: capturedWrites) {
+                message = V3FailureGuidance.message(error)
+            }
+        }
     }
     func setBool(_ key: String, _ value: Bool) {
         let generation = writeGenerations.begin(key)
         bools[key] = value
         Task {
+            defer { finishWrite(generation, key: key, type: "bool") }
             do {
                 let reply = try await V3ServiceBridge.shared.request(operation: "settingsSet",
                     payload: ["key": key, "type": "bool", "bool": value])
@@ -7580,11 +7653,18 @@ final class V3SettingsStore: ObservableObject {
                 if writeGenerations.isCurrent(generation, for: key) {
                     confirmedBools[key] = value
                 } else {
-                    _ = await reloadAuthoritative(key: key, type: "bool", generation: writeGenerations.current(for: key))
+                    pendingWriteReconciliation.insert(key)
                 }
             } catch {
-                guard writeGenerations.isCurrent(generation, for: key) else { return }
+                guard writeGenerations.isCurrent(generation, for: key) else {
+                    pendingWriteReconciliation.insert(key)
+                    return
+                }
                 let loaded = await reloadAuthoritative(key: key, type: "bool", generation: generation)
+                guard writeGenerations.isCurrent(generation, for: key) else {
+                    pendingWriteReconciliation.insert(key)
+                    return
+                }
                 if !loaded, writeGenerations.isCurrent(generation, for: key) {
                     if let confirmed = confirmedBools[key] { bools[key] = confirmed }
                     else { bools.removeValue(forKey: key) }
@@ -7598,6 +7678,7 @@ final class V3SettingsStore: ObservableObject {
     }
     func setStringAndWait(_ key: String, _ value: String) async {
         let generation = writeGenerations.begin(key)
+        defer { finishWrite(generation, key: key, type: "string") }
         strings[key] = value
         message = ""
         do {
@@ -7608,11 +7689,18 @@ final class V3SettingsStore: ObservableObject {
             if writeGenerations.isCurrent(generation, for: key) {
                 confirmedStrings[key] = value
             } else {
-                _ = await reloadAuthoritative(key: key, type: "string", generation: writeGenerations.current(for: key))
+                pendingWriteReconciliation.insert(key)
             }
         } catch {
-            guard writeGenerations.isCurrent(generation, for: key) else { return }
+            guard writeGenerations.isCurrent(generation, for: key) else {
+                pendingWriteReconciliation.insert(key)
+                return
+            }
             let loaded = await reloadAuthoritative(key: key, type: "string", generation: generation)
+            guard writeGenerations.isCurrent(generation, for: key) else {
+                pendingWriteReconciliation.insert(key)
+                return
+            }
             if !loaded, writeGenerations.isCurrent(generation, for: key) {
                 if let confirmed = confirmedStrings[key] { strings[key] = confirmed }
                 else { strings.removeValue(forKey: key) }
@@ -7624,6 +7712,7 @@ final class V3SettingsStore: ObservableObject {
         let generation = writeGenerations.begin(key)
         ints[key] = value
         Task {
+            defer { finishWrite(generation, key: key, type: "int") }
             do {
                 let reply = try await V3ServiceBridge.shared.request(operation: "settingsSet",
                     payload: ["key": key, "type": "int", "int": value])
@@ -7632,11 +7721,18 @@ final class V3SettingsStore: ObservableObject {
                 if writeGenerations.isCurrent(generation, for: key) {
                     confirmedInts[key] = value
                 } else {
-                    _ = await reloadAuthoritative(key: key, type: "int", generation: writeGenerations.current(for: key))
+                    pendingWriteReconciliation.insert(key)
                 }
             } catch {
-                guard writeGenerations.isCurrent(generation, for: key) else { return }
+                guard writeGenerations.isCurrent(generation, for: key) else {
+                    pendingWriteReconciliation.insert(key)
+                    return
+                }
                 let loaded = await reloadAuthoritative(key: key, type: "int", generation: generation)
+                guard writeGenerations.isCurrent(generation, for: key) else {
+                    pendingWriteReconciliation.insert(key)
+                    return
+                }
                 if !loaded, writeGenerations.isCurrent(generation, for: key) {
                     if let confirmed = confirmedInts[key] { ints[key] = confirmed }
                     else { ints.removeValue(forKey: key) }
@@ -7645,6 +7741,23 @@ final class V3SettingsStore: ObservableObject {
             }
         }
     }
+    private func finishWrite(_ generation: UInt64, key: String, type: String) {
+        writeGenerations.finish(generation, for: key)
+        guard pendingWriteReconciliation.contains(key),
+              !writeGenerations.hasPendingWrites(for: key) else { return }
+        pendingWriteReconciliation.remove(key)
+        let settledGeneration = writeGenerations.current(for: key)
+        Task {
+            // Reply order is not backend commit order. Once all writes settle,
+            // read the saved value instead of trusting a delayed newer reply.
+            let verified = await reloadAuthoritative(key: key, type: type, generation: settledGeneration)
+            if !verified, writeGenerations.isCurrent(settledGeneration, for: key) {
+                pendingWriteReconciliation.insert(key)
+                message = "The saved setting could not be verified. Reload settings to check its value."
+            }
+        }
+    }
+
     private func reloadAuthoritative(key: String, type: String, generation: UInt64) async -> Bool {
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "settingsGet")
@@ -8404,10 +8517,12 @@ struct V3HealthView: View {
         do {
             let reply = try await V3ServiceBridge.shared.request(operation: "healthSnapshot")
             guard healthRevisionIsCurrent(factRevision) else { return }
+            status.recordInstalledHostSigning(reply, revision: factRevision)
             var result: [(String, String)] = []
             result.append(("Account", reply["account"] as? String ?? ""))
             result.append(("Team", reply["team"] as? String ?? ""))
             result.append(("Certificate", reply["certificate"] as? String ?? ""))
+            result.append(("Installed Host Signing", status.installedHostSigningState.detail))
             result.append(("Pairing", reply["pairing"] as? String ?? ""))
             if let anisette = reply["anisette"] as? [String: Any] {
                 result.append(("Anisette Servers", "\(anisette["servers"] as? Int ?? 0)"))
@@ -8430,6 +8545,7 @@ struct V3HealthView: View {
         } catch {
             guard healthRevisionIsCurrent(factRevision) else { return }
             message = V3FailureGuidance.message(error)
+            status.recordInstalledHostSigning([:], revision: factRevision)
             status.recordJITLessReadiness(.unknown,
                 activeCertificateAvailable: nil, revision: factRevision)
         }
@@ -8865,7 +8981,8 @@ final class V3SetupStore: ObservableObject {
             tunnelComplete: tunnel.state == "complete",
             backgroundRefreshAvailable: background.state == "complete",
             scheduleEnabled: schedule.state == "complete",
-            verifiedRefreshPresent: verification.state == "complete")
+            verifiedRefreshPresent: verification.state == "complete",
+            installedHostSigningCompatible: status.installedHostSigningState == .compatible)
     }
     func outstandingSetup(status: V3SideStoreStatusStore) -> [V3SetupOutstandingItem] {
         completionInputs(status: status).outstanding()
@@ -8984,6 +9101,17 @@ final class V3SetupStore: ObservableObject {
             account = V3SetupStepState(state: "warning", detail: "Signed in without an active team")
         } else {
             account = V3SetupStepState(state: "complete", detail: status.account)
+        }
+        if status.installedHostSigningState == .unknown {
+            do {
+                let local = try await V3ServiceBridge.shared.request(operation: "healthSnapshot",
+                    target: "hostSigningOnly")
+                guard status.isSetupFactRevisionCurrent(factRevision) else { return }
+                status.recordInstalledHostSigning(local, revision: factRevision)
+            } catch {
+                guard status.isSetupFactRevisionCurrent(factRevision) else { return }
+                status.recordInstalledHostSigning([:], revision: factRevision)
+            }
         }
         // V3_SHARED_JITLESS_FACT_V1: the requirement itself also comes from the
         // shared policy, so the branch below and the completion input can never
@@ -9576,6 +9704,11 @@ struct V3SetupAssistantView: View {
                          destination: AnyView(V3RefreshDetailView()))
             }
             Section("Verification") {
+                setupRow(icon: "signature", title: "Installed Host Signing",
+                    state: V3SetupStepState(
+                        state: status.installedHostSigningState == .compatible ? "complete" : "warning",
+                        detail: status.installedHostSigningState.detail),
+                    destination: AnyView(V3CertificatesView().environmentObject(status)))
                 setupRow(icon: "checkmark.seal", title: "Test Refresh",
                          state: setup.verification, destination: nil)
                 if !setup.verificationGuidance.isEmpty {
@@ -9616,11 +9749,12 @@ struct V3SetupAssistantView: View {
                 }
                 if setup.testRunning {
                     Button("Stop Waiting", role: .cancel) { setup.cancelTest() }
-                } else if setup.verification.state != "complete" && setup.pairing.state == "actionRequired" {
+                } else if (setup.verification.state != "complete" || status.installedHostSigningState != .compatible)
+                    && setup.pairing.state == "actionRequired" {
                     Text("Complete Pairing Setup before testing refresh.")
                         .font(.footnote)
                         .foregroundColor(.secondary)
-                } else if setup.verification.state != "complete" {
+                } else if setup.verification.state != "complete" || status.installedHostSigningState != .compatible {
                     Button {
                         setup.runTestRefresh(status: status)
                     } label: {
@@ -9674,6 +9808,13 @@ struct V3SetupAssistantView: View {
             // built from an authoritative snapshot, not from whatever was left
             // over from a previous session.
             await setup.reloadAndRecalculate(status: status)
+        }
+        .onChange(of: setup.testRunning) { running in
+            guard !running else { return }
+            // A refresh mutation invalidates local signing observations. Once
+            // this attempt settles (or waiting stops), re-observe without
+            // dispatching another refresh or rewriting its historical result.
+            Task { await setup.reloadAndRecalculate(status: status) }
         }
         .onChange(of: status.jitlessReadiness) { readiness in
             // A host-owned auth event may invalidate or refresh this fact while
@@ -9922,7 +10063,12 @@ private struct V3HomeView: View {
     /// Derived from the same authoritative facts the Setup Assistant uses.
     static func completionInputs(status: V3SideStoreStatusStore,
                                  defaults: UserDefaults?) -> V3SetupCompletionInputs {
-        let verifiedRunID = defaults?.dictionary(forKey: "liveContainerAutoRefreshVerification")?["run_id"] as? String
+        let verifiedRefresh = V3HomeRefreshVerificationPolicy.isVerified(
+            manifest: defaults?.dictionary(forKey: "liveContainerAutoRefreshVerification"),
+            ledger: defaults?.dictionary(forKey: "liveContainerAutoRefreshRunLedger") ?? [:],
+            activeRunID: defaults?.string(forKey: "liveContainerAutoRefreshActiveRunID"),
+            hostHandoffPending: defaults?.bool(forKey: "liveContainerAutoRefreshHostHandoff") ?? false,
+            uncertainMutationRunID: defaults?.string(forKey: "liveContainerAutoRefreshUncertainMutationRunID"))
         return V3SetupCompletionInputs(
             accountComplete: !status.needsSignIn,
             provisioningIncomplete: status.provisioningIncomplete,
@@ -9940,7 +10086,8 @@ private struct V3HomeView: View {
             tunnelComplete: LiveContainerNetworkPreflight.hasTunnelInterface(),
             backgroundRefreshAvailable: UIApplication.shared.backgroundRefreshStatus == .available,
             scheduleEnabled: defaults?.bool(forKey: "liveContainerAutoRefreshEnabled") ?? false,
-            verifiedRefreshPresent: verifiedRunID?.isEmpty == false)
+            verifiedRefreshPresent: verifiedRefresh,
+            installedHostSigningCompatible: status.installedHostSigningState == .compatible)
     }
 
     var body: some View {

@@ -144,13 +144,17 @@ class InstallStateMachineTests(unittest.TestCase):
         self.assertIn('tap_rejected reason=presentation_active', store)
         self.assertIn('tap_rejected reason=attempt_not_idle phase=%@', store)
 
-    def test_extension_prompt_uses_zero_excess_no_prompt_policy(self):
+    def test_extension_prompt_uses_all_target_extensions_and_skips_only_empty_targets(self):
         source = runtime()
         start = source.index("func selectAppExtensionsToRemove")
         end = source.index("func resolveUnsupportediOSVersion", start)
         method = source[start:end]
         self.assertIn("V3ExtensionRemovalPromptPolicy.decide", method)
         self.assertIn("whenEmpty: .keepAll(useMainProfile: false)", method)
+        self.assertIn("targetExtensions: appBundle.appExtensions", method)
+        self.assertIn("let sorted = appBundle.appExtensions.sorted", method)
+        self.assertNotIn("excessExtensions: excessExtensions", method)
+        self.assertIn("case .keepAllMainProfile: return .keepAll(useMainProfile: true)", method)
         self.assertLess(method.index("V3ExtensionRemovalPromptPolicy.decide"), method.index("self.ask"))
 
 

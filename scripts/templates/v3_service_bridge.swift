@@ -179,6 +179,8 @@ public final class V3ServiceBridge {
     private var activeMutation: String?
     private var authSessionOwnership = V3AuthSessionOwnership()
     private var promptSessionServiceIDs: [String: UUID] = [:]
+    private var backupSessionServiceIDs: [String: UUID] = [:]
+    private var backupCallbackBindings: [String: V3BackupCallbackIdentity] = [:]
     private var statusWriteAuthority = V3StatusWriteAuthority()
     private var hostRecoveryHoldActive = false
     private struct StatusLeaseWaiter {
@@ -590,6 +592,8 @@ public final class V3ServiceBridge {
         uncertainOperationSessions.remove(sessionID)
         operationMonitors.removeValue(forKey: sessionID)?.cancel()
         knownOperationSessions.removeValue(forKey: sessionID)
+        backupCallbackBindings.removeValue(forKey: sessionID)
+        backupSessionServiceIDs.removeValue(forKey: sessionID)
         RefreshHandler.shared.v3_stopService()
         disconnected()
         reconcileStatusOwnerAfterAuthoritativeEvidence("operation:\(sessionID)")
@@ -603,6 +607,8 @@ public final class V3ServiceBridge {
         uncertainOperationSessions.remove(sessionID)
         operationMonitors.removeValue(forKey: sessionID)?.cancel()
         knownOperationSessions.removeValue(forKey: sessionID)
+        backupCallbackBindings.removeValue(forKey: sessionID)
+        backupSessionServiceIDs.removeValue(forKey: sessionID)
         RefreshHandler.shared.v3_stopService()
         disconnected()
         reconcileStatusOwnerAfterAuthoritativeEvidence("operation:\(sessionID)")
@@ -619,12 +625,14 @@ public final class V3ServiceBridge {
         guard !activeOperationSessions.contains(sessionID),
               !uncertainOperationSessions.contains(sessionID) else { return }
         knownOperationSessions.removeValue(forKey: sessionID)
+        backupCallbackBindings.removeValue(forKey: sessionID)
+        backupSessionServiceIDs.removeValue(forKey: sessionID)
     }
 
     private func operationSessionID(operation: String, target: String,
                                     payload: [String: Any]?) -> String? {
         if operation == "opStart" { return payload?["session"] as? String }
-        if ["opPoll", "opAnswer", "opCancel"].contains(operation) { return target }
+        if ["opPoll", "opAnswer", "opCancel", "backupResult"].contains(operation) { return target }
         if ["authBegin", "authRetryProvisioning"].contains(operation) {
             return payload?["session"] as? String ?? (target.isEmpty ? nil : target)
         }
@@ -634,6 +642,29 @@ public final class V3ServiceBridge {
             return target
         }
         return nil
+    }
+
+    public func submitBackupCallback(_ url: URL) async throws {
+        guard let result = V3BackupCallbackResult(url: url,
+                  expectedTargetBundleID: Bundle.main.bundleIdentifier ?? "") else { return }
+        let session = result.identity.session
+        guard activeOperationSessions.contains(session),
+              let serviceID = backupSessionServiceIDs[session],
+              serviceID == RefreshHandler.shared.v3ServiceIdentity else { return }
+        // The external app may return before the next routine poll. Read the
+        // authoritative pending capability, never infer it from the incoming URL.
+        let state = try await request(operation: "opPoll", target: session)
+        guard serviceID == backupSessionServiceIDs[session],
+              serviceID == RefreshHandler.shared.v3ServiceIdentity,
+              activeOperationSessions.contains(session),
+              V3BackupCallbackIdentity(state["backupCallback"]) == result.identity else { return }
+        backupCallbackBindings[session] = result.identity
+        defer {
+            if backupCallbackBindings[session] == result.identity {
+                backupCallbackBindings.removeValue(forKey: session)
+            }
+        }
+        _ = try await request(operation: "backupResult", target: session, payload: result.payload)
     }
 
     public func request(operation: String, target: String = "", cursor: Int? = nil,
@@ -667,8 +698,20 @@ public final class V3ServiceBridge {
         // operation instead of only to the connection attempt.
         let id = UUID().uuidString
         let operationSessionID = operationSessionID(operation: operation, target: target, payload: payload)
-        let scopedSessionControl = ["opAnswer", "opCancel"].contains(operation) &&
-            activeOperationSessions.contains(target)
+        let backupCallback = operation == "backupResult"
+            ? V3BackupCallbackResult(session: target, payload: payload ?? [:]) : nil
+        let scopedBackupCallback = backupCallback.map {
+            activeOperationSessions.contains(target) && backupCallbackBindings[target] == $0.identity &&
+                backupSessionServiceIDs[target] != nil &&
+                backupSessionServiceIDs[target] == RefreshHandler.shared.v3ServiceIdentity
+        } ?? false
+        let backupServiceID = scopedBackupCallback ? backupSessionServiceIDs[target] : nil
+        if operation == "backupResult", !scopedBackupCallback {
+            throw CombinedFailure(operation: operation, stage: .command,
+                code: .staleResult, id: id, retryable: false)
+        }
+        let scopedSessionControl = scopedBackupCallback ||
+            (["opAnswer", "opCancel"].contains(operation) && activeOperationSessions.contains(target))
         let explicitRecoveryConfirmation = operation == "opRecoveryReconcile" &&
             V3WireContract.strictBool(payload?["userConfirmed"]) == true &&
             UUID(uuidString: target)?.uuidString == target
@@ -780,6 +823,15 @@ public final class V3ServiceBridge {
             }
             throw annotated
         }
+        if scopedBackupCallback {
+            guard backupServiceID == backupSessionServiceIDs[target],
+                  backupServiceID == RefreshHandler.shared.v3ServiceIdentity,
+                  activeOperationSessions.contains(target),
+                  backupCallbackBindings[target] == backupCallback?.identity else {
+                throw CombinedFailure(operation: operation, stage: .xpcConnection,
+                    code: .staleResult, id: id, retryable: false)
+            }
+        }
         let isBoundedSessionCreation = ["authBegin", "authRetryProvisioning",
             "refreshAdmissionBegin", "refreshAdmissionEnd"].contains(operation)
         // Connecting may suspend or replace the service. An interactive answer
@@ -843,6 +895,7 @@ public final class V3ServiceBridge {
                     knownOperationSessions[session] = Date()
                     pruneKnownOperationSessions()
                     promptSessionServiceIDs[session] = RefreshHandler.shared.v3ServiceIdentity
+                    backupSessionServiceIDs[session] = RefreshHandler.shared.v3ServiceIdentity
                 }
                 if ["authBegin", "authRetryProvisioning"].contains(operation),
                    let session = operationSessionID,
@@ -929,6 +982,13 @@ public final class V3ServiceBridge {
                     code: .staleResult, id: id, retryable: false)
             }
         }
+        if scopedBackupCallback {
+            guard backupServiceID == backupSessionServiceIDs[target],
+                  backupServiceID == RefreshHandler.shared.v3ServiceIdentity else {
+                throw CombinedFailure(operation: operation, stage: .xpcConnection,
+                    code: .staleResult, id: id, retryable: false)
+            }
+        }
         // V3_RESPONSE_CLASSIFICATION_CARRIER_V1: the reply classification is a
         // pure function so the exact production path can be executed against a
         // real service fallback envelope, rather than only asserted in source
@@ -946,6 +1006,8 @@ public final class V3ServiceBridge {
                 activeOperationSessions.remove(sessionID)
                 uncertainOperationSessions.remove(sessionID)
                 knownOperationSessions.removeValue(forKey: sessionID)
+                backupCallbackBindings.removeValue(forKey: sessionID)
+                backupSessionServiceIDs.removeValue(forKey: sessionID)
                 promptSessionServiceIDs.removeValue(forKey: sessionID)
                 operationMonitors.removeValue(forKey: sessionID)?.cancel()
             } else if ["authBegin", "authRetryProvisioning"].contains(operation),
@@ -983,6 +1045,8 @@ public final class V3ServiceBridge {
     }
 
     public func disconnected() {
+        backupCallbackBindings.removeAll()
+        backupSessionServiceIDs.removeAll()
         promptSessionServiceIDs.removeAll()
         if let retired = statusWriteAuthority.retireService() {
             if retired.kind == .snapshot {
@@ -1069,6 +1133,8 @@ public final class V3ServiceBridge {
         let backendSettled = !outcomeUnknown &&
             V3WireContract.strictBool(result["backendSettled"]) == true
         if backendSettled {
+            backupCallbackBindings.removeValue(forKey: sessionID)
+            backupSessionServiceIDs.removeValue(forKey: sessionID)
             promptSessionServiceIDs.removeValue(forKey: sessionID)
             activeOperationSessions.remove(sessionID)
             uncertainOperationSessions.remove(sessionID)
@@ -1092,7 +1158,7 @@ public final class V3ServiceBridge {
     }
 
     private func monitorOperationSessionIfNeeded(operation: String, sessionID: String?) {
-        guard ["opStart", "opPoll", "opAnswer", "opCancel"].contains(operation),
+        guard ["opStart", "opPoll", "opAnswer", "opCancel", "backupResult"].contains(operation),
               let sessionID, activeOperationSessions.contains(sessionID) else { return }
         uncertainOperationSessions.insert(sessionID)
         monitorOperationSessionUntilSettled(sessionID)
@@ -1122,6 +1188,8 @@ public final class V3ServiceBridge {
         }.sorted { $0.value < $1.value }
         for (id, _) in settled.prefix(max(0, knownOperationSessions.count - 256)) {
             knownOperationSessions.removeValue(forKey: id)
+            backupCallbackBindings.removeValue(forKey: id)
+            backupSessionServiceIDs.removeValue(forKey: id)
             promptSessionServiceIDs.removeValue(forKey: id)
         }
     }
