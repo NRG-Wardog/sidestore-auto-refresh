@@ -513,7 +513,7 @@ def execute(prepared: dict, kind: str, device: str, output: Path, command,
                 "-test-timeouts-enabled", "YES", "-default-test-execution-time-allowance", "240",
                 "-maximum-test-execution-time-allowance", "240",
                 *(["-only-testing:P0SignInUITests/P0SignInUITests/testCredentialsDefault"]
-                  if diagnostic_case else []), timeout=360 if diagnostic_case else 1080)
+                  if diagnostic_case else []), timeout=660 if diagnostic_case else 1080)
     except Exception as error:
         failure = str(error)
     finally:

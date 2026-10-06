@@ -18,7 +18,7 @@ SPEC.loader.exec_module(router)
 class SignInLaneRoutingTests(unittest.TestCase):
     def test_complete_supported_decision_table(self):
         expected = [
-            ('push', router.AUDIT_BRANCH, '', 'input-diagnostic'),
+            ('push', router.AUDIT_BRANCH, '', 'preflight'),
             *[('push', ref, '', 'release') for ref in sorted(router.RELEASE_PUSH_BRANCHES)],
             *[('workflow_dispatch', ref, mode, lane)
               for ref in (router.AUDIT_BRANCH, 'refs/heads/main', 'refs/tags/manual-build')

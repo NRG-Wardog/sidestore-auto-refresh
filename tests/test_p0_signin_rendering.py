@@ -400,7 +400,7 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         self.assertNotIn('"simctl", "boot"', p0_source)
         self.assertNotIn('"simctl", "create"', p0_source)
         self.assertIn('"-parallel-testing-enabled", "NO"', p0_source)
-        self.assertIn('timeout=360 if diagnostic_case else 1080', p0_source)
+        self.assertIn('timeout=660 if diagnostic_case else 1080', p0_source)
         self.assertIn('"-default-test-execution-time-allowance", "240"', p0_source)
         self.assertIn('"-maximum-test-execution-time-allowance", "240"', p0_source)
 

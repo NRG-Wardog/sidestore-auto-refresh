@@ -188,7 +188,7 @@ class P0SignInPreflightTests(unittest.TestCase):
             self.assertEqual(commands.attempts, 2)
             self.assertFalse((output / preflight.MANIFEST).exists())
             builds = [(args, bound) for args, bound in commands.calls if args[0] == "xcodebuild"]
-            self.assertEqual([bound for _, bound in builds], [300, 360, 360])
+            self.assertEqual([bound for _, bound in builds], [300, 660, 660])
             for args, _ in builds[1:]:
                 self.assertEqual(args.count("-only-testing:P0SignInUITests/P0SignInUITests/testCredentialsDefault"), 1)
                 self.assertIn("id=phone", args)

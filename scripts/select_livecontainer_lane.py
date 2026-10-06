@@ -6,9 +6,9 @@ import os
 from pathlib import Path
 
 AUDIT_BRANCH = "refs/heads/fix/v3.1.0-audit"
-# Temporary, explicit investigation selection. Restore to "preflight" after
-# inspecting both input-focus observations, before any eight-case acceptance run.
-AUDIT_PUSH_LANE = "input-diagnostic"
+# Complete acceptance is the default audit-push lane. Diagnostic mode remains
+# an explicit manual selection and cannot satisfy preflight or release gates.
+AUDIT_PUSH_LANE = "preflight"
 RELEASE_PUSH_BRANCHES = {
     "refs/heads/fix/combined-refresh-build-and-runtime",
     "refs/heads/fix/v3.0.3-auth-errors",

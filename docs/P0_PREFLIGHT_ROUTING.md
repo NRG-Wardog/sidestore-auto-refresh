@@ -40,13 +40,12 @@ release and keeps the established runner-concurrency behavior.
 
 ## Temporary input-focus diagnostic lane
 
-`AUDIT_PUSH_LANE` is temporarily `input-diagnostic` for the investigation following
-run 37533074107. Only the audit branch's push selection changes; other push
-branches and default/manual release keep their previous behavior. The UI job is
-explicitly named “Input focus diagnostic (not acceptance)”. Restore the constant
-to `preflight` in the next reviewed commit after inspecting diagnostic evidence,
-then require the complete two-device/eight-case/24-image preflight again before
-requesting the full release on that frozen commit.
+`AUDIT_PUSH_LANE` was temporarily `input-diagnostic` for the investigation following
+run 37533074107. It is restored to `preflight` after inspecting both observations
+from diagnostic run 37538455300. Other push branches and default/manual release
+were unchanged. Explicit manual diagnostics remain labeled “Input focus diagnostic
+(not acceptance)”. Complete two-device/eight-case/24-image preflight is required
+again before requesting the full release on that frozen commit.
 
 The existing fixture is built once. A previously shutdown phone is booted once;
 `testCredentialsDefault` is requested in two separate xcodebuild invocations:
@@ -55,7 +54,7 @@ first fails. There is no script-level retry or retyping. XCTest can itself
 restart after a crash; complete native summaries and logs remain visible, and
 extra reported test executions cannot count as successful observations.
 
-Each invocation keeps the 240-second case allowance and has a 360-second command
+Each invocation keeps the 240-second case allowance and has a 660-second command
 bound. Build (300 seconds), boot (600 seconds), export and capture bounds remain
 in force. These limits are not completion estimates. The preceding complete
 preflight took about 34 minutes including both simulator lifecycles; this lane
@@ -68,3 +67,14 @@ requires exactly one successful native test and complete valid evidence for that
 case. The unchanged full-matrix verifier still rejects the partial matrix; its
 two expected matrix failures are retained. Any additional verifier failure makes
 the observation unsuccessful. This evidence cannot replace release acceptance.
+
+The original 360-second diagnostic wrapper cut the cold observation at 362.56s
+before its 240-second case allowance elapsed; the result bundle was incomplete.
+Both fields had already established and dismissed focus correctly and Copy
+Details had succeeded. The separately planned relaunch passed in 139.10s native
+and 177.56s total. The cold observation is still failed, never retroactively green.
+
+Retained diagnostic 660s = 240s case + 360s startup/result allowance + 60s margin.
+The latest full-phone run measured 862.93s total minus 513.53s native cases,
+or 349.40s non-case overhead. Normal full-device 1080s and per-case 240s bounds
+remain unchanged; the diagnostic is not rerun merely to obtain a green label.
