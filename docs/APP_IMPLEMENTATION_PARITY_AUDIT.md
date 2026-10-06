@@ -120,3 +120,25 @@ native failure where possible; it cannot convert that failure into success.
 This isolates resource contention and makes failures visible separately. No
 speed improvement or completed native/layout acceptance is claimed from this
 scheduling change; the next full CI run must establish those results.
+
+## P0 artifact delivery recovery
+
+Run `37406655381` at `6cf40e8` passed the required repository/native checks,
+host and embedded SideStore builds, all layout acceptance, package/provenance
+verification and embedded transport verification. Its IPA upload failed after
+artifact-service request timeouts; later build and debug evidence uploads
+succeeded. The final download verification was skipped. Inspection of the
+surviving debug archive found 81 entries and no IPA, so this run is not a
+verified downloadable P0 checkpoint.
+
+The recovery changes only delivery infrastructure: three bounded five-minute
+upload attempts use distinct artifact names and identical candidate/provenance
+payloads. After any initial upload failure, the verified IPA and package identity
+are also preserved within debug evidence. This recovery copy cannot count as
+acceptance: a successful candidate upload is mandatory, and the actual selected
+uploaded candidate is selected by its confirmed numeric artifact ID, downloaded
+and checked against its matching provenance,
+builder commit and run identity using the existing verifier. Production sources,
+serial native/layout gates, runner class and device-acceptance holds are unchanged.
+The next exact-commit full build must pass before a downloadable P0 checkpoint
+can be claimed.

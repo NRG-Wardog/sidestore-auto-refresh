@@ -437,9 +437,67 @@ jobs:
           printf 'runner_os=%s\nrunner_arch=%s\nimage=%s\nimage_version=%s\n' "$RUNNER_OS" "$RUNNER_ARCH" "$ImageOS" "$ImageVersion" >> artifacts/dependencies/tool-versions.txt
 
       - name: Upload combined LiveContainer IPA
+        id: upload_ipa
+        continue-on-error: true
+        timeout-minutes: 5
         uses: actions/upload-artifact@v4
         with:
           name: LiveContainer-SideStore-v3.0.3-rc-IPA
+          path: |
+            artifacts/LiveContainer-SideStore-v3.0.3-rc.ipa
+            artifacts/LiveContainer-SideStore-v3.0.3-rc.verification.json
+            artifacts/LiveContainer-SideStore-v3.0.3-rc.runtime-verification.json
+            artifacts/builder-commit.txt
+            artifacts/debug-evidence/candidate-provenance.json
+            artifacts/candidate-package-verification.json
+            artifacts/logs/upstream-auth-provenance.txt
+            artifacts/logs/pinned-source-identity.json
+            artifacts/dependencies
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      # Keep the already verified binary with symbols if the artifact service had
+      # any upload failure. This last-resort copy is evidence, not acceptance.
+      - name: Preserve verified IPA after upload trouble
+        if: ${{ !cancelled() && steps.upload_ipa.outcome == 'failure' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/debug-evidence/recovery
+          cp artifacts/LiveContainer-SideStore-v3.0.3-rc.ipa artifacts/debug-evidence/recovery/
+          cp artifacts/builder-commit.txt artifacts/candidate-package-verification.json artifacts/debug-evidence/recovery/
+
+      - name: Retry combined LiveContainer IPA upload
+        id: retry_upload_ipa
+        if: ${{ !cancelled() && steps.upload_ipa.outcome == 'failure' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiveContainer-SideStore-v3.0.3-rc-IPA-retry
+          path: |
+            artifacts/LiveContainer-SideStore-v3.0.3-rc.ipa
+            artifacts/LiveContainer-SideStore-v3.0.3-rc.verification.json
+            artifacts/LiveContainer-SideStore-v3.0.3-rc.runtime-verification.json
+            artifacts/builder-commit.txt
+            artifacts/debug-evidence/candidate-provenance.json
+            artifacts/candidate-package-verification.json
+            artifacts/logs/upstream-auth-provenance.txt
+            artifacts/logs/pinned-source-identity.json
+            artifacts/dependencies
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Recover combined LiveContainer IPA upload
+        id: recovery_upload_ipa
+        if: ${{ !cancelled() && steps.retry_upload_ipa.outcome == 'failure' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiveContainer-SideStore-v3.0.3-rc-IPA-recovery
           path: |
             artifacts/LiveContainer-SideStore-v3.0.3-rc.ipa
             artifacts/LiveContainer-SideStore-v3.0.3-rc.verification.json
@@ -475,10 +533,32 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
+      - name: Require a successful candidate upload
+        id: confirmed_candidate
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          PRIMARY: ${{ steps.upload_ipa.outcome }}
+          RETRY: ${{ steps.retry_upload_ipa.outcome }}
+          RECOVERY: ${{ steps.recovery_upload_ipa.outcome }}
+          ARTIFACT_ID: ${{ steps.upload_ipa.outcome == 'success' && steps.upload_ipa.outputs.artifact-id || steps.retry_upload_ipa.outcome == 'success' && steps.retry_upload_ipa.outputs.artifact-id || steps.recovery_upload_ipa.outcome == 'success' && steps.recovery_upload_ipa.outputs.artifact-id || '' }}
+        run: |
+          set -euo pipefail
+          if [[ "$PRIMARY" != success && "$RETRY" != success && "$RECOVERY" != success ]]; then
+            echo 'No candidate upload succeeded; preserved recovery evidence is not delivery acceptance.' >&2
+            exit 1
+          fi
+          if [[ ! "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo 'Successful upload did not return a confirmed artifact ID.' >&2
+            exit 1
+          fi
+          printf 'artifact-id=%s\n' "$ARTIFACT_ID" >> "$GITHUB_OUTPUT"
+
       - name: Download uploaded candidate for delivery verification
         uses: actions/download-artifact@v4
         with:
-          name: LiveContainer-SideStore-v3.0.3-rc-IPA
+          artifact-ids: ${{ steps.confirmed_candidate.outputs.artifact-id }}
+          merge-multiple: true
           path: artifacts/downloaded-ipa
 
       - name: Download uploaded source and symbol evidence
