@@ -49,9 +49,24 @@ enum P0SignInMeasurementLabel {
     }
 }
 
+struct P0SignInUsernameProbe {
+    private(set) var observations: [[String: Any]] = []
+    mutating func observe(_ value: Any?, keyboardPresent: Bool) -> Bool {
+        let text = value as? String
+        let matches = text == "p0-user@example.invalid"
+        if observations.count < 16 {
+            observations.append(["type": text == nil ? "other" : "string",
+                "utf8Length": text?.utf8.count ?? -1, "exactMatch": matches,
+                "keyboardPresent": keyboardPresent])
+        }
+        return matches
+    }
+}
+
 final class P0SignInUITests: XCTestCase {
     @MainActor private lazy var app = XCUIApplication()
     private var failures: [String] = []
+    private var usernameProbe = P0SignInUsernameProbe()
     private var measurements: [[String: Any]] = []
     private var screenshots: [String] = []
     private var diagnosticScreenshots: [String] = []
@@ -205,7 +220,7 @@ final class P0SignInUITests: XCTestCase {
     private func persistProgress(_ phase: String) {
         let data: [String: Any] = ["schema": "p0-signin-progress-v1", "case": caseName,
             "phase": phase, "passed": false, "complete": false,
-            "scrollObservations": scrollObservations, "failures": failures]
+            "scrollObservations": scrollObservations, "usernameObservations": usernameProbe.observations, "failures": failures]
         if let encoded = try? JSONSerialization.data(withJSONObject: data, options: [.sortedKeys]) {
             persist(encoded, name: "p0-" + caseName + "-progress.json")
         }
@@ -245,6 +260,7 @@ final class P0SignInUITests: XCTestCase {
             "passed": failures.isEmpty && frameworkFailures == 0, "failures": failures,
             "xctestFailureCount": frameworkFailures, "teardownCaptured": true,
             "diagnosticScreenshots": diagnosticScreenshots, "measurements": measurements,
+            "usernameObservations": usernameProbe.observations,
             "screenshots": screenshots, "clipboardExactMatch": clipboardMatched,
             "cancelInvoked": cancelInvoked, "submitting": submitting,
             "submissionInvoked": submissionInvoked, "priorFailureCleared": priorFailureCleared,
@@ -264,6 +280,7 @@ final class P0SignInUITests: XCTestCase {
         self.largest = largest; self.submitting = submitting
         caseName = (submitting ? "submitting" : "credentials") + (largest ? "-largest" : "-default")
         failures = []; measurements = []; screenshots = []; diagnosticScreenshots = []; scrollObservations = []; finished = false
+        usernameProbe = P0SignInUsernameProbe()
         clipboardMatched = false; cancelInvoked = false; noRedundantPanel = false
         safeDiagnosticOnly = false; oneCredentialsPanel = false
         submissionInvoked = false; priorFailureCleared = false
@@ -326,8 +343,14 @@ final class P0SignInUITests: XCTestCase {
                 "Visible unknown-failure guidance or canonical ID differs from Copy Details")
         screenshot("prompt-top")
         record(username, name: "username")
-        username.tap(); username.typeText("p0-user@example.invalid")
-        require(username.value as? String == "p0-user@example.invalid", "Native username input was not retained")
+        username.tap()
+        require(wait { self.app.keyboards.count > 0 }, "Native username keyboard did not become ready")
+        username.typeText("p0-user@example.invalid")
+        require(wait {
+            let matches = self.usernameProbe.observe(username.value, keyboardPresent: self.app.keyboards.count > 0)
+            self.persistProgress("username-readback")
+            return matches
+        }, "Native username input was not retained")
         username.typeText("\n")
         require(wait { self.app.keyboards.count == 0 }, "Native Return did not dismiss the username keyboard")
         record(password, name: "password")

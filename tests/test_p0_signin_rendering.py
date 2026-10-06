@@ -149,12 +149,31 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
             path.write_text(json.dumps(data))
             self.assertFalse(renderer.verify_export(root, summary)['passed'])
 
+    def test_username_typing_is_single_action_with_bounded_exact_readback(self):
+        ui = (ROOT / 'tests/fixtures/p0_signin_ui_tests.swift').read_text()
+        credentials = renderer.member(ui, '@MainActor private func credentials')
+        self.assertEqual(credentials.count('username.typeText("p0-user@example.invalid")'), 1)
+        ready = credentials.index('Native username keyboard did not become ready')
+        typing = credentials.index('username.typeText("p0-user@example.invalid")')
+        observed = credentials.index('self.usernameProbe.observe(username.value')
+        self.assertLess(ready, typing)
+        self.assertLess(typing, observed)
+        self.assertIn('require(wait {', credentials[typing:observed])
+        self.assertIn('timeout: 5', renderer.member(ui, '@MainActor private func wait'))
+        probe = renderer.declaration(ui, 'struct P0SignInUsernameProbe')
+        self.assertIn('text == "p0-user@example.invalid"', probe)
+        self.assertIn('observations.count < 16', probe)
+        self.assertNotIn('password', probe.lower())
+        self.assertNotIn('"value":', probe)
+        self.assertNotIn('"text":', probe)
+        self.assertIn('"usernameObservations": usernameProbe.observations', ui)
+
     def test_exact_runtime_viewport_math_executes(self):
         compiler = shutil.which('swiftc')
         if not compiler:
             self.skipTest('Swift compiler unavailable; actual sign-in viewport helper executes in required macOS CI')
         ui = (ROOT / 'tests/fixtures/p0_signin_ui_tests.swift').read_text()
-        helper = renderer.declaration(ui, 'enum P0SignInViewport') + renderer.declaration(ui, 'enum P0SignInMeasurementLabel')
+        helper = renderer.declaration(ui, 'enum P0SignInViewport') + renderer.declaration(ui, 'enum P0SignInMeasurementLabel') + renderer.declaration(ui, 'struct P0SignInUsernameProbe')
         self.assertIn('P0SignInViewport.contains(element.frame, in: region)', ui)
         self.assertIn('P0SignInViewport.available(viewport: viewport', ui)
         self.assertIn('let gestureRegion = P0SignInViewport.gestureRegion(in: region)', ui)
@@ -209,6 +228,21 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         precondition(P0SignInMeasurementLabel.resolve(control: "password", label: "", placeholder: nil) == nil)
         precondition(P0SignInMeasurementLabel.resolve(control: "cancel", label: "", placeholder: "Cancel") == nil)
         precondition(P0SignInMeasurementLabel.resolve(control: "copy-details", label: "Copy Details", placeholder: nil) == "Copy Details")
+        var transient = P0SignInUsernameProbe()
+        precondition(!transient.observe(nil, keyboardPresent: true))
+        precondition(!transient.observe("p0-user@", keyboardPresent: true))
+        precondition(transient.observe("p0-user@example.invalid", keyboardPresent: true))
+        precondition(transient.observations.count == 3)
+        precondition(transient.observations[0]["type"] as? String == "other")
+        precondition(transient.observations[2]["utf8Length"] as? Int == 23)
+        var persistent = P0SignInUsernameProbe()
+        for _ in 0..<20 { precondition(!persistent.observe("wrong", keyboardPresent: false)) }
+        precondition(persistent.observations.count == 16)
+        for observation in transient.observations + persistent.observations {
+            precondition(Set(observation.keys) == Set(["type", "utf8Length", "exactMatch", "keyboardPresent"]))
+            precondition(observation["exactMatch"] is Bool && observation["keyboardPresent"] is Bool)
+            precondition(observation["utf8Length"] is Int)
+        }
         print("P0_SIGNIN_VIEWPORT_PASS")
     }
 }

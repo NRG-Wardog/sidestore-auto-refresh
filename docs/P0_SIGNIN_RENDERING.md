@@ -225,3 +225,19 @@ mismatches; original evidence was never modified and the failed run remains fail
 This local recorder correction still requires native execution. Linux source
 checks cannot establish XCTest accessibility properties or simulator success;
 publication is paused pending the requested CI-process review.
+
+## Bounded username readback synchronization
+
+Full release run 37523874365 passed seven of eight sign-in cases. Phone
+submitting-largest failed the immediate username value assertion after one native
+typing action. Its retained screenshot shows the correct focused field, keyboard
+and expected visible suffix; the hierarchy truncates the value, so the exact
+mismatch and its cause cannot be reconstructed. The same source passed preflight.
+
+The fixture now waits for keyboard readiness before typing once, then uses the
+existing five-second waiter for the unchanged exact username equality. It never
+retypes, injects a value, or accepts partial content. A persistent mismatch still
+fails. Up to 16 observations record only value type, UTF-8 length, equality and
+keyboard presence; no entered text or password is serialized. The native pure
+helper tests cover transient-to-exact success and persistent failure. This is
+synchronization hardening with unproven causal attribution, not an auth fix.
