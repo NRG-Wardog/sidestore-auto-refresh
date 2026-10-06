@@ -54,7 +54,8 @@ jobs:
     name: ${{ needs.select-lane.outputs.lane == 'input-diagnostic' && 'Input focus diagnostic (not acceptance)' || 'signin-preflight' }}
     needs: select-lane
     if: needs.select-lane.outputs.lane == 'preflight' || needs.select-lane.outputs.lane == 'input-diagnostic'
-    runs-on: macos-26-intel
+    # Controlled architecture comparison; exact Xcode and fixture remain unchanged.
+    runs-on: macos-26
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
