@@ -485,11 +485,14 @@ def execute(prepared: dict, kind: str, device: str, output: Path, command) -> di
     run = None
     try:
         run = configure_evidence_run(Path(prepared["xctestrun"]), kind)
+        # Run 37472893006 completed assertions/reporting in up to 166 seconds.
+        # 240/case includes cleanup; 1080 covers four cases plus 120s startup.
+        # The prior 120s watchdog interrupted UI work; termination/relaunch then failed.
         command("xcodebuild", "test-without-building", "-xctestrun", run["xctestrun"],
                 "-destination", "id=" + device, "-resultBundlePath", str(result),
                 "-parallel-testing-enabled", "NO", "-maximum-concurrent-test-simulator-destinations", "1",
-                "-test-timeouts-enabled", "YES", "-default-test-execution-time-allowance", "90",
-                "-maximum-test-execution-time-allowance", "120", timeout=480)
+                "-test-timeouts-enabled", "YES", "-default-test-execution-time-allowance", "240",
+                "-maximum-test-execution-time-allowance", "240", timeout=1080)
     except Exception as error:
         failure = str(error)
     finally:

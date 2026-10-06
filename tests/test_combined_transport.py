@@ -482,8 +482,8 @@ class CombinedWorkflowTests(unittest.TestCase):
         layout_block = workflow[layout:].split("\n      - name:", 1)[0]
         self.assertIn('id: embedded_build', native_block)
         self.assertIn('timeout-minutes: 40', native_block)
-        self.assertIn('timeout-minutes: 60', layout_block)
-        self.assertIn('timeout-minutes: 150', workflow[:native])
+        self.assertIn('timeout-minutes: 80', layout_block)
+        self.assertIn('timeout-minutes: 170', workflow[:native])
         self.assertNotIn("if:", layout_block)  # Default success() requires source preparation.
         self.assertNotIn("DerivedData", layout_block)
         self.assertNotIn("Build/Products", layout_block)

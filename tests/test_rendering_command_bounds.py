@@ -78,7 +78,7 @@ class RenderingCommandBoundsTests(unittest.TestCase):
     def test_workflow_keeps_acceptance_and_saves_timeout_diagnostics(self):
         workflow = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()
         self.assertIn('timeout-minutes: 40', workflow)
-        self.assertIn('timeout-minutes: 60', workflow)
+        self.assertIn('timeout-minutes: 80', workflow)
         self.assertIn('artifacts/layout-evidence/**/*.jsonl', workflow)
         self.assertIn('artifacts/logs/layout-rendering.log', workflow)
         self.assertIn('--v3-source work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift', workflow)

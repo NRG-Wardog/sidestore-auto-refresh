@@ -26,9 +26,9 @@ jobs:
     # Standard Intel capacity avoids the macOS arm64 runner acquisition outage.
     # Device targets remain arm64; the layout harness selects x86_64 simulators.
     runs-on: macos-26-intel
-    # Preserve the prior 120-minute budget plus 25 for required sign-in UI and 5 margin.
-    # Measured legacy layout is22m27s and can approach 30m; do not reuse its 35m cap.
-    timeout-minutes: 150
+    # Preserve the prior 150-minute job budget plus 20 for measured UI execution.
+    # Includes bounded durable capture, result export and simulator cleanup.
+    timeout-minutes: 170
     steps:
       - uses: actions/checkout@v4
         with:
@@ -224,8 +224,9 @@ jobs:
       - name: Execute full layout regression
         # Standalone fixtures read the already-prepared Swift sources, not built
         # app products. Fail early without duplicating simulator lifecycles.
-        # Legacy 35m + sign-in build 5m + devices 8m + 8m + export/margin 4m.
-        timeout-minutes: 60
+        # Legacy 35m + sign-in build 5m + devices 18m + 18m + capture/export 4m.
+        # Observed valid cases need up to 166s before teardown; all assertions remain.
+        timeout-minutes: 80
         shell: bash
         run: |
           set -euo pipefail

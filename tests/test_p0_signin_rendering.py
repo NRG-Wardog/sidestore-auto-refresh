@@ -253,8 +253,8 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         self.assertIn('len(p0_reports) == 2 and all(report["passed"]', source)
         self.assertIn('p0.execute(p0_build, kind, device, output, command)', source)
         self.assertIn('--require-p0-signin', workflow)
-        self.assertIn('timeout-minutes: 60', workflow)
-        self.assertIn('timeout-minutes: 150', workflow)
+        self.assertIn('timeout-minutes: 80', workflow)
+        self.assertIn('timeout-minutes: 170', workflow)
         self.assertIn('timeout-minutes: 40', workflow)
         self.assertIn('Legacy layout build phase finished', source)
         self.assertIn('Required sign-in UI build phase finished', source)
@@ -263,7 +263,9 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         self.assertNotIn('"simctl", "boot"', p0_source)
         self.assertNotIn('"simctl", "create"', p0_source)
         self.assertIn('"-parallel-testing-enabled", "NO"', p0_source)
-        self.assertIn('timeout=480', p0_source)
+        self.assertIn('timeout=1080', p0_source)
+        self.assertIn('"-default-test-execution-time-allowance", "240"', p0_source)
+        self.assertIn('"-maximum-test-execution-time-allowance", "240"', p0_source)
 
     def test_ui_uses_real_taps_and_reports_limits(self):
         source = (ROOT / "tests/fixtures/p0_signin_ui_tests.swift").read_text()

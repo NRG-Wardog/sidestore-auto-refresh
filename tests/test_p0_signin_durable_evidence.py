@@ -147,7 +147,7 @@ class DurableSignInEvidenceTests(unittest.TestCase):
                         run_id = configuration["P0SignInUITests"]["EnvironmentVariables"][renderer.EVIDENCE_RUN_ID_KEY]
                         self.own_files(container, run_id)
                         if partial_result: (evidence / "phone.xcresult").mkdir(parents=True)
-                        self.assertEqual(kwargs["timeout"], 480)
+                        self.assertEqual(kwargs["timeout"], 1080)
                         raise RuntimeError("bounded XCTest timeout")
                     if args[1:4] == ("simctl", "io", "device"):
                         self.assertEqual(kwargs["timeout"], 30)

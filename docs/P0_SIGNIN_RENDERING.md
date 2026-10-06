@@ -4,13 +4,13 @@ The combined build's existing full-layout step now requires `--require-p0-signin
 This runs four XCTest methods on each phone and iPad already selected and booted
 by the layout runner. It creates no additional simulators, does not erase a
 simulator, and leaves all 14 legacy reports, their source identities, process
-bounds and cleanup unchanged. The required combined layout step is bounded at 60
-minutes, and the job at 150 minutes. Legacy layout was measured at 22m27s and can
-approach 30 minutes. Its prior 35-minute allowance is preserved, with 25 additional
-minutes for sign-in (build 5 + phone 8 + tablet 8 + export/margin 4). The job retains
-its prior 120-minute budget plus 25 for the new required suite and 5 minutes of
-overall margin. Per-suite build/device timing is logged. No test, screenshot or
-failure gate is optional.
+bounds and cleanup unchanged. The required combined layout step is bounded at 80
+minutes, and the job at 170 minutes. Legacy layout was measured at 22m27s and can
+approach 30 minutes. Its prior 35-minute allowance is preserved, with 45 additional
+minutes for sign-in (build 5 + phone 18 + tablet 18 + recovery/export margin 4).
+The job retains its prior 120-minute budget plus 45 for the new required suite
+and 5 minutes of overall margin. Per-suite build/device timing is logged.
+No test, screenshot or failure gate is optional.
 
 ## What executes
 
@@ -86,7 +86,7 @@ does not claim physical-device, spoken VoiceOver or iOS 15 runtime validation.
 
 ## Early fail-closed ordering
 
-The complete existing layout step runs after host source generation and exact authentication source-boundary verification, before native host/transport/backend builds. Its inputs are the same prepared LC grid/banner/model/shell Swift files, builder templates and fixtures, and immutable baseline Git object; it consumes no compiled app or transport product. The runner, source hashes, one shared two-device lifecycle, 14 legacy reports, 8 sign-in cases and 24 required PNGs are unchanged. The moved step uses default success gating; its failure prevents later builds and packaging. Evidence upload remains always-run, and packaging still requires every preceding gate. Bounds stay 60 minutes for layout and 150 minutes for the job.
+The complete existing layout step runs after host source generation and exact authentication source-boundary verification, before native host/transport/backend builds. Its inputs are the same prepared LC grid/banner/model/shell Swift files, builder templates and fixtures, and immutable baseline Git object; it consumes no compiled app or transport product. The runner, source hashes, one shared two-device lifecycle, 14 legacy reports, 8 sign-in cases and 24 required PNGs are unchanged. The moved step uses default success gating; its failure prevents later builds and packaging. Evidence upload remains always-run, and packaging still requires every preceding gate. Bounds are now 80 minutes for layout and 170 minutes for the job following the measured case timing below.
 
 
 ## Runtime query and failure evidence correction
@@ -156,3 +156,25 @@ and therefore do not establish any sign-in layout assertion.
 
 This change adds evidence and reduces redundant accessibility queries. It does
 not establish a product layout fix or successful real-account authentication.
+
+## Measured XCTest execution bounds
+
+Run 37472893006 passed all 1,124 native checks. Its durable captures now show
+one credentials panel with visible Copy Details and reachable Cancel at normal
+and largest text on both phone and tablet. Those diagnostics are not a passing
+UI gate: the run failed, and the submitting cases did not reach their assertions.
+
+The phone default case reached its final Cancel assertions at 119.26 seconds;
+the 120-second watchdog fired during teardown before termination at 122.92
+seconds. The same cancellation state completed successfully in a 109.287-second
+phone largest case. Tablet largest hit the watchdog while checking Copy Details,
+before Cancel, and continued through its report at 165.71 seconds. This evidence
+supports undersized execution bounds, not a cancellation-state product defect.
+
+Each case now has a 240-second allowance, covering the observed 166 seconds
+plus 74 seconds for remaining work and cleanup. Each four-case device command
+has 1,080 seconds (4 × 240 + 120 startup/result-finalization margin). The 300-second
+build bound, 30/15-second recovery commands, simulator boot bounds, serial
+execution, all eight cases and 24 required acceptance PNGs remain unchanged.
+No test retry, optional gate, fixture cancellation change or UI assertion removal
+is introduced. Full native execution and complete XCTest summaries remain required.
