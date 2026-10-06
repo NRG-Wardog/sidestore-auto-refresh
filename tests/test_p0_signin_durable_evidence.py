@@ -59,7 +59,13 @@ class DurableSignInEvidenceTests(unittest.TestCase):
                 second = renderer.configure_evidence_run(original, "tablet")
                 self.assertNotEqual(first["runID"], second["runID"])
                 self.assertEqual(original.read_bytes(), before)
-                self.assertEqual(Path(first["xctestrun"]).parent, original.parent)
+                self.assertEqual(Path(first["xctestrun"]).parent, original.parent.resolve())
+                # macOS /var aliases /private/var; compare directory identity,
+                # and exercise an equivalent alias on every platform.
+                alias = root / "ProductsAlias"
+                alias.symlink_to(original.parent, target_is_directory=True)
+                aliased = renderer.configure_evidence_run(alias / original.name, "phone")
+                self.assertEqual(Path(aliased["xctestrun"]).parent, original.parent.resolve())
                 self.assertEqual(first["runnerBundleIdentifier"], "fixture.actual.runner-id")
                 configured = plistlib.loads(Path(first["xctestrun"]).read_bytes())
                 target = configured["TestConfigurations"][0]["TestTargets"][0] if modern else configured["P0SignInUITests"]
