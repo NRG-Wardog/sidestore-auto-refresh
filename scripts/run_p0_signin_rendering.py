@@ -342,17 +342,32 @@ def verify_export(directory: Path, summary: dict) -> dict:
             for child in value:
                 yield from attachment_rows(child)
     rows = list(attachment_rows(manifests))
+    screenshot_files = {}
     for case in cases:
         for name in case.get("screenshots", []):
-            matches = [row for row in rows if row.get("suggestedHumanReadableName", "").startswith(name)
-                       or row.get("attachmentName") == name]
+            # Xcode appends _<index>_<UUID> to the human-readable name. An
+            # unrelated prefix match or a duplicate row is not one screenshot.
+            def named_attachment(row):
+                suggested = row.get("suggestedHumanReadableName", "")
+                return (row.get("attachmentName") == name or isinstance(suggested, str) and
+                        (suggested in (name, name + ".png") or suggested.startswith(name + "_")))
+            matches = [row for row in rows if named_attachment(row)]
+            if len(matches) != 1:
+                failures.append(f"Expected exactly one exported attachment for screenshot: {name}")
             def valid_attachment(row):
+                if not isinstance(row["exportedFileName"], str):
+                    return False
                 candidate = (directory / row["exportedFileName"]).resolve()
                 if not candidate.is_relative_to(directory.resolve()):
                     return False
                 return candidate.is_file() and valid_png(candidate.read_bytes())
             if not matches or not any(valid_attachment(row) for row in matches):
                 failures.append(f"No exported PNG bytes for screenshot: {name}")
+            if len(matches) == 1 and isinstance(matches[0]["exportedFileName"], str):
+                candidate = (directory / matches[0]["exportedFileName"]).resolve()
+                if candidate in screenshot_files:
+                    failures.append(f"Exported PNG reused for screenshots: {screenshot_files[candidate]}, {name}")
+                screenshot_files[candidate] = name
     return {"passed": not failures, "failures": failures, "cases": cases,
             "artifactSHA256": artifacts, "reportCount": len(cases)}
 

@@ -33,22 +33,6 @@ enum P0SignInViewport {
     }
 }
 
-enum P0SignInMeasurementLabel {
-    static func resolve(control: String, label: String, placeholder: String?) -> String? {
-        let expected: String?
-        switch control {
-        case "username": expected = "Apple ID"
-        case "password": expected = "Password"
-        default: expected = nil
-        }
-        if let expected {
-            let observed = label.isEmpty ? placeholder : label
-            return observed == expected ? observed : nil
-        }
-        return label.isEmpty ? nil : label
-    }
-}
-
 final class P0SignInUITests: XCTestCase {
     @MainActor private lazy var app = XCUIApplication()
     private var failures: [String] = []
@@ -173,14 +157,7 @@ final class P0SignInUITests: XCTestCase {
         if name == "copy-details" || name == "cancel" {
             require(frame.height >= 43, "Touch target is shorter than 44 points: \(name)")
         }
-        let label = element.label
-        // SwiftUI inputs expose their accessible prompt through placeholderValue.
-        // Never use the entered text or secure value as a measurement label.
-        let placeholder = label.isEmpty && (name == "username" || name == "password")
-            ? element.placeholderValue : nil
-        let recordedLabel = P0SignInMeasurementLabel.resolve(control: name, label: label, placeholder: placeholder)
-        require(recordedLabel != nil, "Missing or unexpected accessible control identity: \(name)")
-        measurements.append(["control": name, "label": recordedLabel ?? "",
+        measurements.append(["control": name, "label": element.label,
             "bounds": [frame.minX, frame.minY, frame.width, frame.height],
             "viewportBounds": [viewport.minX, viewport.minY, viewport.width, viewport.height],
             "viewportWidth": viewport.width, "largestDynamicType": largest, "hittable": element.isHittable])

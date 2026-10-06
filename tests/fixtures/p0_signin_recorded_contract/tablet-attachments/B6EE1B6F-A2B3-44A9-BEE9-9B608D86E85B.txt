@@ -1,0 +1,2 @@
+TextField, {{32.0, 257.5}, {256.0, 22.0}}, placeholderValue: 'Apple ID'
+SecureTextField, {{32.0, 310.5}, {256.0, 20.5}}, placeholderValue: 'Password'

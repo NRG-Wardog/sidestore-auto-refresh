@@ -202,3 +202,26 @@ the stall count. The containment tolerance itself is unchanged.
 The inspected submitting captures show a visible header, disabled Submit and
 visible Cancel. The failed run did not establish all required Cancel callbacks;
 complete native acceptance remains pending. No app production layout changed.
+
+## Runtime input identity recording
+
+Run 37496696970 completed all eight XCTest cases with zero failures or skips,
+but final evidence validation failed: username and password measurements recorded
+an empty `label`. Their actual accessibility hierarchy exposes the names through
+`placeholderValue` (`Apple ID` and `Password`). The recorder now reads that actual
+property only when one of those two known input labels is empty, requires its
+exact expected identity, and never uses the input's entered or secure value.
+Other controls still require a nonempty label. The validator is unchanged.
+
+The complete eight-case evidence audit found exactly these 16 empty-label
+failures and no additional contract mismatch. All 24 required screenshot names
+map uniquely to valid PNGs; exported pixels match the durable copies. Both
+XCTest summaries contain four passes, zero failures and zero skips. All captured
+source/project file hashes match their identity manifest. Copy Details and Cancel
+captures were visually inspected across every device/state/text-size case.
+In-memory label-only characterization was used to identify remaining validator
+mismatches; original evidence was never modified and the failed run remains failed.
+
+This local recorder correction still requires native execution. Linux source
+checks cannot establish XCTest accessibility properties or simulator success;
+publication is paused pending the requested CI-process review.

@@ -121,6 +121,14 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def generated_shell_source() -> str:
+    """The exact production shell composition, shared with the focused UI preflight."""
+    return (BEHAVIOR_TEMPLATE.read_text(encoding="utf-8") + "\n" +
+            SECRET_HANDOFF_TEMPLATE.read_text(encoding="utf-8") + "\n" +
+            IPA_STAGING_TEMPLATE.read_text(encoding="utf-8") + "\n" +
+            TEMPLATE.read_text(encoding="utf-8"))
+
+
 def patch_host(root: Path) -> None:
     shared = root / "LiveContainerSwiftUI/Utilities/Shared.swift"
     text = shared.read_text(encoding="utf-8")
@@ -140,10 +148,7 @@ def patch_host(root: Path) -> None:
         app.write_text(text, encoding="utf-8")
 
     shell = root / "LiveContainerSwiftUI/Views/V3UnifiedShell.swift"
-    expected = (BEHAVIOR_TEMPLATE.read_text(encoding="utf-8") + "\n" +
-                SECRET_HANDOFF_TEMPLATE.read_text(encoding="utf-8") + "\n" +
-                IPA_STAGING_TEMPLATE.read_text(encoding="utf-8") + "\n" +
-                TEMPLATE.read_text(encoding="utf-8"))
+    expected = generated_shell_source()
     if shell.exists() and shell.read_text(encoding="utf-8") != expected:
         die("existing v3 shell differs from the current template")
     shell.write_text(expected, encoding="utf-8")

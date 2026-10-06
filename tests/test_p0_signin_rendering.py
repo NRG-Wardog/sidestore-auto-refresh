@@ -133,12 +133,28 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         self.assertNotIn('.tap()', reveal)
 
 
+    def test_input_label_fallback_reads_only_known_actual_placeholders(self):
+        ui = (ROOT / 'tests/fixtures/p0_signin_ui_tests.swift').read_text()
+        record = renderer.member(ui, '@MainActor private func record')
+        self.assertIn('name == "username" || name == "password"', record)
+        self.assertIn('element.placeholderValue', record)
+        self.assertNotIn('element.value', record)
+        self.assertIn('require(recordedLabel != nil', record)
+        self.assertIn('"label": recordedLabel ?? ""', record)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); summary = self.make_export(root)
+            path = root / 'credentials-default.json'
+            data = json.loads(path.read_text())
+            data['measurements'][0]['label'] = ''
+            path.write_text(json.dumps(data))
+            self.assertFalse(renderer.verify_export(root, summary)['passed'])
+
     def test_exact_runtime_viewport_math_executes(self):
         compiler = shutil.which('swiftc')
         if not compiler:
             self.skipTest('Swift compiler unavailable; actual sign-in viewport helper executes in required macOS CI')
         ui = (ROOT / 'tests/fixtures/p0_signin_ui_tests.swift').read_text()
-        helper = renderer.declaration(ui, 'enum P0SignInViewport')
+        helper = renderer.declaration(ui, 'enum P0SignInViewport') + renderer.declaration(ui, 'enum P0SignInMeasurementLabel')
         self.assertIn('P0SignInViewport.contains(element.frame, in: region)', ui)
         self.assertIn('P0SignInViewport.available(viewport: viewport', ui)
         self.assertIn('let gestureRegion = P0SignInViewport.gestureRegion(in: region)', ui)
@@ -185,6 +201,14 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         precondition(unaffected.maxY == 800)
         precondition(P0SignInViewport.available(viewport: .zero, navigation: nil, keyboard: nil, footer: nil) == .zero)
         precondition(!P0SignInViewport.contains(CGRect(x: 20, y: 120, width: 240, height: 44), in: .infinite))
+        precondition(P0SignInMeasurementLabel.resolve(control: "username", label: "", placeholder: "Apple ID") == "Apple ID")
+        precondition(P0SignInMeasurementLabel.resolve(control: "password", label: "", placeholder: "Password") == "Password")
+        precondition(P0SignInMeasurementLabel.resolve(control: "username", label: "Apple ID", placeholder: nil) == "Apple ID")
+        precondition(P0SignInMeasurementLabel.resolve(control: "password", label: "wrong", placeholder: "Password") == nil)
+        precondition(P0SignInMeasurementLabel.resolve(control: "username", label: "", placeholder: "wrong") == nil)
+        precondition(P0SignInMeasurementLabel.resolve(control: "password", label: "", placeholder: nil) == nil)
+        precondition(P0SignInMeasurementLabel.resolve(control: "cancel", label: "", placeholder: "Cancel") == nil)
+        precondition(P0SignInMeasurementLabel.resolve(control: "copy-details", label: "Copy Details", placeholder: nil) == "Copy Details")
         print("P0_SIGNIN_VIEWPORT_PASS")
     }
 }
