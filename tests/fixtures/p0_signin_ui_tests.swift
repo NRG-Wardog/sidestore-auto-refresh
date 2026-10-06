@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 
 enum P0SignInViewport {
     static func available(viewport: CGRect, navigation: CGRect?, keyboard: CGRect?, footer: CGRect?) -> CGRect {

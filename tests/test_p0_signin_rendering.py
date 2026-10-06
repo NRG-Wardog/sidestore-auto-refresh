@@ -113,7 +113,8 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         helper = renderer.declaration(ui, 'enum P0SignInViewport')
         self.assertIn('P0SignInViewport.contains(element.frame, in: region)', ui)
         self.assertIn('P0SignInViewport.available(viewport: viewport', ui)
-        harness = 'import Foundation\n' + helper + r'''
+        self.assertIn('import CoreGraphics\n', ui)
+        harness = 'import Foundation\nimport CoreGraphics\n' + helper + r'''
 @main struct Test {
     static func main() {
         let viewport = CGRect(x: 0, y: 0, width: 320, height: 844)
