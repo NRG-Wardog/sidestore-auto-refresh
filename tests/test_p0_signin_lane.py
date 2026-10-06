@@ -1,5 +1,6 @@
 """Explicit CI routing and no-package focused lane regression tests."""
 import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -65,6 +66,29 @@ class SignInLaneRoutingTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(output.exists())
 
+    def test_actual_workflow_shell_routes_empty_and_diagnostic_arguments_portably(self):
+        workflow = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()
+        step = workflow.split('      - name: Execute selected sign-in test lane\n', 1)[1].split('      - name:', 1)[0]
+        body = step.split('        run: |\n', 1)[1]
+        script = '\n'.join(line[10:] for line in body.splitlines() if line.startswith('          '))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'builder/scripts').mkdir(parents=True)
+            (root / 'artifacts/logs').mkdir(parents=True)
+            target = root / 'builder/scripts/run_p0_signin_preflight.py'
+            target.write_text('import json,sys\nprint(json.dumps(sys.argv[1:]))\n')
+            for lane, expected in [('preflight', ['--output', 'artifacts/p0-preflight']),
+                                   ('input-diagnostic', ['--output', 'artifacts/p0-preflight', '--input-diagnostic'])]:
+                result = subprocess.run(['/bin/bash', '-c', script], cwd=root,
+                    env=dict(os.environ, CI_SIGNIN_LANE=lane), capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), expected)
+            result = subprocess.run(['/bin/bash', '-c', script], cwd=root,
+                env=dict(os.environ, CI_SIGNIN_LANE='unknown'), capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, '')
+            self.assertIn('Unsupported sign-in lane', result.stderr)
+
     def test_workflow_gates_release_and_preflight_without_path_or_skip_filters(self):
         workflow = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()
         preflight = workflow.split('  signin-preflight:\n', 1)[1].split('  source-and-host-build:\n', 1)[0]
@@ -87,7 +111,7 @@ class SignInLaneRoutingTests(unittest.TestCase):
         self.assertIn("--pattern 'test_p0_signin*.py'", preflight)
         self.assertIn('run_p0_signin_preflight.py', preflight)
         self.assertIn('Input focus diagnostic (not acceptance)', preflight)
-        self.assertIn('input-diagnostic) extra+=(--input-diagnostic)', preflight)
+        self.assertIn('input-diagnostic) set -- --input-diagnostic', preflight)
         self.assertIn('Unsupported sign-in lane', preflight)
         self.assertNotIn('--input-diagnostic', release)
         self.assertIn('if: always()', preflight)

@@ -83,14 +83,14 @@ jobs:
           CI_SIGNIN_LANE: ${{ needs.select-lane.outputs.lane }}
         run: |
           set -euo pipefail
-          extra=()
+          set --
           case "$CI_SIGNIN_LANE" in
             preflight) ;;
-            input-diagnostic) extra+=(--input-diagnostic) ;;
+            input-diagnostic) set -- --input-diagnostic ;;
             *) echo "Unsupported sign-in lane" >&2; exit 1 ;;
           esac
           python3 builder/scripts/run_p0_signin_preflight.py \
-            --output artifacts/p0-preflight "${extra[@]}" 2>&1 | tee artifacts/logs/signin-preflight.log
+            --output artifacts/p0-preflight "$@" 2>&1 | tee artifacts/logs/signin-preflight.log
       - name: Preserve focused sign-in evidence
         if: always()
         uses: actions/upload-artifact@v4
