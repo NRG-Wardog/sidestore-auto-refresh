@@ -4,12 +4,11 @@ The combined build's existing full-layout step now requires `--require-p0-signin
 This runs four XCTest methods on each phone and iPad already selected and booted
 by the layout runner. It creates no additional simulators, does not erase a
 simulator, and leaves all 14 legacy reports, their source identities, process
-bounds and cleanup unchanged. The required combined layout step is bounded at 80
-minutes, and the job at 170 minutes. Legacy layout was measured at 22m27s and can
-approach 30 minutes. Its prior 35-minute allowance is preserved, with 45 additional
-minutes for sign-in (build 5 + phone 18 + tablet 18 + recovery/export margin 4).
-The job retains its prior 120-minute budget plus 45 for the new required suite
-and 5 minutes of overall margin. Per-suite build/device timing is logged.
+bounds and cleanup unchanged. The user-requested outer layout allowance is 120
+minutes, and the overall job allowance is 210 minutes. The measured inner
+budget remains 35 minutes legacy plus 45 for sign-in (build 5 + phone 18 +
+tablet 18 + recovery/export margin 4); the extra outer allowance does not
+relax any individual command bound. Per-suite build/device timing is logged.
 No test, screenshot or failure gate is optional.
 
 ## What executes
@@ -86,7 +85,7 @@ does not claim physical-device, spoken VoiceOver or iOS 15 runtime validation.
 
 ## Early fail-closed ordering
 
-The complete existing layout step runs after host source generation and exact authentication source-boundary verification, before native host/transport/backend builds. Its inputs are the same prepared LC grid/banner/model/shell Swift files, builder templates and fixtures, and immutable baseline Git object; it consumes no compiled app or transport product. The runner, source hashes, one shared two-device lifecycle, 14 legacy reports, 8 sign-in cases and 24 required PNGs are unchanged. The moved step uses default success gating; its failure prevents later builds and packaging. Evidence upload remains always-run, and packaging still requires every preceding gate. Bounds are now 80 minutes for layout and 170 minutes for the job following the measured case timing below.
+The complete existing layout step runs after host source generation and exact authentication source-boundary verification, before native host/transport/backend builds. Its inputs are the same prepared LC grid/banner/model/shell Swift files, builder templates and fixtures, and immutable baseline Git object; it consumes no compiled app or transport product. The runner, source hashes, one shared two-device lifecycle, 14 legacy reports, 8 sign-in cases and 24 required PNGs are unchanged. The moved step uses default success gating; its failure prevents later builds and packaging. Evidence upload remains always-run, and packaging still requires every preceding gate. Outer bounds are 120 minutes for layout and 210 minutes for the job, while the measured per-case/device bounds below remain unchanged.
 
 
 ## Runtime query and failure evidence correction
@@ -178,3 +177,28 @@ build bound, 30/15-second recovery commands, simulator boot bounds, serial
 execution, all eight cases and 24 required acceptance PNGs remain unchanged.
 No test retry, optional gate, fixture cancellation change or UI assertion removal
 is introduced. Full native execution and complete XCTest summaries remain required.
+
+## User-requested outer allowance
+
+After run 37484580818 began, the user requested a two-hour UI allowance. The workflow layout envelope is 120 minutes and the overall job 210 minutes (prior 170 plus 40). The measured internal controls remain 240 seconds per case, 1080 seconds per four-case device suite, 300 seconds for fixture build, 30/15 seconds for diagnostic capture/container lookup, and 120 seconds for result export. All eight cases, 24 acceptance screenshots and failure gates remain mandatory. This outer-budget update does not change an already-running job and must not cancel it merely to apply a timeout retroactively.
+
+## Physical visibility versus gesture padding
+
+Run 37484580818 retained the submitting-screen pixels and exact rectangles.
+The phone header was visibly unobscured at y=168, while the fixture demanded
+it begin at y=172. Tablet normal/largest cases showed the same four-point
+mismatch (138 versus 142, and 159 versus 163). The fixture had incorrectly
+reused its four-point gesture padding as a physical visibility boundary.
+
+`available` now returns the actual region outside navigation, keyboard and
+telemetry. Only swipe coordinates use the separately inset `gestureRegion`.
+Full-frame physical containment, hittability, actual taps and all acceptance
+cases remain mandatory. Native tests execute the extracted production-fixture
+helper against those observed rectangles and against real navigation, keyboard
+and horizontal clipping. Stall tracking alone treats changes up to 0.01 points
+as floating-point noise, preventing repeated zero-progress swipes from resetting
+the stall count. The containment tolerance itself is unchanged.
+
+The inspected submitting captures show a visible header, disabled Submit and
+visible Cancel. The failed run did not establish all required Cancel callbacks;
+complete native acceptance remains pending. No app production layout changed.

@@ -26,9 +26,9 @@ jobs:
     # Standard Intel capacity avoids the macOS arm64 runner acquisition outage.
     # Device targets remain arm64; the layout harness selects x86_64 simulators.
     runs-on: macos-26-intel
-    # Preserve the prior 150-minute job budget plus 20 for measured UI execution.
-    # Includes bounded durable capture, result export and simulator cleanup.
-    timeout-minutes: 170
+    # User-requested two-hour UI envelope adds 40m to the measured 170m job budget.
+    # Individual test/device hang bounds remain unchanged.
+    timeout-minutes: 210
     steps:
       - uses: actions/checkout@v4
         with:
@@ -226,7 +226,8 @@ jobs:
         # app products. Fail early without duplicating simulator lifecycles.
         # Legacy 35m + sign-in build 5m + devices 18m + 18m + capture/export 4m.
         # Observed valid cases need up to 166s before teardown; all assertions remain.
-        timeout-minutes: 80
+        # User-requested outer allowance; per-case/device bounds remain 240s/1080s.
+        timeout-minutes: 120
         shell: bash
         run: |
           set -euo pipefail

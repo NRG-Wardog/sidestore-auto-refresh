@@ -141,6 +141,8 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         helper = renderer.declaration(ui, 'enum P0SignInViewport')
         self.assertIn('P0SignInViewport.contains(element.frame, in: region)', ui)
         self.assertIn('P0SignInViewport.available(viewport: viewport', ui)
+        self.assertIn('let gestureRegion = P0SignInViewport.gestureRegion(in: region)', ui)
+        self.assertIn('P0SignInViewport.sameGeometry(freshRegion, region)', ui)
         self.assertIn('import CoreGraphics\n', ui)
         harness = 'import Foundation\nimport CoreGraphics\n' + helper + r'''
 @main struct Test {
@@ -150,13 +152,37 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         let keyboard = CGRect(x: 0, y: 500, width: 320, height: 344)
         let footer = CGRect(x: 0, y: 800, width: 320, height: 24)
         let region = P0SignInViewport.available(viewport: viewport, navigation: nav, keyboard: keyboard, footer: footer)
-        precondition(region == CGRect(x: 4, y: 104, width: 312, height: 392))
+        precondition(region == CGRect(x: 0, y: 100, width: 320, height: 400))
+        precondition(P0SignInViewport.gestureRegion(in: region) == CGRect(x: 4, y: 104, width: 312, height: 392))
         precondition(P0SignInViewport.contains(CGRect(x: 20, y: 120, width: 240, height: 44), in: region))
         precondition(!P0SignInViewport.contains(CGRect(x: 20, y: 470, width: 240, height: 44), in: region), "A hittable center does not prove full containment")
-        precondition(!P0SignInViewport.contains(CGRect(x: 0, y: 120, width: 320, height: 44), in: region))
+        precondition(P0SignInViewport.contains(CGRect(x: 0, y: 120, width: 320, height: 44), in: region))
+        precondition(!P0SignInViewport.contains(CGRect(x: -2, y: 120, width: 320, height: 44), in: region))
+        precondition(!P0SignInViewport.contains(CGRect(x: 20, y: 98, width: 240, height: 44), in: region), "Actual navigation occlusion must fail")
+        precondition(!P0SignInViewport.contains(CGRect(x: 20, y: 460, width: 240, height: 44), in: region), "Actual keyboard occlusion must fail")
+        // Exact physical headers from run 37484580818. A gesture inset is not an occluder.
+        let observed: [(CGFloat, CGFloat, CGFloat)] = [(168, 40.33333333333334, 816),
+                                                       (138, 40.5, 1327), (159, 145.5, 1327)]
+        for (top, headerHeight, bottom) in observed {
+            let visible = P0SignInViewport.available(
+                viewport: CGRect(x: 0, y: 0, width: 320, height: bottom + 24),
+                navigation: CGRect(x: 0, y: 0, width: 320, height: top), keyboard: nil,
+                footer: CGRect(x: 0, y: bottom, width: 320, height: 24))
+            let header = CGRect(x: 16, y: top, width: 288, height: headerHeight)
+            precondition(visible == CGRect(x: 0, y: top, width: 320, height: bottom - top))
+            precondition(P0SignInViewport.gestureRegion(in: visible) ==
+                CGRect(x: 4, y: top + 4, width: 312, height: bottom - top - 8))
+            precondition(P0SignInViewport.contains(header, in: visible))
+            precondition(!P0SignInViewport.contains(header, in: P0SignInViewport.gestureRegion(in: visible)))
+            precondition(!P0SignInViewport.contains(header.offsetBy(dx: 0, dy: -2), in: visible))
+        }
+        precondition(P0SignInViewport.sameGeometry(CGRect(x: 4, y: 172, width: 312, height: 640),
+            CGRect(x: 4, y: 171.99999999999997, width: 312, height: 640)))
+        precondition(!P0SignInViewport.sameGeometry(region, region.offsetBy(dx: 0, dy: 1)))
+        precondition(P0SignInViewport.gestureRegion(in: .zero) == .zero)
         let offscreenKeyboard = CGRect(x: 400, y: 500, width: 300, height: 300)
         let unaffected = P0SignInViewport.available(viewport: viewport, navigation: nav, keyboard: offscreenKeyboard, footer: footer)
-        precondition(unaffected.maxY == 796)
+        precondition(unaffected.maxY == 800)
         precondition(P0SignInViewport.available(viewport: .zero, navigation: nil, keyboard: nil, footer: nil) == .zero)
         precondition(!P0SignInViewport.contains(CGRect(x: 20, y: 120, width: 240, height: 44), in: .infinite))
         print("P0_SIGNIN_VIEWPORT_PASS")
@@ -253,8 +279,8 @@ class P0SignInRenderingEvidenceTests(unittest.TestCase):
         self.assertIn('len(p0_reports) == 2 and all(report["passed"]', source)
         self.assertIn('p0.execute(p0_build, kind, device, output, command)', source)
         self.assertIn('--require-p0-signin', workflow)
-        self.assertIn('timeout-minutes: 80', workflow)
-        self.assertIn('timeout-minutes: 170', workflow)
+        self.assertIn('timeout-minutes: 120', workflow)
+        self.assertIn('timeout-minutes: 210', workflow)
         self.assertIn('timeout-minutes: 40', workflow)
         self.assertIn('Legacy layout build phase finished', source)
         self.assertIn('Required sign-in UI build phase finished', source)

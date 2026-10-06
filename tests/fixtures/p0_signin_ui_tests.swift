@@ -10,8 +10,20 @@ enum P0SignInViewport {
         if let navigation, navigation.intersects(viewport) { top = max(top, navigation.maxY) }
         if let keyboard, keyboard.intersects(viewport) { bottom = min(bottom, keyboard.minY) }
         if let footer, footer.intersects(viewport) { bottom = min(bottom, footer.minY) }
-        return CGRect(x: viewport.minX + 4, y: top + 4,
-                      width: max(0, viewport.width - 8), height: max(0, bottom - top - 8))
+        return CGRect(x: viewport.minX, y: top,
+                      width: viewport.width, height: max(0, bottom - top))
+    }
+    static func gestureRegion(in visibleRegion: CGRect) -> CGRect {
+        guard !visibleRegion.isEmpty, !visibleRegion.isNull, !visibleRegion.isInfinite,
+              visibleRegion.width > 8, visibleRegion.height > 8 else { return .zero }
+        return visibleRegion.insetBy(dx: 4, dy: 4)
+    }
+    // Only suppress floating-point noise in stall tracking. Visibility admission
+    // continues to use contains with the actual unobscured region.
+    static func sameGeometry(_ first: CGRect, _ second: CGRect) -> Bool {
+        [first.minX - second.minX, first.minY - second.minY,
+         first.width - second.width, first.height - second.height]
+            .allSatisfy { $0.isFinite && abs($0) <= 0.01 }
     }
     static func contains(_ frame: CGRect, in region: CGRect) -> Bool {
         !region.isEmpty && !region.isInfinite && !region.isNull &&
@@ -87,7 +99,7 @@ final class P0SignInUITests: XCTestCase {
                 region = visibleScrollRegion()
                 if P0SignInViewport.contains(element.frame, in: region) { return }
             }
-            if exists && !frame.isEmpty && frame == previousFrame {
+            if exists && !frame.isEmpty && previousFrame.map({ P0SignInViewport.sameGeometry(frame, $0) }) == true {
                 unchangedFrames += 1
             } else {
                 unchangedFrames = 0
@@ -101,7 +113,7 @@ final class P0SignInUITests: XCTestCase {
                     "region": [freshRegion.minX, freshRegion.minY, freshRegion.width, freshRegion.height]])
                 persistProgress("stall-remeasure")
                 if element.isHittable && P0SignInViewport.contains(freshFrame, in: freshRegion) { return }
-                if freshRegion != region {
+                if !P0SignInViewport.sameGeometry(freshRegion, region) {
                     region = freshRegion
                     unchangedFrames = 0
                     continue
@@ -116,10 +128,13 @@ final class P0SignInUITests: XCTestCase {
             } else {
                 upward = attempt < 8 ? !towardTop : towardTop
             }
-            let startY = upward ? region.maxY - region.height * 0.2 : region.minY + region.height * 0.2
-            let endY = upward ? region.minY + region.height * 0.2 : region.maxY - region.height * 0.2
-            let start = origin.withOffset(CGVector(dx: region.midX - windowFrame.minX, dy: startY - windowFrame.minY))
-            let end = origin.withOffset(CGVector(dx: region.midX - windowFrame.minX, dy: endY - windowFrame.minY))
+            let gestureRegion = P0SignInViewport.gestureRegion(in: region)
+            require(gestureRegion.width >= 44 && gestureRegion.height >= 80,
+                    "No inset safe area remains for scrolling")
+            let startY = upward ? gestureRegion.maxY - gestureRegion.height * 0.2 : gestureRegion.minY + gestureRegion.height * 0.2
+            let endY = upward ? gestureRegion.minY + gestureRegion.height * 0.2 : gestureRegion.maxY - gestureRegion.height * 0.2
+            let start = origin.withOffset(CGVector(dx: gestureRegion.midX - windowFrame.minX, dy: startY - windowFrame.minY))
+            let end = origin.withOffset(CGVector(dx: gestureRegion.midX - windowFrame.minX, dy: endY - windowFrame.minY))
             start.press(forDuration: 0.05, thenDragTo: end)
         }
         diagnosticSnapshot("scroll-exhausted")
