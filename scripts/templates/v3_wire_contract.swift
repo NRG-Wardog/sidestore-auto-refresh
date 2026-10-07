@@ -649,7 +649,8 @@ enum V3ServiceReadinessReply: Equatable {
                 retryable: retryable)
             if let raw = envelope["signingContext"] {
                 guard let fields = raw as? [String: String], fields.count <= 20,
-                      fields.allSatisfy({ $0.key.utf8.count <= 64 && $0.value.utf8.count <= 512 }) else { return .invalid }
+                      fields.allSatisfy({ $0.key.utf8.count <= 64 &&
+                          $0.value.utf8.count <= ($0.key == "debug_temporary_anisette_trace" ? 2048 : 512) }) else { return .invalid }
                 // The typed failure boundary validates the fixed keys
                 // and values before any diagnostic publication.
                 failure.signingContext = fields

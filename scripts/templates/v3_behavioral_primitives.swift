@@ -5125,7 +5125,13 @@ enum V3AuthFailureDiagnosticsPolicy {
                 .trimmingCharacters(in: .whitespaces)
             return trailing.isEmpty ? nil : trailing
         }.joined(separator: "\n")
-        return prose + "\nError ID: " + diagnosticCode(for: failure)
+        let fields = (failure["signingContext"] as? [String: String]).flatMap(CombinedFailure.validatedSigningContext) ?? [:]
+        let trace = fields[V3TemporaryAnisetteTrace.contextKey].flatMap(V3TemporaryAnisetteTrace.init(encoded:))
+        let failedStep = trace?.failedStep.map { "\nDEBUG TEMPORARY failed step: " + $0 } ?? ""
+        let cleanProse = prose.components(separatedBy: "\n").filter {
+            !$0.hasPrefix("DEBUG TEMPORARY failed step: ")
+        }.joined(separator: "\n")
+        return cleanProse + failedStep + "\nError ID: " + diagnosticCode(for: failure)
     }
 
     static func diagnosticCode(for failure: [String: Any]) -> String {
@@ -5183,7 +5189,8 @@ enum V3AuthFailureDiagnosticsPolicy {
         let probeDetails = fields["probe_native_code"].map {
             " probe_native_code=\($0) probe_native_phase=\(fields["probe_native_phase"] ?? "unknown") probe_native_subcode=\(fields["probe_native_subcode"] ?? "unknown")"
         } ?? ""
-        return "diagnostic_code=\(diagnosticCode(for: failure)) builder_commit=\(V3DiagnosticBuild.commit) kind=\(kind) stage=\(stage) code=\(code) correlation=\(correlation) underlying=\(underlyingDomain)/\(codeText) retryable=\(retryableText)" + accountDetails + nativeDetails + attemptDetails + probeDetails
+        return "diagnostic_code=\(diagnosticCode(for: failure)) builder_commit=\(V3DiagnosticBuild.commit) kind=\(kind) stage=\(stage) code=\(code) correlation=\(correlation) underlying=\(underlyingDomain)/\(codeText) retryable=\(retryableText)" + accountDetails + nativeDetails + attemptDetails + probeDetails +
+            (fields[V3TemporaryAnisetteTrace.contextKey].flatMap(V3TemporaryAnisetteTrace.init(encoded:))?.technicalDetails ?? "")
     }
 }
 

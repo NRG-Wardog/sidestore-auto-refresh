@@ -49,6 +49,38 @@ def declaration(text, signature):
 
 
 class IsolatedAnisetteOTPTests(unittest.TestCase):
+    success_trace = ('arguments.ok,root.ok,uuid_dir.created,file.open.ok,file.stream.ok,'
+        'file.write.ok,file.flush.ok,file.close.ok,file.read_open.ok,file.readback.ok,'
+        'file.read_close.ok,file.rename.ok,vm.init.ok,setup.begin,library.load.ok,'
+        'library.init.ok,uuid_dir.exists,provisioning_path.ok,android_id.ok,setup.ok,'
+        'native.symbol.ok,native.otp.ok,native.output.ok,cleanup.ok').split(',')
+
+    @classmethod
+    def expected_fault_trace(cls, fault):
+        before = lambda stage: cls.success_trace[:cls.success_trace.index(stage)]
+        tail = ['cleanup.ok']
+        if fault in ('ok', 'concurrent', 'mixed'): return cls.success_trace
+        if fault == 'empty': return ['arguments.failed']
+        if fault == 'rootpermissions': return ['arguments.ok', 'root.failed', 'cleanup.not_needed']
+        if fault in ('mkdir', 'existing'):
+            return ['arguments.ok', 'root.ok', 'uuid_dir.failed' if fault == 'mkdir' else 'uuid_dir.exists', 'cleanup.not_needed']
+        failed_stages = {'open': 'file.open', 'fdopen': 'file.stream', 'write': 'file.write',
+            'flush': 'file.flush', 'close': 'file.close', 'readopen': 'file.read_open',
+            'read': 'file.readback', 'mismatch': 'file.readback', 'extra': 'file.readback',
+            'readerror': 'file.readback', 'readclose': 'file.read_close', 'rename': 'file.rename',
+            'construct': 'vm.init', 'load': 'library.load', 'setup': 'provisioning_path',
+            'symbol': 'native.symbol', 'otp': 'native.otp', 'throw': 'native.otp',
+            'length': 'native.output', 'outputread': 'native.output'}
+        if fault == 'cleanup': return cls.success_trace[:-1] + ['cleanup.failed', 'cleanup.ok']
+        if fault == 'alloc': return cls.success_trace + ['response.allocation.failed']
+        stage = failed_stages[fault]
+        after = []
+        if fault in ('write',): after += ['file.flush.ok']
+        if fault in ('write', 'flush', 'fdopen'): after += ['file.close.ok']
+        if stage == 'file.readback': after += ['file.read_close.ok']
+        if fault in ('load', 'setup'): after += ['setup.failed']
+        return before(stage + '.ok') + [stage + '.failed'] + after + tail
+
     @classmethod
     def setUpClass(cls):
         compiler = shutil.which('c++') or shutil.which('g++')
@@ -77,7 +109,7 @@ class IsolatedAnisetteOTPTests(unittest.TestCase):
             raise AssertionError('Compiled native probe marker absent')
 
     def test_actual_native_boundary_success_faults_and_concurrent_calls(self):
-        for fault in ('ok', 'concurrent', 'mkdir', 'open', 'fdopen', 'write', 'flush', 'close',
+        for fault in ('ok', 'concurrent', 'mixed', 'mkdir', 'open', 'fdopen', 'write', 'flush', 'close',
                       'readopen', 'read', 'mismatch', 'rename', 'construct', 'load', 'setup',
                       'symbol', 'otp', 'throw', 'length', 'outputread', 'cleanup', 'existing',
                       'rootpermissions', 'empty', 'readclose', 'extra', 'readerror', 'alloc'):
@@ -86,9 +118,110 @@ class IsolatedAnisetteOTPTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn('ISOLATED_NATIVE_OTP_PASS', result.stdout)
                 self.assertIn('NORMAL_LOG_RETAINED', result.stdout)
+                traces = [line.removeprefix('NATIVE_TRACE=').split(',') for line in result.stdout.splitlines()
+                          if line.startswith('NATIVE_TRACE=')]
+                expected = [self.expected_fault_trace(fault)]
+                if fault == 'concurrent': expected *= 2
+                if fault == 'mixed': expected += [['arguments.failed']]
+                self.assertCountEqual(traces, expected)
+                for trace in traces:
+                    self.assertLessEqual(len(trace), 32)
+                    self.assertLessEqual(len(','.join(trace).encode('ascii')), 1024)
+                    self.assertTrue(set(trace) <= set(PATCH.native_trace_tokens()))
                 for private in ('SYNTHETIC-EXISTING-BLOB', 'isolated-adi-test-',
                                 '00010203-0405-0607-0809-0a0b0c0d0e0f', '0001020304050607'):
                     self.assertNotIn(private, result.stdout + result.stderr)
+
+    def test_normal_native_trace_observes_unchecked_io_without_changing_failure_semantics(self):
+        success = ('arguments.ok,setup.begin,vm.reused,library.cached,uuid_dir.created,'
+            'provisioning_path.ok,android_id.ok,setup.ok,file.open.ok,file.write.ok,'
+            'file.flush.not_checked,file.close.ok,file.readback.not_checked,native.symbol.ok,'
+            'native.otp.ok,native.output.not_checked,cleanup.not_requested').split(',')
+        cases = {'ok': success,
+            'close': [event.replace('file.close.ok', 'file.close.failed') for event in success],
+            'otp': success[:success.index('native.otp.ok')] + ['native.otp.failed', 'cleanup.not_requested'],
+            'symbol': success[:success.index('native.symbol.ok')] + ['native.symbol.failed', 'cleanup.not_requested']}
+        cases['write'] = [event.replace('file.write.ok', 'file.write.failed') for event in cases['otp']]
+        cases['readopen'] = success[:success.index('file.open.ok')] + [
+            'file.open.failed', 'file.readback.not_checked', 'native.symbol.ok', 'native.otp.failed', 'cleanup.not_requested']
+        cases['mkdir'] = [event.replace('uuid_dir.created', 'uuid_dir.failed') for event in cases['readopen']]
+        cases['cold'] = success[:2] + ['vm.init.ok', 'library.load.ok', 'library.init.ok'] + success[4:]
+        for fault, expected in cases.items():
+            with self.subTest(fault=fault):
+                result = subprocess.run([str(self.executable), 'normal_' + fault], capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn('NATIVE_TRACE=' + ','.join(expected), result.stdout)
+                self.assertIn('NORMAL_NATIVE_TRACE_PASS', result.stdout)
+        result = subprocess.run([str(self.executable), 'normal_invalid'], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('NORMAL_INVALID_ARGUMENT_PASS', result.stdout)
+
+    def test_native_trace_is_bounded_and_can_be_disabled_without_changing_results(self):
+        result = subprocess.run([str(self.executable), 'tracecap'], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('NATIVE_TRACE=' + ','.join(['arguments.ok'] * 31 + ['trace.truncated']), result.stdout)
+        from unittest.mock import patch
+        core = self.build / 'anisette_core_uc.cpp'
+        enabled = core.read_text()
+        with patch.object(PATCH, 'temporary_trace_enabled', return_value=False):
+            disabled = PATCH.transform(PATCH.PATHS[0], source(PATCH.PATHS[0]))
+            self.assertIn('#define V3_TEMPORARY_ANISETTE_TRACE_ENABLED 0', disabled)
+        binary = self.build / 'trace-disabled-test'
+        try:
+            core.write_text(disabled)
+            compiled = subprocess.run([shutil.which('c++') or shutil.which('g++'), '-std=c++17', '-pthread',
+                '-I', str(self.build), str(self.build / 'main.cpp'), str(self.build / 'anisette_base.cpp'),
+                '-o', str(binary)], capture_output=True, text=True, timeout=60)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            for fault in ('ok', 'otp', 'write', 'mixed', 'cleanup', 'normal_write', 'tracecap'):
+                result = subprocess.run([str(binary), fault], capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn('NATIVE_TRACE=disabled', result.stdout)
+                self.assertNotIn('NATIVE_TRACE=arguments', result.stdout)
+        finally:
+            core.write_text(enabled)
+
+    def test_native_swift_allowlist_and_central_switch_fail_closed(self):
+        from unittest.mock import patch
+        swift = PATCH.transform(PATCH.PATHS[4], source(PATCH.PATHS[4]))
+        parser = declaration(swift, '    func parseHeadersResponse(')
+        self.assertIn('dict.removeValue(forKey: "v3_native_trace")', parser)
+        self.assertLess(parser.index('dict.removeValue'), parser.index('AnisetteDataResponse(from: dict)'))
+        self.assertIn('TemporaryAnisetteNativeTrace.suffix(temporaryTrace)', parser)
+        self.assertEqual(len(PATCH.native_trace_tokens()), len(set(PATCH.native_trace_tokens())))
+        central = declaration((ROOT / 'scripts/templates/combined_failure.swift').read_text(),
+                              '    private enum NativeEvent:')
+        central_tokens = re.findall(r'case \w+ = "([a-z_.]+)"', central)
+        self.assertEqual(len(central_tokens), len(set(central_tokens)))
+        self.assertEqual(set(central_tokens), set(PATCH.native_trace_tokens()))
+        with patch.object(PATCH, 'temporary_trace_enabled', return_value=False):
+            disabled = PATCH.transform(PATCH.PATHS[4], source(PATCH.PATHS[4]))
+            self.assertIn('static let enabled = false', disabled)
+            self.assertIn('guard enabled, let value,', disabled)
+        with patch.object(PATCH.Path, 'read_text', return_value=''):
+            with self.assertRaises(ValueError): PATCH.temporary_trace_enabled()
+
+    def test_actual_package_swift_error_suffix_and_header_metadata_removal(self):
+        compiler = shutil.which('swiftc')
+        if not compiler:
+            self.skipTest('Swift compiler unavailable; native trace package harness runs in macOS CI')
+        from unittest.mock import patch
+        harness = (ROOT / 'tests/fixtures/anisette_native_trace_harness.swift').read_text()
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled), tempfile.TemporaryDirectory() as directory:
+                with patch.object(PATCH, 'temporary_trace_enabled', return_value=enabled):
+                    swift = PATCH.transform(PATCH.PATHS[4], source(PATCH.PATHS[4]))
+                program = harness.replace('__PRODUCTION_RESPONSE_PARSER__', declaration(swift, '    func parseHeadersResponse('))
+                program = program.replace('__PRODUCTION_JSON_PARSER__', declaration(swift, '    private func parseJSONString('))
+                program = program.replace('__PRODUCTION_NATIVE_TRACE__', declaration(swift, 'private enum TemporaryAnisetteNativeTrace {'))
+                path, binary = Path(directory) / 'main.swift', Path(directory) / 'native-trace-swift'
+                path.write_text(program)
+                result = subprocess.run([compiler, '-parse-as-library', str(path), '-o', str(binary)],
+                    capture_output=True, text=True, timeout=180)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(result.stdout.strip(), 'NATIVE_SWIFT_TRACE_PASS')
 
     def test_swift_probe_cannot_provision_or_change_derivation(self):
         swift = (ROOT / 'scripts/templates/isolated_anisette_otp.swift').read_text()

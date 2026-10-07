@@ -75,3 +75,31 @@ Copied recovery diagnostics contain only finite statuses and bounded native numb
 No identifiers, blobs, OTP/MID, paths, session handles or provider descriptions are
 serialized. The next candidate addresses a source-proven historical failure path;
 its ability to restore this device's login remains a physical-device acceptance gate.
+
+## DEBUG TEMPORARY stage trace
+
+The diagnostic candidate enables one temporary, release-visible trace switch:
+`V3TemporaryAnisetteTrace.temporaryAnisetteTraceEnabled`. The native patcher reads
+that same declaration; this is independent of Swift's `DEBUG` build setting.
+Technical Details and Copy Details label the additional evidence `DEBUG TEMPORARY`.
+The short failure description identifies the last recorded failed step.
+
+Each provider invocation owns a separate value trace. It records finite stage
+names and outcomes for selected-pair reads/validation, provider execution,
+isolated current/legacy probes and verified commits. Failed native calls add
+strictly validated same-call storage/setup/OTP tokens. An unobserved operation is
+not reported as successful; the ordinary native path can explicitly report
+`not_checked`. The trace contains no path, UUID, blob, header value, credential,
+OTP, secret fragment or hash of secret data. Existing correlation IDs bind the
+error envelope to its attempt. Cancellation does not publish a reusable trace.
+
+The complete trace is capped at 64 events and 2,048 bytes; older observations are
+removed only with an explicit truncation marker. Native subtraces have their own
+32-event/1,024-byte bound. Malformed or unknown tokens are rejected. The original
+typed failure, stable error ID and bounded native codes remain authoritative.
+
+Removal checkpoint: after physical-device diagnosis and acceptance, disable the
+single temporary flag, rerun disabled-trace privacy/wire tests, and remove the
+trace-only producer/renderer/native instrumentation in a separate reviewed change.
+Disabling/removing this evidence must not change identity recovery admission,
+Keychain transactions, native isolation, credentials or authentication behavior.

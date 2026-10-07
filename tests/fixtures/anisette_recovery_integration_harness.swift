@@ -13,7 +13,7 @@
         let otp = Data("synthetic-otp".utf8).base64EncodedString()
         let mid = Data("synthetic-mid".utf8).base64EncodedString()
         let native = AnisetteKit.AnisetteError.adiError(code: -45061,
-            description: "ADIOTPRequest failed (Device not provisioned (-45061)): -45061")
+            description: "ADIOTPRequest failed (Device not provisioned (-45061)): -45061 [DEBUG_TEMPORARY_NATIVE_TRACE:setup.ok,file.write.failed,native.otp.failed]")
         PairTest.beforeReturn = { throw native }
         LCAnisetteIsolatedProbe.action = { identifier, blob in
             precondition(blob == PairTest.originalBlob)
@@ -42,6 +42,16 @@
         }
         if mode == "no_candidate" { Store.data[legacy] = [:] }
         if mode == "fresh" { Store.data[selected]?.removeValue(forKey: "adiPb") }
+        if mode == "keychain_read_failure" { Store.failure = -25308 }
+        if mode == "orphaned_pair" { Store.data[selected]?.removeValue(forKey: "identifier") }
+        if ["fresh_commit_failure", "fresh_commit_state_changed"].contains(mode) {
+            Store.data[selected]?.removeValue(forKey: "adiPb")
+            PairTest.returnedBlob = PairTest.originalBlob
+            PairTest.beforeReturn = {
+                if mode == "fresh_commit_state_changed" { Store.data[selected]?["identifier"] = Data(a.uuidString.utf8) }
+                else { Store.failure = -25308 }
+            }
+        }
         if mode == "wrong_operation" {
             PairTest.beforeReturn = { throw AnisetteKit.AnisetteError.adiError(code: -45061,
                 description: "ADIProvisioningStart failed (Device not provisioned (-45061)): -45061") }
@@ -66,7 +76,7 @@
             let expected: V3AnisetteAttemptContext.Recovery
             switch mode {
             case "no_candidate": expected = .noLegacyCandidate
-            case "fresh", "wrong_operation", "wrong_code": expected = .notAttempted
+            case "fresh", "wrong_operation", "wrong_code", "keychain_read_failure", "orphaned_pair", "fresh_commit_failure", "fresh_commit_state_changed": expected = .notAttempted
             case "rejected": expected = .probeRejected
             case "malformed": expected = .invalidNativeProof
             case "temporary": expected = .temporaryStorageUnavailable
@@ -75,8 +85,33 @@
             default: preconditionFailure("unexpected recovery failure")
             }
             precondition(error.context.recovery == expected)
-            precondition(error.context.blobState == (mode == "fresh" ? .fresh : .existing))
-            if !["changed", "current_changed"].contains(mode) { precondition(Store.data == before) }
+            let expectedBlobState: V3AnisetteAttemptContext.BlobState =
+                ["keychain_read_failure", "orphaned_pair"].contains(mode) ? .unknown :
+                (["fresh", "fresh_commit_failure", "fresh_commit_state_changed"].contains(mode) ? .fresh : .existing)
+            precondition(error.context.blobState == expectedBlobState)
+            let trace = error.context.trace?.snapshot ?? ""
+            if V3TemporaryAnisetteTrace.temporaryAnisetteTraceEnabled {
+            precondition(!trace.isEmpty && trace.utf8.count <= V3TemporaryAnisetteTrace.maximumBytes)
+            precondition(trace.contains("swift.keychainRead.started"))
+            if mode == "keychain_read_failure" {
+                precondition(trace.contains("swift.keychainRead.failed") && !trace.contains("swift.primaryProvider"))
+            } else if mode == "orphaned_pair" {
+                precondition(trace.contains("swift.pairValidation.failed") && !trace.contains("swift.primaryProvider"))
+            } else if ["fresh_commit_failure", "fresh_commit_state_changed"].contains(mode) {
+                precondition(trace.contains("swift.primaryProvider.succeeded") && trace.contains("swift.freshBlobCommit.failed"))
+            } else {
+                precondition(trace.contains("swift.keychainRead.succeeded") && trace.contains("swift.primaryProvider.failed"))
+            }
+            if ["no_candidate", "rejected", "changed"].contains(mode) {
+                precondition(trace.contains("native.primary.file.write.failed") && trace.contains("native.current.native.otp.failed"))
+            }
+            for secret in [a.uuidString, b.uuidString, otp, mid, String(data: PairTest.encodedBlob, encoding: .utf8)!] {
+                precondition(!trace.contains(secret))
+            }
+            } else {
+                precondition(trace.isEmpty && error.context.diagnosticFields["debug_temporary_anisette_trace"] == nil)
+            }
+            if !["changed", "current_changed", "fresh_commit_state_changed"].contains(mode) { precondition(Store.data == before) }
             else { precondition(error.underlying is LCAnisettePairError) }
             if ["current_changed", "control_wrong_code", "control_wrong_phase"].contains(mode) {
                 precondition(RecoveryIntegrationQueries.count == 0 && Store.writes == 0)
@@ -85,10 +120,10 @@
             precondition(["cancelled", "current_cancel"].contains(mode) && Store.data == before)
             precondition(Store.writes == 0 && RecoveryIntegrationQueries.count == 0)
         }
-        let expectedCalls = ["fresh", "wrong_operation", "wrong_code"].contains(mode) ? 0 :
+        let expectedCalls = ["fresh", "wrong_operation", "wrong_code", "keychain_read_failure", "orphaned_pair", "fresh_commit_failure", "fresh_commit_state_changed"].contains(mode) ? 0 :
             (["success", "rejected", "changed"].contains(mode) ? 2 : 1)
         precondition(LCAnisetteIsolatedProbe.calls == expectedCalls)
-        precondition(PairTest.providerCalls == 1)
+        precondition(PairTest.providerCalls == (["keychain_read_failure", "orphaned_pair"].contains(mode) ? 0 : 1))
         precondition(!Store.logs.joined().contains(otp) && !Store.logs.joined().contains(mid))
         print("RECOVERY_INTEGRATION_PASS " + mode)
     }

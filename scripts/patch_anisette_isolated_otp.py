@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import stat
 import subprocess
@@ -28,12 +29,76 @@ def once(text, old, new):
     return text.replace(old, new, 1)
 
 
+def temporary_trace_enabled():
+    """One removable DEBUG/TEMPORARY switch shared with the Swift diagnostics."""
+    source = (TEMPLATES / 'combined_failure.swift').read_text()
+    matches = re.findall(r'^    public static let temporaryAnisetteTraceEnabled = (true|false)$', source, re.M)
+    if len(matches) != 1:
+        raise ValueError('Temporary Anisette trace switch missing or ambiguous')
+    return matches[0] == 'true'
+
+
+def native_trace_tokens():
+    """Derive Swift's strict allowlist from the same finite native literal table."""
+    source = (TEMPLATES / 'temporary_anisette_trace.cpp').read_text()
+    block = source.split('static const char *const tokens[] = {', 1)[1].split('};', 1)[0]
+    return re.findall(r'"([a-z_]+(?:\.[a-z_]+)+)"', block)
+
+
 def transform(path, source):
     if path == PATHS[0]:
         source = once(source, '#include <mutex>', '#include <mutex>\n#include <memory>\n#include <stdexcept>\n#include <algorithm>\n#include <errno.h>')
         source = once(source, 'static EmulatorVM *g_shared_vm = nullptr;',
-                      'thread_local bool g_isolated_otp_logging_suppressed = false;\n\nstatic EmulatorVM *g_shared_vm = nullptr;')
-        source = once(source, '    std::string &out_err\n)', '    std::string &out_err,\n    bool isolated = false\n)')
+                      '#define V3_TEMPORARY_ANISETTE_TRACE_ENABLED ' + str(int(temporary_trace_enabled())) + '\n' +
+                      (TEMPLATES / 'temporary_anisette_trace.cpp').read_text() +
+                      '\nthread_local bool g_isolated_otp_logging_suppressed = false;\n\nstatic EmulatorVM *g_shared_vm = nullptr;')
+        source = once(source, '    std::string &out_err\n)', '    std::string &out_err,\n    bool isolated = false, NativeOTPTrace *trace = nullptr\n)')
+        source = once(source, '    if (!lib_dir) {',
+                      '    if (trace) trace->add(NativeOTPStage::SetupBegin);\n'
+                      '    NativeOTPStageScope setup_stage(trace, NativeOTPStage::SetupFailed);\n'
+                      '    if (!lib_dir) {')
+        source = once(source, '        g_shared_vm = new EmulatorVM();',
+                      '        NativeOTPStageScope init_stage(trace, NativeOTPStage::VMInitFailed);\n'
+                      '        g_shared_vm = new EmulatorVM();\n'
+                      '        init_stage.finish(NativeOTPStage::VMInitOK);')
+        source = once(source, '    vm = g_shared_vm;',
+                      '    else if (trace && !isolated) trace->add(NativeOTPStage::VMReused);\n    vm = g_shared_vm;')
+        source = once(source, '        if (!load_library_to_vm(vm, ssc_path,',
+                      '        NativeOTPStageScope load_stage(trace, NativeOTPStage::LibraryLoadFailed);\n'
+                      '        if (!load_library_to_vm(vm, ssc_path,')
+        source = once(source, '        relocate_all_vm_libraries(vm);',
+                      '        load_stage.finish(NativeOTPStage::LibraryLoadOK);\n'
+                      '        NativeOTPStageScope library_stage(trace, NativeOTPStage::LibraryInitFailed);\n'
+                      '        relocate_all_vm_libraries(vm);')
+        source = once(source, '        g_libraries_initialized = true;',
+                      '        g_libraries_initialized = true;\n'
+                      '        library_stage.finish(NativeOTPStage::LibraryInitOK);')
+        source = once(source, '    std::string uuid = format_uuid_string(identifier);',
+                      '    else if (trace) trace->add(NativeOTPStage::LibraryCached);\n\n'
+                      '    std::string uuid = format_uuid_string(identifier);')
+        source = once(source, '    mkdir(out_uuid_prov_dir.c_str(), 0755);',
+                      '    const int directory_result = mkdir(out_uuid_prov_dir.c_str(), 0755);\n'
+                      '    if (trace) trace->add(directory_result == 0 ? NativeOTPStage::DirectoryCreated :\n'
+                      '        (errno == EEXIST ? NativeOTPStage::DirectoryExists : NativeOTPStage::DirectoryFailed));')
+        source = once(source, '    if (out_uuid_prov_dir != g_current_prov_path) {',
+                      '    if (out_uuid_prov_dir != g_current_prov_path) {\n'
+                      '        NativeOTPStageScope path_stage(trace, NativeOTPStage::ProvisioningPathFailed);')
+        source = once(source, '        g_current_prov_path = out_uuid_prov_dir;',
+                      '        g_current_prov_path = out_uuid_prov_dir;\n'
+                      '        path_stage.finish(NativeOTPStage::ProvisioningPathOK);')
+        source = once(source, '    std::string android_id = get_android_id_string(identifier);',
+                      '    else if (trace) trace->add(NativeOTPStage::ProvisioningPathCached);\n\n'
+                      '    std::string android_id = get_android_id_string(identifier);')
+        source = once(source, '    if (android_id != g_current_android_id) {',
+                      '    if (android_id != g_current_android_id) {\n'
+                      '        NativeOTPStageScope id_stage(trace, NativeOTPStage::AndroidIDFailed);')
+        source = once(source, '        g_current_android_id = android_id;',
+                      '        g_current_android_id = android_id;\n'
+                      '        id_stage.finish(NativeOTPStage::AndroidIDOK);')
+        source = once(source, '    return true;\n}\n\nextern "C" {',
+                      '    else if (trace) trace->add(NativeOTPStage::AndroidIDCached);\n\n'
+                      '    setup_stage.finish(NativeOTPStage::SetupOK);\n'
+                      '    return true;\n}\n\nextern "C" {')
         for call in ('load_lib_ptr, {lib_path_vm, 0}', 'set_prov_ptr, {prov_path_vm}',
                      'set_id_ptr, {android_id_vm, (uint64_t)android_id.length()}'):
             source = once(source, 'run_vm_procedure(vm, ' + call + ')',
@@ -42,11 +107,37 @@ def transform(path, source):
         end = source.index('\nint32_t start_provision_uc(', start)
         original = source[start:end]
         helper = once(original, 'int32_t get_anisette_headers_uc(', 'static int32_t get_anisette_headers_uc_locked(')
-        helper = once(helper, '    char **out_json\n)', '    char **out_json,\n    bool isolated\n)')
+        helper = once(helper, '    char **out_json\n)', '    char **out_json,\n    bool isolated, NativeOTPTrace &trace\n)')
         helper = once(helper, '    std::lock_guard<std::mutex> lock(g_vm_mutex);\n', '')
-        helper = once(helper, 'identifier, uuid_prov_dir, err)', 'identifier, uuid_prov_dir, err, isolated)')
+        helper = once(helper, '        return ANISETTE_ERR_INVALID_ARGUMENT;',
+                      '        trace.add(NativeOTPStage::ArgumentsFailed);\n        return ANISETTE_ERR_INVALID_ARGUMENT;')
+        helper = once(helper, '    EmulatorVM *vm = nullptr;',
+                      '    if (!isolated) trace.add(NativeOTPStage::ArgumentsOK);\n    EmulatorVM *vm = nullptr;')
+        helper = once(helper, 'identifier, uuid_prov_dir, err)', 'identifier, uuid_prov_dir, err, isolated, &trace)')
         helper = once(helper, '    FILE* f = fopen(adi_pb_path.c_str(), "wb");\n    if (f) {\n        fwrite(adi_pb, 1, adi_pb_len, f);\n        fclose(f);\n    }',
-                      '    if (!isolated) {\n        FILE* f = fopen(adi_pb_path.c_str(), "wb");\n        if (f) {\n            fwrite(adi_pb, 1, adi_pb_len, f);\n            fclose(f);\n        }\n    }')
+                      '''    if (!isolated) {
+        FILE* f = fopen(adi_pb_path.c_str(), "wb");
+        trace.add(f ? NativeOTPStage::FileOpenOK : NativeOTPStage::FileOpenFailed);
+        if (f) {
+            const size_t written = fwrite(adi_pb, 1, adi_pb_len, f);
+            trace.add(written == adi_pb_len ? NativeOTPStage::FileWriteOK : NativeOTPStage::FileWriteFailed);
+            // The regular provider never explicitly flushed or verified this write.
+            // Preserve that behavior while reporting the calls that actually ran.
+            trace.add(NativeOTPStage::FileFlushUnchecked);
+            const int closed = fclose(f);
+            trace.add(closed == 0 ? NativeOTPStage::FileCloseOK : NativeOTPStage::FileCloseFailed);
+        }
+        trace.add(NativeOTPStage::FileReadbackUnchecked);
+    }''')
+        helper = once(helper, '    if (!otp_req_ptr) {',
+                      '    trace.add(otp_req_ptr ? NativeOTPStage::NativeSymbolOK : NativeOTPStage::NativeSymbolFailed);\n'
+                      '    if (!otp_req_ptr) {')
+        helper = once(helper, '    int32_t res = run_vm_procedure(vm, otp_req_ptr,',
+                      '    NativeOTPStageScope otp_stage(&trace, NativeOTPStage::NativeOTPFailed);\n'
+                      '    int32_t res = run_vm_procedure(vm, otp_req_ptr,')
+        helper = once(helper, '    if (res != 0) {',
+                      '    otp_stage.finish(res == 0 ? NativeOTPStage::NativeOTPOK : NativeOTPStage::NativeOTPFailed);\n'
+                      '    if (res != 0) {')
         helper = once(helper, 'run_vm_procedure(vm, otp_req_ptr, {dsid, mid_ptr, mid_len_ptr, otp_ptr, otp_len_ptr})',
                       'run_vm_procedure(vm, otp_req_ptr, {dsid, mid_ptr, mid_len_ptr, otp_ptr, otp_len_ptr}, isolated ? 5000000 : 0, isolated ? 50000000 : 0)')
         for call in ('uc_mem_read(vm->uc, mid_ptr, &final_mid_addr, 8)',
@@ -57,15 +148,20 @@ def transform(path, source):
                      'uc_mem_read(vm->uc, final_otp_addr, otp_data.data(), final_otp_len)'):
             helper = once(helper, call + ';',
                 'if (' + call + ' != UC_ERR_OK && isolated) {\n'
+                '        trace.add(NativeOTPStage::NativeOutputFailed);\n'
                 '        *out_json = strdup("{\\"error\\":\\"Isolated OTP output invalid\\"}");\n'
                 '        return ANISETTE_ERR_INVALID_JSON_RESPONSE;\n    }')
         helper = once(helper, '    std::vector<uint8_t> mid_data(final_mid_len);',
             '''    if (isolated && (!final_mid_addr || !final_otp_addr || !final_mid_len || !final_otp_len ||
                      final_mid_len > 4096 || final_otp_len > 4096)) {
+        trace.add(NativeOTPStage::NativeOutputFailed);
         *out_json = strdup("{\\"error\\":\\"Isolated OTP output invalid\\"}");
         return ANISETTE_ERR_INVALID_JSON_RESPONSE;
     }
     std::vector<uint8_t> mid_data(final_mid_len);''')
+        helper = once(helper, '    return ANISETTE_OK;',
+                      '    trace.add(isolated ? NativeOTPStage::NativeOutputOK : NativeOTPStage::NativeOutputUnchecked);\n'
+                      '    return ANISETTE_OK;')
         source = source[:start] + helper + '\n' + (TEMPLATES / 'isolated_anisette_otp.cpp').read_text() + source[end:]
     elif path == PATHS[1]:
         source = once(source, 'int32_t start_provision_uc(', '''// V3_ISOLATED_ANISETTE_OTP_V1: caller supplies a private, existing temp root.
@@ -86,7 +182,6 @@ int32_t start_provision_uc(''')
         end = source.index('EmulatorVM::~EmulatorVM()', begin)
         block = source[begin:end]
         block = block.replace('UC_PROT_READ | UC_PROT_WRITE);', 'UC_PROT_READ | UC_PROT_WRITE));', 1)
-        import re
         block = re.sub(r'(?m)^    (uc_mem_map\(.*\));$', r'    check(\1);', block)
         block = re.sub(r'(?m)^    (uc_mem_write\(.*\));$', r'    check(\1);', block)
         block = re.sub(r'(?m)^    (uc_hook_add\([^;]+\));$', r'    check(\1);', block)
@@ -152,6 +247,19 @@ static int linux_to_darwin_open_flags(int linux_flags) {''')
                       'extern thread_local bool g_isolated_otp_logging_suppressed;\n'
                       '#define LOG_UC(...) do { if (!g_isolated_otp_logging_suppressed) anisetteCoreLog(__VA_ARGS__); } while (0)')
     elif path == PATHS[4]:
+        begin = source.index('    func parseHeadersResponse(')
+        end = source.index('    func parseStartProvisionResponse(', begin)
+        block = source[begin:end]
+        block = once(block, '        let dict = try parseJSONString(String(cString: ptr))',
+                     '        var dict = try parseJSONString(String(cString: ptr))\n'
+                     '        let temporaryTrace = dict.removeValue(forKey: "v3_native_trace")')
+        block = once(block, 'description: err)',
+                     'description: err + TemporaryAnisetteNativeTrace.suffix(temporaryTrace))')
+        source = source[:begin] + block + source[end:]
+        diagnostic = (TEMPLATES / 'temporary_anisette_trace.swift').read_text()
+        diagnostic = diagnostic.replace('__TEMPORARY_TRACE_ENABLED__', str(temporary_trace_enabled()).lower())
+        diagnostic = diagnostic.replace('__TEMPORARY_TRACE_TOKENS__', ', '.join(json.dumps(token) for token in native_trace_tokens()))
+        source += '\n' + diagnostic
         source += '\n' + (TEMPLATES / 'isolated_anisette_otp.swift').read_text()
     else:
         raise ValueError("Unexpected Anisette source")

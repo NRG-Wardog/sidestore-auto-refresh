@@ -81,6 +81,7 @@ __PRODUCTION_ODA_METHOD__
 }
 __PRODUCTION_REMOTE_PROVIDER__
 
+func observedPairError(_ error: Error) -> Error { error }
 @main struct AnisettePairTests {
     static func main() async throws {
         let scenario = CommandLine.arguments[1]
@@ -177,16 +178,16 @@ __PRODUCTION_REMOTE_PROVIDER__
             precondition(!blocked && state != "state_changed" && state != "cached_blob_differs", "Guard did not stop unsafe continuation")
         } catch {
             if state == "cached_blob_differs" {
-                precondition((error as? LCAnisettePairError) == .stateChanged)
+                precondition((observedPairError(error) as? LCAnisettePairError) == .stateChanged)
                 precondition(Store.data == before && Store.writes == writes && PairTest.providerCalls == 1,
                     "Cached provider result must not replace the admitted stored blob")
             } else if state == "state_changed" {
-                precondition((error as? LCAnisettePairError) == .stateChanged)
+                precondition((observedPairError(error) as? LCAnisettePairError) == .stateChanged)
                 precondition(Store.data[group]?["identifier"] == Data(PairTest.otherID.uuidString.utf8))
                 precondition(Store.data[group]?["adiPb"] == nil && PairTest.providerCalls == 1)
             } else {
                 precondition(blocked, "Unexpected guarded continuation failure")
-                if state != "keychain_read_failure" { precondition(error is LCAnisettePairError) }
+                if state != "keychain_read_failure" { precondition(observedPairError(error) is LCAnisettePairError) }
                 precondition(Store.data == before && Store.writes == writes && PairTest.providerCalls == 0,
                     "Blocked state must preserve every byte and avoid the provider")
             }

@@ -22,10 +22,12 @@
 int constructed=0, destroyed=0, otp_calls=0, provision_calls=0;
 std::string fault, expected_blob="SYNTHETIC-EXISTING-BLOB", expected_uuid, observed_id;
 bool stage_observed=false, require_bounded=true;
+static bool normal_mode=false;
 static bool fired=false;
 static int close_count=0;
 static std::string root;
 static std::atomic<int> in_vm{0}, peak_vm{0};
+static std::atomic<int> mixed_phase{0};
 static bool hit(const char *name) { if (!fired && fault==name) { fired=true; errno=EIO; return true; } return false; }
 static int injected_mkdir(const char *p,mode_t m) { if(hit("mkdir"))return -1;return ::mkdir(p,m); }
 static int injected_open(const char *p,int f,mode_t m) { if(hit("open"))return -1;return ::open(p,f,m); }
@@ -76,6 +78,7 @@ static std::string contents(const std::string &path) {
     std::ifstream file(path,std::ios::binary);return std::string(std::istreambuf_iterator<char>(file),{});
 }
 bool load_library_to_vm(EmulatorVM *vm,const std::string &,const std::string &) {
+    if(normal_mode) { assert(!vm->read_only_filesystem);return fault!="load"; }
     assert(vm->read_only_filesystem);
     stage_observed=contents(root+"/"+expected_uuid+"/adi.pb")==expected_blob;
     assert(stage_observed);return fault!="load";
@@ -95,9 +98,14 @@ int32_t run_vm_procedure(EmulatorVM *vm,uint64_t proc,const std::vector<uint64_t
     if(fault=="setup"&&proc==2)return -45054;
     if(proc!=4)return 0;
     ++otp_calls;
+    if(normal_mode && contents(vm->provisioning_path+"/adi.pb")!=expected_blob) return -45061;
     assert(contents(vm->provisioning_path+"/adi.pb")==expected_blob);
     int concurrent=++in_vm;int old=peak_vm.load();while(old<concurrent&&!peak_vm.compare_exchange_weak(old,concurrent)){}
     std::this_thread::yield();--in_vm;
+    if(fault=="mixed") {
+        mixed_phase=1;
+        while(mixed_phase.load()!=2)std::this_thread::yield();
+    }
     if(fault=="otp")return -45061;
     if(fault=="throw")throw std::runtime_error("synthetic");
     const uint8_t mid[]={1,2,3},otp[]={4,5,6};
@@ -109,14 +117,71 @@ int32_t run_vm_procedure(EmulatorVM *vm,uint64_t proc,const std::vector<uint64_t
     return 0;
 }
 
+static std::string native_trace(const char *json) {
+    const char *prefix="\"v3_native_trace\":\"";
+    const char *start=strstr(json,prefix);
+#if V3_TEMPORARY_ANISETTE_TRACE_ENABLED
+    assert(start);start+=strlen(prefix);const char *end=strchr(start,'"');assert(end);
+    std::string value(start,end);
+    assert(value.size()<=1024 && std::count(value.begin(),value.end(),',')<32);
+    for(const auto &private_value:{expected_blob,expected_uuid,root,std::string("0001020304050607"),
+            std::string("AQID"),std::string("BAUG"),std::string("X-Apple-I-MD"),
+            std::string("PASSWORD-CANARY"),std::string("TOKEN-CANARY")})
+        assert(value.find(private_value)==std::string::npos);
+    return value;
+#else
+    assert(!start);return "disabled";
+#endif
+}
+
 int main(int argc,char **argv) {
     assert(argc==2);fault=argv[1];
+    if(fault.rfind("normal_",0)==0) { normal_mode=true;require_bounded=false;fault=fault.substr(7); }
     anisetteCoreSetLogging(1);
     char temporary[]="/tmp/isolated-adi-test-XXXXXX";assert(mkdtemp(temporary));root=temporary;
     uint8_t uuid[16];for(int i=0;i<16;++i)uuid[i]=i;expected_uuid=format_uuid_string(uuid);
     // A warmed normal provider must survive every probe result byte-for-byte.
     auto normal=new EmulatorVM;g_shared_vm=normal;g_libraries_initialized=true;
     g_current_prov_path="unchanged-normal-path";g_current_android_id="UNCHANGEDNORMAL";
+    if(normal_mode) {
+        anisetteCoreSetLogging(0);
+        if(fault=="invalid") {
+            char *untouched=reinterpret_cast<char *>(1);
+            assert(get_anisette_headers_uc(root.c_str(),root.c_str(),nullptr,
+                (const uint8_t*)expected_blob.data(),static_cast<uint32_t>(expected_blob.size()),&untouched)==-1);
+            assert(untouched==reinterpret_cast<char *>(1));
+            delete normal;g_shared_vm=nullptr;assert(rmdir(root.c_str())==0);
+            puts("NORMAL_INVALID_ARGUMENT_PASS");return 0;
+        }
+        if(fault=="cold") {
+            delete normal;g_shared_vm=nullptr;g_libraries_initialized=false;fault="ok";
+        }
+        char *json=nullptr;
+        int result=get_anisette_headers_uc(root.c_str(),root.c_str(),uuid,
+            (const uint8_t*)expected_blob.data(),static_cast<uint32_t>(expected_blob.size()),&json);
+        if(fault=="ok"||fault=="close") assert(result==0);
+        else assert(result!=0);
+        assert(json);printf("NATIVE_TRACE=%s\n",native_trace(json).c_str());free_c_string(json);
+        assert(provision_calls==0);
+        if(fault!="symbol")assert(otp_calls==1); // Failed writes still reach original OTP.
+        unlink((root+"/"+expected_uuid+"/adi.pb").c_str());
+        rmdir((root+"/"+expected_uuid).c_str());
+        delete g_shared_vm;g_shared_vm=nullptr;assert(rmdir(root.c_str())==0);
+        puts("NORMAL_NATIVE_TRACE_PASS");return 0;
+    }
+    if(fault=="tracecap") {
+        char *json=strdup("{\"error\":\"synthetic\"}");
+        {
+            NativeOTPTrace trace(&json);
+            for(int i=0;i<10000;++i)trace.add(NativeOTPStage::ArgumentsOK);
+#if !V3_TEMPORARY_ANISETTE_TRACE_ENABLED
+            assert(trace.count==0 && trace.length==0);
+#endif
+        }
+        printf("NATIVE_TRACE=%s\n",native_trace(json).c_str());free_c_string(json);
+        delete normal;g_shared_vm=nullptr;assert(rmdir(root.c_str())==0);
+        puts("NATIVE_TRACE_CAP_PASS");return 0;
+    }
     if(fault=="existing") {
         assert(mkdir((root+"/"+expected_uuid).c_str(),0700)==0);
         std::ofstream file(root+"/"+expected_uuid+"/adi.pb");file<<"DO-NOT-CHANGE";
@@ -127,13 +192,25 @@ int main(int argc,char **argv) {
         const uint32_t len=fault=="empty"?0:static_cast<uint32_t>(expected_blob.size());
         int result=get_anisette_headers_isolated_uc(root.c_str(),root.c_str(),uuid,
             (const uint8_t*)expected_blob.data(),len,&json);
-        if(fault=="ok"||fault=="concurrent")assert(result==0 && json && strstr(json,"AQID"));
+        if(fault=="ok"||fault=="concurrent"||fault=="mixed")assert(result==0 && json && strstr(json,"AQID"));
         else if(fault=="otp")assert(result==-45061);
         else assert(result!=0);
-        assert(json && !strstr(json,"SYNTHETIC-EXISTING-BLOB"));free_c_string(json);
+        assert(json && !strstr(json,"SYNTHETIC-EXISTING-BLOB"));
+        printf("NATIVE_TRACE=%s\n",native_trace(json).c_str());free_c_string(json);
     };
     if(fault=="concurrent") {
         std::thread a(invoke),b(invoke);a.join();b.join();assert(peak_vm==1);
+    } else if(fault=="mixed") {
+        auto invalid=[&] {
+            while(mixed_phase.load()!=1)std::this_thread::yield();
+            char *json=nullptr;
+            int result=get_anisette_headers_isolated_uc(root.c_str(),root.c_str(),uuid,
+                (const uint8_t*)expected_blob.data(),0,&json);
+            assert(result==-1 && json);
+            printf("NATIVE_TRACE=%s\n",native_trace(json).c_str());free_c_string(json);
+            mixed_phase=2;
+        };
+        std::thread a(invoke),b(invalid);a.join();b.join();
     } else invoke();
     assert(g_shared_vm==normal && g_libraries_initialized);
     assert(g_current_prov_path=="unchanged-normal-path" && g_current_android_id=="UNCHANGEDNORMAL");

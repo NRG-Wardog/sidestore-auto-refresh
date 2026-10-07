@@ -54,11 +54,14 @@ def program(*, baseline=False, old_fallback=False):
         common = (ROOT / "scripts/templates/combined_failure.swift").read_text()
         support = (ROOT / "scripts/templates/anisette_legacy_recovery.swift").read_text()
         extra = "\n".join(declaration(common, signature) for signature in (
+            "public struct V3TemporaryAnisetteTrace:",
             "struct V3AnisetteAttemptContext {", "struct V3AnisetteAttemptError:",
             "struct V3AnisetteNativeEvidence {"))
         extra += (ROOT / "tests/fixtures/anisette_recovery_probe_double.swift").read_text()
         extra += declaration(support, "extension OnDeviceAnisetteManager {")
         fixture = fixture.replace("@main struct AnisettePairTests", extra + "\n@main struct AnisettePairTests", 1)
+        fixture = fixture.replace('func observedPairError(_ error: Error) -> Error { error }',
+            'func observedPairError(_ error: Error) -> Error { (error as? V3AnisetteAttemptError)?.underlying ?? error }', 1)
         fixture = fixture.replace("    static let shared = SyntheticAnisetteDataManager()",
             '    let libsDir = URL(fileURLWithPath: "/synthetic-libraries")\n    static let shared = SyntheticAnisetteDataManager()', 1)
     doubles = existing.DOUBLES.replace("\nfinal class Keychain {", "\nfinal class Keychain {\n    static var shared: Keychain!", 1)

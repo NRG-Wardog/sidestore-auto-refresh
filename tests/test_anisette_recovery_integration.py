@@ -73,17 +73,23 @@ class RecoveryIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'main.swift'
             binary = Path(directory) / 'recovery'
-            path.write_text(source)
-            result = subprocess.run([compiler, '-parse-as-library', str(path), '-o', str(binary)],
-                                    capture_output=True, text=True, timeout=180)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            for case in ('success', 'current_success', 'no_candidate', 'fresh', 'wrong_operation', 'wrong_code',
+            cases = ('success', 'current_success', 'no_candidate', 'fresh', 'wrong_operation', 'wrong_code',
                          'rejected', 'malformed', 'changed', 'temporary', 'cancelled',
-                         'current_changed', 'current_cancel', 'control_wrong_code', 'control_wrong_phase'):
-                with self.subTest(case=case):
-                    result = subprocess.run([str(binary), case], capture_output=True, text=True, timeout=30)
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertIn('RECOVERY_INTEGRATION_PASS ' + case, result.stdout)
+                         'current_changed', 'current_cancel', 'control_wrong_code', 'control_wrong_phase',
+                         'keychain_read_failure', 'orphaned_pair', 'fresh_commit_failure', 'fresh_commit_state_changed')
+            flag = 'public static let temporaryAnisetteTraceEnabled = true'
+            self.assertEqual(source.count(flag), 1)
+            for enabled in (True, False):
+                program = source if enabled else source.replace(flag, flag.replace('true', 'false'), 1)
+                path.write_text(program)
+                result = subprocess.run([compiler, '-parse-as-library', str(path), '-o', str(binary)],
+                                        capture_output=True, text=True, timeout=180)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for case in cases:
+                    with self.subTest(trace_enabled=enabled, case=case):
+                        result = subprocess.run([str(binary), case], capture_output=True, text=True, timeout=30)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn('RECOVERY_INTEGRATION_PASS ' + case, result.stdout)
 
     def test_isolated_probe_keeps_existing_data_and_cleans_owned_root(self):
         source = (ROOT / 'scripts/templates/anisette_legacy_recovery.swift').read_text()

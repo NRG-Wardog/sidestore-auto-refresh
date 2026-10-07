@@ -552,17 +552,68 @@ def patch_anisette_legacy_recovery(text: str) -> str:
             existingAdiBlob: existingAdiPbData,
             headers: headers
         )"""
-    new = """        let primary: (data: ALTAnisetteData, newAdiBlob: Data?)
+    new = """        debugStep = .primaryProvider
+        debugTrace.record(step: debugStep, outcome: .started)
+        let primary: (data: ALTAnisetteData, newAdiBlob: Data?)
         do {
             primary = try await provider.fetchAnisetteData(
                 mode: mode, identifier: identifierUUID,
                 existingAdiBlob: existingAdiPbData, headers: headers)
         } catch {
+            debugTrace.record(step: debugStep, outcome: .failed)
+            if let native = error as? AnisetteKit.AnisetteError,
+               case .adiError(_, let description) = native {
+                debugTrace.appendNative(errorDescription: description, scope: .primary)
+            }
             return try await recoverVerifiedLegacyIdentity(
-                after: error, snapshot: anisetteSnapshot, headers: headers)
+                after: error, snapshot: anisetteSnapshot, headers: headers,
+                debugTrace: debugTrace)
         }
+        debugTrace.record(step: debugStep, outcome: .succeeded)
         let (anisetteData, newAdiPb) = primary"""
     text = once(text, old, new)
+    text = once(text, "        // LC_ANISETTE_PAIR_PRECONDITION_V1\n",
+        """        // DEBUG TEMPORARY: one value-owned trace for this invocation only.
+        var debugTrace = V3TemporaryAnisetteTrace()
+        var debugStep = V3TemporaryAnisetteTrace.Step.keychainRead
+        var debugBlobState = V3AnisetteAttemptContext.BlobState.unknown
+        do {
+        debugTrace.record(step: debugStep, outcome: .started)
+        // LC_ANISETTE_PAIR_PRECONDITION_V1
+""")
+    text = once(text, "        let identifierUUID = anisetteSnapshot.identifier\n",
+        """        debugTrace.record(step: debugStep, outcome: .succeeded)
+        debugTrace.record(step: .pairValidation, outcome: .succeeded)
+        debugBlobState = anisetteSnapshot.adiBlob == nil ? .fresh : .existing
+        debugTrace.record(step: .blobPresence, outcome: anisetteSnapshot.adiBlob == nil ? .skipped : .succeeded)
+        let identifierUUID = anisetteSnapshot.identifier
+""")
+    text = once(text, "        let headers = await AnisetteConfigManager.shared.makeRequestHeaders()",
+        """        debugStep = .requestHeaders
+        debugTrace.record(step: debugStep, outcome: .started)
+        let headers = await AnisetteConfigManager.shared.makeRequestHeaders()
+        debugTrace.record(step: debugStep, outcome: .succeeded)""")
+    text = once(text, "            try await AnisetteConfigManager.shared.commitAnisetteBlob(freshBlob, snapshot: anisetteSnapshot)",
+        """            debugStep = .freshBlobCommit
+            debugTrace.record(step: debugStep, outcome: .started)
+            try await AnisetteConfigManager.shared.commitAnisetteBlob(freshBlob, snapshot: anisetteSnapshot)
+            debugTrace.record(step: debugStep, outcome: .succeeded)""")
+    text = once(text, "        return anisetteData\n    }", """        return anisetteData
+        } catch {
+            let native = error as NSError
+            if Task.isCancelled || error is CancellationError ||
+                (native.domain == NSURLErrorDomain && native.code == NSURLErrorCancelled) { throw error }
+            if error is V3AnisetteAttemptError { throw error }
+            if debugStep == .keychainRead && error is LCAnisettePairError {
+                debugTrace.record(step: .pairValidation, outcome: .failed)
+            } else if debugStep != .primaryProvider {
+                debugTrace.record(step: debugStep, outcome: .failed)
+            }
+            throw V3AnisetteAttemptError(underlying: error,
+                context: V3AnisetteAttemptContext(blobState: debugBlobState,
+                    recovery: .notAttempted, trace: debugTrace))
+        }
+    }""")
     text = once(text, "import Foundation", "import Foundation\nimport Darwin")
     return text.rstrip() + "\n\n" + support
 
