@@ -278,3 +278,31 @@ stall. Native execution must confirm these SwiftUI controls emit the expected
 public UIKit notifications. XCTest action internals can outlast a predicate's
 logical five-second timeout; the existing case/process limits remain the hard
 outer bounds. The next diagnostic run is separate from eight-case acceptance.
+
+## Bounded evidence transport
+
+The original complete artifact remains available. For download paths limited to
+32 MiB, the same retained evidence can additionally be packaged by
+`run_p0_signin_rendering.py --fragment-evidence ROOT --fragment-output OUT
+--builder-commit SHA --run-id ID --log-root LOGS`.
+
+It writes `metadata.zip`, `phone-images.zip`, `tablet-images.zip` and
+`transport-index.json`. Each ZIP plus the shared index is at most 31 MiB,
+leaving space for the artifact service's outer archive. Members retain their
+original evidence-root basename or `logs/` prefix. Per-file and per-ZIP SHA-256
+hashes, byte sizes, run ID and commit bind the three parts together.
+
+Phone/tablet images are selected through exact existing attachment-manifest
+mappings for required acceptance screenshots. Metadata retains currently
+publishable JSON/JSONL/TXT/Swift/project evidence, optional sibling logs, and
+legacy layout PNGs. Non-acceptance sign-in PNGs are listed as omitted and remain
+in the complete artifact; compiled build products and xcresult internals are
+excluded. Regular-file checks, no-follow/nonblocking reads, inventory limits,
+fresh disjoint output and final mutation checks prevent unsafe transport inputs.
+
+Original device and aggregate verdicts are copied unchanged. A separate export
+replay can describe attachment integrity but cannot replace a failed original
+command verdict. Missing/failed cases remain failed; transport does not execute
+any test or create release acceptance. A successful helper invocation and its
+completed index are required before uploading fragments. Partial output from a
+size or integrity failure must not be uploaded.

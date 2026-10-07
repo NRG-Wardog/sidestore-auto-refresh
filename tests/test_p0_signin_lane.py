@@ -108,7 +108,8 @@ class SignInLaneRoutingTests(unittest.TestCase):
         self.assertIn('run_required_tests.py', preflight)
         self.assertIn('runs-on: macos-26\n', preflight)
         self.assertNotIn('runs-on: macos-26-intel', preflight)
-        self.assertIn('runs-on: macos-26-intel', release)
+        self.assertIn('runs-on: macos-26\n', release)
+        self.assertNotIn('runs-on: macos-26-intel', release)
         self.assertIn('uses: maxim-lobanov/setup-xcode@v1.6.0', preflight)
         self.assertIn('xcode-version: "26.4"', preflight)
         self.assertIn("--pattern 'test_p0_signin*.py'", preflight)
@@ -126,6 +127,17 @@ class SignInLaneRoutingTests(unittest.TestCase):
         self.assertIn('verify_candidate_ipa.py', release)
         self.assertIn('--require-p0-signin', release)
         self.assertIn('timeout-minutes: 210', release)
+        for job in (preflight, release):
+            self.assertIn('Prepare bounded evidence transfer fragments', job)
+            self.assertIn('id: evidence_fragments\n        timeout-minutes: 5', job)
+            self.assertEqual(job.count("if: always() && steps.evidence_fragments.outcome == 'success'"), 3)
+            self.assertIn('--builder-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"', job)
+            for name in ('metadata.zip', 'phone-images.zip', 'tablet-images.zip'):
+                self.assertIn('artifacts/evidence-transfer/' + name, job)
+            self.assertEqual(job.count('artifacts/evidence-transfer/transport-index.json'), 3)
+        self.assertIn('artifacts/p0-preflight/**/*.png', preflight)
+        self.assertIn('artifacts/layout-evidence/**/*.png', release)
+
 
 
 if __name__ == '__main__':

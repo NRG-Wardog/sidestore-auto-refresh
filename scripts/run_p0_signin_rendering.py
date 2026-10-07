@@ -7,6 +7,7 @@ deterministic fixtures; these results do not establish real account operations.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import math
@@ -17,8 +18,10 @@ import re
 import shutil
 import stat
 import struct
+import tempfile
 import uuid
 import zlib
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 DECLARATIONS = (
@@ -553,3 +556,232 @@ def execute(prepared: dict, kind: str, device: str, output: Path, command,
                            report["cases"][0].get("passed") is True})
     (evidence / (kind + "-verification.json")).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     return report
+
+
+TRANSPORT_ZIP_LIMIT = 31 * 1024 * 1024
+TRANSPORT_FILE_LIMIT = 64 * 1024 * 1024
+TRANSPORT_TOTAL_LIMIT = 256 * 1024 * 1024
+
+
+def transport_read(path: Path) -> bytes:
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as stream:
+        details = os.fstat(stream.fileno())
+        if not stat.S_ISREG(details.st_mode) or details.st_size > TRANSPORT_FILE_LIMIT:
+            raise ValueError("Transport input must be a bounded regular file")
+        data = stream.read(TRANSPORT_FILE_LIMIT + 1)
+    if len(data) > TRANSPORT_FILE_LIMIT: raise ValueError("Transport input grew beyond its bound")
+    return data
+
+
+def prepare_transport_fragments(evidence_root: Path, output_dir: Path, builder_commit: str, run_id: str, log_root: Path | None = None) -> dict:
+    """Transport existing evidence unchanged; never changes verification outcomes."""
+    if not re.fullmatch(r"[0-9a-f]{40}", builder_commit) or not re.fullmatch(r"[1-9][0-9]*", run_id):
+        raise ValueError("Exact builder commit and positive CI run ID are required")
+    if evidence_root.is_symlink() or not evidence_root.is_dir() or output_dir.is_symlink():
+        raise ValueError("Evidence/output cannot be symlinks and evidence must exist")
+    root, output = evidence_root.resolve(), output_dir.resolve()
+    if root == output or root.is_relative_to(output) or output.is_relative_to(root):
+        raise ValueError("Fragment output must be outside and disjoint from source evidence")
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
+        raise ValueError("Fragment output must be fresh")
+    identities = []
+    identity_bytes = {}
+    for name in ("p0-preflight-verification.json", "rendering-verification.json", "input-diagnostic.json"):
+        path = root / name
+        if path.exists():
+            if path.is_symlink() or path.stat().st_size > TRANSPORT_FILE_LIMIT:
+                raise ValueError("Invalid evidence identity file")
+            identity_bytes[name] = transport_read(path)
+            identity = json.loads(identity_bytes[name])
+            if identity.get("builderCommit") != builder_commit or str(identity.get("ciRun")) != run_id:
+                raise ValueError("Evidence identity differs from requested commit/run")
+            identities.append({"path": name, "passed": identity.get("passed")})
+    if not identities:
+        raise ValueError("No existing run/commit identity manifest; refuse to invent provenance")
+
+    # Snapshot a bounded, regular-file inventory before invoking the existing
+    # verifier. It reads only our safe temporary copies, never source symlinks/FIFOs.
+    validated = {}
+    validation_bytes = 0
+    for parent, directories, files in os.walk(root, followlinks=False):
+        parent = Path(parent)
+        directories[:] = [name for name in directories if name != "p0-build" and not name.endswith(".xcresult")]
+        if any((parent / name).is_symlink() for name in directories + files):
+            raise ValueError("Symlink in published evidence tree")
+        for name in files:
+            if len(validated) >= 2048: raise ValueError("Too many evidence files")
+            path = parent / name
+            if path.suffix.lower() not in {".json", ".jsonl", ".txt", ".swift", ".png"} and "project" not in path.relative_to(root).parts:
+                continue  # Same publication scope; videos/event blobs are not published by this workflow.
+            data = transport_read(path)
+            validation_bytes += len(data)
+            if validation_bytes > TRANSPORT_TOTAL_LIMIT: raise ValueError("Evidence exceeds verification byte bound")
+            validated[str(path.relative_to(root))] = data
+    if any(validated.get(name) != data for name, data in identity_bytes.items()):
+        raise ValueError("Evidence identity changed during inventory")
+    groups = {"metadata": set(), "phone": set(), "tablet": set()}
+    verification = {}
+    replayed_verification = {}
+    selection_errors = []
+    roots = [(root / "p0-signin", "")]
+    if (root / "input-diagnostic.json").exists():
+        roots = [(root / name / "p0-signin", name + "/")
+                 for name in ("cold-launch", "fresh-app-relaunch")]
+    for p0_root, prefix in roots:
+        for kind in ("phone", "tablet"):
+            proof_key = prefix + kind
+            directory = p0_root / (kind + "-attachments")
+            summary = p0_root / (kind + "-xctest-summary.json")
+            try:
+                original = json.loads(validated[str((p0_root / (kind + "-verification.json")).relative_to(root))])
+                if not isinstance(original, dict): raise ValueError("Invalid original verification report")
+                verification[proof_key] = original
+            except (OSError, ValueError, KeyError) as error:
+                verification[proof_key] = {"passed": False, "failures": ["Original verification unavailable: " + str(error)]}
+            try:
+                with tempfile.TemporaryDirectory(prefix="p0-fragment-verify-") as temporary:
+                    copied = Path(temporary)
+                    prefix_path = str(directory.relative_to(root)) + "/"
+                    for relative, data in validated.items():
+                        if relative.startswith(prefix_path):
+                            target = copied / relative[len(prefix_path):]
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            target.write_bytes(data)
+                    replayed_verification[proof_key] = verify_export(copied, json.loads(validated[str(summary.relative_to(root))]))
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                replayed_verification[proof_key] = {"passed": False, "failures": [str(error)]}
+            rows = []
+            def collect(value):
+                if isinstance(value, dict):
+                    if "exportedFileName" in value:
+                        rows.append(value)
+                    for child in value.values(): collect(child)
+                elif isinstance(value, list):
+                    for child in value: collect(child)
+            manifest = directory / "manifest.json"
+            if manifest.exists():
+                if manifest.is_symlink() or manifest.stat().st_size > TRANSPORT_FILE_LIMIT:
+                    raise ValueError("Invalid attachment manifest")
+                collect(json.loads(validated[str(manifest.relative_to(root))]))
+            for case in sorted(REQUIRED_CASES):
+                for suffix in sorted(REQUIRED_SCREENSHOTS[case]):
+                    name = f"p0-{case}-{suffix}"
+                    matches = [row for row in rows if row.get("attachmentName") == name or
+                               isinstance(row.get("suggestedHumanReadableName"), str) and
+                               (row["suggestedHumanReadableName"] in (name, name + ".png") or
+                                row["suggestedHumanReadableName"].startswith(name + "_"))]
+                    if len(matches) != 1:
+                        selection_errors.append(f"{kind}: expected unique attachment for {name}")
+                        continue
+                    filename = matches[0].get("exportedFileName")
+                    if not isinstance(filename, str) or Path(filename).is_absolute() or ".." in Path(filename).parts:
+                        raise ValueError("Unsafe attachment path")
+                    path = directory / filename
+                    if path.is_symlink() or not path.resolve().is_relative_to(directory.resolve()):
+                        raise ValueError("Attachment escaped its export directory")
+                    if not path.is_file():
+                        selection_errors.append(f"{kind}: missing PNG for {name}")
+                        continue
+                    relative = str(path.relative_to(root))
+                    if relative in groups[kind]:
+                        raise ValueError("One attachment cannot stand for multiple acceptance screenshots")
+                    groups[kind].add(relative)
+
+    # Match the existing published evidence scope, excluding compiled products
+    # and xcresult internals. The original full artifact remains unchanged.
+    omitted_pngs = []
+    for parent, directories, files in os.walk(root, followlinks=False):
+        parent = Path(parent)
+        directories[:] = [name for name in directories
+                          if name != "p0-build" and not name.endswith(".xcresult")]
+        for name in directories:
+            if (parent / name).is_symlink(): raise ValueError("Symlink in evidence tree")
+        for name in files:
+            path = parent / name
+            if path.is_symlink(): raise ValueError("Symlink in evidence tree")
+            relative = str(path.relative_to(root))
+            if relative in groups["phone"] or relative in groups["tablet"]: continue
+            if path.suffix.lower() == ".png":
+                if "p0-signin" not in path.relative_to(root).parts:
+                    groups["metadata"].add(relative)  # Existing legacy layout pixels.
+                else:
+                    omitted_pngs.append(relative)  # Non-acceptance sign-in diagnostics remain in full artifact.
+            elif path.suffix.lower() in {".json", ".jsonl", ".txt", ".swift"} or "project" in path.relative_to(root).parts:
+                groups["metadata"].add(relative)
+    sources = {root.name + "/" + relative: root / relative
+               for relative in set().union(*groups.values())}
+    groups = {kind: {root.name + "/" + relative for relative in files} for kind, files in groups.items()}
+    if log_root is not None:
+        if log_root.is_symlink() or not log_root.is_dir(): raise ValueError("Invalid log root")
+        logs = log_root.resolve()
+        if logs == root or logs.is_relative_to(root) or root.is_relative_to(logs) or output.is_relative_to(logs) or logs.is_relative_to(output):
+            raise ValueError("Log root must be disjoint from evidence and output")
+        for parent, directories, files in os.walk(logs, followlinks=False):
+            parent = Path(parent)
+            if any((parent / name).is_symlink() for name in directories + files): raise ValueError("Symlink in log tree")
+            for name in files:
+                path = parent / name
+                if path.suffix.lower() not in {".log", ".json", ".jsonl", ".txt"}: continue
+                if len(sources) >= 2048: raise ValueError("Too many transport files")
+                relative = "logs/" + str(path.relative_to(logs))
+                if relative in sources: raise ValueError("Archive path collision")
+                groups["metadata"].add(relative); sources[relative] = path
+    total = 0
+    snapshots = {}
+    for relative in sorted(set().union(*groups.values())):
+        path = sources[relative]
+        if path.stat().st_size > TRANSPORT_FILE_LIMIT:
+            raise ValueError("Evidence file exceeds transport bound: " + relative)
+        data = validated[str(path.relative_to(root))] if path.is_relative_to(root) else transport_read(path)
+        total += len(data)
+        if len(data) > TRANSPORT_FILE_LIMIT or total > TRANSPORT_TOTAL_LIMIT:
+            raise ValueError("Evidence exceeds bounded transport inventory")
+        if relative in groups["phone"] or relative in groups["tablet"]:
+            if not valid_png(data): raise ValueError("Invalid acceptance PNG: " + relative)
+        snapshots[relative] = data
+    output.mkdir(parents=True, exist_ok=True)
+    index = {"schema": "p0-evidence-transport-v1", "transportOnly": True,
+             "builderCommit": builder_commit, "ciRun": run_id, "evidenceRoot": root.name, "sourceManifests": identities,
+             "originalEvidenceModified": False, "verification": verification,
+             "replayedExportVerification": replayed_verification,
+             "selectionErrors": selection_errors, "omittedNonAcceptancePNGs": omitted_pngs,
+             "zipLimitBytes": TRANSPORT_ZIP_LIMIT, "fragments": {}}
+    for kind, files in groups.items():
+        inventory = {relative: {"bytes": len(snapshots[relative]),
+                               "sha256": hashlib.sha256(snapshots[relative]).hexdigest()}
+                     for relative in sorted(files)}
+        identity = {"schema": "p0-evidence-fragment-v1", "transportOnly": True, "fragment": kind,
+                    "builderCommit": builder_commit, "ciRun": run_id, "files": inventory}
+        path = output / ("metadata.zip" if kind == "metadata" else kind + "-images.zip")
+        with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+            for relative in sorted(files): archive.writestr(relative, snapshots[relative])
+            archive.writestr("transport-fragment-identity.json", json.dumps(identity, sort_keys=True))
+        if path.stat().st_size > TRANSPORT_ZIP_LIMIT:
+            raise ValueError(f"{kind} ZIP exceeds 31 MiB; do not upload this fragment set")
+        index["fragments"][kind] = {"file": path.name, "bytes": path.stat().st_size,
+                                    "sha256": digest(path), "files": inventory}
+    # Detect evidence changed while packaging; no stale identity is accepted.
+    if any(transport_read(sources[relative]) != data for relative, data in snapshots.items()):
+        raise ValueError("Source evidence changed during transport preparation")
+    index_data = (json.dumps(index, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    if any(fragment["bytes"] + len(index_data) > TRANSPORT_ZIP_LIMIT for fragment in index["fragments"].values()):
+        raise ValueError("ZIP plus shared index exceeds 31 MiB; do not upload this fragment set")
+    (output / "transport-index.json").write_bytes(index_data)
+    return index
+
+
+def transport_main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Prepare bounded transport fragments without modifying evidence")
+    parser.add_argument("--fragment-evidence", type=Path, required=True)
+    parser.add_argument("--fragment-output", type=Path, required=True)
+    parser.add_argument("--builder-commit", required=True)
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--log-root", type=Path)
+    args = parser.parse_args(argv)
+    prepare_transport_fragments(args.fragment_evidence, args.fragment_output, args.builder_commit, args.run_id, args.log_root)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(transport_main())

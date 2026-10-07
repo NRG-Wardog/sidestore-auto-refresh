@@ -78,3 +78,19 @@ Retained diagnostic 660s = 240s case + 360s startup/result allowance + 60s margi
 The latest full-phone run measured 862.93s total minus 513.53s native cases,
 or 349.40s non-case overhead. Normal full-device 1080s and per-case 240s bounds
 remain unchanged; the diagnostic is not rerun merely to obtain a green label.
+
+
+## Restore the original ARM64 release runner
+
+Controlled preflight 37545707720 completed all eight UI cases with unchanged
+fixture/source hashes on the standard `macos-26` ARM64 runner using the same
+Xcode 26.4.1 (17E202). This supports using that runner; it does not establish
+architecture alone as the cause of the intermittent Intel input/readback failures.
+
+The release job returns to its original `macos-26` selection. Intel had replaced
+it in commit 6baf641 only during an ARM64 acquisition outage. Native probes and
+layout builds select the actual host architecture, OpenSSL is located through
+`brew --prefix`, Cargo download caches are architecture-keyed, and device Rust
+and Xcode products remain ARM64/iPhoneOS. No product, fixture, pinned source or
+acceptance condition changes. The complete preflight and all full-release gates
+must run again on the final frozen commit; earlier evidence is not substituted.

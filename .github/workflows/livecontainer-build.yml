@@ -108,12 +108,50 @@ jobs:
             artifacts/logs/signin-preflight*.log
             artifacts/logs/signin-preflight-test-timings.json
 
+      - name: Prepare bounded evidence transfer fragments
+        id: evidence_fragments
+        timeout-minutes: 5
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 builder/scripts/run_p0_signin_rendering.py \
+            --fragment-evidence artifacts/p0-preflight --fragment-output artifacts/evidence-transfer \
+            --log-root artifacts/logs --builder-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
+      - name: Preserve bounded evidence metadata
+        if: always() && steps.evidence_fragments.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.select-lane.outputs.lane }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-metadata
+          if-no-files-found: error
+          path: |
+            artifacts/evidence-transfer/metadata.zip
+            artifacts/evidence-transfer/transport-index.json
+      - name: Preserve bounded phone images
+        if: always() && steps.evidence_fragments.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.select-lane.outputs.lane }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-phone-images
+          if-no-files-found: error
+          path: |
+            artifacts/evidence-transfer/phone-images.zip
+            artifacts/evidence-transfer/transport-index.json
+      - name: Preserve bounded tablet images
+        if: always() && steps.evidence_fragments.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.select-lane.outputs.lane }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-tablet-images
+          if-no-files-found: error
+          path: |
+            artifacts/evidence-transfer/tablet-images.zip
+            artifacts/evidence-transfer/transport-index.json
+
   source-and-host-build:
     needs: select-lane
     if: needs.select-lane.outputs.lane == 'release'
-    # Standard Intel capacity avoids the macOS arm64 runner acquisition outage.
-    # Device targets remain arm64; the layout harness selects x86_64 simulators.
-    runs-on: macos-26-intel
+    # Restore the original ARM64 runner after the controlled preflight passed.
+    # All source/native/layout/package/upload verification gates remain required.
+    runs-on: macos-26
     # User-requested two-hour UI envelope adds 40m to the measured 170m job budget.
     # Individual test/device hang bounds remain unchanged.
     timeout-minutes: 210
@@ -341,6 +379,44 @@ jobs:
             artifacts/layout-evidence/p0-signin/project/**
           if-no-files-found: warn
           retention-days: 90
+
+      - name: Prepare bounded evidence transfer fragments
+        id: evidence_fragments
+        timeout-minutes: 5
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 builder/scripts/run_p0_signin_rendering.py \
+            --fragment-evidence artifacts/layout-evidence --fragment-output artifacts/evidence-transfer \
+            --log-root artifacts/logs --builder-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID"
+      - name: Preserve bounded evidence metadata
+        if: always() && steps.evidence_fragments.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-v3-layout-metadata
+          if-no-files-found: error
+          path: |
+            artifacts/evidence-transfer/metadata.zip
+            artifacts/evidence-transfer/transport-index.json
+      - name: Preserve bounded phone images
+        if: always() && steps.evidence_fragments.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-v3-layout-phone-images
+          if-no-files-found: error
+          path: |
+            artifacts/evidence-transfer/phone-images.zip
+            artifacts/evidence-transfer/transport-index.json
+      - name: Preserve bounded tablet images
+        if: always() && steps.evidence_fragments.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-v3-layout-tablet-images
+          if-no-files-found: error
+          path: |
+            artifacts/evidence-transfer/tablet-images.zip
+            artifacts/evidence-transfer/transport-index.json
 
       - name: Build unified host before transport compilation
         shell: bash
