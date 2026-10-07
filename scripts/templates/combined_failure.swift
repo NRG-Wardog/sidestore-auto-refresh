@@ -580,6 +580,10 @@ public struct CombinedFailure: Error, LocalizedError {
                       Set(names).count == names.count else { return nil }
             case "server_code":
                 guard text == "unknown" || (text.utf8.count <= 20 && Int(text).map({ String($0) }) == text) else { return nil }
+            case "native_code", "native_subcode":
+                guard text == "unknown" || Int32(text).map({ String($0) }) == text else { return nil }
+            case "native_phase":
+                guard V3AnisetteNativeEvidence.Phase(rawValue: text) != nil else { return nil }
             case "http_status":
                 guard text == "unavailable" || Int(text).map({ (100...599).contains($0) && String($0) == text }) == true else { return nil }
             case "provider_code":
@@ -1469,6 +1473,90 @@ func v3AuthenticationPhase<T>(_ step: CombinedFailure.SourceStep,
     }
 }
 
+// V3_ANISETTE_NATIVE_EVIDENCE_V1: the associated ADI Int32 is not an Apple
+// server result or Swift's NSError enum discriminator. Only exact producers in
+// AnisetteKit 1f5a7e36553cc865b873f222b87a6486c0bcc7bf Native/anisette_core_{mac,uc}.cpp
+// identify a native phase. Descriptions (including paths) never leave here.
+struct V3AnisetteNativeEvidence {
+    enum Phase: String {
+        case unknown, nativeOTP, provisionStart, provisionEnd
+        case setupLibraries, setupLoadLibrary, setupProvisioningPath, setupAndroidID
+        case readProvisioningData
+    }
+    let code: Int32
+    let phase: Phase
+    let subcode: Int32?
+
+    static func capture(code: Int32, description: String) -> Self {
+        let unknown = Self(code: code, phase: .unknown, subcode: nil)
+        // Bound inspection before matching. Never scan arbitrary messages for
+        // keywords, URLs, digits or error-like substrings.
+        guard description.utf8.count <= 256 else { return unknown }
+        for (symbol, phase) in [("ADIOTPRequest", Phase.nativeOTP),
+                                ("ADIProvisioningStart", .provisionStart),
+                                ("ADIProvisioningEnd", .provisionEnd)] {
+            if (code == -3 && description == "Symbol \(symbol) missing") ||
+               (code != 0 && description == failureDescription(symbol, code: code)) {
+                return Self(code: code, phase: phase, subcode: nil)
+            }
+        }
+        if code == -4 && description == "Failed to read generated adi.pb" {
+            return Self(code: code, phase: .readProvisioningData, subcode: nil)
+        }
+        // All setup failures return wrapper -2, even when a setup ADI call
+        // reports another number. Keep that nested scalar separate as well.
+        guard code == -2 else { return unknown }
+        let setupSymbols: [(String, String, Phase)] = [
+            ("ADILoadLibraryWithPath", "ADILoadLibraryWithPath (kq56gsgHG6)", .setupLoadLibrary),
+            ("ADISetProvisioningPath", "ADISetProvisioningPath", .setupProvisioningPath),
+            ("ADISetAndroidID", "ADISetAndroidID", .setupAndroidID)
+        ]
+        if let tail = description.components(separatedBy: ": ").last,
+           let subcode = Int32(tail), subcode != 0, String(subcode) == tail {
+            for (ucSymbol, macSymbol, phase) in setupSymbols {
+                if description == "\(ucSymbol) failed: \(subcode)" ||
+                   description == failureDescription(macSymbol, code: subcode) {
+                    return Self(code: code, phase: phase, subcode: subcode)
+                }
+            }
+        }
+        let fixedSetup: [String: Phase] = [
+            "Library directory path is null.": .setupLibraries,
+            "Failed to load libraries into VM": .setupLibraries,
+            "Required ADI setup symbol missing in VM": .setupLoadLibrary,
+            "Symbol ADILoadLibraryWithPath (kq56gsgHG6) missing from libraries": .setupLoadLibrary,
+            "Symbol ADISetProvisioningPath missing in VM": .setupProvisioningPath,
+            "Symbol ADISetProvisioningPath (nf92ngaK92) missing": .setupProvisioningPath,
+            "Symbol ADISetAndroidID missing in VM": .setupAndroidID,
+            "Symbol ADISetAndroidID (Sph98paBcz) missing": .setupAndroidID
+        ]
+        return Self(code: code, phase: fixedSetup[description] ?? .unknown, subcode: nil)
+    }
+
+    private static func failureDescription(_ symbol: String, code: Int32) -> String {
+        // Exact finite labels from Native/anisette_base.cpp at the same pin.
+        // Matching the label against its code rejects even plausible-looking
+        // injected descriptions. Unknown numeric results remain observable.
+        let labels: [Int32: String] = [
+            -1: "Invalid argument passed", -2: "ELF Loader failed to map dependencies",
+            -3: "Required ADI symbol missing", -4: "Failed to read generated file",
+            -5: "Failed to parse response JSON",
+            -45001: "Invalid ADI parameters (-45001)", -45002: "Invalid ADI decipher params (-45002)",
+            -45003: "Invalid ADI trust key (-45003)", -45006: "PTM and TK mismatch (-45006)",
+            -45018: "Invalid input header (-45018)", -45019: "Unknown ADI function (-45019)",
+            -45020: "Invalid input body (-45020)", -45025: "Unknown ADI session (-45025)",
+            -45026: "Empty ADI session (-45026)", -45031: "Invalid data header (-45031)",
+            -45032: "Data too short (-45032)", -45033: "Invalid data body (-45033)",
+            -45034: "Unknown call flags (-45034)", -45036: "ADI time error (-45036)",
+            -45046: "Empty hardware IDs (-45046)", -45054: "ADI filesystem error (-45054)",
+            -45061: "Device not provisioned (-45061)", -45062: "Cannot erase unprovisioned device (-45062)",
+            -45063: "Pending ADI session (-45063)", -45066: "ADI session already done (-45066)",
+            -45075: "Library loading failed (-45075)"
+        ]
+        return "\(symbol) failed (\(labels[code] ?? "Unknown ADI error")): \(code)"
+    }
+}
+
 // V3_TYPED_ACCOUNT_DIAGNOSTICS_V1: only operation-owned stage and fixed
 // classifications cross the wire. Original errors stay inside the process for
 // typed guidance; descriptions, userInfo and provider payloads never serialize.
@@ -1488,6 +1576,7 @@ struct V3AccountOperationError: Error, LocalizedError {
     let underlying: Error
     let serverCode: Int?
     var httpStatus: Int? = nil
+    var nativeEvidence: V3AnisetteNativeEvidence? = nil
 
     var errorDescription: String? { "An account operation failed; review the safe diagnostics." }
     var credentialCommit: Bool { step == .credentialCommit && kind != .anisetteIdentityStateInvalid }
@@ -1518,12 +1607,18 @@ struct V3AccountOperationError: Error, LocalizedError {
         else { safeCause = nil }
         // An associated Apple result is separate from Swift's enum bridge code.
         // HTTP status remains unavailable unless a typed producer observes it.
+        var signingContext = ["typed_error": kind.rawValue,
+            "server_code": serverCode.map(String.init) ?? "unknown", "http_status": httpStatus.map(String.init) ?? "unavailable"]
+        if kind == .anisetteKitADIError, let nativeEvidence {
+            signingContext["native_code"] = String(nativeEvidence.code)
+            signingContext["native_phase"] = nativeEvidence.phase.rawValue
+            signingContext["native_subcode"] = nativeEvidence.subcode.map(String.init) ?? "unknown"
+        }
         return CombinedFailure(operation: operation, stage: failureStage, id: id,
             underlying: NSError(domain: native.domain, code: native.code),
             retryable: safeCause != nil || portalSessionRejected || kind == .anisetteIdentityStateInvalid ? false : nil, safeCause: safeCause,
             sourceStep: kind == .anisetteIdentityStateInvalid ? .anisetteFetch : step,
-            signingContext: ["typed_error": kind.rawValue,
-                "server_code": serverCode.map(String.init) ?? "unknown", "http_status": httpStatus.map(String.init) ?? "unavailable"])
+            signingContext: signingContext)
     }
 }
 

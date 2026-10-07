@@ -212,6 +212,30 @@ class AccountDiagnosticTests(unittest.TestCase):
     def test_typed_errors_round_trip_to_prompt_and_copy_diagnostics(self):
         self.execute(diagnostic_sources() + (ROOT / 'tests/fixtures/v3_account_diagnostics_harness.swift').read_text())
 
+    def test_native_adi_evidence_round_trips_through_terminal_capture_and_copy(self):
+        self.execute(diagnostic_sources() + (ROOT / 'tests/fixtures/v3_native_adi_evidence_harness.swift').read_text())
+
+    def test_native_adi_evidence_is_typed_and_diagnostic_only(self):
+        common = (ROOT / 'scripts/templates/combined_failure.swift').read_text()
+        runtime = (ROOT / 'scripts/templates/v3_headless_runtime.swift').read_text()
+        adapter = declaration(runtime, 'func v3AccountOperationFailure(')
+        self.assertIn('case .adiError(let code, let description):', adapter)
+        self.assertIn('nativeEvidence = .capture(code: code, description: description)', adapter)
+        capture = declaration(common, 'struct V3AnisetteNativeEvidence {')
+        self.assertIn('1f5a7e36553cc865b873f222b87a6486c0bcc7bf', common)
+        self.assertIn('String(subcode) == tail', capture)
+        self.assertNotIn('.contains(', capture)
+        self.assertNotIn('.hasPrefix(', capture)
+        for mutation in ('UserDefaults', 'FileManager', 'Keychain', 'retry', 'reset', 'removeItem'):
+            self.assertNotIn(mutation, capture)
+        validator = declaration(common, '    public static func validatedSigningContext(')
+        self.assertIn('Int32(text).map({ String($0) }) == text', validator)
+        self.assertIn('V3AnisetteNativeEvidence.Phase(rawValue: text) != nil', validator)
+        # Both existing terminal routes already call this production capture;
+        # no retry, classification, credential or provider behavior is changed.
+        run = declaration(runtime, '    func run(id: String) async')
+        self.assertEqual(run.count('v3CaptureAuthFailure(error, operation: "signIn"'), 2)
+
     def test_generated_commit_auth_loop_and_finalize_execute(self):
         source = generated_sign_in()
         # Keep the complete post-auth commit (including verified legacy recovery)

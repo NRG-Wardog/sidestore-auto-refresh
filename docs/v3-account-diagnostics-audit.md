@@ -56,3 +56,28 @@ compiler or Apple SDK is available there. macOS CI must execute the Swift
 harnesses and the actual iOS build. Physical-device Keychain entitlement,
 Core Data disk-failure/conflict, upgrade, restart and end-to-end UI acceptance
 remain required; the source/harness results do not claim those passed.
+
+## Native ADI failure evidence
+
+The typed `AnisetteKit.AnisetteError.adiError` associated `Int32` is retained as
+`native_code`, separate from `server_code` and the Swift/NSError bridge code.
+`native_phase` uses a closed enum. Exact local producer strings from AnisetteKit
+`1f5a7e36553cc865b873f222b87a6486c0bcc7bf` identify OTP, provisioning start/end,
+setup subcalls, missing symbols or the generated provisioning-file read. Setup
+failures return wrapper code `-2`; a canonical nested `Int32` is retained as
+`native_subcode` only when the entire string matches that pinned producer.
+
+Unmatched descriptions, including dynamic paths, keep the typed code with
+unknown phase/subcode. Descriptions, paths, identifiers and payloads are never
+serialized. Wire validation rejects noncanonical or out-of-range native
+numbers. The existing error ID `SS-AUTH-C11-S02-T19-A06` remains unchanged;
+Copy Details gains evidence, not a new auth classification or recovery action.
+No credentials, retries, providers or saved state are changed.
+
+`v3_native_adi_evidence_harness.swift` executes the extracted production typed
+adapter, phase and terminal capture (including cached/resume routes), wire
+round-trip, and final Copy Details renderer. It covers known and unknown native
+codes, setup subcodes, malformed/secret descriptions, wire injection, legacy
+constructors and unchanged cancellation classification. It must run with Swift
+in macOS CI. This diagnostic change does not establish the cause of a particular
+device's ADI failure or claim to repair it.

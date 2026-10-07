@@ -355,6 +355,7 @@ func v3AccountOperationFailure(_ error: Error, step: CombinedFailure.SourceStep)
     let kind: V3AccountOperationError.Kind
     var httpStatus: Int?
     var serverCode: Int?
+    var nativeEvidence: V3AnisetteNativeEvidence?
     if error is LCAnisettePairError { kind = .anisetteIdentityStateInvalid }
     else if error is V3AccountDatabaseOutcomeUnknownError { kind = .persistenceOutcomeUnknown }
     else if let server = error as? ServerError {
@@ -373,7 +374,9 @@ func v3AccountOperationFailure(_ error: Error, step: CombinedFailure.SourceStep)
         case .symbolMissing: kind = .anisetteKitSymbolMissing
         case .readFailure: kind = .anisetteKitReadFailure
         case .invalidResponse: kind = .anisetteKitInvalidResponse
-        case .adiError: kind = .anisetteKitADIError
+        case .adiError(let code, let description):
+            kind = .anisetteKitADIError
+            nativeEvidence = .capture(code: code, description: description)
         case .librariesNotFound: kind = .anisetteKitLibrariesNotFound
         case .httpError(let statusCode, _):
             kind = .anisetteKitHTTPError
@@ -411,7 +414,7 @@ func v3AccountOperationFailure(_ error: Error, step: CombinedFailure.SourceStep)
         }
     }
     return V3AccountOperationError(step: kind == .anisetteIdentityStateInvalid ? .anisetteFetch : step,
-        kind: kind, underlying: error, serverCode: serverCode, httpStatus: httpStatus)
+        kind: kind, underlying: error, serverCode: serverCode, httpStatus: httpStatus, nativeEvidence: nativeEvidence)
 }
 
 // Both terminal routes (including cached/provisioning-resume paths that never
