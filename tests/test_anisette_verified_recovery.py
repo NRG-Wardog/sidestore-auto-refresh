@@ -2,6 +2,7 @@
 from pathlib import Path
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -26,10 +27,32 @@ def recovery_sources():
     let visible = Array(Set([Store.processGroup, Store.keychainGroup] + Array(Store.data.keys)))''')
     doubles = doubles.replace('    if rows.isEmpty { return errSecItemNotFound }',
         '    if Store.malformedLegacyRow && query[kSecAttrAccount] != nil { rows.append([kSecAttrAccount: "identifier"]) }\n    if rows.isEmpty { return errSecItemNotFound }')
-    return doubles + (ROOT / 'scripts/templates/embedded_shared_keychain.swift').read_text() + keychain.module.KEYCHAIN_ACCESS_ADAPTER
+    return '\n'.join((doubles, (ROOT / 'scripts/templates/embedded_shared_keychain.swift').read_text(), keychain.module.KEYCHAIN_ACCESS_ADAPTER, ''))
+
+
+def historical_source():
+    fixture = FIXTURES / 'anisette_upgrade_history'
+    slices = {name.upper(): (fixture / (name + '.swift')).read_text()
+              for name in ('legacy_read', 'legacy_read_string', 'legacy_write',
+                           'mid_read', 'mid_write', 'mid_write_one', 'resolver')}
+    extra = re.sub(r'(?m)^    // INSERT_([A-Z_]+)$',
+                   lambda match: slices[match.group(1)],
+                   (fixture / 'harness.swift').read_text())
+    return recovery_sources() + extra
 
 
 class AnisetteVerifiedRecoveryTests(unittest.TestCase):
+    def test_assembled_sources_preserve_whole_declaration_boundaries(self):
+        policy = recovery_sources() + (FIXTURES / 'anisette_verified_recovery_harness.swift').read_text()
+        self.assertIn('}\n@main struct VerifiedAnisetteRecoveryHarness', policy)
+        history = historical_source()
+        self.assertNotIn('// INSERT_', history)
+        self.assertNotRegex(history, r'}_(?:STRING|ONE)')
+        for name, count in (('legacy_read', 1), ('legacy_read_string', 2), ('legacy_write', 1),
+                            ('mid_read', 1), ('mid_write', 1), ('mid_write_one', 1), ('resolver', 1)):
+            body = (FIXTURES / 'anisette_upgrade_history' / (name + '.swift')).read_text()
+            self.assertEqual(history.count(body) - recovery_sources().count(body), count, name)
+
     def test_executable_production_policy_and_journal(self):
         compiler = shutil.which('swiftc')
         if not compiler:
@@ -83,13 +106,9 @@ class AnisetteVerifiedRecoveryTests(unittest.TestCase):
         if not compiler:
             self.skipTest('Swift compiler unavailable; historical Anisette upgrade executes in required macOS CI')
         with tempfile.TemporaryDirectory() as directory:
-            fixture = FIXTURES / 'anisette_upgrade_history'
-            extra = (fixture / 'harness.swift').read_text()
-            for name in ('legacy_read', 'legacy_read_string', 'legacy_write', 'mid_read', 'mid_write', 'mid_write_one', 'resolver'):
-                extra = extra.replace('// INSERT_' + name.upper(), (fixture / (name + '.swift')).read_text())
             source = Path(directory) / 'Upgrade.swift'
             executable = Path(directory) / 'upgrade'
-            source.write_text(recovery_sources() + extra)
+            source.write_text(historical_source())
             built = subprocess.run([compiler, '-swift-version', '5', '-parse-as-library', '-O', str(source), '-o', str(executable)], capture_output=True, text=True)
             self.assertEqual(built.returncode, 0, built.stderr)
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
