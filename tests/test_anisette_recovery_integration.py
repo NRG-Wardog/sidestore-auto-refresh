@@ -11,7 +11,7 @@ from test_v3_account_diagnostics import diagnostic_sources, declaration
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def integration_source():
+def integration_source(*, experimental=False):
     source = pair.program().split('@main struct AnisettePairTests', 1)[0]
     source = source.replace('func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<CFTypeRef?>) -> Int {',
         'func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<CFTypeRef?>) -> Int {\n    RecoveryIntegrationQueries.count += 1', 1)
@@ -20,7 +20,12 @@ def integration_source():
         '                RecoveryIntegrationQueries.cancelOnSnapshotRead = false\n'
         '                withUnsafeCurrentTask { $0?.cancel() }\n'
         '            }\n            let value = Store.data[group]?[key]', 1)
-    return source + '\nenum RecoveryIntegrationQueries { static var count = 0; static var cancelOnSnapshotRead = false }\n'  + (ROOT / 'tests/fixtures/anisette_recovery_integration_harness.swift').read_text()
+    source += '\nenum RecoveryIntegrationQueries { static var count = 0; static var cancelOnSnapshotRead = false }\n'  + (ROOT / 'tests/fixtures/anisette_recovery_integration_harness.swift').read_text()
+    if experimental:
+        flag = 'static let automaticRecoveryEnabled = false'
+        assert source.count(flag) == 1
+        source = source.replace(flag, flag.replace('false', 'true'), 1)
+    return source
 
 
 class RecoveryIntegrationTests(unittest.TestCase):
@@ -60,6 +65,7 @@ class RecoveryIntegrationTests(unittest.TestCase):
 
     def test_generated_recovery_source_closure(self):
         source = integration_source()
+        self.assertEqual(source.count('static let automaticRecoveryEnabled = false'), 1)
         self.assertNotIn('__PRODUCTION_', source)
         self.assertIn('return try await recoverVerifiedLegacyIdentity(', source)
         self.assertIn('extension OnDeviceAnisetteManager {', source)
@@ -69,7 +75,8 @@ class RecoveryIntegrationTests(unittest.TestCase):
         compiler = shutil.which('swiftc')
         if not compiler:
             self.skipTest('Swift compiler unavailable; actual ODA recovery harness runs in macOS CI')
-        source = integration_source()
+        # Explicit synthetic experiment; the shipped flag remains false.
+        source = integration_source(experimental=True)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'main.swift'
             binary = Path(directory) / 'recovery'
@@ -90,6 +97,27 @@ class RecoveryIntegrationTests(unittest.TestCase):
                         result = subprocess.run([str(binary), case], capture_output=True, text=True, timeout=30)
                         self.assertEqual(result.returncode, 0, result.stderr)
                         self.assertIn('RECOVERY_INTEGRATION_PASS ' + case, result.stdout)
+
+    def test_normal_provider_never_invokes_automatic_recovery(self):
+        source = integration_source().split('@main struct RecoveryIntegration', 1)[0]
+        source += (ROOT / 'tests/fixtures/anisette_normal_staging_harness.swift').read_text()
+        self.assertIn('static let automaticRecoveryEnabled = false', source)
+        compiler = shutil.which('swiftc')
+        if not compiler:
+            self.skipTest('Swift compiler unavailable; normal no-recovery boundary executes in macOS CI')
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'main.swift'
+            binary = Path(directory) / 'normal'
+            path.write_text(source)
+            built = subprocess.run([compiler, '-parse-as-library', str(path), '-o', str(binary)],
+                                   capture_output=True, text=True, timeout=180)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            for mode in ('saved_failure', 'fresh_failure', 'storage_failure', 'saved_success',
+                         'fresh_success', 'empty_failure', 'cancel', 'keychain', 'journal'):
+                with self.subTest(mode=mode):
+                    result = subprocess.run([str(binary), mode], capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn('NORMAL_ANISETTE_STAGING_PASS ' + mode, result.stdout)
 
     def test_isolated_probe_keeps_existing_data_and_cleans_owned_root(self):
         source = (ROOT / 'scripts/templates/anisette_legacy_recovery.swift').read_text()

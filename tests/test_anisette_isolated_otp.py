@@ -105,8 +105,8 @@ class IsolatedAnisetteOTPTests(unittest.TestCase):
             capture_output=True, text=True, timeout=60)
         if result.returncode:
             raise AssertionError(result.stderr)
-        if b'V3_ISOLATED_ANISETTE_OTP_V1' not in cls.executable.read_bytes():
-            raise AssertionError('Compiled native probe marker absent')
+        if b'V3_CHECKED_ANISETTE_STAGING_V1' not in cls.executable.read_bytes():
+            raise AssertionError('Compiled checked normal staging marker absent')
 
     def test_actual_native_boundary_success_faults_and_concurrent_calls(self):
         for fault in ('ok', 'concurrent', 'mixed', 'mkdir', 'open', 'fdopen', 'write', 'flush', 'close',
@@ -132,29 +132,54 @@ class IsolatedAnisetteOTPTests(unittest.TestCase):
                                 '00010203-0405-0607-0809-0a0b0c0d0e0f', '0001020304050607'):
                     self.assertNotIn(private, result.stdout + result.stderr)
 
-    def test_normal_native_trace_observes_unchecked_io_without_changing_failure_semantics(self):
-        success = ('arguments.ok,setup.begin,vm.reused,library.cached,uuid_dir.created,'
-            'provisioning_path.ok,android_id.ok,setup.ok,file.open.ok,file.write.ok,'
-            'file.flush.not_checked,file.close.ok,file.readback.not_checked,native.symbol.ok,'
+    def test_normal_checked_staging_blocks_otp_and_preserves_previous_blob_on_every_io_failure(self):
+        success = ('arguments.ok,setup.begin,vm.reused,library.cached,uuid_dir.exists,'
+            'provisioning_path.ok,android_id.ok,setup.ok,root.ok,uuid_dir.exists,file.open.ok,file.stream.ok,file.write.ok,'
+            'file.flush.ok,file.close.ok,file.read_open.ok,file.readback.ok,file.read_close.ok,file.rename.ok,native.symbol.ok,'
             'native.otp.ok,native.output.not_checked,cleanup.not_requested').split(',')
         cases = {'ok': success,
-            'close': [event.replace('file.close.ok', 'file.close.failed') for event in success],
             'otp': success[:success.index('native.otp.ok')] + ['native.otp.failed', 'cleanup.not_requested'],
             'symbol': success[:success.index('native.symbol.ok')] + ['native.symbol.failed', 'cleanup.not_requested']}
-        cases['write'] = [event.replace('file.write.ok', 'file.write.failed') for event in cases['otp']]
-        cases['readopen'] = success[:success.index('file.open.ok')] + [
-            'file.open.failed', 'file.readback.not_checked', 'native.symbol.ok', 'native.otp.failed', 'cleanup.not_requested']
-        cases['mkdir'] = [event.replace('uuid_dir.created', 'uuid_dir.failed') for event in cases['readopen']]
+        for fault in ('mkdir', 'rootopen', 'rootlink', 'rootpermissions'):
+            cases[fault] = success[:4] + ['uuid_dir.failed', 'setup.failed', 'cleanup.not_requested']
+        for fault in ('uuidopen', 'uuidlink', 'uuidfile', 'uuidpermissions'):
+            cases[fault] = success[:9] + ['uuid_dir.failed', 'cleanup.not_requested']
+        stages = {'open':'file.open', 'filelink':'file.open', 'hardlink':'file.open',
+            'fifo':'file.open', 'temp_full':'file.open',
+            'fdopen':'file.stream', 'write':'file.write', 'flush':'file.flush', 'close':'file.close',
+            'readopen':'file.read_open', 'readfdopen':'file.readback', 'read':'file.readback',
+            'mismatch':'file.readback', 'extra':'file.readback', 'readerror':'file.readback',
+            'readclose':'file.read_close', 'rename':'file.rename', 'rootreplace':'file.rename'}
+        for fault, stage in stages.items():
+            after = []
+            if fault == 'write': after += ['file.flush.ok']
+            if fault in ('fdopen', 'write', 'flush'): after += ['file.close.ok']
+            if stage == 'file.readback': after += ['file.read_close.ok']
+            cases[fault] = success[:success.index(stage + '.ok')] + [stage + '.failed'] + after + ['cleanup.not_requested']
         cases['cold'] = success[:2] + ['vm.init.ok', 'library.load.ok', 'library.init.ok'] + success[4:]
+        cases['fresh'] = [event if index != 4 else 'uuid_dir.created' for index, event in enumerate(success)]
+        cases['zero'] = success
+        cases['large'] = success
+        for fault in ('temp_exists', 'temp_link', 'crash_leftover'):
+            cases[fault] = success
         for fault, expected in cases.items():
             with self.subTest(fault=fault):
                 result = subprocess.run([str(self.executable), 'normal_' + fault], capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn('NATIVE_TRACE=' + ','.join(expected), result.stdout)
                 self.assertIn('NORMAL_NATIVE_TRACE_PASS', result.stdout)
+                self.assertNotIn('file.flush.not_checked', result.stdout)
+                self.assertNotIn('file.readback.not_checked', result.stdout)
+        for fault in ('concurrent', 'retrywrite'):
+            result = subprocess.run([str(self.executable), 'normal_' + fault], capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('NORMAL_NATIVE_TRACE_PASS', result.stdout)
         result = subprocess.run([str(self.executable), 'normal_invalid'], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('NORMAL_INVALID_ARGUMENT_PASS', result.stdout)
+        result = subprocess.run([str(self.executable), 'normal_uuidalloc'], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('NORMAL_ALLOCATION_FD_PASS', result.stdout)
 
     def test_native_trace_is_bounded_and_can_be_disabled_without_changing_results(self):
         result = subprocess.run([str(self.executable), 'tracecap'], capture_output=True, text=True, timeout=10)
@@ -250,7 +275,10 @@ class IsolatedAnisetteOTPTests(unittest.TestCase):
             with patch.object(PATCH, 'expected_files', return_value={p: (v, None) for p, v in originals.items()}):
                 self.assertEqual(PATCH.patch(target), 5)
                 report = PATCH.evidence(target)
-                self.assertEqual(report['native_symbol'], 'get_anisette_headers_isolated_uc')
+                self.assertEqual(report['native_symbol'], 'get_anisette_headers_uc')
+                self.assertEqual(report['marker'], 'V3_CHECKED_ANISETTE_STAGING_V1')
+                self.assertEqual(report['compiled_literal'], 'Checked OTP staging failed')
+                self.assertEqual(report['dormant_native_symbol'], 'get_anisette_headers_isolated_uc')
                 self.assertEqual(len(report['files']), 5)
                 self.assertEqual(report, PATCH.expected_evidence())
                 self.assertTrue(all(item['original_sha256'] != item['prepared_sha256'] for item in report['files']))

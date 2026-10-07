@@ -1,5 +1,11 @@
 # Isolated existing-blob OTP boundary
 
+This primitive is retained for controlled experiments and is not invoked by
+normal authentication in the current default-off recovery configuration. Unused
+isolated code may be stripped. Current package acceptance binds the active
+`V3_CHECKED_ANISETTE_STAGING_V1` normal-path correction, while retaining exact
+prepared-source verification for the dormant implementation described below.
+
 This is an OTP-only native primitive for a separately reviewed recovery policy.
 It does not identify a recovery candidate, write Keychain, replace a UUID/blob,
 select another Android-ID format, reprovision, or make network requests.
@@ -10,8 +16,8 @@ select another Android-ID format, reprovision, or make network requests.
 `1f5a7e36553cc865b873f222b87a6486c0bcc7bf`. All five original Git blobs are read
 before any writes; only original or exactly transformed working bytes are
 accepted. `--verify` requires already-prepared bytes. `--evidence-output FILE`
-emits the pin, source/prepared SHA-256 for all five files, retained marker,
-native symbol, and Swift API. `expected_evidence()` derives the same expectations
+emits the pin, source/prepared SHA-256 for all five files, active checked-staging
+marker and dormant native/Swift API metadata. `expected_evidence()` derives the same expectations
 from bundled source fixtures validated against fixed hashes, without Git/network.
 Verified current-user-owned source files are replaced atomically through an
 exclusive same-directory temporary file. Original permissions, including 0444

@@ -1,6 +1,7 @@
 // Compiled with the production typed adapter, phase/terminal capture, wire
 // model and final Copy Details renderer by test_v3_account_diagnostics.py.
-// Native producer strings are from AnisetteKit 1f5a7e36553cc865b873f222b87a6486c0bcc7bf.
+// Native producer strings are from AnisetteKit 1f5a7e36553cc865b873f222b87a6486c0bcc7bf
+// and the reviewed fixed-format checked-staging diagnostic patch.
 @main struct NativeADIEvidenceHarness {
     static func main() async {
         typealias Phase = V3AnisetteNativeEvidence.Phase
@@ -14,6 +15,15 @@
             (-3, "Symbol ADIProvisioningStart missing", .provisionStart, nil),
             (-3, "Symbol ADIProvisioningEnd missing", .provisionEnd, nil),
             (-4, "Failed to read generated adi.pb", .readProvisioningData, nil),
+            (-6, "Checked OTP staging failed", .nativeStorage, nil),
+            (-6, "Isolated OTP staging failed", .nativeStorage, nil),
+            (-6, "Checked OTP staging failed (errno 13)", .nativeStorage, 13),
+            (-6, "Checked OTP staging failed (errno 28)", .nativeStorage, 28),
+            (-6, "Checked OTP staging failed (errno 5)", .nativeStorage, 5),
+            (-6, "Checked OTP staging failed (errno 0)", .unknown, nil),
+            (-6, "Checked OTP staging failed (errno -1)", .unknown, nil),
+            (-6, "Checked OTP staging failed (errno 0013)", .unknown, nil),
+            (-6, "Checked OTP staging failed (errno 4096)", .unknown, nil),
             (-2, "Library directory path is null.", .setupLibraries, nil),
             (-2, "Failed to load libraries into VM", .setupLibraries, nil),
             (-2, "Required ADI setup symbol missing in VM", .setupLoadLibrary, nil),

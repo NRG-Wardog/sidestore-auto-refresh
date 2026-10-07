@@ -1713,6 +1713,7 @@ struct V3AnisetteAttemptContext {
         case notAttempted, noLegacyCandidate, legacyReadFailed, ambiguousLegacyIdentity
         case invalidLegacyPair, legacyBlobMismatch, probeRejected, invalidNativeProof
         case restoreFailed, stateChanged, temporaryStorageUnavailable, currentProbeRejected
+        case automaticRecoveryDisabled
     }
     let blobState: BlobState
     let recovery: Recovery
@@ -1742,7 +1743,7 @@ struct V3AnisetteNativeEvidence {
     enum Phase: String {
         case unknown, nativeOTP, provisionStart, provisionEnd
         case setupLibraries, setupLoadLibrary, setupProvisioningPath, setupAndroidID
-        case readProvisioningData
+        case readProvisioningData, nativeStorage
     }
     let code: Int32
     let phase: Phase
@@ -1754,6 +1755,21 @@ struct V3AnisetteNativeEvidence {
         // keywords, URLs, digits or error-like substrings.
         let description = V3TemporaryAnisetteTrace.nativeDescriptionWithoutTrace(description)
         guard description.utf8.count <= 256 else { return unknown }
+        // Exact fixed producers in the reviewed native staging patch. Numeric
+        // equality alone never assigns a storage phase to arbitrary errors.
+        if code == -6 && (description == "Checked OTP staging failed" || description == "Isolated OTP staging failed") {
+            return Self(code: code, phase: .nativeStorage, subcode: nil)
+        }
+        let storagePrefix = "Checked OTP staging failed (errno "
+        if code == -6 {
+            let value = String(description.dropFirst(storagePrefix.count).dropLast())
+            if let observedErrno = Int32(value), observedErrno > 0, observedErrno <= 4095,
+               description == "\(storagePrefix)\(observedErrno))" {
+                // For nativeStorage only, subcode is the failed POSIX call's
+                // immediately captured errno, not an ADI or Apple server code.
+                return Self(code: code, phase: .nativeStorage, subcode: observedErrno)
+            }
+        }
         for (symbol, phase) in [("ADIOTPRequest", Phase.nativeOTP),
                                 ("ADIProvisioningStart", .provisionStart),
                                 ("ADIProvisioningEnd", .provisionEnd)] {

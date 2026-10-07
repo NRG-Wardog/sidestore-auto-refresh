@@ -1,8 +1,5 @@
 // V3_ISOLATED_ANISETTE_OTP_V1. A disposable VM and private copy only.
-// Mach-O's used attribute retains this provenance literal even after stripping.
-#if defined(__GNUC__)
-__attribute__((used))
-#endif
+// Dormant API provenance; the active build gate requires checked normal staging.
 extern const char v3_isolated_anisette_otp_marker[] = "V3_ISOLATED_ANISETTE_OTP_V1";
 
 int32_t get_anisette_headers_uc(
@@ -15,6 +12,8 @@ int32_t get_anisette_headers_uc(
                                          adi_pb, adi_pb_len, out_json, false, trace);
     // Invalid original arguments do not initialize the caller's output pointer.
     if (result != ANISETTE_ERR_INVALID_ARGUMENT) trace.output = out_json;
+    // No UUID-directory cleanup here. Checked staging owns only its temporary;
+    // the existing Swift directory-cleanup race remains outside this mutex.
     trace.add(NativeOTPStage::CleanupNotRequested);
     return result;
 }

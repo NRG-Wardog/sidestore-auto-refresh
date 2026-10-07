@@ -93,9 +93,13 @@ struct LCAnisetteRecoveryProof: Sendable, CustomStringConvertible, CustomDebugSt
 
 enum LCAnisetteRecoveryError: Error, Equatable {
     case invalidLegacyPair, ambiguousLegacyIdentity, legacyBlobMismatch, invalidNativeProof
+    case automaticRecoveryDisabled
 }
 
 enum LCAnisetteRecoveryPolicy {
+    // Controlled experiments only. Normal sign-in must preserve the selected
+    // identity and native context while checked staging evidence is collected.
+    static let automaticRecoveryEnabled = false
     static func validateNativeOTP(oneTimePassword: String, machineID: String) throws {
         for text in [oneTimePassword, machineID] {
             guard let decoded = Data(base64Encoded: text), !decoded.isEmpty,
@@ -401,6 +405,7 @@ fileprivate enum LCEmbeddedSharedKeychain {
     }
 
     private static func prepareLocked(group: String, client: KeychainAccess.Keychain) throws -> Bool {
+        try requireAnisetteJournalAdmission(client)
         guard try client.getData(authenticationJournal) == nil else { throw NSError(domain: "com.SideStore.Keychain", code: 1010) }
         return try LCSharedKeychainMigration.prepare(group: group,
             items: { try legacyItems(service: service) },
@@ -440,7 +445,8 @@ fileprivate enum LCEmbeddedSharedKeychain {
             // This marker also gates the legacy certificate-format migration;
             // keep that lifecycle independent of the auth snapshot's content.
             return try withSharedTransaction {
-                try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.ready &&
+                try requireAnisetteJournalAdmission(client)
+                return try client.getData(LCSharedKeychainMigration.marker) == LCSharedKeychainMigration.ready &&
                     client.getData(authenticationJournal) == nil
             }
         }
@@ -517,6 +523,7 @@ fileprivate enum LCEmbeddedSharedKeychain {
     /// snapshot instead of combining separate KeychainItem getter results.
     private static func authenticationValuesLocked(_ client: KeychainAccess.Keychain) throws -> [String: Data]? {
         guard installedGroup != nil else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
+        try requireAnisetteJournalAdmission(client)
         var marker = try client.getData(LCSharedKeychainMigration.marker)
         if marker == LCSharedKeychainMigration.signedOut { return nil }
         guard try client.getData(authenticationJournal) == nil else { throw NSError(domain: "com.SideStore.Keychain", code: 1010) }
@@ -625,6 +632,9 @@ fileprivate enum LCEmbeddedSharedKeychain {
 
     static func commitAnisetteRecovery(_ proof: LCAnisetteRecoveryProof,
                                        client: KeychainAccess.Keychain) throws -> LCEmbeddedAnisetteSnapshot {
+        guard LCAnisetteRecoveryPolicy.automaticRecoveryEnabled else {
+            throw LCAnisetteRecoveryError.automaticRecoveryDisabled
+        }
         guard let group = installedGroup else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
         return try withSharedTransaction {
             try Task.checkCancellation()
@@ -690,8 +700,18 @@ fileprivate enum LCEmbeddedSharedKeychain {
         }
     }
 
+    private static func requireAnisetteJournalAdmission(_ client: KeychainAccess.Keychain) throws {
+        if !LCAnisetteRecoveryPolicy.automaticRecoveryEnabled,
+           try client.getData(anisetteRecoveryJournal) != nil {
+            throw LCAnisettePairError.stateChanged
+        }
+    }
+
     private static func reconcileAnisetteRecoveryLocked(_ client: KeychainAccess.Keychain) throws {
         guard let data = try client.getData(anisetteRecoveryJournal) else { return }
+        guard LCAnisetteRecoveryPolicy.automaticRecoveryEnabled else {
+            throw LCAnisettePairError.stateChanged
+        }
         guard let value = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
               let journal = value as? [String: Any],
               Set(journal.keys) == ["version", "keys", "original", "expected", "expectedMarker"],

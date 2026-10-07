@@ -46,8 +46,8 @@ REQUIRED_BACKGROUND_MODES = {"processing", "fetch"}
 REQUIRED_DEAD10CC_MARKER = b"DEAD10CC_FIX_E98699A registered both observers in guest process"
 ANISETTE_EVIDENCE_DIRECTORY = "anisette-generated"
 ANISETTE_EVIDENCE_MANIFEST = "isolated-otp-patch.json"
-ANISETTE_COMPILED_MARKER = b"V3_ISOLATED_ANISETTE_OTP_V1"
-ANISETTE_COMPILED_LITERAL = b"Isolated OTP staging failed"
+ANISETTE_COMPILED_MARKER = b"V3_CHECKED_ANISETTE_STAGING_V1"
+ANISETTE_COMPILED_LITERAL = b"Checked OTP staging failed"
 REMOVED_SIDESTORE_ICON_NAMES = {
     "blueicon", "darkicon", "honeydewicon", "prideicon",
     "sandyicon", "skyicon", "snowicon", "starbursticon", "stormicon", "vistaicon", "wintericon",
@@ -602,18 +602,21 @@ REQUIRED_GENERATED_EMBEDDED_SOURCES = {
 
 
 def verify_isolated_anisette_binary(executable: bytes) -> None:
-    # The C provider retains the version marker in its linked object. Its error
-    # literal is independently emitted by the isolated OTP implementation; a
-    # Swift declaration or a copied source manifest alone is not compiled proof.
+    # Require the active normal-provider staging correction. Automatic isolated
+    # recovery is disabled, so its unused API may legitimately be dead-stripped;
+    # retaining dormant code is neither necessary nor proof of this active fix.
     if (ANISETTE_COMPILED_MARKER not in executable or
             ANISETTE_COMPILED_LITERAL not in executable):
-        raise ValueError("embedded SideStore is missing the compiled isolated Anisette OTP API")
+        raise ValueError("embedded SideStore is missing the compiled checked Anisette staging path")
 
 
 def verify_isolated_anisette_evidence(evidence_root: Path, binding: dict,
                                      executable: bytes) -> None:
     from patch_anisette_isolated_otp import expected_evidence
     expected_manifest = expected_evidence()
+    if (expected_manifest.get("marker") != ANISETTE_COMPILED_MARKER.decode("ascii") or
+            expected_manifest.get("compiled_literal") != ANISETTE_COMPILED_LITERAL.decode("ascii")):
+        raise ValueError("Anisette source manifest and active compiled staging gate disagree")
     expected_paths = {entry["path"] for entry in expected_manifest["files"]}
     if not isinstance(binding, dict) or set(binding) != {
             "manifest_sha256", "source_sha256", "executable_sha256"}:

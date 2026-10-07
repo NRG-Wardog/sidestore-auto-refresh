@@ -1,4 +1,4 @@
-"""Bind the isolated OTP patch to the resolved checkout and packaged executable."""
+"""Bind checked normal OTP staging to the resolved sources and packaged binary."""
 import copy
 import fnmatch
 import hashlib
@@ -182,14 +182,32 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
     def test_absent_compiled_api_and_other_executable_binding_fail_closed(self):
         binding = self.collect()
         for absent in (b'', verifier.ANISETTE_COMPILED_MARKER,
-                       verifier.ANISETTE_COMPILED_LITERAL):
-            with self.subTest(absent=absent), self.assertRaisesRegex(ValueError, 'compiled isolated'):
+                       verifier.ANISETTE_COMPILED_LITERAL,
+                       b'V3_ISOLATED_ANISETTE_OTP_V1\0Isolated OTP staging failed\0'):
+            with self.subTest(absent=absent), self.assertRaisesRegex(ValueError, 'compiled checked'):
                 verifier.verify_isolated_anisette_evidence(self.output, binding, absent)
         with self.assertRaisesRegex(ValueError, 'another executable'):
             verifier.verify_isolated_anisette_evidence(self.output, binding,
                                                        self.executable + b'changed')
         with self.assertRaisesRegex(ValueError, 'binding is missing'):
             verifier.verify_isolated_anisette_evidence(self.output, None, self.executable)
+
+    def test_active_staging_gate_accepts_binary_without_dormant_isolated_code(self):
+        self.assertEqual(verifier.ANISETTE_COMPILED_MARKER, b'V3_CHECKED_ANISETTE_STAGING_V1')
+        self.assertEqual(verifier.ANISETTE_COMPILED_LITERAL, b'Checked OTP staging failed')
+        self.assertNotIn(b'V3_ISOLATED_ANISETTE_OTP_V1', self.executable)
+        self.assertNotIn(b'get_anisette_headers_isolated_uc', self.executable)
+        binding = self.collect()
+        verifier.verify_isolated_anisette_evidence(self.output, binding, self.executable)
+
+    def test_old_manifest_cannot_certify_the_new_active_binary_gate(self):
+        binding = self.collect()
+        old = copy.deepcopy(self.expected)
+        old['marker'] = 'V3_ISOLATED_ANISETTE_OTP_V1'
+        old['compiled_literal'] = 'Isolated OTP staging failed'
+        with mock.patch.object(native, 'expected_evidence', return_value=old):
+            with self.assertRaisesRegex(ValueError, 'active compiled staging gate disagree'):
+                verifier.verify_isolated_anisette_evidence(self.output, binding, self.executable)
 
 
 if __name__ == '__main__':

@@ -52,6 +52,45 @@
         precondition(Set(Store.recoveryQueries) == ["identifier", "adiPb"])
         let proof = try await validProof(first)
         precondition(Store.writes == 0 && Store.data == initial)
+        if !LCAnisetteRecoveryPolicy.automaticRecoveryEnabled {
+            do {
+                _ = try LCEmbeddedSharedKeychain.commitAnisetteRecovery(proof, client: client)
+                preconditionFailure("disabled recovery wrote an identifier")
+            } catch {
+                precondition(error as? LCAnisetteRecoveryError == .automaticRecoveryDisabled)
+            }
+            precondition(Store.data == initial && Store.writes == 0 && Store.removeCalls == 0)
+            Store.data[selected]?[journalKey] = Data("preserve-unreviewed-journal".utf8)
+            let held = Store.data
+            expectStateChanged { _ = try LCEmbeddedSharedKeychain.resolveAnisetteSnapshot(client) }
+            precondition(Store.data == held && Store.writes == 0 && Store.removeCalls == 0)
+            // A valid interrupted journal must also hold the actual startup
+            // migration/readiness boundaries, before the later pair resolver.
+            let expectedID = Data(a.uuidString.utf8)
+            let journal = try PropertyListSerialization.data(fromPropertyList: [
+                "version": 1, "keys": ["identifier", "adiPb"],
+                "original": ["identifier": originalID, "adiPb": rawBlob],
+                "expected": ["identifier": expectedID, "adiPb": rawBlob],
+                "expectedMarker": Data("native-otp-validated-v1".utf8)
+            ], format: .binary, options: 0)
+            for ready in [false, true] {
+                reset()
+                Store.data[selected] = ["identifier": expectedID, "adiPb": rawBlob, journalKey: journal]
+                if ready { Store.data[selected]?[LCSharedKeychainMigration.marker] = LCSharedKeychainMigration.ready }
+                Store.data[legacy] = ["identifier": expectedID, "adiPb": rawBlob,
+                    "appleIDEmailAddress": Data("fixture@example.invalid".utf8),
+                    "appleIDPassword": Data("PRIVATE_PASSWORD".utf8),
+                    "appleIDAdsid": Data("synthetic-dsid".utf8),
+                    "appleIDXcodeToken": Data("PRIVATE_TOKEN".utf8)]
+                let beforeStartup = Store.data
+                LCEmbeddedSharedKeychain.prepare(client)
+                precondition(!LCEmbeddedSharedKeychain.isReady(client))
+                expectStateChanged { _ = try LCEmbeddedSharedKeychain.readAuthenticationSnapshot(client) }
+                precondition(Store.data == beforeStartup && Store.writes == 0 && Store.removeCalls == 0)
+            }
+            print("AUTOMATIC_ANISETTE_RECOVERY_DISABLED_PASS")
+            return
+        }
         let restored = try LCEmbeddedSharedKeychain.commitAnisetteRecovery(proof, client: client)
         precondition(restored.identifier == a && restored.adiBlob == blob)
         precondition(Store.data[selected]?["identifier"] == Data(a.uuidString.utf8))

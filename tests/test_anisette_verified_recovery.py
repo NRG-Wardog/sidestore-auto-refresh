@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / 'tests/fixtures'
 
 
-def recovery_sources():
+def recovery_sources(*, experimental=False):
     doubles = keychain.DOUBLES
     doubles = doubles.replace('    static var writes = 0', '''    static var writes = 0
     static var afterSet: ((String, String, Data) throws -> Void)?
@@ -27,10 +27,15 @@ def recovery_sources():
     let visible = Array(Set([Store.processGroup, Store.keychainGroup] + Array(Store.data.keys)))''')
     doubles = doubles.replace('    if rows.isEmpty { return errSecItemNotFound }',
         '    if Store.malformedLegacyRow && query[kSecAttrAccount] != nil { rows.append([kSecAttrAccount: "identifier"]) }\n    if rows.isEmpty { return errSecItemNotFound }')
-    return '\n'.join((doubles, (ROOT / 'scripts/templates/embedded_shared_keychain.swift').read_text(), keychain.module.KEYCHAIN_ACCESS_ADAPTER, ''))
+    source = '\n'.join((doubles, (ROOT / 'scripts/templates/embedded_shared_keychain.swift').read_text(), keychain.module.KEYCHAIN_ACCESS_ADAPTER, ''))
+    if experimental:
+        flag = 'static let automaticRecoveryEnabled = false'
+        assert source.count(flag) == 1
+        source = source.replace(flag, flag.replace('false', 'true'), 1)
+    return source
 
 
-def historical_source():
+def historical_source(*, experimental=False):
     fixture = FIXTURES / 'anisette_upgrade_history'
     slices = {name.upper(): (fixture / (name + '.swift')).read_text()
               for name in ('legacy_read', 'legacy_read_string', 'legacy_write',
@@ -38,7 +43,7 @@ def historical_source():
     extra = re.sub(r'(?m)^    // INSERT_([A-Z_]+)$',
                    lambda match: slices[match.group(1)],
                    (fixture / 'harness.swift').read_text())
-    return recovery_sources() + extra
+    return recovery_sources(experimental=experimental) + extra
 
 
 class AnisetteVerifiedRecoveryTests(unittest.TestCase):
@@ -60,15 +65,17 @@ class AnisetteVerifiedRecoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / 'Recovery.swift'
             executable = Path(directory) / 'recovery'
-            source.write_text(recovery_sources() + (FIXTURES / 'anisette_verified_recovery_harness.swift').read_text())
-            built = subprocess.run([compiler, '-swift-version', '5', '-parse-as-library', '-O', str(source), '-o', str(executable)], capture_output=True, text=True)
-            self.assertEqual(built.returncode, 0, built.stderr)
-            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn('VERIFIED_ANISETTE_RECOVERY_PASS', result.stdout)
+            for experimental in (False, True):
+                source.write_text(recovery_sources(experimental=experimental) + (FIXTURES / 'anisette_verified_recovery_harness.swift').read_text())
+                built = subprocess.run([compiler, '-swift-version', '5', '-parse-as-library', '-O', str(source), '-o', str(executable)], capture_output=True, text=True)
+                self.assertEqual(built.returncode, 0, built.stderr)
+                result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('VERIFIED_ANISETTE_RECOVERY_PASS' if experimental else 'AUTOMATIC_ANISETTE_RECOVERY_DISABLED_PASS', result.stdout)
 
     def test_production_boundary_is_scoped_and_proof_only(self):
         source = (ROOT / 'scripts/templates/embedded_shared_keychain.swift').read_text()
+        self.assertEqual(source.count('static let automaticRecoveryEnabled = false'), 1)
         candidate = declaration(source, '    static func anisetteRecoveryCandidate(')
         self.assertNotIn('.set(', candidate)
         self.assertNotIn('.remove(', candidate)
@@ -108,7 +115,7 @@ class AnisetteVerifiedRecoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / 'Upgrade.swift'
             executable = Path(directory) / 'upgrade'
-            source.write_text(historical_source())
+            source.write_text(historical_source(experimental=True))
             built = subprocess.run([compiler, '-swift-version', '5', '-parse-as-library', '-O', str(source), '-o', str(executable)], capture_output=True, text=True)
             self.assertEqual(built.returncode, 0, built.stderr)
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)

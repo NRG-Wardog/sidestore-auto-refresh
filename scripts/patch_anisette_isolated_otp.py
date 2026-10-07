@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add an isolated, existing-blob-only OTP probe to the exact AnisetteKit pin."""
+"""Prepare checked normal staging and dormant isolated OTP at the AnisetteKit pin."""
 import argparse
 import hashlib
 import json
@@ -51,8 +51,9 @@ def transform(path, source):
         source = once(source, 'static EmulatorVM *g_shared_vm = nullptr;',
                       '#define V3_TEMPORARY_ANISETTE_TRACE_ENABLED ' + str(int(temporary_trace_enabled())) + '\n' +
                       (TEMPLATES / 'temporary_anisette_trace.cpp').read_text() +
+                      '\n' + (TEMPLATES / 'checked_anisette_staging.cpp').read_text() +
                       '\nthread_local bool g_isolated_otp_logging_suppressed = false;\n\nstatic EmulatorVM *g_shared_vm = nullptr;')
-        source = once(source, '    std::string &out_err\n)', '    std::string &out_err,\n    bool isolated = false, NativeOTPTrace *trace = nullptr\n)')
+        source = once(source, '    std::string &out_err\n)', '    std::string &out_err,\n    bool isolated = false, NativeOTPTrace *trace = nullptr,\n    CheckedAnisetteStagingFailure *staging_failure = nullptr\n)')
         source = once(source, '    if (!lib_dir) {',
                       '    if (trace) trace->add(NativeOTPStage::SetupBegin);\n'
                       '    NativeOTPStageScope setup_stage(trace, NativeOTPStage::SetupFailed);\n'
@@ -77,9 +78,15 @@ def transform(path, source):
                       '    else if (trace) trace->add(NativeOTPStage::LibraryCached);\n\n'
                       '    std::string uuid = format_uuid_string(identifier);')
         source = once(source, '    mkdir(out_uuid_prov_dir.c_str(), 0755);',
-                      '    const int directory_result = mkdir(out_uuid_prov_dir.c_str(), 0755);\n'
+                      '    const int directory_result = staging_failure\n'
+                      '        ? checked_anisette_make_uuid_directory(provisioning_dir, identifier, *staging_failure)\n'
+                      '        : mkdir(out_uuid_prov_dir.c_str(), 0755);\n'
+                      '    const int directory_errno = errno;\n'
                       '    if (trace) trace->add(directory_result == 0 ? NativeOTPStage::DirectoryCreated :\n'
-                      '        (errno == EEXIST ? NativeOTPStage::DirectoryExists : NativeOTPStage::DirectoryFailed));')
+                      '        (directory_errno == EEXIST ? NativeOTPStage::DirectoryExists : NativeOTPStage::DirectoryFailed));\n'
+                      '    if (staging_failure && directory_result != 0 && directory_errno != EEXIST) {\n'
+                      '        out_err = staging_failure->message();\n'
+                      '        return false;\n    }')
         source = once(source, '    if (out_uuid_prov_dir != g_current_prov_path) {',
                       '    if (out_uuid_prov_dir != g_current_prov_path) {\n'
                       '        NativeOTPStageScope path_stage(trace, NativeOTPStage::ProvisioningPathFailed);')
@@ -112,22 +119,17 @@ def transform(path, source):
         helper = once(helper, '        return ANISETTE_ERR_INVALID_ARGUMENT;',
                       '        trace.add(NativeOTPStage::ArgumentsFailed);\n        return ANISETTE_ERR_INVALID_ARGUMENT;')
         helper = once(helper, '    EmulatorVM *vm = nullptr;',
-                      '    if (!isolated) trace.add(NativeOTPStage::ArgumentsOK);\n    EmulatorVM *vm = nullptr;')
-        helper = once(helper, 'identifier, uuid_prov_dir, err)', 'identifier, uuid_prov_dir, err, isolated, &trace)')
+                      '    if (!isolated) trace.add(NativeOTPStage::ArgumentsOK);\n'
+                      '    CheckedAnisetteStagingFailure staging_failure;\n    EmulatorVM *vm = nullptr;')
+        helper = once(helper, 'identifier, uuid_prov_dir, err)',
+                      'identifier, uuid_prov_dir, err, isolated, &trace, isolated ? nullptr : &staging_failure)')
+        helper = once(helper, '        return ANISETTE_ERR_LOADER_FAILED;',
+                      '        return staging_failure.failed ? -6 : ANISETTE_ERR_LOADER_FAILED;')
         helper = once(helper, '    FILE* f = fopen(adi_pb_path.c_str(), "wb");\n    if (f) {\n        fwrite(adi_pb, 1, adi_pb_len, f);\n        fclose(f);\n    }',
-                      '''    if (!isolated) {
-        FILE* f = fopen(adi_pb_path.c_str(), "wb");
-        trace.add(f ? NativeOTPStage::FileOpenOK : NativeOTPStage::FileOpenFailed);
-        if (f) {
-            const size_t written = fwrite(adi_pb, 1, adi_pb_len, f);
-            trace.add(written == adi_pb_len ? NativeOTPStage::FileWriteOK : NativeOTPStage::FileWriteFailed);
-            // The regular provider never explicitly flushed or verified this write.
-            // Preserve that behavior while reporting the calls that actually ran.
-            trace.add(NativeOTPStage::FileFlushUnchecked);
-            const int closed = fclose(f);
-            trace.add(closed == 0 ? NativeOTPStage::FileCloseOK : NativeOTPStage::FileCloseFailed);
-        }
-        trace.add(NativeOTPStage::FileReadbackUnchecked);
+                      '''    if (!isolated && !checked_anisette_staging(provisioning_dir, identifier, adi_pb, adi_pb_len, trace, staging_failure)) {
+        const std::string error_json = "{\\"error\\":\\"" + staging_failure.message() + "\\"}";
+        *out_json = strdup(error_json.c_str());
+        return -6;
     }''')
         helper = once(helper, '    if (!otp_req_ptr) {',
                       '    trace.add(otp_req_ptr ? NativeOTPStage::NativeSymbolOK : NativeOTPStage::NativeSymbolFailed);\n'
@@ -344,10 +346,12 @@ def _evidence_for(originals):
         files.append({'path': relative, 'original_sha256': ORIGINAL_SHA256[relative],
                       'prepared_sha256': hashlib.sha256(prepared).hexdigest()})
     return {'schema_version': 1, 'anisettekit_revision': PIN,
-            'marker': 'V3_ISOLATED_ANISETTE_OTP_V1',
-            'native_symbol': 'get_anisette_headers_isolated_uc',
-            'compiled_literal': 'Isolated OTP staging failed',
-            'swift_api': 'IsolatedAnisetteOTPProvider.getExistingHeaders', 'files': files}
+            'marker': 'V3_CHECKED_ANISETTE_STAGING_V1',
+            'native_symbol': 'get_anisette_headers_uc',
+            'compiled_literal': 'Checked OTP staging failed',
+            'swift_api': 'UnicornAnisetteDataProvider.getAnisetteHeaders',
+            'dormant_native_symbol': 'get_anisette_headers_isolated_uc',
+            'dormant_swift_api': 'IsolatedAnisetteOTPProvider.getExistingHeaders', 'files': files}
 
 
 def expected_evidence():

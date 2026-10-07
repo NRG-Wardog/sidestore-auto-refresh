@@ -60,6 +60,12 @@ extension OnDeviceAnisetteManager {
         if original is CancellationError { throw original }
         guard let native = original as? AnisetteKit.AnisetteError,
               case .adiError(let code, let description) = native else { throw original }
+        guard LCAnisetteRecoveryPolicy.automaticRecoveryEnabled else {
+            debugTrace.record(step: .currentProbe, outcome: .skipped)
+            debugTrace.record(step: .legacyProbe, outcome: .skipped)
+            debugTrace.record(step: .identityCommit, outcome: .skipped)
+            throw diagnosed(.automaticRecoveryDisabled)
+        }
         // Numeric equality alone does not identify the operation. Match the
         // pinned native OTP producer as well; setup/provisioning never recover.
         guard code == -45061,
@@ -127,6 +133,7 @@ extension OnDeviceAnisetteManager {
             case .legacyBlobMismatch: throw diagnosed(.legacyBlobMismatch)
             case .invalidLegacyPair: throw diagnosed(.invalidLegacyPair)
             case .invalidNativeProof: throw diagnosed(.invalidNativeProof)
+            case .automaticRecoveryDisabled: throw diagnosed(.automaticRecoveryDisabled)
             }
         } catch let blocked as LCAnisettePairError {
             debugTrace.record(step: debugStep, outcome: .failed)

@@ -1,5 +1,29 @@
 # Bounded recovery after native OTP reports not provisioned
 
+## Current candidate: automatic recovery disabled
+
+`LCAnisetteRecoveryPolicy.automaticRecoveryEnabled` is false. The added recovery
+path does not run an isolated current-pair probe, enumerate a legacy recovery
+candidate, or restore an identifier. Its commit API independently refuses restoration. A pending
+experimental recovery journal is preserved and blocks admission; absence of that
+journal leaves normal pair handling unchanged. There is no user setting or command
+that enables this experimental path.
+Pre-existing account migration, ordinary first-use UUID creation and successful
+fresh-provisioning writes remain normal authentication behavior; this is not a
+claim that the entire application never writes to Keychain.
+
+The active correction checks normal native file staging before OTP while retaining
+the original provider, shared VM, identifier derivation and setup order. Temporary
+diagnostics distinguish saved/fresh input and actual file/setup/OTP outcomes.
+Successful readback is point-in-time evidence: the separate Swift cleanup ownership
+race remains unresolved. Real-device cause and sign-in acceptance are still open.
+For `native_phase=nativeStorage`, `native_subcode` is the immediately captured
+positive POSIX errno from the failed staging call. Semantic validation/readback
+mismatches report `unknown`; no stale errno, error prose or path is exported.
+
+The sections below describe retained, default-disabled experimental recovery and
+its tests. Synthetic tests explicitly enable it without changing the shipped flag.
+
 The physical-device result on `39c474ee` is now specific: AnisetteKit's
 `ADIOTPRequest` returned `-45061`. It is not a loader error, a pending provisioning
 start, an Apple credential rejection, or a verification-code response.
@@ -71,10 +95,17 @@ and authentication markers remain unchanged. The existing journal machinery prov
 verified rollback and exact prior/intended reconciliation. Unknown state remains
 blocked. Cancellation is checked before proof and throughout commit.
 
+This is not unconditional crash rollback. In an explicitly enabled experiment,
+restart reconciliation may retain the exact intended identifier after a crash that
+occurred after its write. Synchronous failure rollback and restart reconciliation
+are different operations. With the current default-off policy, a pending journal
+is neither cleared nor used to choose a stored pair.
+
 Copied recovery diagnostics contain only finite statuses and bounded native numbers.
 No identifiers, blobs, OTP/MID, paths, session handles or provider descriptions are
 serialized. The next candidate addresses a source-proven historical failure path;
-its ability to restore this device's login remains a physical-device acceptance gate.
+its ability to restore this device's login remains unproven and it is not enabled
+in normal authentication.
 
 ## DEBUG TEMPORARY stage trace
 
