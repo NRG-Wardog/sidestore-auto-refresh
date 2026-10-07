@@ -130,7 +130,14 @@
         precondition(threeCalls.failedStep == "legacy.native.otp")
         let truncatedAttempt = V3AnisetteAttemptError(underlying: native,
             context: .init(blobState: .existing, recovery: .probeRejected, trace: threeCalls))
-        let truncatedFailure = v3CaptureAuthFailure(truncatedAttempt,
+        let bareFailure = v3CaptureAuthFailure(truncatedAttempt,
+            operation: "signIn", stage: .authentication, id: id)
+        precondition(bareFailure.temporaryAnisetteTrace == threeCalls)
+        precondition(bareFailure.sourceStep == nil)
+        precondition(bareFailure.signingContext["native_code"] == nil &&
+            bareFailure.signingContext["native_phase"] == nil)
+        let truncatedFailure = v3CaptureAuthFailure(
+            V3AuthenticationPhaseError(step: .anisetteFetch, underlying: truncatedAttempt),
             operation: "signIn", stage: .authentication, id: id)
         let truncatedDecoded = CombinedFailure.fromEncodedString(truncatedFailure.encodedString, expectedID: id)!
         precondition(truncatedDecoded.temporaryAnisetteTrace == threeCalls)
