@@ -77,6 +77,27 @@ jobs:
             --allowlist builder/scripts/required_test_skip_allowlist.json \
             --timings-output artifacts/logs/signin-preflight-test-timings.json \
             --verbosity 2 2>&1 | tee artifacts/logs/signin-preflight-tests.log
+      - name: Checkout pinned SideStore for native Anisette preflight
+        uses: actions/checkout@v4
+        with:
+          repository: LiveContainer/SideStore
+          ref: ${{ env.EMBEDDED_SIDESTORE_REF }}
+          path: work/AnisettePreflightSideStore
+          persist-credentials: false
+          submodules: false
+      - name: Verify isolated Anisette recovery before UI execution
+        timeout-minutes: 15
+        shell: bash
+        env:
+          EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/AnisettePreflightSideStore
+        run: |
+          set -euo pipefail
+          test "$(git -C "$EMBEDDED_SIDESTORE_TEST_SOURCE" rev-parse HEAD)" = "$EMBEDDED_SIDESTORE_REF"
+          python3 builder/scripts/run_required_tests.py \
+            --start-directory builder/tests --pattern 'test_anisette*.py' \
+            --allowlist builder/scripts/required_test_skip_allowlist.json \
+            --timings-output artifacts/logs/signin-preflight-anisette-test-timings.json \
+            --verbosity 2 2>&1 | tee artifacts/logs/signin-preflight-anisette-tests.log
       - name: Execute selected sign-in test lane
         timeout-minutes: 100
         shell: bash
@@ -107,6 +128,7 @@ jobs:
             artifacts/p0-preflight/**/project/**
             artifacts/logs/signin-preflight*.log
             artifacts/logs/signin-preflight-test-timings.json
+            artifacts/logs/signin-preflight-anisette-test-timings.json
 
       - name: Prepare bounded evidence transfer fragments
         id: evidence_fragments
@@ -536,10 +558,19 @@ jobs:
             sleep 2
           done
           test "$resolved" -eq 1
-          xcodebuild -project work/EmbeddedSideStore/AltStore.xcodeproj -onlyUsePackageVersionsFromResolvedFile \
+          ANISETTE="$RUNNER_TEMP/embedded-sidestore-derived-data/SourcePackages/checkouts/AnisetteKit"
+          mkdir -p artifacts/dependencies
+          python3 builder/scripts/patch_anisette_isolated_otp.py "$ANISETTE"
+          python3 builder/scripts/patch_anisette_isolated_otp.py "$ANISETTE" --verify \
+            --evidence-output artifacts/dependencies/anisette-isolated-otp-before-build.json
+          # Do not let another package resolution replace the verified native patch.
+          xcodebuild -project work/EmbeddedSideStore/AltStore.xcodeproj -onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution \
             -scheme SideStore -sdk iphoneos -configuration Release \
             -derivedDataPath "$RUNNER_TEMP/embedded-sidestore-derived-data" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee artifacts/logs/embedded-sidestore-build.log
+          python3 builder/scripts/patch_anisette_isolated_otp.py "$ANISETTE" --verify \
+            --evidence-output artifacts/dependencies/anisette-isolated-otp-after-build.json
+          cmp artifacts/dependencies/anisette-isolated-otp-before-build.json artifacts/dependencies/anisette-isolated-otp-after-build.json
           printf 'Native build finish: '; date -u
 
       - name: Package and verify combined LiveContainer plus SideStore
@@ -559,6 +590,8 @@ jobs:
           printf 'builder_commit=%s\n' "$GITHUB_SHA" > artifacts/builder-commit.txt
           python3 builder/scripts/combined_build_evidence.py collect --product v3.0.3-rc \
             --ipa artifacts/LiveContainer-SideStore-v3.0.3-rc.ipa --output artifacts/debug-evidence --source work/LiveContainer --side-source work/EmbeddedSideStore \
+            --anisette-source "$RUNNER_TEMP/embedded-sidestore-derived-data/SourcePackages/checkouts/AnisetteKit" \
+            --anisette-manifest artifacts/dependencies/anisette-isolated-otp-after-build.json \
             "$RUNNER_TEMP/livecontainer-derived-data/Build/Products/Release-iphoneos" \
             "$RUNNER_TEMP/embedded-sidestore-derived-data/Build/Products/Release-iphoneos"
           python3 builder/scripts/verify_candidate_ipa.py \

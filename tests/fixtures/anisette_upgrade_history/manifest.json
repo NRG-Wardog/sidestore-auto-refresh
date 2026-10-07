@@ -1,0 +1,58 @@
+[
+  {
+    "file": "legacy_read.swift",
+    "commit": "6f0a144936c789bd7557d93ecf752888fddbb256",
+    "path": "scripts/templates/embedded_shared_keychain.swift",
+    "signature": "    static func read(_ key:",
+    "sha256": "001ce47989593102c6d9c7731ff893c2e268e177765bd9e6492810bb7b075be2",
+    "provenance": "verbatim production declaration"
+  },
+  {
+    "file": "legacy_read_string.swift",
+    "commit": "6f0a144936c789bd7557d93ecf752888fddbb256",
+    "path": "scripts/templates/embedded_shared_keychain.swift",
+    "signature": "    static func readString(",
+    "sha256": "7dc53fd75bb98279ed3f3185a4c9bdb16c18c82256eb7e894ba33e1a172e23be",
+    "provenance": "verbatim production declaration"
+  },
+  {
+    "file": "legacy_write.swift",
+    "commit": "6f0a144936c789bd7557d93ecf752888fddbb256",
+    "path": "scripts/templates/embedded_shared_keychain.swift",
+    "signature": "    static func write(_ key:",
+    "sha256": "27f0ae09ecdc6c9e0e728f6cf59be597b48b4a759d2a03455f21ee812782b3bf",
+    "provenance": "verbatim production declaration"
+  },
+  {
+    "file": "mid_read.swift",
+    "commit": "185341a8e4445f2d02674847d1954e9ca8d9a741",
+    "path": "scripts/templates/embedded_shared_keychain.swift",
+    "signature": "    static func read(_ key:",
+    "sha256": "164daf1234c7700bab30a10e98ab8d20fb8c65383d57ded6854961292417a2d1",
+    "provenance": "verbatim production declaration"
+  },
+  {
+    "file": "mid_write.swift",
+    "commit": "185341a8e4445f2d02674847d1954e9ca8d9a741",
+    "path": "scripts/templates/embedded_shared_keychain.swift",
+    "signature": "    static func write(_ key:",
+    "sha256": "89bf8255c20fe5f9822bba0e23115073b94624a68e54ca31729509a4c741a394",
+    "provenance": "verbatim production declaration"
+  },
+  {
+    "file": "mid_write_one.swift",
+    "commit": "185341a8e4445f2d02674847d1954e9ca8d9a741",
+    "path": "scripts/templates/embedded_shared_keychain.swift",
+    "signature": "    private static func writeOne(",
+    "sha256": "7a0091cdd110ea767f044a87d9deabdf3d68fd019b10b7a6c35ea5cf816d7ebe",
+    "provenance": "verbatim production declaration"
+  },
+  {
+    "file": "resolver.swift",
+    "commit": "ff25922e5c13ccfafd83bda5092910d848ebd409",
+    "path": "SideStore/Core/Anisette/AnisetteConfigManager.swift",
+    "signature": "    public func resolveDeviceIdentifier() -> UUID {",
+    "sha256": "44ae51e52d60afe72269736a14f85a06ef1d1eee3f4bf88f92b8adc9156421a4",
+    "provenance": "verbatim production declaration"
+  }
+]

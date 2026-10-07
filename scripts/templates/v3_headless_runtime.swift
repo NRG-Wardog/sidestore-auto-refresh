@@ -348,9 +348,21 @@ func v3IsAuthCancellation(_ error: Error) -> Bool {
 
 // Called only at our operation boundaries, before NSError bridging loses the
 // associated ServerError code. Never choose a stage from provider text.
+func v3AnisetteAttemptContext(_ error: Error) -> V3AnisetteAttemptContext? {
+    var current = error
+    for _ in 0..<5 {
+        if let attempt = current as? V3AnisetteAttemptError { return attempt.context }
+        if let phase = current as? V3AuthenticationPhaseError { current = phase.underlying }
+        else if let account = current as? V3AccountOperationError { return account.anisetteAttempt }
+        else { break }
+    }
+    return nil
+}
+
 func v3AccountOperationFailure(_ error: Error, step: CombinedFailure.SourceStep) -> V3AccountOperationError {
     if let known = error as? V3AccountOperationError { return known }
     let step = (error as? V3AuthenticationPhaseError)?.step ?? step
+    let anisetteAttempt = v3AnisetteAttemptContext(error)
     let error = v3AccountUnderlyingError(error)
     let kind: V3AccountOperationError.Kind
     var httpStatus: Int?
@@ -414,7 +426,7 @@ func v3AccountOperationFailure(_ error: Error, step: CombinedFailure.SourceStep)
         }
     }
     return V3AccountOperationError(step: kind == .anisetteIdentityStateInvalid ? .anisetteFetch : step,
-        kind: kind, underlying: error, serverCode: serverCode, httpStatus: httpStatus, nativeEvidence: nativeEvidence)
+        kind: kind, underlying: error, serverCode: serverCode, httpStatus: httpStatus, nativeEvidence: nativeEvidence, anisetteAttempt: anisetteAttempt)
 }
 
 // Both terminal routes (including cached/provisioning-resume paths that never
@@ -434,6 +446,7 @@ func v3AccountUnderlyingError(_ error: Error) -> Error {
     for _ in 0..<5 {
         if let wrapped = current as? V3AccountOperationError { current = wrapped.underlying }
         else if let phase = current as? V3AuthenticationPhaseError { current = phase.underlying }
+        else if let attempt = current as? V3AnisetteAttemptError { current = attempt.underlying }
         else { break }
     }
     return current

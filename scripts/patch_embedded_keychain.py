@@ -27,6 +27,15 @@ KEYCHAIN_ACCESS_ADAPTER = '''extension Keychain {
     func commitAnisetteBlob(_ blob: Data, snapshot: LCEmbeddedAnisetteSnapshot) throws {
         try LCEmbeddedSharedKeychain.commitAnisetteBlob(blob, snapshot: snapshot, client: self.keychain)
     }
+    func validateAnisetteSnapshot(_ snapshot: LCEmbeddedAnisetteSnapshot) throws {
+        try LCEmbeddedSharedKeychain.validateAnisetteSnapshot(snapshot, client: self.keychain)
+    }
+    func anisetteRecoveryCandidate(for snapshot: LCEmbeddedAnisetteSnapshot) throws -> LCAnisetteRecoveryCandidate? {
+        try LCEmbeddedSharedKeychain.anisetteRecoveryCandidate(for: snapshot, client: self.keychain)
+    }
+    func commitAnisetteRecovery(_ proof: LCAnisetteRecoveryProof) throws -> LCEmbeddedAnisetteSnapshot {
+        try LCEmbeddedSharedKeychain.commitAnisetteRecovery(proof, client: self.keychain)
+    }
     func authenticationSnapshot() throws -> LCEmbeddedAuthenticationSnapshot? {
         try LCEmbeddedSharedKeychain.readAuthenticationSnapshot(self.keychain)
     }
@@ -530,6 +539,34 @@ def patch_anisette_config(text: str) -> str:
     return once(text, old, replacement)
 
 
+def patch_anisette_legacy_recovery(text: str) -> str:
+    support = (Path(__file__).parent / "templates/anisette_legacy_recovery.swift").read_text()
+    marker = "LC_ANISETTE_VERIFIED_LEGACY_RECOVERY_V1"
+    if marker in text:
+        if support.strip() not in text or "return try await recoverVerifiedLegacyIdentity(" not in text:
+            raise ValueError("embedded anisette: legacy recovery adapter drift")
+        return text
+    old = """        let (anisetteData, newAdiPb) = try await provider.fetchAnisetteData(
+            mode: mode,
+            identifier: identifierUUID,
+            existingAdiBlob: existingAdiPbData,
+            headers: headers
+        )"""
+    new = """        let primary: (data: ALTAnisetteData, newAdiBlob: Data?)
+        do {
+            primary = try await provider.fetchAnisetteData(
+                mode: mode, identifier: identifierUUID,
+                existingAdiBlob: existingAdiPbData, headers: headers)
+        } catch {
+            return try await recoverVerifiedLegacyIdentity(
+                after: error, snapshot: anisetteSnapshot, headers: headers)
+        }
+        let (anisetteData, newAdiPb) = primary"""
+    text = once(text, old, new)
+    text = once(text, "import Foundation", "import Foundation\nimport Darwin")
+    return text.rstrip() + "\n\n" + support
+
+
 def patch_anisette_provider(text: str, *, on_device: bool) -> str:
     if ANISETTE_PAIR_MARKER in text:
         if ("let anisetteSnapshot = try await AnisetteConfigManager.shared.resolveAnisetteSnapshot()" not in text or
@@ -537,7 +574,7 @@ def patch_anisette_provider(text: str, *, on_device: bool) -> str:
                 "AnisetteConfigManager.shared.anisetteAdiBlob" in text or
                 "AnisetteConfigManager.shared.resolveDeviceIdentifier()" in text):
             raise ValueError("embedded anisette: provider does not consume one guarded snapshot")
-        return text
+        return patch_anisette_legacy_recovery(text) if on_device else text
     if on_device:
         old = '''        let identifierUUID = await AnisetteConfigManager.shared.resolveDeviceIdentifier()
 
@@ -562,8 +599,9 @@ def patch_anisette_provider(text: str, *, on_device: bool) -> str:
         let existingBlob = anisetteSnapshot.adiBlob
         let identifier = anisetteSnapshot.identifier'''
     text = once(text, old, new)
-    return once(text, "AnisetteConfigManager.shared.anisetteAdiBlob = freshBlob.base64EncodedString()",
+    text = once(text, "AnisetteConfigManager.shared.anisetteAdiBlob = freshBlob.base64EncodedString()",
         "try await AnisetteConfigManager.shared.commitAnisetteBlob(freshBlob, snapshot: anisetteSnapshot)")
+    return patch_anisette_legacy_recovery(text) if on_device else text
 
 
 def patch(root: Path) -> None:

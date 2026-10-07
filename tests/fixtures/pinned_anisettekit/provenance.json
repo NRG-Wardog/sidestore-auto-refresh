@@ -1,0 +1,15 @@
+{
+  "purpose": "Exact source-only fixture for offline native boundary tests; no Apple libraries or provisioning state.",
+  "repository": "https://github.com/mahee96/AnisetteKit",
+  "revision": "1f5a7e36553cc865b873f222b87a6486c0bcc7bf",
+  "sha256": {
+    "LICENSE": "44f4819d8ad5f739d39443ef83dab292422248bc6e9d74fc3ae9913226fc63ea",
+    "Native/Loader/elf_loader_emulator.cpp": "9d2d00012d1019bf7e99c2b16a9af6570eec30f75a7a01cffa15be05c5b4384c",
+    "Native/Loader/elf_loader_emulator.h": "83b76029f2360edb70cef85abc09ec8e2f6c7ee122fb4f16b2ac7458f48a9c7a",
+    "Native/anisette_base.cpp": "46a17d20a707b4be111f9342495bbbe454de472768ffe74cc08ac9174f09c024",
+    "Native/anisette_base.h": "6c47c3fef881d99082d1eb7e687fc78de6339568118259884d2b8a0d6c6e8664",
+    "Native/anisette_core_uc.cpp": "abee10baeca21b7d175872f1f05bd4c9b36f62dd563404e6e2a17b8a7c7c2d60",
+    "Native/include/anisette_core.h": "887326b1b3d78426f39472654b58e75876d2e57f91ce7b0ff1bc3e0343ba0672",
+    "Sources/AnisetteDataProvider.swift": "f501ed0ee8ec218aa8e8c0237fca00ecc916193f6b8b14b77bf1b949850680fc"
+  }
+}

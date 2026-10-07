@@ -50,6 +50,17 @@ def program(*, baseline=False, old_fallback=False):
     fixture = fixture.replace("__PRODUCTION_CONFIG_METHODS__", "\n".join(methods))
     fixture = fixture.replace("__PRODUCTION_ODA_METHOD__", declaration(oda, "    public func fetchAnisetteData("))
     fixture = fixture.replace("__PRODUCTION_REMOTE_PROVIDER__", declaration(remote, "enum AnisetteProvider {"))
+    if not baseline:
+        common = (ROOT / "scripts/templates/combined_failure.swift").read_text()
+        support = (ROOT / "scripts/templates/anisette_legacy_recovery.swift").read_text()
+        extra = "\n".join(declaration(common, signature) for signature in (
+            "struct V3AnisetteAttemptContext {", "struct V3AnisetteAttemptError:",
+            "struct V3AnisetteNativeEvidence {"))
+        extra += (ROOT / "tests/fixtures/anisette_recovery_probe_double.swift").read_text()
+        extra += declaration(support, "extension OnDeviceAnisetteManager {")
+        fixture = fixture.replace("@main struct AnisettePairTests", extra + "\n@main struct AnisettePairTests", 1)
+        fixture = fixture.replace("    static let shared = SyntheticAnisetteDataManager()",
+            '    let libsDir = URL(fileURLWithPath: "/synthetic-libraries")\n    static let shared = SyntheticAnisetteDataManager()', 1)
     doubles = existing.DOUBLES.replace("\nfinal class Keychain {", "\nfinal class Keychain {\n    static var shared: Keychain!", 1)
     doubles = doubles.replace('        func getData(_ key: String) throws -> Data? {',
         '        func getData(_ key: String) throws -> Data? {\n'

@@ -191,6 +191,7 @@ func SecItemCopyMatching(_ query: CFDictionary, _ result: UnsafeMutablePointer<C
     var rows: [[String: Any]] = []
     for group in visible {
         for (key, value) in Store.data[group, default: [:]] {
+            if let account = query[kSecAttrAccount] as? String, key != account { continue }
             rows.append([kSecAttrAccessGroup: group, kSecAttrAccount: key, kSecValueData: value])
         }
     }

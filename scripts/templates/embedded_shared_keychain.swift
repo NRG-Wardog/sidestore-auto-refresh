@@ -58,6 +58,80 @@ struct LCEmbeddedAnisetteSnapshot: Sendable {
     let stored: LCAnisetteStoredPair
 }
 
+// LC_ANISETTE_VERIFIED_LEGACY_RECOVERY_V1: an alternative identifier is only
+// a probe candidate. It never becomes a normal pair before isolated native OTP
+// validation succeeds and the exact stored/source snapshots still match.
+struct LCAnisetteRecoveryCandidate: Sendable, CustomStringConvertible, CustomDebugStringConvertible {
+    fileprivate let selected: LCAnisetteStoredPair
+    fileprivate let selectedGroup: String
+    fileprivate let sources: [String: LCAnisetteStoredPair]
+    fileprivate let identifier: UUID
+    fileprivate let blob: Data
+    var description: String { "Anisette recovery candidate" }
+    var debugDescription: String { description }
+
+    // The caller owns an isolated native-only OTP probe. A thrown error or
+    // cancellation cannot produce the commit proof; no Boolean bypass exists.
+    func validateNativeOTP<T>(_ probe: (UUID, Data) async throws ->
+        (result: T, oneTimePassword: String, machineID: String)) async throws
+        -> (proof: LCAnisetteRecoveryProof, result: T) {
+        try Task.checkCancellation()
+        let response = try await probe(identifier, blob)
+        try Task.checkCancellation()
+        try LCAnisetteRecoveryPolicy.validateNativeOTP(oneTimePassword: response.oneTimePassword,
+            machineID: response.machineID)
+        return (LCAnisetteRecoveryProof(candidate: self), response.result)
+    }
+}
+
+struct LCAnisetteRecoveryProof: Sendable, CustomStringConvertible, CustomDebugStringConvertible {
+    fileprivate let candidate: LCAnisetteRecoveryCandidate
+    fileprivate init(candidate: LCAnisetteRecoveryCandidate) { self.candidate = candidate }
+    var description: String { "Validated Anisette recovery proof" }
+    var debugDescription: String { description }
+}
+
+enum LCAnisetteRecoveryError: Error, Equatable {
+    case invalidLegacyPair, ambiguousLegacyIdentity, legacyBlobMismatch, invalidNativeProof
+}
+
+enum LCAnisetteRecoveryPolicy {
+    static func validateNativeOTP(oneTimePassword: String, machineID: String) throws {
+        for text in [oneTimePassword, machineID] {
+            guard let decoded = Data(base64Encoded: text), !decoded.isEmpty,
+                  decoded.base64EncodedString() == text else { throw LCAnisetteRecoveryError.invalidNativeProof }
+        }
+    }
+    // Pure admission: all legacy groups must agree on one canonical UUID.
+    // UUID-only sources remain untrusted until native OTP validates the exact
+    // existing blob against that UUID. Never use account keys to guess a pair.
+    static func candidate(selected: LCAnisetteStoredPair, selectedGroup: String,
+                          items: [LCLegacyKeychainItem]) throws -> LCAnisetteRecoveryCandidate? {
+        let current = try selected.validated()
+        guard let currentID = current.identifier, let blob = current.blob else { return nil }
+        var raw: [String: [String: Data]] = [:]
+        for item in items where item.group != selectedGroup && ["identifier", "adiPb"].contains(item.key) {
+            if let prior = raw[item.group]?[item.key], prior != item.data { throw LCAnisetteRecoveryError.ambiguousLegacyIdentity }
+            raw[item.group, default: [:]][item.key] = item.data
+        }
+        var identifier: UUID?
+        var sources: [String: LCAnisetteStoredPair] = [:]
+        for (group, values) in raw {
+            let stored = LCAnisetteStoredPair(identifier: values["identifier"], blob: values["adiPb"])
+            guard let decoded = try? stored.validated(), let candidateID = decoded.identifier else {
+                throw LCAnisetteRecoveryError.invalidLegacyPair
+            }
+            guard decoded.blob == nil || decoded.blob == blob else { throw LCAnisetteRecoveryError.legacyBlobMismatch }
+            if let prior = identifier, prior != candidateID { throw LCAnisetteRecoveryError.ambiguousLegacyIdentity }
+            identifier = candidateID
+            sources[group] = stored
+        }
+        guard let identifier, identifier != currentID else { return nil }
+        return LCAnisetteRecoveryCandidate(selected: selected, selectedGroup: selectedGroup, sources: sources,
+            identifier: identifier, blob: blob)
+    }
+}
+
 // LC_SHARED_MIGRATION_POLICY_BEGIN
 struct LCLegacyKeychainItem {
     let group: String
@@ -266,6 +340,7 @@ fileprivate enum LCEmbeddedSharedKeychain {
     private static let certificatePending = Data("pending-v1".utf8)
     private static let authenticationJournal = "LCSharedAuthenticationTransactionV1"
     private static let certificateJournal = "LCSharedCertificateTransactionV1"
+    private static let anisetteRecoveryJournal = "LCAnisetteIdentityRecoveryV1"
 
     private static var installedGroup: String?
     private static var installedAppGroup: String?
@@ -332,13 +407,14 @@ fileprivate enum LCEmbeddedSharedKeychain {
             read: { try client.getData($0) }, write: { try client.set($1, key: $0) })
     }
 
-    private static func legacyItems(service: String) throws -> [LCLegacyKeychainItem] {
+    private static func legacyItems(service: String, key: String? = nil) throws -> [LCLegacyKeychainItem] {
         // Exact SideStore service only; securityd limits results to groups this
         // process is already entitled to. Never scan other apps' services.
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service, kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
             kSecMatchLimit as String: kSecMatchLimitAll, kSecReturnAttributes as String: true,
             kSecReturnData as String: true, kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail]
+        if let key { query[kSecAttrAccount as String] = key }
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return [] }
@@ -346,11 +422,15 @@ fileprivate enum LCEmbeddedSharedKeychain {
         guard let rows = result as? [[String: Any]] else {
             throw NSError(domain: "com.SideStore.Keychain", code: 1009)
         }
-        return rows.compactMap { row in
+        return try rows.compactMap { row in
             guard let group = row[kSecAttrAccessGroup as String] as? String,
-                  let key = row[kSecAttrAccount as String] as? String,
-                  let data = row[kSecValueData as String] as? Data else { return nil }
-            return LCLegacyKeychainItem(group: group, key: key, data: data)
+                  let storedKey = row[kSecAttrAccount as String] as? String,
+                  let data = row[kSecValueData as String] as? Data else {
+                if key != nil { throw LCAnisetteRecoveryError.invalidLegacyPair }
+                return nil
+            }
+            if let key, storedKey != key { throw LCAnisetteRecoveryError.invalidLegacyPair }
+            return LCLegacyKeychainItem(group: group, key: storedKey, data: data)
         }
     }
 
@@ -475,6 +555,7 @@ fileprivate enum LCEmbeddedSharedKeychain {
     static func resolveAnisetteSnapshot(_ client: KeychainAccess.Keychain) throws -> LCEmbeddedAnisetteSnapshot {
         guard installedGroup != nil else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
         return try withSharedTransaction {
+            try reconcileAnisetteRecoveryLocked(client)
             let stored = try LCAnisetteStoredPair.read { try client.getData($0) }
             let valid = try stored.validated()
             if let identifier = valid.identifier {
@@ -493,6 +574,7 @@ fileprivate enum LCEmbeddedSharedKeychain {
         guard installedGroup != nil else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
         guard !blob.isEmpty else { throw LCAnisettePairError.invalidBlob }
         try withSharedTransaction {
+            guard try client.getData(anisetteRecoveryJournal) == nil else { throw LCAnisettePairError.stateChanged }
             let current = try LCAnisetteStoredPair.read { try client.getData($0) }
             guard current == snapshot.stored else { throw LCAnisettePairError.stateChanged }
             if let existing = snapshot.adiBlob {
@@ -504,6 +586,135 @@ fileprivate enum LCEmbeddedSharedKeychain {
             }
             try writeOne("adiPb", data: Data(blob.base64EncodedString().utf8), client: client)
         }
+    }
+
+    private static func legacyAnisetteItems() throws -> [LCLegacyKeychainItem] {
+        // Each Security query is scoped to one pair key and this exact service;
+        // securityd limits results to the process's already entitled groups.
+        try ["identifier", "adiPb"].flatMap { key in
+            try legacyItems(service: service, key: key).filter { $0.key == key }
+        }
+    }
+
+    static func validateAnisetteSnapshot(_ snapshot: LCEmbeddedAnisetteSnapshot,
+                                         client: KeychainAccess.Keychain) throws {
+        guard installedGroup != nil else { throw LCAnisettePairError.stateChanged }
+        try withSharedTransaction {
+            try Task.checkCancellation()
+            guard try client.getData(anisetteRecoveryJournal) == nil,
+                  try LCAnisetteStoredPair.read({ try client.getData($0) }) == snapshot.stored else {
+                throw LCAnisettePairError.stateChanged
+            }
+        }
+    }
+
+    static func anisetteRecoveryCandidate(for snapshot: LCEmbeddedAnisetteSnapshot,
+                                          client: KeychainAccess.Keychain) throws -> LCAnisetteRecoveryCandidate? {
+        guard let group = installedGroup else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
+        return try withSharedTransaction {
+            // Candidate discovery is strictly read-only, including when a prior
+            // recovery needs reconciliation by the normal snapshot reader.
+            guard try client.getData(anisetteRecoveryJournal) == nil else { throw LCAnisettePairError.stateChanged }
+            let selected = try LCAnisetteStoredPair.read { try client.getData($0) }
+            guard selected == snapshot.stored else { throw LCAnisettePairError.stateChanged }
+            guard try selected.validated().blob != nil else { return nil }
+            return try LCAnisetteRecoveryPolicy.candidate(selected: selected, selectedGroup: group,
+                items: legacyAnisetteItems())
+        }
+    }
+
+    static func commitAnisetteRecovery(_ proof: LCAnisetteRecoveryProof,
+                                       client: KeychainAccess.Keychain) throws -> LCEmbeddedAnisetteSnapshot {
+        guard let group = installedGroup else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
+        return try withSharedTransaction {
+            try Task.checkCancellation()
+            let candidate = proof.candidate
+            guard candidate.selectedGroup == group,
+                  try client.getData(anisetteRecoveryJournal) == nil,
+                  let originalID = candidate.selected.identifier,
+                  let rawBlob = candidate.selected.blob else { throw LCAnisettePairError.stateChanged }
+            let expectedID = Data(candidate.identifier.uuidString.utf8)
+            let expectedPair = LCAnisetteStoredPair(identifier: expectedID, blob: rawBlob)
+            func verifyReceipt() throws {
+                let selected = try LCAnisetteStoredPair.read { try client.getData($0) }
+                guard selected == candidate.selected,
+                      let fresh = try? LCAnisetteRecoveryPolicy.candidate(selected: selected, selectedGroup: group,
+                          items: legacyAnisetteItems()),
+                      fresh.identifier == candidate.identifier, fresh.sources == candidate.sources,
+                      fresh.blob == candidate.blob else { throw LCAnisettePairError.stateChanged }
+            }
+            try verifyReceipt()
+            // Reuse the existing Keychain journal machinery. Both blob entries
+            // are byte-identical; only the identifier is ever written below.
+            do {
+                try saveTransactionJournal(anisetteRecoveryJournal, keys: ["identifier", "adiPb"],
+                    original: ["identifier": originalID, "adiPb": rawBlob],
+                    expected: ["identifier": expectedID, "adiPb": rawBlob], originalMarker: nil,
+                    expectedMarker: Data("native-otp-validated-v1".utf8), client: client)
+            } catch {
+                let journalError = error
+                do {
+                    guard try LCAnisetteStoredPair.read({ try client.getData($0) }) == candidate.selected else {
+                        throw LCAnisettePairError.stateChanged
+                    }
+                    try reconcileAnisetteRecoveryLocked(client)
+                } catch { throw LCAnisettePairError.stateChanged }
+                throw journalError
+            }
+            do {
+                try Task.checkCancellation()
+                try verifyReceipt()
+                try client.set(expectedID, key: "identifier")
+                guard try LCAnisetteStoredPair.read({ try client.getData($0) }) == expectedPair else {
+                    throw LCAnisettePairError.stateChanged
+                }
+                try Task.checkCancellation()
+                try clearTransactionJournal(anisetteRecoveryJournal, client: client)
+                return LCEmbeddedAnisetteSnapshot(identifier: candidate.identifier, adiBlob: candidate.blob,
+                    stored: expectedPair)
+            } catch {
+                let writeError = error
+                do {
+                    // Never overwrite an unrelated concurrent change. Rollback
+                    // is permitted only from our exact prior/intended pair.
+                    let observed = try LCAnisetteStoredPair.read { try client.getData($0) }
+                    if observed == expectedPair { try client.set(originalID, key: "identifier") }
+                    else if observed != candidate.selected { throw LCAnisettePairError.stateChanged }
+                    guard try LCAnisetteStoredPair.read({ try client.getData($0) }) == candidate.selected else {
+                        throw LCAnisettePairError.stateChanged
+                    }
+                    try clearTransactionJournal(anisetteRecoveryJournal, client: client)
+                } catch { throw LCAnisettePairError.stateChanged }
+                throw writeError
+            }
+        }
+    }
+
+    private static func reconcileAnisetteRecoveryLocked(_ client: KeychainAccess.Keychain) throws {
+        guard let data = try client.getData(anisetteRecoveryJournal) else { return }
+        guard let value = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+              let journal = value as? [String: Any],
+              Set(journal.keys) == ["version", "keys", "original", "expected", "expectedMarker"],
+              journal["version"] as? Int == 1,
+              journal["keys"] as? [String] == ["identifier", "adiPb"],
+              journal["expectedMarker"] as? Data == Data("native-otp-validated-v1".utf8),
+              let original = journal["original"] as? [String: Data], Set(original.keys) == ["identifier", "adiPb"],
+              let expected = journal["expected"] as? [String: Data], Set(expected.keys) == ["identifier", "adiPb"],
+              original["adiPb"] == expected["adiPb"] else { throw LCAnisettePairError.stateChanged }
+        let priorPair = LCAnisetteStoredPair(identifier: original["identifier"], blob: original["adiPb"])
+        let intendedPair = LCAnisetteStoredPair(identifier: expected["identifier"], blob: expected["adiPb"])
+        guard let prior = try? priorPair.validated(), let intended = try? intendedPair.validated(),
+              let priorID = prior.identifier, let intendedID = intended.identifier,
+              priorID != intendedID, prior.blob != nil, prior.blob == intended.blob,
+              expected["identifier"] == Data(intendedID.uuidString.utf8) else { throw LCAnisettePairError.stateChanged }
+        let observed = try LCAnisetteStoredPair.read { try client.getData($0) }
+        guard observed == priorPair || observed == intendedPair else { throw LCAnisettePairError.stateChanged }
+        // Reconciliation clears proof only. It never picks or writes a pair,
+        // retries native OTP, accesses Apple, or changes account state.
+        guard try LCAnisetteStoredPair.read({ try client.getData($0) }) == observed else {
+            throw LCAnisettePairError.stateChanged
+        }
+        try clearTransactionJournal(anisetteRecoveryJournal, client: client)
     }
 
     static func readString(_ key: String, client: KeychainAccess.Keychain) -> String? {
@@ -742,6 +953,7 @@ fileprivate enum LCEmbeddedSharedKeychain {
                                  certificateSerial: (Data, String?) throws -> String) throws {
         guard installedGroup != nil else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
         try withSharedTransaction {
+            try reconcileAnisetteRecoveryLocked(client)
             for (markerKey, journalKey) in [(LCSharedKeychainMigration.marker, authenticationJournal),
                                             (certificateMarker, certificateJournal)] {
                 let observedMarker = try client.getData(markerKey)
@@ -831,7 +1043,8 @@ fileprivate enum LCEmbeddedSharedKeychain {
     static func storageRequiresReconciliation(_ client: KeychainAccess.Keychain) throws -> Bool {
         guard installedGroup != nil else { throw NSError(domain: "com.SideStore.Keychain", code: -34018) }
         return try withSharedTransaction {
-            if try client.getData(authenticationJournal) != nil || client.getData(certificateJournal) != nil { return true }
+            if try client.getData(authenticationJournal) != nil || client.getData(certificateJournal) != nil ||
+                client.getData(anisetteRecoveryJournal) != nil { return true }
             for key in [LCSharedKeychainMigration.marker, certificateMarker] {
                 let marker = try client.getData(key)
                 if marker != nil && marker != LCSharedKeychainMigration.ready &&

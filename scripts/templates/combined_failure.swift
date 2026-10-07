@@ -580,9 +580,13 @@ public struct CombinedFailure: Error, LocalizedError {
                       Set(names).count == names.count else { return nil }
             case "server_code":
                 guard text == "unknown" || (text.utf8.count <= 20 && Int(text).map({ String($0) }) == text) else { return nil }
-            case "native_code", "native_subcode":
+            case "native_code", "native_subcode", "probe_native_code", "probe_native_subcode":
                 guard text == "unknown" || Int32(text).map({ String($0) }) == text else { return nil }
-            case "native_phase":
+            case "anisette_blob_state":
+                guard V3AnisetteAttemptContext.BlobState(rawValue: text) != nil else { return nil }
+            case "anisette_recovery":
+                guard V3AnisetteAttemptContext.Recovery(rawValue: text) != nil else { return nil }
+            case "native_phase", "probe_native_phase":
                 guard V3AnisetteNativeEvidence.Phase(rawValue: text) != nil else { return nil }
             case "http_status":
                 guard text == "unavailable" || Int(text).map({ (100...599).contains($0) && String($0) == text }) == true else { return nil }
@@ -1266,6 +1270,16 @@ public struct CombinedFailure: Error, LocalizedError {
     public static func capture(_ error: Error, operation: String, stage: Stage, id: String,
                                retryable: Bool? = nil) -> CombinedFailure {
         if let known = error as? CombinedFailure { return known }
+        if let attempt = error as? V3AnisetteAttemptError {
+            let known = capture(attempt.underlying, operation: operation, stage: stage,
+                                id: id, retryable: retryable)
+            var context = known.signingContext
+            context.merge(attempt.context.diagnosticFields) { _, observed in observed }
+            return CombinedFailure(operation: known.operation, stage: known.stage, code: known.code,
+                id: id, underlying: NSError(domain: known.underlyingDomain, code: known.underlyingCode),
+                retryable: known.retryable, safeCause: known.safeCause, sourceStep: known.sourceStep,
+                signingContext: context, launchContext: known.launchContext)
+        }
         if error is LCAnisettePairError {
             return V3AccountOperationError(step: .anisetteFetch, kind: .anisetteIdentityStateInvalid,
                 underlying: error, serverCode: nil).failure(operation: operation, id: id)
@@ -1473,6 +1487,32 @@ func v3AuthenticationPhase<T>(_ step: CombinedFailure.SourceStep,
     }
 }
 
+// Recovery evidence is finite and contains no identity, blob or provider text.
+struct V3AnisetteAttemptContext {
+    enum BlobState: String { case existing, fresh }
+    enum Recovery: String {
+        case notAttempted, noLegacyCandidate, legacyReadFailed, ambiguousLegacyIdentity
+        case invalidLegacyPair, legacyBlobMismatch, probeRejected, invalidNativeProof
+        case restoreFailed, stateChanged, temporaryStorageUnavailable, currentProbeRejected
+    }
+    let blobState: BlobState
+    let recovery: Recovery
+    var probeEvidence: V3AnisetteNativeEvidence? = nil
+    var diagnosticFields: [String: String] {
+        var fields = ["anisette_blob_state": blobState.rawValue, "anisette_recovery": recovery.rawValue]
+        if let probeEvidence {
+            fields["probe_native_code"] = String(probeEvidence.code)
+            fields["probe_native_phase"] = probeEvidence.phase.rawValue
+            fields["probe_native_subcode"] = probeEvidence.subcode.map(String.init) ?? "unknown"
+        }
+        return fields
+    }
+}
+struct V3AnisetteAttemptError: Error {
+    let underlying: Error
+    let context: V3AnisetteAttemptContext
+}
+
 // V3_ANISETTE_NATIVE_EVIDENCE_V1: the associated ADI Int32 is not an Apple
 // server result or Swift's NSError enum discriminator. Only exact producers in
 // AnisetteKit 1f5a7e36553cc865b873f222b87a6486c0bcc7bf Native/anisette_core_{mac,uc}.cpp
@@ -1577,6 +1617,7 @@ struct V3AccountOperationError: Error, LocalizedError {
     let serverCode: Int?
     var httpStatus: Int? = nil
     var nativeEvidence: V3AnisetteNativeEvidence? = nil
+    var anisetteAttempt: V3AnisetteAttemptContext? = nil
 
     var errorDescription: String? { "An account operation failed; review the safe diagnostics." }
     var credentialCommit: Bool { step == .credentialCommit && kind != .anisetteIdentityStateInvalid }
@@ -1613,6 +1654,9 @@ struct V3AccountOperationError: Error, LocalizedError {
             signingContext["native_code"] = String(nativeEvidence.code)
             signingContext["native_phase"] = nativeEvidence.phase.rawValue
             signingContext["native_subcode"] = nativeEvidence.subcode.map(String.init) ?? "unknown"
+        }
+        if let anisetteAttempt {
+            signingContext.merge(anisetteAttempt.diagnosticFields) { _, observed in observed }
         }
         return CombinedFailure(operation: operation, stage: failureStage, id: id,
             underlying: NSError(domain: native.domain, code: native.code),

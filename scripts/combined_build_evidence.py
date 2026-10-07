@@ -7,6 +7,7 @@ from pathlib import Path
 import plistlib
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import zipfile
@@ -15,7 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from verify_candidate_ipa import (MACHO_MAGICS, is_java_class_file, macho_cpu_subtypes,
                                  macho_uuids, require_arm64_all_image,
                                  DEFAULT_ARCHIVE_LIMITS, preflight_archive,
-                                 preflight_zip_directory, validate_ipa_size)
+                                 preflight_zip_directory, validate_ipa_size,
+                                 ANISETTE_EVIDENCE_DIRECTORY, ANISETTE_EVIDENCE_MANIFEST,
+                                 verify_isolated_anisette_binary,
+                                 verify_isolated_anisette_evidence)
 
 
 HOST_SOURCE_PATHS = [
@@ -152,6 +156,40 @@ def require_unchanged_ipa_path(path, expected_signature):
         raise ValueError("IPA changed after evidence snapshot")
 
 
+def collect_isolated_anisette_evidence(source: Path, manifest: Path,
+                                      output: Path, executable: bytes) -> dict:
+    from patch_anisette_isolated_otp import expected_evidence
+    # The build's exact DerivedData checkout must still be at the pinned commit
+    # and contain only the allowed native transformation. Never patch at collect.
+    subprocess.run([sys.executable,
+        str(Path(__file__).with_name("patch_anisette_isolated_otp.py")),
+        str(source), "--verify"], check=True, capture_output=True, text=True)
+    expected = expected_evidence()
+    manifest_data = manifest.read_bytes()
+    if json.loads(manifest_data) != expected:
+        raise ValueError("post-build Anisette OTP manifest does not match the pinned transformation")
+    verify_isolated_anisette_binary(executable)
+    destination = output / ANISETTE_EVIDENCE_DIRECTORY
+    destination.mkdir(parents=True, exist_ok=True)
+    hashes = {}
+    for entry in expected["files"]:
+        name = entry["path"]
+        data = (source / name).read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != entry["prepared_sha256"]:
+            raise ValueError("Anisette OTP source changed after verification: " + name)
+        target = destination / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        hashes[name] = digest
+    (destination / ANISETTE_EVIDENCE_MANIFEST).write_bytes(manifest_data)
+    binding = {"manifest_sha256": hashlib.sha256(manifest_data).hexdigest(),
+               "source_sha256": hashes,
+               "executable_sha256": hashlib.sha256(executable).hexdigest()}
+    verify_isolated_anisette_evidence(output, binding, executable)
+    return binding
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('mode', choices=['identity', 'collect'])
@@ -160,8 +198,12 @@ def main():
     parser.add_argument('--output', type=Path)
     parser.add_argument('--source', type=Path)
     parser.add_argument('--side-source', type=Path)
+    parser.add_argument('--anisette-source', type=Path)
+    parser.add_argument('--anisette-manifest', type=Path)
     parser.add_argument('paths', nargs='+', type=Path)
     args = parser.parse_args()
+    if bool(args.anisette_source) != bool(args.anisette_manifest):
+        parser.error('--anisette-source and --anisette-manifest are required together')
     if args.product not in ('v2', 'v3') and not re.fullmatch(r'v3\.\d+(\.\d+)*(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?', args.product):
         parser.error("argument --product: invalid choice (choose from 'v2', 'v3', or a 'v3.x[.y][-candidate]' release line)")
     commit = os.environ['GITHUB_SHA']
@@ -182,7 +224,7 @@ def main():
         preflight_zip_directory(snapshot_path, ipa_size)
         args.output.mkdir(parents=True, exist_ok=True)
         # Ensure repeated collection cannot retain stale files from an earlier run.
-        for name in ('host', 'embedded', 'generated', 'embedded-generated'):
+        for name in ('host', 'embedded', 'generated', 'embedded-generated', ANISETTE_EVIDENCE_DIRECTORY):
             target = args.output / name
             if target.exists(): shutil.rmtree(target)
         provenance_path = args.output / 'candidate-provenance.json'
@@ -213,6 +255,7 @@ def main():
                 marker = b'LCFAILURE1:' if executable.startswith('SideStoreSupport') else b'LCStructuredFailureStageV1'
                 assert marker in data, 'structured error protocol absent: ' + executable
                 if executable.startswith('SideStoreApp'):
+                    side_store_executable_data = data
                     assert b'UNIQUE_DEVICE_ID_QUERY_FAIL' in data, 'Issue 24 query diagnostics absent'
                     assert b'lc_stage=uniqueDeviceID' in data, 'Issue 24 structured category absent'
         require_unchanged_ipa_path(args.ipa, ipa_signature)
@@ -260,6 +303,10 @@ def main():
     expected_generated.update('embedded/' + name for name in EMBEDDED_SOURCE_PATHS)
     if set(generated) != expected_generated:
         raise ValueError('collected generated-source inventory is incomplete')
+    anisette_binding = None
+    if args.anisette_source:
+        anisette_binding = collect_isolated_anisette_evidence(args.anisette_source,
+            args.anisette_manifest, args.output, side_store_executable_data)
     evidence = dict(identity, schema=1, candidate_product_version=args.product,
         physical_device_execution=False,
         verification_scope='Static package identity, error protocol, UUID and dSYM matching; not runtime validation',
@@ -267,6 +314,8 @@ def main():
         framework_uuids=binaries, framework_cpu_subtypes=binary_subtypes,
         dsym_uuids=symbols, dsym_sha256=symbol_hashes, generated_source_sha256=generated,
         dependencies={key: os.environ[key] for key in ('LIVE_CONTAINER_REF', 'EMBEDDED_SIDESTORE_REF', 'MINIMUXER_REF', 'SIDESIGN_REF', 'SIDESIGN_GSA_FIX', 'IDEVICE_REF', 'JKTCP_REF')})
+    if anisette_binding is not None:
+        evidence['isolated_anisette_otp'] = anisette_binding
     final_size, final_sha256 = hash_ipa_file(args.ipa)
     if final_size != ipa_size or final_sha256 != ipa_sha256:
         raise ValueError("IPA changed during evidence collection")

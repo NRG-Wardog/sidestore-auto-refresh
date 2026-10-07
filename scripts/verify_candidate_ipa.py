@@ -44,6 +44,10 @@ REQUIRED_BACKGROUND_IDS = {
 }
 REQUIRED_BACKGROUND_MODES = {"processing", "fetch"}
 REQUIRED_DEAD10CC_MARKER = b"DEAD10CC_FIX_E98699A registered both observers in guest process"
+ANISETTE_EVIDENCE_DIRECTORY = "anisette-generated"
+ANISETTE_EVIDENCE_MANIFEST = "isolated-otp-patch.json"
+ANISETTE_COMPILED_MARKER = b"V3_ISOLATED_ANISETTE_OTP_V1"
+ANISETTE_COMPILED_LITERAL = b"Isolated OTP staging failed"
 REMOVED_SIDESTORE_ICON_NAMES = {
     "blueicon", "darkicon", "honeydewicon", "prideicon",
     "sandyicon", "skyicon", "snowicon", "starbursticon", "stormicon", "vistaicon", "wintericon",
@@ -595,6 +599,53 @@ REQUIRED_GENERATED_EMBEDDED_SOURCES = {
     "SideStore/Core/Operations/PipelineOperations/PerformBackupRestoreOperation.swift",
     "SideBackup/SideBackupApp.swift",
 }
+
+
+def verify_isolated_anisette_binary(executable: bytes) -> None:
+    # The C provider retains the version marker in its linked object. Its error
+    # literal is independently emitted by the isolated OTP implementation; a
+    # Swift declaration or a copied source manifest alone is not compiled proof.
+    if (ANISETTE_COMPILED_MARKER not in executable or
+            ANISETTE_COMPILED_LITERAL not in executable):
+        raise ValueError("embedded SideStore is missing the compiled isolated Anisette OTP API")
+
+
+def verify_isolated_anisette_evidence(evidence_root: Path, binding: dict,
+                                     executable: bytes) -> None:
+    from patch_anisette_isolated_otp import expected_evidence
+    expected_manifest = expected_evidence()
+    expected_paths = {entry["path"] for entry in expected_manifest["files"]}
+    if not isinstance(binding, dict) or set(binding) != {
+            "manifest_sha256", "source_sha256", "executable_sha256"}:
+        raise ValueError("isolated Anisette OTP evidence binding is missing or invalid")
+    verify_isolated_anisette_binary(executable)
+    if binding["executable_sha256"] != hashlib.sha256(executable).hexdigest():
+        raise ValueError("isolated Anisette OTP evidence is bound to another executable")
+    root = evidence_root / ANISETTE_EVIDENCE_DIRECTORY
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError("isolated Anisette OTP source evidence is missing or linked")
+    actual_paths = set()
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise ValueError("isolated Anisette OTP evidence contains a link")
+        if path.is_file():
+            actual_paths.add(path.relative_to(root).as_posix())
+    if actual_paths != expected_paths | {ANISETTE_EVIDENCE_MANIFEST}:
+        raise ValueError("isolated Anisette OTP evidence inventory mismatch")
+    manifest_data = (root / ANISETTE_EVIDENCE_MANIFEST).read_bytes()
+    if binding["manifest_sha256"] != hashlib.sha256(manifest_data).hexdigest():
+        raise ValueError("isolated Anisette OTP manifest hash mismatch")
+    # Derive these exact hashes from the pinned originals and the reviewed
+    # transformation, not from the copied manifest's own claims.
+    if json.loads(manifest_data) != expected_manifest:
+        raise ValueError("isolated Anisette OTP manifest differs from its pinned transformation")
+    expected_hashes = {entry["path"]: entry["prepared_sha256"]
+                       for entry in expected_manifest["files"]}
+    if binding["source_sha256"] != expected_hashes:
+        raise ValueError("isolated Anisette OTP source binding differs from its pinned transformation")
+    for name, expected_hash in expected_hashes.items():
+        if hashlib.sha256((root / name).read_bytes()).hexdigest() != expected_hash:
+            raise ValueError("isolated Anisette OTP prepared source hash mismatch: " + name)
 
 
 def verify_generated_source_evidence(evidence_root: Path, hashes: dict,
@@ -1198,6 +1249,9 @@ def verify(ipa: Path, provenance_path: Path, product: str,
                 for name, value in generated_hashes.items())):
         raise ValueError("generated source evidence hashes are missing or invalid")
     verify_generated_source_evidence(provenance_path.parent, generated_hashes, product)
+    if product != "v2":
+        verify_isolated_anisette_evidence(provenance_path.parent,
+            provenance.get("isolated_anisette_otp"), side_store_executable_data)
     actual_dsym_uuids, actual_dsym_hashes = preserved_dsym_evidence(provenance_path.parent, packaged_uuids)
     if actual_dsym_uuids != dsym_uuids:
         raise ValueError("preserved dSYM contents do not match provenance UUID evidence")

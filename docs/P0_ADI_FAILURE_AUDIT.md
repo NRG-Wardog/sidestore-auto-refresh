@@ -84,5 +84,7 @@ Dynamic path-bearing native descriptions intentionally retain their outer code
 with unknown phase; unknown phase must not be interpreted as excluding a
 directory or library-read failure.
 
-This candidate's purpose is to identify the failing native boundary. It must
-not be presented as a confirmed repair of the reported sign-in failure.
+The `39c474ee` candidate's purpose was to identify the failing native boundary.
+It must not be presented as a confirmed repair. The subsequent confirmed OTP
+`-45061` result and bounded recovery design are recorded in
+`P0_VERIFIED_ANISETTE_RECOVERY.md`.
