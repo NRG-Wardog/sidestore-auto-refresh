@@ -156,10 +156,17 @@ def member(source: str, signature: str) -> str:
 def extract_sources(source: Path, templates: Path) -> tuple[dict[str, str], dict]:
     """Only production code owns control layout and diagnostic rendering.
 
-    The generated shell contains its behavioral primitives. Supporting templates
-    are the unchanged production inputs from this exact builder checkout.
+    The shell contains its behavioral primitives. Prepared hosts supply exact
+    maintained support; standalone historical generation uses its own templates.
     """
     source_text = source.read_text()
+    # Maintained hosts own their support implementation. Never silently replace
+    # it with a historical generator template when exercising the actual host.
+    maintained = source.parent.parts[-2:] == ("LiveContainerSwiftUI", "Views")
+    support = source.parents[2] / "SideStoreSupport/SideStore.swift" if maintained else None
+    support_text = support.read_text() if support else None
+    if "V3TemporaryADIConsumption" in source_text and support_text is None:
+        raise ValueError("Maintained ADI policy requires its actual SideStore.swift support source")
     hashes = {"generated-shell": digest(source)}
     extracted = {}
     def retain(name, value):
@@ -193,13 +200,37 @@ def extract_sources(source: Path, templates: Path) -> tuple[dict[str, str], dict
         ("V3WireContract", "v3_wire_contract.swift", ("static func strictBool", "static func strictInt")),
         ("V3ServiceBridge", "v3_service_bridge.swift", ("public static func strictBool", "public static func strictInt")),
     ):
-        text = (templates / filename).read_text()
-        hashes["production-template/" + filename] = digest(templates / filename)
+        if support_text is not None:
+            signature = "enum V3WireContract" if typename == "V3WireContract" else "public final class V3ServiceBridge"
+            text = declaration(support_text, signature)
+        else:
+            text = (templates / filename).read_text()
+            hashes["production-template/" + filename] = digest(templates / filename)
         extracted[typename + ".swift"] = imports + "enum " + typename + " {\n" + "\n".join(
             retain(typename + "." + item, member(text, item)) for item in signatures) + "}\n"
-    combined = templates / "combined_failure.swift"
-    extracted["CombinedFailure.swift"] = combined.read_text()
-    hashes["production-template/combined_failure.swift"] = digest(combined)
+    if support_text is not None:
+        first = declaration(support_text, "public struct CombinedRefreshTargetPlan")
+        last = declaration(support_text, "public enum V3DiagnosticPresentation")
+        start = support_text.index(first)
+        end = support_text.index(last) + len(last)
+        if end <= start:
+            raise ValueError("Maintained combined failure support anchors are out of order")
+        combined_text = support_text[start:end]
+        # Validate the new policy dependency explicitly, even before compilation.
+        if "V3TemporaryADIConsumption" in source_text:
+            consumption = declaration(support_text, "public struct V3TemporaryADIConsumption")
+            if consumption not in combined_text:
+                raise ValueError("Maintained ADI consumption lies outside the diagnostic support region")
+        trace = declaration(support_text, "public struct V3TemporaryAnisetteTrace")
+        if trace not in combined_text:
+            raise ValueError("Maintained Anisette trace lies outside the diagnostic support region")
+        hashes["maintained-source/SideStoreSupport/SideStore.swift"] = digest(support)
+        extracted["CombinedFailure.swift"] = "import Foundation\nimport CoreFoundation\n\n" + retain(
+            "maintained-combined-failure", combined_text)
+    else:
+        combined = templates / "combined_failure.swift"
+        extracted["CombinedFailure.swift"] = combined.read_text()
+        hashes["production-template/combined_failure.swift"] = digest(combined)
     return extracted, hashes
 
 

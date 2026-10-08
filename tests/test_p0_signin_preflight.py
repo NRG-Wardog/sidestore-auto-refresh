@@ -267,6 +267,10 @@ class P0SignInPreflightTests(unittest.TestCase):
             live, _ = host_fixtures.fixture(root)
             preflight.shell.patch_host(live)
             source = live / "LiveContainerSwiftUI/Views/V3UnifiedShell.swift"
+            support = live / "SideStoreSupport/SideStore.swift"
+            support.parent.mkdir(exist_ok=True)
+            support.write_text("\n".join((ROOT / "scripts/templates" / filename).read_text()
+                for filename in ("combined_failure.swift", "v3_wire_contract.swift", "v3_service_bridge.swift")))
             output = root / "proof"; output.mkdir()
             generated, identity = preflight.prepare_source(output, source)
             self.assertEqual(generated.read_bytes(), source.read_bytes())
