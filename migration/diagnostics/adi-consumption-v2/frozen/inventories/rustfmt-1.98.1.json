@@ -1,0 +1,85 @@
+{
+  "full_tree_inventory": {
+    "path": "migration/cutover-evidence/rustfmt-full-tree-parity.json",
+    "sha256": "ba82de880e1df06a221d4662157aec6f2f13c0febe88b8308f073bbdc3c5c1b1"
+  },
+  "historical_owner_manifest_sha256": {
+    "idevice": "60734ff95c46f6239cd82ea7733797a06dc96b2a7163d38bd2926c18dbde5223",
+    "jktcp": "25a9d55d3f908ba3c8bb3fa82012d9d814c9186109666c2d1117070e6e893f3d"
+  },
+  "historical_registry_sha256": "8e7eba95b8bc69037ffed8931478cefd46984b458f767c2a067547e3cd60b467",
+  "historical_source_evidence_sha256": "1665e5b3b577f0a1c5a7ba0cfb7fe0cf054a14971c4517ce6ae339b88b0cd489",
+  "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+  "owners": {
+    "idevice": {
+      "behavior_differences": [],
+      "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+      "changed_files": [
+        {
+          "formatted_sha256": "508090fe4eae454a11d961831665965f6462fd328f7ad76a4a3ab004671a33d2",
+          "git_mode": "100644",
+          "old_generated_sha256": "f9fabb41e267c85891eac80aba562fe7ff913b2e8ece2e619086bdca9a6b5cda",
+          "path": "ffi/src/afc.rs"
+        },
+        {
+          "formatted_sha256": "c869d5c7ac0d68743223d627aa58fdecc397f7a97e073eaf3584046aff95891d",
+          "git_mode": "100644",
+          "old_generated_sha256": "61e090ea9c1e2e75d2fb8f355965e929ed35a0a4f5e9471f9949c7504c3356f0",
+          "path": "ffi/src/tunnel_provider.rs"
+        }
+      ],
+      "command": "cargo fmt --manifest-path idevice/ffi/Cargo.toml",
+      "formatted_owner_commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "formatted_owner_tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1",
+      "previous_owner_commit": "0182d7d8ce0c8bbeb440adbc989d88dc1d4c0789",
+      "previous_status": "exact_prepared_bytes_pass",
+      "product_entries_compared": 453,
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "rustfmt": "rustfmt 1.9.0-stable (48a229ceae 2026-09-01)",
+      "source_basis": "Both the frozen OLD generated tree and the previous maintained owner were formatted independently with the pinned formatter; every product blob, symlink and gitlink matches afterward.",
+      "validation": [
+        "git diff --check",
+        "exact changed source byte and mode comparison",
+        "Rust 1.98.1 cargo fmt --check --manifest-path idevice/ffi/Cargo.toml",
+        "all product bytes and modes equal independently formatted OLD generated source",
+        "Rust 1.98.1 cargo check --locked --manifest-path idevice/ffi/Cargo.toml --features obfuscate: passed with existing warnings"
+      ]
+    },
+    "jktcp": {
+      "behavior_differences": [],
+      "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+      "changed_files": [
+        {
+          "formatted_sha256": "57a5f51ef060f13533d99e2820af68dbf4325358c20d52e0752db79c543a98d3",
+          "git_mode": "100644",
+          "old_generated_sha256": "d3555e16174a3b3539ec2fe6648ea1d9006ef4590fb6ac0436bbb11c1bb81d63",
+          "path": "src/adapter.rs"
+        }
+      ],
+      "command": "cargo fmt --manifest-path jktcp/Cargo.toml",
+      "formatted_owner_commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "formatted_owner_tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13",
+      "previous_owner_commit": "82277a1f366e8d92e775d14212ff21621b25f3f3",
+      "previous_status": "exact_prepared_bytes_pass",
+      "product_entries_compared": 9,
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "rustfmt": "rustfmt 1.9.0-stable (48a229ceae 2026-09-01)",
+      "source_basis": "Both the frozen OLD generated tree and the previous maintained owner were formatted independently with the pinned formatter; every product blob, symlink and gitlink matches afterward.",
+      "validation": [
+        "git diff --check",
+        "exact changed source byte and mode comparison",
+        "Rust 1.98.1 cargo fmt --check --manifest-path jktcp/Cargo.toml",
+        "all product bytes and modes equal independently formatted OLD generated source",
+        "Rust 1.98.1 cargo test --locked --manifest-path jktcp/Cargo.toml --lib -- --skip tests::local_tcp --skip tests::handle_speed: 14 passed, 2 filtered"
+      ]
+    }
+  },
+  "schema_version": 1,
+  "toolchain": {
+    "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+    "cargo-clippy": "clippy 0.1.98 (48a229ceae 2026-09-01)",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "rustfmt": "rustfmt 1.9.0-stable (48a229ceae 2026-09-01)"
+  },
+  "validation_scope": "Linux transport format/test/check prerequisites; no new macOS/iOS native build or IPA claim."
+}

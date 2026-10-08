@@ -608,7 +608,7 @@ def verify_isolated_anisette_binary(executable: bytes, manifest: dict | None = N
     if (ANISETTE_COMPILED_MARKER not in executable or
             ANISETTE_COMPILED_LITERAL not in executable):
         raise ValueError("embedded SideStore is missing the compiled checked Anisette staging path")
-    if manifest is not None and manifest.get("source_basis") == "maintained-adi-consumption-v1":
+    if manifest is not None and manifest.get("source_basis") in {"maintained-adi-consumption-v1", "maintained-adi-consumption-v2"}:
         for item in manifest["required_compiled_evidence"]["literals"]:
             if item["value"].encode("utf-8") not in executable:
                 raise ValueError("embedded SideStore is missing reviewed ADI consumer evidence")

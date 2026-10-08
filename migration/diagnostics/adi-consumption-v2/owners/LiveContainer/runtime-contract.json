@@ -1,0 +1,250 @@
+{
+  "contract_set": "runtime-adi-consumption-f9f23d9.v2",
+  "format_version": 1,
+  "owner": "LiveContainer",
+  "provenance": {
+    "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+    "source_basis": "Immutable OLD prepared source; changed files checked against baseline generation inventories; unchanged contract surfaces checked against exact upstream Git blobs. Explicit diagnostic delta from accepted 47db163356dc419d2b6a894fdc5dbeb9d011dc69 to 2a1d297ed94840b134a6ea5111065d228a51cf2b (tree 3b34a80de19a31e61a6375e562fe03e69b63812b); see accepted-to-diagnostic-delta.json. Historical source checkpoint and receipts remain frozen. The previous accepted-to-diagnostic-delta reference is retained at frozen/adi-consumption-v1/provenance/accepted-to-diagnostic-delta.json. Explicit maintained-adi-consumption-v2 source delta from accepted f9 owner 2a1d297ed94840b134a6ea5111065d228a51cf2b to 6b128686477b569a936915abaa4bd2ec51b40c14 (tree 2ee1dce1690533ee0010e1fc3852c86bb501a452); current accepted-to-diagnostic-delta.json records exact changes. Historical checkpoints and receipts remain unchanged; v2 native/dependency outcomes are external.",
+    "upstream_commit": "12377cf3b91d51739a33f14a302e5f522b238593",
+    "upstream_repository": "LiveContainer/LiveContainer"
+  },
+  "provides": [
+    {
+      "contract": "app-group-identity",
+      "source_paths": [
+        "LiveContainer/LCAppGroupIdentityRules.h",
+        "LiveContainer/LCAppGroupSelectionPolicy.h",
+        "LiveContainer/LCContainerStorage.h",
+        "LiveContainer/LCSharedUtils.m",
+        "LiveContainerSwiftUI/Utilities/V3SharedAppGroup.swift",
+        "LiveProcess/main.m",
+        "SideStoreSupport/SideStore.swift",
+        "SideStoreSupport/SideStoreHooks.m",
+        "SideStoreSupport/XPCClient.m"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "auth-service-messages",
+      "source_paths": [
+        "SideStoreSupport/SideStore.swift",
+        "SideStoreSupport/XPCClient.m",
+        "SideStoreSupport/XPCServer.h"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "diagnostics",
+      "source_paths": [
+        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+        "SideStoreSupport/SideStore.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "refresh-results",
+      "source_paths": [
+        "LiveContainerSwiftUI/App/AppDelegate.swift",
+        "LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift",
+        "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift",
+        "SideStoreSupport/SideStore.swift",
+        "SideStoreSupport/SideStoreClient.swift",
+        "SideStoreSupport/XPCClient.m",
+        "SideStoreSupport/XPCServer.h"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "xpc-service",
+      "source_paths": [
+        "LaunchAppExtension/LaunchAppExtension.swift",
+        "LiveProcess/main.m",
+        "SideStoreSupport/SideStore.swift",
+        "SideStoreSupport/SideStoreClient.swift",
+        "SideStoreSupport/XPCClient.m",
+        "SideStoreSupport/XPCServer.h",
+        "SideStoreSupport/XPCServer.m"
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "requires": [
+    {
+      "contract": "adi-consumption-debug",
+      "provider": "SideStore",
+      "source_paths": [
+        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+        "SideStoreSupport/SideStore.swift"
+      ],
+      "version": "2.0.0"
+    },
+    {
+      "contract": "app-group-identity",
+      "provider": "SideStore",
+      "source_paths": [
+        "LiveContainer/LCAppGroupIdentityRules.h",
+        "LiveContainer/LCAppGroupSelectionPolicy.h",
+        "LiveContainer/LCContainerStorage.h",
+        "LiveContainer/LCSharedUtils.m",
+        "LiveContainerSwiftUI/Utilities/V3SharedAppGroup.swift",
+        "LiveProcess/main.m",
+        "SideStoreSupport/SideStore.swift",
+        "SideStoreSupport/SideStoreHooks.m",
+        "SideStoreSupport/XPCClient.m"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "auth-service-messages",
+      "provider": "SideStore",
+      "source_paths": [
+        "SideStoreSupport/SideStore.swift",
+        "SideStoreSupport/XPCClient.m",
+        "SideStoreSupport/XPCServer.h"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "diagnostics",
+      "provider": "SideStore",
+      "source_paths": [
+        "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+        "SideStoreSupport/SideStore.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "refresh-results",
+      "provider": "SideStore",
+      "source_paths": [
+        "LiveContainerSwiftUI/App/AppDelegate.swift",
+        "LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift",
+        "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift",
+        "SideStoreSupport/SideStore.swift",
+        "SideStoreSupport/SideStoreClient.swift",
+        "SideStoreSupport/XPCClient.m",
+        "SideStoreSupport/XPCServer.h"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "xpc-service",
+      "provider": "SideStore",
+      "source_paths": [
+        "LaunchAppExtension/LaunchAppExtension.swift",
+        "LiveProcess/main.m",
+        "SideStoreSupport/SideStore.swift",
+        "SideStoreSupport/SideStoreClient.swift",
+        "SideStoreSupport/XPCClient.m",
+        "SideStoreSupport/XPCServer.h",
+        "SideStoreSupport/XPCServer.m"
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "sources": [
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:LaunchAppExtension/LaunchAppExtension.swift",
+      "mode": "100644",
+      "path": "LaunchAppExtension/LaunchAppExtension.swift",
+      "sha256": "aff2c014705a34dd9c2fae0eab9df89661a223634ace44dcfca04c7a9e46010c"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:LiveContainer/LCAppGroupIdentityRules.h",
+      "mode": "100644",
+      "path": "LiveContainer/LCAppGroupIdentityRules.h",
+      "sha256": "6e21323f11e5aaa11b22e376cb5f62cebe02f89babaac9a5fd2086f4a988c724"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:LiveContainer/LCAppGroupSelectionPolicy.h",
+      "mode": "100644",
+      "path": "LiveContainer/LCAppGroupSelectionPolicy.h",
+      "sha256": "1fe76564b89bd431924628249aa36484b86e47943aca4f754fa0fd66d6b91a96"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:LiveContainer/LCContainerStorage.h",
+      "mode": "100644",
+      "path": "LiveContainer/LCContainerStorage.h",
+      "sha256": "f732b42eca5e3f20cf407338837aceefeef61c5243b493d84e6d709e3efbfbcf"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:LiveContainer/LCSharedUtils.m",
+      "mode": "100644",
+      "path": "LiveContainer/LCSharedUtils.m",
+      "sha256": "48b45f4c7941a500fd8b46f955596407bcf17f470d289431e6bf6b14a7505eb0"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:LiveContainerSwiftUI/App/AppDelegate.swift",
+      "mode": "100644",
+      "path": "LiveContainerSwiftUI/App/AppDelegate.swift",
+      "sha256": "61556da1e6abe23bcf8b63d9e8b3278efee9c198e8dcd39eedc4a774e7969a79"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift",
+      "mode": "100644",
+      "path": "LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift",
+      "sha256": "e67daa3dfcf257cb0256bf4f3dd6f69407c9d72368ba699e672b158eda75f004"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:LiveContainerSwiftUI/Utilities/V3SharedAppGroup.swift",
+      "mode": "100644",
+      "path": "LiveContainerSwiftUI/Utilities/V3SharedAppGroup.swift",
+      "sha256": "5df142bd417b4c8065d688ef5ab49f58c6670ce858e91fee03bd4ac81b1e71cf"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift",
+      "mode": "100644",
+      "path": "LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift",
+      "sha256": "2739650a91d535d5d54189dfd84d19d244d4cafd583cbbe9aa24752f4df43f5c"
+    },
+    {
+      "basis": "frozen/adi-consumption-v1/provenance/accepted-to-diagnostic-delta.json:runtime_delta:LiveContainer:LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+      "mode": "100644",
+      "path": "LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+      "sha256": "8b8246533756a294fdf6ad09522f52dc1f322966142c11b317a4bef938093219"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:LiveProcess/main.m",
+      "mode": "100644",
+      "path": "LiveProcess/main.m",
+      "sha256": "9cfa9ac047bc7702de1915cc4703cb4544a86436884b401e6565824a60bf77c5"
+    },
+    {
+      "basis": "accepted-to-diagnostic-delta.json:runtime_delta:LiveContainer:SideStoreSupport/SideStore.swift",
+      "mode": "100644",
+      "path": "SideStoreSupport/SideStore.swift",
+      "sha256": "cacde808173a4a82d1375872609ed813b80e8552578cb93a5427fb720c51b34f"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:SideStoreSupport/SideStoreClient.swift",
+      "mode": "100644",
+      "path": "SideStoreSupport/SideStoreClient.swift",
+      "sha256": "9e03646c42531af98b150c7866a6b1bb8297b5d8cb285b7a5da739dce985aed5"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:SideStoreSupport/SideStoreHooks.m",
+      "mode": "100644",
+      "path": "SideStoreSupport/SideStoreHooks.m",
+      "sha256": "2fef18e4b9f7bb9acb895b175ade4dcfc592ee65151b0afecb51befa1e6caf9d"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:SideStoreSupport/XPCClient.m",
+      "mode": "100644",
+      "path": "SideStoreSupport/XPCClient.m",
+      "sha256": "7a83b4d771876ca64fe3ded78a7387eb3e9820307b7b5e474fad64149eddea9d"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:SideStoreSupport/XPCServer.h",
+      "mode": "100644",
+      "path": "SideStoreSupport/XPCServer.h",
+      "sha256": "5f435a16457cd31c6179ed77c70c698c4ce2498cbd848dcfa2e5e532d34df544"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:LiveContainer:SideStoreSupport/XPCServer.m",
+      "mode": "100644",
+      "path": "SideStoreSupport/XPCServer.m",
+      "sha256": "cf8111951e6bd079efc43778cea20051d6099765795a94ba64f2b716525f34dd"
+    }
+  ],
+  "version": "1.2.0"
+}

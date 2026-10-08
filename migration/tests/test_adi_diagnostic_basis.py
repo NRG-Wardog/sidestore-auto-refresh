@@ -21,7 +21,7 @@ import verify_candidate_ipa as verifier
 def diagnostic_pins():
     return {'source_basis': gate.DIAGNOSTIC_BASIS,
             'contract_registry_sha256': gate.DIAGNOSTIC_REGISTRY,
-            'owners': {'AnisetteKit': {'commit': 'e530b84687ebea2e7d1115119e1a6d18372de14b'}}}
+            'owners': {'AnisetteKit': {'commit': 'f494494ede88890555df345054f7fbb87b53aea5'}}}
 
 
 class DiagnosticPolicyTests(unittest.TestCase):
@@ -45,7 +45,7 @@ class DiagnosticPolicyTests(unittest.TestCase):
 
     def test_immutable_metadata_and_contract_copy_are_independently_bound(self):
         pins=diagnostic_pins();files=package.contract_files(pins)
-        self.assertEqual(len(files),12)
+        self.assertEqual(len(files),17)
         with tempfile.TemporaryDirectory() as directory:
             out=Path(directory);hashes=package.collect_contract_evidence(out,pins)
             package.verify_contract_evidence(out,hashes,pins)
@@ -57,11 +57,37 @@ class DiagnosticPolicyTests(unittest.TestCase):
 
     def test_diagnostic_source_data_has_exact_inventory_and_frozen_checkpoints(self):
         delta=gate.diagnostic_delta(diagnostic_pins())
-        self.assertEqual(len(delta['runtime_delta']),7);self.assertEqual(len(delta['nonruntime_delta']),15)
+        self.assertEqual(len(delta['runtime_delta']),8);self.assertEqual(len(delta['nonruntime_delta']),16)
         self.assertEqual(delta['accepted_graph']['SideStore']['source_checkpoint'],'9d8c71ed69684f805325ef440983e74d97113a71')
         self.assertEqual(len(gate.expected_anisette_evidence(diagnostic_pins())['files']),6)
         self.assertNotIn('AltStore/AppDelegate.swift',gate.ALLOWED_TRANSITIONS['SideStore'])
         self.assertNotIn('AnisetteKit',gate.ALLOWED_TRANSITIONS)
+
+    def test_predecessor_pin_bytes_cannot_be_rehashed_or_replaced(self):
+        pins=diagnostic_pins();source,_=gate.contract_basis(pins)
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)/'basis';shutil.copytree(source,root)
+            target=root/'frozen/accepted-v1/maintained-sources.json'
+            value=json.loads(target.read_bytes());value['owners']['SideStore']['commit']='0'*40
+            target.write_text(json.dumps(value))
+            with mock.patch.object(gate,'contract_basis',return_value=(root,gate.DIAGNOSTIC_REGISTRY)):
+                with self.assertRaisesRegex(ValueError,'reviewed hash'):gate.diagnostic_delta(pins)
+
+    def test_reviewed_delta_still_cannot_substitute_accepted_identity(self):
+        pins=diagnostic_pins();original=gate.diagnostic_metadata
+        delta=original(pins,'provenance/accepted-to-diagnostic-delta.json')
+        variants=[]
+        for field in ['commit','repository','source_checkpoint']:
+            changed=copy.deepcopy(delta);changed['accepted_graph']['SideStore'][field]='unapproved'
+            variants.append(changed)
+        for field in ['commit','tree','repository']:
+            changed=copy.deepcopy(delta);changed['accepted_integration'][field]='unapproved'
+            variants.append(changed)
+        for changed in variants:
+            def selected(p,name):
+                return changed if name=='provenance/accepted-to-diagnostic-delta.json' else original(p,name)
+            with mock.patch.object(gate,'diagnostic_metadata',side_effect=selected):
+                with self.assertRaises(ValueError):gate.diagnostic_delta(pins)
 
     def test_ci_uses_acquired_source_and_missing_explicit_source_cannot_skip(self):
         workflow=(ROOT/'.github/workflows/livecontainer-build.yml').read_text()
@@ -112,6 +138,16 @@ class DiagnosticTransitionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'mode/blob differs'):self.verify()
         self.delta['diagnostic_source_tuple']['AnisetteKit']['tree']='0'*40
         with self.assertRaisesRegex(ValueError,'source tree changed'):self.verify()
+
+    def test_unrelated_original_checkpoint_is_rejected(self):
+        self.git('checkout','--orphan','unrelated')
+        self.git('rm','-rf','.')
+        (self.root/'Other.swift').write_text('let unrelated = true\n')
+        self.git('add','Other.swift');self.git('commit','--quiet','-m','unrelated')
+        unrelated=self.git('rev-parse','HEAD').strip()
+        self.spec['source_checkpoint']=unrelated
+        self.delta['accepted_graph']['AnisetteKit']['source_checkpoint']=unrelated
+        with self.assertRaises(subprocess.CalledProcessError):self.verify()
 
     def test_dependency_basis_requires_complete_exact_final_tree_delta(self):
         basis={'schema_version':1,'owner':'SideSign','purpose':'diagnostic_dependency_source_transition',

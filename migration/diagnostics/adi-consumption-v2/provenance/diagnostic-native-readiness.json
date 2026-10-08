@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "source_basis": "maintained-adi-consumption-v2",
+  "diagnostic_delta_sha256": "65a3689c1609cfbcfaa317e33401d500c5bde88a80cf054b240124f93b025165",
+  "phase": "diagnostic_permanent_graph_iphoneos",
+  "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37780905390",
+  "run_id": 37780905390,
+  "run_attempt": 1,
+  "validation_host_commit": "761eb1387b6264d27ad606920e1e44a87f6bbb65",
+  "validation_host_tree": "3394e1f829f1cdc28d88357ec0fccc4acb8b83ba",
+  "artifact_id": 11552967282,
+  "artifact_zip_sha256": "90a2aa89781c7b5500a237342d740dcbe7ab77d13cabe4a2b5040acdf1275290",
+  "approved_inputs_sha256": "62544cde0d32be56b91403537049fee5414f3235ba7f5fbd5e9deb9b35ca41fe",
+  "native_builds": {
+    "LiveContainer": "PASS_UNSIGNED_RELEASE_IPHONEOS26.4",
+    "SideStore": "PASS_UNSIGNED_RELEASE_IPHONEOS26.4"
+  },
+  "readiness_scope": "eligible_for_gated_full_build",
+  "final_exact_ref_ipa_build_required": true,
+  "tested_owners": {
+    "AnisetteKit": {
+      "commit": "f494494ede88890555df345054f7fbb87b53aea5",
+      "tree": "17b3b63607d4399c003e56b71b052bd7e73dc84a"
+    },
+    "LiveContainer": {
+      "commit": "6b128686477b569a936915abaa4bd2ec51b40c14",
+      "tree": "2ee1dce1690533ee0010e1fc3852c86bb501a452"
+    },
+    "SideSign": {
+      "commit": "45039f2c16348e098a69f4421719798b00f00429",
+      "tree": "eeea30447d960cd500ddcee325959116f40efdf9"
+    },
+    "SideStore": {
+      "commit": "0198bf408cf9ebf3a5f642e9790f3fc3ca215d9d",
+      "tree": "5f60facd78ac002007184d7e2dab99b7c727a7f0"
+    },
+    "idevice": {
+      "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+    },
+    "jktcp": {
+      "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+    },
+    "minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+    }
+  },
+  "tested_children": {
+    "SideSign": {},
+    "SideStore": {
+      "Dependencies/SideSign": "45039f2c16348e098a69f4421719798b00f00429",
+      "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+    }
+  },
+  "locks": {
+    "SideSign": {
+      "sha256": "61f6121a252c102d978e23d27c2e7f6888dd973286a1c260d8902c6218aaa944",
+      "origin_hash": {
+        "present": true,
+        "value": "164da73c538430aab4c7edc6babf6aceca245e007a6ec427522253747b16c2bc"
+      }
+    },
+    "SideStore": {
+      "sha256": "d2884bdf70ad36fc112394cca8cb8d566affb7a6fe0e9cd3fb9518df5c3b9076",
+      "origin_hash": {
+        "present": true,
+        "value": "c9e3c6042136849ac21835264cf5aece849ed3e487b36b9242a3ab0b5fcf6d17"
+      }
+    }
+  },
+  "evidence_sha256": {
+    "provenance/production-phase-status.json": "9f05500479785367745689be6b7deb96c8b933b4b711da10cb6dca226e22135b",
+    "provenance/reviewed-production-inputs.json": "62544cde0d32be56b91403537049fee5414f3235ba7f5fbd5e9deb9b35ca41fe",
+    "provenance/reviewed-toolchain.json": "8397a85f1fe0ae25f3c808dd81befb0d8882a182fb4a8be723e744dbf6079800",
+    "provenance/Package.resolved.before": "75ffdbb23481eed06e3d46210f24f2eb95a633dc55ece83a4295dc1e261f0c96",
+    "provenance/Package.resolved.after": "d2884bdf70ad36fc112394cca8cb8d566affb7a6fe0e9cd3fb9518df5c3b9076",
+    "provenance/source-proof-before.json": "c7648e6759e58b7d5bf91d62574e3eff7ffc6ea55d6e94edec92678db388526f",
+    "provenance/source-proof-after-resolution.json": "e060551a19ead3a2c5acb5034799be378f788727628e15e43a0eee0d31f0a932",
+    "provenance/source-proof-after-build.json": "e060551a19ead3a2c5acb5034799be378f788727628e15e43a0eee0d31f0a932",
+    "provenance/resolution.json": "f6a2272a462089ba0e1e7cedba2a80817f95f0204f9f240eacecbc396a263458",
+    "provenance/resolution-after-build.json": "c580fa443d18b53ce7e5c0a08bb2753a562d5411d41fc2bb712979b86b1a34c3",
+    "provenance/compiler-input-proof.json": "79aecbce6863d6feaba7c777dc1d581f58dcd94a88366cff2217a5c71feb8666",
+    "provenance/generated-sources-proof.json": "be440185b1b6de38777dd7bf41a2d9ba0c2d9eb75a55b2ea875cec9ca64ce231",
+    "provenance/local-framework-before-build.json": "eb9aac30f44b5214a3c9a3366cdc9773d46bdbf4047ba8b8b09b657771246d9e",
+    "provenance/local-framework-after-build.json": "eb9aac30f44b5214a3c9a3366cdc9773d46bdbf4047ba8b8b09b657771246d9e",
+    "provenance/local-ffi-link-hashes.json": "e0ddb0a6b96ff22e126da8c2d1d9844dc980c1d254767d61ad7653f5ad50d1fe",
+    "provenance/binary-artifacts.json": "1ffdd6691ebd4b75cce79e0919e864a5746f78d9de1bfa6047b4721743dc386e",
+    "logs/sidestore-production-build.exit-code.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "logs/livecontainer-production-build.exit-code.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "logs/sidestore-production-build.log": "ecee0ee525380a53328bda50dbd33eb8471f3436ce28456d88f3310efc4a7992",
+    "logs/livecontainer-production-build.log": "a4f572fdae0c58410eeeb1e69dbeea2b2b331382bfef7a4decb7dc886b938304",
+    "provenance/sidestore-native-tests.json": "2d876b353bf148d73669f1f7a3db5d52cdf61c53e77587ee1b4717fdd0c93a04",
+    "provenance/sidestore-historical-native-tests.json": "41ad6becb91f14128f7a47bc5b272df97e16f6b6b948486d57dab1e08ab5d6b7",
+    "provenance/sidestore-historical-source-before.json": "18865b4f3b55781d7ba17c5f86a25796e70bfc7952e8b1fa692eacb5cf7e918a",
+    "provenance/sidestore-historical-source-after.json": "18865b4f3b55781d7ba17c5f86a25796e70bfc7952e8b1fa692eacb5cf7e918a"
+  }
+}

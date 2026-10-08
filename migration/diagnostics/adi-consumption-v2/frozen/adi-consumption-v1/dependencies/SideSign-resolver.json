@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "owner": "SideSign",
+  "purpose": "diagnostic_swiftpm_resolution",
+  "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37749264286",
+  "run_attempt": 1,
+  "resolver_tested_commit": "c2a3b64315dce924b35a48896e118a7516a5e209",
+  "resolver_tested_tree": "3e0d2970e09277a852ba940e5b758085933cd69e",
+  "lock_sha256": "6dfda241326cf0af7b9b77978d3890b28d5205545fb65b6807d6706822a848fb",
+  "origin_hash": {
+    "present": true,
+    "value": "bb455ddecee6dd87515ad39430fb70884354ec92f5be4888e17f2fc71bbdc852"
+  },
+  "toolchain": {
+    "xcode": "Xcode 26.4.1\nBuild version 17E202",
+    "swift": "swift-driver version: 1.148.6 Apple Swift version 6.3.1 (swiftlang-6.3.1.1.2 clang-2100.0.123.102)"
+  },
+  "command": [
+    "swift",
+    "package",
+    "--package-path",
+    "/Users/runner/work/LiveContainer/LiveContainer/production-work/sources/SideSign",
+    "--scratch-path",
+    "/Users/runner/work/LiveContainer/LiveContainer/production-work/results/sidesign",
+    "resolve"
+  ],
+  "evidence_sha256": {
+    "resolver_log": "b58bb5433341c805abafa597c5040b2ad76dd8f5b21836760f8471c240b412e5",
+    "resolution_before": "5ccebb5f4fadcde4377db365de53e3c29806f5ed66ca0e039e7f70dd368343bb",
+    "resolution_after": "6dfda241326cf0af7b9b77978d3890b28d5205545fb65b6807d6706822a848fb"
+  }
+}

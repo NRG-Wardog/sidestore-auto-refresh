@@ -1,0 +1,71 @@
+{
+  "artifact_id": 11549820160,
+  "artifact_size": 145428,
+  "artifact_zip_sha256": "e364b4e6c4b462e88b247553c12df699ace713525b11a962e5bc9266a03ccad9",
+  "evidence_sha256": {
+    "AnisetteKit-tests.json": "7b4e15ff2393597cab4a2ffe74fa63ee3819180f497fd2772fa6143c9b681494",
+    "AnisetteKit-tests.log": "7b4c2f483169cd20793752279ff0d3ee4da1d55e318da6e619379710ed407906",
+    "SideStore-tests.json": "a7516764af38dab29d035dbdd104c3760639361d7534b1c3eafac4443bedd756",
+    "SideStore-tests.log": "dadeaa90586515b799cb9a9b671c62549db62cac760b38a605b6f43da872e2ce",
+    "inputs.json": "930bc8822d4a31a92472eda70566755561ec3c9e255e67e60cb1a04edc74eaeb",
+    "network-denial.json": "2b383369a8d1a1fe19fa2ba0da78936320ccce19fd6d7a0caf90a6482c26d351",
+    "result.json": "fe6a6de1b4c64c2e9253592f9e71d7916e2eb534dc7cd360fa5d2af85f6408bc",
+    "sources-after.json": "7ccec204d066e71726e2249597369b2158c6449f09f673c49c537c50d2bf68a4",
+    "sources-before.json": "7ccec204d066e71726e2249597369b2158c6449f09f673c49c537c50d2bf68a4",
+    "toolchain.json": "fa6fc50210ca43ce1e302ad02bc1f7d1304e1ede4525ba8c17ad20339fb3577d"
+  },
+  "host_commit": "f1ad99a767f4fc619b271d42fe8c44f3e9a040b0",
+  "host_tree": "89f1bcc0a1d86b3f33d83c052d6ac2d0466d53e4",
+  "input_sha256": "930bc8822d4a31a92472eda70566755561ec3c9e255e67e60cb1a04edc74eaeb",
+  "integration_checkpoint": "f9f23d980df363eb0f6eb5093b48e3639b03e137",
+  "network_denial": {
+    "control": {
+      "connected": true,
+      "errno": null
+    },
+    "sandboxed": {
+      "connected": false,
+      "errno": 1
+    }
+  },
+  "owner_sources": {
+    "AnisetteKit": {
+      "commit": "f494494ede88890555df345054f7fbb87b53aea5",
+      "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+      "tree": "17b3b63607d4399c003e56b71b052bd7e73dc84a"
+    },
+    "LiveContainer": {
+      "commit": "6b128686477b569a936915abaa4bd2ec51b40c14",
+      "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
+      "tree": "2ee1dce1690533ee0010e1fc3852c86bb501a452"
+    },
+    "SideStore": {
+      "commit": "7b3f356c5128b17fdd76eed81285096b3cc41da7",
+      "repository": "https://github.com/NRG-Wardog/SideStore.git",
+      "tree": "5eec041d13f5eb5d805189f5827d6a60ddfa91f2"
+    }
+  },
+  "run_attempt": 1,
+  "run_id": 37773853730,
+  "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37773853730",
+  "scope": "synthetic actual-source native staging/observer/decoder/read-only comparison tests only; no package build, IPA or real-device authentication",
+  "source_file_counts": {
+    "AnisetteKit": 34,
+    "LiveContainer": 296,
+    "SideStore": 647
+  },
+  "source_snapshots_byte_identical": true,
+  "status": "PASS",
+  "tests": {
+    "AnisetteKit": 7,
+    "SideStore_with_LiveContainer_peer": 6,
+    "failures": 0,
+    "skips": 0
+  },
+  "toolchain": {
+    "cxx": "Apple clang version 21.0.0 (clang-2100.0.123.102)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode_26.4.1.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n",
+    "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]",
+    "swiftc": "Apple Swift version 6.3.1 (swiftlang-6.3.1.1.2 clang-2100.0.123.102)\nTarget: arm64-apple-macosx26.0\n",
+    "xcodebuild": "Xcode 26.4.1\nBuild version 17E202\n"
+  }
+}

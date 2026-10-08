@@ -1,0 +1,120 @@
+{
+  "contract_set": "runtime-adi-consumption-f9f23d9.v2",
+  "format_version": 1,
+  "owner": "SideSign",
+  "provenance": {
+    "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+    "source_basis": "Immutable OLD prepared source; changed files checked against baseline generation inventories; unchanged contract surfaces checked against exact upstream Git blobs.",
+    "upstream_commit": "a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d",
+    "upstream_repository": "SideStore/SideSign"
+  },
+  "provides": [
+    {
+      "contract": "diagnostics",
+      "source_paths": [
+        "Sources/DeveloperPortal/AppIDs.swift",
+        "Sources/DeveloperPortal/AuthModels.swift",
+        "Sources/DeveloperPortal/Authentication.swift",
+        "Sources/DeveloperPortal/DeveloperPortalAPI.swift",
+        "Sources/Logging.swift",
+        "Sources/Models/AnisetteData.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "sidesign-auth",
+      "source_paths": [
+        "Sources/DeveloperPortal/AppIDs.swift",
+        "Sources/DeveloperPortal/AuthModels.swift",
+        "Sources/DeveloperPortal/Authentication.swift",
+        "Sources/DeveloperPortal/DeveloperPortalAPI.swift",
+        "Sources/Logging.swift",
+        "Sources/Models/AnisetteData.swift"
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "requires": [
+    {
+      "contract": "anisette-provider",
+      "provider": "AnisetteKit",
+      "source_paths": [
+        "Sources/Anisette/AnisetteDataManager.swift",
+        "Sources/Anisette/RemoteAnisetteDataProvider.swift",
+        "Sources/Constants.swift",
+        "Sources/Models/AnisetteData.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "diagnostics",
+      "provider": "AnisetteKit",
+      "source_paths": [
+        "Sources/DeveloperPortal/AppIDs.swift",
+        "Sources/DeveloperPortal/AuthModels.swift",
+        "Sources/DeveloperPortal/Authentication.swift",
+        "Sources/DeveloperPortal/DeveloperPortalAPI.swift",
+        "Sources/Logging.swift",
+        "Sources/Models/AnisetteData.swift"
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "sources": [
+    {
+      "basis": "SideStore/SideSign@a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d:Sources/Anisette/AnisetteDataManager.swift (unchanged upstream source)",
+      "mode": "100644",
+      "path": "Sources/Anisette/AnisetteDataManager.swift",
+      "sha256": "b9f6f748038fcbdbbdcb3489fc3d8693b3e526557734a1edd26eb37d14ec1535"
+    },
+    {
+      "basis": "SideStore/SideSign@a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d:Sources/Anisette/RemoteAnisetteDataProvider.swift (unchanged upstream source)",
+      "mode": "100644",
+      "path": "Sources/Anisette/RemoteAnisetteDataProvider.swift",
+      "sha256": "93c53bf4add64b0fbe5309b0f3af996c772789e41c7cd578095da274fa70dede"
+    },
+    {
+      "basis": "SideStore/SideSign@a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d:Sources/Constants.swift (unchanged upstream source)",
+      "mode": "100644",
+      "path": "Sources/Constants.swift",
+      "sha256": "53e0874fb75eae957ec690db0efb97657e2c9c8e97b3efd1f8fee4947be4e979"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideSign:Sources/DeveloperPortal/AppIDs.swift",
+      "mode": "100644",
+      "path": "Sources/DeveloperPortal/AppIDs.swift",
+      "sha256": "0456e3397ebd9e5c15a352c0795b90e2f590af7f167784cc2f810f5ebb088e5c"
+    },
+    {
+      "basis": "SideStore/SideSign@a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d:Sources/DeveloperPortal/AuthModels.swift (unchanged upstream source)",
+      "mode": "100644",
+      "path": "Sources/DeveloperPortal/AuthModels.swift",
+      "sha256": "190055cc2fe9b2789bc415e60caa942b34f50fc06dc36f4ec5af2cd1d93c6e56"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideSign:Sources/DeveloperPortal/Authentication.swift",
+      "mode": "100644",
+      "path": "Sources/DeveloperPortal/Authentication.swift",
+      "sha256": "5b6412e3b52b355b6f7dd2e5e6b03f25b5ff11eeeaa28bed3c34a4f360109729"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideSign:Sources/DeveloperPortal/DeveloperPortalAPI.swift",
+      "mode": "100644",
+      "path": "Sources/DeveloperPortal/DeveloperPortalAPI.swift",
+      "sha256": "d767d97324acae5c983f31443de5f6604dc5bf59281d19c3e50adeee4c629a41"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideSign:Sources/Logging.swift",
+      "mode": "100644",
+      "path": "Sources/Logging.swift",
+      "sha256": "49aeee12d89bb092d83302979e493343c3ac1fd957f546f22df07cd846e7fe3f"
+    },
+    {
+      "basis": "SideStore/SideSign@a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d:Sources/Models/AnisetteData.swift (unchanged upstream source)",
+      "mode": "100644",
+      "path": "Sources/Models/AnisetteData.swift",
+      "sha256": "b4e4f904d19f4bce7d3f920551b9e4c5303ae98e292adfe5dd628189e589141c"
+    }
+  ],
+  "version": "1.0.0"
+}

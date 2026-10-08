@@ -1,0 +1,260 @@
+{
+  "added_metadata_files": [
+    "NOTICE-NRG-Wardog"
+  ],
+  "added_native_test_files": [
+    ".ci/native-tests/README.md",
+    ".ci/native-tests/fixtures/isolated_anisette_core_harness.cpp",
+    ".ci/native-tests/fixtures/isolated_anisette_loader_harness.cpp",
+    ".ci/native-tests/fixtures/isolated_anisette_vm_double.h",
+    ".ci/native-tests/run_tests.py",
+    ".github/workflows/native-source-parity.yml"
+  ],
+  "behavior_changes": [],
+  "changed_files": 5,
+  "files": [
+    {
+      "changed": false,
+      "maintained_sha256": "8784815b10cb04cee73c837909b5f7a32b94bc9ecbb54efd04103795d82aaf2d",
+      "mode": "100644",
+      "path": ".gitignore",
+      "upstream_sha256": "8784815b10cb04cee73c837909b5f7a32b94bc9ecbb54efd04103795d82aaf2d"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "44f4819d8ad5f739d39443ef83dab292422248bc6e9d74fc3ae9913226fc63ea",
+      "mode": "100644",
+      "path": "LICENSE",
+      "upstream_sha256": "44f4819d8ad5f739d39443ef83dab292422248bc6e9d74fc3ae9913226fc63ea"
+    },
+    {
+      "changed": true,
+      "maintained_sha256": "840b7f4ca30a12da86e0b0ae08a453ebb88e1cd74327f94a303b362b94e8604f",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_emulator.cpp",
+      "upstream_sha256": "9d2d00012d1019bf7e99c2b16a9af6570eec30f75a7a01cffa15be05c5b4384c"
+    },
+    {
+      "changed": true,
+      "maintained_sha256": "aacfd99cf5049d2208bc9d6af471411ca3acd277828ebcd1f27914f552f2f62c",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_emulator.h",
+      "upstream_sha256": "83b76029f2360edb70cef85abc09ec8e2f6c7ee122fb4f16b2ac7458f48a9c7a"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "8a58a96cca4e7d742336b8ffe47f8b1591a3e3bdbf7d60eed2cff2da05195382",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_host.cpp",
+      "upstream_sha256": "8a58a96cca4e7d742336b8ffe47f8b1591a3e3bdbf7d60eed2cff2da05195382"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "9c1523da56936340d6d57dba7d18fc52ebbfd331bf8e44807b779a5cc211950b",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_host.h",
+      "upstream_sha256": "9c1523da56936340d6d57dba7d18fc52ebbfd331bf8e44807b779a5cc211950b"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "46a17d20a707b4be111f9342495bbbe454de472768ffe74cc08ac9174f09c024",
+      "mode": "100644",
+      "path": "Native/anisette_base.cpp",
+      "upstream_sha256": "46a17d20a707b4be111f9342495bbbe454de472768ffe74cc08ac9174f09c024"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "6c47c3fef881d99082d1eb7e687fc78de6339568118259884d2b8a0d6c6e8664",
+      "mode": "100644",
+      "path": "Native/anisette_base.h",
+      "upstream_sha256": "6c47c3fef881d99082d1eb7e687fc78de6339568118259884d2b8a0d6c6e8664"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "ca06ed404c1822e1335400ca47b06ac41f2343175462a2368118418e89929308",
+      "mode": "100644",
+      "path": "Native/anisette_core_mac.cpp",
+      "upstream_sha256": "ca06ed404c1822e1335400ca47b06ac41f2343175462a2368118418e89929308"
+    },
+    {
+      "changed": true,
+      "maintained_sha256": "2c443523819368c8a48ada0eadb9dbff1d6657b73454db44d45c3cc626e40ab7",
+      "mode": "100644",
+      "path": "Native/anisette_core_uc.cpp",
+      "upstream_sha256": "abee10baeca21b7d175872f1f05bd4c9b36f62dd563404e6e2a17b8a7c7c2d60"
+    },
+    {
+      "changed": true,
+      "maintained_sha256": "ca1ea4005f77dcca17c68965ba2dd1f65596e282a57adb4277f1d90d8bd11f02",
+      "mode": "100644",
+      "path": "Native/include/anisette_core.h",
+      "upstream_sha256": "887326b1b3d78426f39472654b58e75876d2e57f91ce7b0ff1bc3e0343ba0672"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "d104ce23308299206b0e0b4770b0a39b1d1c7bf8830dea4ebf2d920b6e3bce78",
+      "mode": "100644",
+      "path": "Package.swift",
+      "upstream_sha256": "d104ce23308299206b0e0b4770b0a39b1d1c7bf8830dea4ebf2d920b6e3bce78"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "11454786286ba8c8161be6fe8b17fffce0fb3244c50a4b80115cc68edc71a82e",
+      "mode": "100644",
+      "path": "README.md",
+      "upstream_sha256": "11454786286ba8c8161be6fe8b17fffce0fb3244c50a4b80115cc68edc71a82e"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "f8c551295db79d7acb082a98953b0581fe812da41c766d1c3bf2cb5bdc9e1b79",
+      "mode": "100644",
+      "path": "Sources/AnisetteClient.swift",
+      "upstream_sha256": "f8c551295db79d7acb082a98953b0581fe812da41c766d1c3bf2cb5bdc9e1b79"
+    },
+    {
+      "changed": true,
+      "maintained_sha256": "96a3af11c76ca7476162d25ca345b8e3aeb9f3343fc3e77b03481a61d6c79020",
+      "mode": "100644",
+      "path": "Sources/AnisetteDataProvider.swift",
+      "upstream_sha256": "f501ed0ee8ec218aa8e8c0237fca00ecc916193f6b8b14b77bf1b949850680fc"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "721650793ed43d2eed65f298208f497e1112435f2057934605912cc7c4dbd7f1",
+      "mode": "100644",
+      "path": "Sources/AnisetteDataResponse.swift",
+      "upstream_sha256": "721650793ed43d2eed65f298208f497e1112435f2057934605912cc7c4dbd7f1"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "b9f767acd86603ba4089ff5c10d2a1b1ea085e2d66258cf36295b493fa239f18",
+      "mode": "100644",
+      "path": "Sources/AnisetteError.swift",
+      "upstream_sha256": "b9f767acd86603ba4089ff5c10d2a1b1ea085e2d66258cf36295b493fa239f18"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "e301838582d531a655125048bc4ed10db6cd78d8a87a0ce9872939813db47f68",
+      "mode": "100644",
+      "path": "Sources/AnisetteHeaderResponse.swift",
+      "upstream_sha256": "e301838582d531a655125048bc4ed10db6cd78d8a87a0ce9872939813db47f68"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "359a87c2c24c261b183c3f0007cb6806d2667a59c13c2ec8318b0e2a14cdabef",
+      "mode": "100644",
+      "path": "Sources/AnisetteHeadersDTO.swift",
+      "upstream_sha256": "359a87c2c24c261b183c3f0007cb6806d2667a59c13c2ec8318b0e2a14cdabef"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "8c8878134fa565363d40b8ffa280580628c6a90d6bd5c3b2046f14e1b2d3b6f2",
+      "mode": "100644",
+      "path": "Sources/AnisetteKit.swift",
+      "upstream_sha256": "8c8878134fa565363d40b8ffa280580628c6a90d6bd5c3b2046f14e1b2d3b6f2"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "db1f20cd9ba5a090c99188c52e3d802ce3549dc2754e48ee2db5133964d3db2d",
+      "mode": "100644",
+      "path": "Sources/AnisetteKitLogging.swift",
+      "upstream_sha256": "db1f20cd9ba5a090c99188c52e3d802ce3549dc2754e48ee2db5133964d3db2d"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "2356f3ee1f31011c374d721c2aaeffa81d684e6fa85af1faebbcb4e5a3297ef6",
+      "mode": "100644",
+      "path": "Sources/AnisetteRequestHeaders.swift",
+      "upstream_sha256": "2356f3ee1f31011c374d721c2aaeffa81d684e6fa85af1faebbcb4e5a3297ef6"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "5f6a4e3f38b13f7053dbff1ebc3a4a06779f502e79e41c5c82baf9443b4d5bd1",
+      "mode": "100644",
+      "path": "Sources/Constants.swift",
+      "upstream_sha256": "5f6a4e3f38b13f7053dbff1ebc3a4a06779f502e79e41c5c82baf9443b4d5bd1"
+    },
+    {
+      "changed": false,
+      "maintained_sha256": "3a3b13ad711b4e4bb8e5b552f4ccc4b06bafd5b29455cd05e4d5e6b09feb0561",
+      "mode": "100644",
+      "path": "Tests/AnisetteKitTests/AnisetteKitTests.swift",
+      "upstream_sha256": "3a3b13ad711b4e4bb8e5b552f4ccc4b06bafd5b29455cd05e4d5e6b09feb0561"
+    },
+    {
+      "added_metadata": true,
+      "changed": false,
+      "maintained_sha256": "ac202ab8b4740b5e703f508e4bef2107724f4ae2767dc57e419ace21fd328c9d",
+      "mode": "100644",
+      "path": "NOTICE-NRG-Wardog",
+      "upstream_sha256": null
+    },
+    {
+      "added_test": true,
+      "changed": false,
+      "maintained_sha256": "36d9ee77e95b70c3d3bc9da1b7a832bb448b76fe0217ca08c2f4944d9c92990e",
+      "mode": "100644",
+      "path": ".ci/native-tests/README.md",
+      "upstream_sha256": null
+    },
+    {
+      "added_test": true,
+      "changed": false,
+      "maintained_sha256": "bad3eae754117372493f9d8da194b330f4842f7c9054b1d57cef2ba170012505",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/isolated_anisette_core_harness.cpp",
+      "upstream_sha256": null
+    },
+    {
+      "added_test": true,
+      "changed": false,
+      "maintained_sha256": "413f965e16906baec3c8bc0b06a4201c7e7a05dad00356ed8a67552ef6c83673",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/isolated_anisette_loader_harness.cpp",
+      "upstream_sha256": null
+    },
+    {
+      "added_test": true,
+      "changed": false,
+      "maintained_sha256": "a85d806806994495a1a6b5e1d3d3f232c1aa8f381bc407b2e5060f4c17125425",
+      "mode": "100644",
+      "path": ".ci/native-tests/fixtures/isolated_anisette_vm_double.h",
+      "upstream_sha256": null
+    },
+    {
+      "added_test": true,
+      "changed": false,
+      "maintained_sha256": "6c6fd36a7b5e5d9303b337b017b9f2a92ca980c7b6dbed61e935e89b788d177b",
+      "mode": "100644",
+      "path": ".ci/native-tests/run_tests.py",
+      "upstream_sha256": null
+    },
+    {
+      "added_test": true,
+      "changed": false,
+      "maintained_sha256": "316b15746eb6218ac776c22a2b44ed661ced871d41ea3fa3320e136bacf1dbf0",
+      "mode": "100644",
+      "path": ".github/workflows/native-source-parity.yml",
+      "upstream_sha256": null
+    }
+  ],
+  "fork_commit": "0d0b777d4d4308387fb5361bd70ce667ecbd7fe4",
+  "fork_tree": "77bfbe938fa967b2531305ddb9264f939c90dfd6",
+  "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+  "oracle_sha256": {
+    "scripts/patch_anisette_isolated_otp.py": "50f4818c40117c64f2f9fa7621f6a9c450df3e9c935c16257889b9b01a168135",
+    "scripts/templates/checked_anisette_staging.cpp": "f7cf9eff3aaaecbaacfa1eb7339576073b06f2afec4acba386322d44419bfbb2",
+    "scripts/templates/combined_failure.swift": "91eb30bdefee35c0dc9b36ae7d64257a6b8c99dd7c7943997ad6a4c520a78287",
+    "scripts/templates/isolated_anisette_otp.cpp": "79cf2cf33d261359bc10187864424a5e6f65c4c5d5f8244d256505e7664d8286",
+    "scripts/templates/isolated_anisette_otp.swift": "71538b6a3d9c1c25dd2605ae7e38e401500611b35c78c423c68dc211d74e279f",
+    "scripts/templates/temporary_anisette_trace.cpp": "0d61c3cc248db4630f961c49f384cd540083bb5034efa6189371509b1885d2d4",
+    "scripts/templates/temporary_anisette_trace.swift": "30e858a67510a439a9b18e60ea1089a8f8c3db6d02746d98f6ba148a22a918fd"
+  },
+  "physical_device_authentication_verified": false,
+  "schema_version": 1,
+  "status": "exact_source_parity_pass",
+  "tracked_files_verified": 31,
+  "upstream_base": "1f5a7e36553cc865b873f222b87a6486c0bcc7bf",
+  "upstream_files_verified": 24,
+  "upstream_tree": "6bba3439116b06a23890be88e7f8983f460f3c35"
+}

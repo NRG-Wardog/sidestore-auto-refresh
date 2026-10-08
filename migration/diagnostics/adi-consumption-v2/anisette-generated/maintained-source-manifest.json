@@ -1,0 +1,83 @@
+{
+  "accepted_anisettekit_revision": "e530b84687ebea2e7d1115119e1a6d18372de14b",
+  "accepted_manifest_sha256": "0813a3a636bac79caff934940ead90d6099a541d5862c866bca6a0e98be3fd7f",
+  "anisettekit_revision": "f494494ede88890555df345054f7fbb87b53aea5",
+  "anisettekit_tree": "17b3b63607d4399c003e56b71b052bd7e73dc84a",
+  "compiled_literal": "Checked OTP staging failed",
+  "contract_set": "runtime-adi-consumption-f9f23d9.v2",
+  "dormant_native_symbol": "get_anisette_headers_isolated_uc",
+  "dormant_swift_api": "IsolatedAnisetteOTPProvider.getExistingHeaders",
+  "files": [
+    {
+      "basis": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Native/Loader/adi_consumption_debug.h",
+      "mode": "100644",
+      "path": "Native/Loader/adi_consumption_debug.h",
+      "sha256": "077b377c87b201893f83afbff5a4dd37e01354253f08045a3831adcb50022346"
+    },
+    {
+      "basis": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Native/Loader/elf_loader_emulator.cpp",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_emulator.cpp",
+      "sha256": "c710077c4ad735d2a274908a252e38d48aa6b1811c8a70e56159fd34a51c6e09"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Native/Loader/elf_loader_emulator.h",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_emulator.h",
+      "sha256": "aacfd99cf5049d2208bc9d6af471411ca3acd277828ebcd1f27914f552f2f62c"
+    },
+    {
+      "basis": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Native/anisette_core_uc.cpp",
+      "mode": "100644",
+      "path": "Native/anisette_core_uc.cpp",
+      "sha256": "cb9a3c00c2db529fb127b6ef3aeaaf2f4c70a7261ca6ddae99fe91af14774000"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Native/include/anisette_core.h",
+      "mode": "100644",
+      "path": "Native/include/anisette_core.h",
+      "sha256": "ca1ea4005f77dcca17c68965ba2dd1f65596e282a57adb4277f1d90d8bd11f02"
+    },
+    {
+      "basis": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Sources/AnisetteDataProvider.swift",
+      "mode": "100644",
+      "path": "Sources/AnisetteDataProvider.swift",
+      "sha256": "356d5bb03a12c8e7bf366f364078099e2f3945103c2d0c43965ac2650590287f"
+    }
+  ],
+  "format_version": 1,
+  "marker": "V3_CHECKED_ANISETTE_STAGING_V1",
+  "native_symbol": "get_anisette_headers_uc",
+  "required_compiled_evidence": {
+    "artifact_binding_requirement": "Check every required literal in the actual packaged SideStore executable, including the native v2 prefix serializer, and bind that executable SHA-256 to this exact maintained source manifest and all six retained source hashes. The generic event serializer or SDK v2 decoder strings alone are insufficient. This immutable source metadata asserts no retention/readiness result.",
+    "encoding": "UTF-8",
+    "literals": [
+      {
+        "purpose": "retained active checked-staging provenance marker",
+        "value": "V3_CHECKED_ANISETTE_STAGING_V1"
+      },
+      {
+        "purpose": "active checked-staging implementation literal",
+        "value": "Checked OTP staging failed"
+      },
+      {
+        "purpose": "actual enabled native C++ v2 comparison/coverage prefix serializer; required in the executable to distinguish the new producer from the v1 producer and Swift decoders",
+        "value": "v2|%u|%u|%u"
+      },
+      {
+        "purpose": "enabled native C++ observer serializer; distinguishes compiled native collection from SDK decoder strings",
+        "value": "|%d,%d,%d,%d,%d,%u,%u,%d"
+      },
+      {
+        "purpose": "native producer metadata key; insufficient alone because SDK also contains this key",
+        "value": "v3_native_consumption"
+      }
+    ]
+  },
+  "scope": "Immutable maintained source identities and compiled evidence requirements only. Actual binary verification and native-readiness outcomes belong in outer package provenance and native receipts.",
+  "source_basis": "maintained-adi-consumption-v2",
+  "source_delta_sha256": "65a3689c1609cfbcfaa317e33401d500c5bde88a80cf054b240124f93b025165",
+  "source_inventory_sha256": "14041af14f64c354d5c4c367e88be261bc6e95a05c031dd4536e40dd72655ba6",
+  "swift_api": "UnicornAnisetteDataProvider.getAnisetteHeaders",
+  "upstream_anisettekit_revision": "1f5a7e36553cc865b873f222b87a6486c0bcc7bf"
+}

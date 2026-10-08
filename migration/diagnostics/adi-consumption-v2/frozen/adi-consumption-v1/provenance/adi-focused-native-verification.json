@@ -1,0 +1,49 @@
+{
+  "status": "PASS",
+  "verified_at_utc": "2026-10-08T05:51:07.169439+00:00",
+  "run": 37734029130,
+  "host_commit": "85d71c3527c6e411c12c32515fb97b2e8d7246ca",
+  "host_tree": "7e9edbe6f730fca884941ed0360ce63d26751fd4",
+  "input_sha256": "4bfde650a3654b9211c0fd615ec158effe239703ef6fe04c8516e48d41470d5b",
+  "artifact_id": 11531041512,
+  "artifact_bytes": 144460,
+  "artifact_sha256": "3ff70cc52065d64b9f4cade50890d848cd7ebe3a28c1d577610216a57b081a5d",
+  "owner_sources": {
+    "AnisetteKit": {
+      "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+      "commit": "e530b84687ebea2e7d1115119e1a6d18372de14b",
+      "tree": "ca63e018a2ef7e3f0ba759860dfa5f5e6c854065",
+      "files_hashed": 34,
+      "unfetched_gitlinks": {}
+    },
+    "SideStore": {
+      "repository": "https://github.com/NRG-Wardog/SideStore.git",
+      "commit": "364e65211f8678758542e3716e7b757c4dbd35ed",
+      "tree": "e765c3d23c3299ec7e1e57ac31ad0a76a91ff658",
+      "files_hashed": 643,
+      "unfetched_gitlinks": {
+        "Dependencies/SideSign": "06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c",
+        "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+      }
+    },
+    "LiveContainer": {
+      "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
+      "commit": "2a1d297ed94840b134a6ea5111065d228a51cf2b",
+      "tree": "3b34a80de19a31e61a6375e562fe03e69b63812b",
+      "files_hashed": 294,
+      "unfetched_gitlinks": {
+        "OpenSSL": "623c84da314e85363236507ca38a4bde65df21c3",
+        "litehook": "8025e0c8ebdf5cdd1d2a4f45025813234bf9dc55"
+      }
+    }
+  },
+  "source_snapshots_byte_identical": true,
+  "tests": {
+    "AnisetteKit": 7,
+    "SideStore_with_LiveContainer_peer": 5,
+    "failures": 0,
+    "skips": 0
+  },
+  "network_denial": "positive loopback control; denied sandbox connect errno1",
+  "scope": "synthetic native C++/Swift producer and decoder harnesses only; no package resolver/build, IPA or device authentication"
+}

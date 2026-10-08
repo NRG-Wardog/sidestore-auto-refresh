@@ -1,0 +1,364 @@
+{
+  "contract_set": "runtime-adi-consumption-f9f23d9.v2",
+  "format_version": 1,
+  "owner": "SideStore",
+  "provenance": {
+    "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+    "source_basis": "Immutable OLD prepared source; changed files checked against baseline generation inventories; unchanged contract surfaces checked against exact upstream Git blobs. Explicit diagnostic delta from accepted dd4f0ca36e8ef1d858548f583c65842a8fc0ced3 to 364e65211f8678758542e3716e7b757c4dbd35ed (tree e765c3d23c3299ec7e1e57ac31ad0a76a91ff658); see accepted-to-diagnostic-delta.json. Historical source checkpoint and receipts remain frozen. The previous accepted-to-diagnostic-delta reference is retained at frozen/adi-consumption-v1/provenance/accepted-to-diagnostic-delta.json. Explicit maintained-adi-consumption-v2 source delta from accepted f9 owner 1ebc69390f5b570f95cd823ac8df97c3a2f082f9 to 7b3f356c5128b17fdd76eed81285096b3cc41da7 (tree 5eec041d13f5eb5d805189f5827d6a60ddfa91f2); current accepted-to-diagnostic-delta.json records exact changes. Historical checkpoints and receipts remain unchanged; v2 native/dependency outcomes are external.",
+    "upstream_commit": "ff25922e5c13ccfafd83bda5092910d848ebd409",
+    "upstream_repository": "SideStore/SideStore"
+  },
+  "provides": [
+    {
+      "contract": "adi-consumption-debug",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "AltStore/Core/Components/Keychain.swift",
+        "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift"
+      ],
+      "version": "2.0.0"
+    },
+    {
+      "contract": "app-group-identity",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "AltStore/Core/Components/Keychain.swift",
+        "AltStore/Managing Apps/AppManager.swift",
+        "SideStore/Core/Anisette/AnisetteProvider.swift",
+        "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+        "SideStore/Core/Pairing/PairingFileManager.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "auth-service-messages",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "AltStore/Core/Components/Keychain.swift",
+        "SideStore/Core/Auth/AuthManager.swift",
+        "SideStore/Core/Auth/DeveloperPortalProxy.swift",
+        "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "diagnostics",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+        "SideStore/Core/Auth/AuthManager.swift",
+        "SideStore/Core/Auth/DeveloperPortalProxy.swift",
+        "SideStore/Core/Logging/OperationLogging.swift",
+        "SideStore/Core/Logging/SideStoreLogging.swift",
+        "SideStore/Utils/iostreams/ConsoleLog.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "refresh-results",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "AltStore/Core/Model/RefreshAttempt.swift",
+        "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+        "AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift",
+        "AltStore/Managing Apps/AppManager.swift",
+        "SideStore/Core/Operations/PipelineExecutor.swift",
+        "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "xpc-service",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+        "SideStore/AppBootManager.swift"
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "requires": [
+    {
+      "contract": "adi-consumption-debug",
+      "provider": "AnisetteKit",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "AltStore/Core/Components/Keychain.swift",
+        "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift"
+      ],
+      "version": "2.0.0"
+    },
+    {
+      "contract": "anisette-provider",
+      "provider": "AnisetteKit",
+      "source_paths": [
+        "SideStore/Core/Anisette/AnisetteConfigManager.swift",
+        "SideStore/Core/Anisette/AnisetteProvider.swift",
+        "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "diagnostics",
+      "provider": "AnisetteKit",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+        "SideStore/Core/Auth/AuthManager.swift",
+        "SideStore/Core/Auth/DeveloperPortalProxy.swift",
+        "SideStore/Core/Logging/OperationLogging.swift",
+        "SideStore/Core/Logging/SideStoreLogging.swift",
+        "SideStore/Utils/iostreams/ConsoleLog.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "app-group-identity",
+      "provider": "LiveContainer",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "AltStore/Core/Components/Keychain.swift",
+        "AltStore/Managing Apps/AppManager.swift",
+        "SideStore/Core/Anisette/AnisetteProvider.swift",
+        "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+        "SideStore/Core/Pairing/PairingFileManager.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "auth-service-messages",
+      "provider": "LiveContainer",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "AltStore/Core/Components/Keychain.swift",
+        "SideStore/Core/Auth/AuthManager.swift",
+        "SideStore/Core/Auth/DeveloperPortalProxy.swift",
+        "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "diagnostics",
+      "provider": "LiveContainer",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+        "SideStore/Core/Auth/AuthManager.swift",
+        "SideStore/Core/Auth/DeveloperPortalProxy.swift",
+        "SideStore/Core/Logging/OperationLogging.swift",
+        "SideStore/Core/Logging/SideStoreLogging.swift",
+        "SideStore/Utils/iostreams/ConsoleLog.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "refresh-results",
+      "provider": "LiveContainer",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "AltStore/Core/Model/RefreshAttempt.swift",
+        "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+        "AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift",
+        "AltStore/Managing Apps/AppManager.swift",
+        "SideStore/Core/Operations/PipelineExecutor.swift",
+        "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "xpc-service",
+      "provider": "LiveContainer",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+        "SideStore/AppBootManager.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "diagnostics",
+      "provider": "SideSign",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+        "SideStore/Core/Auth/AuthManager.swift",
+        "SideStore/Core/Auth/DeveloperPortalProxy.swift",
+        "SideStore/Core/Logging/OperationLogging.swift",
+        "SideStore/Core/Logging/SideStoreLogging.swift",
+        "SideStore/Utils/iostreams/ConsoleLog.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "sidesign-auth",
+      "provider": "SideSign",
+      "source_paths": [
+        "SideStore/Core/Auth/AuthManager.swift",
+        "SideStore/Core/Auth/DeveloperPortalProxy.swift",
+        "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "diagnostics",
+      "provider": "minimuxer",
+      "source_paths": [
+        "AltStore/AppDelegate.swift",
+        "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+        "SideStore/Core/Auth/AuthManager.swift",
+        "SideStore/Core/Auth/DeveloperPortalProxy.swift",
+        "SideStore/Core/Logging/OperationLogging.swift",
+        "SideStore/Core/Logging/SideStoreLogging.swift",
+        "SideStore/Utils/iostreams/ConsoleLog.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "transport-capabilities",
+      "provider": "minimuxer",
+      "source_paths": [
+        "SideStore/Core/DeviceApi/ConnectionConfig.swift",
+        "SideStore/Core/DeviceApi/MinimuxerWrapper.swift",
+        "SideStore/Core/Operations/PipelineExecutor.swift",
+        "SideStore/Core/Pairing/PairingFileManager.swift",
+        "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift"
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "sources": [
+    {
+      "basis": "accepted-to-diagnostic-delta.json:runtime_delta:SideStore:AltStore/AppDelegate.swift",
+      "mode": "100644",
+      "path": "AltStore/AppDelegate.swift",
+      "sha256": "5cd6baface3732e1dd1a276bf578ca6f055802d77b31bef6cef4dd78dbbe5649"
+    },
+    {
+      "basis": "accepted-to-diagnostic-delta.json:runtime_delta:SideStore:AltStore/Core/Components/Keychain.swift",
+      "mode": "100644",
+      "path": "AltStore/Core/Components/Keychain.swift",
+      "sha256": "bc121d3f00cecfa735f2d827be23233e453cf7ed85c27630f328ccbeb11f1e3c"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:AltStore/Core/Model/RefreshAttempt.swift",
+      "mode": "100644",
+      "path": "AltStore/Core/Model/RefreshAttempt.swift",
+      "sha256": "cb6f60d1b8322bcee10e77cdaece48ad9c241ecd78b40cd105dca88e6e217ab9"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+      "mode": "100644",
+      "path": "AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+      "sha256": "f1bbc0093e1349be884bd33785f204b529a63e5c7e509e8a9806990c877fd055"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift",
+      "mode": "100644",
+      "path": "AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift",
+      "sha256": "b0f0bf81a5e9a0bb7452b1c04ce213adb67c32457689ddedf358c3515d4ee97d"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:AltStore/Managing Apps/AppManager.swift",
+      "mode": "100644",
+      "path": "AltStore/Managing Apps/AppManager.swift",
+      "sha256": "9c6ae18ab82b3a794ba57c1ee3bf42acb042be64dc4c46855dab39d3b7bd19db"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/AppBootManager.swift",
+      "mode": "100644",
+      "path": "SideStore/AppBootManager.swift",
+      "sha256": "fcea3d8499eb56ee87ab429294ba5436b1d7a1a2ffa0f898ff914a8fbaef6f7d"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/Core/Anisette/AnisetteConfigManager.swift",
+      "mode": "100644",
+      "path": "SideStore/Core/Anisette/AnisetteConfigManager.swift",
+      "sha256": "94f73d7cc4b334b28a2debbd7cc7658dfaebbb31ce36960123b7067e53e10fdd"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/Core/Anisette/AnisetteProvider.swift",
+      "mode": "100644",
+      "path": "SideStore/Core/Anisette/AnisetteProvider.swift",
+      "sha256": "7a3ac0f470c6f02ad30a6943b643e31bc02a512d24c2ae6b191850bb81b79425"
+    },
+    {
+      "basis": "accepted-to-diagnostic-delta.json:runtime_delta:SideStore:SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+      "mode": "100644",
+      "path": "SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+      "sha256": "170f4489956db31d75dbf1fb450d55be0d31cb426aa9937f94fb1a106c91defb"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/Core/Auth/AuthManager.swift",
+      "mode": "100644",
+      "path": "SideStore/Core/Auth/AuthManager.swift",
+      "sha256": "aadcd5c8387edc751e2e83ccf28e1925ea2c42df89c9edcddcc3cb47b355e701"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/Core/Auth/DeveloperPortalProxy.swift",
+      "mode": "100644",
+      "path": "SideStore/Core/Auth/DeveloperPortalProxy.swift",
+      "sha256": "c128d7f78514371494f9f3474a3a5b52ecef964d856af5b6e315d88ea86462e5"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/Core/DeviceApi/ConnectionConfig.swift",
+      "mode": "100644",
+      "path": "SideStore/Core/DeviceApi/ConnectionConfig.swift",
+      "sha256": "8623a183a22c1587f4452cfa2f9aa87f494e682587ac214ff2d11277c7e1671d"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/Core/DeviceApi/MinimuxerWrapper.swift",
+      "mode": "100644",
+      "path": "SideStore/Core/DeviceApi/MinimuxerWrapper.swift",
+      "sha256": "072bf04bd5e0255681dae3e27e6fd5350e7277ce981cd821c63a0e76fb08b062"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/Core/Logging/OperationLogging.swift",
+      "mode": "100644",
+      "path": "SideStore/Core/Logging/OperationLogging.swift",
+      "sha256": "069ce4440923fe5b45967a21d587a0f17a691141718678ae4e09581bbef320ba"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/Core/Logging/SideStoreLogging.swift",
+      "mode": "100644",
+      "path": "SideStore/Core/Logging/SideStoreLogging.swift",
+      "sha256": "f111e2ef5f312145ae97082affefc75763218662d96104da3a95b8f6cddcdfdb"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/Core/Operations/PipelineExecutor.swift",
+      "mode": "100644",
+      "path": "SideStore/Core/Operations/PipelineExecutor.swift",
+      "sha256": "e9753d0053d6c96a7bbb38b714d690e0486ba730d712c74076818abbbfaf8d08"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
+      "mode": "100644",
+      "path": "SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
+      "sha256": "edf762e46b242e9210545adc67c04003f34050dfc769ed743c8aea42eae4165c"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+      "mode": "100644",
+      "path": "SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+      "sha256": "55ce7ec780c9027b61d8aaae607f0cc1b83ed719a1c020a12ada3abd7013d2cd"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/Core/Pairing/PairingFileManager.swift",
+      "mode": "100644",
+      "path": "SideStore/Core/Pairing/PairingFileManager.swift",
+      "sha256": "33dec1892ee8a5a4991270021cc8f060ab4bbea26a5ccb6447619d9a17b8b8d4"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/Utils/iostreams/ConsoleLog.swift",
+      "mode": "100644",
+      "path": "SideStore/Utils/iostreams/ConsoleLog.swift",
+      "sha256": "dec8bb0a19e8159939455bc684256db35e66c2fb1fd7447f4798fbd454267797"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:SideStore:SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
+      "mode": "100644",
+      "path": "SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
+      "sha256": "07588de035caecc5226cf80ac3b5e679221deebfa6f2706e5bcf23f06a87ec5b"
+    }
+  ],
+  "version": "1.2.0"
+}

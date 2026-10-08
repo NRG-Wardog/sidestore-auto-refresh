@@ -1,0 +1,3319 @@
+{
+  "baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+  "scope": "Active combined LiveContainer/SideStore/SideSign/minimuxer source preparation. Transport Rust and post-build products are separate.",
+  "steps": [
+    {
+      "script": "patch_livecontainer_autorefresh.py",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_livecontainer_autorefresh.py",
+        "$BASELINE/LiveContainer"
+      ],
+      "returncode": 0,
+      "stdout": "LiveContainer host auto-refresh patch applied and verified\n",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "LiveContainer:LiveContainer.xcodeproj/project.pbxproj",
+          "before": {
+            "sha256": "4d667ffe93d7a1797dac26a0716825050396fddd16ea3c91d2d4241196926cd9",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "3cf824f805efe902d503ea5cfb67261442d65ceccebc4ff308a922f5e131f581",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainer/Info.plist",
+          "before": {
+            "sha256": "ce3abd42c48eb5e6cef169a5e844cd797e3830021c49cbc2c79170af8b422664",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "1e002e1965dda600334b73a1f4cf836aa88568b6a1f99ef8060a09518bab81cc",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/App/AppDelegate.swift",
+          "before": {
+            "sha256": "5cd7905f98bed0e9f829c57e1d5b2dce75b27bb53a95ffa881fb6f221c8cc43f",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "a7dfa225edc39777d6a563f1f17421ce9610dcd49184a00f77189d1d5a9bab27",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift",
+          "before": null,
+          "after": {
+            "sha256": "e67daa3dfcf257cb0256bf4f3dd6f69407c9d72368ba699e672b158eda75f004",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Utilities/V3SharedAppGroup.swift",
+          "before": null,
+          "after": {
+            "sha256": "5df142bd417b4c8065d688ef5ab49f58c6670ce858e91fee03bd4ac81b1e71cf",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift",
+          "before": null,
+          "after": {
+            "sha256": "6830cb81be66e6b5ed1b59ac898c1214ea7758a75e9aba4eef98c78b4ea655b3",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
+          "before": {
+            "sha256": "3111f78b25d6059b0719a4f7b1897f2f31e1aedc3f5f66f9a151e04685f23878",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "11720fa161af29c5439c42dd431abec34dd8583a47016f7ba4040cb76991f82e",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:SideStoreSupport/SideStore.swift",
+          "before": {
+            "sha256": "6a6e9ca3aef3819320f6542d4008b21fdda5c053ccf92c2d2c72866c537cca40",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "ff2faf3c72d8a4cec42f8d52469d25e6670c31729f5ba8eb124cb7d2c5e1509b",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:SideStoreSupport/SideStoreClient.swift",
+          "before": {
+            "sha256": "e757bfcfb951e721eae1555600068d144fedfff51bb26130893d2b3b6087360c",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "d4c6ca1be46a9313885f421cfa18efa42c9402bfe5253ec8375c1f933755bcd2",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:SideStoreSupport/XPCClient.m",
+          "before": {
+            "sha256": "6c080699d02a367cf7db96c02a2b74fc09cecbbb56bbdd7b623a1b6e09445f51",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "6748c98e848e78cac566d468a4fc123d3da5bec33224ef7e2cee443de9277399",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:SideStoreSupport/XPCServer.h",
+          "before": {
+            "sha256": "ad89f8e518f9d3dfd03d9b5737341ed9e4e522acf4b4e6daedad2ff993a430cc",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "dbe302314eb2bdd2f3404839ef12b18ec92dafdcdbbf53f5046f60a21e1f209b",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_embedded_sidestore_startup.py",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_embedded_sidestore_startup.py",
+        "$BASELINE/LiveContainer",
+        "$BASELINE/SideStore"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "LiveContainer:LiveContainer/LCBootstrap.m",
+          "before": {
+            "sha256": "6c2fc8f3a87cbc89791cf3afcc9b8795443cdab199ebcbf735ec3889ee4d3bb5",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "487cbbce553f0ff7b0db8861dab50eabcf4ab07a4f75b3ba8d443c3bbe7484a9",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:SideStoreSupport/SideStoreHooks.m",
+          "before": {
+            "sha256": "2bc35c09c7ff4231a6929f2b1f68166a0c3f0b4d1b0527166b87ae25ff0b3869",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "2fef18e4b9f7bb9acb895b175ade4dcfc592ee65151b0afecb51befa1e6caf9d",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore/Core/Model/DatabaseManager/DatabaseManager.swift",
+          "before": {
+            "sha256": "81a594c730d402ab06785d3e4c391999fb4e010e7063711c43879dc0a71c3360",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "3083678f90a55b513aad326085baf43fa0a81ef7fb998cb6dd46ce1a6e30d7f2",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_guest_return.py",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_guest_return.py",
+        "$BASELINE/LiveContainer"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "LiveContainer:LiveContainer/LCBootstrap.m",
+          "before": {
+            "sha256": "487cbbce553f0ff7b0db8861dab50eabcf4ab07a4f75b3ba8d443c3bbe7484a9",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "c6f1104ecad925a3d40fcc2663a4adc8c2ad3997cdd8507a0c3e774a5bfed579",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Models/LCAppModel.swift",
+          "before": {
+            "sha256": "d7bc2284f14e92c45235640304f7e3fbcbc6ccb757ac60c9561b0f6d518f9b4b",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "8061f8b8a0f5c1eec66d3777acf071bf137c57781c561fb480d066343921caca",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/LCTabView.swift",
+          "before": {
+            "sha256": "48655c85c44c179a8117ce80f32826260a7349ab13dbad681314fb395e563741",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "023cf7f560a023e82afb623dd29e2eae52ec1beae292e956a38ca9620885561b",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
+          "before": {
+            "sha256": "11720fa161af29c5439c42dd431abec34dd8583a47016f7ba4040cb76991f82e",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "aa2ec889a06dbcf0222c1e4022bda135ac10a605db7d92bf3cb6c13d64e59d23",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:MultitaskSupport/AppSceneViewController.h",
+          "before": {
+            "sha256": "48a5e2c9b205ea9c21a8ed3f291bfd275074466288da00dea5f2654f6d0107e5",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "49c38fd8b2067adf357dc213eed48bc6bd1d1ac68f1b6771ea08aacda1f3b43e",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:MultitaskSupport/AppSceneViewController.m",
+          "before": {
+            "sha256": "568d3344c48e68ab272dc60da6b38d1981468a730b1ac979e10267bb1e70fc80",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "74bf61931d0b868d9344341b63ed639fb63d19656094ed2093687f7b226096df",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:MultitaskSupport/DecoratedAppSceneViewController.m",
+          "before": {
+            "sha256": "8570819411041f3d4088c5d086b6f69723fbc7205c8d929ff87b2936a05a2fc4",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "f48d44bed7cdd1421bd4b275e1fb0d6469d67c4a56894388f1a0188efcfb7c4e",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:MultitaskSupport/MultitaskAppWindow.swift",
+          "before": {
+            "sha256": "245af462771eab374890e0f0b879b196eae104add71e4b557f9a41f1e712befd",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "339014d9da850cef429a5c053100149c7025307d9aef9c09015caa12fc4167b3",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:MultitaskSupport/MultitaskDockView.swift",
+          "before": {
+            "sha256": "2cbee710e87db53d6ce536032d1f014236960bb5384ba2950aacf159225c7cf9",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "cadaf5e9232aab630473f5d48aa0bed83ff0cbbbe1e77b53d1e1c48abfe6ae87",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_dead10cc_fix.py",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_dead10cc_fix.py",
+        "$BASELINE/LiveContainer"
+      ],
+      "returncode": 0,
+      "stdout": "Dead10ccFix backport applied and verified\n",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "LiveContainer:LiveContainer/Tweaks/Dead10ccFix.m",
+          "before": {
+            "sha256": "1ed8dd9fa7f5ecd2b744affbd6d8930bbf82d90f98c2201901d3fd827e2d86d4",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "76cfc7e3fcbc2220183168b2b77b5e78c3334d971ac01e5793cc3ea197e85690",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_multitask_dock.py",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_multitask_dock.py",
+        "$BASELINE/LiveContainer"
+      ],
+      "returncode": 0,
+      "stdout": "multitask dock start-collapsed patch applied and verified\n",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCMultitaskSettingView.swift",
+          "before": {
+            "sha256": "b7fe0f03f5ca5b4d36e43b80e8bc7660bf69607acfeb0c981d0f63f66a6e233c",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "d250173c690c82747971ef782c4ad67e8b4c915a4e9178a889da3ff1fa5c1a90",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:MultitaskSupport/MultitaskDockView.swift",
+          "before": {
+            "sha256": "cadaf5e9232aab630473f5d48aa0bed83ff0cbbbe1e77b53d1e1c48abfe6ae87",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "d8c7ca145482289f1fe9fe35aa571c7b91fcb30bd9ae5c59447142f75f0f147a",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_app_layout.py",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_app_layout.py",
+        "--v3-grid",
+        "$BASELINE/LiveContainer"
+      ],
+      "returncode": 0,
+      "stdout": "Applied and verified App Layout patch on LiveContainer: $BASELINE/LiveContainer\n",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "LiveContainer:.lc-app-layout.json",
+          "before": null,
+          "after": {
+            "sha256": "927a01d2ad270264c2623be10b34693757338362ae377cb2a9b23bc9d1c760a4",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Models/AppLayoutStyle.swift",
+          "before": null,
+          "after": {
+            "sha256": "fd076c15a4827bf235558a85ad8515849ff5cc824c7b2f30d3f9633eada7e45b",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBanner.swift",
+          "before": {
+            "sha256": "855f4e5db24da91a90ea138adb336919fbbd82defde429e8604798466c808deb",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "e9852b8c875b17a94926eaefc56fd8c70f2762bb70fb43570d75a0ec30686c1f",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerView.swift",
+          "before": {
+            "sha256": "e0fb5049cff2f25ff6dfee564739d2e2eca38d26252daba028a126474814ffa0",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "c1b7de64bff406131ecf1c90e356d2b88e6a02a8d8c3fe4f755f219412870da8",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerViewController.swift",
+          "before": {
+            "sha256": "1c303614b4a55299a4e50561f02de0bc58dad89a0336e88562155281feb120e6",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "03ea5b3cc3e93609fd98358cbb7d83a0a6dc383969b4c2b2a85c44269c0163b5",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCAppListView.swift",
+          "before": {
+            "sha256": "76f2210d625bf184378d4c42fd5c267538c733c13f23926553a8476e5e699810",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "2b1673bdc28e4baf361ef11ca2c0b93c8b1e01470ec74b09d5d5917a451bd088",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift",
+          "before": null,
+          "after": {
+            "sha256": "c7984d420f525e4aea6879d69474d0ac8f4cf96b1eff7566a368d7d4c7f3a910",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
+          "before": {
+            "sha256": "aa2ec889a06dbcf0222c1e4022bda135ac10a605db7d92bf3cb6c13d64e59d23",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "f1f3b8c2874377d562b04d1d4d3fe358324ec9b89be1f594891b6ee4778de493",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_v3_unified_shell.py",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_v3_unified_shell.py",
+        "$BASELINE/LiveContainer",
+        "$BASELINE/SideStore"
+      ],
+      "returncode": 0,
+      "stdout": "v3 unified shell patch applied and verified\n",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "LiveContainer:LiveContainer.xcodeproj/project.pbxproj",
+          "before": {
+            "sha256": "3cf824f805efe902d503ea5cfb67261442d65ceccebc4ff308a922f5e131f581",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "9c5d246ce0dd37bcf48c13c4bad780e4f7dfd597cba3a5c570ed578e7f73c16a",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/App/LiveContainerSwiftUIApp.swift",
+          "before": {
+            "sha256": "2179edbe82ba0bec0b37afd4503e36419c525aae7bcfa95c4db73f41a26087cc",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "d68e1b5a847e8c9b6960f5379ee82a7b3841adcf9eaf9a4c4399273fcb34a9e5",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/App/V3SetupAssistantIntent.swift",
+          "before": null,
+          "after": {
+            "sha256": "b167b6e19d1fbf5ce5faed56a26337cf6435e9c917148c3fa281a77738230f02",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Utilities/Shared.swift",
+          "before": {
+            "sha256": "f9c869c6b01fb5907f457de139de82d35e36eb4383df353500dc5bf8d54aea96",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "8c3d8f80f25a29ad794fdb3ce71e461ece359175449f559249d4fa118fb3e455",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCAppListView.swift",
+          "before": {
+            "sha256": "2b1673bdc28e4baf361ef11ca2c0b93c8b1e01470ec74b09d5d5917a451bd088",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "38ca2e029d43c991e41d94e31c382c9691f2bba4524d60303fc8df7aa11fe9f7",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
+          "before": {
+            "sha256": "f1f3b8c2874377d562b04d1d4d3fe358324ec9b89be1f594891b6ee4778de493",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "22efe63284d13d5400833d47a54f35c83eb9fe8341ea8b8212f2b8f8b25afb9d",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+          "before": null,
+          "after": {
+            "sha256": "7a2def783c208768f0188e994bd77dd1bdc0dde250f6b2fd4fae07b5b36d39b9",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore/AppDelegate.swift",
+          "before": {
+            "sha256": "df87efbdc6a384d6feadb2ccbe5b9d63c73ff11e893bf624ec6e7e54f72d274f",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "36adad29881db9bdc1b349ff13b491098b0dd12b6011fc6929449e60ed8a12ba",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_lc_certificate_observation.py",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_lc_certificate_observation.py",
+        "$BASELINE/LiveContainer"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Utilities/LCUtils.h",
+          "before": {
+            "sha256": "1851f8b7f8293b4bddc59f0f1096a121045a821296de7303f5a99f75f9b0d1e8",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "af76afdbf9bf4e318f20340f4f663253102a32bb4402f6d002f79c5cdf5851ff",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Utilities/LCUtils.m",
+          "before": {
+            "sha256": "b2edee0829aa973a7952fc125170569c253fe6e4661a477a4c4120e2f541ae4d",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "2a01174f6d2d149be630f30fefdcec46dbfd9a5f331e50b9be771b3ebbee9a1b",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:ZSign/zsign.mm",
+          "before": {
+            "sha256": "845f45515c5a00a92f08a98cf3bde9930d480aff2390ce20d11bb7628b5952a8",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "85809a23f26576d0db4615377665b073de71801850f92ab8ab03495b845a04b9",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:ZSign/zsigner.h",
+          "before": {
+            "sha256": "ba6d3c380a5c8f1c9065d8b6f7fc74bc56469f583283eaf96c97dc4ef9b3fc4c",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "fcf360447fb9a482edf236b016ad4c1c4d135ee57da92024ddfacfb9a2e64711",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_v3_service.py",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_v3_service.py",
+        "$BASELINE/LiveContainer",
+        "$BASELINE/SideStore"
+      ],
+      "returncode": 0,
+      "stdout": "v3 command patch applied and verified\n",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "LiveContainer:.v3-command-patch.json",
+          "before": null,
+          "after": {
+            "sha256": "0de99fdf9b8635e3c2aa8f8b23d2a2b517aeb6384db3396649a92fbaf37945c9",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LaunchAppExtension/LaunchAppExtension.swift",
+          "before": {
+            "sha256": "4323814113eb7a9d49678c169572bb08bf60406543318bd70998765e7977b853",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "aff2c014705a34dd9c2fae0eab9df89661a223634ace44dcfca04c7a9e46010c",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainer/LCAppGroupIdentityRules.h",
+          "before": null,
+          "after": {
+            "sha256": "6e21323f11e5aaa11b22e376cb5f62cebe02f89babaac9a5fd2086f4a988c724",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainer/LCAppGroupSelectionPolicy.h",
+          "before": null,
+          "after": {
+            "sha256": "1fe76564b89bd431924628249aa36484b86e47943aca4f754fa0fd66d6b91a96",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainer/LCBootstrap.m",
+          "before": {
+            "sha256": "c6f1104ecad925a3d40fcc2663a4adc8c2ad3997cdd8507a0c3e774a5bfed579",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "352ea68c6bc6e07fafcc0e35378a15a4ee2c8ce00c3c10e81f58980cfd898678",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainer/LCSharedUtils.m",
+          "before": {
+            "sha256": "fac5a2d204f950f4d731bbcc575d966ceabb24dc580cc56c5abd9a50ceba07e3",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "48b45f4c7941a500fd8b46f955596407bcf17f470d289431e6bf6b14a7505eb0",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/App/AppDelegate.swift",
+          "before": {
+            "sha256": "a7dfa225edc39777d6a563f1f17421ce9610dcd49184a00f77189d1d5a9bab27",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "61556da1e6abe23bcf8b63d9e8b3278efee9c198e8dcd39eedc4a774e7969a79",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift",
+          "before": {
+            "sha256": "255af33f2c2ac26f9cb42a5f2c0a312337769a5236d121064d4a7cc9bcc18175",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "7a5021f8758ffb66b8a0fd868722efa6b3ed9d3460916e7dfe47e4132159aecf",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCAppListView.swift",
+          "before": {
+            "sha256": "38ca2e029d43c991e41d94e31c382c9691f2bba4524d60303fc8df7aa11fe9f7",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "fb6e35a5e50cc657180e18dfa74f1133984a0ac3f179956f3c2462630bfcc87c",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/LCTabView.swift",
+          "before": {
+            "sha256": "023cf7f560a023e82afb623dd29e2eae52ec1beae292e956a38ca9620885561b",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "db59d50e6d958f1defcd83a9285d20bf14dbbe80cd8ce20012e87d031c029050",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift",
+          "before": {
+            "sha256": "6830cb81be66e6b5ed1b59ac898c1214ea7758a75e9aba4eef98c78b4ea655b3",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "2739650a91d535d5d54189dfd84d19d244d4cafd583cbbe9aa24752f4df43f5c",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift",
+          "before": {
+            "sha256": "e46ab7a5d67ef0caff895eead059a0c3f389975acae151358239d68662cbf227",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "9eaa7ba5183432a6a5f63e8776526784ec66e1a170d3fb92cec1214bde03a330",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
+          "before": {
+            "sha256": "22efe63284d13d5400833d47a54f35c83eb9fe8341ea8b8212f2b8f8b25afb9d",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "bd157f5be0e1b141fe977870d673935f6602ad93f093dd12c83fc23d932afe5d",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveProcess/main.m",
+          "before": {
+            "sha256": "5b272a6060e262af1cbe019d60530d27948a9183279ab468b2cddff685622679",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "9cfa9ac047bc7702de1915cc4703cb4544a86436884b401e6565824a60bf77c5",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:MultitaskSupport/AppSceneViewController.h",
+          "before": {
+            "sha256": "49c38fd8b2067adf357dc213eed48bc6bd1d1ac68f1b6771ea08aacda1f3b43e",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "bceeb13905d138c11116f7100474ec77ab9b1956bb00a11678de55d1dfdbc0b7",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:MultitaskSupport/AppSceneViewController.m",
+          "before": {
+            "sha256": "74bf61931d0b868d9344341b63ed639fb63d19656094ed2093687f7b226096df",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "0d0045dae1c1dbddcf0f327c6183a6b4f89ee71cc8ba879f88033140defedf4e",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:ShareExtension/ShareExtensionViewModel.swift",
+          "before": {
+            "sha256": "a0d8d57cba64adfd415ed540077105f33a8953ed36f8fbf22633be763f33f364",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "d2bcd0bcdf1df8355776235e4ea72b76630fa04e4b35730ce507e2d1db339ba8",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:SideStoreSupport/SideStore.swift",
+          "before": {
+            "sha256": "ff2faf3c72d8a4cec42f8d52469d25e6670c31729f5ba8eb124cb7d2c5e1509b",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "946a244cc699b4a24500f44eccf9bc804a51dcc97d1d3a82c23d4cc3666dccee",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:SideStoreSupport/XPCClient.m",
+          "before": {
+            "sha256": "6748c98e848e78cac566d468a4fc123d3da5bec33224ef7e2cee443de9277399",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "7a83b4d771876ca64fe3ded78a7387eb3e9820307b7b5e474fad64149eddea9d",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:SideStoreSupport/XPCServer.h",
+          "before": {
+            "sha256": "dbe302314eb2bdd2f3404839ef12b18ec92dafdcdbbf53f5046f60a21e1f209b",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "ffb31ed739a9512eb883beb2ccdcc5ade1ea0860abf55b5d61778bdbf1779f36",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore.xcodeproj/project.pbxproj",
+          "before": {
+            "sha256": "fd62b77b6be0a63590b46b6b42b75fea1c7e8c0350a57ae3372955a50313238b",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "0a21d1c86d22c16af2d877b571fccc674f5a110cc0ccf9bd4bc6204d511ee33f",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+          "before": {
+            "sha256": "92710a8c8d97cf6e241d6ebf1b72f5b77ea2eeaa5d7d29bfe4dcf9c659c2f2ee",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "5c8c4df054a2f76dc9648bef4a88ef25a716e1f0a5115e0a763e57d20c60ce50",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore/AppDelegate.swift",
+          "before": {
+            "sha256": "36adad29881db9bdc1b349ff13b491098b0dd12b6011fc6929449e60ed8a12ba",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "2d44498cd866c0745989eff77594ac5f3d50f92414792df4cd4cab40455a6e86",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore/Core/Model/DatabaseManager/DatabaseManager.swift",
+          "before": {
+            "sha256": "3083678f90a55b513aad326085baf43fa0a81ef7fb998cb6dd46ce1a6e30d7f2",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "7d7766473f213c9cd6be60134633f7b6655e450804679ad231758d37d76dc90b",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore/Core/Model/RefreshAttempt.swift",
+          "before": {
+            "sha256": "905d646cc8b5e11164d2c42e0ae213107085295cdccb5a3d4e9677ce2726a374",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "cb6f60d1b8322bcee10e77cdaece48ad9c241ecd78b40cd105dca88e6e217ab9",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore/Info.plist",
+          "before": {
+            "sha256": "3d3dba0282cc4330c8585d49738ff82c032d0db5edb1a6ad53943779e24712eb",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "74001aeb34539917dc8ac99ee82fe4d6a93da3c429a04d9cf727e0f286102edd",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore/Intents/App Intents/AppShortcuts.swift",
+          "before": {
+            "sha256": "ae4c07a686fa32f27667827b4df5315acd5d3678b3d4e2c29b9d679450fbb3b5",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "1ad60dd46aecce02f2926ca3336a4930422096403725db75a1e96fd11e6239a4",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+          "before": {
+            "sha256": "f0f0e83c6cc45ba9dfff2a0061aca26a13618b568934c7ea7639220b1a073dc3",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "f1bbc0093e1349be884bd33785f204b529a63e5c7e509e8a9806990c877fd055",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift",
+          "before": {
+            "sha256": "383428e5839a127df929898bc61067c3d8bc07e7c45fdfe5418705c00a6ee100",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "b0f0bf81a5e9a0bb7452b1c04ce213adb67c32457689ddedf358c3515d4ee97d",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore/Managing Apps/AppManager.swift",
+          "before": {
+            "sha256": "62632f6f3fc1e2c3566ebb0eb542c24dc60bc582a6e42da1f691406766f9baee",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "9c6ae18ab82b3a794ba57c1ee3bf42acb042be64dc4c46855dab39d3b7bd19db",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore/SceneDelegate.swift",
+          "before": {
+            "sha256": "528284c8513b14772a339cb543964db9a10408c7c0ea3f93a291f2526e33cb69",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "a3ed92b0dcbe56b665ebb1205e507691c7f9aedebe2c69741f4b2c4197766606",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore/Settings/AnisetteServerModels.swift",
+          "before": null,
+          "after": {
+            "sha256": "733f538750924b7953ec8ad77ee4287c3f2ac722f913414d9f3377e61f39ef8f",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideBackup/SideBackupApp.swift",
+          "before": {
+            "sha256": "92a0f4584cc8ff97b5beac303b9be8a62d6eed6b81297699502d48884fe4883b",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "5b1817519c5fefc56729a1b8b5606967c3b7052a31dd2f82f1e3cce181ab40ac",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/AppBootManager.swift",
+          "before": {
+            "sha256": "b52a13228cbf4d86cdc3578a21346ef5362e5a056586bf358ba19ff5c806e2bb",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "fcea3d8499eb56ee87ab429294ba5436b1d7a1a2ffa0f898ff914a8fbaef6f7d",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Auth/AuthManager.swift",
+          "before": {
+            "sha256": "2fb0c6dc4608430dcf1377d6f07c709a418db1475245a4c5dfa19aa1088dfe1c",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "aadcd5c8387edc751e2e83ccf28e1925ea2c42df89c9edcddcc3cb47b355e701",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Auth/DeveloperPortalProxy.swift",
+          "before": {
+            "sha256": "77a2469a6270b78a889d470e7ac79aff523f96bc2d4949d014cbd72cbb716ca2",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "c128d7f78514371494f9f3474a3a5b52ecef964d856af5b6e315d88ea86462e5",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Certificates/CertificateManager.swift",
+          "before": {
+            "sha256": "aa01de91ecbb1b8d19d737e6063d85f5ec8da58f81d97ef2b185abe77a2612c6",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "4364fd79356570b61c5cfb85360e7a4556905e4c3976c75555dcbc8acb5c9fe0",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Certificates/CodeSignValidator.swift",
+          "before": {
+            "sha256": "215d284d5a2da916c496ef87706d711999ed7b8dbef34603285f25682b01f5c7",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "01a2562e62b83b2cfbe2ef5251598022bc999229b95b21218e7416f8964d840f",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Certificates/OCSPValidator.swift",
+          "before": {
+            "sha256": "2158a992890f0a10b839ea7fb7dde0185eeaddb567ca6935449d36514644cb6b",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "3deba4778be7a3ff7fcdafea0b85da4b3740f27826f88dc16e6ccedb6e8e3887",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/DeviceApi/ConnectionConfig.swift",
+          "before": null,
+          "after": {
+            "sha256": "8623a183a22c1587f4452cfa2f9aa87f494e682587ac214ff2d11277c7e1671d",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/DeviceApi/MinimuxerWrapper.swift",
+          "before": {
+            "sha256": "706e5ba9975b30149e229efb46c68750135c7c99cee1e29d099bb27612530224",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "b66a24a07daa4171dffcff89f86789d22a12cf31c1223af682a4cbd920fd20ca",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/JIT/SideJITManager.swift",
+          "before": {
+            "sha256": "db7000b59dfcefcbf3f936399d7b1ed245b96eadb9b5ae85a5f85eb33cc2d53f",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "317ceba2b5b6c4176270b6065f83650a060fd9359e1eb50d9041c37ae0971ef0",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Logging/SideStoreLogging.swift",
+          "before": {
+            "sha256": "53fe284424dea93619cebd5542449e226cec68aec8160cc3290351e2c7ec5d66",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "732feb92b5adbf283f39c8fe3b9208bf885f99146ea047989ec54d8eed1a477b",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Operations/PipelineOperations/PerformBackupRestoreOperation.swift",
+          "before": {
+            "sha256": "1bb091df82e18432dfa32fbd596cf5c955d873d6508a9ab11dfdaa1a65ebbe8f",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "164da3396d12577c576e2bbcf7bfec4ed271bcc9c528e9a0197262a7174ae656",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift",
+          "before": {
+            "sha256": "566caed4b7c363bdf3acc3c5ec19d423d90e79b0cfd19f374975c270df30dc56",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "b26e21c60ab153809fd6694e7e3e137b3762ff723c7e1b4a1611428940247a44",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Operations/PipelineOperations/UpdateAppCertificateOperation.swift",
+          "before": {
+            "sha256": "31c0407f34bdb83291652c3ec0370551529658e7fbab2843b1ea4f7c4cec333a",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "df59412a1b83ca24f00c23c8de38aebfddbaf528ab10c4735d6954cb512be23e",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Operations/PipelineOperations/VerifyCertificateOperation.swift",
+          "before": {
+            "sha256": "b7cf4d3a201b59fe5c1a8499c994162d108ef10ee3627f7463c1af135342cae7",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "9c07ea666adaa5dd09f537e3a8d807ab8db8e8c8f15e7d158dbb1574afcc60b0",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Operations/PipelineRunner.swift",
+          "before": {
+            "sha256": "d70e19a447341bac2cae1c525b2a97396df4096213538fa3bf1a1d21bffc1599",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "afd742585a85b24ec9546ff4bf5affc6beb78db866f209228edfa94d8d889770",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
+          "before": {
+            "sha256": "5f83b87ad7ce862549b621717330298fdef4b2d3b5faa20ff59416a210d0cb4c",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "9cda54be3d9a06b35ffd15d88e3595cafc2a2894d41cd0d43a25d291fe3603cb",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+          "before": {
+            "sha256": "3f3f2be26918e3b3ce6b47922600522711e4631ff029815f543ffbe8487128f7",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "8708bf1d1200e23bf6834110bb7f04daa9942e81c5c4e2812e534abba98058ee",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Pairing/PairingFileManager.swift",
+          "before": {
+            "sha256": "a0998d8ab84104d9c369b2a7841f08a3895bb3cf57a836299e3cd7a956db62a7",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "33dec1892ee8a5a4991270021cc8f060ab4bbea26a5ccb6447619d9a17b8b8d4",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/DeepLinks/URLHandler.swift",
+          "before": {
+            "sha256": "fbb3d9bc34e44757435f7a22d459e756f1e2a366fae8d1b41b7d6b3aad613d60",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "1c34c621e6033e0bc5f944f4410c53a8a58be430f0dacbf520d534cf6934e595",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Handlers/PipelineHandler.swift",
+          "before": {
+            "sha256": "992bfcd02603ea5199ada97bc09df162f44697efd310bd9512d72a5bd9c82047",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "822a9828665dc480d983773836b4ae6fd1a4176c7a8c3d920563f0eb740a21c4",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
+          "before": {
+            "sha256": "16db97c3e122d157e4769c6be04746dc427aad1771d0da2e6657c03f66d68506",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "07588de035caecc5226cf80ac3b5e679221deebfa6f2706e5bcf23f06a87ec5b",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_native_error_presenters.py",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_native_error_presenters.py",
+        "$BASELINE/LiveContainer"
+      ],
+      "returncode": 0,
+      "stdout": "Native error presenters labeled and verified\n",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Utilities/ViewExtensions.swift",
+          "before": {
+            "sha256": "763f66c2358033c749bdba03ec97edfaebdb59c44e7cd384f06ac1975fc5cd30",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "0af6b884c38694a413c3d0d4c20cb38f0bcba0ffec479c0117ef5335fbd5e998",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/AppSettings/LCAppSettingsView.swift",
+          "before": {
+            "sha256": "baf9484df077c65b747beb828f1686c843c25afd919748688b6c8238b39870f8",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "f7a9cf79a894e927f29e70ec6bf3395bdc65092f0a146dfa927832b9abab4c73",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/AppSettings/LCContainerView.swift",
+          "before": {
+            "sha256": "dbbd54c5fbf68e0632a106056f1f0680e6c57bbc19bf033ca571663fc535e334",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "802dd8653f485053bd2be2c1f1e74eaeb0c30cbc265f1e8d211b132756cd5164",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCAppListView.swift",
+          "before": {
+            "sha256": "fb6e35a5e50cc657180e18dfa74f1133984a0ac3f179956f3c2462630bfcc87c",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "091ab0e20b6b029127470d55b41e2748ab21d043eef1a2fcd8cd8d782de9533b",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCWebView.swift",
+          "before": {
+            "sha256": "9ab59168bded992ad818459e7fe45ea8148ec00490e78409e5ee0448717887a1",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "26e070e8e46ca0b34f984a19f4a8f952f25b558ecd7f9396651da93fa009b84c",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/LCAltStoreSourcesView.swift",
+          "before": {
+            "sha256": "a84fda43f382d238007adaa3cd5356163e57309225be6f2bae1f3add597257a9",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "84120a6dca9a1b9fe0932d9d7753b5368dd01684c911ec8d07e047f96e8d8a3a",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/LCTabView.swift",
+          "before": {
+            "sha256": "db59d50e6d958f1defcd83a9285d20bf14dbbe80cd8ce20012e87d031c029050",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "6859c307caacbac6e9b9443c45b608062261d353dd8dfc6cb8b04176d49262e7",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/LCTweaksView.swift",
+          "before": {
+            "sha256": "30c1a036f339872514a716d687f1dddb3693e112187bb7b5aa04a25c5bee0ecc",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "17103a2c36ac6c2c89797c8ad4be47f3d8c6719a9cb011527f5a1e09bf12f739",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/DataManagement/LCDataManagementView.swift",
+          "before": {
+            "sha256": "ea48d84aba49bec30e54d2ad798a80a45e1f804600a189e216b8dffbb367cbaa",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "6c3ed8fbe8bb2652409402dde0a789248d91de628cbe57641897204a0840db0f",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/DataManagement/LCStorageManagementSections.swift",
+          "before": {
+            "sha256": "ef644ca21b1d398b41e8b36978855271eccd6b9ba928ee34c25b4782ec95b5fc",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "6246ccefabcb3753a84174b7d032adab68b3f82aa4290953d077d0b4f34e2ea3",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCJITLessDiagnoseView.swift",
+          "before": {
+            "sha256": "659c967ab8bede564ef487880f6c5adfe0fbbceeb2f5e52aa6fd937a3f880c9e",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "0dc2122c5a1ba0c7d324bc811963afc61d8af0f7cc0e029bc822d06d9fea2e2e",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
+          "before": {
+            "sha256": "bd157f5be0e1b141fe977870d673935f6602ad93f093dd12c83fc23d932afe5d",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "8b0ecd8a6937162ed02229280bf5e349d154c3669879eb9d9c88daf55be7e91a",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:TweakLoader/TweakLoader.m",
+          "before": {
+            "sha256": "803012d60d0b7bc6e76b5ebccfea7dc8cadb8038330c88a203572b8248328eee",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "8b91734eee1153bb6b9ed895099bb280a0a909c0d40ddf3c678f7b7a9031d4d3",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_background_automation.py:patch_background_operation+patch_console_log",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "-c",
+        "import sys;sys.path.insert(0,'$INTEGRATION/scripts');from pathlib import Path;import patch_background_automation as p;p.patch_background_operation(Path('$BASELINE/SideStore'));p.patch_console_log(Path('$BASELINE/SideStore'))"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "SideStore:SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
+          "before": {
+            "sha256": "5964668cace2b97c34fc394e6960584a14520d3c60b271daf83f3a886471ca2d",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "8fd4c58eeb4656be86f9046547a4f9282b657fac31df004c02fc285e929e9140",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Utils/iostreams/ConsoleLog.swift",
+          "before": {
+            "sha256": "e80b5af0af8cdad21ff798c0937b6d007fe587fb3d3683630caf71ec8f1c563e",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "dec8bb0a19e8159939455bc684256db35e66c2fb1fd7447f4798fbd454267797",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_combined_refresh_contract.py ",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_combined_refresh_contract.py",
+        "$BASELINE/SideStore"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "SideStore:.combined-refresh-contract.json",
+          "before": null,
+          "after": {
+            "sha256": "8e839ee8f86d325672f2dc1f4f683294368e07ce03197c11ef09b9982866baa0",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore/Core/Components/Keychain.swift",
+          "before": {
+            "sha256": "0fe4aed68f9c92f8c1fc3fd9e5bf8b49ce021787d6d989276944f15951247628",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "8af40c8b3e425c599f7d2a4848b694ae2ee18abcfad39cf95c3ad66babd0df8f",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Anisette/AnisetteConfigManager.swift",
+          "before": {
+            "sha256": "2ae21182755709599a281d9d545044cbd6bbfa1d9ced013f2e735767d02e1cb2",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "94f73d7cc4b334b28a2debbd7cc7658dfaebbb31ce36960123b7067e53e10fdd",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Anisette/AnisetteProvider.swift",
+          "before": {
+            "sha256": "da88ba1573ffe454f7eac5719c3a8cf373ef70e0d0af31c7eb57770e505c4229",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "7a3ac0f470c6f02ad30a6943b643e31bc02a512d24c2ae6b191850bb81b79425",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+          "before": {
+            "sha256": "7e877ea77e5be087d3c365df0af5d98ba4121536ecef9e9d5b99af33ebb14fcc",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "6d00c3d089a66a883c3b0f56bff6a8a62f3a290c9434aec65f28aa73985186b5",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Certificates/CertificateManager.swift",
+          "before": {
+            "sha256": "4364fd79356570b61c5cfb85360e7a4556905e4c3976c75555dcbc8acb5c9fe0",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "8956afd05a11bd0f0a4aa68bbcc9eba044320906ce463e70716995f550e42c3e",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
+          "before": {
+            "sha256": "8fd4c58eeb4656be86f9046547a4f9282b657fac31df004c02fc285e929e9140",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "edf762e46b242e9210545adc67c04003f34050dfc769ed743c8aea42eae4165c",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+          "before": {
+            "sha256": "8708bf1d1200e23bf6834110bb7f04daa9942e81c5c4e2812e534abba98058ee",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "55ce7ec780c9027b61d8aaae607f0cc1b83ed719a1c020a12ada3abd7013d2cd",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Utils/importexport/ImportExport.swift",
+          "before": {
+            "sha256": "d269222ec23608b8e07d29f8d2ab4903e2bd1765fa68a3f40e4e1664e72fbeb5",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "49ab19457750261cea78b2c8fa6a1f145cccd89346051d1295bba60cedfef337",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_combined_service_startup.py v3",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_combined_service_startup.py",
+        "$BASELINE/LiveContainer",
+        "$BASELINE/SideStore",
+        "v3"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "LiveContainer:.combined-service-startup.json",
+          "before": null,
+          "after": {
+            "sha256": "e3e6e34175e37dc976991d67dde97c81b9b81ae2c4804c1802168a8a93ea62b1",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainer/LCBootstrap.m",
+          "before": {
+            "sha256": "352ea68c6bc6e07fafcc0e35378a15a4ee2c8ce00c3c10e81f58980cfd898678",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "19f1a15fffa162e56eedf7059fc3c756fcc3a002a0d94143ce8f7d15ac37498d",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainer/LCContainerStorage.h",
+          "before": null,
+          "after": {
+            "sha256": "f732b42eca5e3f20cf407338837aceefeef61c5243b493d84e6d709e3efbfbcf",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
+          "before": {
+            "sha256": "8b0ecd8a6937162ed02229280bf5e349d154c3669879eb9d9c88daf55be7e91a",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "3ffc638e9b4a143c319efdd6c6d702692f440973f7aafae6db91d381eef1f6a8",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:SideStoreSupport/SideStore.swift",
+          "before": {
+            "sha256": "946a244cc699b4a24500f44eccf9bc804a51dcc97d1d3a82c23d4cc3666dccee",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "aff80bf38077e7872606d4a0088ca4c79740466e24320b29eba8b8185aca165e",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:SideStoreSupport/SideStoreClient.swift",
+          "before": {
+            "sha256": "d4c6ca1be46a9313885f421cfa18efa42c9402bfe5253ec8375c1f933755bcd2",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "9e03646c42531af98b150c7866a6b1bb8297b5d8cb285b7a5da739dce985aed5",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:SideStoreSupport/XPCServer.h",
+          "before": {
+            "sha256": "ffb31ed739a9512eb883beb2ccdcc5ade1ea0860abf55b5d61778bdbf1779f36",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "5f435a16457cd31c6179ed77c70c698c4ce2498cbd848dcfa2e5e532d34df544",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "LiveContainer:SideStoreSupport/XPCServer.m",
+          "before": {
+            "sha256": "5f684d8eab7dfd1c48a75a3c9790f0ed9420eb372e109666aa6ca28ab3c15bf5",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "cf8111951e6bd079efc43778cea20051d6099765795a94ba64f2b716525f34dd",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:AltStore/AppDelegate.swift",
+          "before": {
+            "sha256": "2d44498cd866c0745989eff77594ac5f3d50f92414792df4cd4cab40455a6e86",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "814a7bc654f611cc6c56f686eb1578bd381b9d8e7d372cd9e59589c187f85a2e",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Operations/PipelineExecutor.swift",
+          "before": {
+            "sha256": "d923eb7d2208df5ca82141828b84d5e226b8beeffdabe6b316cc6e1355ab344c",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "e9753d0053d6c96a7bbb38b714d690e0486ba730d712c74076818abbbfaf8d08",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift",
+          "before": {
+            "sha256": "ffc478d71d154c034a00ad3c1c04264b74029789ee9c32f63204cc600c5ce00c",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "27fdc85ca84d1b5cc6a7dbe9443ac86ee8f4a5c3dfd2860140c1e4f163e444e0",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Operations/PipelineRunner.swift",
+          "before": {
+            "sha256": "afd742585a85b24ec9546ff4bf5affc6beb78db866f209228edfa94d8d889770",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "9447a307b1b9e904d7612436832a0332b68cd03a1dadc8a3b33bdf7fe6c69a99",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_sidesign_privacy.py ",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_sidesign_privacy.py",
+        "$BASELINE/SideStore/Dependencies/SideSign",
+        "$BASELINE/SideStore"
+      ],
+      "returncode": 0,
+      "stdout": "SideSign sinks disabled and transitive SideStore error logs omitted\n",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "SideSign:Sources/Logging.swift",
+          "before": {
+            "sha256": "17e69643ee5b2e6c07af18d0c2ccbfdeaeea6cdaae450da6cd12414cc076d615",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "49aeee12d89bb092d83302979e493343c3ac1fd957f546f22df07cd846e7fe3f",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Logging/OperationLogging.swift",
+          "before": {
+            "sha256": "7e0fca060cb14be03195db67588f6c63b2ebd067315ab54e14ab649077bfac03",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "069ce4440923fe5b45967a21d587a0f17a691141718678ae4e09581bbef320ba",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Logging/SideStoreLogging.swift",
+          "before": {
+            "sha256": "732feb92b5adbf283f39c8fe3b9208bf885f99146ea047989ec54d8eed1a477b",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "f111e2ef5f312145ae97082affefc75763218662d96104da3a95b8f6cddcdfdb",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_sidesign_2fa_state.py ",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_sidesign_2fa_state.py",
+        "$BASELINE/SideStore/Dependencies/SideSign"
+      ],
+      "returncode": 0,
+      "stdout": "typed SideSign 2FA result patch applied and verified\n",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "SideSign:Sources/DeveloperPortal/Authentication.swift",
+          "before": {
+            "sha256": "5ed28c2b357767170f62d0aad6f6a7457a02e0422eb98f1c6b169ab1ac6053f4",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "5b6412e3b52b355b6f7dd2e5e6b03f25b5ff11eeeaa28bed3c34a4f360109729",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideSign:Sources/DeveloperPortal/DeveloperPortalAPI.swift",
+          "before": {
+            "sha256": "8bfb71fd38463210ab8140ea7a2a1ec60b4af324f8c9bacfb7762bce02cac43f",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "32fa55261f75101ed668e36b3dfab9130fd8c1a2ed2b28d74bedc0be19b4bd2f",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_combined_service_startup.py --portal",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_combined_service_startup.py",
+        "--portal",
+        "$BASELINE/SideStore/Dependencies/SideSign"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "SideSign:Sources/DeveloperPortal/AppIDs.swift",
+          "before": {
+            "sha256": "4ce4431c4e90ddad1e9a5558d291c51ef5e1bac20ccd9e18cc0f9e9be3aae032",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "0456e3397ebd9e5c15a352c0795b90e2f590af7f167784cc2f810f5ebb088e5c",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideSign:Sources/DeveloperPortal/DeveloperPortalAPI.swift",
+          "before": {
+            "sha256": "32fa55261f75101ed668e36b3dfab9130fd8c1a2ed2b28d74bedc0be19b4bd2f",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "d767d97324acae5c983f31443de5f6604dc5bf59281d19c3e50adeee4c629a41",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_combined_transport.py ",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_combined_transport.py",
+        "$BASELINE/SideStore/Dependencies/minimuxer"
+      ],
+      "returncode": 0,
+      "stdout": "Combined CoreDevice source integration verified; device proof still required\n",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "SideStore:AltStore/My Apps/MyAppsViewController.swift",
+          "before": {
+            "sha256": "340af742eb12c0386a724d06941d30ff8103ad5977a2c57b35f63cea1872ba0a",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "79c89adaffb724e9da8904049eca204947cf292f3d4ee96de1fa0fba9243b2d0",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/DeviceApi/MinimuxerWrapper.swift",
+          "before": {
+            "sha256": "b66a24a07daa4171dffcff89f86789d22a12cf31c1223af682a4cbd920fd20ca",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "072bf04bd5e0255681dae3e27e6fd5350e7277ce981cd821c63a0e76fb08b062",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Operations/PipelineOperations/SendAppOperation.swift",
+          "before": {
+            "sha256": "fa99e105d2e351a03b379e2ab0af5f8c6c4c382772900f3c8faf534564895230",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "64c0c347792547da49ea81971ace103ffa1bb21022e73696f49bc298db8b63e3",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Core/Operations/PipelineRunner.swift",
+          "before": {
+            "sha256": "9447a307b1b9e904d7612436832a0332b68cd03a1dadc8a3b33bdf7fe6c69a99",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "6180419cad4470fca4794996e4999d8c1f897376c38874712edc5aabc558ce63",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Views/Settings/TechyThings/HealthCheck/HealthCheckView.swift",
+          "before": {
+            "sha256": "693a3becb5122f89f9e2afe495769594560a25562a7542539df59bd135bd2904",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "65f52e9a58c812295659b1ba9bc9a4d9aa7dab09353206d15e3f8438231da3a3",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "SideStore:SideStore/Views/Settings/TechyThings/HealthCheck/HealthCheckViewModel.swift",
+          "before": {
+            "sha256": "f1f533e2ac09b60aaddd255ed0242765f980f87e0da6e7f0f85e59037416e774",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "51dbb7729295a83586f728070c5a7cf6f7dcf09f39f02b5eccf184af0772bdbb",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "minimuxer:Common/PairingFile.swift",
+          "before": {
+            "sha256": "981e421a46f3991ac4472edba1ace965763da6804be29f9d3697a25346fbad8e",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "0f82090b2f0306264dd1a01bd6eb8dc79a4080015ec188227ab27d6c83de9bea",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "minimuxer:DeviceGateway/BaseDeviceGateway.swift",
+          "before": {
+            "sha256": "fbd99d75b4241352ce67144381cb3e4095ebaea55e517dad3d24570008a5a241",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "31f763a008ee1715437c238b4126da7669e0ecfdc757fca6f1250234021420eb",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "minimuxer:DeviceGateway/DeviceGatewayAPI.swift",
+          "before": {
+            "sha256": "f1910508b32e5dcac2547f3a4cd858a94f659913de185706f800fe0f02b0d3e0",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "4c4f6dffb21f4cd2de1372a49e939ad04761ed445a85906e3add7b69abc19645",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "minimuxer:DeviceGateway/idevice/IdeviceGateway.swift",
+          "before": {
+            "sha256": "043816f4249edb315cada4e056285a633ed4eabf46b14733a1a62dc378dbfda6",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "9f56b14bea94abbb75de863549fa40a3bb23dba10cf2d924b108fb0fd38cac3d",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "minimuxer:Sources/MinimuxerApi.swift",
+          "before": {
+            "sha256": "5509f75dd03e59926828782a7a863ee9f2f6407add80c237b22a7e96dc211d11",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "be369cf30192086e0926fa40666ef1e99d22aeaf5c35dee8f8e327365f45fc9c",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "minimuxer:Sources/MinimuxerImpl.swift",
+          "before": {
+            "sha256": "d232742205f5261e5763e66527103c6437fc38c214b561a366fd542bfccc4036",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "530f091ef950a611eaf9eebe86e86aef04ee9df98152fe20610c3534ebce678e",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "minimuxer:Sources/RefreshTransportPolicy.swift",
+          "before": null,
+          "after": {
+            "sha256": "1ddc3d112d8a218db2c8017947595782fbe625dcdf7fef1fc6d4495f8b8b15d0",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "minimuxer:Sources/Services/HeartbeatService.swift",
+          "before": {
+            "sha256": "0fd6951869c7a7470cc915eb7698a4544d2316296ff2efcf6b2224cc12283149",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "cffed2b09e8f09e428f511c51204b8b1f2335e0669efa314a9fade8f3c06c48f",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "minimuxer:Sources/Services/NetworkObserverService.swift",
+          "before": {
+            "sha256": "9ea0adb9227664cb24e9c6e76b203eb66dc9275271e4b3d46946bd72956fdd11",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "0a2af148e244000577fb2a252cf4ae311a631e19f77ef9d4fbe83b34dce21f9e",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_local_idevice_package.py ",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_local_idevice_package.py",
+        "$BASELINE/SideStore/Dependencies/minimuxer"
+      ],
+      "returncode": 0,
+      "stdout": "minimuxer now consumes the locally built patched IDevice XCFramework\n",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "minimuxer:DeviceGateway/Package.swift",
+          "before": {
+            "sha256": "5a1224f1b7458b513ee5ae97bee08f4b102a06f195ab83e4cad6c417c08ff02f",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "ecb4a9cbd63f68b1b4dd321c300c28148e996c91b149857d558f2d2a02b0e0ed",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    },
+    {
+      "script": "patch_combined_service_startup.py --transport",
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+        "$INTEGRATION/scripts/patch_combined_service_startup.py",
+        "--transport",
+        "$BASELINE/SideStore/Dependencies/minimuxer"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "",
+      "changes": [
+        {
+          "file": "minimuxer:.combined-errors.sha256",
+          "before": null,
+          "after": {
+            "sha256": "2ecc4b87c5ee61a459f77446d8f60d4616cbe23d0b7fa96a150e3ea9d199652c",
+            "mode": "0o644"
+          }
+        },
+        {
+          "file": "minimuxer:DeviceGateway/idevice/IdeviceGateway.swift",
+          "before": {
+            "sha256": "9f56b14bea94abbb75de863549fa40a3bb23dba10cf2d924b108fb0fd38cac3d",
+            "mode": "0o644"
+          },
+          "after": {
+            "sha256": "416ff9a0ec1e32382c2e55eaebba7956188d1e90a01a43f5cdb53a3348de4ead",
+            "mode": "0o644"
+          }
+        }
+      ],
+      "idempotent": true,
+      "second_stderr": ""
+    }
+  ],
+  "final_changes": [
+    {
+      "file": "LiveContainer:.combined-service-startup.json",
+      "before": null,
+      "after": {
+        "sha256": "e3e6e34175e37dc976991d67dde97c81b9b81ae2c4804c1802168a8a93ea62b1",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:.lc-app-layout.json",
+      "before": null,
+      "after": {
+        "sha256": "927a01d2ad270264c2623be10b34693757338362ae377cb2a9b23bc9d1c760a4",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:.v3-command-patch.json",
+      "before": null,
+      "after": {
+        "sha256": "0de99fdf9b8635e3c2aa8f8b23d2a2b517aeb6384db3396649a92fbaf37945c9",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LaunchAppExtension/LaunchAppExtension.swift",
+      "before": {
+        "sha256": "4323814113eb7a9d49678c169572bb08bf60406543318bd70998765e7977b853",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "aff2c014705a34dd9c2fae0eab9df89661a223634ace44dcfca04c7a9e46010c",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainer.xcodeproj/project.pbxproj",
+      "before": {
+        "sha256": "4d667ffe93d7a1797dac26a0716825050396fddd16ea3c91d2d4241196926cd9",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "9c5d246ce0dd37bcf48c13c4bad780e4f7dfd597cba3a5c570ed578e7f73c16a",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainer/Info.plist",
+      "before": {
+        "sha256": "ce3abd42c48eb5e6cef169a5e844cd797e3830021c49cbc2c79170af8b422664",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "1e002e1965dda600334b73a1f4cf836aa88568b6a1f99ef8060a09518bab81cc",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainer/LCAppGroupIdentityRules.h",
+      "before": null,
+      "after": {
+        "sha256": "6e21323f11e5aaa11b22e376cb5f62cebe02f89babaac9a5fd2086f4a988c724",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainer/LCAppGroupSelectionPolicy.h",
+      "before": null,
+      "after": {
+        "sha256": "1fe76564b89bd431924628249aa36484b86e47943aca4f754fa0fd66d6b91a96",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainer/LCBootstrap.m",
+      "before": {
+        "sha256": "6c2fc8f3a87cbc89791cf3afcc9b8795443cdab199ebcbf735ec3889ee4d3bb5",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "19f1a15fffa162e56eedf7059fc3c756fcc3a002a0d94143ce8f7d15ac37498d",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainer/LCContainerStorage.h",
+      "before": null,
+      "after": {
+        "sha256": "f732b42eca5e3f20cf407338837aceefeef61c5243b493d84e6d709e3efbfbcf",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainer/LCSharedUtils.m",
+      "before": {
+        "sha256": "fac5a2d204f950f4d731bbcc575d966ceabb24dc580cc56c5abd9a50ceba07e3",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "48b45f4c7941a500fd8b46f955596407bcf17f470d289431e6bf6b14a7505eb0",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainer/Tweaks/Dead10ccFix.m",
+      "before": {
+        "sha256": "1ed8dd9fa7f5ecd2b744affbd6d8930bbf82d90f98c2201901d3fd827e2d86d4",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "76cfc7e3fcbc2220183168b2b77b5e78c3334d971ac01e5793cc3ea197e85690",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/App/AppDelegate.swift",
+      "before": {
+        "sha256": "5cd7905f98bed0e9f829c57e1d5b2dce75b27bb53a95ffa881fb6f221c8cc43f",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "61556da1e6abe23bcf8b63d9e8b3278efee9c198e8dcd39eedc4a774e7969a79",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift",
+      "before": null,
+      "after": {
+        "sha256": "e67daa3dfcf257cb0256bf4f3dd6f69407c9d72368ba699e672b158eda75f004",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/App/LiveContainerSwiftUIApp.swift",
+      "before": {
+        "sha256": "2179edbe82ba0bec0b37afd4503e36419c525aae7bcfa95c4db73f41a26087cc",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "d68e1b5a847e8c9b6960f5379ee82a7b3841adcf9eaf9a4c4399273fcb34a9e5",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/App/V3SetupAssistantIntent.swift",
+      "before": null,
+      "after": {
+        "sha256": "b167b6e19d1fbf5ce5faed56a26337cf6435e9c917148c3fa281a77738230f02",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Models/AppLayoutStyle.swift",
+      "before": null,
+      "after": {
+        "sha256": "fd076c15a4827bf235558a85ad8515849ff5cc824c7b2f30d3f9633eada7e45b",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Models/LCAppModel.swift",
+      "before": {
+        "sha256": "d7bc2284f14e92c45235640304f7e3fbcbc6ccb757ac60c9561b0f6d518f9b4b",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "8061f8b8a0f5c1eec66d3777acf071bf137c57781c561fb480d066343921caca",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Utilities/LCUtils.h",
+      "before": {
+        "sha256": "1851f8b7f8293b4bddc59f0f1096a121045a821296de7303f5a99f75f9b0d1e8",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "af76afdbf9bf4e318f20340f4f663253102a32bb4402f6d002f79c5cdf5851ff",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Utilities/LCUtils.m",
+      "before": {
+        "sha256": "b2edee0829aa973a7952fc125170569c253fe6e4661a477a4c4120e2f541ae4d",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "2a01174f6d2d149be630f30fefdcec46dbfd9a5f331e50b9be771b3ebbee9a1b",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Utilities/LCUtilsExtensions.swift",
+      "before": {
+        "sha256": "255af33f2c2ac26f9cb42a5f2c0a312337769a5236d121064d4a7cc9bcc18175",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "7a5021f8758ffb66b8a0fd868722efa6b3ed9d3460916e7dfe47e4132159aecf",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Utilities/Shared.swift",
+      "before": {
+        "sha256": "f9c869c6b01fb5907f457de139de82d35e36eb4383df353500dc5bf8d54aea96",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "8c3d8f80f25a29ad794fdb3ce71e461ece359175449f559249d4fa118fb3e455",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Utilities/V3SharedAppGroup.swift",
+      "before": null,
+      "after": {
+        "sha256": "5df142bd417b4c8065d688ef5ab49f58c6670ce858e91fee03bd4ac81b1e71cf",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Utilities/ViewExtensions.swift",
+      "before": {
+        "sha256": "763f66c2358033c749bdba03ec97edfaebdb59c44e7cd384f06ac1975fc5cd30",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "0af6b884c38694a413c3d0d4c20cb38f0bcba0ffec479c0117ef5335fbd5e998",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/AppSettings/LCAppSettingsView.swift",
+      "before": {
+        "sha256": "baf9484df077c65b747beb828f1686c843c25afd919748688b6c8238b39870f8",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "f7a9cf79a894e927f29e70ec6bf3395bdc65092f0a146dfa927832b9abab4c73",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/AppSettings/LCContainerView.swift",
+      "before": {
+        "sha256": "dbbd54c5fbf68e0632a106056f1f0680e6c57bbc19bf033ca571663fc535e334",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "802dd8653f485053bd2be2c1f1e74eaeb0c30cbc265f1e8d211b132756cd5164",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBanner.swift",
+      "before": {
+        "sha256": "855f4e5db24da91a90ea138adb336919fbbd82defde429e8604798466c808deb",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "e9852b8c875b17a94926eaefc56fd8c70f2762bb70fb43570d75a0ec30686c1f",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerView.swift",
+      "before": {
+        "sha256": "e0fb5049cff2f25ff6dfee564739d2e2eca38d26252daba028a126474814ffa0",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "c1b7de64bff406131ecf1c90e356d2b88e6a02a8d8c3fe4f755f219412870da8",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerViewController.swift",
+      "before": {
+        "sha256": "1c303614b4a55299a4e50561f02de0bc58dad89a0336e88562155281feb120e6",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "03ea5b3cc3e93609fd98358cbb7d83a0a6dc383969b4c2b2a85c44269c0163b5",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCAppListView.swift",
+      "before": {
+        "sha256": "76f2210d625bf184378d4c42fd5c267538c733c13f23926553a8476e5e699810",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "091ab0e20b6b029127470d55b41e2748ab21d043eef1a2fcd8cd8d782de9533b",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift",
+      "before": null,
+      "after": {
+        "sha256": "c7984d420f525e4aea6879d69474d0ac8f4cf96b1eff7566a368d7d4c7f3a910",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/AppList/LCWebView.swift",
+      "before": {
+        "sha256": "9ab59168bded992ad818459e7fe45ea8148ec00490e78409e5ee0448717887a1",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "26e070e8e46ca0b34f984a19f4a8f952f25b558ecd7f9396651da93fa009b84c",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/LCAltStoreSourcesView.swift",
+      "before": {
+        "sha256": "a84fda43f382d238007adaa3cd5356163e57309225be6f2bae1f3add597257a9",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "84120a6dca9a1b9fe0932d9d7753b5368dd01684c911ec8d07e047f96e8d8a3a",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/LCTabView.swift",
+      "before": {
+        "sha256": "48655c85c44c179a8117ce80f32826260a7349ab13dbad681314fb395e563741",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "6859c307caacbac6e9b9443c45b608062261d353dd8dfc6cb8b04176d49262e7",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/LCTweaksView.swift",
+      "before": {
+        "sha256": "30c1a036f339872514a716d687f1dddb3693e112187bb7b5aa04a25c5bee0ecc",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "17103a2c36ac6c2c89797c8ad4be47f3d8c6719a9cb011527f5a1e09bf12f739",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/DataManagement/LCDataManagementView.swift",
+      "before": {
+        "sha256": "ea48d84aba49bec30e54d2ad798a80a45e1f804600a189e216b8dffbb367cbaa",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "6c3ed8fbe8bb2652409402dde0a789248d91de628cbe57641897204a0840db0f",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/DataManagement/LCStorageManagementSections.swift",
+      "before": {
+        "sha256": "ef644ca21b1d398b41e8b36978855271eccd6b9ba928ee34c25b4782ec95b5fc",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "6246ccefabcb3753a84174b7d032adab68b3f82aa4290953d077d0b4f34e2ea3",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift",
+      "before": null,
+      "after": {
+        "sha256": "2739650a91d535d5d54189dfd84d19d244d4cafd583cbbe9aa24752f4df43f5c",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCJITLessDiagnoseView.swift",
+      "before": {
+        "sha256": "659c967ab8bede564ef487880f6c5adfe0fbbceeb2f5e52aa6fd937a3f880c9e",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "0dc2122c5a1ba0c7d324bc811963afc61d8af0f7cc0e029bc822d06d9fea2e2e",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCMultiLCManagementView.swift",
+      "before": {
+        "sha256": "e46ab7a5d67ef0caff895eead059a0c3f389975acae151358239d68662cbf227",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "9eaa7ba5183432a6a5f63e8776526784ec66e1a170d3fb92cec1214bde03a330",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCMultitaskSettingView.swift",
+      "before": {
+        "sha256": "b7fe0f03f5ca5b4d36e43b80e8bc7660bf69607acfeb0c981d0f63f66a6e233c",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "d250173c690c82747971ef782c4ad67e8b4c915a4e9178a889da3ff1fa5c1a90",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift",
+      "before": {
+        "sha256": "3111f78b25d6059b0719a4f7b1897f2f31e1aedc3f5f66f9a151e04685f23878",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "3ffc638e9b4a143c319efdd6c6d702692f440973f7aafae6db91d381eef1f6a8",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveContainerSwiftUI/Views/V3UnifiedShell.swift",
+      "before": null,
+      "after": {
+        "sha256": "7a2def783c208768f0188e994bd77dd1bdc0dde250f6b2fd4fae07b5b36d39b9",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:LiveProcess/main.m",
+      "before": {
+        "sha256": "5b272a6060e262af1cbe019d60530d27948a9183279ab468b2cddff685622679",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "9cfa9ac047bc7702de1915cc4703cb4544a86436884b401e6565824a60bf77c5",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:MultitaskSupport/AppSceneViewController.h",
+      "before": {
+        "sha256": "48a5e2c9b205ea9c21a8ed3f291bfd275074466288da00dea5f2654f6d0107e5",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "bceeb13905d138c11116f7100474ec77ab9b1956bb00a11678de55d1dfdbc0b7",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:MultitaskSupport/AppSceneViewController.m",
+      "before": {
+        "sha256": "568d3344c48e68ab272dc60da6b38d1981468a730b1ac979e10267bb1e70fc80",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "0d0045dae1c1dbddcf0f327c6183a6b4f89ee71cc8ba879f88033140defedf4e",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:MultitaskSupport/DecoratedAppSceneViewController.m",
+      "before": {
+        "sha256": "8570819411041f3d4088c5d086b6f69723fbc7205c8d929ff87b2936a05a2fc4",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "f48d44bed7cdd1421bd4b275e1fb0d6469d67c4a56894388f1a0188efcfb7c4e",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:MultitaskSupport/MultitaskAppWindow.swift",
+      "before": {
+        "sha256": "245af462771eab374890e0f0b879b196eae104add71e4b557f9a41f1e712befd",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "339014d9da850cef429a5c053100149c7025307d9aef9c09015caa12fc4167b3",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:MultitaskSupport/MultitaskDockView.swift",
+      "before": {
+        "sha256": "2cbee710e87db53d6ce536032d1f014236960bb5384ba2950aacf159225c7cf9",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "d8c7ca145482289f1fe9fe35aa571c7b91fcb30bd9ae5c59447142f75f0f147a",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:ShareExtension/ShareExtensionViewModel.swift",
+      "before": {
+        "sha256": "a0d8d57cba64adfd415ed540077105f33a8953ed36f8fbf22633be763f33f364",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "d2bcd0bcdf1df8355776235e4ea72b76630fa04e4b35730ce507e2d1db339ba8",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:SideStoreSupport/SideStore.swift",
+      "before": {
+        "sha256": "6a6e9ca3aef3819320f6542d4008b21fdda5c053ccf92c2d2c72866c537cca40",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "aff80bf38077e7872606d4a0088ca4c79740466e24320b29eba8b8185aca165e",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:SideStoreSupport/SideStoreClient.swift",
+      "before": {
+        "sha256": "e757bfcfb951e721eae1555600068d144fedfff51bb26130893d2b3b6087360c",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "9e03646c42531af98b150c7866a6b1bb8297b5d8cb285b7a5da739dce985aed5",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:SideStoreSupport/SideStoreHooks.m",
+      "before": {
+        "sha256": "2bc35c09c7ff4231a6929f2b1f68166a0c3f0b4d1b0527166b87ae25ff0b3869",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "2fef18e4b9f7bb9acb895b175ade4dcfc592ee65151b0afecb51befa1e6caf9d",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:SideStoreSupport/XPCClient.m",
+      "before": {
+        "sha256": "6c080699d02a367cf7db96c02a2b74fc09cecbbb56bbdd7b623a1b6e09445f51",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "7a83b4d771876ca64fe3ded78a7387eb3e9820307b7b5e474fad64149eddea9d",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:SideStoreSupport/XPCServer.h",
+      "before": {
+        "sha256": "ad89f8e518f9d3dfd03d9b5737341ed9e4e522acf4b4e6daedad2ff993a430cc",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "5f435a16457cd31c6179ed77c70c698c4ce2498cbd848dcfa2e5e532d34df544",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:SideStoreSupport/XPCServer.m",
+      "before": {
+        "sha256": "5f684d8eab7dfd1c48a75a3c9790f0ed9420eb372e109666aa6ca28ab3c15bf5",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "cf8111951e6bd079efc43778cea20051d6099765795a94ba64f2b716525f34dd",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:TweakLoader/TweakLoader.m",
+      "before": {
+        "sha256": "803012d60d0b7bc6e76b5ebccfea7dc8cadb8038330c88a203572b8248328eee",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "8b91734eee1153bb6b9ed895099bb280a0a909c0d40ddf3c678f7b7a9031d4d3",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:ZSign/zsign.mm",
+      "before": {
+        "sha256": "845f45515c5a00a92f08a98cf3bde9930d480aff2390ce20d11bb7628b5952a8",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "85809a23f26576d0db4615377665b073de71801850f92ab8ab03495b845a04b9",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "LiveContainer:ZSign/zsigner.h",
+      "before": {
+        "sha256": "ba6d3c380a5c8f1c9065d8b6f7fc74bc56469f583283eaf96c97dc4ef9b3fc4c",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "fcf360447fb9a482edf236b016ad4c1c4d135ee57da92024ddfacfb9a2e64711",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideSign:Sources/DeveloperPortal/AppIDs.swift",
+      "before": {
+        "sha256": "4ce4431c4e90ddad1e9a5558d291c51ef5e1bac20ccd9e18cc0f9e9be3aae032",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "0456e3397ebd9e5c15a352c0795b90e2f590af7f167784cc2f810f5ebb088e5c",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideSign:Sources/DeveloperPortal/Authentication.swift",
+      "before": {
+        "sha256": "5ed28c2b357767170f62d0aad6f6a7457a02e0422eb98f1c6b169ab1ac6053f4",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "5b6412e3b52b355b6f7dd2e5e6b03f25b5ff11eeeaa28bed3c34a4f360109729",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideSign:Sources/DeveloperPortal/DeveloperPortalAPI.swift",
+      "before": {
+        "sha256": "8bfb71fd38463210ab8140ea7a2a1ec60b4af324f8c9bacfb7762bce02cac43f",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "d767d97324acae5c983f31443de5f6604dc5bf59281d19c3e50adeee4c629a41",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideSign:Sources/Logging.swift",
+      "before": {
+        "sha256": "17e69643ee5b2e6c07af18d0c2ccbfdeaeea6cdaae450da6cd12414cc076d615",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "49aeee12d89bb092d83302979e493343c3ac1fd957f546f22df07cd846e7fe3f",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:.combined-refresh-contract.json",
+      "before": null,
+      "after": {
+        "sha256": "8e839ee8f86d325672f2dc1f4f683294368e07ce03197c11ef09b9982866baa0",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:AltStore.xcodeproj/project.pbxproj",
+      "before": {
+        "sha256": "fd62b77b6be0a63590b46b6b42b75fea1c7e8c0350a57ae3372955a50313238b",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "0a21d1c86d22c16af2d877b571fccc674f5a110cc0ccf9bd4bc6204d511ee33f",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:AltStore.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+      "before": {
+        "sha256": "92710a8c8d97cf6e241d6ebf1b72f5b77ea2eeaa5d7d29bfe4dcf9c659c2f2ee",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "5c8c4df054a2f76dc9648bef4a88ef25a716e1f0a5115e0a763e57d20c60ce50",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:AltStore/AppDelegate.swift",
+      "before": {
+        "sha256": "df87efbdc6a384d6feadb2ccbe5b9d63c73ff11e893bf624ec6e7e54f72d274f",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "814a7bc654f611cc6c56f686eb1578bd381b9d8e7d372cd9e59589c187f85a2e",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:AltStore/Core/Components/Keychain.swift",
+      "before": {
+        "sha256": "0fe4aed68f9c92f8c1fc3fd9e5bf8b49ce021787d6d989276944f15951247628",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "8af40c8b3e425c599f7d2a4848b694ae2ee18abcfad39cf95c3ad66babd0df8f",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:AltStore/Core/Model/DatabaseManager/DatabaseManager.swift",
+      "before": {
+        "sha256": "81a594c730d402ab06785d3e4c391999fb4e010e7063711c43879dc0a71c3360",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "7d7766473f213c9cd6be60134633f7b6655e450804679ad231758d37d76dc90b",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:AltStore/Core/Model/RefreshAttempt.swift",
+      "before": {
+        "sha256": "905d646cc8b5e11164d2c42e0ae213107085295cdccb5a3d4e9677ce2726a374",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "cb6f60d1b8322bcee10e77cdaece48ad9c241ecd78b40cd105dca88e6e217ab9",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:AltStore/Info.plist",
+      "before": {
+        "sha256": "3d3dba0282cc4330c8585d49738ff82c032d0db5edb1a6ad53943779e24712eb",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "74001aeb34539917dc8ac99ee82fe4d6a93da3c429a04d9cf727e0f286102edd",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:AltStore/Intents/App Intents/AppShortcuts.swift",
+      "before": {
+        "sha256": "ae4c07a686fa32f27667827b4df5315acd5d3678b3d4e2c29b9d679450fbb3b5",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "1ad60dd46aecce02f2926ca3336a4930422096403725db75a1e96fd11e6239a4",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:AltStore/Intents/App Intents/RefreshAllAppsIntent.swift",
+      "before": {
+        "sha256": "f0f0e83c6cc45ba9dfff2a0061aca26a13618b568934c7ea7639220b1a073dc3",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "f1bbc0093e1349be884bd33785f204b529a63e5c7e509e8a9806990c877fd055",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:AltStore/Intents/App Intents/RefreshAllAppsWidgetIntent.swift",
+      "before": {
+        "sha256": "383428e5839a127df929898bc61067c3d8bc07e7c45fdfe5418705c00a6ee100",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "b0f0bf81a5e9a0bb7452b1c04ce213adb67c32457689ddedf358c3515d4ee97d",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:AltStore/Managing Apps/AppManager.swift",
+      "before": {
+        "sha256": "62632f6f3fc1e2c3566ebb0eb542c24dc60bc582a6e42da1f691406766f9baee",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "9c6ae18ab82b3a794ba57c1ee3bf42acb042be64dc4c46855dab39d3b7bd19db",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:AltStore/My Apps/MyAppsViewController.swift",
+      "before": {
+        "sha256": "340af742eb12c0386a724d06941d30ff8103ad5977a2c57b35f63cea1872ba0a",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "79c89adaffb724e9da8904049eca204947cf292f3d4ee96de1fa0fba9243b2d0",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:AltStore/SceneDelegate.swift",
+      "before": {
+        "sha256": "528284c8513b14772a339cb543964db9a10408c7c0ea3f93a291f2526e33cb69",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "a3ed92b0dcbe56b665ebb1205e507691c7f9aedebe2c69741f4b2c4197766606",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:AltStore/Settings/AnisetteServerModels.swift",
+      "before": null,
+      "after": {
+        "sha256": "733f538750924b7953ec8ad77ee4287c3f2ac722f913414d9f3377e61f39ef8f",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideBackup/SideBackupApp.swift",
+      "before": {
+        "sha256": "92a0f4584cc8ff97b5beac303b9be8a62d6eed6b81297699502d48884fe4883b",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "5b1817519c5fefc56729a1b8b5606967c3b7052a31dd2f82f1e3cce181ab40ac",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/AppBootManager.swift",
+      "before": {
+        "sha256": "b52a13228cbf4d86cdc3578a21346ef5362e5a056586bf358ba19ff5c806e2bb",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "fcea3d8499eb56ee87ab429294ba5436b1d7a1a2ffa0f898ff914a8fbaef6f7d",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Anisette/AnisetteConfigManager.swift",
+      "before": {
+        "sha256": "2ae21182755709599a281d9d545044cbd6bbfa1d9ced013f2e735767d02e1cb2",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "94f73d7cc4b334b28a2debbd7cc7658dfaebbb31ce36960123b7067e53e10fdd",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Anisette/AnisetteProvider.swift",
+      "before": {
+        "sha256": "da88ba1573ffe454f7eac5719c3a8cf373ef70e0d0af31c7eb57770e505c4229",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "7a3ac0f470c6f02ad30a6943b643e31bc02a512d24c2ae6b191850bb81b79425",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Anisette/OnDeviceAnisetteManager.swift",
+      "before": {
+        "sha256": "7e877ea77e5be087d3c365df0af5d98ba4121536ecef9e9d5b99af33ebb14fcc",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "6d00c3d089a66a883c3b0f56bff6a8a62f3a290c9434aec65f28aa73985186b5",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Auth/AuthManager.swift",
+      "before": {
+        "sha256": "2fb0c6dc4608430dcf1377d6f07c709a418db1475245a4c5dfa19aa1088dfe1c",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "aadcd5c8387edc751e2e83ccf28e1925ea2c42df89c9edcddcc3cb47b355e701",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Auth/DeveloperPortalProxy.swift",
+      "before": {
+        "sha256": "77a2469a6270b78a889d470e7ac79aff523f96bc2d4949d014cbd72cbb716ca2",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "c128d7f78514371494f9f3474a3a5b52ecef964d856af5b6e315d88ea86462e5",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Certificates/CertificateManager.swift",
+      "before": {
+        "sha256": "aa01de91ecbb1b8d19d737e6063d85f5ec8da58f81d97ef2b185abe77a2612c6",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "8956afd05a11bd0f0a4aa68bbcc9eba044320906ce463e70716995f550e42c3e",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Certificates/CodeSignValidator.swift",
+      "before": {
+        "sha256": "215d284d5a2da916c496ef87706d711999ed7b8dbef34603285f25682b01f5c7",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "01a2562e62b83b2cfbe2ef5251598022bc999229b95b21218e7416f8964d840f",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Certificates/OCSPValidator.swift",
+      "before": {
+        "sha256": "2158a992890f0a10b839ea7fb7dde0185eeaddb567ca6935449d36514644cb6b",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "3deba4778be7a3ff7fcdafea0b85da4b3740f27826f88dc16e6ccedb6e8e3887",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/DeviceApi/ConnectionConfig.swift",
+      "before": null,
+      "after": {
+        "sha256": "8623a183a22c1587f4452cfa2f9aa87f494e682587ac214ff2d11277c7e1671d",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/DeviceApi/MinimuxerWrapper.swift",
+      "before": {
+        "sha256": "706e5ba9975b30149e229efb46c68750135c7c99cee1e29d099bb27612530224",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "072bf04bd5e0255681dae3e27e6fd5350e7277ce981cd821c63a0e76fb08b062",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/JIT/SideJITManager.swift",
+      "before": {
+        "sha256": "db7000b59dfcefcbf3f936399d7b1ed245b96eadb9b5ae85a5f85eb33cc2d53f",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "317ceba2b5b6c4176270b6065f83650a060fd9359e1eb50d9041c37ae0971ef0",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Logging/OperationLogging.swift",
+      "before": {
+        "sha256": "7e0fca060cb14be03195db67588f6c63b2ebd067315ab54e14ab649077bfac03",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "069ce4440923fe5b45967a21d587a0f17a691141718678ae4e09581bbef320ba",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Logging/SideStoreLogging.swift",
+      "before": {
+        "sha256": "53fe284424dea93619cebd5542449e226cec68aec8160cc3290351e2c7ec5d66",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "f111e2ef5f312145ae97082affefc75763218662d96104da3a95b8f6cddcdfdb",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Operations/PipelineExecutor.swift",
+      "before": {
+        "sha256": "d923eb7d2208df5ca82141828b84d5e226b8beeffdabe6b316cc6e1355ab344c",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "e9753d0053d6c96a7bbb38b714d690e0486ba730d712c74076818abbbfaf8d08",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift",
+      "before": {
+        "sha256": "ffc478d71d154c034a00ad3c1c04264b74029789ee9c32f63204cc600c5ce00c",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "27fdc85ca84d1b5cc6a7dbe9443ac86ee8f4a5c3dfd2860140c1e4f163e444e0",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Operations/PipelineOperations/PerformBackupRestoreOperation.swift",
+      "before": {
+        "sha256": "1bb091df82e18432dfa32fbd596cf5c955d873d6508a9ab11dfdaa1a65ebbe8f",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "164da3396d12577c576e2bbcf7bfec4ed271bcc9c528e9a0197262a7174ae656",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Operations/PipelineOperations/SendAppOperation.swift",
+      "before": {
+        "sha256": "fa99e105d2e351a03b379e2ab0af5f8c6c4c382772900f3c8faf534564895230",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "64c0c347792547da49ea81971ace103ffa1bb21022e73696f49bc298db8b63e3",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Operations/PipelineOperations/UninstallAppOperation.swift",
+      "before": {
+        "sha256": "566caed4b7c363bdf3acc3c5ec19d423d90e79b0cfd19f374975c270df30dc56",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "b26e21c60ab153809fd6694e7e3e137b3762ff723c7e1b4a1611428940247a44",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Operations/PipelineOperations/UpdateAppCertificateOperation.swift",
+      "before": {
+        "sha256": "31c0407f34bdb83291652c3ec0370551529658e7fbab2843b1ea4f7c4cec333a",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "df59412a1b83ca24f00c23c8de38aebfddbaf528ab10c4735d6954cb512be23e",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Operations/PipelineOperations/VerifyCertificateOperation.swift",
+      "before": {
+        "sha256": "b7cf4d3a201b59fe5c1a8499c994162d108ef10ee3627f7463c1af135342cae7",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "9c07ea666adaa5dd09f537e3a8d807ab8db8e8c8f15e7d158dbb1574afcc60b0",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Operations/PipelineRunner.swift",
+      "before": {
+        "sha256": "d70e19a447341bac2cae1c525b2a97396df4096213538fa3bf1a1d21bffc1599",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "6180419cad4470fca4794996e4999d8c1f897376c38874712edc5aabc558ce63",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift",
+      "before": {
+        "sha256": "5964668cace2b97c34fc394e6960584a14520d3c60b271daf83f3a886471ca2d",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "edf762e46b242e9210545adc67c04003f34050dfc769ed743c8aea42eae4165c",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Operations/StandaloneOperations/ClearAppCacheOperation.swift",
+      "before": {
+        "sha256": "5f83b87ad7ce862549b621717330298fdef4b2d3b5faa20ff59416a210d0cb4c",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "9cda54be3d9a06b35ffd15d88e3595cafc2a2894d41cd0d43a25d291fe3603cb",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift",
+      "before": {
+        "sha256": "3f3f2be26918e3b3ce6b47922600522711e4631ff029815f543ffbe8487128f7",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "55ce7ec780c9027b61d8aaae607f0cc1b83ed719a1c020a12ada3abd7013d2cd",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Core/Pairing/PairingFileManager.swift",
+      "before": {
+        "sha256": "a0998d8ab84104d9c369b2a7841f08a3895bb3cf57a836299e3cd7a956db62a7",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "33dec1892ee8a5a4991270021cc8f060ab4bbea26a5ccb6447619d9a17b8b8d4",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/DeepLinks/URLHandler.swift",
+      "before": {
+        "sha256": "fbb3d9bc34e44757435f7a22d459e756f1e2a366fae8d1b41b7d6b3aad613d60",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "1c34c621e6033e0bc5f944f4410c53a8a58be430f0dacbf520d534cf6934e595",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Handlers/PipelineHandler.swift",
+      "before": {
+        "sha256": "992bfcd02603ea5199ada97bc09df162f44697efd310bd9512d72a5bd9c82047",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "822a9828665dc480d983773836b4ae6fd1a4176c7a8c3d920563f0eb740a21c4",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Utils/importexport/ImportExport.swift",
+      "before": {
+        "sha256": "d269222ec23608b8e07d29f8d2ab4903e2bd1765fa68a3f40e4e1664e72fbeb5",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "49ab19457750261cea78b2c8fa6a1f145cccd89346051d1295bba60cedfef337",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Utils/iostreams/ConsoleLog.swift",
+      "before": {
+        "sha256": "e80b5af0af8cdad21ff798c0937b6d007fe587fb3d3683630caf71ec8f1c563e",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "dec8bb0a19e8159939455bc684256db35e66c2fb1fd7447f4798fbd454267797",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Views/Settings/Advanced/Connection/ConnectionConfig.swift",
+      "before": {
+        "sha256": "16db97c3e122d157e4769c6be04746dc427aad1771d0da2e6657c03f66d68506",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "07588de035caecc5226cf80ac3b5e679221deebfa6f2706e5bcf23f06a87ec5b",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Views/Settings/TechyThings/HealthCheck/HealthCheckView.swift",
+      "before": {
+        "sha256": "693a3becb5122f89f9e2afe495769594560a25562a7542539df59bd135bd2904",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "65f52e9a58c812295659b1ba9bc9a4d9aa7dab09353206d15e3f8438231da3a3",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "SideStore:SideStore/Views/Settings/TechyThings/HealthCheck/HealthCheckViewModel.swift",
+      "before": {
+        "sha256": "f1f533e2ac09b60aaddd255ed0242765f980f87e0da6e7f0f85e59037416e774",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "51dbb7729295a83586f728070c5a7cf6f7dcf09f39f02b5eccf184af0772bdbb",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "minimuxer:.combined-errors.sha256",
+      "before": null,
+      "after": {
+        "sha256": "2ecc4b87c5ee61a459f77446d8f60d4616cbe23d0b7fa96a150e3ea9d199652c",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "minimuxer:Common/PairingFile.swift",
+      "before": {
+        "sha256": "981e421a46f3991ac4472edba1ace965763da6804be29f9d3697a25346fbad8e",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "0f82090b2f0306264dd1a01bd6eb8dc79a4080015ec188227ab27d6c83de9bea",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "minimuxer:DeviceGateway/BaseDeviceGateway.swift",
+      "before": {
+        "sha256": "fbd99d75b4241352ce67144381cb3e4095ebaea55e517dad3d24570008a5a241",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "31f763a008ee1715437c238b4126da7669e0ecfdc757fca6f1250234021420eb",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "minimuxer:DeviceGateway/DeviceGatewayAPI.swift",
+      "before": {
+        "sha256": "f1910508b32e5dcac2547f3a4cd858a94f659913de185706f800fe0f02b0d3e0",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "4c4f6dffb21f4cd2de1372a49e939ad04761ed445a85906e3add7b69abc19645",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "minimuxer:DeviceGateway/Package.swift",
+      "before": {
+        "sha256": "5a1224f1b7458b513ee5ae97bee08f4b102a06f195ab83e4cad6c417c08ff02f",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "ecb4a9cbd63f68b1b4dd321c300c28148e996c91b149857d558f2d2a02b0e0ed",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "minimuxer:DeviceGateway/idevice/IdeviceGateway.swift",
+      "before": {
+        "sha256": "043816f4249edb315cada4e056285a633ed4eabf46b14733a1a62dc378dbfda6",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "416ff9a0ec1e32382c2e55eaebba7956188d1e90a01a43f5cdb53a3348de4ead",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "minimuxer:Sources/MinimuxerApi.swift",
+      "before": {
+        "sha256": "5509f75dd03e59926828782a7a863ee9f2f6407add80c237b22a7e96dc211d11",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "be369cf30192086e0926fa40666ef1e99d22aeaf5c35dee8f8e327365f45fc9c",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "minimuxer:Sources/MinimuxerImpl.swift",
+      "before": {
+        "sha256": "d232742205f5261e5763e66527103c6437fc38c214b561a366fd542bfccc4036",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "530f091ef950a611eaf9eebe86e86aef04ee9df98152fe20610c3534ebce678e",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "minimuxer:Sources/RefreshTransportPolicy.swift",
+      "before": null,
+      "after": {
+        "sha256": "1ddc3d112d8a218db2c8017947595782fbe625dcdf7fef1fc6d4495f8b8b15d0",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "minimuxer:Sources/Services/HeartbeatService.swift",
+      "before": {
+        "sha256": "0fd6951869c7a7470cc915eb7698a4544d2316296ff2efcf6b2224cc12283149",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "cffed2b09e8f09e428f511c51204b8b1f2335e0669efa314a9fade8f3c06c48f",
+        "mode": "0o644"
+      }
+    },
+    {
+      "file": "minimuxer:Sources/Services/NetworkObserverService.swift",
+      "before": {
+        "sha256": "9ea0adb9227664cb24e9c6e76b203eb66dc9275271e4b3d46946bd72956fdd11",
+        "mode": "0o644"
+      },
+      "after": {
+        "sha256": "0a2af148e244000577fb2a252cf4ae311a631e19f77ef9d4fbe83b34dce21f9e",
+        "mode": "0o644"
+      }
+    }
+  ],
+  "all_steps_completed": true
+}

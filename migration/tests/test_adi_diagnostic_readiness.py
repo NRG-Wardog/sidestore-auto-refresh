@@ -121,7 +121,7 @@ def synthetic_fixture():
     focused = {
         "SYNTHETIC_NOT_NATIVE_EVIDENCE": True,
         "status": "PASS", "source_snapshots_byte_identical": True,
-        "tests": {"AnisetteKit": 7, "SideStore_with_LiveContainer_peer": 5, "failures": 0, "skips": 0},
+        "tests": {"AnisetteKit": 7, "SideStore_with_LiveContainer_peer": 6, "failures": 0, "skips": 0},
         "owner_sources": {name: {**copy.deepcopy(owners[name]),
                                   "repository": pins["owners"][name]["repository"]}
                           for name in focused_owners},
@@ -495,7 +495,7 @@ class DiagnosticNativeReadinessTests(unittest.TestCase):
                     self.verify(fixture)
 
     def test_focused_wrong_counts_failures_and_skips_are_rejected(self):
-        for field, value in (("AnisetteKit", 6), ("SideStore_with_LiveContainer_peer", 4),
+        for field, value in (("AnisetteKit", 6), ("SideStore_with_LiveContainer_peer", 5),
                              ("failures", 1), ("skips", 1)):
             fixture = synthetic_fixture()
             fixture["focused"]["tests"][field] = value
@@ -503,7 +503,7 @@ class DiagnosticNativeReadinessTests(unittest.TestCase):
                 self.verify(fixture)
 
     def test_focused_counts_must_be_integer_observations(self):
-        for field, value in (("AnisetteKit", 7.0), ("SideStore_with_LiveContainer_peer", 5.0),
+        for field, value in (("AnisetteKit", 7.0), ("SideStore_with_LiveContainer_peer", 6.0),
                              ("failures", False), ("skips", False)):
             fixture = synthetic_fixture()
             fixture["focused"]["tests"][field] = value

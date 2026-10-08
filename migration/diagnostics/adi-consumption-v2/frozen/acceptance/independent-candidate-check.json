@@ -1,0 +1,27 @@
+{
+  "status": "PASS",
+  "scope": "Independent downloaded IPA identities,15 native image UUID/architecture records, entitled shared groups, exact seven-source provenance,53 copied sources,9 anchored contract files,5 Anisette source files and13 matching dSYMs verified",
+  "verified_at_utc": "2026-10-08T05:01:17.075259+00:00",
+  "run": 37724026164,
+  "head": "a939e4c077a51734a73a86805d051b578cce3fa7",
+  "ipa_path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/LiveContainer-SideStore-v3.0.3-rc.ipa",
+  "ipa_size_bytes": 25562056,
+  "ipa_sha256": "af4296725ef2c628bffdcbb31d4a54ec76cecfaca1b5cbb11df580b93614bd4d",
+  "owner_commits": {
+    "LiveContainer": "47db163356dc419d2b6a894fdc5dbeb9d011dc69",
+    "SideStore": "dd4f0ca36e8ef1d858548f583c65842a8fc0ced3",
+    "AnisetteKit": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+    "SideSign": "06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c",
+    "minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+    "idevice": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+    "jktcp": "32c0210f286b4fd16efe05be4f57167a9d94459b"
+  },
+  "source_inputs_unchanged": true,
+  "anisette_inputs_unchanged": true,
+  "native_images": 15,
+  "physical_device_execution": false,
+  "sidecar_verification": "PASS",
+  "matching_dsyms": 13,
+  "copied_source_files": 53,
+  "anchored_contract_files": 9
+}

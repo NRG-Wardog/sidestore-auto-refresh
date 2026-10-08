@@ -20,12 +20,20 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee"
 REGISTRY = "5cd17d665d9d13fde7bdc58abe3c44050b4b1618df89efbdf9815a39736d76be"
-DIAGNOSTIC_BASIS = "maintained-adi-consumption-v1"
-DIAGNOSTIC_REGISTRY = "97c9d0b81e9b59c8271ae1155393b2fcb534dc97ea367095d3adfcde8a3783ad"
+DIAGNOSTIC_BASIS = "maintained-adi-consumption-v2"
+DIAGNOSTIC_REGISTRY = "2333ff8e03dea9fa4b8620e64e15ec76cb6a870a2d61c42dd057ddce0c13354f"
+ACCEPTED_DIAGNOSTIC_COMMIT = "f9f23d980df363eb0f6eb5093b48e3639b03e137"
+ACCEPTED_DIAGNOSTIC_TREE = "13894777e9d77822f60436fd471be31e1961ba18"
+ACCEPTED_DIAGNOSTIC_REGISTRY = "97c9d0b81e9b59c8271ae1155393b2fcb534dc97ea367095d3adfcde8a3783ad"
 DIAGNOSTIC_METADATA = {
-    "provenance/accepted-to-diagnostic-delta.json": "4d55fdeed931af02f9d44865c0c712695b471d8a101aa1643c3770484f158106",
-    "provenance/anisette-diagnostic-source-inventory.json": "4a982557122b6db282eaf7e8c32cb1bf4a4d23fa021f001ae181c2e0a643c027",
-    "anisette-generated/maintained-source-manifest.json": "0813a3a636bac79caff934940ead90d6099a541d5862c866bca6a0e98be3fd7f",
+    "provenance/accepted-to-diagnostic-delta.json": "65a3689c1609cfbcfaa317e33401d500c5bde88a80cf054b240124f93b025165",
+    "provenance/anisette-diagnostic-source-inventory.json": "14041af14f64c354d5c4c367e88be261bc6e95a05c031dd4536e40dd72655ba6",
+    "anisette-generated/maintained-source-manifest.json": "a89831967a7580a46e7d15da52a9e207ab2206e804c5497500bede6032323947",
+    "frozen/accepted-v1/maintained-sources.json": "f13ad546638acad0e4d1a8cd87f8063c2f5144ff5b6ac296592f639454cddcc4",
+    "frozen/adi-consumption-v1/compatibility-registry.json": ACCEPTED_DIAGNOSTIC_REGISTRY,
+    "frozen/adi-consumption-v1/provenance/source-evidence.json": "f93e2960a7c6e8ab006ac046832e121fb682e144a41dcab05cd7a7b50f651446",
+    "frozen/adi-consumption-v1/provenance/diagnostic-native-readiness.json": "4d52362e77c1f1dbaba20c7c43431117913113f7a8c580981fa0b2e40d6cae94",
+    "frozen/adi-consumption-v1/provenance/adi-focused-native-verification.json": "2a1793ebea48380229591240bad2122c72dad2ef8711d8000a1b92ec7a2f37b8",
 }
 
 OWNERS = {"LiveContainer", "SideStore", "SideSign", "AnisetteKit", "minimuxer", "idevice", "jktcp"}
@@ -72,7 +80,7 @@ def contract_basis(pins, integration_root=None):
         expected, directory = REGISTRY, root / "migration/contracts"
     else:
         require(basis == DIAGNOSTIC_BASIS, "unsupported maintained diagnostic basis")
-        expected, directory = DIAGNOSTIC_REGISTRY, root / "migration/diagnostics/adi-consumption-v1"
+        expected, directory = DIAGNOSTIC_REGISTRY, root / "migration/diagnostics/adi-consumption-v2"
     require(pins.get("contract_registry_sha256") == expected, "unapproved contract registry")
     return directory, expected
 
@@ -98,9 +106,27 @@ def diagnostic_delta(pins):
         contract_basis(pins)
         return None
     value = diagnostic_metadata(pins, "provenance/accepted-to-diagnostic-delta.json")
-    require(value["accepted_integration"]["commit"] == "a939e4c077a51734a73a86805d051b578cce3fa7" and
-            value["frozen_registry_sha256"] == REGISTRY and set(value["accepted_graph"]) == OWNERS and
-            set(value["diagnostic_source_tuple"]) == OWNERS, "diagnostic accepted graph differs")
+    require(value["accepted_integration"] == {
+                "repository": "NRG-Wardog/sidestore-auto-refresh",
+                "commit": ACCEPTED_DIAGNOSTIC_COMMIT, "tree": ACCEPTED_DIAGNOSTIC_TREE} and
+            value["frozen_registry_sha256"] == ACCEPTED_DIAGNOSTIC_REGISTRY and
+            set(value["accepted_graph"]) == OWNERS and set(value["diagnostic_source_tuple"]) == OWNERS,
+            "diagnostic accepted graph differs")
+    # The prior full build is a sealed source anchor, not new runtime evidence.
+    # Never admit an arbitrary historical tail through a widened path allowlist.
+    prior = diagnostic_metadata(pins, "frozen/accepted-v1/maintained-sources.json")
+    require(prior.get("source_basis") == "maintained-adi-consumption-v1" and
+            prior.get("contract_registry_sha256") == ACCEPTED_DIAGNOSTIC_REGISTRY and
+            set(prior.get("owners", {})) == OWNERS, "accepted predecessor pins differ")
+    for name in ("compatibility-registry.json", "provenance/source-evidence.json",
+                 "provenance/diagnostic-native-readiness.json", "provenance/adi-focused-native-verification.json"):
+        diagnostic_metadata(pins, "frozen/adi-consumption-v1/" + name)
+    for owner in OWNERS:
+        accepted = value["accepted_graph"][owner]
+        require(set(accepted) == {"repository", "commit", "source_checkpoint", "tree"} and
+                all(accepted[key] == prior["owners"][owner][key]
+                    for key in ("repository", "commit", "source_checkpoint")),
+                owner + ": sealed accepted predecessor changed")
     return value
 
 
@@ -212,8 +238,9 @@ def verify_source_transition(root, owner, spec, pins):
         require(checkpoint == accepted["source_checkpoint"] and spec["repository"] == accepted["repository"],
                 owner + ": historical checkpoint or repository changed")
         git(root, "merge-base", "--is-ancestor", checkpoint, accepted["commit"])
-        changes = set(git(root, "diff", "--name-only", checkpoint, accepted["commit"]).decode().splitlines())
-        require(changes <= ALLOWED_TRANSITIONS.get(owner, set()), owner + ": accepted production lineage changed")
+        # diagnostic_delta sealed the exact previously verified f9 owner tuple.
+        # Its reviewed v1 runtime code is already part of that accepted anchor.
+        # Only the following exhaustive accepted-to-new delta is admitted here.
         for item in (accepted, diagnostic):
             require(git(root, "rev-parse", item["commit"] + "^{tree}").decode().strip() == item["tree"],
                     owner + ": reviewed source tree changed")
@@ -560,7 +587,7 @@ def verify_focused_diagnostic_receipt(pins):
     _, focused = read_diagnostic_reference(pins, "provenance/adi-focused-native-verification.json",
                                            pins["native_validation"].get("focused_receipt_sha256"))
     require(focused.get("status") == "PASS" and focused.get("source_snapshots_byte_identical") is True and
-            focused.get("tests") == {"AnisetteKit": 7, "SideStore_with_LiveContainer_peer": 5,
+            focused.get("tests") == {"AnisetteKit": 7, "SideStore_with_LiveContainer_peer": 6,
                                       "failures": 0, "skips": 0} and
             all(type(value) is int for value in focused["tests"].values()),
             "focused diagnostic native proof is missing or incomplete")

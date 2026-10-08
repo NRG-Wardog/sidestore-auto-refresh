@@ -1,0 +1,193 @@
+{
+  "artifact_id": 11528971388,
+  "artifact_bytes": 26139605,
+  "artifact_sha256": "da163081fb8ea4695582c95c387ab7413ad4a48111112eb0d58701d8f63b9da1",
+  "verified": true,
+  "files": [
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/builder-commit.txt",
+      "bytes": 56,
+      "sha256": "7d62093c39474abc8292217629e0ba4caf51b5c535e4bcb851d3041fd37754bd"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/LiveContainer-SideStore-v3.0.3-rc.verification.json",
+      "bytes": 56163,
+      "sha256": "62267bbfc8b970c9376508d177c47aa0f2f598f8bcc1b410388097a3a228fa47"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/candidate-package-verification.json",
+      "bytes": 10696,
+      "sha256": "8b59b8b978a99fcba161f098d769c6a1dada90c8f5f51e24b55c5abf4f086fe1"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/LiveContainer-SideStore-v3.0.3-rc.runtime-verification.json",
+      "bytes": 2191,
+      "sha256": "7187133155bf298bb3f617038a04080e82dfe2c24fa240f88928f361d785957a"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/LiveContainer-SideStore-v3.0.3-rc.ipa",
+      "bytes": 25562056,
+      "sha256": "af4296725ef2c628bffdcbb31d4a54ec76cecfaca1b5cbb11df580b93614bd4d"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/jktcp-Cargo.lock",
+      "bytes": 31580,
+      "sha256": "575d508c4e2c4967ec4cc53b0871e5a3efcda91b132e86cbb35327db34d60f73"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/tool-versions.txt",
+      "bytes": 881,
+      "sha256": "92970a22903349e84d0ce6d0ead0159f29ddc0f53e639b072c34352b2a0f7b5f"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/anisette-isolated-otp-after-build.json",
+      "bytes": 1701,
+      "sha256": "0b15a254d34932a22539a2a874547a891de4b9a7a85965e13dd3caf0f8380cef"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/Package.resolved",
+      "bytes": 2669,
+      "sha256": "c64b26be42dadcef04caed3134fef55784cae10fc9d196acdf24ee83d82cad7f"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/workspace-state.json",
+      "bytes": 12910,
+      "sha256": "9d1693ca5e4bd2460856a229559d189da04fd2e1454eb843fe27bae85dc2d6ce"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/anisette-isolated-otp-before-build.json",
+      "bytes": 1701,
+      "sha256": "0b15a254d34932a22539a2a874547a891de4b9a7a85965e13dd3caf0f8380cef"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-Cargo.lock",
+      "bytes": 89181,
+      "sha256": "f346555891f0b1cf4670fdac9d8c3cbdb057d4f7bc883d229afae176a3978e39"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/logs/upstream-auth-provenance.txt",
+      "bytes": 210,
+      "sha256": "236123ba010c9f65244f5ba092aff7e61bbb7ddbafcac3fa47280b8ee9b19a2d"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/logs/maintained-source-pins.json",
+      "bytes": 3040,
+      "sha256": "6443edc6742a5fe072e40abb669307807fcba5f08480237b2715489b84bf5a84"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/logs/maintained-sources-after-native-build.json",
+      "bytes": 12474,
+      "sha256": "71aad0fbf9267a99c34928f32c1af3ce21d062f5f19532b4b9cc21a1f0235cee"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/logs/maintained-sources-before-native-build.json",
+      "bytes": 12474,
+      "sha256": "71aad0fbf9267a99c34928f32c1af3ce21d062f5f19532b4b9cc21a1f0235cee"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/logs/pinned-source-identity.json",
+      "bytes": 5233,
+      "sha256": "e4ce0a3f03939c1a3bb6b164a5c00005c4b2a60f419f27f9917f86eb8abbf541"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/debug-evidence/candidate-provenance.json",
+      "bytes": 19024,
+      "sha256": "cf521ff8af3479541fa0a7d0c496f7e46d379e825d32e9ea0d67819ffae165ea"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/idevice-symbols.txt",
+      "bytes": 298393,
+      "sha256": "f62f3fc951148f86ee4fc0a75d9df00b2f6952c3c73cec3e72e78aa2ed5835d7"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/symbol-reader-selected-sysroot.stderr.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/symbol-reader-components-installed.txt",
+      "bytes": 200,
+      "sha256": "dd4452aa487c2f0da7389e257eb3df1226f2db27d5a1ceae597f34b00d1d7301"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/symbol-reader-selected-sysroot.txt",
+      "bytes": 61,
+      "sha256": "1ef6525ccd97eac0b114c59ce0064360772cb14f3cbaca9d4e34bacb2ad14496"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/symbol-reader-sysroot.txt",
+      "bytes": 61,
+      "sha256": "1ef6525ccd97eac0b114c59ce0064360772cb14f3cbaca9d4e34bacb2ad14496"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/symbol-reader-components-available.stderr.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/symbol-reader-components-available.txt",
+      "bytes": 5407,
+      "sha256": "7ef996856aae85c2aaa36c36976f0e3fd9d6b06db8f5e5af4a3665a93a888768"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/symbol-reader-sysroot.stderr.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/llvm-nm-version.stderr.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/idevice-symbol-proof.json",
+      "bytes": 3274,
+      "sha256": "5c05402832976f22194e20b87b09fca3ffa8f0ee9be4a45087013f448ae6e990"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/symbol-reader-rustc-version.txt",
+      "bytes": 192,
+      "sha256": "e2211d4c0760a2a3b03eab88e42f8848952b7aa2ed649277a8fdbf3ce1838fd4"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/symbol-reader-components-installed.stderr.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/idevice-symbols.stderr.txt",
+      "bytes": 441,
+      "sha256": "77832c0f570215853fda9a7892446d3c316b83a86804c7d8efbe1e968fa4c972"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/symbol-reader-toolchain.txt",
+      "bytes": 38,
+      "sha256": "f890cdf92a74abc176e5aa7972cd5857f1c7ce9de918262e2298df521027fc96"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/symbol-reader-toolchain.stderr.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/symbol-reader-component-install.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/symbol-reader-rustc-version.stderr.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/symbol-reader-component-install.stderr.txt",
+      "bytes": 39,
+      "sha256": "fb4562bf999148ffcae6ca67cc6213e519d3fdd3c752a25f96cf7638369293aa"
+    },
+    {
+      "path": "/workspace/shared/runtime-migration-evidence/run-37724026164/candidate/dependencies/idevice-symbols/llvm-nm-version.txt",
+      "bytes": 117,
+      "sha256": "5504e5249c3421643ff1aa4576e7edc2f727ce3e88bf389fd18321b8d8a30f6f"
+    }
+  ]
+}

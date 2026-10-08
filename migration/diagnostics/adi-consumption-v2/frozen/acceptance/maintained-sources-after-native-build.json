@@ -1,0 +1,316 @@
+{
+  "approved_native_validation": {
+    "artifact_id": 11519176173,
+    "artifact_sha256": "d8dd30c49648a5e2706edc185e9c1ce15c584075ce41e85cbde80ce4934cc75b",
+    "host_commit": "5fcff4214fc459b30b37843aaa2cf075232f52f2",
+    "host_tree": "cb1ce172bdec083b779862160b9877a873cc2056",
+    "readiness_scope": "eligible_for_gated_full_build",
+    "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37702648560",
+    "tested_children": {
+      "SideSign": {},
+      "SideStore": {
+        "Dependencies/SideSign": "5ce52d12f1846e1a08fad30ed27c4cbadd176529",
+        "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+      }
+    },
+    "tested_owners": {
+      "SideSign": {
+        "commit": "5ce52d12f1846e1a08fad30ed27c4cbadd176529",
+        "tree": "352e92723c34a47bcfef5e0a984ba9828bade33b"
+      },
+      "SideStore": {
+        "commit": "f6e9e0ed6c3f4d02e99a0dcff0660faa0e5372b8",
+        "tree": "2f33f7caed7f6ef13522421446ade4d79d8f901e"
+      }
+    }
+  },
+  "built_idevice": {
+    "framework_info_sha256": "f2f09f68516fc48de643512905004a6560a042cc4e014729657f44fcf515a3cd",
+    "header_sha256": "4b21922e77c2dfab2e4b7f75d45c0bf648cec9656da524eeb301cb4fd41ac624",
+    "library_sha256": "20a422d89582e2075e51fb50664147addf853cce8910a04f9fc97be92c4f5e5d",
+    "module_map_sha256": "d9f7093c17127841806e2ddffdf540ef1728ed29be75304687952bdb61ae9b82"
+  },
+  "contracts": {
+    "contract_set": "runtime-source-parity-141776ba.v1",
+    "contracts": 10,
+    "edges": 22,
+    "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+    "owners": {
+      "AnisetteKit": 19,
+      "LiveContainer": 16,
+      "SideSign": 9,
+      "SideStore": 22,
+      "idevice": 7,
+      "jktcp": 5,
+      "minimuxer": 10
+    },
+    "registry_sha256": "5cd17d665d9d13fde7bdc58abe3c44050b4b1618df89efbdf9815a39736d76be",
+    "scope": "reviewed source bytes and build-only compatibility metadata",
+    "source_files": 88,
+    "status": "pass"
+  },
+  "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+  "owners": {
+    "AnisetteKit": {
+      "commit": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+      "origin": {
+        "commit": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+        "kind": "swiftpm-local-mirror",
+        "mirror": "/Users/runner/work/_temp/embedded-sidestore-derived-data/SourcePackages/repositories/AnisetteKit-9867c197",
+        "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+        "tree": "77bfbe938fa967b2531305ddb9264f939c90dfd6"
+      },
+      "submodules": [],
+      "tracked_entries": 31,
+      "tree": "77bfbe938fa967b2531305ddb9264f939c90dfd6"
+    },
+    "LiveContainer": {
+      "commit": "47db163356dc419d2b6a894fdc5dbeb9d011dc69",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/LiveContainer.git"
+      },
+      "submodules": [
+        {
+          "commit": "623c84da314e85363236507ca38a4bde65df21c3",
+          "path": "OpenSSL",
+          "submodules": [],
+          "tracked_entries": 4403,
+          "tree": "21bc09387e7f91a46eb8bd26587ce1d052277801"
+        },
+        {
+          "commit": "8025e0c8ebdf5cdd1d2a4f45025813234bf9dc55",
+          "path": "litehook",
+          "submodules": [],
+          "tracked_entries": 12,
+          "tree": "62bc06a17a1c12d805aec1ada25910bfa9f89781"
+        }
+      ],
+      "tracked_entries": 291,
+      "tree": "f9d8560f6f35c26a66feeeb99e6ac0091d79a98b"
+    },
+    "SideSign": {
+      "commit": "06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/SideSign.git"
+      },
+      "submodules": [],
+      "tracked_entries": 69,
+      "tree": "a773b5461f43b4a28d0d34f7c1acd8728a9f8c6f"
+    },
+    "SideStore": {
+      "commit": "dd4f0ca36e8ef1d858548f583c65842a8fc0ced3",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/SideStore.git"
+      },
+      "submodules": [
+        {
+          "commit": "06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c",
+          "path": "Dependencies/SideSign",
+          "submodules": [],
+          "tracked_entries": 69,
+          "tree": "a773b5461f43b4a28d0d34f7c1acd8728a9f8c6f"
+        },
+        {
+          "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+          "path": "Dependencies/minimuxer",
+          "submodules": [],
+          "tracked_entries": 39,
+          "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+        }
+      ],
+      "tracked_entries": 640,
+      "tree": "b0c1d4f03785bbbf0d09b7329c0842a7a4d89d86"
+    },
+    "idevice": {
+      "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/idevice.git"
+      },
+      "submodules": [
+        {
+          "commit": "66e6e6362b58bc361725c3e1b0a34af498aa2b3a",
+          "path": "cpp/plist_ffi",
+          "submodules": [],
+          "tracked_entries": 145,
+          "tree": "1dc97bcad12d41a13417ae05fbcdc4408c6df553"
+        }
+      ],
+      "tracked_entries": 456,
+      "tree": "f5ac11668bae97e577e7c4fc098b5484df1c9af1"
+    },
+    "jktcp": {
+      "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/jktcp.git"
+      },
+      "submodules": [],
+      "tracked_entries": 12,
+      "tree": "e94eaefdcae5fe54a535186e36a0b2ebccc9bf13"
+    },
+    "minimuxer": {
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "origin": {
+        "kind": "direct",
+        "repository": "https://github.com/NRG-Wardog/minimuxer.git"
+      },
+      "submodules": [],
+      "tracked_entries": 39,
+      "tree": "30aa947645c5befb0c3210700095c8b039893d83"
+    }
+  },
+  "resolved_dependencies": {
+    "anisettekit": {
+      "commit": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+      "origin": {
+        "commit": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+        "kind": "swiftpm-local-mirror",
+        "mirror": "/Users/runner/work/_temp/embedded-sidestore-derived-data/SourcePackages/repositories/AnisetteKit-9867c197",
+        "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+        "tree": "77bfbe938fa967b2531305ddb9264f939c90dfd6"
+      },
+      "submodules": [],
+      "tracked_entries": 31,
+      "tree": "77bfbe938fa967b2531305ddb9264f939c90dfd6"
+    },
+    "codesignkit": {
+      "commit": "d0c67710fda9a2646b9e829cb2cf443892728371",
+      "origin": {
+        "commit": "d0c67710fda9a2646b9e829cb2cf443892728371",
+        "kind": "swiftpm-local-mirror",
+        "mirror": "/Users/runner/work/_temp/embedded-sidestore-derived-data/SourcePackages/repositories/CodeSignKit-562c9e22",
+        "repository": "https://github.com/mahee96/CodeSignKit.git",
+        "tree": "19550a3d88ce6d3211f52586f80297a16b4d42bc"
+      },
+      "submodules": [],
+      "tracked_entries": 34,
+      "tree": "19550a3d88ce6d3211f52586f80297a16b4d42bc"
+    },
+    "common": {
+      "kind": "fileSystem",
+      "path": "/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/work/EmbeddedSideStore/Dependencies/minimuxer/Common"
+    },
+    "devicegateway": {
+      "kind": "fileSystem",
+      "path": "/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/work/EmbeddedSideStore/Dependencies/minimuxer/DeviceGateway"
+    },
+    "gsacryptokit": {
+      "commit": "eae2590eaf17fe98ce9c76b3ec2bd42b780eb123",
+      "origin": {
+        "commit": "eae2590eaf17fe98ce9c76b3ec2bd42b780eb123",
+        "kind": "swiftpm-local-mirror",
+        "mirror": "/Users/runner/work/_temp/embedded-sidestore-derived-data/SourcePackages/repositories/GSACryptoKit-18f7e559",
+        "repository": "https://github.com/mahee96/GSACryptoKit.git",
+        "tree": "4cdfb3d027e35bf66a7172c6579f2faeed19f6d3"
+      },
+      "submodules": [],
+      "tracked_entries": 10,
+      "tree": "4cdfb3d027e35bf66a7172c6579f2faeed19f6d3"
+    },
+    "keychainaccess": {
+      "commit": "e0c7eebc5a4465a3c4680764f26b7a61f567cdaf",
+      "origin": {
+        "commit": "e0c7eebc5a4465a3c4680764f26b7a61f567cdaf",
+        "kind": "swiftpm-local-mirror",
+        "mirror": "/Users/runner/work/_temp/embedded-sidestore-derived-data/SourcePackages/repositories/KeychainAccess-bf77584f",
+        "repository": "https://github.com/kishikawakatsumi/KeychainAccess",
+        "tree": "c2fcb079678593b02d1a05d8519c755155ec97c1"
+      },
+      "submodules": [],
+      "tracked_entries": 58,
+      "tree": "c2fcb079678593b02d1a05d8519c755155ec97c1"
+    },
+    "libdeflate": {
+      "commit": "da6c7dae03b78dc71af973664575e4209786fbfe",
+      "origin": {
+        "commit": "da6c7dae03b78dc71af973664575e4209786fbfe",
+        "kind": "swiftpm-local-mirror",
+        "mirror": "/Users/runner/work/_temp/embedded-sidestore-derived-data/SourcePackages/repositories/libdeflate-b5fc4876",
+        "repository": "https://github.com/SideStore/libdeflate",
+        "tree": "9438c53d7b136719786d4cf62c19c7e39fb9e0d7"
+      },
+      "submodules": [],
+      "tracked_entries": 96,
+      "tree": "9438c53d7b136719786d4cf62c19c7e39fb9e0d7"
+    },
+    "minimuxer": {
+      "kind": "fileSystem",
+      "path": "/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/work/EmbeddedSideStore/Dependencies/minimuxer"
+    },
+    "remotepairingkit": {
+      "commit": "e3f70d16c0c551540a533a39d540e78e5b0a60a8",
+      "origin": {
+        "commit": "e3f70d16c0c551540a533a39d540e78e5b0a60a8",
+        "kind": "swiftpm-local-mirror",
+        "mirror": "/Users/runner/work/_temp/embedded-sidestore-derived-data/SourcePackages/repositories/RemotePairingKit-456dd657",
+        "repository": "https://github.com/mahee96/RemotePairingKit.git",
+        "tree": "007ba009bb6dbb4f2149da8e918a0dcd02b1a4e2"
+      },
+      "submodules": [],
+      "tracked_entries": 32,
+      "tree": "007ba009bb6dbb4f2149da8e918a0dcd02b1a4e2"
+    },
+    "semanticversion": {
+      "commit": "ea8eea9d89842a29af1b8e6c7677f1c86e72fa42",
+      "origin": {
+        "commit": "ea8eea9d89842a29af1b8e6c7677f1c86e72fa42",
+        "kind": "swiftpm-local-mirror",
+        "mirror": "/Users/runner/work/_temp/embedded-sidestore-derived-data/SourcePackages/repositories/SemanticVersion-4d68bae3",
+        "repository": "https://github.com/SwiftPackageIndex/SemanticVersion",
+        "tree": "e1bfa5abc4793bfc6fb3271267d8c75891bcf851"
+      },
+      "submodules": [],
+      "tracked_entries": 14,
+      "tree": "e1bfa5abc4793bfc6fb3271267d8c75891bcf851"
+    },
+    "sidesign": {
+      "kind": "fileSystem",
+      "path": "/Users/runner/work/sidestore-auto-refresh/sidestore-auto-refresh/work/EmbeddedSideStore/Dependencies/SideSign"
+    },
+    "swift-asn1": {
+      "commit": "9f542610331815e29cc3821d3b6f488db8715517",
+      "origin": {
+        "commit": "9f542610331815e29cc3821d3b6f488db8715517",
+        "kind": "swiftpm-local-mirror",
+        "mirror": "/Users/runner/work/_temp/embedded-sidestore-derived-data/SourcePackages/repositories/swift-asn1-7065ad2c",
+        "repository": "https://github.com/apple/swift-asn1.git",
+        "tree": "ce9d3ca4655ffd383a121a9adf498a4d73b1f16a"
+      },
+      "submodules": [],
+      "tracked_entries": 216,
+      "tree": "ce9d3ca4655ffd383a121a9adf498a4d73b1f16a"
+    },
+    "swift-crypto": {
+      "commit": "bb4ba815dab96d4edc1e0b86d7b9acf9ff973a84",
+      "origin": {
+        "commit": "bb4ba815dab96d4edc1e0b86d7b9acf9ff973a84",
+        "kind": "swiftpm-local-mirror",
+        "mirror": "/Users/runner/work/_temp/embedded-sidestore-derived-data/SourcePackages/repositories/swift-crypto-7e0614ea",
+        "repository": "https://github.com/apple/swift-crypto.git",
+        "tree": "cd3b424006a67590d0f8fe90ba865015196c0c42"
+      },
+      "submodules": [],
+      "tracked_entries": 1036,
+      "tree": "cd3b424006a67590d0f8fe90ba865015196c0c42"
+    },
+    "zipfoundation": {
+      "commit": "22787ffb59de99e5dc1fbfe80b19c97a904ad48d",
+      "origin": {
+        "commit": "22787ffb59de99e5dc1fbfe80b19c97a904ad48d",
+        "kind": "swiftpm-local-mirror",
+        "mirror": "/Users/runner/work/_temp/embedded-sidestore-derived-data/SourcePackages/repositories/ZIPFoundation-789121e4",
+        "repository": "https://github.com/weichsel/ZIPFoundation.git",
+        "tree": "a0d183ff207d67bec63856c91e4788d03df9a8c2"
+      },
+      "submodules": [],
+      "tracked_entries": 142,
+      "tree": "a0d183ff207d67bec63856c91e4788d03df9a8c2"
+    }
+  },
+  "runtime_rewrites": false,
+  "schema_version": 1
+}

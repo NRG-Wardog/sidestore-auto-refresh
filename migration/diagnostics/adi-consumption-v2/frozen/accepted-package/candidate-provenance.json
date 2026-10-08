@@ -1,0 +1,239 @@
+{
+  "LCBuildRunURL": "https://github.com/NRG-Wardog/sidestore-auto-refresh/actions/runs/37724026164",
+  "LCBuilderCommit": "a939e4c077a51734a73a86805d051b578cce3fa7",
+  "LCProductLine": "Combined LC+SS v3.0.3-rc",
+  "candidate_product_version": "v3.0.3-rc",
+  "dependencies": {
+    "ANISETTE_REF": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+    "EMBEDDED_SIDESTORE_REF": "dd4f0ca36e8ef1d858548f583c65842a8fc0ced3",
+    "IDEVICE_REF": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+    "JKTCP_REF": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+    "LIVE_CONTAINER_REF": "47db163356dc419d2b6a894fdc5dbeb9d011dc69",
+    "MINIMUXER_REF": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+    "SIDESIGN_GSA_FIX": "35993d7f68950ce00d6bf1fd0fbcaa7bef51dc9c",
+    "SIDESIGN_REF": "06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c"
+  },
+  "dsym_sha256": {
+    "embedded/AltWidgetExtension.appex.dSYM/Contents/Resources/DWARF/AltWidgetExtension": "39788396761cb85365ec5424b8a369dde2055c92b5a0c0345c2c0fcac531fe76",
+    "embedded/OpenSSL.framework.dSYM/Contents/Resources/DWARF/OpenSSL": "b64287318aeb620eedeb7e33fd129890e4c976cb771c25f890dbfe5d28220b4d",
+    "embedded/SideStore.app.dSYM/Contents/Resources/DWARF/SideStore": "9507e9d9fed703352558f712791616653529c4164e4e072f2a057902d923c3af",
+    "host/LaunchAppExtension.appex.dSYM/Contents/Resources/DWARF/LaunchAppExtension": "2daa07d9b0b61cb4b21787a6cfed283ea89a597e74df61c9f7c1103d01f7916f",
+    "host/LiveContainer.app.dSYM/Contents/Resources/DWARF/LiveContainer": "4eee06f555d113dd1185ff59f3fdcbae1483c8106c17da8901766e14716e678c",
+    "host/LiveContainerShared.framework.dSYM/Contents/Resources/DWARF/LiveContainerShared": "8d68179a182378438c17dcc9b626d69b804be83f5197ae047b342599d614bcab",
+    "host/LiveContainerSwiftUI.framework.dSYM/Contents/Resources/DWARF/LiveContainerSwiftUI": "d48f7c19999382ee21940d3b266c6899cd3eeaa969c9933d6e87d52bf02ecb63",
+    "host/LiveProcess.appex.dSYM/Contents/Resources/DWARF/LiveProcess": "4fbf6ed59d1a73107a8bbe7ab8c6174e4b0fdd9cc2e0309765bca5d739011f7c",
+    "host/ShareExtension.appex.dSYM/Contents/Resources/DWARF/ShareExtension": "d94de16f8d0c1b0ef38522beceffca066386f9be9ab216e37b09d44532a6b3c4",
+    "host/SideStoreSupport.framework.dSYM/Contents/Resources/DWARF/SideStoreSupport": "5cef6b1eb30270a626217a5f3d0809b6e184fee4292c293529fe84a66d21f674",
+    "host/TestJITLess.dylib.dSYM/Contents/Resources/DWARF/TestJITLess.dylib": "759016698bdaad50fd0df4cfd1ebcc6c382d36cabd76415537b57acc2189b171",
+    "host/TweakLoader.dylib.dSYM/Contents/Resources/DWARF/TweakLoader.dylib": "75455b455196039b6f1758b5bb8d06ac5b0046fb3826c022a69f50685486cc99",
+    "host/ZSign.dylib.dSYM/Contents/Resources/DWARF/ZSign.dylib": "329b6dc0fb6f945b95ad07d9af35303552a20f0f7e7bdf6211fcd99fc46cc40f"
+  },
+  "dsym_uuids": {
+    "AltWidgetExtension": "556DC040-20DF-3C37-B38F-4376B71FB668",
+    "LaunchAppExtension": "4D391086-1405-3270-87CE-78D159BA575E",
+    "LiveContainer": "D990C92C-BD97-38CF-BE64-220D7310991B",
+    "LiveContainerShared": "02376576-447B-357D-8948-D7BE3AFAA387",
+    "LiveContainerSwiftUI": "BDB4CB9F-9ECA-3CD5-B63B-481CA8E72B53",
+    "LiveProcess": "E06D3CF1-1D9A-3EA5-82E2-9A35917AD4BC",
+    "OpenSSL": "F78B3941-5F30-312D-8C8C-35414A8738AD",
+    "ShareExtension": "A335FABB-1448-30C2-9BAE-90C0FE3AE2F3",
+    "SideStore": "0E938FDF-8FEE-3C85-80D4-EFC047309783",
+    "SideStoreSupport": "F779D69B-B937-3657-98DA-9135FF05BB83",
+    "TestJITLess.dylib": "00E6D406-8347-3F2B-BBAB-9B7988EDE52D",
+    "TweakLoader.dylib": "7A0A55EB-F381-31C4-A877-E36D75453D19",
+    "ZSign.dylib": "423DEF94-AC33-3FD3-895D-C0E5C192584F"
+  },
+  "framework_cpu_subtypes": {
+    "Payload/LiveContainer.app/Frameworks/CydiaSubstrate.framework/CydiaSubstrate": 0,
+    "Payload/LiveContainer.app/Frameworks/LiveContainerShared.framework/LiveContainerShared": 0,
+    "Payload/LiveContainer.app/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI": 0,
+    "Payload/LiveContainer.app/Frameworks/OpenSSL.framework/OpenSSL": 0,
+    "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Frameworks/OpenSSL.framework/OpenSSL": 0,
+    "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore": 0,
+    "Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework/SideStoreSupport": 0,
+    "Payload/LiveContainer.app/Frameworks/TestJITLess.dylib": 0,
+    "Payload/LiveContainer.app/Frameworks/TweakLoader.dylib": 0,
+    "Payload/LiveContainer.app/Frameworks/ZSign.dylib": 0,
+    "Payload/LiveContainer.app/LiveContainer": 0,
+    "Payload/LiveContainer.app/PlugIns/LaunchAppExtension.appex/LaunchAppExtension": 0,
+    "Payload/LiveContainer.app/PlugIns/LiveProcess.appex/LiveProcess": 0,
+    "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/LiveWidgetExtension": 0,
+    "Payload/LiveContainer.app/PlugIns/ShareExtension.appex/ShareExtension": 0
+  },
+  "framework_uuids": {
+    "Payload/LiveContainer.app/Frameworks/CydiaSubstrate.framework/CydiaSubstrate": "5E4752C3-E4B1-30EC-8017-6720A34AD2DB",
+    "Payload/LiveContainer.app/Frameworks/LiveContainerShared.framework/LiveContainerShared": "02376576-447B-357D-8948-D7BE3AFAA387",
+    "Payload/LiveContainer.app/Frameworks/LiveContainerSwiftUI.framework/LiveContainerSwiftUI": "BDB4CB9F-9ECA-3CD5-B63B-481CA8E72B53",
+    "Payload/LiveContainer.app/Frameworks/OpenSSL.framework/OpenSSL": "17B8D503-3F1E-3875-8AEE-8B6E20F64C16",
+    "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/Frameworks/OpenSSL.framework/OpenSSL": "F78B3941-5F30-312D-8C8C-35414A8738AD",
+    "Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore": "0E938FDF-8FEE-3C85-80D4-EFC047309783",
+    "Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework/SideStoreSupport": "F779D69B-B937-3657-98DA-9135FF05BB83",
+    "Payload/LiveContainer.app/Frameworks/TestJITLess.dylib": "00E6D406-8347-3F2B-BBAB-9B7988EDE52D",
+    "Payload/LiveContainer.app/Frameworks/TweakLoader.dylib": "7A0A55EB-F381-31C4-A877-E36D75453D19",
+    "Payload/LiveContainer.app/Frameworks/ZSign.dylib": "423DEF94-AC33-3FD3-895D-C0E5C192584F",
+    "Payload/LiveContainer.app/LiveContainer": "D990C92C-BD97-38CF-BE64-220D7310991B",
+    "Payload/LiveContainer.app/PlugIns/LaunchAppExtension.appex/LaunchAppExtension": "4D391086-1405-3270-87CE-78D159BA575E",
+    "Payload/LiveContainer.app/PlugIns/LiveProcess.appex/LiveProcess": "E06D3CF1-1D9A-3EA5-82E2-9A35917AD4BC",
+    "Payload/LiveContainer.app/PlugIns/LiveWidgetExtension.appex/LiveWidgetExtension": "556DC040-20DF-3C37-B38F-4376B71FB668",
+    "Payload/LiveContainer.app/PlugIns/ShareExtension.appex/ShareExtension": "A335FABB-1448-30C2-9BAE-90C0FE3AE2F3"
+  },
+  "generated_source_sha256": {
+    "LiveContainer/LCBootstrap.m": "19f1a15fffa162e56eedf7059fc3c756fcc3a002a0d94143ce8f7d15ac37498d",
+    "LiveContainer/LCContainerStorage.h": "f732b42eca5e3f20cf407338837aceefeef61c5243b493d84e6d709e3efbfbcf",
+    "LiveContainer/Tweaks/Dead10ccFix.m": "76cfc7e3fcbc2220183168b2b77b5e78c3334d971ac01e5793cc3ea197e85690",
+    "LiveContainer/Tweaks/NSUserDefaults.m": "2515e8888f3be913c543ca8fc051b2d29288055ac24d6f1e16ae1aa1296ef021",
+    "LiveContainerSwiftUI/App/AppDelegate.swift": "61556da1e6abe23bcf8b63d9e8b3278efee9c198e8dcd39eedc4a774e7969a79",
+    "LiveContainerSwiftUI/Models/AppLayoutStyle.swift": "fd076c15a4827bf235558a85ad8515849ff5cc824c7b2f30d3f9633eada7e45b",
+    "LiveContainerSwiftUI/Utilities/LCUtils.h": "af76afdbf9bf4e318f20340f4f663253102a32bb4402f6d002f79c5cdf5851ff",
+    "LiveContainerSwiftUI/Utilities/LCUtils.m": "2a01174f6d2d149be630f30fefdcec46dbfd9a5f331e50b9be771b3ebbee9a1b",
+    "LiveContainerSwiftUI/Utilities/ViewExtensions.swift": "0af6b884c38694a413c3d0d4c20cb38f0bcba0ffec479c0117ef5335fbd5e998",
+    "LiveContainerSwiftUI/Views/AppList/AppSettings/LCAppSettingsView.swift": "f7a9cf79a894e927f29e70ec6bf3395bdc65092f0a146dfa927832b9abab4c73",
+    "LiveContainerSwiftUI/Views/AppList/AppSettings/LCContainerView.swift": "802dd8653f485053bd2be2c1f1e74eaeb0c30cbc265f1e8d211b132756cd5164",
+    "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBanner.swift": "e9852b8c875b17a94926eaefc56fd8c70f2762bb70fb43570d75a0ec30686c1f",
+    "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerView.swift": "c1b7de64bff406131ecf1c90e356d2b88e6a02a8d8c3fe4f755f219412870da8",
+    "LiveContainerSwiftUI/Views/AppList/LCAppBanner/LCAppBannerViewController.swift": "03ea5b3cc3e93609fd98358cbb7d83a0a6dc383969b4c2b2a85c44269c0163b5",
+    "LiveContainerSwiftUI/Views/AppList/LCAppListView.swift": "091ab0e20b6b029127470d55b41e2748ab21d043eef1a2fcd8cd8d782de9533b",
+    "LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift": "c7984d420f525e4aea6879d69474d0ac8f4cf96b1eff7566a368d7d4c7f3a910",
+    "LiveContainerSwiftUI/Views/AppList/LCWebView.swift": "26e070e8e46ca0b34f984a19f4a8f952f25b558ecd7f9396651da93fa009b84c",
+    "LiveContainerSwiftUI/Views/LCAltStoreSourcesView.swift": "84120a6dca9a1b9fe0932d9d7753b5368dd01684c911ec8d07e047f96e8d8a3a",
+    "LiveContainerSwiftUI/Views/LCTabView.swift": "6859c307caacbac6e9b9443c45b608062261d353dd8dfc6cb8b04176d49262e7",
+    "LiveContainerSwiftUI/Views/LCTweaksView.swift": "17103a2c36ac6c2c89797c8ad4be47f3d8c6719a9cb011527f5a1e09bf12f739",
+    "LiveContainerSwiftUI/Views/Settings/DataManagement/LCDataManagementView.swift": "6c3ed8fbe8bb2652409402dde0a789248d91de628cbe57641897204a0840db0f",
+    "LiveContainerSwiftUI/Views/Settings/DataManagement/LCStorageManagementSections.swift": "6246ccefabcb3753a84174b7d032adab68b3f82aa4290953d077d0b4f34e2ea3",
+    "LiveContainerSwiftUI/Views/Settings/LCJITLessDiagnoseView.swift": "0dc2122c5a1ba0c7d324bc811963afc61d8af0f7cc0e029bc822d06d9fea2e2e",
+    "LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift": "3ffc638e9b4a143c319efdd6c6d702692f440973f7aafae6db91d381eef1f6a8",
+    "LiveContainerSwiftUI/Views/V3UnifiedShell.swift": "7a2def783c208768f0188e994bd77dd1bdc0dde250f6b2fd4fae07b5b36d39b9",
+    "MultitaskSupport/AppSceneViewController.h": "bceeb13905d138c11116f7100474ec77ab9b1956bb00a11678de55d1dfdbc0b7",
+    "MultitaskSupport/AppSceneViewController.m": "0d0045dae1c1dbddcf0f327c6183a6b4f89ee71cc8ba879f88033140defedf4e",
+    "MultitaskSupport/DecoratedAppSceneViewController.m": "f48d44bed7cdd1421bd4b275e1fb0d6469d67c4a56894388f1a0188efcfb7c4e",
+    "SideStoreSupport/SideStore.swift": "aff80bf38077e7872606d4a0088ca4c79740466e24320b29eba8b8185aca165e",
+    "SideStoreSupport/SideStoreClient.swift": "9e03646c42531af98b150c7866a6b1bb8297b5d8cb285b7a5da739dce985aed5",
+    "SideStoreSupport/XPCServer.h": "5f435a16457cd31c6179ed77c70c698c4ce2498cbd848dcfa2e5e532d34df544",
+    "SideStoreSupport/XPCServer.m": "cf8111951e6bd079efc43778cea20051d6099765795a94ba64f2b716525f34dd",
+    "TweakLoader/TweakLoader.m": "8b91734eee1153bb6b9ed895099bb280a0a909c0d40ddf3c678f7b7a9031d4d3",
+    "ZSign/zsign.mm": "85809a23f26576d0db4615377665b073de71801850f92ab8ab03495b845a04b9",
+    "ZSign/zsigner.h": "fcf360447fb9a482edf236b016ad4c1c4d135ee57da92024ddfacfb9a2e64711",
+    "embedded/AltStore/AppDelegate.swift": "814a7bc654f611cc6c56f686eb1578bd381b9d8e7d372cd9e59589c187f85a2e",
+    "embedded/AltStore/Core/Components/Keychain.swift": "8af40c8b3e425c599f7d2a4848b694ae2ee18abcfad39cf95c3ad66babd0df8f",
+    "embedded/Dependencies/SideSign/Sources/DeveloperPortal/AppIDs.swift": "0456e3397ebd9e5c15a352c0795b90e2f590af7f167784cc2f810f5ebb088e5c",
+    "embedded/Dependencies/SideSign/Sources/DeveloperPortal/DeveloperPortalAPI.swift": "d767d97324acae5c983f31443de5f6604dc5bf59281d19c3e50adeee4c629a41",
+    "embedded/Dependencies/minimuxer/DeviceGateway/idevice/IdeviceGateway.swift": "416ff9a0ec1e32382c2e55eaebba7956188d1e90a01a43f5cdb53a3348de4ead",
+    "embedded/SideBackup/SideBackupApp.swift": "5b1817519c5fefc56729a1b8b5606967c3b7052a31dd2f82f1e3cce181ab40ac",
+    "embedded/SideStore/Core/Anisette/AnisetteConfigManager.swift": "94f73d7cc4b334b28a2debbd7cc7658dfaebbb31ce36960123b7067e53e10fdd",
+    "embedded/SideStore/Core/Anisette/AnisetteProvider.swift": "7a3ac0f470c6f02ad30a6943b643e31bc02a512d24c2ae6b191850bb81b79425",
+    "embedded/SideStore/Core/Anisette/OnDeviceAnisetteManager.swift": "6d00c3d089a66a883c3b0f56bff6a8a62f3a290c9434aec65f28aa73985186b5",
+    "embedded/SideStore/Core/Auth/DeveloperPortalProxy.swift": "c128d7f78514371494f9f3474a3a5b52ecef964d856af5b6e315d88ea86462e5",
+    "embedded/SideStore/Core/Certificates/CertificateManager.swift": "8956afd05a11bd0f0a4aa68bbcc9eba044320906ce463e70716995f550e42c3e",
+    "embedded/SideStore/Core/Certificates/CodeSignValidator.swift": "01a2562e62b83b2cfbe2ef5251598022bc999229b95b21218e7416f8964d840f",
+    "embedded/SideStore/Core/Operations/PipelineExecutor.swift": "e9753d0053d6c96a7bbb38b714d690e0486ba730d712c74076818abbbfaf8d08",
+    "embedded/SideStore/Core/Operations/PipelineOperations/FetchProvisioningProfilesOperation.swift": "27fdc85ca84d1b5cc6a7dbe9443ac86ee8f4a5c3dfd2860140c1e4f163e444e0",
+    "embedded/SideStore/Core/Operations/PipelineOperations/PerformBackupRestoreOperation.swift": "164da3396d12577c576e2bbcf7bfec4ed271bcc9c528e9a0197262a7174ae656",
+    "embedded/SideStore/Core/Operations/PipelineRunner.swift": "6180419cad4470fca4794996e4999d8c1f897376c38874712edc5aabc558ce63",
+    "embedded/SideStore/Core/Operations/StandaloneOperations/BackgroundRefreshAppsOperation.swift": "edf762e46b242e9210545adc67c04003f34050dfc769ed743c8aea42eae4165c",
+    "embedded/SideStore/Core/Operations/StandaloneOperations/SignInOperation.swift": "55ce7ec780c9027b61d8aaae607f0cc1b83ed719a1c020a12ada3abd7013d2cd"
+  },
+  "ipa": "LiveContainer-SideStore-v3.0.3-rc.ipa",
+  "ipa_size_bytes": 25562056,
+  "isolated_anisette_otp": {
+    "executable_sha256": "0faf167e9d5c49b0c147b96a6ad375f5e20ae891548a19f4bcae6f347193692e",
+    "manifest_sha256": "0b15a254d34932a22539a2a874547a891de4b9a7a85965e13dd3caf0f8380cef",
+    "source_sha256": {
+      "Native/Loader/elf_loader_emulator.cpp": "840b7f4ca30a12da86e0b0ae08a453ebb88e1cd74327f94a303b362b94e8604f",
+      "Native/Loader/elf_loader_emulator.h": "aacfd99cf5049d2208bc9d6af471411ca3acd277828ebcd1f27914f552f2f62c",
+      "Native/anisette_core_uc.cpp": "2c443523819368c8a48ada0eadb9dbff1d6657b73454db44d45c3cc626e40ab7",
+      "Native/include/anisette_core.h": "ca1ea4005f77dcca17c68965ba2dd1f65596e282a57adb4277f1d90d8bd11f02",
+      "Sources/AnisetteDataProvider.swift": "96a3af11c76ca7476162d25ca345b8e3aeb9f3343fc3e77b03481a61d6c79020"
+    }
+  },
+  "maintained_runtime_sources": {
+    "contract_registry_sha256": "5cd17d665d9d13fde7bdc58abe3c44050b4b1618df89efbdf9815a39736d76be",
+    "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+    "native_validation": {
+      "artifact_id": 11519176173,
+      "artifact_sha256": "d8dd30c49648a5e2706edc185e9c1ce15c584075ce41e85cbde80ce4934cc75b",
+      "host_commit": "5fcff4214fc459b30b37843aaa2cf075232f52f2",
+      "host_tree": "cb1ce172bdec083b779862160b9877a873cc2056",
+      "readiness_scope": "eligible_for_gated_full_build",
+      "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37702648560",
+      "tested_children": {
+        "SideSign": {},
+        "SideStore": {
+          "Dependencies/SideSign": "5ce52d12f1846e1a08fad30ed27c4cbadd176529",
+          "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+        }
+      },
+      "tested_owners": {
+        "SideSign": {
+          "commit": "5ce52d12f1846e1a08fad30ed27c4cbadd176529",
+          "tree": "352e92723c34a47bcfef5e0a984ba9828bade33b"
+        },
+        "SideStore": {
+          "commit": "f6e9e0ed6c3f4d02e99a0dcff0660faa0e5372b8",
+          "tree": "2f33f7caed7f6ef13522421446ade4d79d8f901e"
+        }
+      }
+    },
+    "owners": {
+      "AnisetteKit": {
+        "commit": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+        "path": "work/AnisetteKit",
+        "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+        "source_checkpoint": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d"
+      },
+      "LiveContainer": {
+        "commit": "47db163356dc419d2b6a894fdc5dbeb9d011dc69",
+        "path": "work/LiveContainer",
+        "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
+        "source_checkpoint": "47db163356dc419d2b6a894fdc5dbeb9d011dc69"
+      },
+      "SideSign": {
+        "commit": "06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c",
+        "path": "work/EmbeddedSideStore/Dependencies/SideSign",
+        "repository": "https://github.com/NRG-Wardog/SideSign.git",
+        "source_checkpoint": "ed30d3989ea0f80bcb91466d6d5ca043f4366df0"
+      },
+      "SideStore": {
+        "commit": "dd4f0ca36e8ef1d858548f583c65842a8fc0ced3",
+        "path": "work/EmbeddedSideStore",
+        "repository": "https://github.com/NRG-Wardog/SideStore.git",
+        "source_checkpoint": "9d8c71ed69684f805325ef440983e74d97113a71"
+      },
+      "idevice": {
+        "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+        "path": "idevice",
+        "repository": "https://github.com/NRG-Wardog/idevice.git",
+        "source_checkpoint": "803f9368e6b27a43d8a9f22dc0ec281c87883113"
+      },
+      "jktcp": {
+        "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+        "path": "jktcp",
+        "repository": "https://github.com/NRG-Wardog/jktcp.git",
+        "source_checkpoint": "32c0210f286b4fd16efe05be4f57167a9d94459b"
+      },
+      "minimuxer": {
+        "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+        "path": "work/EmbeddedSideStore/Dependencies/minimuxer",
+        "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+        "source_checkpoint": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+      }
+    },
+    "schema_version": 1
+  },
+  "maintained_source_contract_sha256": {
+    "compatibility-registry.json": "5cd17d665d9d13fde7bdc58abe3c44050b4b1618df89efbdf9815a39736d76be",
+    "owners/AnisetteKit/runtime-contract.json": "dbc53821ebea05a9ae9e48d3550cd072e1167088d4b2afe2099af6013961520f",
+    "owners/LiveContainer/runtime-contract.json": "33b0ec571a0ba2b0e9bdc0217bf657745f8d9b1e4653e179f273d0cb72e62159",
+    "owners/SideSign/runtime-contract.json": "a8f3e388ad64356df0a4ae1043adb83596aad71756b9ed1d9009630a9debcee9",
+    "owners/SideStore/runtime-contract.json": "3c1f931eafdeea150cf38eb8496acd203e8bb795ae17247125e2e871b9434ef6",
+    "owners/idevice/runtime-contract.json": "d5d7cfe13bba7e9a67eda5999a2300a016d52382587f8dd4c823823828d14547",
+    "owners/jktcp/runtime-contract.json": "0b16156e19322dc8bc1f519d2eae510c940b31b29c83551672f0c0e20959c8ab",
+    "owners/minimuxer/runtime-contract.json": "79e14f781bfe807fd447c0527b6aabf5f8a58160245a90cd2bdd13cce72da1aa",
+    "provenance/source-evidence.json": "0af59c9fda7fb7dc9567b736de28aed83d9e694fdce8386c3f96f9c99d283bea"
+  },
+  "physical_device_execution": false,
+  "raw_ipa_sha256": "af4296725ef2c628bffdcbb31d4a54ec76cecfaca1b5cbb11df580b93614bd4d",
+  "schema": 1,
+  "sha256": "af4296725ef2c628bffdcbb31d4a54ec76cecfaca1b5cbb11df580b93614bd4d",
+  "source_evidence_kind": "maintained-source-contracts-v1",
+  "verification_scope": "Static package identity, error protocol, UUID and dSYM matching; not runtime validation"
+}
