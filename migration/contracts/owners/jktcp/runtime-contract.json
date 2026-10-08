@@ -4,7 +4,7 @@
   "owner": "jktcp",
   "provenance": {
     "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
-    "source_basis": "Immutable OLD prepared source; changed files checked against baseline generation inventories; unchanged contract surfaces checked against exact upstream Git blobs.",
+    "source_basis": "Immutable OLD prepared source; changed files checked against baseline generation inventories; unchanged contract surfaces checked against exact upstream Git blobs. Pinned Rust 1.98.1 rustfmt output is reviewed in rustfmt-1.98.1.json; historical preformat hashes remain in that receipt and the original generation inventory.",
     "upstream_commit": "e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020",
     "upstream_repository": "SideStore/jktcp"
   },
@@ -41,10 +41,10 @@
       "sha256": "201602ea80f7d7f4316f7aa30119482f0331d6a5cb786cab1b56c5596f13673f"
     },
     {
-      "basis": "transport-generated-source-inventory.json:final_changes:jktcp:src/adapter.rs",
+      "basis": "rustfmt-1.98.1.json:owners:jktcp:changed_files:src/adapter.rs (formatted from transport-generated-source-inventory.json:final_changes:jktcp:src/adapter.rs)",
       "mode": "100644",
       "path": "src/adapter.rs",
-      "sha256": "d3555e16174a3b3539ec2fe6648ea1d9006ef4590fb6ac0436bbb11c1bb81d63"
+      "sha256": "57a5f51ef060f13533d99e2820af68dbf4325358c20d52e0752db79c543a98d3"
     },
     {
       "basis": "transport-generated-source-inventory.json:final_changes:jktcp:src/handle.rs",
@@ -65,5 +65,5 @@
       "sha256": "ae4607aa71e3604af9b2191f838056f256de1e4b64113d8312a974a048e42d8c"
     }
   ],
-  "version": "1.0.0"
+  "version": "1.0.1"
 }

@@ -4,7 +4,7 @@
   "owner": "idevice",
   "provenance": {
     "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
-    "source_basis": "Immutable OLD prepared source; changed files checked against baseline generation inventories; unchanged contract surfaces checked against exact upstream Git blobs.",
+    "source_basis": "Immutable OLD prepared source; changed files checked against baseline generation inventories; unchanged contract surfaces checked against exact upstream Git blobs. Pinned Rust 1.98.1 rustfmt output is reviewed in rustfmt-1.98.1.json; historical preformat hashes remain in that receipt and the original generation inventory.",
     "upstream_commit": "ebd7dadfc55d1c4facee3d11ecf5b28e20548b57",
     "upstream_repository": "SideStore/idevice"
   },
@@ -71,10 +71,10 @@
       "sha256": "a8cc2f13907de9a2c20588576634dc00f17b426dc67cc65cf92c302cfe8d78bf"
     },
     {
-      "basis": "transport-generated-source-inventory.json:final_changes:idevice:ffi/src/afc.rs",
+      "basis": "rustfmt-1.98.1.json:owners:idevice:changed_files:ffi/src/afc.rs (formatted from transport-generated-source-inventory.json:final_changes:idevice:ffi/src/afc.rs)",
       "mode": "100644",
       "path": "ffi/src/afc.rs",
-      "sha256": "f9fabb41e267c85891eac80aba562fe7ff913b2e8ece2e619086bdca9a6b5cda"
+      "sha256": "508090fe4eae454a11d961831665965f6462fd328f7ad76a4a3ab004671a33d2"
     },
     {
       "basis": "transport-generated-source-inventory.json:final_changes:idevice:ffi/src/core_device_proxy.rs",
@@ -89,10 +89,10 @@
       "sha256": "954b294a47bc172531c3e35aab59bc84d8d7e6682dc384fafe576c2095674dd1"
     },
     {
-      "basis": "transport-generated-source-inventory.json:final_changes:idevice:ffi/src/tunnel_provider.rs",
+      "basis": "rustfmt-1.98.1.json:owners:idevice:changed_files:ffi/src/tunnel_provider.rs (formatted from transport-generated-source-inventory.json:final_changes:idevice:ffi/src/tunnel_provider.rs)",
       "mode": "100644",
       "path": "ffi/src/tunnel_provider.rs",
-      "sha256": "61e090ea9c1e2e75d2fb8f355965e929ed35a0a4f5e9471f9949c7504c3356f0"
+      "sha256": "c869d5c7ac0d68743223d627aa58fdecc397f7a97e073eaf3584046aff95891d"
     },
     {
       "basis": "transport-generated-source-inventory.json:final_changes:idevice:idevice/Cargo.toml",
@@ -107,5 +107,5 @@
       "sha256": "78ecf7ea51660f27bd78892e9d8f493846e8a98be364a63803d804f139461b8d"
     }
   ],
-  "version": "1.0.0"
+  "version": "1.0.1"
 }

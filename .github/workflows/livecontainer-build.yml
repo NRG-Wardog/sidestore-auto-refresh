@@ -215,6 +215,23 @@ jobs:
           python3 builder/scripts/verify_pinned_sources.py --live work/LegacyLiveContainer --side work/LegacySideStore \
             > artifacts/logs/historical-fixture-identity.json
 
+      - name: Verify pinned transport format prerequisites before layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 builder/scripts/maintained_sources.py verify --workspace "$GITHUB_WORKSPACE" \
+            --output artifacts/logs/transport-format-inputs.json
+          {
+            rustc --version --verbose
+            cargo --version
+            rustfmt --version
+            test "$(rustc --version)" = 'rustc 1.98.1 (48a229cea 2026-09-01)'
+            test "$(cargo --version)" = 'cargo 1.98.1 (797e8a9bc 2026-08-05)'
+            test "$(rustfmt --version)" = 'rustfmt 1.9.0-stable (48a229ceae 2026-09-01)'
+            cargo fmt --check --manifest-path jktcp/Cargo.toml
+            cargo fmt --check --manifest-path idevice/ffi/Cargo.toml
+          } 2>&1 | tee artifacts/logs/transport-format-prerequisites.log
+
       - name: Select Xcode 26.4
         uses: maxim-lobanov/setup-xcode@v1.6.0
         with:
@@ -387,8 +404,6 @@ jobs:
       - name: Test maintained transport sources
         run: |
           set -euo pipefail
-          cargo fmt --check --manifest-path jktcp/Cargo.toml
-          cargo fmt --check --manifest-path idevice/ffi/Cargo.toml
           git -C jktcp diff --check
           git -C idevice diff --check
           cargo test --locked --manifest-path jktcp/Cargo.toml --lib -- --skip tests::local_tcp --skip tests::handle_speed

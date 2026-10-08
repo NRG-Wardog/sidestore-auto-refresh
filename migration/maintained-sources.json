@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
-  "contract_registry_sha256": "8e7eba95b8bc69037ffed8931478cefd46984b458f767c2a067547e3cd60b467",
+  "contract_registry_sha256": "5cd17d665d9d13fde7bdc58abe3c44050b4b1618df89efbdf9815a39736d76be",
   "owners": {
     "LiveContainer": {
       "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
@@ -35,14 +35,14 @@
     },
     "idevice": {
       "repository": "https://github.com/NRG-Wardog/idevice.git",
-      "commit": "0182d7d8ce0c8bbeb440adbc989d88dc1d4c0789",
-      "source_checkpoint": "0182d7d8ce0c8bbeb440adbc989d88dc1d4c0789",
+      "commit": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
+      "source_checkpoint": "803f9368e6b27a43d8a9f22dc0ec281c87883113",
       "path": "idevice"
     },
     "jktcp": {
       "repository": "https://github.com/NRG-Wardog/jktcp.git",
-      "commit": "82277a1f366e8d92e775d14212ff21621b25f3f3",
-      "source_checkpoint": "82277a1f366e8d92e775d14212ff21621b25f3f3",
+      "commit": "32c0210f286b4fd16efe05be4f57167a9d94459b",
+      "source_checkpoint": "32c0210f286b4fd16efe05be4f57167a9d94459b",
       "path": "jktcp"
     }
   },

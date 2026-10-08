@@ -19,7 +19,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee"
-REGISTRY = "8e7eba95b8bc69037ffed8931478cefd46984b458f767c2a067547e3cd60b467"
+REGISTRY = "5cd17d665d9d13fde7bdc58abe3c44050b4b1618df89efbdf9815a39736d76be"
 OWNERS = {"LiveContainer", "SideStore", "SideSign", "AnisetteKit", "minimuxer", "idevice", "jktcp"}
 ENV_KEYS = {"LiveContainer": "LIVE_CONTAINER_REF", "SideStore": "EMBEDDED_SIDESTORE_REF",
             "SideSign": "SIDESIGN_REF", "AnisetteKit": "ANISETTE_REF",

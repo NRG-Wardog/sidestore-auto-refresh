@@ -4,6 +4,7 @@
   "inventory_digests": {
     "anisette-source-parity.json": "5a332efd3730eb3a2010a47b2c8aa807422ea57dbe9518a1280b1e24387a1ae8",
     "combined-generated-source-inventory.json": "41e2845036e8faf3d307a04d4c3fb09521c9ab1bfa96b596014979f8456abb2a",
+    "rustfmt-1.98.1.json": "76baa0124c12ed739f64f12eefb909be7dc47e59a9d12d4e7dafaab26a2611c8",
     "transport-generated-source-inventory.json": "95990a585640fdb517e6620d8a2635ead69add859d96f5aa9996de133041872e"
   },
   "owners": {
@@ -446,7 +447,7 @@
     "idevice": {
       "provenance": {
         "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
-        "source_basis": "Immutable OLD prepared source; changed files checked against baseline generation inventories; unchanged contract surfaces checked against exact upstream Git blobs.",
+        "source_basis": "Immutable OLD prepared source; changed files checked against baseline generation inventories; unchanged contract surfaces checked against exact upstream Git blobs. Pinned Rust 1.98.1 rustfmt output is reviewed in rustfmt-1.98.1.json; historical preformat hashes remain in that receipt and the original generation inventory.",
         "upstream_commit": "ebd7dadfc55d1c4facee3d11ecf5b28e20548b57",
         "upstream_repository": "SideStore/idevice"
       },
@@ -458,10 +459,10 @@
           "sha256": "a8cc2f13907de9a2c20588576634dc00f17b426dc67cc65cf92c302cfe8d78bf"
         },
         {
-          "basis": "transport-generated-source-inventory.json:final_changes:idevice:ffi/src/afc.rs",
+          "basis": "rustfmt-1.98.1.json:owners:idevice:changed_files:ffi/src/afc.rs (formatted from transport-generated-source-inventory.json:final_changes:idevice:ffi/src/afc.rs)",
           "mode": "100644",
           "path": "ffi/src/afc.rs",
-          "sha256": "f9fabb41e267c85891eac80aba562fe7ff913b2e8ece2e619086bdca9a6b5cda"
+          "sha256": "508090fe4eae454a11d961831665965f6462fd328f7ad76a4a3ab004671a33d2"
         },
         {
           "basis": "transport-generated-source-inventory.json:final_changes:idevice:ffi/src/core_device_proxy.rs",
@@ -476,10 +477,10 @@
           "sha256": "954b294a47bc172531c3e35aab59bc84d8d7e6682dc384fafe576c2095674dd1"
         },
         {
-          "basis": "transport-generated-source-inventory.json:final_changes:idevice:ffi/src/tunnel_provider.rs",
+          "basis": "rustfmt-1.98.1.json:owners:idevice:changed_files:ffi/src/tunnel_provider.rs (formatted from transport-generated-source-inventory.json:final_changes:idevice:ffi/src/tunnel_provider.rs)",
           "mode": "100644",
           "path": "ffi/src/tunnel_provider.rs",
-          "sha256": "61e090ea9c1e2e75d2fb8f355965e929ed35a0a4f5e9471f9949c7504c3356f0"
+          "sha256": "c869d5c7ac0d68743223d627aa58fdecc397f7a97e073eaf3584046aff95891d"
         },
         {
           "basis": "transport-generated-source-inventory.json:final_changes:idevice:idevice/Cargo.toml",
@@ -498,7 +499,7 @@
     "jktcp": {
       "provenance": {
         "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
-        "source_basis": "Immutable OLD prepared source; changed files checked against baseline generation inventories; unchanged contract surfaces checked against exact upstream Git blobs.",
+        "source_basis": "Immutable OLD prepared source; changed files checked against baseline generation inventories; unchanged contract surfaces checked against exact upstream Git blobs. Pinned Rust 1.98.1 rustfmt output is reviewed in rustfmt-1.98.1.json; historical preformat hashes remain in that receipt and the original generation inventory.",
         "upstream_commit": "e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020",
         "upstream_repository": "SideStore/jktcp"
       },
@@ -510,10 +511,10 @@
           "sha256": "201602ea80f7d7f4316f7aa30119482f0331d6a5cb786cab1b56c5596f13673f"
         },
         {
-          "basis": "transport-generated-source-inventory.json:final_changes:jktcp:src/adapter.rs",
+          "basis": "rustfmt-1.98.1.json:owners:jktcp:changed_files:src/adapter.rs (formatted from transport-generated-source-inventory.json:final_changes:jktcp:src/adapter.rs)",
           "mode": "100644",
           "path": "src/adapter.rs",
-          "sha256": "d3555e16174a3b3539ec2fe6648ea1d9006ef4590fb6ac0436bbb11c1bb81d63"
+          "sha256": "57a5f51ef060f13533d99e2820af68dbf4325358c20d52e0752db79c543a98d3"
         },
         {
           "basis": "transport-generated-source-inventory.json:final_changes:jktcp:src/handle.rs",

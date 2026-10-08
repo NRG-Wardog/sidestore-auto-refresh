@@ -457,6 +457,35 @@ for modern in [false, true] {
 
 
 class CombinedWorkflowTests(unittest.TestCase):
+    def test_exact_format_prerequisites_gate_layout_once_and_preserve_proof(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        title = '- name: Verify pinned transport format prerequisites before layout\n'
+        block = workflow.split(title, 1)[1].split('\n      - name:', 1)[0]
+        self.assertLess(workflow.index(title), workflow.index('- name: Execute full layout regression'))
+        self.assertLess(block.index('maintained_sources.py verify'), block.index('cargo fmt --check'))
+        self.assertIn('--output artifacts/logs/transport-format-inputs.json', block)
+        self.assertIn('tee artifacts/logs/transport-format-prerequisites.log', block)
+        self.assertNotIn('continue-on-error', block)
+        for manifest in ('jktcp/Cargo.toml', 'idevice/ffi/Cargo.toml'):
+            self.assertEqual(workflow.count('cargo fmt --check --manifest-path ' + manifest), 1)
+        later = workflow.split('- name: Verify maintained CoreDevice transport sources', 1)[1]
+        self.assertIn('maintained_sources.py verify', later)
+        self.assertNotIn('cargo fmt', later)
+        shell = block[block.index('          {'):].replace('          ', '')
+        for code in (0, 7):
+            with self.subTest(format_exit=code), tempfile.TemporaryDirectory() as temporary:
+                Path(temporary, 'artifacts/logs').mkdir(parents=True)
+                stubs = '''set -euo pipefail
+rustc() { echo 'rustc 1.98.1 (48a229cea 2026-09-01)'; }
+rustfmt() { echo 'rustfmt 1.9.0-stable (48a229ceae 2026-09-01)'; }
+cargo() { if [[ "$1" == --version ]]; then echo 'cargo 1.98.1 (797e8a9bc 2026-08-05)'; else return "$FORMAT_EXIT"; fi; }
+'''
+                result = subprocess.run(['bash', '-c', stubs + shell + '\ntouch layout-started\n'],
+                    cwd=temporary, env=dict(os.environ, FORMAT_EXIT=str(code)), capture_output=True, text=True)
+                self.assertEqual(result.returncode, code)
+                self.assertEqual(Path(temporary, 'layout-started').exists(), code == 0)
+                self.assertTrue(Path(temporary, 'artifacts/logs/transport-format-prerequisites.log').is_file())
+
     def test_matching_rust_reader_failure_blocks_framework_staging(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
         block = workflow.split("- name: Build idevice for iOS\n", 1)[1].split("\n      - name:", 1)[0]

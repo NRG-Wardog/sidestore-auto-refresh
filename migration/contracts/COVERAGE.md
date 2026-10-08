@@ -229,7 +229,7 @@ Upstream: `SideStore/idevice@ebd7dadfc55d1c4facee3d11ecf5b28e20548b57`.
   - SHA-256: `a8cc2f13907de9a2c20588576634dc00f17b426dc67cc65cf92c302cfe8d78bf`; mode `100644`
 - `ffi/src/afc.rs`
   - Contracts: diagnostics, idevice-ffi
-  - SHA-256: `f9fabb41e267c85891eac80aba562fe7ff913b2e8ece2e619086bdca9a6b5cda`; mode `100644`
+  - SHA-256: `508090fe4eae454a11d961831665965f6462fd328f7ad76a4a3ab004671a33d2`; mode `100644`
 - `ffi/src/core_device_proxy.rs`
   - Contracts: diagnostics, idevice-ffi, jktcp-stream
   - SHA-256: `eae6645531b9544aeb339a724057817b6a27f05d0bb73fc107b3c1a1aab5313b`; mode `100644`
@@ -238,7 +238,7 @@ Upstream: `SideStore/idevice@ebd7dadfc55d1c4facee3d11ecf5b28e20548b57`.
   - SHA-256: `954b294a47bc172531c3e35aab59bc84d8d7e6682dc384fafe576c2095674dd1`; mode `100644`
 - `ffi/src/tunnel_provider.rs`
   - Contracts: diagnostics, idevice-ffi, jktcp-stream
-  - SHA-256: `61e090ea9c1e2e75d2fb8f355965e929ed35a0a4f5e9471f9949c7504c3356f0`; mode `100644`
+  - SHA-256: `c869d5c7ac0d68743223d627aa58fdecc397f7a97e073eaf3584046aff95891d`; mode `100644`
 - `idevice/Cargo.toml`
   - Contracts: diagnostics, idevice-ffi, jktcp-stream
   - SHA-256: `68496dc1f0c3dd3bbb62b952ecfe472f17d8a0a5cabfed14f68468a801df0b88`; mode `100644`
@@ -255,7 +255,7 @@ Upstream: `SideStore/jktcp@e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020`.
   - SHA-256: `201602ea80f7d7f4316f7aa30119482f0331d6a5cb786cab1b56c5596f13673f`; mode `100644`
 - `src/adapter.rs`
   - Contracts: diagnostics, jktcp-stream
-  - SHA-256: `d3555e16174a3b3539ec2fe6648ea1d9006ef4590fb6ac0436bbb11c1bb81d63`; mode `100644`
+  - SHA-256: `57a5f51ef060f13533d99e2820af68dbf4325358c20d52e0752db79c543a98d3`; mode `100644`
 - `src/handle.rs`
   - Contracts: diagnostics, jktcp-stream
   - SHA-256: `66fbeef6afabcbf29bc16e37fc9c51761141d07fa1db4c0d112b09504a87f75c`; mode `100644`

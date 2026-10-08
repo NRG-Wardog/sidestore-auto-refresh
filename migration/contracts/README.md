@@ -8,9 +8,10 @@ were changed by this artifact. Nothing here claims the real-device
 
 ## What this checks
 
-The accepted compatibility set is `runtime-source-parity-141776ba.v1`. Every
-owner manifest and every contract is version `1.0.0`, using **exact equality**.
-This version is build metadata; it is unrelated to product v3.1.0, package
+The compatibility set is `runtime-source-parity-141776ba.v1`. Runtime contracts
+remain version `1.0.0`. The formatting-updated jktcp and idevice owner manifests
+are revision `1.0.1`; other owner manifests remain `1.0.0`. All use **exact equality**.
+These versions are build metadata; it is unrelated to product v3.1.0, package
 release numbers or the existing version fields in runtime messages. There is
 no runtime negotiation, generated constants file or replacement shared module.
 
@@ -231,3 +232,12 @@ separate build-metadata commits, commit the registry/validator to integration,
 and wire this gate before and after the build **only in the reviewed coordinated
 pin-switch**. Keep the frozen runtime parity commits intact. Do not retire the
 old rewriting path until the complete migration gates pass.
+
+The current Rust formatting approval follows failed full run 37708955202.
+`provenance/rustfmt-1.98.1.json` preserves the exact preformat hashes, pinned
+formatter identity and complete independently formatted OLD/maintained parity.
+Only three source hashes change. jktcp and idevice source-manifest revisions are
+1.0.1; all runtime contract versions remain 1.0.0 and all 22 edges are unchanged.
+The current reviewed registry SHA-256 is `5cd17d665d9d13fde7bdc58abe3c44050b4b1618df89efbdf9815a39736d76be`.
+Historical evidence and `provenance/assemble.py` retain the original preformat
+meaning; the build never regenerates or relaxes source hashes.

@@ -218,7 +218,7 @@
   ],
   "evidence": {
     "path": "provenance/source-evidence.json",
-    "sha256": "1665e5b3b577f0a1c5a7ba0cfb7fe0cf054a14971c4517ce6ae339b88b0cd489"
+    "sha256": "0af59c9fda7fb7dc9567b736de28aed83d9e694fdce8386c3f96f9c99d283bea"
   },
   "format_version": 1,
   "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
@@ -245,13 +245,13 @@
     },
     "idevice": {
       "manifest_path": "owners/idevice/runtime-contract.json",
-      "manifest_sha256": "60734ff95c46f6239cd82ea7733797a06dc96b2a7163d38bd2926c18dbde5223",
-      "version": "1.0.0"
+      "manifest_sha256": "d5d7cfe13bba7e9a67eda5999a2300a016d52382587f8dd4c823823828d14547",
+      "version": "1.0.1"
     },
     "jktcp": {
       "manifest_path": "owners/jktcp/runtime-contract.json",
-      "manifest_sha256": "25a9d55d3f908ba3c8bb3fa82012d9d814c9186109666c2d1117070e6e893f3d",
-      "version": "1.0.0"
+      "manifest_sha256": "0b16156e19322dc8bc1f519d2eae510c940b31b29c83551672f0c0e20959c8ab",
+      "version": "1.0.1"
     },
     "minimuxer": {
       "manifest_path": "owners/minimuxer/runtime-contract.json",

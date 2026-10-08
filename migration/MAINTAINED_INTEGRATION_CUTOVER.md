@@ -178,3 +178,13 @@ Commands:
 
 Runtime source parity is not device authentication acceptance. The nativeOTP /
 -45061 incident and all frozen known defects remain unresolved by this cutover.
+
+The formatting-only follow-up to full run 37708955202 is based on actual published
+integration commit 44e2e734c9a31dce164add1c047c48d213c83cfe. jktcp and idevice
+advance to reviewed formatted owner commits/checkpoints. Their exact three-file
+byte transition and new registry anchor are recorded in
+`contracts/provenance/rustfmt-1.98.1.json`; historical evidence stays unchanged.
+The two `cargo fmt --check` commands now execute once before expensive layout,
+with exact tool versions and immutable input proof preserved. The later source
+immutability gate, transport tests, all native/layout gates and artifact checks
+remain required. A fresh full IPA run is still necessary.
