@@ -50,6 +50,18 @@ a tag, an upstream checkpoint, or an unverified resolver lock. The code rejects
 floating refs and only acquires from the seven NRG-Wardog repositories. No local
 Anisette package override is used in this workflow.
 
+## Verified native-tested lineage
+
+The map's `native_validation` now records the closed Phase 2 run 37702648560,
+validation host 5fcff4214fc459b30b37843aaa2cf075232f52f2, artifact 11519176173
+and exact ZIP SHA-256, plus the actual tested SideSign S1 / SideStore T0 identities
+and child graph. Both final owner proof outputs must bind their current pinned
+commit to that same approved native run/host/artifact, exact tested commit/tree,
+verified receipt digest and `eligible_for_gated_full_build` scope. Their tested
+SideSign child linkage is checked explicitly. This adds no runtime negotiation
+or second owner receipt system; existing owner checkers prove the metadata-only
+transitions. Final production pins remain null until S2/T1 are actually published.
+
 ## Checks replacing runtime rewriting
 
 The build acquires LiveContainer, SideStore, AnisetteKit, idevice and jktcp by

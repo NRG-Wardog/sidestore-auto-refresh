@@ -1,0 +1,57 @@
+{
+  "scope": "Integration receipt cross-link gate; final published owner pins still pending",
+  "base_commit": "84598d2d98306eac6e9c95868b52ce18f23c8108",
+  "approved_native_validation": {
+    "readiness_scope": "eligible_for_gated_full_build",
+    "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37702648560",
+    "host_commit": "5fcff4214fc459b30b37843aaa2cf075232f52f2",
+    "host_tree": "cb1ce172bdec083b779862160b9877a873cc2056",
+    "artifact_id": 11519176173,
+    "artifact_sha256": "d8dd30c49648a5e2706edc185e9c1ce15c584075ce41e85cbde80ce4934cc75b",
+    "tested_owners": {
+      "SideSign": {
+        "commit": "5ce52d12f1846e1a08fad30ed27c4cbadd176529",
+        "tree": "352e92723c34a47bcfef5e0a984ba9828bade33b"
+      },
+      "SideStore": {
+        "commit": "f6e9e0ed6c3f4d02e99a0dcff0660faa0e5372b8",
+        "tree": "2f33f7caed7f6ef13522421446ade4d79d8f901e"
+      }
+    },
+    "tested_children": {
+      "SideSign": {},
+      "SideStore": {
+        "Dependencies/SideSign": "5ce52d12f1846e1a08fad30ed27c4cbadd176529",
+        "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+      }
+    }
+  },
+  "verified_phase2_closure_sha256": "3132b1d2d0a3e17a0c4c395d610348dfef9cb8396fa0c9709340f36f7f6efb4f",
+  "verified_phase2_artifact_metadata_sha256": "cc3cc2fec6ab0e6798b73c57e2e8751e2db3694fd33dcebf14192236dc44f59d",
+  "artifact_zip_bytes_hash_verified": true,
+  "tests": {
+    "gate_normal": {
+      "total": 57,
+      "passed": 57,
+      "skipped": 0,
+      "failed": 0
+    },
+    "gate_optimized": {
+      "total": 57,
+      "passed": 57,
+      "skipped": 0,
+      "failed": 0
+    },
+    "anisette_artifact": {
+      "total": 14,
+      "passed": 14,
+      "skipped": 0,
+      "failed": 0
+    }
+  },
+  "actual_final_owner_proofs_executed": false,
+  "reason": "Final S2/T1 receipt commits are being prepared; final integration commit fields remain null",
+  "all_seven_owner_pin_records_unchanged": true,
+  "runtime_source_changes": false,
+  "no_new_native_run": true
+}

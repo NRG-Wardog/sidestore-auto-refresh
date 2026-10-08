@@ -62,6 +62,25 @@ def load_pins(path):
             "unsupported maintained-source schema or baseline")
     require(document.get("contract_registry_sha256") == REGISTRY, "unapproved contract registry")
     require(set(document.get("owners", {})) == OWNERS, "exact seven-owner set required")
+    native = document.get("native_validation", {})
+    require(native.get("readiness_scope") == "eligible_for_gated_full_build" and
+            set(native.get("tested_owners", {})) == {"SideSign", "SideStore"} and
+            set(native.get("tested_children", {})) == {"SideSign", "SideStore"},
+            "reviewed native validation identity required")
+    require(re.fullmatch(r"https://github\.com/NRG-Wardog/LiveContainer/actions/runs/[1-9][0-9]*", native.get("run_url", "")) and
+            re.fullmatch("[0-9a-f]{40}", native.get("host_commit", "")) and
+            re.fullmatch("[0-9a-f]{40}", native.get("host_tree", "")) and
+            re.fullmatch("[0-9a-f]{64}", native.get("artifact_sha256", "")) and
+            type(native.get("artifact_id")) is int and native["artifact_id"] > 0,
+            "invalid native run/artifact identity")
+    for owner, tested in native["tested_owners"].items():
+        require(set(tested) == {"commit", "tree"} and all(re.fullmatch("[0-9a-f]{40}", value) for value in tested.values()),
+                owner + ": exact native-tested commit/tree required")
+    require(native["tested_children"]["SideSign"] == {} and
+            native["tested_children"]["SideStore"] == {
+                "Dependencies/SideSign": native["tested_owners"]["SideSign"]["commit"],
+                "Dependencies/minimuxer": document["owners"]["minimuxer"]["commit"]},
+            "native-tested child graph differs from reviewed owners")
     for owner, item in document["owners"].items():
         require(item.get("repository") == "https://github.com/NRG-Wardog/" + owner + ".git",
                 owner + ": unexpected repository")
@@ -292,6 +311,34 @@ def verify_resolution(roots, anisette):
     return report
 
 
+def verify_native_readiness(proofs, pins):
+    """Bind final metadata-only owner transitions to the same reviewed native run."""
+    require(set(proofs) == {"SideSign", "SideStore"}, "both native readiness proofs are required")
+    native = pins["native_validation"]
+    for owner, proof in proofs.items():
+        require(proof.get("owner") == owner and proof.get("commit") == pins["owners"][owner]["commit"],
+                owner + ": proof is not for the final pinned owner")
+        require(proof.get("status") == "exact_dependency_transition_pass" and
+                proof.get("production_ready") is True and
+                proof.get("readiness_scope") == native["readiness_scope"],
+                owner + ": verified native-tested lineage is required for the gated full build")
+        expected = native["tested_owners"][owner]
+        require(proof.get("native_tested_commit") == expected["commit"] and
+                proof.get("native_tested_tree") == expected["tree"],
+                owner + ": native-tested identity differs from approved evidence")
+        require(proof.get("native_run_url") == native["run_url"] and
+                proof.get("native_validation_host_commit") == native["host_commit"] and
+                proof.get("native_artifact_sha256") == native["artifact_sha256"],
+                owner + ": native run/host/artifact differs from approved evidence")
+        require(re.fullmatch("[0-9a-f]{64}", proof.get("native_receipt_sha256", "")),
+                owner + ": verified native receipt digest is missing")
+        require(proof.get("native_tested_children") == native["tested_children"][owner],
+                owner + ": native-tested child graph differs from approved evidence")
+    require(proofs["SideStore"]["native_run_url"] == proofs["SideSign"]["native_run_url"] and
+            proofs["SideStore"]["native_tested_children"]["Dependencies/SideSign"] == proofs["SideSign"]["native_tested_commit"],
+            "SideStore and SideSign native receipt lineage is not linked")
+
+
 def verify_all(workspace, pins, anisette=None, after_build=False):
     roots = {name: workspace / value["path"] for name, value in pins["owners"].items()}
     if anisette is not None:
@@ -308,13 +355,12 @@ def verify_all(workspace, pins, anisette=None, after_build=False):
         results[owner]["origin"] = verify_origin(root, spec["repository"], spec["commit"], resolver_root)
     verify_graph(roots, pins)
     if not after_build:
+        proofs = {}
         for owner in ("SideSign", "SideStore"):
             proof = subprocess.run([sys.executable, "-B", str(roots[owner] / ".ci/production-dependencies.py"),
                                     "--root", str(roots[owner])], check=True, capture_output=True, text=True)
-            approved = json.loads(proof.stdout)
-            require(approved.get("status") == "exact_dependency_transition_pass" and
-                    approved.get("production_ready") is True,
-                    owner + ": published native-resolved dependency proof is required")
+            proofs[owner] = json.loads(proof.stdout, object_pairs_hook=unique_pairs)
+        verify_native_readiness(proofs, pins)
     command = [sys.executable, "-B", str(ROOT / "migration/contracts/validate_contracts.py"),
         "--registry", str(ROOT / "migration/contracts/compatibility-registry.json"), "--registry-sha256", REGISTRY]
     for owner, root in roots.items():
@@ -322,6 +368,7 @@ def verify_all(workspace, pins, anisette=None, after_build=False):
     result = subprocess.run(command, check=True, text=True, capture_output=True)
     return {"schema_version": 1, "integration_baseline": BASELINE, "owners": results,
             "contracts": json.loads(result.stdout), "runtime_rewrites": False,
+            "approved_native_validation": pins["native_validation"],
             "resolved_dependencies": verify_resolution(roots, anisette) if anisette is not None else None,
             "built_idevice": verify_build_products(roots) if after_build else None}
 

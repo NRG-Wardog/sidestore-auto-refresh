@@ -432,6 +432,70 @@ class MaintainedArtifactProvenanceTests(unittest.TestCase):
         self.verify(pins=False)
 
 
+class NativeReadinessLinkageTests(unittest.TestCase):
+    def setUp(self):
+        self.pins = json.loads((ROOT / 'migration/maintained-sources.json').read_bytes())
+        # Later readiness metadata commits are not mislabeled as native-tested.
+        self.pins['owners']['SideSign']['commit'] = 'a' * 40
+        self.pins['owners']['SideStore']['commit'] = 'b' * 40
+        native = self.pins['native_validation']
+        self.proofs = {owner:{
+            'owner':owner, 'commit':self.pins['owners'][owner]['commit'],
+            'status':'exact_dependency_transition_pass', 'production_ready':True,
+            'readiness_scope':'eligible_for_gated_full_build',
+            'native_tested_commit':native['tested_owners'][owner]['commit'],
+            'native_tested_tree':native['tested_owners'][owner]['tree'],
+            'native_run_url':native['run_url'],
+            'native_validation_host_commit':native['host_commit'],
+            'native_artifact_sha256':native['artifact_sha256'],
+            'native_receipt_sha256':'c' * 64,
+            'native_tested_children':copy.deepcopy(native['tested_children'][owner]),
+        } for owner in ('SideSign','SideStore')}
+
+    def test_final_metadata_commits_share_real_native_tested_lineage(self):
+        gate.verify_native_readiness(self.proofs, self.pins)
+        self.assertNotEqual(self.proofs['SideSign']['commit'], self.proofs['SideSign']['native_tested_commit'])
+        self.assertNotEqual(self.proofs['SideStore']['commit'], self.proofs['SideStore']['native_tested_commit'])
+
+    def test_wrong_final_owner_or_nonready_scope_is_rejected(self):
+        for field,value in [('commit','d' * 40),('owner','SideStore'),
+                            ('production_ready',False),('readiness_scope','already_compiled')]:
+            mutated = copy.deepcopy(self.proofs)
+            mutated['SideSign'][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                gate.verify_native_readiness(mutated,self.pins)
+
+    def test_run_host_artifact_and_native_identity_mutations_are_rejected(self):
+        for field,value in [('native_tested_commit','a' * 40),('native_tested_tree','a' * 40),
+                ('native_run_url','https://github.com/NRG-Wardog/LiveContainer/actions/runs/1'),
+                ('native_validation_host_commit','a' * 40),('native_artifact_sha256','a' * 64),
+                ('native_receipt_sha256','')]:
+            mutated = copy.deepcopy(self.proofs)
+            mutated['SideStore'][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                gate.verify_native_readiness(mutated,self.pins)
+
+    def test_matching_but_unapproved_runs_do_not_self_authorize(self):
+        for owner in self.proofs:
+            self.proofs[owner]['native_run_url'] = 'https://github.com/NRG-Wardog/LiveContainer/actions/runs/1'
+        with self.assertRaises(ValueError): gate.verify_native_readiness(self.proofs,self.pins)
+
+    def test_tested_child_cannot_be_replaced_with_final_metadata_commit(self):
+        self.proofs['SideStore']['native_tested_children']['Dependencies/SideSign'] = self.pins['owners']['SideSign']['commit']
+        with self.assertRaises(ValueError): gate.verify_native_readiness(self.proofs,self.pins)
+
+    def test_missing_extra_or_changed_tested_children_are_rejected(self):
+        for children in ({}, {'Dependencies/SideSign':self.proofs['SideSign']['native_tested_commit']},
+                         {**self.proofs['SideStore']['native_tested_children'],'extra':'a' * 40}):
+            mutated=copy.deepcopy(self.proofs);mutated['SideStore']['native_tested_children']=children
+            with self.subTest(children=children), self.assertRaises(ValueError):
+                gate.verify_native_readiness(mutated,self.pins)
+
+    def test_both_native_owner_proofs_are_required(self):
+        del self.proofs['SideStore']
+        with self.assertRaises(ValueError):gate.verify_native_readiness(self.proofs,self.pins)
+
+
 class WorkflowTests(unittest.TestCase):
     def test_builder_acquires_baseline_history_before_required_tests(self):
         workflow = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()

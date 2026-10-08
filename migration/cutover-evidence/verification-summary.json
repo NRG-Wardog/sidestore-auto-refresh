@@ -86,6 +86,26 @@
         "skipped": 0,
         "failed": 0
       }
+    },
+    "native_readiness_linkage": {
+      "gate_normal": {
+        "total": 57,
+        "passed": 57,
+        "skipped": 0,
+        "failed": 0
+      },
+      "gate_optimized": {
+        "total": 57,
+        "passed": 57,
+        "skipped": 0,
+        "failed": 0
+      },
+      "anisette_artifact": {
+        "total": 14,
+        "passed": 14,
+        "skipped": 0,
+        "failed": 0
+      }
     }
   },
   "pending": [

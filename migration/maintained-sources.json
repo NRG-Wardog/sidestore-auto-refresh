@@ -45,5 +45,30 @@
       "source_checkpoint": "82277a1f366e8d92e775d14212ff21621b25f3f3",
       "path": "jktcp"
     }
+  },
+  "native_validation": {
+    "readiness_scope": "eligible_for_gated_full_build",
+    "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37702648560",
+    "host_commit": "5fcff4214fc459b30b37843aaa2cf075232f52f2",
+    "host_tree": "cb1ce172bdec083b779862160b9877a873cc2056",
+    "artifact_id": 11519176173,
+    "artifact_sha256": "d8dd30c49648a5e2706edc185e9c1ce15c584075ce41e85cbde80ce4934cc75b",
+    "tested_owners": {
+      "SideSign": {
+        "commit": "5ce52d12f1846e1a08fad30ed27c4cbadd176529",
+        "tree": "352e92723c34a47bcfef5e0a984ba9828bade33b"
+      },
+      "SideStore": {
+        "commit": "f6e9e0ed6c3f4d02e99a0dcff0660faa0e5372b8",
+        "tree": "2f33f7caed7f6ef13522421446ade4d79d8f901e"
+      }
+    },
+    "tested_children": {
+      "SideSign": {},
+      "SideStore": {
+        "Dependencies/SideSign": "5ce52d12f1846e1a08fad30ed27c4cbadd176529",
+        "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
+      }
+    }
   }
 }

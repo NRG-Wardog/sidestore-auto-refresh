@@ -1,6 +1,6 @@
 # Final production pin import and parity IPA acceptance
 
-Prepared against integration code `ab850604df2014feca6e283562171af4f2e42bd7`.
+Prepared after integration code `84598d2d98306eac6e9c95868b52ce18f23c8108`.
 This is a procedure, not authorization to activate pending inputs. The integration
 pin map still has null SideSign/SideStore production commits. No runtime change,
 new validation framework, separate validation phase, or authfix is part of it.
@@ -12,9 +12,11 @@ The approved Phase 2 inputs are SideSign S1
 `352e92723c34a47bcfef5e0a984ba9828bade33b`) and SideStore T0
 `f6e9e0ed6c3f4d02e99a0dcff0660faa0e5372b8` (tree
 `2f33f7caed7f6ef13522421446ade4d79d8f901e`). These are Phase 2 inputs,
-not the future S2/T1 final commits. The active Phase 2 run is
-`37702648560`, host `5fcff4214fc459b30b37843aaa2cf075232f52f2`; its outcome
-and artifact closure are still pending at this preparation checkpoint. Phase 1 observed absent originHash with
+not the future S2/T1 final commits. Verified Phase 2 run
+`37702648560`, host `5fcff4214fc459b30b37843aaa2cf075232f52f2`, completed
+successfully. Its closed artifact is `11519176173`, ZIP SHA-256
+`d8dd30c49648a5e2706edc185e9c1ce15c584075ce41e85cbde80ce4934cc75b`.
+Final metadata-only S2/T1 publication and the full IPA build remain pending. Phase 1 observed absent originHash with
 unchanged complete lock bytes; preserve actual resolver output and never require
 or invent an originHash the resolver did not produce.
 
@@ -29,15 +31,18 @@ or invent an originHash the resolver did not produce.
    Both must report `exact_dependency_transition_pass`, `production_ready: true`
    and `readiness_scope: eligible_for_gated_full_build`. True means eligible for
    the mandatory final IPA build; it must not claim S2/T1 already compiled.
-4. Before activation, consume the actual frozen receipt output schema in the
-   existing integration `verify_all` owner-proof checks. Require the same actual
-   Phase 2 `native_run_url`; require SideStore's tested SideSign child in
-   `native_tested_children["Dependencies/SideSign"]` to equal SideSign's
-   `native_tested_commit`; retain
-   the actual `native_tested_tree` identities. The current integration helper
-   checks individual status/true but does not yet enforce this cross-owner
-   receipt linkage. Add that bounded comparison once actual final receipts
-   exist, without a second receipt system or wildcard source exclusions.
+4. The existing integration `verify_all` owner-proof gate now enforces the
+   coordinated receipt output schema. It requires the same approved Phase 2
+   `native_run_url`, validation-host commit and artifact SHA-256; exact native
+   tested commit/tree identities; receipt digest presence; and the complete
+   tested-child maps. SideStore's
+   `native_tested_children["Dependencies/SideSign"]` must equal SideSign's
+   `native_tested_commit`. It also binds each proof to its final pinned current
+   owner commit. The authoritative map's `native_validation` records the closed
+   approval. Owner checkers retain responsibility for exact receipt hashes and
+   complete metadata-only transition proofs. Execute this linked gate on the
+   actual final published owner checkouts before activation; unit proof fixtures
+   alone do not establish final owner eligibility.
 
 ## Two-field import
 
