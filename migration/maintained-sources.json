@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+  "contract_registry_sha256": "8e7eba95b8bc69037ffed8931478cefd46984b458f767c2a067547e3cd60b467",
+  "owners": {
+    "LiveContainer": {
+      "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
+      "commit": "47db163356dc419d2b6a894fdc5dbeb9d011dc69",
+      "source_checkpoint": "47db163356dc419d2b6a894fdc5dbeb9d011dc69",
+      "path": "work/LiveContainer"
+    },
+    "SideStore": {
+      "repository": "https://github.com/NRG-Wardog/SideStore.git",
+      "commit": null,
+      "source_checkpoint": "9d8c71ed69684f805325ef440983e74d97113a71",
+      "path": "work/EmbeddedSideStore"
+    },
+    "AnisetteKit": {
+      "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
+      "commit": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+      "source_checkpoint": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+      "path": "work/AnisetteKit"
+    },
+    "SideSign": {
+      "repository": "https://github.com/NRG-Wardog/SideSign.git",
+      "commit": null,
+      "source_checkpoint": "aaa4375a59075a7b0a446cf4c2dc8193c247a875",
+      "path": "work/EmbeddedSideStore/Dependencies/SideSign"
+    },
+    "minimuxer": {
+      "repository": "https://github.com/NRG-Wardog/minimuxer.git",
+      "commit": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "source_checkpoint": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6",
+      "path": "work/EmbeddedSideStore/Dependencies/minimuxer"
+    },
+    "idevice": {
+      "repository": "https://github.com/NRG-Wardog/idevice.git",
+      "commit": "0182d7d8ce0c8bbeb440adbc989d88dc1d4c0789",
+      "source_checkpoint": "0182d7d8ce0c8bbeb440adbc989d88dc1d4c0789",
+      "path": "idevice"
+    },
+    "jktcp": {
+      "repository": "https://github.com/NRG-Wardog/jktcp.git",
+      "commit": "82277a1f366e8d92e775d14212ff21621b25f3f3",
+      "source_checkpoint": "82277a1f366e8d92e775d14212ff21621b25f3f3",
+      "path": "jktcp"
+    }
+  }
+}

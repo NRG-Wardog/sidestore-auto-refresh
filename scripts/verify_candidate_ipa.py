@@ -1033,9 +1033,28 @@ def inspect_side_store_asset_catalog(asset_data: bytes) -> dict:
         return verify_side_store_assetutil_records(records)
 
 
+def verify_maintained_provenance(provenance: dict, maintained: dict | None) -> None:
+    if maintained is not None:
+        from maintained_sources import ENV_KEYS
+        if provenance.get('maintained_runtime_sources') != maintained:
+            raise ValueError('maintained runtime source provenance differs from approved pins')
+        for owner, key in ENV_KEYS.items():
+            actual = provenance.get('dependencies', {}).get(key)
+            if actual != maintained['owners'][owner]['commit']:
+                raise ValueError('maintained dependency provenance mismatch: ' + owner)
+            if os.environ.get(key) and actual != os.environ[key]:
+                raise ValueError('maintained dependency differs from build environment: ' + owner)
+    elif 'maintained_runtime_sources' in provenance:
+        raise ValueError('maintained candidate requires its independently approved pin map')
+
+
 def verify(ipa: Path, provenance_path: Path, product: str,
            side_source: Path | None = None, expected_builder_commit: str | None = None,
-           expected_run_url: str | None = None) -> dict:
+           expected_run_url: str | None = None, maintained_runtime_pins: Path | None = None) -> dict:
+    maintained = None
+    if maintained_runtime_pins is not None:
+        from maintained_sources import load_pins
+        maintained = load_pins(maintained_runtime_pins)
     if expected_builder_commit is not None and not re.fullmatch(r"[0-9a-f]{40}", expected_builder_commit):
         raise ValueError("expected builder commit must be a full lowercase Git SHA")
     if expected_run_url is not None and not is_github_actions_run_url(expected_run_url):
@@ -1048,7 +1067,8 @@ def verify(ipa: Path, provenance_path: Path, product: str,
             text=True, stderr=subprocess.PIPE).strip()
     except subprocess.CalledProcessError as error:
         raise ValueError("the SideStore source checkout has no readable Git revision") from error
-    if side_source_sha != SOURCE_PINS[1]:
+    expected_side_sha = maintained['owners']['SideStore']['commit'] if maintained else SOURCE_PINS[1]
+    if side_source_sha != expected_side_sha:
         raise ValueError("SideStore source checkout does not match the pinned revision")
     size = ipa.stat().st_size
     validate_ipa_size(size)
@@ -1266,6 +1286,7 @@ def verify(ipa: Path, provenance_path: Path, product: str,
             raise ValueError(f"provenance revision is missing or invalid: {key}")
         if os.environ.get(key) and provenance["dependencies"][key] != os.environ[key]:
             raise ValueError(f"provenance revision does not match the build environment: {key}")
+    verify_maintained_provenance(provenance, maintained)
 
     return {
         "verification": "PASS",
@@ -1311,9 +1332,11 @@ def main() -> None:
     parser.add_argument("--builder-commit", required=True)
     parser.add_argument("--build-run-url", required=True)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--maintained-runtime-pins", type=Path)
     args = parser.parse_args()
     result = verify(args.ipa, args.provenance, args.product, side_source=args.side_source,
-                    expected_builder_commit=args.builder_commit, expected_run_url=args.build_run_url)
+                    expected_builder_commit=args.builder_commit, expected_run_url=args.build_run_url,
+                    maintained_runtime_pins=args.maintained_runtime_pins)
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(rendered, encoding="utf-8")

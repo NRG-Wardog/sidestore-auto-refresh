@@ -142,7 +142,7 @@ class PreparedAnisetteBoundaryTests(unittest.TestCase):
 
 class PreparedAnisetteWorkflowTests(unittest.TestCase):
     def test_workflow_replaces_only_anisette_blanket_diff_and_keeps_other_boundaries(self):
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        workflow = (ROOT / "migration/historical/livecontainer-build-141776ba.yml").read_text()
         step = workflow.split("      - name: Verify prepared authentication source boundaries", 1)[1].split("      - name:", 1)[0]
         self.assertIn("python3 builder/scripts/verify_prepared_anisette.py work/EmbeddedSideStore", step)
         self.assertNotIn("diff --exit-code -- SideStore/Core/Anisette", step)

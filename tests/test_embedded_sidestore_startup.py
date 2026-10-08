@@ -14,7 +14,8 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from patch_embedded_sidestore_startup import MARKER, patch
-WORKFLOW = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
+# Frozen patch tests deliberately retain their historical upstream fixture pins.
+WORKFLOW = (ROOT / "migration/historical/livecontainer-build-141776ba.yml").read_text(encoding="utf-8")
 LIVE_CONTAINER_REF = re.search(r"(?m)^  LIVE_CONTAINER_REF: ([0-9a-f]{40})$", WORKFLOW)[1]
 EMBEDDED_SIDESTORE_REF = re.search(r"(?m)^  EMBEDDED_SIDESTORE_REF: ([0-9a-f]{40})$", WORKFLOW)[1]
 

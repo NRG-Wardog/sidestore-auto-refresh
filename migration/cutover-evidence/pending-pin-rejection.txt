@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/workspace/shared/runtime-integration-cutover/scripts/maintained_sources.py", line 331, in <module>
+    main()
+  File "/workspace/shared/runtime-integration-cutover/scripts/maintained_sources.py", line 313, in main
+    pins = load_pins(args.pins)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/shared/runtime-integration-cutover/scripts/maintained_sources.py", line 67, in load_pins
+    require(isinstance(item.get(field), str) and re.fullmatch("[0-9a-f]{40}", item[field]),
+  File "/workspace/shared/runtime-integration-cutover/scripts/maintained_sources.py", line 46, in require
+    raise ValueError(message)
+ValueError: SideStore: final published commit is required; pending pins cannot build

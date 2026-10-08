@@ -1,0 +1,111 @@
+{
+  "contract_set": "runtime-source-parity-141776ba.v1",
+  "format_version": 1,
+  "owner": "idevice",
+  "provenance": {
+    "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+    "source_basis": "Immutable OLD prepared source; changed files checked against baseline generation inventories; unchanged contract surfaces checked against exact upstream Git blobs.",
+    "upstream_commit": "ebd7dadfc55d1c4facee3d11ecf5b28e20548b57",
+    "upstream_repository": "SideStore/idevice"
+  },
+  "provides": [
+    {
+      "contract": "diagnostics",
+      "source_paths": [
+        "ffi/Cargo.toml",
+        "ffi/src/afc.rs",
+        "ffi/src/core_device_proxy.rs",
+        "ffi/src/lib.rs",
+        "ffi/src/tunnel_provider.rs",
+        "idevice/Cargo.toml",
+        "idevice/src/tunnel.rs"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "idevice-ffi",
+      "source_paths": [
+        "ffi/Cargo.toml",
+        "ffi/src/afc.rs",
+        "ffi/src/core_device_proxy.rs",
+        "ffi/src/lib.rs",
+        "ffi/src/tunnel_provider.rs",
+        "idevice/Cargo.toml",
+        "idevice/src/tunnel.rs"
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "requires": [
+    {
+      "contract": "diagnostics",
+      "provider": "jktcp",
+      "source_paths": [
+        "ffi/Cargo.toml",
+        "ffi/src/afc.rs",
+        "ffi/src/core_device_proxy.rs",
+        "ffi/src/lib.rs",
+        "ffi/src/tunnel_provider.rs",
+        "idevice/Cargo.toml",
+        "idevice/src/tunnel.rs"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "jktcp-stream",
+      "provider": "jktcp",
+      "source_paths": [
+        "ffi/src/core_device_proxy.rs",
+        "ffi/src/tunnel_provider.rs",
+        "idevice/Cargo.toml",
+        "idevice/src/tunnel.rs"
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "sources": [
+    {
+      "basis": "SideStore/idevice@ebd7dadfc55d1c4facee3d11ecf5b28e20548b57:ffi/Cargo.toml (unchanged upstream source)",
+      "mode": "100644",
+      "path": "ffi/Cargo.toml",
+      "sha256": "a8cc2f13907de9a2c20588576634dc00f17b426dc67cc65cf92c302cfe8d78bf"
+    },
+    {
+      "basis": "transport-generated-source-inventory.json:final_changes:idevice:ffi/src/afc.rs",
+      "mode": "100644",
+      "path": "ffi/src/afc.rs",
+      "sha256": "f9fabb41e267c85891eac80aba562fe7ff913b2e8ece2e619086bdca9a6b5cda"
+    },
+    {
+      "basis": "transport-generated-source-inventory.json:final_changes:idevice:ffi/src/core_device_proxy.rs",
+      "mode": "100644",
+      "path": "ffi/src/core_device_proxy.rs",
+      "sha256": "eae6645531b9544aeb339a724057817b6a27f05d0bb73fc107b3c1a1aab5313b"
+    },
+    {
+      "basis": "transport-generated-source-inventory.json:final_changes:idevice:ffi/src/lib.rs",
+      "mode": "100644",
+      "path": "ffi/src/lib.rs",
+      "sha256": "954b294a47bc172531c3e35aab59bc84d8d7e6682dc384fafe576c2095674dd1"
+    },
+    {
+      "basis": "transport-generated-source-inventory.json:final_changes:idevice:ffi/src/tunnel_provider.rs",
+      "mode": "100644",
+      "path": "ffi/src/tunnel_provider.rs",
+      "sha256": "61e090ea9c1e2e75d2fb8f355965e929ed35a0a4f5e9471f9949c7504c3356f0"
+    },
+    {
+      "basis": "transport-generated-source-inventory.json:final_changes:idevice:idevice/Cargo.toml",
+      "mode": "100644",
+      "path": "idevice/Cargo.toml",
+      "sha256": "68496dc1f0c3dd3bbb62b952ecfe472f17d8a0a5cabfed14f68468a801df0b88"
+    },
+    {
+      "basis": "transport-generated-source-inventory.json:final_changes:idevice:idevice/src/tunnel.rs",
+      "mode": "100644",
+      "path": "idevice/src/tunnel.rs",
+      "sha256": "78ecf7ea51660f27bd78892e9d8f493846e8a98be364a63803d804f139461b8d"
+    }
+  ],
+  "version": "1.0.0"
+}

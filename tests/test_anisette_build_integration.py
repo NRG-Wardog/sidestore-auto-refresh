@@ -3,6 +3,7 @@ import copy
 import fnmatch
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -48,12 +49,23 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
             check=True, capture_output=True, text=True)
         return binding
 
-    def test_workflow_patches_resolved_checkout_and_verifies_after_frozen_build(self):
+    def test_maintained_collector_uses_read_only_exact_checkout_gate(self):
+        pins = self.root / "maintained-pins.json"
+        with mock.patch.object(collector.subprocess, "run") as check:
+            binding = collector.collect_isolated_anisette_evidence(
+                self.source, self.manifest, self.output, self.executable, pins)
+        check.assert_called_once_with([sys.executable,
+            str(ROOT / "scripts/maintained_sources.py"), "anisette", "--pins", str(pins),
+            "--anisette-source", str(self.source)], check=True, capture_output=True, text=True)
+        verifier.verify_isolated_anisette_evidence(self.output, binding, self.executable)
+
+    def test_workflow_verifies_maintained_resolved_checkout_and_frozen_build(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
         block = workflow.split("- name: Build embedded SideStore\n", 1)[1].split(
             "- name: Package and verify", 1)[0]
         resolved = block.index('test "$resolved" -eq 1')
-        apply = block.index('patch_anisette_isolated_otp.py "$ANISETTE"\n')
+        apply = block.index('maintained_sources.py anisette --anisette-source "$ANISETTE"')
+        self.assertNotIn('patch_anisette_isolated_otp.py', block)
         before = block.index('anisette-isolated-otp-before-build.json')
         build = block.index('xcodebuild -project work/EmbeddedSideStore/AltStore.xcodeproj')
         after = block.index('anisette-isolated-otp-after-build.json')
@@ -63,7 +75,7 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
         self.assertIn('-disableAutomaticPackageResolution', block[build:after])
         self.assertIn('-onlyUsePackageVersionsFromResolvedFile', block[build:after])
         self.assertNotIn('-resolvePackageDependencies', block[apply:])
-        self.assertEqual(block.count('patch_anisette_isolated_otp.py "$ANISETTE" --verify'), 2)
+        self.assertEqual(block.count('maintained_sources.py anisette --anisette-source "$ANISETTE"'), 2)
         self.assertIn('ANISETTE="$RUNNER_TEMP/embedded-sidestore-derived-data/SourcePackages/checkouts/AnisetteKit"', block)
         package = workflow.split('- name: Package and verify', 1)[1].split(
             '- name: Verify embedded CoreDevice', 1)[0]
@@ -81,9 +93,9 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
                         focused.index('- name: Execute selected sign-in test lane'))
         self.assertEqual(focused.count('--allowlist builder/scripts/required_test_skip_allowlist.json'), 2)
         self.assertEqual(json.loads((ROOT / 'scripts/required_test_skip_allowlist.json').read_text()), [])
-        self.assertIn('ref: ${{ env.EMBEDDED_SIDESTORE_REF }}', focused)
+        self.assertIn('ref: ${{ env.LEGACY_EMBEDDED_SIDESTORE_REF }}', focused)
         self.assertIn('EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/AnisettePreflightSideStore', focused)
-        self.assertIn('rev-parse HEAD)" = "$EMBEDDED_SIDESTORE_REF"', focused)
+        self.assertIn('rev-parse HEAD)" = "$LEGACY_EMBEDDED_SIDESTORE_REF"', focused)
         self.assertEqual(focused.count('artifacts/logs/signin-preflight-anisette-test-timings.json'), 2)
         self.assertIn('tee artifacts/logs/signin-preflight-anisette-tests.log', focused)
         names = [path.name for path in (ROOT / 'tests').glob('test_*.py')]
@@ -91,7 +103,7 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
         self.assertFalse(selected[0] & selected[1])
         self.assertIn('test_anisette_build_integration.py', selected[1])
         release = workflow.split('  source-and-host-build:', 1)[1]
-        check = release.split('- name: Run repository checks before patches', 1)[1].split('- name:', 1)[0]
+        check = release.split('- name: Run repository checks and historical patch regressions', 1)[1].split('- name:', 1)[0]
         self.assertIn('--start-directory builder/tests', check)
         self.assertNotIn('--pattern', check)
 
@@ -123,6 +135,32 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
         provenance = json.loads((output / 'candidate-provenance.json').read_text())
         verifier.verify_isolated_anisette_evidence(output, provenance['isolated_anisette_otp'], members[side_name])
         self.assertEqual(provenance['raw_ipa_sha256'], hashlib.sha256(ipa.read_bytes()).hexdigest())
+
+    def test_maintained_collector_records_actual_anisette_dependency(self):
+        from test_combined_build_evidence import CandidateEvidenceTests
+        from maintained_sources import ENV_KEYS
+        ipa, output, _host, _side, argv, env_keys, env = CandidateEvidenceTests.prepare_collect_fixture(self.root)
+        side_name = 'Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore'
+        with zipfile.ZipFile(ipa) as archive:
+            members = {name: archive.read(name) for name in archive.namelist()}
+        members[side_name] += self.executable
+        with zipfile.ZipFile(ipa, 'w') as archive:
+            for name, data in members.items(): archive.writestr(name, data)
+        pins = json.loads((ROOT / 'migration/maintained-sources.json').read_bytes())
+        for value in pins['owners'].values(): value['commit'] = value['source_checkpoint']
+        pin_path = self.root / 'maintained-pins.json'
+        pin_path.write_text(json.dumps(pins))
+        for owner, key in ENV_KEYS.items(): env[key] = pins['owners'][owner]['commit']
+        env_keys += ('ANISETTE_REF',)
+        argv[argv.index('--side-source'):argv.index('--side-source')] = [
+            '--anisette-source', str(self.source), '--anisette-manifest', str(self.manifest),
+            '--maintained-runtime-pins', str(pin_path)]
+        with mock.patch.object(collector.subprocess, 'run'):
+            CandidateEvidenceTests.invoke_collect(argv, env_keys, env)
+        provenance = json.loads((output / 'candidate-provenance.json').read_text())
+        self.assertEqual(provenance['dependencies']['ANISETTE_REF'], pins['owners']['AnisetteKit']['commit'])
+        with mock.patch.dict(os.environ, {}, clear=True):
+            verifier.verify_maintained_provenance(provenance, pins)
 
     def test_native_checkout_rejection_stops_collection_before_any_copy(self):
         for cause in ('wrong pinned revision', 'Anisette source drift'):

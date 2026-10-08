@@ -16,7 +16,8 @@ spec.loader.exec_module(automation)
 SWIFTC = os.environ.get("SWIFTC") or shutil.which("swiftc")
 PINNED_SOURCE_ENV = os.environ.get("SIDESTORE_TEST_SOURCE") or os.environ.get("EMBEDDED_SIDESTORE_TEST_SOURCE")
 SOURCE = Path(PINNED_SOURCE_ENV) if PINNED_SOURCE_ENV else ROOT / ".audit/upstream/SideStore"
-WORKFLOW = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
+# Frozen patch tests deliberately retain their historical upstream fixture pins.
+WORKFLOW = (ROOT / "migration/historical/livecontainer-build-141776ba.yml").read_text(encoding="utf-8")
 PINNED_SIDESTORE_REF = re.search(r"(?m)^  EMBEDDED_SIDESTORE_REF: ([0-9a-f]{40})$", WORKFLOW)[1]
 FILES = ["AltStore/AppDelegate.swift", "AltStore/SceneDelegate.swift",
          automation.DATABASE_SOURCE,

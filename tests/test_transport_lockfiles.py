@@ -37,8 +37,8 @@ class TransportLockfileTests(unittest.TestCase):
 
     def test_workflow_keeps_locked_cargo_and_records_precise_migration(self):
         workflow = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()
-        self.assertIn('patch_transport_lockfiles.py jktcp idevice', workflow)
-        self.assertIn('transport-lock-migration.json', workflow)
+        self.assertNotIn('patch_transport_lockfiles.py jktcp idevice', workflow)
+        self.assertIn('transport-source-parity.json', workflow)
         for action in ('test', 'check', 'build'):
             self.assertIn('cargo ' + action + ' --locked', workflow)
 

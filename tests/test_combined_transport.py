@@ -457,15 +457,12 @@ for modern in [false, true] {
 
 
 class CombinedWorkflowTests(unittest.TestCase):
-    def test_prepared_auth_scope_and_diff_guards_run_before_native_builds(self):
+    def test_maintained_source_guards_run_before_native_builds(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
-        preparation = workflow.index("- name: Verify prepared authentication source boundaries")
+        preparation = workflow.index("- name: Verify maintained host and authentication sources")
         host = workflow.index("- name: Build unified host before transport compilation")
         self.assertLess(preparation, host)
-        block = workflow[preparation:host]
-        self.assertIn('git -C "$SIDESTORE" diff --check', block)
-        self.assertEqual(block.count('patch_sidesign_privacy.py "$SIDESIGN" "$SIDESTORE"'), 2)
-        self.assertEqual(block.count('patch_combined_service_startup.py --portal "$SIDESIGN"'), 2)
+        self.assertIn('maintained_sources.py verify', workflow[preparation:host])
 
     def test_serial_native_and_full_rendering_both_gate_packaging(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
@@ -474,7 +471,7 @@ class CombinedWorkflowTests(unittest.TestCase):
         layout = workflow.index("- name: Execute full layout regression")
         package = workflow.index("- name: Package and verify combined LiveContainer plus SideStore")
         self.assertLess(host, native)
-        preparation = workflow.index("- name: Verify prepared authentication source boundaries")
+        preparation = workflow.index("- name: Verify maintained host and authentication sources")
         self.assertLess(preparation, layout)
         self.assertLess(layout, host)
         self.assertLess(layout, package)
@@ -526,25 +523,17 @@ class CombinedWorkflowTests(unittest.TestCase):
     def test_canonical_certificate_checks_run_once_with_dependency_ready(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
         dependency = workflow.index('- name: Install native certificate test dependency')
-        suite = workflow.index('- name: Run repository checks before patches')
+        suite = workflow.index('- name: Run repository checks and historical patch regressions')
         self.assertLess(dependency, suite)
         self.assertIn('REQUIRE_LC_CERTIFICATE_NATIVE_TESTS: "1"', workflow)
         self.assertNotIn('-p test_lc_certificate_observation.py', workflow)
         self.assertIn('--timings-output artifacts/logs/repository-test-timings.json', workflow)
 
-    def test_fixed_upstream_authentication_pins_and_no_override(self):
+    def test_maintained_authentication_graph_and_no_override(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
-        for pin in ("ff25922e5c13ccfafd83bda5092910d848ebd409",
-                    "98c3c79982f813878e922ab42f9545314a700f0c",
-                    "a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d",
-                    "35993d7f68950ce00d6bf1fd0fbcaa7bef51dc9c"):
-            self.assertIn(pin, workflow)
         self.assertIn('merge-base --is-ancestor "$SIDESIGN_GSA_FIX" HEAD', workflow)
         self.assertNotRegex(workflow, r"SideSign (?:checkout|cherry-pick)")
-        self.assertIn("python3 builder/scripts/verify_prepared_anisette.py work/EmbeddedSideStore", workflow)
-        self.assertIn("AltStore/Managing Apps/AppManager.swift", workflow)
-        self.assertIn("--verify-headless-ui-adapters", workflow)
-        self.assertIn("--verify-sign-in-operation", workflow)
+        self.assertIn("maintained_sources.py acquire", workflow)
         service = (ROOT / "scripts/templates/v3_sidestore_service.swift").read_text()
         runtime = (ROOT / "scripts/templates/v3_headless_runtime.swift").read_text()
         self.assertNotIn("AuthFlowHandler", service + runtime)
@@ -555,23 +544,21 @@ class CombinedWorkflowTests(unittest.TestCase):
         self.assertIn("SignInHandler, AnisetteServerHandler", runtime)
         self.assertIn("SideSignConfigManager.shared", runtime)
 
-    def test_local_binary_and_combined_patch_injected_before_build(self):
+    def test_local_binary_staged_without_runtime_rewrites_before_build(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
-        checks = workflow[workflow.index("- name: Run repository checks before patches"):]
+        checks = workflow[workflow.index("- name: Run repository checks and historical patch regressions"):]
         checks = checks.split("\n      - name:", 1)[0]
-        self.assertIn("EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore", checks)
+        self.assertIn("EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/LegacySideStore", checks)
         self.assertIn("builder/scripts/run_required_tests.py", checks)
         self.assertIn("builder/scripts/required_test_skip_allowlist.json", checks)
         self.assertIn('REQUIRE_SWIFT_070_CHECKS: "1"', checks)
         self.assertIn("MUX=work/EmbeddedSideStore/Dependencies/minimuxer", workflow)
         copy = workflow.index('cp -R idevice/swift/IDevice.xcframework "$MUX/DeviceGateway/LocalBinary/IDevice.xcframework"')
-        adapter = workflow.index('python3 builder/scripts/patch_combined_transport.py "$MUX"')
-        package = workflow.index('python3 builder/scripts/patch_local_idevice_package.py "$MUX"')
         build = workflow.index("xcodebuild -project work/EmbeddedSideStore")
-        self.assertLess(copy, adapter)
-        self.assertLess(adapter, package)
-        self.assertLess(package, build)
-        self.assertGreaterEqual(workflow.count('patch_combined_transport.py "$MUX"'), 2)
+        self.assertLess(copy, build)
+        self.assertNotIn('patch_combined_transport.py "$MUX"', workflow)
+        self.assertNotIn('patch_local_idevice_package.py "$MUX"', workflow)
+
 
 
 if __name__ == "__main__":

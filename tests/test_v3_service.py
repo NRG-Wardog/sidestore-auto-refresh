@@ -1852,7 +1852,7 @@ import Foundation
                             sign_in.index("self.provisioningLoop(", start_authentication))
 
     def test_workflow_verifies_exact_pinned_signin_and_headless_adapter_patches(self):
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
+        workflow = (ROOT / "migration/historical/livecontainer-build-141776ba.yml").read_text(encoding="utf-8")
         self.assertIn("python3 builder/scripts/verify_prepared_anisette.py work/EmbeddedSideStore", workflow)
         self.assertIn("AltStore/Managing Apps/AppManager.swift", workflow)
         auth_allowlist = workflow[workflow.index("expected_auth=$(printf"):workflow.index('test "$actual_auth" = "$expected_auth"')]
@@ -2859,7 +2859,7 @@ class GsaPreparedTreeTests(unittest.TestCase):
                 self.skipTest("Pinned SideSign source is unavailable")
             side = nested
 
-        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
+        workflow = (ROOT / "migration/historical/livecontainer-build-141776ba.yml").read_text(encoding="utf-8")
         match = re.search(r"(?m)^  SIDESIGN_REF: ([0-9a-f]{40})$", workflow)
         self.assertIsNotNone(match, "workflow must pin the SideSign checkout used by CI")
         revision = subprocess.check_output(["git", "-C", str(side), "rev-parse", "HEAD"],

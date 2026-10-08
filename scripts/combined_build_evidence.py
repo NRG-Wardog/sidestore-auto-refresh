@@ -157,13 +157,18 @@ def require_unchanged_ipa_path(path, expected_signature):
 
 
 def collect_isolated_anisette_evidence(source: Path, manifest: Path,
-                                      output: Path, executable: bytes) -> dict:
+                                      output: Path, executable: bytes,
+                                      maintained_pins: Path | None = None) -> dict:
     from patch_anisette_isolated_otp import expected_evidence
     # The build's exact DerivedData checkout must still be at the pinned commit
     # and contain only the allowed native transformation. Never patch at collect.
-    subprocess.run([sys.executable,
-        str(Path(__file__).with_name("patch_anisette_isolated_otp.py")),
-        str(source), "--verify"], check=True, capture_output=True, text=True)
+    if maintained_pins is None:
+        command = [sys.executable, str(Path(__file__).with_name("patch_anisette_isolated_otp.py")),
+                   str(source), "--verify"]
+    else:
+        command = [sys.executable, str(Path(__file__).with_name("maintained_sources.py")),
+                   "anisette", "--pins", str(maintained_pins), "--anisette-source", str(source)]
+    subprocess.run(command, check=True, capture_output=True, text=True)
     expected = expected_evidence()
     manifest_data = manifest.read_bytes()
     if json.loads(manifest_data) != expected:
@@ -200,6 +205,7 @@ def main():
     parser.add_argument('--side-source', type=Path)
     parser.add_argument('--anisette-source', type=Path)
     parser.add_argument('--anisette-manifest', type=Path)
+    parser.add_argument('--maintained-runtime-pins', type=Path)
     parser.add_argument('paths', nargs='+', type=Path)
     args = parser.parse_args()
     if bool(args.anisette_source) != bool(args.anisette_manifest):
@@ -306,7 +312,7 @@ def main():
     anisette_binding = None
     if args.anisette_source:
         anisette_binding = collect_isolated_anisette_evidence(args.anisette_source,
-            args.anisette_manifest, args.output, side_store_executable_data)
+            args.anisette_manifest, args.output, side_store_executable_data, args.maintained_runtime_pins)
     evidence = dict(identity, schema=1, candidate_product_version=args.product,
         physical_device_execution=False,
         verification_scope='Static package identity, error protocol, UUID and dSYM matching; not runtime validation',
@@ -316,6 +322,10 @@ def main():
         dependencies={key: os.environ[key] for key in ('LIVE_CONTAINER_REF', 'EMBEDDED_SIDESTORE_REF', 'MINIMUXER_REF', 'SIDESIGN_REF', 'SIDESIGN_GSA_FIX', 'IDEVICE_REF', 'JKTCP_REF')})
     if anisette_binding is not None:
         evidence['isolated_anisette_otp'] = anisette_binding
+    if args.maintained_runtime_pins is not None:
+        from maintained_sources import load_pins
+        evidence['maintained_runtime_sources'] = load_pins(args.maintained_runtime_pins)
+        evidence['dependencies']['ANISETTE_REF'] = os.environ['ANISETTE_REF']
     final_size, final_sha256 = hash_ipa_file(args.ipa)
     if final_size != ipa_size or final_sha256 != ipa_sha256:
         raise ValueError("IPA changed during evidence collection")

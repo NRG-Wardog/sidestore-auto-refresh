@@ -23,9 +23,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Sign-in diagnostics keep their original independent upstream fixture.
-  LEGACY_EMBEDDED_SIDESTORE_REF: ff25922e5c13ccfafd83bda5092910d848ebd409
+  LIVE_CONTAINER_REF: 12377cf3b91d51739a33f14a302e5f522b238593
+  EMBEDDED_SIDESTORE_REF: ff25922e5c13ccfafd83bda5092910d848ebd409
+  MINIMUXER_REF: 98c3c79982f813878e922ab42f9545314a700f0c
+  SIDESIGN_REF: a731c0d5a9a6617c7b385ae493e07ffb7f81cd5d
   SIDESIGN_GSA_FIX: 35993d7f68950ce00d6bf1fd0fbcaa7bef51dc9c
+  IDEVICE_REF: ebd7dadfc55d1c4facee3d11ecf5b28e20548b57
+  JKTCP_REF: e674e1eee6d5943e13b1eba0bd24a9dd0b2fa020
 
 jobs:
   select-lane:
@@ -77,7 +81,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: LiveContainer/SideStore
-          ref: ${{ env.LEGACY_EMBEDDED_SIDESTORE_REF }}
+          ref: ${{ env.EMBEDDED_SIDESTORE_REF }}
           path: work/AnisettePreflightSideStore
           persist-credentials: false
           submodules: false
@@ -88,7 +92,7 @@ jobs:
           EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/AnisettePreflightSideStore
         run: |
           set -euo pipefail
-          test "$(git -C "$EMBEDDED_SIDESTORE_TEST_SOURCE" rev-parse HEAD)" = "$LEGACY_EMBEDDED_SIDESTORE_REF"
+          test "$(git -C "$EMBEDDED_SIDESTORE_TEST_SOURCE" rev-parse HEAD)" = "$EMBEDDED_SIDESTORE_REF"
           python3 builder/scripts/run_required_tests.py \
             --start-directory builder/tests --pattern 'test_anisette*.py' \
             --allowlist builder/scripts/required_test_skip_allowlist.json \
@@ -179,39 +183,60 @@ jobs:
           path: builder
           persist-credentials: false
 
-      - name: Require final published maintained source pins
+      - name: Checkout pinned LiveContainer sources
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/logs
-          python3 builder/scripts/maintained_sources.py env >> "$GITHUB_ENV"
-          cp builder/migration/maintained-sources.json artifacts/logs/maintained-source-pins.json
+          # The original organization is unavailable. Fetch the identical pinned
+          # commit from the owner's existing fork; no branch/nightly substitution.
+          git clone --filter=blob:none https://github.com/NRG-Wardog/LiveContainer.git work/LiveContainer
+          git -C work/LiveContainer checkout --detach "$LIVE_CONTAINER_REF"
+          test "$(git -C work/LiveContainer rev-parse HEAD^{tree})" = "06c7c54047734a7e19ec260d04dc073a52a1c872"
+          git -C work/LiveContainer -c submodule.litehook.url=https://github.com/LiveContainerMirror/litehook.git submodule update --init --recursive --depth=1
 
-      - name: Acquire and verify maintained runtime sources
+      - name: Checkout pinned embedded SideStore sources
         shell: bash
         run: |
           set -euo pipefail
-          python3 builder/scripts/maintained_sources.py acquire --workspace "$GITHUB_WORKSPACE" \
-            --output artifacts/logs/pinned-source-identity.json
+          git clone --filter=blob:none https://github.com/SideStore/SideStore.git work/EmbeddedSideStore
+          git -C work/EmbeddedSideStore checkout --detach "$EMBEDDED_SIDESTORE_REF"
+          git -C work/EmbeddedSideStore submodule update --init --recursive --depth=1
+
+      - name: Checkout pinned idevice
+        uses: actions/checkout@v4
+        with:
+          repository: SideStore/idevice
+          ref: ${{ env.IDEVICE_REF }}
+          path: idevice
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Checkout pinned jktcp
+        uses: actions/checkout@v4
+        with:
+          repository: SideStore/jktcp
+          ref: ${{ env.JKTCP_REF }}
+          path: jktcp
+          fetch-depth: 1
+
+      - name: Verify exact source revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 builder/scripts/verify_pinned_sources.py --live work/LiveContainer --side work/EmbeddedSideStore | tee artifacts/logs/pinned-source-identity.json
+          test "$(git -C work/LiveContainer rev-parse HEAD)" = "$LIVE_CONTAINER_REF"
+          test "$(git -C work/EmbeddedSideStore rev-parse HEAD)" = "$EMBEDDED_SIDESTORE_REF"
+          test "$(git -C work/EmbeddedSideStore/Dependencies/minimuxer rev-parse HEAD)" = "$MINIMUXER_REF"
+          test "$(git -C work/EmbeddedSideStore/Dependencies/SideSign rev-parse HEAD)" = "$SIDESIGN_REF"
+          # Verify upstream resolution; never independently checkout or override SideSign.
+          git -C work/EmbeddedSideStore/Dependencies/SideSign fetch --unshallow origin
           git -C work/EmbeddedSideStore/Dependencies/SideSign merge-base --is-ancestor "$SIDESIGN_GSA_FIX" HEAD
           printf 'sidestore=%s\nminimuxer=%s\nsidesign=%s\ngsa_fix_ancestor=%s\n' \
             "$EMBEDDED_SIDESTORE_REF" "$MINIMUXER_REF" "$SIDESIGN_REF" "$SIDESIGN_GSA_FIX" \
             | tee artifacts/logs/upstream-auth-provenance.txt
-
-      - name: Acquire immutable historical regression fixtures
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Patch regression tests operate only on their historical fixtures.
-          # These trees are never compiled into the maintained-source product.
-          git clone --filter=blob:none https://github.com/NRG-Wardog/LiveContainer.git work/LegacyLiveContainer
-          git -C work/LegacyLiveContainer checkout --detach 12377cf3b91d51739a33f14a302e5f522b238593
-          git -C work/LegacyLiveContainer -c submodule.litehook.url=https://github.com/LiveContainerMirror/litehook.git submodule update --init --recursive
-          git clone --filter=blob:none https://github.com/SideStore/SideStore.git work/LegacySideStore
-          git -C work/LegacySideStore checkout --detach "$LEGACY_EMBEDDED_SIDESTORE_REF"
-          git -C work/LegacySideStore submodule update --init --recursive
-          python3 builder/scripts/verify_pinned_sources.py --live work/LegacyLiveContainer --side work/LegacySideStore \
-            > artifacts/logs/historical-fixture-identity.json
+          test "$(git -C idevice rev-parse HEAD)" = "$IDEVICE_REF"
+          test "$(git -C jktcp rev-parse HEAD)" = "$JKTCP_REF"
 
       - name: Select Xcode 26.4
         uses: maxim-lobanov/setup-xcode@v1.6.0
@@ -221,13 +246,13 @@ jobs:
       - name: Install native certificate test dependency
         run: HOMEBREW_NO_AUTO_UPDATE=1 brew install openssl@3
 
-      - name: Run repository checks and historical patch regressions
+      - name: Run repository checks before patches
         env:
-          LIVE_CONTAINER_TEST_SOURCE: ${{ github.workspace }}/work/LegacyLiveContainer
-          SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/LegacySideStore
-          EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/LegacySideStore
-          SIDESIGN_TEST_SOURCE: ${{ github.workspace }}/work/LegacySideStore/Dependencies/SideSign
-          SIDESTORE_070_TEST_SOURCE: ${{ github.workspace }}/work/LegacySideStore
+          LIVE_CONTAINER_TEST_SOURCE: ${{ github.workspace }}/work/LiveContainer
+          SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore
+          EMBEDDED_SIDESTORE_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore
+          SIDESIGN_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore/Dependencies/SideSign
+          SIDESTORE_070_TEST_SOURCE: ${{ github.workspace }}/work/EmbeddedSideStore
           REQUIRE_LC_CERTIFICATE_NATIVE_TESTS: "1"
           REQUIRE_SWIFT_070_CHECKS: "1"
           REQUIRE_PINNED_SOURCE_CLASSIFIER_TEST: "1"
@@ -240,25 +265,58 @@ jobs:
             --timings-output artifacts/logs/repository-test-timings.json \
             --verbosity 2 2>&1 | tee artifacts/logs/repository-tests.log
 
-      - name: Test maintained acquisition and contract gates
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -B -m unittest discover -s builder/migration/tests -v
-          python3 -B -m unittest discover -s builder/migration/contracts/tests -v
-
-      - name: Verify maintained host and authentication sources
+      # Fail on generated Swift/configuration errors BEFORE compiling Rust/iOS.
+      - name: Apply and verify host integration
         shell: bash
         run: |
           set -euo pipefail
           {
-            python3 builder/scripts/maintained_sources.py verify --workspace "$GITHUB_WORKSPACE"
+            python3 builder/scripts/patch_livecontainer_autorefresh.py work/LiveContainer
+            python3 builder/scripts/patch_livecontainer_autorefresh.py work/LiveContainer
+            python3 builder/scripts/patch_embedded_sidestore_startup.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_embedded_sidestore_startup.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_guest_return.py work/LiveContainer
+            python3 builder/scripts/patch_guest_return.py work/LiveContainer
+            python3 builder/scripts/patch_dead10cc_fix.py work/LiveContainer
+            python3 builder/scripts/patch_dead10cc_fix.py work/LiveContainer
+            python3 builder/scripts/patch_multitask_dock.py work/LiveContainer
+            python3 builder/scripts/patch_multitask_dock.py work/LiveContainer
+            python3 builder/scripts/patch_app_layout.py --v3-grid work/LiveContainer
+            python3 builder/scripts/patch_app_layout.py --v3-grid work/LiveContainer
+            python3 builder/scripts/patch_v3_unified_shell.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_v3_unified_shell.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_lc_certificate_observation.py work/LiveContainer
+            python3 builder/scripts/patch_lc_certificate_observation.py work/LiveContainer
+            python3 builder/scripts/patch_v3_service.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_v3_service.py work/LiveContainer work/EmbeddedSideStore
+            python3 builder/scripts/patch_native_error_presenters.py work/LiveContainer
+            python3 builder/scripts/patch_native_error_presenters.py work/LiveContainer
             swiftc -frontend -parse work/LiveContainer/MultitaskSupport/MultitaskAppWindow.swift
             swiftc -frontend -parse work/LiveContainer/MultitaskSupport/MultitaskDockView.swift
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Models/AppLayoutStyle.swift
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/AppList/LCGridAppCell.swift
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/V3UnifiedShell.swift
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/Settings/LCSettingsView.swift
+            python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("background_patch", "builder/scripts/patch_background_automation.py")
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          module.patch_background_operation(Path("work/EmbeddedSideStore"))
+          module.patch_console_log(Path("work/EmbeddedSideStore"))
+          PY
+            python3 builder/scripts/patch_combined_refresh_contract.py work/EmbeddedSideStore
+            python3 builder/scripts/patch_combined_refresh_contract.py work/EmbeddedSideStore
+            # The shared-Keychain contract completes SignInOperation here.
+            # Verify both pinned transforms before combined startup appends
+            # its separate backend overlay to SideStore's AppDelegate.
+            python3 builder/scripts/patch_v3_service.py --verify-headless-ui-adapters \
+              work/EmbeddedSideStore "$EMBEDDED_SIDESTORE_REF"
+            python3 builder/scripts/patch_v3_service.py --verify-sign-in-operation \
+              work/EmbeddedSideStore "$EMBEDDED_SIDESTORE_REF"
+            python3 builder/scripts/patch_combined_service_startup.py work/LiveContainer work/EmbeddedSideStore v3
+            python3 builder/scripts/patch_combined_service_startup.py work/LiveContainer work/EmbeddedSideStore v3
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/App/AppDelegate.swift
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/App/LiveContainerAutoRefreshAlarm.swift
             swiftc -frontend -parse work/LiveContainer/LiveContainerSwiftUI/Views/Settings/LCEmbeddedSideStoreRefreshView.swift
@@ -272,6 +330,44 @@ jobs:
             plutil -extract BGTaskSchedulerPermittedIdentifiers.0 raw work/LiveContainer/LiveContainer/Info.plist
             grep -Fq 'LIVE_REFRESH_LOG_RETENTION_V1' work/EmbeddedSideStore/SideStore/Utils/iostreams/ConsoleLog.swift
           } 2>&1 | tee artifacts/logs/host-preflight.log
+
+      - name: Verify prepared authentication source boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Protocol sources stay pinned. Verify the three bounded Anisette
+          # adapters against exact transforms of pinned Git objects, and keep
+          # every other Anisette file byte-identical with no added files.
+          python3 builder/scripts/verify_prepared_anisette.py work/EmbeddedSideStore
+          expected_auth=$(printf '%s\n' \
+            'AltStore/Managing Apps/AppManager.swift' \
+            'SideStore/Core/Auth/AuthManager.swift' \
+            'SideStore/Core/Auth/DeveloperPortalProxy.swift' | sort)
+          actual_auth=$(git -C work/EmbeddedSideStore diff --name-only -- \
+            'AltStore/Managing Apps/AppManager.swift' SideStore/Core/Auth | sort)
+          test "$actual_auth" = "$expected_auth"
+          SIDESIGN=work/EmbeddedSideStore/Dependencies/SideSign
+          SIDESTORE=work/EmbeddedSideStore
+          python3 builder/scripts/patch_sidesign_privacy.py "$SIDESIGN" "$SIDESTORE"
+          python3 builder/scripts/patch_sidesign_privacy.py "$SIDESIGN" "$SIDESTORE"
+          python3 builder/scripts/patch_sidesign_2fa_state.py "$SIDESIGN"
+          python3 builder/scripts/patch_sidesign_2fa_state.py "$SIDESIGN"
+          python3 builder/scripts/patch_combined_service_startup.py --portal "$SIDESIGN"
+          python3 builder/scripts/patch_combined_service_startup.py --portal "$SIDESIGN"
+          git -C "$SIDESIGN" diff --check
+          expected_sidesign=$(printf '%s\n' \
+            'Sources/DeveloperPortal/AppIDs.swift' \
+            'Sources/DeveloperPortal/Authentication.swift' \
+            'Sources/DeveloperPortal/DeveloperPortalAPI.swift' \
+            'Sources/Logging.swift' | sort)
+          actual_sidesign=$(git -C "$SIDESIGN" diff --name-only | sort)
+          test "$actual_sidesign" = "$expected_sidesign"
+          git -C "$SIDESTORE" diff --check
+          expected_side_logging=$(printf '%s\n' \
+            'SideStore/Core/Logging/OperationLogging.swift' \
+            'SideStore/Core/Logging/SideStoreLogging.swift' | sort)
+          actual_side_logging=$(git -C "$SIDESTORE" diff --name-only -- SideStore/Core/Logging | sort)
+          test "$actual_side_logging" = "$expected_side_logging"
 
       - name: Execute full layout regression
         # Standalone fixtures read the already-prepared Swift sources, not built
@@ -360,7 +456,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: combined-cargo-downloads-${{ runner.os }}-${{ runner.arch }}-${{ env.IDEVICE_REF }}-${{ env.JKTCP_REF }}-${{ hashFiles('builder/migration/maintained-sources.json') }}
+          key: combined-cargo-downloads-${{ runner.os }}-${{ runner.arch }}-${{ env.IDEVICE_REF }}-${{ env.JKTCP_REF }}-${{ hashFiles('builder/scripts/patch_transport_lockfiles.py') }}
 
       - name: Install build tools
         run: |
@@ -369,11 +465,13 @@ jobs:
           if ! command -v bindgen >/dev/null 2>&1 || [ "$(bindgen --version)" != "bindgen 0.72.1" ]; then cargo install --locked --force bindgen-cli --version 0.72.1; fi
           rustup target add aarch64-apple-ios
 
-      - name: Verify maintained CoreDevice transport sources
+      - name: Apply focused CoreDevice transport patches
         run: |
           set -euo pipefail
-          python3 builder/scripts/maintained_sources.py verify --workspace "$GITHUB_WORKSPACE" \
-            > artifacts/logs/transport-source-parity.json
+          python3 builder/scripts/patch_jktcp_reliability.py jktcp
+          python3 builder/scripts/patch_coredevice_idevice.py idevice jktcp
+          python3 builder/scripts/patch_transport_lockfiles.py jktcp idevice \
+            | tee artifacts/logs/transport-lock-migration.json
           ! grep -R -E 'rppairing_connect_quic|create_quic_listener|quinn::' \
             idevice/ffi/src/tunnel_provider.rs idevice/idevice/src/tunnel.rs
           grep -Fq 'packet.extend_from_slice(CDTUNNEL_MAGIC)' idevice/idevice/src/tunnel.rs
@@ -382,11 +480,11 @@ jobs:
           grep -Fq 'run_sync_local(async move { fd.write_entire(data_slice).await })' idevice/ffi/src/afc.rs
           grep -Fq 'let data = unsafe { Box::from_raw(slice) };' idevice/ffi/src/lib.rs
 
-      - name: Test maintained transport sources
+      - name: Test patched transport sources
         run: |
           set -euo pipefail
-          cargo fmt --check --manifest-path jktcp/Cargo.toml
-          cargo fmt --check --manifest-path idevice/ffi/Cargo.toml
+          cargo fmt --manifest-path jktcp/Cargo.toml
+          cargo fmt --manifest-path idevice/ffi/Cargo.toml
           git -C jktcp diff --check
           git -C idevice diff --check
           cargo test --locked --manifest-path jktcp/Cargo.toml --lib -- --skip tests::local_tcp --skip tests::handle_speed
@@ -413,7 +511,7 @@ jobs:
           xcodebuild -create-xcframework -library target/aarch64-apple-ios/release/libidevice_ffi.a \
             -headers swift/include -output swift/IDevice.xcframework
 
-      - name: Stage built idevice framework for maintained minimuxer
+      - name: Patch combined transport and inject local idevice
         shell: bash
         run: |
           set -euo pipefail
@@ -421,6 +519,18 @@ jobs:
           mkdir -p "$MUX/DeviceGateway/LocalBinary"
           rm -rf "$MUX/DeviceGateway/LocalBinary/IDevice.xcframework"
           cp -R idevice/swift/IDevice.xcframework "$MUX/DeviceGateway/LocalBinary/IDevice.xcframework"
+          python3 builder/scripts/patch_combined_transport.py "$MUX"
+          python3 builder/scripts/patch_local_idevice_package.py "$MUX"
+          git -C "$MUX" diff --binary >"$RUNNER_TEMP/combined-transport-first.diff"
+          python3 -c 'import hashlib, pathlib, sys; root = pathlib.Path(sys.argv[1]); print([(str(p.relative_to(root)), hashlib.sha256(p.read_bytes()).hexdigest()) for p in sorted(root.rglob("*.swift"))])' "$MUX" >"$RUNNER_TEMP/combined-swift-first.txt"
+          python3 builder/scripts/patch_combined_transport.py "$MUX"
+          python3 builder/scripts/patch_local_idevice_package.py "$MUX"
+          git -C "$MUX" diff --binary >"$RUNNER_TEMP/combined-transport-second.diff"
+          python3 -c 'import hashlib, pathlib, sys; root = pathlib.Path(sys.argv[1]); print([(str(p.relative_to(root)), hashlib.sha256(p.read_bytes()).hexdigest()) for p in sorted(root.rglob("*.swift"))])' "$MUX" >"$RUNNER_TEMP/combined-swift-second.txt"
+          cmp "$RUNNER_TEMP/combined-transport-first.diff" "$RUNNER_TEMP/combined-transport-second.diff"
+          cmp "$RUNNER_TEMP/combined-swift-first.txt" "$RUNNER_TEMP/combined-swift-second.txt"
+          python3 builder/scripts/patch_combined_service_startup.py --transport "$MUX"
+          python3 builder/scripts/patch_combined_service_startup.py --transport "$MUX"
           git -C "$MUX" diff --check
           while IFS= read -r -d '' source; do swiftc -frontend -parse "$source"; done < <(find "$MUX" -type f -name '*.swift' -not -path '*/.build/*' -print0)
           swift package --package-path "$MUX/DeviceGateway" dump-package >"$RUNNER_TEMP/combined-gateway-package.json"
@@ -450,23 +560,17 @@ jobs:
           test "$resolved" -eq 1
           ANISETTE="$RUNNER_TEMP/embedded-sidestore-derived-data/SourcePackages/checkouts/AnisetteKit"
           mkdir -p artifacts/dependencies
-          python3 builder/scripts/maintained_sources.py anisette --anisette-source "$ANISETTE" \
-            --output artifacts/dependencies/anisette-isolated-otp-before-build.json
-          python3 builder/scripts/maintained_sources.py verify --workspace "$GITHUB_WORKSPACE" \
-            --anisette-source "$ANISETTE" --after-build \
-            --output artifacts/logs/maintained-sources-before-native-build.json
-          # Compile the exact remote-resolved source; do not resolve again.
+          python3 builder/scripts/patch_anisette_isolated_otp.py "$ANISETTE"
+          python3 builder/scripts/patch_anisette_isolated_otp.py "$ANISETTE" --verify \
+            --evidence-output artifacts/dependencies/anisette-isolated-otp-before-build.json
+          # Do not let another package resolution replace the verified native patch.
           xcodebuild -project work/EmbeddedSideStore/AltStore.xcodeproj -onlyUsePackageVersionsFromResolvedFile -disableAutomaticPackageResolution \
             -scheme SideStore -sdk iphoneos -configuration Release \
             -derivedDataPath "$RUNNER_TEMP/embedded-sidestore-derived-data" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee artifacts/logs/embedded-sidestore-build.log
-          python3 builder/scripts/maintained_sources.py anisette --anisette-source "$ANISETTE" \
-            --output artifacts/dependencies/anisette-isolated-otp-after-build.json
+          python3 builder/scripts/patch_anisette_isolated_otp.py "$ANISETTE" --verify \
+            --evidence-output artifacts/dependencies/anisette-isolated-otp-after-build.json
           cmp artifacts/dependencies/anisette-isolated-otp-before-build.json artifacts/dependencies/anisette-isolated-otp-after-build.json
-          python3 builder/scripts/maintained_sources.py verify --workspace "$GITHUB_WORKSPACE" \
-            --anisette-source "$ANISETTE" --after-build \
-            --output artifacts/logs/maintained-sources-after-native-build.json
-          cmp artifacts/logs/maintained-sources-before-native-build.json artifacts/logs/maintained-sources-after-native-build.json
           printf 'Native build finish: '; date -u
 
       - name: Package and verify combined LiveContainer plus SideStore
@@ -488,7 +592,6 @@ jobs:
             --ipa artifacts/LiveContainer-SideStore-v3.0.3-rc.ipa --output artifacts/debug-evidence --source work/LiveContainer --side-source work/EmbeddedSideStore \
             --anisette-source "$RUNNER_TEMP/embedded-sidestore-derived-data/SourcePackages/checkouts/AnisetteKit" \
             --anisette-manifest artifacts/dependencies/anisette-isolated-otp-after-build.json \
-            --maintained-runtime-pins builder/migration/maintained-sources.json \
             "$RUNNER_TEMP/livecontainer-derived-data/Build/Products/Release-iphoneos" \
             "$RUNNER_TEMP/embedded-sidestore-derived-data/Build/Products/Release-iphoneos"
           python3 builder/scripts/verify_candidate_ipa.py \
@@ -496,7 +599,6 @@ jobs:
             --provenance artifacts/debug-evidence/candidate-provenance.json \
             --product v3.0.3-rc \
             --side-source work/EmbeddedSideStore \
-            --maintained-runtime-pins builder/migration/maintained-sources.json \
             --builder-commit "$GITHUB_SHA" \
             --build-run-url "https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --output artifacts/candidate-package-verification.json
@@ -553,7 +655,6 @@ jobs:
             artifacts/candidate-package-verification.json
             artifacts/logs/upstream-auth-provenance.txt
             artifacts/logs/pinned-source-identity.json
-            artifacts/logs/maintained-source*.json
             artifacts/dependencies
           if-no-files-found: error
           compression-level: 0
@@ -587,7 +688,6 @@ jobs:
             artifacts/candidate-package-verification.json
             artifacts/logs/upstream-auth-provenance.txt
             artifacts/logs/pinned-source-identity.json
-            artifacts/logs/maintained-source*.json
             artifacts/dependencies
           if-no-files-found: error
           compression-level: 0
@@ -610,7 +710,6 @@ jobs:
             artifacts/candidate-package-verification.json
             artifacts/logs/upstream-auth-provenance.txt
             artifacts/logs/pinned-source-identity.json
-            artifacts/logs/maintained-source*.json
             artifacts/dependencies
           if-no-files-found: error
           compression-level: 0
@@ -680,7 +779,6 @@ jobs:
             --provenance artifacts/downloaded-debug-evidence/candidate-provenance.json \
             --product v3.0.3-rc \
             --side-source work/EmbeddedSideStore \
-            --maintained-runtime-pins builder/migration/maintained-sources.json \
             --builder-commit "$GITHUB_SHA" \
             --build-run-url "https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --output artifacts/downloaded-candidate-verification.json

@@ -1,0 +1,52 @@
+{
+  "active_pins_workflows_remotes_changed": false,
+  "artifact_kind": "build-only candidate; not active CI wiring",
+  "current_owner_heads_at_evidence_capture": {
+    "AnisetteKit": "0d0b777d4d4308387fb5361bd70ce667ecbd7fe4",
+    "LiveContainer": "6f5452fa51a4aea2103fc86d3b855bd110ec6f25",
+    "SideSign": "c196183e22f1f551cf35c07f176e5aa0bad04751",
+    "SideStore": "a856dd9fea532a1f8962e7bd92319e16f126dceb",
+    "idevice": "60731ad3903e716ddd002511b8f873bc412f4842",
+    "jktcp": "a1be799d60cd07061b8548e1c9e069a057c2257a",
+    "minimuxer": "712310158c3f8e795a6a2bb2bd32c42464eea6d2"
+  },
+  "head_scope": "Informational observations only; this gate does not authenticate checkout commits or full-tree/source-parity manifests.",
+  "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+  "isolated_tests": {
+    "failed": 0,
+    "fixture_source": "synthetic; no fork mutations",
+    "passed": 58
+  },
+  "maintained_source_validation": {
+    "contract_set": "runtime-source-parity-141776ba.v1",
+    "contracts": 10,
+    "edges": 22,
+    "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+    "owners": {
+      "AnisetteKit": 19,
+      "LiveContainer": 16,
+      "SideSign": 9,
+      "SideStore": 22,
+      "idevice": 7,
+      "jktcp": 5,
+      "minimuxer": 10
+    },
+    "registry_sha256": "8e7eba95b8bc69037ffed8931478cefd46984b458f767c2a067547e3cd60b467",
+    "scope": "reviewed source bytes and build-only compatibility metadata",
+    "source_files": 88,
+    "status": "pass"
+  },
+  "not_run": [
+    "macOS execution",
+    "Xcode/iOS build",
+    "runtime ABI/XPC integration",
+    "generated header and artifact linkage",
+    "real-device Apple authentication"
+  ],
+  "old_validation_scope": "Six immutable OLD prepared owners; AnisetteKit reviewed parity-report runtime bytes from its maintained fork. This is not an independently regenerated seventh OLD tree.",
+  "platform": "Linux",
+  "python_version": "3.12.14",
+  "registry_sha256": "8e7eba95b8bc69037ffed8931478cefd46984b458f767c2a067547e3cd60b467",
+  "selected_sources_unchanged_across_validation": true,
+  "validator_sha256": "0d5a5aa61dd37f566359312611826ae5dbbae00176c50b1e4c5e2143530bf520"
+}

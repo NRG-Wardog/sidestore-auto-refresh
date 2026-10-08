@@ -1,0 +1,141 @@
+{
+  "contract_set": "runtime-source-parity-141776ba.v1",
+  "format_version": 1,
+  "owner": "minimuxer",
+  "provenance": {
+    "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+    "source_basis": "Immutable OLD prepared source; changed files checked against baseline generation inventories; unchanged contract surfaces checked against exact upstream Git blobs.",
+    "upstream_commit": "98c3c79982f813878e922ab42f9545314a700f0c",
+    "upstream_repository": "SideStore/minimuxer"
+  },
+  "provides": [
+    {
+      "contract": "diagnostics",
+      "source_paths": [
+        "Common/PairingFile.swift",
+        "DeviceGateway/BaseDeviceGateway.swift",
+        "DeviceGateway/DeviceGatewayAPI.swift",
+        "DeviceGateway/idevice/IdeviceGateway.swift",
+        "Sources/MinimuxerApi.swift",
+        "Sources/MinimuxerImpl.swift",
+        "Sources/RefreshTransportPolicy.swift",
+        "Sources/Services/HeartbeatService.swift",
+        "Sources/Services/NetworkObserverService.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "transport-capabilities",
+      "source_paths": [
+        "Common/PairingFile.swift",
+        "DeviceGateway/BaseDeviceGateway.swift",
+        "DeviceGateway/DeviceGatewayAPI.swift",
+        "DeviceGateway/idevice/IdeviceGateway.swift",
+        "Sources/MinimuxerApi.swift",
+        "Sources/MinimuxerImpl.swift",
+        "Sources/RefreshTransportPolicy.swift",
+        "Sources/Services/HeartbeatService.swift",
+        "Sources/Services/NetworkObserverService.swift"
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "requires": [
+    {
+      "contract": "diagnostics",
+      "provider": "idevice",
+      "source_paths": [
+        "Common/PairingFile.swift",
+        "DeviceGateway/BaseDeviceGateway.swift",
+        "DeviceGateway/DeviceGatewayAPI.swift",
+        "DeviceGateway/idevice/IdeviceGateway.swift",
+        "Sources/MinimuxerApi.swift",
+        "Sources/MinimuxerImpl.swift",
+        "Sources/RefreshTransportPolicy.swift",
+        "Sources/Services/HeartbeatService.swift",
+        "Sources/Services/NetworkObserverService.swift"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "contract": "idevice-ffi",
+      "provider": "idevice",
+      "source_paths": [
+        "Common/PairingFile.swift",
+        "DeviceGateway/BaseDeviceGateway.swift",
+        "DeviceGateway/DeviceGatewayAPI.swift",
+        "DeviceGateway/Package.swift",
+        "DeviceGateway/idevice/IdeviceGateway.swift",
+        "Sources/MinimuxerApi.swift",
+        "Sources/MinimuxerImpl.swift",
+        "Sources/RefreshTransportPolicy.swift",
+        "Sources/Services/HeartbeatService.swift",
+        "Sources/Services/NetworkObserverService.swift"
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "sources": [
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:minimuxer:Common/PairingFile.swift",
+      "mode": "100644",
+      "path": "Common/PairingFile.swift",
+      "sha256": "0f82090b2f0306264dd1a01bd6eb8dc79a4080015ec188227ab27d6c83de9bea"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:minimuxer:DeviceGateway/BaseDeviceGateway.swift",
+      "mode": "100644",
+      "path": "DeviceGateway/BaseDeviceGateway.swift",
+      "sha256": "31f763a008ee1715437c238b4126da7669e0ecfdc757fca6f1250234021420eb"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:minimuxer:DeviceGateway/DeviceGatewayAPI.swift",
+      "mode": "100644",
+      "path": "DeviceGateway/DeviceGatewayAPI.swift",
+      "sha256": "4c4f6dffb21f4cd2de1372a49e939ad04761ed445a85906e3add7b69abc19645"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:minimuxer:DeviceGateway/Package.swift",
+      "mode": "100644",
+      "path": "DeviceGateway/Package.swift",
+      "sha256": "ecb4a9cbd63f68b1b4dd321c300c28148e996c91b149857d558f2d2a02b0e0ed"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:minimuxer:DeviceGateway/idevice/IdeviceGateway.swift",
+      "mode": "100644",
+      "path": "DeviceGateway/idevice/IdeviceGateway.swift",
+      "sha256": "416ff9a0ec1e32382c2e55eaebba7956188d1e90a01a43f5cdb53a3348de4ead"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:minimuxer:Sources/MinimuxerApi.swift",
+      "mode": "100644",
+      "path": "Sources/MinimuxerApi.swift",
+      "sha256": "be369cf30192086e0926fa40666ef1e99d22aeaf5c35dee8f8e327365f45fc9c"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:minimuxer:Sources/MinimuxerImpl.swift",
+      "mode": "100644",
+      "path": "Sources/MinimuxerImpl.swift",
+      "sha256": "530f091ef950a611eaf9eebe86e86aef04ee9df98152fe20610c3534ebce678e"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:minimuxer:Sources/RefreshTransportPolicy.swift",
+      "mode": "100644",
+      "path": "Sources/RefreshTransportPolicy.swift",
+      "sha256": "1ddc3d112d8a218db2c8017947595782fbe625dcdf7fef1fc6d4495f8b8b15d0"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:minimuxer:Sources/Services/HeartbeatService.swift",
+      "mode": "100644",
+      "path": "Sources/Services/HeartbeatService.swift",
+      "sha256": "cffed2b09e8f09e428f511c51204b8b1f2335e0669efa314a9fade8f3c06c48f"
+    },
+    {
+      "basis": "combined-generated-source-inventory.json:final_changes:minimuxer:Sources/Services/NetworkObserverService.swift",
+      "mode": "100644",
+      "path": "Sources/Services/NetworkObserverService.swift",
+      "sha256": "0a2af148e244000577fb2a252cf4ae311a631e19f77ef9d4fbe83b34dce21f9e"
+    }
+  ],
+  "version": "1.0.0"
+}

@@ -122,7 +122,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(
             {path.name for path in SCRIPTS.glob("*.py")},
                 REQUIRED_SCRIPTS | LIVE_CONTAINER_SCRIPTS | {
-                    "patch_sidesign_privacy.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "verify_prepared_anisette.py", "patch_transport_lockfiles.py"},
+                    "patch_sidesign_privacy.py", "patch_anisette_isolated_otp.py", "verify_candidate_ipa.py", "run_required_tests.py", "verify_pinned_sources.py", "maintained_sources.py", "verify_prepared_anisette.py", "patch_transport_lockfiles.py"},
         )
 
     def test_patch_scripts_parse_and_contain_guard_markers(self):
@@ -156,11 +156,8 @@ class RepositoryTests(unittest.TestCase):
         self.assertNotRegex(workflow, r"builder/scripts/patch_v\d+")
         self.assertNotIn("build-v29-coredevice-self-refresh.yml", workflow)
         live_workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text(encoding="utf-8")
-        self.assertIn("builder/scripts/" + LIVE_CONTAINER_STARTUP_SCRIPT, live_workflow)
-        self.assertIn("builder/scripts/" + COMBINED_REFRESH_SCRIPT, live_workflow)
-        self.assertIn("builder/scripts/patch_app_layout.py", live_workflow)
-        self.assertIn("builder/scripts/" + V3_UNIFIED_SHELL_SCRIPT, live_workflow)
-        self.assertIn("builder/scripts/patch_sidesign_2fa_state.py", live_workflow)
+        self.assertIn("builder/scripts/maintained_sources.py", live_workflow)
+        self.assertIn("builder/scripts/" + COMBINED_REFRESH_SCRIPT + " --verify-ipa", live_workflow)
         standalone_workflow = (ROOT / ".github/workflows/build-current.yml").read_text(encoding="utf-8")
         self.assertIn("builder/scripts/patch_app_layout.py", standalone_workflow)
         contract = (SCRIPTS / COMBINED_REFRESH_SCRIPT).read_text(encoding="utf-8")
