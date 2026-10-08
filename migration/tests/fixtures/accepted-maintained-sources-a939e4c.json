@@ -1,29 +1,29 @@
 {
   "schema_version": 1,
   "integration_baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
-  "contract_registry_sha256": "97c9d0b81e9b59c8271ae1155393b2fcb534dc97ea367095d3adfcde8a3783ad",
+  "contract_registry_sha256": "5cd17d665d9d13fde7bdc58abe3c44050b4b1618df89efbdf9815a39736d76be",
   "owners": {
     "LiveContainer": {
       "repository": "https://github.com/NRG-Wardog/LiveContainer.git",
-      "commit": "2a1d297ed94840b134a6ea5111065d228a51cf2b",
+      "commit": "47db163356dc419d2b6a894fdc5dbeb9d011dc69",
       "source_checkpoint": "47db163356dc419d2b6a894fdc5dbeb9d011dc69",
       "path": "work/LiveContainer"
     },
     "SideStore": {
       "repository": "https://github.com/NRG-Wardog/SideStore.git",
-      "commit": "1ebc69390f5b570f95cd823ac8df97c3a2f082f9",
+      "commit": "dd4f0ca36e8ef1d858548f583c65842a8fc0ced3",
       "source_checkpoint": "9d8c71ed69684f805325ef440983e74d97113a71",
       "path": "work/EmbeddedSideStore"
     },
     "AnisetteKit": {
       "repository": "https://github.com/NRG-Wardog/AnisetteKit.git",
-      "commit": "e530b84687ebea2e7d1115119e1a6d18372de14b",
+      "commit": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
       "source_checkpoint": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
       "path": "work/AnisetteKit"
     },
     "SideSign": {
       "repository": "https://github.com/NRG-Wardog/SideSign.git",
-      "commit": "3bd4afa0addbf95a8666ac91d8bfcf99f5182eea",
+      "commit": "06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c",
       "source_checkpoint": "ed30d3989ea0f80bcb91466d6d5ca043f4366df0",
       "path": "work/EmbeddedSideStore/Dependencies/SideSign"
     },
@@ -48,44 +48,27 @@
   },
   "native_validation": {
     "readiness_scope": "eligible_for_gated_full_build",
-    "source_basis": "maintained-adi-consumption-v1",
-    "diagnostic_delta_sha256": "4d55fdeed931af02f9d44865c0c712695b471d8a101aa1643c3770484f158106",
-    "receipt_sha256": "4d52362e77c1f1dbaba20c7c43431117913113f7a8c580981fa0b2e40d6cae94",
-    "focused_receipt_sha256": "2a1793ebea48380229591240bad2122c72dad2ef8711d8000a1b92ec7a2f37b8",
-    "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37752053172",
-    "run_attempt": 1,
-    "approved_inputs_sha256": "39577aacdbea7705053a835cc018d86f21ba8ce4ff96c5ff7160334211872fa4",
-    "host_commit": "6ad6df119ebca63a58db39966e694e79b57ec923",
-    "host_tree": "24fe1cd376122e291d39063f2a6249c16a70ac5b",
-    "artifact_id": 11539126136,
-    "artifact_sha256": "5d058d7fd61f9d8d968fea02778efed9ba4a79e6e09cb17a418081ec394fb171",
+    "run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37702648560",
+    "host_commit": "5fcff4214fc459b30b37843aaa2cf075232f52f2",
+    "host_tree": "cb1ce172bdec083b779862160b9877a873cc2056",
+    "artifact_id": 11519176173,
+    "artifact_sha256": "d8dd30c49648a5e2706edc185e9c1ce15c584075ce41e85cbde80ce4934cc75b",
     "tested_owners": {
       "SideSign": {
-        "commit": "3bd4afa0addbf95a8666ac91d8bfcf99f5182eea",
-        "tree": "27329eab36999128b046eabad7a175faf71b03b0"
+        "commit": "5ce52d12f1846e1a08fad30ed27c4cbadd176529",
+        "tree": "352e92723c34a47bcfef5e0a984ba9828bade33b"
       },
       "SideStore": {
-        "commit": "3f0f1e40ac37e1b02f8c375743a46b3ce9ff3a8d",
-        "tree": "51cca412801e5236ac76c66440b0d8cea9e163f5"
+        "commit": "f6e9e0ed6c3f4d02e99a0dcff0660faa0e5372b8",
+        "tree": "2f33f7caed7f6ef13522421446ade4d79d8f901e"
       }
     },
     "tested_children": {
       "SideSign": {},
       "SideStore": {
-        "Dependencies/SideSign": "3bd4afa0addbf95a8666ac91d8bfcf99f5182eea",
+        "Dependencies/SideSign": "5ce52d12f1846e1a08fad30ed27c4cbadd176529",
         "Dependencies/minimuxer": "efbcab05d7d636aa37c6bf6c7f364d122c5610f6"
       }
-    }
-  },
-  "source_basis": "maintained-adi-consumption-v1",
-  "diagnostic_dependencies": {
-    "SideSign": {
-      "basis_sha256": "7ade04c3aa00a5606c4ab79a47ab1d0012585ee3022afd881885e5a90f0e8647",
-      "resolver_receipt_sha256": "6934ed9dad546f437ea8aa44bb7845d047d440e8e8f4712c0b86ed5936618e54"
-    },
-    "SideStore": {
-      "basis_sha256": "97d9ce45cde2a824885c4ee7cd3076e8961c1cb4c12f7de1fac7d89bfed37e2a",
-      "resolver_receipt_sha256": "56a1d5a7152db2146d00487db3a65b288e0124e53a1dde95fba56291bff428dd"
     }
   }
 }

@@ -1,0 +1,73 @@
+{
+  "accepted": {
+    "commit": "06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c",
+    "tree": "a773b5461f43b4a28d0d34f7c1acd8728a9f8c6f"
+  },
+  "anisette": {
+    "accepted_commit": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+    "diagnostic_commit": "e530b84687ebea2e7d1115119e1a6d18372de14b",
+    "repository": "https://github.com/NRG-Wardog/AnisetteKit.git"
+  },
+  "candidate": {
+    "commit": "3bd4afa0addbf95a8666ac91d8bfcf99f5182eea",
+    "tree": "27329eab36999128b046eabad7a175faf71b03b0"
+  },
+  "changes": {
+    ".ci/DIAGNOSTIC_DEPENDENCIES.md": {
+      "after": {
+        "blob": "2c9bc8e30d46134c9a6660b4e4235bf928d8c4ce",
+        "mode": "100644",
+        "sha256": "92bf6f1ca4e5e547a9d74028ab8082e3a65aa6ff8015986fa55e702dcaa05801"
+      },
+      "before": null
+    },
+    ".ci/production-dependencies.py": {
+      "after": {
+        "blob": "750ab6a6c2e6ec859f2de01ecbc5cdd764c1569b",
+        "mode": "100644",
+        "sha256": "168e142ddf3823d6285e9c80ade4d8c4f56eadbece1d3f351d31b9665f371aed"
+      },
+      "before": {
+        "blob": "55893e45dd62f19a85c414943198c1940d153a21",
+        "mode": "100644",
+        "sha256": "2fdd3a4d9f48744fb4da2ffb0ac20b8f1b5b40cefeba0b6c82714ef5aee2537e"
+      }
+    },
+    ".ci/test_diagnostic_dependencies.py": {
+      "after": {
+        "blob": "f8e056009c36478c02cd9835e971c35bbf0cd675",
+        "mode": "100644",
+        "sha256": "c1d4716761785afa4268c3fe1c4ad5c56c0be6e18da02ddabdf35b564d71df67"
+      },
+      "before": null
+    },
+    "Package.swift": {
+      "after": {
+        "blob": "7e8dfb93186bb7718f17b03ef736b38f9163764f",
+        "mode": "100644",
+        "sha256": "bb455ddecee6dd87515ad39430fb70884354ec92f5be4888e17f2fc71bbdc852"
+      },
+      "before": {
+        "blob": "1bca43fe2fe72105c2e678212aca3130a497f4ab",
+        "mode": "100644",
+        "sha256": "20bf532e1df402d5c798f9e598a493e0c6a4954dc2bd0e5f37ad703003f516e9"
+      }
+    },
+    "Package.resolved": {
+      "before": {
+        "mode": "100644",
+        "blob": "28daca991b3c78707077a98f7de63b548ed8a989",
+        "sha256": "5ccebb5f4fadcde4377db365de53e3c29806f5ed66ca0e039e7f70dd368343bb"
+      },
+      "after": {
+        "mode": "100644",
+        "blob": "a224fadf8db9782424a8e8427a87f27e28954102",
+        "sha256": "6dfda241326cf0af7b9b77978d3890b28d5205545fb65b6807d6706822a848fb"
+      }
+    }
+  },
+  "owner": "SideSign",
+  "purpose": "diagnostic_dependency_source_transition",
+  "schema_version": 1,
+  "source_registry_sha256": "97c9d0b81e9b59c8271ae1155393b2fcb534dc97ea367095d3adfcde8a3783ad"
+}

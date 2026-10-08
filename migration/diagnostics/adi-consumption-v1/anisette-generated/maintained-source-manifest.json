@@ -1,0 +1,79 @@
+{
+  "accepted_anisettekit_revision": "62ce85c8798d8eab8e29752aba7dc9f1f6a5b80d",
+  "accepted_manifest_sha256": "0b15a254d34932a22539a2a874547a891de4b9a7a85965e13dd3caf0f8380cef",
+  "anisettekit_revision": "e530b84687ebea2e7d1115119e1a6d18372de14b",
+  "anisettekit_tree": "ca63e018a2ef7e3f0ba759860dfa5f5e6c854065",
+  "compiled_literal": "Checked OTP staging failed",
+  "contract_set": "runtime-adi-consumption-a939e4c.v1",
+  "dormant_native_symbol": "get_anisette_headers_isolated_uc",
+  "dormant_swift_api": "IsolatedAnisetteOTPProvider.getExistingHeaders",
+  "files": [
+    {
+      "basis": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Native/Loader/adi_consumption_debug.h",
+      "mode": "100644",
+      "path": "Native/Loader/adi_consumption_debug.h",
+      "sha256": "2d30b0fd6e7edf99a29f8b2f36ddbbee07fab639e27887ac235d563d7f0d740c"
+    },
+    {
+      "basis": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Native/Loader/elf_loader_emulator.cpp",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_emulator.cpp",
+      "sha256": "814a8f250c8a85fe62ac2d91be2a57c17452eb19f6635953df6c73db7f611a34"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Native/Loader/elf_loader_emulator.h",
+      "mode": "100644",
+      "path": "Native/Loader/elf_loader_emulator.h",
+      "sha256": "aacfd99cf5049d2208bc9d6af471411ca3acd277828ebcd1f27914f552f2f62c"
+    },
+    {
+      "basis": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Native/anisette_core_uc.cpp",
+      "mode": "100644",
+      "path": "Native/anisette_core_uc.cpp",
+      "sha256": "37f2bff12173c53ae520cddb705888042bb2190e29d4ac377105550d7716f08e"
+    },
+    {
+      "basis": "anisette-source-parity.json:files:Native/include/anisette_core.h",
+      "mode": "100644",
+      "path": "Native/include/anisette_core.h",
+      "sha256": "ca1ea4005f77dcca17c68965ba2dd1f65596e282a57adb4277f1d90d8bd11f02"
+    },
+    {
+      "basis": "accepted-to-diagnostic-delta.json:runtime_delta:AnisetteKit:Sources/AnisetteDataProvider.swift",
+      "mode": "100644",
+      "path": "Sources/AnisetteDataProvider.swift",
+      "sha256": "0dfc00fff5f0455ae73ae3df2e9294c6170f4679ebab075d7d720c52b1fc97e8"
+    }
+  ],
+  "format_version": 1,
+  "marker": "V3_CHECKED_ANISETTE_STAGING_V1",
+  "native_symbol": "get_anisette_headers_uc",
+  "required_compiled_evidence": {
+    "artifact_binding_requirement": "Check all required literals in the actual packaged SideStore executable and bind its SHA-256 to this exact maintained source manifest and six retained source hashes. No retention result is asserted by this data draft.",
+    "encoding": "UTF-8",
+    "literals": [
+      {
+        "purpose": "retained active checked-staging provenance marker",
+        "value": "V3_CHECKED_ANISETTE_STAGING_V1"
+      },
+      {
+        "purpose": "active checked-staging implementation literal",
+        "value": "Checked OTP staging failed"
+      },
+      {
+        "purpose": "enabled native C++ observer serializer; distinguishes compiled native collection from SDK decoder strings",
+        "value": "|%d,%d,%d,%d,%d,%u,%u,%d"
+      },
+      {
+        "purpose": "native producer metadata key; insufficient alone because SDK also contains this key",
+        "value": "v3_native_consumption"
+      }
+    ]
+  },
+  "scope": "Immutable maintained source identities and compiled evidence requirements only. Actual binary verification and native-readiness outcomes belong in outer package provenance and native receipts.",
+  "source_basis": "maintained-adi-consumption-v1",
+  "source_delta_sha256": "4d55fdeed931af02f9d44865c0c712695b471d8a101aa1643c3770484f158106",
+  "source_inventory_sha256": "4a982557122b6db282eaf7e8c32cb1bf4a4d23fa021f001ae181c2e0a643c027",
+  "swift_api": "UnicornAnisetteDataProvider.getAnisetteHeaders",
+  "upstream_anisettekit_revision": "1f5a7e36553cc865b873f222b87a6486c0bcc7bf"
+}

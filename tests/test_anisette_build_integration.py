@@ -51,6 +51,7 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
 
     def test_maintained_collector_uses_read_only_exact_checkout_gate(self):
         pins = self.root / "maintained-pins.json"
+        pins.write_bytes((ROOT / "migration/tests/fixtures/accepted-maintained-sources-a939e4c.json").read_bytes())
         with mock.patch.object(collector.subprocess, "run") as check:
             binding = collector.collect_isolated_anisette_evidence(
                 self.source, self.manifest, self.output, self.executable, pins)
@@ -147,7 +148,7 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
         members[side_name] += self.executable
         with zipfile.ZipFile(ipa, 'w') as archive:
             for name, data in members.items(): archive.writestr(name, data)
-        pins = json.loads((ROOT / 'migration/maintained-sources.json').read_bytes())
+        pins = json.loads((ROOT / 'migration/tests/fixtures/accepted-maintained-sources-a939e4c.json').read_bytes())
         for value in pins['owners'].values(): value['commit'] = value['source_checkpoint']
         pin_path = self.root / 'maintained-pins.json'
         pin_path.write_text(json.dumps(pins))

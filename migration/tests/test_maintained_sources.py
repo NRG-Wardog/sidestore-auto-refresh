@@ -21,7 +21,7 @@ class PinPolicyTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / 'pins.json'
-        self.pins = json.loads((ROOT / 'migration/maintained-sources.json').read_bytes())
+        self.pins = json.loads((ROOT / 'migration/tests/fixtures/accepted-maintained-sources-a939e4c.json').read_bytes())
 
     def write(self):
         self.path.write_text(json.dumps(self.pins))
@@ -397,7 +397,7 @@ class SwiftPMMirrorOriginTests(unittest.TestCase):
 
 class MaintainedArtifactProvenanceTests(unittest.TestCase):
     def setUp(self):
-        self.pins = json.loads((ROOT / 'migration/maintained-sources.json').read_bytes())
+        self.pins = json.loads((ROOT / 'migration/tests/fixtures/accepted-maintained-sources-a939e4c.json').read_bytes())
         for value in self.pins['owners'].values():
             value['commit'] = value['source_checkpoint']
         self.evidence = {'maintained_runtime_sources':copy.deepcopy(self.pins), 'dependencies':{
@@ -435,7 +435,7 @@ class MaintainedArtifactProvenanceTests(unittest.TestCase):
 
 class NativeReadinessLinkageTests(unittest.TestCase):
     def setUp(self):
-        self.pins = json.loads((ROOT / 'migration/maintained-sources.json').read_bytes())
+        self.pins = json.loads((ROOT / 'migration/tests/fixtures/accepted-maintained-sources-a939e4c.json').read_bytes())
         # Later readiness metadata commits are not mislabeled as native-tested.
         self.pins['owners']['SideSign']['commit'] = 'a' * 40
         self.pins['owners']['SideStore']['commit'] = 'b' * 40

@@ -28,7 +28,7 @@ class MaintainedPackageEvidenceTests(unittest.TestCase):
         self.host = self.root / 'work/LiveContainer'
         self.side = self.root / 'work/EmbeddedSideStore'
         self.output = self.root / 'evidence'
-        self.pins = maintained_sources.load_pins(ROOT / 'migration/maintained-sources.json')
+        self.pins = maintained_sources.load_pins(ROOT / 'migration/tests/fixtures/accepted-maintained-sources-a939e4c.json')
         self.host_names = (set(collector.HOST_SOURCE_PATHS + collector.V3_HOST_SOURCE_PATHS)
                            - maintained.LEGACY_HOST_MANIFESTS)
         self.side_names = set(collector.EMBEDDED_SOURCE_PATHS) - maintained.LEGACY_EMBEDDED_MANIFESTS

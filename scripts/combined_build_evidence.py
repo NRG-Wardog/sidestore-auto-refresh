@@ -192,7 +192,7 @@ def require_unchanged_ipa_path(path, expected_signature):
 def collect_isolated_anisette_evidence(source: Path, manifest: Path,
                                       output: Path, executable: bytes,
                                       maintained_pins: Path | None = None) -> dict:
-    from patch_anisette_isolated_otp import expected_evidence
+    from maintained_sources import load_pins, expected_anisette_evidence, anisette_source_hashes
     # The build's exact DerivedData checkout must still be at the pinned commit
     # and contain only the allowed native transformation. Never patch at collect.
     if maintained_pins is None:
@@ -202,11 +202,13 @@ def collect_isolated_anisette_evidence(source: Path, manifest: Path,
         command = [sys.executable, str(Path(__file__).with_name("maintained_sources.py")),
                    "anisette", "--pins", str(maintained_pins), "--anisette-source", str(source)]
     subprocess.run(command, check=True, capture_output=True, text=True)
-    expected = expected_evidence()
+    pins = load_pins(maintained_pins) if maintained_pins is not None else None
+    expected = expected_anisette_evidence(pins)
+    source_hashes = anisette_source_hashes(expected)
     manifest_data = manifest.read_bytes()
     if json.loads(manifest_data) != expected:
         raise ValueError("post-build Anisette OTP manifest does not match the pinned transformation")
-    verify_isolated_anisette_binary(executable)
+    verify_isolated_anisette_binary(executable, expected)
     destination = output / ANISETTE_EVIDENCE_DIRECTORY
     destination.mkdir(parents=True, exist_ok=True)
     hashes = {}
@@ -214,7 +216,7 @@ def collect_isolated_anisette_evidence(source: Path, manifest: Path,
         name = entry["path"]
         data = (source / name).read_bytes()
         digest = hashlib.sha256(data).hexdigest()
-        if digest != entry["prepared_sha256"]:
+        if digest != source_hashes[name]:
             raise ValueError("Anisette OTP source changed after verification: " + name)
         target = destination / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -224,7 +226,7 @@ def collect_isolated_anisette_evidence(source: Path, manifest: Path,
     binding = {"manifest_sha256": hashlib.sha256(manifest_data).hexdigest(),
                "source_sha256": hashes,
                "executable_sha256": hashlib.sha256(executable).hexdigest()}
-    verify_isolated_anisette_evidence(output, binding, executable)
+    verify_isolated_anisette_evidence(output, binding, executable, pins)
     return binding
 
 

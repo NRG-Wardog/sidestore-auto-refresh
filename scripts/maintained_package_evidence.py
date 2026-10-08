@@ -3,7 +3,8 @@ import hashlib
 import json
 from pathlib import Path
 
-from maintained_sources import REGISTRY, ROOT, git, require, unique_pairs
+from maintained_sources import (ROOT, DIAGNOSTIC_BASIS, DIAGNOSTIC_METADATA,
+                                contract_basis, diagnostic_receipt_references, git, require, unique_pairs)
 
 CONTRACT_DIRECTORY = "maintained-source-contracts"
 EVIDENCE_KIND = "maintained-source-contracts-v1"
@@ -29,15 +30,22 @@ def read_regular(root, name):
 
 def contract_files(pins, root=None):
     """Derive the complete metadata inventory from the independently approved hash."""
-    root = Path(root) if root is not None else ROOT / "migration/contracts"
-    require(pins["contract_registry_sha256"] == REGISTRY, "unapproved package contract registry")
+    try:
+        selected_root, expected_registry = contract_basis(pins, integration_root=ROOT)
+    except ValueError as error:
+        raise ValueError("unapproved package contract registry") from error
+    root = Path(root) if root is not None else selected_root
     registry_name = "compatibility-registry.json"
     registry_data = read_regular(root, registry_name)
-    require(hashlib.sha256(registry_data).hexdigest() == REGISTRY, "package contract registry hash mismatch")
+    require(hashlib.sha256(registry_data).hexdigest() == expected_registry, "package contract registry hash mismatch")
     registry = json.loads(registry_data, object_pairs_hook=unique_pairs)
     references = {registry["evidence"]["path"]: registry["evidence"]["sha256"]}
     references.update({item["manifest_path"]: item["manifest_sha256"]
                        for item in registry["owners"].values()})
+    if pins.get("source_basis") == DIAGNOSTIC_BASIS:
+        references.update(DIAGNOSTIC_METADATA)
+        if "diagnostic_dependencies" in pins:
+            references.update(diagnostic_receipt_references(pins))
     files = {registry_name: registry_data}
     for name, expected in references.items():
         data = read_regular(root, name)
