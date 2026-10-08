@@ -652,7 +652,7 @@ def verify_isolated_anisette_evidence(evidence_root: Path, binding: dict,
 
 
 def verify_generated_source_evidence(evidence_root: Path, hashes: dict,
-                                    product: str = "v3") -> None:
+                                    product: str = "v3", maintained: dict | None = None) -> None:
     required = set(REQUIRED_GENERATED_HOST_SOURCES)
     if product in ("v2",):
         required.difference_update(set(NATIVE_ERROR_SOURCE_PATHS) - {
@@ -672,6 +672,10 @@ def verify_generated_source_evidence(evidence_root: Path, hashes: dict,
             'LiveContainerSwiftUI/Utilities/LCUtils.m',
         })
     required.update("embedded/" + name for name in REQUIRED_GENERATED_EMBEDDED_SOURCES)
+    if maintained is not None:
+        from maintained_package_evidence import LEGACY_HOST_MANIFESTS, LEGACY_EMBEDDED_MANIFESTS
+        required.difference_update(LEGACY_HOST_MANIFESTS)
+        required.difference_update("embedded/" + name for name in LEGACY_EMBEDDED_MANIFESTS)
     if set(hashes) != required:
         missing = sorted(required - set(hashes))
         extra = sorted(set(hashes) - required)
@@ -706,6 +710,24 @@ def verify_generated_source_evidence(evidence_root: Path, hashes: dict,
                     if not prefix else {name for name in hashes if name.startswith(prefix)})
         if actual != expected:
             raise ValueError("generated source evidence files do not match the provenance inventory")
+
+
+def verify_source_evidence(evidence_root: Path, provenance: dict, product: str,
+                           maintained: dict | None = None) -> None:
+    hashes = provenance.get("generated_source_sha256")
+    if (not isinstance(hashes, dict) or not hashes or
+            any(not isinstance(name, str) or not isinstance(value, str) or
+                not re.fullmatch(r"[0-9a-f]{64}", value) for name, value in hashes.items())):
+        raise ValueError("generated source evidence hashes are missing or invalid")
+    verify_generated_source_evidence(evidence_root, hashes, product, maintained=maintained)
+    if maintained is not None:
+        from maintained_package_evidence import EVIDENCE_KIND, verify_contract_evidence
+        if provenance.get('source_evidence_kind') != EVIDENCE_KIND:
+            raise ValueError('maintained source evidence kind is missing or invalid')
+        verify_contract_evidence(evidence_root,
+            provenance.get('maintained_source_contract_sha256'), maintained)
+    elif 'source_evidence_kind' in provenance or 'maintained_source_contract_sha256' in provenance:
+        raise ValueError('maintained contract evidence requires its independently approved pin map')
 
 
 def preserved_dsym_evidence(evidence_root: Path, packaged_uuids: set[str]) -> tuple[dict[str, str], dict[str, str]]:
@@ -1265,13 +1287,7 @@ def verify(ipa: Path, provenance_path: Path, product: str,
         BASE + "/Frameworks/SideStoreSupport.framework/SideStoreSupport")
     if not support_uuid or dsym_uuids.get("SideStoreSupport") != support_uuid:
         raise ValueError("matching SideStoreSupport dSYM UUID is missing")
-    generated_hashes = provenance.get("generated_source_sha256")
-    if (not isinstance(generated_hashes, dict) or not generated_hashes or
-            any(not isinstance(name, str) or not isinstance(value, str) or
-                not re.fullmatch(r"[0-9a-f]{64}", value)
-                for name, value in generated_hashes.items())):
-        raise ValueError("generated source evidence hashes are missing or invalid")
-    verify_generated_source_evidence(provenance_path.parent, generated_hashes, product)
+    verify_source_evidence(provenance_path.parent, provenance, product, maintained)
     if product != "v2":
         verify_isolated_anisette_evidence(provenance_path.parent,
             provenance.get("isolated_anisette_otp"), side_store_executable_data)

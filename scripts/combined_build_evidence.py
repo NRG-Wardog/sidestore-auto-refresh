@@ -19,7 +19,10 @@ from verify_candidate_ipa import (MACHO_MAGICS, is_java_class_file, macho_cpu_su
                                  preflight_zip_directory, validate_ipa_size,
                                  ANISETTE_EVIDENCE_DIRECTORY, ANISETTE_EVIDENCE_MANIFEST,
                                  verify_isolated_anisette_binary,
-                                 verify_isolated_anisette_evidence)
+                                 verify_isolated_anisette_evidence, verify_source_evidence)
+from maintained_package_evidence import (CONTRACT_DIRECTORY, EVIDENCE_KIND,
+    LEGACY_HOST_MANIFESTS, LEGACY_EMBEDDED_MANIFESTS, collect_contract_evidence,
+    read_pinned_sources)
 
 
 HOST_SOURCE_PATHS = [
@@ -69,6 +72,36 @@ EMBEDDED_SOURCE_PATHS = [
     'SideStore/Core/Operations/PipelineOperations/PerformBackupRestoreOperation.swift',
     'SideBackup/SideBackupApp.swift',
 ]
+
+
+def collect_source_evidence(source, side_source, output, product, maintained=None):
+    """Use the same source inventory for the early preflight and final sidecar."""
+    host_names = set(HOST_SOURCE_PATHS + (V3_HOST_SOURCE_PATHS
+        if product == 'v3' or product.startswith('v3.') else []))
+    side_names = set(EMBEDDED_SOURCE_PATHS)
+    if maintained is not None:
+        host_names -= LEGACY_HOST_MANIFESTS
+        side_names -= LEGACY_EMBEDDED_MANIFESTS
+        files = read_pinned_sources(source, side_source, host_names, side_names, maintained)
+    else:
+        files = {name: (source / name).read_bytes() for name in host_names} if source else {}
+        if side_source:
+            files.update({'embedded/' + name: (side_source / name).read_bytes() for name in side_names})
+    generated = {}
+    for name, data in files.items():
+        target = (output / 'embedded-generated' / name[len('embedded/'):]
+                  if name.startswith('embedded/') else output / 'generated' / name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        generated[name] = hashlib.sha256(data).hexdigest()
+    source_evidence = {'generated_source_sha256': generated}
+    contracts = None
+    if maintained is not None:
+        contracts = collect_contract_evidence(output, maintained)
+        source_evidence.update(source_evidence_kind=EVIDENCE_KIND,
+                               maintained_source_contract_sha256=contracts)
+    verify_source_evidence(output, source_evidence, product, maintained)
+    return generated, contracts
 
 
 def macho_uuid(data):
@@ -197,7 +230,7 @@ def collect_isolated_anisette_evidence(source: Path, manifest: Path,
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('mode', choices=['identity', 'collect'])
+    parser.add_argument('mode', choices=['identity', 'collect', 'preflight'])
     parser.add_argument('--product', required=True)
     parser.add_argument('--ipa', type=Path)
     parser.add_argument('--output', type=Path)
@@ -206,12 +239,30 @@ def main():
     parser.add_argument('--anisette-source', type=Path)
     parser.add_argument('--anisette-manifest', type=Path)
     parser.add_argument('--maintained-runtime-pins', type=Path)
-    parser.add_argument('paths', nargs='+', type=Path)
+    parser.add_argument('paths', nargs='*', type=Path)
     args = parser.parse_args()
     if bool(args.anisette_source) != bool(args.anisette_manifest):
         parser.error('--anisette-source and --anisette-manifest are required together')
     if args.product not in ('v2', 'v3') and not re.fullmatch(r'v3\.\d+(\.\d+)*(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?', args.product):
         parser.error("argument --product: invalid choice (choose from 'v2', 'v3', or a 'v3.x[.y][-candidate]' release line)")
+    maintained = None
+    if args.maintained_runtime_pins is not None:
+        from maintained_sources import load_pins
+        maintained = load_pins(args.maintained_runtime_pins)
+        if args.source is None or args.side_source is None:
+            parser.error('maintained source evidence requires --source and --side-source')
+    if args.mode == 'preflight':
+        if maintained is None:
+            parser.error('preflight requires --maintained-runtime-pins')
+        with tempfile.TemporaryDirectory(prefix='maintained-package-inputs-') as directory:
+            generated, contracts = collect_source_evidence(args.source, args.side_source,
+                Path(directory), args.product, maintained)
+        print(json.dumps({'status': 'pass', 'source_evidence_kind': EVIDENCE_KIND,
+            'source_files': len(generated), 'contract_files': len(contracts),
+            'maintained_runtime_sources': maintained}, sort_keys=True))
+        return
+    if not args.paths:
+        parser.error('identity and collect require build product paths')
     commit = os.environ['GITHUB_SHA']
     if not re.fullmatch('[0-9a-f]{40}', commit): raise ValueError('immutable builder SHA required')
     run = 'https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['GITHUB_RUN_ID']
@@ -230,7 +281,8 @@ def main():
         preflight_zip_directory(snapshot_path, ipa_size)
         args.output.mkdir(parents=True, exist_ok=True)
         # Ensure repeated collection cannot retain stale files from an earlier run.
-        for name in ('host', 'embedded', 'generated', 'embedded-generated', ANISETTE_EVIDENCE_DIRECTORY):
+        for name in ('host', 'embedded', 'generated', 'embedded-generated',
+                     ANISETTE_EVIDENCE_DIRECTORY, CONTRACT_DIRECTORY):
             target = args.output / name
             if target.exists(): shutil.rmtree(target)
         provenance_path = args.output / 'candidate-provenance.json'
@@ -289,26 +341,8 @@ def main():
                     symbol_hashes[evidence_path] = hashlib.sha256(data).hexdigest()
     support = binaries['Payload/LiveContainer.app/Frameworks/SideStoreSupport.framework/SideStoreSupport']
     assert support in symbols.values(), 'matching SideStoreSupport dSYM required'
-    generated = {}
-    if args.source:
-        paths = HOST_SOURCE_PATHS + (V3_HOST_SOURCE_PATHS if args.product == 'v3' or args.product.startswith('v3.') else [])
-        for name in paths:
-            data = (args.source / name).read_bytes()
-            target = args.output / 'generated' / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
-            generated[name] = hashlib.sha256(data).hexdigest()
-    if args.side_source:
-        for name in EMBEDDED_SOURCE_PATHS:
-            data = (args.side_source / name).read_bytes()
-            target = args.output / 'embedded-generated' / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
-            generated['embedded/' + name] = hashlib.sha256(data).hexdigest()
-    expected_generated = set(HOST_SOURCE_PATHS + (V3_HOST_SOURCE_PATHS if args.product == 'v3' or args.product.startswith('v3.') else []))
-    expected_generated.update('embedded/' + name for name in EMBEDDED_SOURCE_PATHS)
-    if set(generated) != expected_generated:
-        raise ValueError('collected generated-source inventory is incomplete')
+    generated, contracts = collect_source_evidence(args.source, args.side_source,
+        args.output, args.product, maintained)
     anisette_binding = None
     if args.anisette_source:
         anisette_binding = collect_isolated_anisette_evidence(args.anisette_source,
@@ -322,9 +356,10 @@ def main():
         dependencies={key: os.environ[key] for key in ('LIVE_CONTAINER_REF', 'EMBEDDED_SIDESTORE_REF', 'MINIMUXER_REF', 'SIDESIGN_REF', 'SIDESIGN_GSA_FIX', 'IDEVICE_REF', 'JKTCP_REF')})
     if anisette_binding is not None:
         evidence['isolated_anisette_otp'] = anisette_binding
-    if args.maintained_runtime_pins is not None:
-        from maintained_sources import load_pins
-        evidence['maintained_runtime_sources'] = load_pins(args.maintained_runtime_pins)
+    if maintained is not None:
+        evidence['maintained_runtime_sources'] = maintained
+        evidence['source_evidence_kind'] = EVIDENCE_KIND
+        evidence['maintained_source_contract_sha256'] = contracts
         evidence['dependencies']['ANISETTE_REF'] = os.environ['ANISETTE_REF']
     final_size, final_sha256 = hash_ipa_file(args.ipa)
     if final_size != ipa_size or final_sha256 != ipa_sha256:

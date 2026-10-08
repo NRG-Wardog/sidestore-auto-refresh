@@ -137,8 +137,9 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
         self.assertEqual(provenance['raw_ipa_sha256'], hashlib.sha256(ipa.read_bytes()).hexdigest())
 
     def test_maintained_collector_records_actual_anisette_dependency(self):
-        from test_combined_build_evidence import CandidateEvidenceTests
+        from test_combined_build_evidence import CandidateEvidenceTests, evidence as fixture_collector
         from maintained_sources import ENV_KEYS
+        from maintained_package_evidence import LEGACY_HOST_MANIFESTS, LEGACY_EMBEDDED_MANIFESTS
         ipa, output, _host, _side, argv, env_keys, env = CandidateEvidenceTests.prepare_collect_fixture(self.root)
         side_name = 'Payload/LiveContainer.app/Frameworks/SideStoreApp.framework/SideStore'
         with zipfile.ZipFile(ipa) as archive:
@@ -155,10 +156,20 @@ class AnisetteBuildIntegrationTests(unittest.TestCase):
         argv[argv.index('--side-source'):argv.index('--side-source')] = [
             '--anisette-source', str(self.source), '--anisette-manifest', str(self.manifest),
             '--maintained-runtime-pins', str(pin_path)]
-        with mock.patch.object(collector.subprocess, 'run'):
+        # This test isolates the Anisette binding. The maintained packaging
+        # suite exercises real Git owners and rejects changed/missing inputs.
+        sources = {name: (_host / name).read_bytes()
+                   for name in set(collector.HOST_SOURCE_PATHS + collector.V3_HOST_SOURCE_PATHS)
+                   - LEGACY_HOST_MANIFESTS}
+        sources.update({'embedded/' + name: (_side / name).read_bytes()
+                        for name in set(collector.EMBEDDED_SOURCE_PATHS) - LEGACY_EMBEDDED_MANIFESTS})
+        with mock.patch.object(collector.subprocess, 'run'), \
+                mock.patch.object(fixture_collector, 'read_pinned_sources', return_value=sources) as source_gate:
             CandidateEvidenceTests.invoke_collect(argv, env_keys, env)
+        source_gate.assert_called_once()
         provenance = json.loads((output / 'candidate-provenance.json').read_text())
         self.assertEqual(provenance['dependencies']['ANISETTE_REF'], pins['owners']['AnisetteKit']['commit'])
+        verifier.verify_source_evidence(output, provenance, 'v3.0.3-rc', pins)
         with mock.patch.dict(os.environ, {}, clear=True):
             verifier.verify_maintained_provenance(provenance, pins)
 

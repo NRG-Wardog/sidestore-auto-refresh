@@ -200,6 +200,15 @@ jobs:
             "$EMBEDDED_SIDESTORE_REF" "$MINIMUXER_REF" "$SIDESIGN_REF" "$SIDESIGN_GSA_FIX" \
             | tee artifacts/logs/upstream-auth-provenance.txt
 
+      - name: Preflight maintained packaging evidence before native work
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 builder/scripts/combined_build_evidence.py preflight --product v3.0.3-rc \
+            --source work/LiveContainer --side-source work/EmbeddedSideStore \
+            --maintained-runtime-pins builder/migration/maintained-sources.json \
+            | tee artifacts/logs/maintained-package-inputs.json
+
       - name: Acquire immutable historical regression fixtures
         shell: bash
         run: |
