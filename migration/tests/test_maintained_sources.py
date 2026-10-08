@@ -321,6 +321,14 @@ class MaintainedArtifactProvenanceTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_builder_acquires_baseline_history_before_required_tests(self):
+        workflow = (ROOT / '.github/workflows/livecontainer-build.yml').read_text()
+        release = workflow.split('  source-and-host-build:', 1)[1]
+        checkout = release.split('      - uses: actions/checkout@v4', 1)[1].split('      - name:', 1)[0]
+        self.assertIn('path: builder', checkout)
+        self.assertIn('fetch-depth: 0', checkout)
+        self.assertLess(release.index('fetch-depth: 0'), release.index('run_required_tests.py'))
+
     def test_archived_workflow_is_exact_baseline(self):
         old = subprocess.check_output(['git', '-C', str(ROOT), 'show', gate.BASELINE + ':.github/workflows/livecontainer-build.yml'])
         self.assertEqual((ROOT / 'migration/historical/livecontainer-build-141776ba.yml').read_bytes(), old)

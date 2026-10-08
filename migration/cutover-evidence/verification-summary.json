@@ -4,31 +4,49 @@
   "runtime_sources_changed": false,
   "tests": {
     "repository_suite": {
-      "passed": true,
-      "run": 1196,
+      "passed": 1015,
       "skipped": 181,
-      "reason": "Swift/Xcode/native platform prerequisites unavailable on Linux; historical source fixtures supplied"
+      "reason": "Swift/Xcode/native platform prerequisites unavailable on Linux; historical source fixtures supplied",
+      "status": "passed",
+      "total": 1196,
+      "failed": 0
     },
     "latest_anisette_artifact_suite": {
-      "passed": true,
-      "run": 14,
+      "passed": 14,
       "skipped": 0,
-      "includes_one_new_collector_provenance_case_after_repository_suite": true
+      "includes_one_new_collector_provenance_case_after_repository_suite": true,
+      "status": "passed",
+      "total": 14,
+      "failed": 0
     },
     "maintained_gate": {
-      "passed": true,
-      "run": 36,
+      "passed": 36,
       "optimized_run": 36,
-      "skipped": 0
+      "skipped": 0,
+      "status": "passed",
+      "total": 36,
+      "failed": 0
     },
     "reviewed_contract_gate": {
-      "passed": true,
-      "run": 58,
-      "skipped": 0
+      "passed": 58,
+      "skipped": 0,
+      "status": "passed",
+      "total": 58,
+      "failed": 0
     },
     "workflow_yaml_and_bash_syntax": true,
     "git_diff_check": true,
-    "pending_production_pins_rejected_before_acquisition": true
+    "pending_production_pins_rejected_before_acquisition": true,
+    "builder_history_fix": {
+      "status": "passed",
+      "total": 37,
+      "passed": 37,
+      "skipped": 0,
+      "failed": 0,
+      "optimized_total": 37,
+      "shallow_clone_regression_reproduced": true,
+      "full_history_repair_verified": true
+    }
   },
   "pending": [
     "Final published native-resolved SideSign commit",

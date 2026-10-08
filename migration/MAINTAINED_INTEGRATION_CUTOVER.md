@@ -101,6 +101,13 @@ validation mode. Imports that calculate historical expected evidence remain.
 
 ## Local verification
 
+Local repository results are total 1,196 / passed 1,015 / skipped 181 / failed 0.
+The final focused Anisette artifact suite is 14 / 14 / 0 / 0. The builder-history
+correction passes all 37 gate tests normally and under Python `-O`; the exact
+historical fixture assertion is retained. A depth-one clone reproduced the
+missing-baseline failure, and fetching full history in that same clone passed.
+The release builder checkout now explicitly sets `fetch-depth: 0`.
+
 Local evidence is under `migration/cutover-evidence/`. This Linux executor has
 no Swift compiler, Xcode, Apple SDK or simulator. Local unit results must not be
 reported as the strict macOS required suite or a combined IPA build.

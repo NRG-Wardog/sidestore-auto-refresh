@@ -1,0 +1,9 @@
+{
+  "baseline": "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee",
+  "tested_commit": "024dd1fc6a069604a75e2deb9fd44efdff855313",
+  "initial_clone_depth": 1,
+  "initial_result": "35 passed; exact historical fixture assertion fails because baseline object is absent",
+  "workflow_fix": "release builder checkout fetch-depth: 0",
+  "same_checkout_after_full_history_fetch": "all 36 passed",
+  "historical_fixture_assertion": "unchanged"
+}

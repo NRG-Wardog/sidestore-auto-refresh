@@ -178,6 +178,8 @@ jobs:
         with:
           path: builder
           persist-credentials: false
+          # Historical fixture equality and OLD provenance require baseline objects.
+          fetch-depth: 0
 
       - name: Require final published maintained source pins
         shell: bash
