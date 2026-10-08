@@ -62,8 +62,9 @@ unrelated SwiftPM pin remains equal to the source checkpoint. The existing Rust
 sibling dependency and minimuxer LocalBinary package wiring are retained.
 
 Only declared untracked build outputs are admitted after compilation: idevice
-and jktcp target directories, the three generated idevice headers, and the two
-staged XCFramework locations. No tracked-source exception is made. The staged
+and jktcp target directories, the three generated idevice headers, the two staged XCFramework locations, and the frozen SideBackup Makefile outputs
+`build/sidebackup.xcarchive/` and `build/SideBackup.ipa`. Other files under
+SideStore `build/` and `.swiftpm/` remain rejected. No tracked-source exception is made. The staged
 arm64 iOS static archive must hash-identically match the Rust output; its header
 must match all three generated/copied headers, and its module map must match the
 committed Swift include module map. Before/after native evidence must be equal.

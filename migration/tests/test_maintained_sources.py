@@ -160,6 +160,28 @@ class GitInputsTests(unittest.TestCase):
         (self.root / 'injected.swift').write_text('unapproved')
         with self.assertRaisesRegex(ValueError, 'untracked input'): self.verify(owner='idevice', after_build=True)
 
+    def test_declared_sidebackup_outputs_are_allowed_only_after_build(self):
+        archive = self.root / 'build/sidebackup.xcarchive/Payload/SideBackup.app/SideBackup'
+        archive.parent.mkdir(parents=True)
+        archive.write_bytes(b'synthetic build product')
+        (self.root / 'build/SideBackup.ipa').write_bytes(b'synthetic packaged product')
+        with self.assertRaisesRegex(ValueError, 'untracked input'): self.verify(owner='SideStore')
+        self.verify(owner='SideStore', after_build=True)
+
+    def test_sidebackup_does_not_allow_other_build_or_swiftpm_sources(self):
+        for name in ('build/injected.swift', '.swiftpm/injected.swift', 'build/SideBackup.ipa.swift'):
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('unapproved compiler input')
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'untracked input'):
+                self.verify(owner='SideStore', after_build=True)
+            path.unlink()
+
+    def test_sidebackup_allowance_never_exempts_tracked_source(self):
+        (self.root / 'source.swift').write_text('unapproved tracked source')
+        with self.assertRaisesRegex(ValueError, 'compiler input differs'):
+            self.verify(owner='SideStore', after_build=True)
+
     def test_directory_substitution_fails(self):
         outside = self.root.parent / 'outside'
         outside.mkdir()

@@ -38,7 +38,9 @@ ALLOWED_TRANSITIONS = {
 # Only untracked build products are tolerated after compilation. Tracked files
 # are compared to immutable blobs even if an index flag hides their modifications.
 BUILD_OUTPUTS = {"idevice": ("target/", "ffi/idevice.h", "cpp/include/idevice.h", "swift/include/idevice.h", "swift/IDevice.xcframework/"),
-                 "jktcp": ("target/",), "minimuxer": ("DeviceGateway/LocalBinary/IDevice.xcframework/",)}
+                 "jktcp": ("target/",), "minimuxer": ("DeviceGateway/LocalBinary/IDevice.xcframework/",),
+                 # Frozen Makefile clean/copy/ipa-sidebackup targets write only these.
+                 "SideStore": ("build/sidebackup.xcarchive/", "build/SideBackup.ipa")}
 
 
 def require(value, message):

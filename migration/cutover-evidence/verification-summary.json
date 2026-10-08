@@ -46,6 +46,14 @@
       "optimized_total": 37,
       "shallow_clone_regression_reproduced": true,
       "full_history_repair_verified": true
+    },
+    "sidebackup_output_allowance": {
+      "status": "passed",
+      "total": 40,
+      "passed": 40,
+      "skipped": 0,
+      "failed": 0,
+      "optimized_total": 40
     }
   },
   "pending": [
