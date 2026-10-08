@@ -1,0 +1,30 @@
+{
+  "owner": "SideSign",
+  "status": "exact_dependency_transition_pass",
+  "checkpoint": "ed30d3989ea0f80bcb91466d6d5ca043f4366df0",
+  "commit": "06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c",
+  "unchanged_checkpoint_blobs": 63,
+  "dependency_files": [
+    "Package.resolved",
+    "Package.swift"
+  ],
+  "test_files": [],
+  "unrelated_swiftpm_pins_preserved": 5,
+  "child_gitlinks": {},
+  "native_resolver_status": "passed_remote_macos",
+  "resolver_tested_commit": "0d451a6eca73358be8dfed6a89c4e227752d0083",
+  "resolver_tested_tree": "702559ec7158d567de4b0cb383dc9d9f4bc20bf7",
+  "resolver_run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37700683714",
+  "ios_compilation": "PASS_ON_NATIVE_TESTED_GRAPH",
+  "native_tested_commit": "5ce52d12f1846e1a08fad30ed27c4cbadd176529",
+  "native_tested_tree": "352e92723c34a47bcfef5e0a984ba9828bade33b",
+  "native_tested_children": {},
+  "native_run_url": "https://github.com/NRG-Wardog/LiveContainer/actions/runs/37702648560",
+  "native_validation_host_commit": "5fcff4214fc459b30b37843aaa2cf075232f52f2",
+  "native_artifact_sha256": "d8dd30c49648a5e2706edc185e9c1ce15c584075ce41e85cbde80ce4934cc75b",
+  "native_receipt_sha256": "ffb84968b58f4be5eb74ae5e08c167c86db2b9d47982db78887c2442247ace54",
+  "readiness_scope": "eligible_for_gated_full_build",
+  "final_exact_ref_ipa_build_required": true,
+  "production_ready": true,
+  "runtime_behavior_changes": []
+}

@@ -1,0 +1,59 @@
+{
+  "scope": "Exact final published graph acquisition and prebuild proof; final IPA build remains required",
+  "base_commit": "19ed90d99a1d1ea99a0e1538247767105fadd5dc",
+  "final_pins": {
+    "SideSign": "06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c",
+    "SideStore": "dd4f0ca36e8ef1d858548f583c65842a8fc0ced3"
+  },
+  "verified_final_trees": {
+    "SideSign": "a773b5461f43b4a28d0d34f7c1acd8728a9f8c6f",
+    "SideStore": "b0c1d4f03785bbbf0d09b7329c0842a7a4d89d86"
+  },
+  "pin_map_changed_fields": [
+    "owners.SideSign.commit",
+    "owners.SideStore.commit"
+  ],
+  "all_other_pin_map_values_unchanged": true,
+  "acquisition": "Fresh full-history HTTPS checkouts using scripts/maintained_sources.py acquire, recursive actual gitlinks, no local source overlays",
+  "all_seven_full_input_gates": "PASS",
+  "both_published_native_readiness_proofs": "PASS",
+  "same_run_and_tested_child_linkage": "PASS",
+  "GSA_fix_ancestor": "35993d7f68950ce00d6bf1fd0fbcaa7bef51dc9c",
+  "contracts": {
+    "owners": 7,
+    "source_files": 88,
+    "contracts": 10,
+    "edges": 22,
+    "status": "PASS"
+  },
+  "tests": {
+    "gate_normal": {
+      "total": 57,
+      "passed": 57,
+      "skipped": 0,
+      "failed": 0
+    },
+    "gate_optimized": {
+      "total": 57,
+      "passed": 57,
+      "skipped": 0,
+      "failed": 0
+    },
+    "contracts": {
+      "total": 58,
+      "passed": 58,
+      "skipped": 0,
+      "failed": 0
+    },
+    "artifact_repository_and_lane": {
+      "total": 49,
+      "passed": 49,
+      "skipped": 0,
+      "failed": 0
+    }
+  },
+  "exact_final_xcode_resolution_or_ipa_build": false,
+  "physical_device_execution": false,
+  "runtime_sources_changed": false,
+  "active_ref_updated": false
+}

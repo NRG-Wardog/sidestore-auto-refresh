@@ -106,13 +106,37 @@
         "skipped": 0,
         "failed": 0
       }
+    },
+    "final_published_graph": {
+      "gate_normal": {
+        "total": 57,
+        "passed": 57,
+        "skipped": 0,
+        "failed": 0
+      },
+      "gate_optimized": {
+        "total": 57,
+        "passed": 57,
+        "skipped": 0,
+        "failed": 0
+      },
+      "contracts": {
+        "total": 58,
+        "passed": 58,
+        "skipped": 0,
+        "failed": 0
+      },
+      "artifact_repository_and_lane": {
+        "total": 49,
+        "passed": 49,
+        "skipped": 0,
+        "failed": 0
+      }
     }
   },
   "pending": [
-    "Final published native-resolved SideSign commit",
-    "Final published native-resolved SideStore commit with correct child gitlinks",
-    "Exact final LiveContainer test-metadata checkpoint if changed",
-    "Strict macOS required tests and real remote Xcode graph",
+    "Parent review and authorized active integration publication",
+    "Strict macOS required tests and exact-final-ref Xcode graph",
     "Combined iOS builds, packaging/signing/symbol checks, upload/re-download verification"
   ],
   "physical_device_execution": false

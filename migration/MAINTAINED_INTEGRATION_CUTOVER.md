@@ -9,10 +9,11 @@ or cleanup implementation is changed.
 ## Exact inputs and activation blockers
 
 `migration/maintained-sources.json` is the authoritative seven-owner pin map.
-`SideSign.commit` and `SideStore.commit` are intentionally null. Every command,
-including environment export and acquisition, rejects either pending pin before
-network acquisition or dependency execution. Checkpoint SHAs are provenance;
-they are never substituted for missing production commits.
+`SideSign.commit` is published S2 `06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c`;
+`SideStore.commit` is published T1 `dd4f0ca36e8ef1d858548f583c65842a8fc0ced3`.
+Their fresh real-remote acquisition, recursive graph and readiness proofs pass.
+The same fail-closed parser still rejects any missing or floating pin. Checkpoint
+SHAs remain provenance and are never substituted for production commits.
 
 The reviewed SideSign source checkpoint is now
 `ed30d3989ea0f80bcb91466d6d5ca043f4366df0` (tree
@@ -23,9 +24,8 @@ exception and mutation tests. Runtime/library sources, package files and license
 remain unchanged; the reviewed 88-file / 22-edge contract check passes. The source
 gate identifies this lineage as `exact_frozen_runtime_with_test_import_pass` and
 reports the exact one-row test delta. Future production dependency changes are
-compared against this corrected test checkpoint. This does not select a final
-production SideSign commit: both pending production commit fields remain null,
-and the other six owner checkpoints are unchanged.
+compared against this corrected test checkpoint. The later final production SideSign commit is selected separately; this
+checkpoint correction leaves the other six owner checkpoints unchanged.
 
 Before activation, the integration owner must provide and review:
 
@@ -60,7 +60,8 @@ commit to that same approved native run/host/artifact, exact tested commit/tree,
 verified receipt digest and `eligible_for_gated_full_build` scope. Their tested
 SideSign child linkage is checked explicitly. This adds no runtime negotiation
 or second owner receipt system; existing owner checkers prove the metadata-only
-transitions. Final production pins remain null until S2/T1 are actually published.
+transitions. Both final published pins are now imported and their fresh real-remote
+checks pass; exact-final-ref compilation and packaging remain required.
 
 ## Checks replacing runtime rewriting
 
@@ -168,8 +169,8 @@ Commands:
 - `python3 -B -m unittest discover -s migration/contracts/tests -v`
 - `python3 -B -m unittest discover -s tests` with pristine historical source
   paths set through the workflow's five test-source environment variables
-- `python3 scripts/maintained_sources.py env` must currently fail on a pending
-  production commit, before any owner acquisition
+- `python3 scripts/maintained_sources.py env` exports the verified final seven
+  revisions; the explicit pending-pin mutation test still rejects missing pins
 - After final inputs and native prerequisites: the unchanged strict runner
   `python3 builder/scripts/run_required_tests.py --start-directory builder/tests
   --allowlist builder/scripts/required_test_skip_allowlist.json` on macOS,

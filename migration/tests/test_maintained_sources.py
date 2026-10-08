@@ -31,6 +31,7 @@ class PinPolicyTests(unittest.TestCase):
             value['commit'] = value['source_checkpoint']
 
     def test_pending_production_inputs_fail_before_acquisition(self):
+        self.pins['owners']['SideSign']['commit'] = None
         self.write()
         with mock.patch.object(gate, 'acquire') as acquisition:
             with mock.patch.object(sys, 'argv', ['maintained_sources.py', 'acquire', '--pins', str(self.path)]):

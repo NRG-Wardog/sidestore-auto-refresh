@@ -1,8 +1,10 @@
 # Final production pin import and parity IPA acceptance
 
 Prepared after integration code `84598d2d98306eac6e9c95868b52ce18f23c8108`.
-This is a procedure, not authorization to activate pending inputs. The integration
-pin map still has null SideSign/SideStore production commits. No runtime change,
+The local two-field import is complete and independently verified. This document
+does not authorize an active ref update. The integration pin map now selects
+published SideSign S2 `06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c` and SideStore
+T1 `dd4f0ca36e8ef1d858548f583c65842a8fc0ced3`. No runtime change,
 new validation framework, separate validation phase, or authfix is part of it.
 
 ## Receipt and metadata prerequisites
@@ -16,7 +18,8 @@ not the future S2/T1 final commits. Verified Phase 2 run
 `37702648560`, host `5fcff4214fc459b30b37843aaa2cf075232f52f2`, completed
 successfully. Its closed artifact is `11519176173`, ZIP SHA-256
 `d8dd30c49648a5e2706edc185e9c1ce15c584075ce41e85cbde80ce4934cc75b`.
-Final metadata-only S2/T1 publication and the full IPA build remain pending. Phase 1 observed absent originHash with
+Final metadata-only S2/T1 publication is verified. Their fresh real-remote graph
+and linked owner proofs pass; the exact-final-ref full IPA build remains pending. Phase 1 observed absent originHash with
 unchanged complete lock bytes; preserve actual resolver output and never require
 or invent an originHash the resolver did not produce.
 
@@ -48,8 +51,8 @@ or invent an originHash the resolver did not produce.
 
 In `migration/maintained-sources.json`, replace only:
 
-- `owners.SideSign.commit`: verified published S2 SHA
-- `owners.SideStore.commit`: verified published T1 SHA
+- `owners.SideSign.commit`: `06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c`
+- `owners.SideStore.commit`: `dd4f0ca36e8ef1d858548f583c65842a8fc0ced3`
 
 Preserve all seven `source_checkpoint` values: they already match native6's
 exact source manifest. Preserve the approved contract registry digest and all
@@ -62,6 +65,17 @@ artifact-provenance and affected repository tests; `maintained_sources.py env`
 then exports the seven exact revisions. Do not use `--after-build` to bypass
 prebuild owner readiness proofs. Publish the reviewed integration commit only
 through the separately authorized integration action and verify its branch SHA.
+
+The imported map differs from its predecessor in exactly those two fields.
+Fresh HTTPS acquisition of all seven final owners, recursive gitlinks, full
+working-byte/history checks, both published readiness proofs, same-run/tested-child
+linkage, the GSA fix ancestor and 88-source/22-edge contracts pass. Final trees are
+SideSign `a773b5461f43b4a28d0d34f7c1acd8728a9f8c6f` and SideStore
+`b0c1d4f03785bbbf0d09b7329c0842a7a4d89d86`. No source overlay was applied.
+Affected tests pass: 57 normal and 57 optimized gate tests, 58 contract tests,
+and 49 artifact/repository/lane tests, all with zero skips. Proofs and exact
+counts are saved in `cutover-evidence/final-pin-import.json` and companion files.
+These prebuild checks do not replace the final macOS required suite or IPA gate.
 
 ## Exact dispatch and required closure
 

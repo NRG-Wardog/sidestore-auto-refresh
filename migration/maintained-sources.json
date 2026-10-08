@@ -11,7 +11,7 @@
     },
     "SideStore": {
       "repository": "https://github.com/NRG-Wardog/SideStore.git",
-      "commit": null,
+      "commit": "dd4f0ca36e8ef1d858548f583c65842a8fc0ced3",
       "source_checkpoint": "9d8c71ed69684f805325ef440983e74d97113a71",
       "path": "work/EmbeddedSideStore"
     },
@@ -23,7 +23,7 @@
     },
     "SideSign": {
       "repository": "https://github.com/NRG-Wardog/SideSign.git",
-      "commit": null,
+      "commit": "06351a87d44ff8faa7d5a2e8c7ed3096fff73d2c",
       "source_checkpoint": "ed30d3989ea0f80bcb91466d6d5ca043f4366df0",
       "path": "work/EmbeddedSideStore/Dependencies/SideSign"
     },
