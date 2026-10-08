@@ -1,0 +1,42 @@
+{
+  "scope": "Build-only reuse of successful native6 strict Rust LLVM archive reader",
+  "source_repository": "NRG-Wardog/LiveContainer",
+  "source_commit": "9f7a566a17c59cac4121fb59b59d55dbfa574efb",
+  "source_path": "ci/native/verify_archive_symbols.py",
+  "source_blob": "edfdc808264cf8abb7881535baa820c9714c79b0",
+  "source_run": 37693885108,
+  "integration_path": "scripts/verify_archive_symbols.py",
+  "reader_copied_byte_for_byte": true,
+  "reader_sha256": "687b3eb8f94c390247c2da9ec416eb58f2f0a53b64f8cec1848ed214af000a4e",
+  "native6_test_source_blob": "1112e17d542f205b419b609e309e0746dfef9fc6",
+  "test_changes": "Only repository import path and temporary-directory root adapted; existing nine cases unchanged",
+  "required_symbols": [
+    "_idevice_set_transport_log_callback",
+    "_lockdown_diag_rust_log"
+  ],
+  "local_tests": {
+    "reader": {
+      "total": 9,
+      "passed": 9,
+      "skipped": 0,
+      "failed": 0
+    },
+    "reader_optimized": {
+      "total": 9,
+      "passed": 9,
+      "skipped": 0,
+      "failed": 0
+    },
+    "workflow_and_existing_gates": {
+      "total": 25,
+      "passed": 25,
+      "skipped": 0,
+      "failed": 0
+    }
+  },
+  "final_owner_commits_still_pending": [
+    "SideSign",
+    "SideStore"
+  ],
+  "new_native_execution": false
+}

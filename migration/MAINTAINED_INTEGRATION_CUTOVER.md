@@ -121,6 +121,18 @@ required-skip and new no-rewrite assertions inspect the current workflow.
 Its byte equality to the baseline Git object is tested. The standalone workflow
 and unrelated historical workflows are unchanged.
 
+The idevice archive symbol gate reuses `ci/native/verify_archive_symbols.py`
+byte-for-byte from the successful native6 host
+`9f7a566a17c59cac4121fb59b59d55dbfa574efb` (Git blob
+`edfdc808264cf8abb7881535baa820c9714c79b0`), now at
+`scripts/verify_archive_symbols.py`. It requires the reviewed Rust 1.98.1 ARM64
+host and derives the LLVM reader from that producing compiler's official
+component/sysroot. Nonzero reader exit, version mismatch, undefined/local/similar
+symbols, or missing exact definitions fail before XCFramework staging. Commands,
+stdout/stderr, reader/archive hashes and PASS/FAIL status are retained under
+`artifacts/dependencies/idevice-symbols`, including on failed runs. No Rust source,
+archive, compiler selection or product dependency was changed for this reader fix.
+
 The only remaining `patch_*.py` invocation in the active combined release path
 is `patch_combined_refresh_contract.py --verify-ipa`, its read-only artifact
 validation mode. Imports that calculate historical expected evidence remain.

@@ -457,6 +457,21 @@ for modern in [false, true] {
 
 
 class CombinedWorkflowTests(unittest.TestCase):
+    def test_matching_rust_reader_failure_blocks_framework_staging(self):
+        workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
+        block = workflow.split("- name: Build idevice for iOS\n", 1)[1].split("\n      - name:", 1)[0]
+        reader = block.index("python3 -B ../builder/scripts/verify_archive_symbols.py")
+        framework = block.index("xcodebuild -create-xcframework")
+        self.assertLess(reader, framework)
+        self.assertIn("../artifacts/dependencies/idevice-symbols", block)
+        self.assertIn("set -euo pipefail", block)
+        self.assertNotIn("|| true", block)
+        self.assertNotIn("xcrun nm", block)
+        self.assertNotIn("continue-on-error", block)
+        evidence = workflow.split("- name: Upload source-build evidence\n", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("if: always()", evidence)
+        self.assertIn("artifacts/dependencies", evidence)
+
     def test_maintained_source_guards_run_before_native_builds(self):
         workflow = (ROOT / ".github/workflows/livecontainer-build.yml").read_text()
         preparation = workflow.index("- name: Verify maintained host and authentication sources")

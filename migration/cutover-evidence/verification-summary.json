@@ -66,6 +66,26 @@
       "real_shared_clone_fixture": true,
       "exact_maintained_anisette_fixture_files": 31,
       "native_Xcode_observation": false
+    },
+    "native6_reader_reuse": {
+      "reader": {
+        "total": 9,
+        "passed": 9,
+        "skipped": 0,
+        "failed": 0
+      },
+      "reader_optimized": {
+        "total": 9,
+        "passed": 9,
+        "skipped": 0,
+        "failed": 0
+      },
+      "workflow_and_existing_gates": {
+        "total": 25,
+        "passed": 25,
+        "skipped": 0,
+        "failed": 0
+      }
     }
   },
   "pending": [
