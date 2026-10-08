@@ -93,6 +93,11 @@ def verify_origin(root, expected_url, commit, resolver_root=None):
     root = Path(root).resolve(strict=True)
     require(git(root, "rev-parse", "HEAD").decode().strip() == commit, "origin proof checkout commit mismatch")
     origin = git(root, "remote", "get-url", "origin").decode().strip()
+    if resolver_root is not None:
+        resolver_root = Path(resolver_root).resolve(strict=True)
+        checkouts = resolver_root / "checkouts"
+        require(not checkouts.is_symlink() and root.parent == checkouts,
+                "resolver checkout escaped approved storage")
     if origin.removesuffix(".git") == expected_url.removesuffix(".git"):
         return {"kind": "direct", "repository": expected_url}
     require(resolver_root is not None and Path(origin).is_absolute(), "wrong acquisition repository")

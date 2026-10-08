@@ -345,6 +345,14 @@ class SwiftPMMirrorOriginTests(unittest.TestCase):
         self.assertEqual(result['commit'], self.commit)
         self.assertEqual(original, self.run_git(self.checkout, 'remote', 'get-url', 'origin'))
 
+    def test_resolved_direct_https_origin_still_requires_approved_checkout_root(self):
+        self.run_git(self.checkout, 'remote', 'set-url', 'origin', self.url)
+        self.assertEqual(self.verify()['kind'], 'direct')
+        wrong = self.base / 'wrong-source-packages'
+        wrong.mkdir()
+        with self.assertRaisesRegex(ValueError, 'checkout escaped'):
+            gate.verify_origin(self.checkout, self.url, self.commit, wrong)
+
     def test_direct_owner_acquisition_stays_strict(self):
         with self.assertRaisesRegex(ValueError, 'wrong acquisition repository'):
             gate.verify_origin(self.checkout, self.url, self.commit)

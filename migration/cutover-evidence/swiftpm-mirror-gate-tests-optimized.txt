@@ -37,6 +37,7 @@ test_wrong_local_package_and_missing_package_fail (test_maintained_sources.Resol
 test_direct_owner_acquisition_stays_strict (test_maintained_sources.SwiftPMMirrorOriginTests.test_direct_owner_acquisition_stays_strict) ... ok
 test_escaped_mirror_is_rejected (test_maintained_sources.SwiftPMMirrorOriginTests.test_escaped_mirror_is_rejected) ... ok
 test_real_shared_clone_retains_verified_local_mirror_origin (test_maintained_sources.SwiftPMMirrorOriginTests.test_real_shared_clone_retains_verified_local_mirror_origin) ... ok
+test_resolved_direct_https_origin_still_requires_approved_checkout_root (test_maintained_sources.SwiftPMMirrorOriginTests.test_resolved_direct_https_origin_still_requires_approved_checkout_root) ... ok
 test_shallow_mirror_is_rejected (test_maintained_sources.SwiftPMMirrorOriginTests.test_shallow_mirror_is_rejected) ... ok
 test_symlinked_mirror_is_rejected (test_maintained_sources.SwiftPMMirrorOriginTests.test_symlinked_mirror_is_rejected) ... ok
 test_unreviewed_second_object_store_hop_is_rejected (test_maintained_sources.SwiftPMMirrorOriginTests.test_unreviewed_second_object_store_hop_is_rejected) ... ok
@@ -49,6 +50,6 @@ test_registry_bytes_are_reviewed_anchor (test_maintained_sources.WorkflowTests.t
 test_release_path_has_no_runtime_patch_invocations (test_maintained_sources.WorkflowTests.test_release_path_has_no_runtime_patch_invocations) ... ok
 
 ----------------------------------------------------------------------
-Ran 49 tests in 1.026s
+Ran 50 tests in 1.064s
 
 OK
