@@ -269,11 +269,15 @@ jobs:
             --verbosity 2 2>&1 | tee artifacts/logs/repository-tests.log
 
       - name: Test maintained acquisition and contract gates
+        env:
+          ADI_DIAGNOSTIC_ANISETTE_SOURCE: ${{ github.workspace }}/work/AnisetteKit
         shell: bash
         run: |
           set -euo pipefail
-          python3 -B -m unittest discover -s builder/migration/tests -v
-          python3 -B -m unittest discover -s builder/migration/contracts/tests -v
+          python3 -B builder/scripts/run_required_tests.py --start-directory builder/migration/tests \
+            --allowlist builder/scripts/required_test_skip_allowlist.json --verbosity 2
+          python3 -B builder/scripts/run_required_tests.py --start-directory builder/migration/contracts/tests \
+            --allowlist builder/scripts/required_test_skip_allowlist.json --verbosity 2
 
       - name: Verify maintained host and authentication sources
         shell: bash

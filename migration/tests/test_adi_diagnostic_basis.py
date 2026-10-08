@@ -63,6 +63,22 @@ class DiagnosticPolicyTests(unittest.TestCase):
         self.assertNotIn('AltStore/AppDelegate.swift',gate.ALLOWED_TRANSITIONS['SideStore'])
         self.assertNotIn('AnisetteKit',gate.ALLOWED_TRANSITIONS)
 
+    def test_ci_uses_acquired_source_and_missing_explicit_source_cannot_skip(self):
+        workflow=(ROOT/'.github/workflows/livecontainer-build.yml').read_text()
+        step=workflow.split('- name: Test maintained acquisition and contract gates',1)[1].split('- name:',1)[0]
+        self.assertIn('ADI_DIAGNOSTIC_ANISETTE_SOURCE: ${{ github.workspace }}/work/AnisetteKit',step)
+        self.assertIn('--start-directory builder/migration/tests',step)
+        self.assertIn('--start-directory builder/migration/contracts/tests',step)
+        self.assertEqual(step.count('--allowlist builder/scripts/required_test_skip_allowlist.json'),2)
+        with tempfile.TemporaryDirectory() as directory:
+            env={**os.environ,'ADI_DIAGNOSTIC_ANISETTE_SOURCE':str(Path(directory)/'missing')}
+            result=subprocess.run([sys.executable,'-B',str(Path(__file__).resolve()),
+                'DiagnosticPackageTests.test_exact_six_sources_and_all_native_markers_pass'],
+                env=env,text=True,capture_output=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('Explicit diagnostic Anisette source is missing',result.stderr)
+        self.assertNotIn('skipped=',result.stderr)
+
 
 class DiagnosticTransitionTests(unittest.TestCase):
     def setUp(self):
@@ -193,6 +209,8 @@ class DiagnosticPackageTests(unittest.TestCase):
         source=os.environ.get('ADI_DIAGNOSTIC_ANISETTE_SOURCE')
         self.source=Path(source) if source else ROOT/'work/AnisetteKit'
         if not (self.source/'Native/Loader/adi_consumption_debug.h').is_file():
+            if source is not None:
+                self.fail('Explicit diagnostic Anisette source is missing')
             self.skipTest('Exact diagnostic Anisette source required; full diagnostic CI acquires it before tests')
         self.pins=diagnostic_pins();self.expected=gate.expected_anisette_evidence(self.pins)
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
