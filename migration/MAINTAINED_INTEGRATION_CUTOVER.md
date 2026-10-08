@@ -57,7 +57,19 @@ unchanged 88-source contract registry with the approved digest
 
 After real Xcode resolution, the gate checks workspace-state dependencies,
 including every locked remote checkout and all four local package identities.
-The effective AnisetteKit must be the exact maintained remote checkout. Every
+The effective AnisetteKit must be the exact maintained remote checkout.
+Direct owner clones retain strict HTTPS origin checks. Effective resolver
+checkouts may retain SwiftPM's normal local origin only through one verified
+chain: canonical `SourcePackages/checkouts/<package>` to a bare mirror directly
+under that same `SourcePackages/repositories/`, terminating at the exact approved
+HTTPS URL. Mirror full history, commit/tree identity, and any shared object-store
+alternate are checked. Escaped/symlinked mirrors, wrong upstream URLs, shallow
+mirrors, and additional object-store hops fail. Validation never rewrites origin.
+This follows SwiftPM's noneditable `clone --shared --no-checkout` implementation:
+https://github.com/swiftlang/swift-package-manager/blob/swift-6.2-RELEASE/Sources/SourceControl/GitRepository.swift#L212-L252
+Local real-mirror tests include the exact maintained Anisette commit (31 files
+and five native source bindings). Hosted Xcode's actual origin is still unobserved;
+other cache layouts remain capture-and-review blockers. Every
 unrelated SwiftPM pin remains equal to the source checkpoint. The existing Rust
 sibling dependency and minimuxer LocalBinary package wiring are retained.
 

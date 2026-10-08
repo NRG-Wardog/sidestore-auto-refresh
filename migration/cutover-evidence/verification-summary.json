@@ -54,6 +54,18 @@
       "skipped": 0,
       "failed": 0,
       "optimized_total": 40
+    },
+    "swiftpm_mirror_origin": {
+      "status": "passed",
+      "total": 49,
+      "passed": 49,
+      "skipped": 0,
+      "failed": 0,
+      "optimized_total": 49,
+      "focused_anisette_artifact_total": 14,
+      "real_shared_clone_fixture": true,
+      "exact_maintained_anisette_fixture_files": 31,
+      "native_Xcode_observation": false
     }
   },
   "pending": [

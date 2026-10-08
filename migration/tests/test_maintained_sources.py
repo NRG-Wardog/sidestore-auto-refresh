@@ -261,6 +261,8 @@ class ResolverAttributionTests(unittest.TestCase):
         self.root.mkdir(parents=True)
         for command in (('init', '-q'), ('config', 'user.name', 'Fixture'), ('config', 'user.email', 'fixture@example.invalid')):
             subprocess.run(['git', '-C', str(self.root), *command], check=True)
+        subprocess.run(['git', '-C', str(self.root), 'remote', 'add', 'origin',
+                        'https://github.com/NRG-Wardog/AnisetteKit.git'], check=True)
         (self.root / 'source.cpp').write_text('void fixture() {}')
         subprocess.run(['git', '-C', str(self.root), 'add', '.'], check=True)
         subprocess.run(['git', '-C', str(self.root), 'commit', '-qm', 'Fixture'], check=True)
@@ -302,6 +304,86 @@ class ResolverAttributionTests(unittest.TestCase):
     def test_dirty_actual_remote_fails(self):
         (self.root / 'source.cpp').write_text('void drift() {}')
         with self.assertRaisesRegex(ValueError, 'compiler input differs'): self.verify()
+
+
+class SwiftPMMirrorOriginTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.base = Path(self.temp.name)
+        self.resolver = self.base / 'SourcePackages'
+        self.mirror = self.resolver / 'repositories/AnisetteKit-fixture'
+        self.checkout = self.resolver / 'checkouts/AnisetteKit'
+        self.url = 'https://github.com/NRG-Wardog/AnisetteKit.git'
+        source = self.base / 'source'
+        source.mkdir()
+        for command in (('init', '-q'), ('config', 'user.name', 'Fixture'), ('config', 'user.email', 'fixture@example.invalid')):
+            self.run_git(source, *command)
+        (source / 'source.cpp').write_text('void approved() {}')
+        self.run_git(source, 'add', '.')
+        self.run_git(source, 'commit', '-qm', 'Fixture')
+        self.commit = self.run_git(source, 'rev-parse', 'HEAD').strip()
+        self.mirror.parent.mkdir(parents=True)
+        self.checkout.parent.mkdir(parents=True)
+        subprocess.run(['git', 'clone', '--mirror', '--no-hardlinks', str(source), str(self.mirror)], check=True, capture_output=True)
+        self.run_git(self.mirror, 'remote', 'set-url', 'origin', self.url)
+        subprocess.run(['git', 'clone', '--shared', '--no-checkout', str(self.mirror), str(self.checkout)], check=True, capture_output=True)
+        self.run_git(self.checkout, 'checkout', '--detach', self.commit)
+
+    def run_git(self, root, *args):
+        return subprocess.check_output(['git', '-C', str(root), *args], text=True, stderr=subprocess.PIPE)
+
+    def verify(self):
+        gate.verify_checkout(self.checkout, self.commit, owner='AnisetteKit', require_full_history=True)
+        return gate.verify_origin(self.checkout, self.url, self.commit, self.resolver)
+
+    def test_real_shared_clone_retains_verified_local_mirror_origin(self):
+        original = self.run_git(self.checkout, 'remote', 'get-url', 'origin')
+        result = self.verify()
+        self.assertEqual(result['kind'], 'swiftpm-local-mirror')
+        self.assertEqual(result['repository'], self.url)
+        self.assertEqual(result['commit'], self.commit)
+        self.assertEqual(original, self.run_git(self.checkout, 'remote', 'get-url', 'origin'))
+
+    def test_direct_owner_acquisition_stays_strict(self):
+        with self.assertRaisesRegex(ValueError, 'wrong acquisition repository'):
+            gate.verify_origin(self.checkout, self.url, self.commit)
+
+    def test_wrong_mirror_upstream_is_rejected(self):
+        self.run_git(self.mirror, 'remote', 'set-url', 'origin', 'https://github.com/other/AnisetteKit.git')
+        with self.assertRaisesRegex(ValueError, 'upstream repository mismatch'): self.verify()
+
+    def test_escaped_mirror_is_rejected(self):
+        import shutil
+        escaped = self.base / 'escaped-mirror'
+        shutil.copytree(self.mirror, escaped)
+        self.run_git(self.checkout, 'remote', 'set-url', 'origin', str(escaped))
+        with self.assertRaisesRegex(ValueError, 'mirror escaped'): self.verify()
+
+    def test_symlinked_mirror_is_rejected(self):
+        alias = self.mirror.parent / 'mirror-alias'
+        alias.symlink_to(self.mirror, target_is_directory=True)
+        self.run_git(self.checkout, 'remote', 'set-url', 'origin', str(alias))
+        with self.assertRaisesRegex(ValueError, 'mirror escaped'): self.verify()
+
+    def test_wrong_shared_object_store_is_rejected(self):
+        import shutil
+        escaped = self.base / 'escaped-mirror'
+        shutil.copytree(self.mirror, escaped)
+        (self.checkout / '.git/objects/info/alternates').write_text(str(escaped / 'objects') + '\n')
+        with self.assertRaisesRegex(ValueError, 'object store escaped'): self.verify()
+
+    def test_unreviewed_second_object_store_hop_is_rejected(self):
+        (self.mirror / 'objects/info/alternates').write_text(str(self.base / 'unreviewed-objects') + '\n')
+        with self.assertRaisesRegex(ValueError, 'nested resolver object store'): self.verify()
+
+    def test_shallow_mirror_is_rejected(self):
+        (self.mirror / 'shallow').write_text(self.commit + '\n')
+        with self.assertRaisesRegex(ValueError, 'shallow resolver mirror'): self.verify()
+
+    def test_wrong_checkout_revision_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'checkout commit mismatch'):
+            gate.verify_origin(self.checkout, self.url, 'a' * 40, self.resolver)
 
 
 class MaintainedArtifactProvenanceTests(unittest.TestCase):

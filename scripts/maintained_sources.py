@@ -72,16 +72,59 @@ def load_pins(path):
     return document
 
 
-def git(root, *arguments):
+def git(root, *arguments, bare=False):
     root = Path(root).resolve(strict=True)
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_GRAFT_FILE=os.devnull,
                GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
                GIT_OPTIONAL_LOCKS="0", GIT_TERMINAL_PROMPT="0", GIT_NO_LAZY_FETCH="1")
-    return subprocess.check_output(["git", "--no-replace-objects", "-C", str(root),
-        "--git-dir=" + str(root / ".git"), "--work-tree=" + str(root),
+    location = ["--git-dir=" + str(root)] if bare else ["--git-dir=" + str(root / ".git"), "--work-tree=" + str(root)]
+    return subprocess.check_output(["git", "--no-replace-objects", "-C", str(root), *location,
         "-c", "core.hooksPath=" + os.devnull, "-c", "core.fsmonitor=false",
         "-c", "core.untrackedCache=false", *arguments], env=env, stderr=subprocess.PIPE)
+
+
+def verify_origin(root, expected_url, commit, resolver_root=None):
+    """Verify direct origins, or SwiftPM's bounded checkout -> bare mirror chain.
+
+    Noneditable SwiftPM checkouts use `clone --shared --no-checkout`, retaining
+    the local canonical repository as origin. Never rewrite it to appear remote.
+    """
+    root = Path(root).resolve(strict=True)
+    require(git(root, "rev-parse", "HEAD").decode().strip() == commit, "origin proof checkout commit mismatch")
+    origin = git(root, "remote", "get-url", "origin").decode().strip()
+    if origin.removesuffix(".git") == expected_url.removesuffix(".git"):
+        return {"kind": "direct", "repository": expected_url}
+    require(resolver_root is not None and Path(origin).is_absolute(), "wrong acquisition repository")
+    resolver_root = Path(resolver_root).resolve(strict=True)
+    checkouts, repositories = resolver_root / "checkouts", resolver_root / "repositories"
+    require(not checkouts.is_symlink() and not repositories.is_symlink() and
+            root.parent == checkouts, "resolver repository root escaped approved storage")
+    mirror_input = Path(origin)
+    mirror = mirror_input.resolve(strict=True)
+    require(not mirror_input.is_symlink() and mirror.parent == repositories and
+            not (mirror / "objects").is_symlink(), "resolver mirror escaped approved storage")
+    require(git(mirror, "rev-parse", "--is-bare-repository", bare=True).strip() == b"true", "resolver mirror is not bare")
+    upstream = git(mirror, "remote", "get-url", "origin", bare=True).decode().strip()
+    require(upstream.removesuffix(".git") == expected_url.removesuffix(".git"), "resolver mirror upstream repository mismatch")
+    require(git(mirror, "rev-parse", "--is-shallow-repository", bare=True).strip() == b"false", "shallow resolver mirror")
+    # Permit exactly the object-sharing relationship created by clone --shared.
+    # A second mirror/cache hop requires separately reviewed native evidence.
+    require(not (mirror / "objects/info/alternates").exists(), "unapproved nested resolver object store")
+    gitdir = Path(git(root, "rev-parse", "--absolute-git-dir").decode().strip()).resolve(strict=True)
+    alternates = gitdir / "objects/info/alternates"
+    if alternates.exists():
+        require(not alternates.is_symlink(), "substituted resolver object store")
+        paths = alternates.read_text().splitlines()
+        require(len(paths) == 1 and Path(paths[0]).is_absolute() and
+                Path(paths[0]).resolve(strict=True) == mirror / "objects", "resolver object store escaped approved mirror")
+    require(git(mirror, "rev-parse", commit + "^{commit}", bare=True).decode().strip() == commit,
+            "resolver mirror lacks exact commit")
+    tree = git(root, "rev-parse", "HEAD^{tree}").decode().strip()
+    require(git(mirror, "rev-parse", commit + "^{tree}", bare=True).decode().strip() == tree,
+            "resolver mirror tree differs from checkout")
+    return {"kind": "swiftpm-local-mirror", "repository": expected_url,
+            "mirror": str(mirror), "commit": commit, "tree": tree}
 
 
 def entries(root, revision="HEAD"):
@@ -238,6 +281,8 @@ def verify_resolution(roots, anisette):
             if identity == "anisettekit":
                 require(checkout.resolve() == Path(anisette).resolve(), "effective Anisette checkout mismatch")
             report[identity] = verify_checkout(checkout, pin["state"]["revision"], owner=identity)
+            report[identity]["origin"] = verify_origin(checkout, pin["location"],
+                pin["state"]["revision"], resolver_root=state_path.parent)
     require(seen == set(expected) | set(local), "resolver omitted expected dependencies")
     return report
 
@@ -254,8 +299,8 @@ def verify_all(workspace, pins, anisette=None, after_build=False):
         git(root, "merge-base", "--is-ancestor", spec["source_checkpoint"], spec["commit"])
         changes = set(filter(None, git(root, "diff", "--name-only", spec["source_checkpoint"], spec["commit"]).decode().splitlines()))
         require(changes <= ALLOWED_TRANSITIONS.get(owner, set()), owner + ": product source changed after approved parity checkpoint")
-        require(git(root, "remote", "get-url", "origin").decode().strip().removesuffix(".git") == spec["repository"].removesuffix(".git"),
-                owner + ": wrong acquisition repository")
+        resolver_root = Path(anisette).parent.parent if owner == "AnisetteKit" and anisette is not None else None
+        results[owner]["origin"] = verify_origin(root, spec["repository"], spec["commit"], resolver_root)
     verify_graph(roots, pins)
     if not after_build:
         for owner in ("SideSign", "SideStore"):
@@ -296,6 +341,8 @@ def acquire(workspace, pins):
 def anisette_evidence(root, pins):
     from patch_anisette_isolated_otp import expected_evidence
     verify_checkout(root, pins["owners"]["AnisetteKit"]["commit"], owner="AnisetteKit", require_full_history=True)
+    verify_origin(root, pins["owners"]["AnisetteKit"]["repository"], pins["owners"]["AnisetteKit"]["commit"],
+                  resolver_root=root.parent.parent if root.parent.name == "checkouts" else None)
     expected = expected_evidence()
     for item in expected["files"]:
         require(hashlib.sha256((root / item["path"]).read_bytes()).hexdigest() == item["prepared_sha256"],
