@@ -14,6 +14,19 @@ including environment export and acquisition, rejects either pending pin before
 network acquisition or dependency execution. Checkpoint SHAs are provenance;
 they are never substituted for missing production commits.
 
+The reviewed SideSign source checkpoint is now
+`ed30d3989ea0f80bcb91466d6d5ca043f4366df0` (tree
+`d5d34cb72538f4070832b7150b69bacaf248dcdc`), whose parent is the preserved
+`aaa4375a59075a7b0a446cf4c2dc8193c247a875` checkpoint. This published correction
+adds one Foundation import in the sole Swift test target plus its exact parity
+exception and mutation tests. Runtime/library sources, package files and licenses
+remain unchanged; the reviewed 88-file / 22-edge contract check passes. The source
+gate identifies this lineage as `exact_frozen_runtime_with_test_import_pass` and
+reports the exact one-row test delta. Future production dependency changes are
+compared against this corrected test checkpoint. This does not select a final
+production SideSign commit: both pending production commit fields remain null,
+and the other six owner checkpoints are unchanged.
+
 Before activation, the integration owner must provide and review:
 
 1. Final published SideSign commit with the real

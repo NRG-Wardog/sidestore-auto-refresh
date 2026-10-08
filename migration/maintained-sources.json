@@ -24,7 +24,7 @@
     "SideSign": {
       "repository": "https://github.com/NRG-Wardog/SideSign.git",
       "commit": null,
-      "source_checkpoint": "aaa4375a59075a7b0a446cf4c2dc8193c247a875",
+      "source_checkpoint": "ed30d3989ea0f80bcb91466d6d5ca043f4366df0",
       "path": "work/EmbeddedSideStore/Dependencies/SideSign"
     },
     "minimuxer": {
