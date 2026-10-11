@@ -215,6 +215,9 @@ jobs:
           set -euo pipefail
           # Patch regression tests operate only on their historical fixtures.
           # These trees are never compiled into the maintained-source product.
+          git -c core.hooksPath=/dev/null clone --no-checkout https://github.com/NRG-Wardog/AnisetteKit.git work/LegacyDiagnosticAnisetteKit
+          git -C work/LegacyDiagnosticAnisetteKit -c core.hooksPath=/dev/null checkout --detach f494494ede88890555df345054f7fbb87b53aea5
+          test "$(git -C work/LegacyDiagnosticAnisetteKit rev-parse HEAD)" = f494494ede88890555df345054f7fbb87b53aea5
           git clone --filter=blob:none https://github.com/NRG-Wardog/LiveContainer.git work/LegacyLiveContainer
           git -C work/LegacyLiveContainer checkout --detach 12377cf3b91d51739a33f14a302e5f522b238593
           git -C work/LegacyLiveContainer -c submodule.litehook.url=https://github.com/LiveContainerMirror/litehook.git submodule update --init --recursive
@@ -271,7 +274,8 @@ jobs:
 
       - name: Test maintained acquisition and contract gates
         env:
-          ADI_DIAGNOSTIC_ANISETTE_SOURCE: ${{ github.workspace }}/work/AnisetteKit
+          ADI_DIAGNOSTIC_ANISETTE_SOURCE: ${{ github.workspace }}/work/LegacyDiagnosticAnisetteKit
+          P0_ANISETTE_TEST_SOURCE: ${{ github.workspace }}/work/AnisetteKit
         shell: bash
         run: |
           set -euo pipefail

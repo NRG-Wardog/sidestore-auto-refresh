@@ -17,6 +17,8 @@ import stat
 import subprocess
 import sys
 
+from p0_maintained_sources import BASIS as P0_BASIS
+
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "141776ba6ba38fc04a5e77f68b0cfc4e6c8842ee"
 REGISTRY = "5cd17d665d9d13fde7bdc58abe3c44050b4b1618df89efbdf9815a39736d76be"
@@ -75,6 +77,9 @@ def unique_pairs(pairs):
 def contract_basis(pins, integration_root=None):
     """Select a reviewed immutable basis explicitly; never infer it from a hash."""
     root = Path(integration_root) if integration_root is not None else ROOT
+    if pins.get("source_basis") == P0_BASIS:
+        from p0_maintained_sources import contract_basis as p0_contract_basis
+        return p0_contract_basis(pins, root)
     basis = pins.get("source_basis")
     if basis is None:
         expected, directory = REGISTRY, root / "migration/contracts"
@@ -273,6 +278,9 @@ def verify_source_transition(root, owner, spec, pins):
 
 
 def expected_anisette_evidence(pins=None):
+    if pins is not None and pins.get("source_basis") == P0_BASIS:
+        from p0_maintained_sources import anisette_manifest
+        return anisette_manifest(pins, ROOT)
     if pins is not None and pins.get("source_basis") is not None:
         manifest = diagnostic_metadata(pins, "anisette-generated/maintained-source-manifest.json")
         require(pins["owners"]["AnisetteKit"]["commit"] == manifest["anisettekit_revision"],
@@ -283,12 +291,15 @@ def expected_anisette_evidence(pins=None):
 
 
 def anisette_source_hashes(manifest):
-    key = "sha256" if manifest.get("source_basis") == DIAGNOSTIC_BASIS else "prepared_sha256"
+    key = "sha256" if manifest.get("source_basis") in {DIAGNOSTIC_BASIS, P0_BASIS} else "prepared_sha256"
     return {entry["path"]: entry[key] for entry in manifest["files"]}
 
 
 def load_pins(path):
     document = json.loads(Path(path).read_bytes(), object_pairs_hook=unique_pairs)
+    if document.get("source_basis") == P0_BASIS:
+        from p0_maintained_sources import load_pins as p0_load_pins
+        return p0_load_pins(document, ROOT, sys.modules[__name__])
     require(document.get("schema_version") == 1 and document.get("integration_baseline") == BASELINE,
             "unsupported maintained-source schema or baseline")
     contract_basis(document)
@@ -719,6 +730,9 @@ def verify_native_readiness(proofs, pins, verified_owners=None, roots=None):
 
 
 def verify_all(workspace, pins, anisette=None, after_build=False):
+    if pins.get("source_basis") == P0_BASIS:
+        from p0_maintained_sources import verify_all as p0_verify_all
+        return p0_verify_all(workspace, pins, anisette, after_build, sys.modules[__name__])
     roots = {name: workspace / value["path"] for name, value in pins["owners"].items()}
     if anisette is not None:
         roots["AnisetteKit"] = Path(anisette)
@@ -758,6 +772,9 @@ def verify_all(workspace, pins, anisette=None, after_build=False):
 
 
 def acquire(workspace, pins):
+    if pins.get("source_basis") == P0_BASIS:
+        from p0_maintained_sources import acquire as p0_acquire
+        return p0_acquire(workspace, pins, sys.modules[__name__])
     for owner in ("LiveContainer", "SideStore", "AnisetteKit", "idevice", "jktcp"):
         spec = pins["owners"][owner]
         root = workspace / spec["path"]

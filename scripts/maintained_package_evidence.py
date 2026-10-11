@@ -30,6 +30,10 @@ def read_regular(root, name):
 
 def contract_files(pins, root=None):
     """Derive the complete metadata inventory from the independently approved hash."""
+    from p0_maintained_sources import BASIS as P0_BASIS
+    if pins.get("source_basis") == P0_BASIS:
+        from p0_maintained_sources import contract_files as p0_contract_files
+        return p0_contract_files(pins, ROOT, root)
     try:
         selected_root, expected_registry = contract_basis(pins, integration_root=ROOT)
     except ValueError as error:
